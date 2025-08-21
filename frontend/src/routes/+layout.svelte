@@ -60,31 +60,27 @@
 	}
 </script>
 
-<!-- Pretty gradient background -->
 <div
-	class="relative flex min-h-screen flex-col overflow-hidden bg-gradient-to-br from-gray-900 via-blue-900 to-purple-900 text-white"
+	class="relative flex min-h-screen flex-col overflow-hidden bg-gradient-to-br from-gray-950 via-gray-900 to-black text-white"
 >
-	<!-- Soft floating blobs -->
 	<div class="pointer-events-none absolute inset-0 overflow-hidden">
 		<div
-			class="absolute left-1/4 top-1/4 h-96 w-96 animate-pulse rounded-full bg-gradient-to-r from-cyan-500/20 to-blue-600/20 blur-3xl"
+			class="absolute left-1/4 top-1/4 h-96 w-96 animate-pulse rounded-full bg-gradient-to-r from-gray-500/10 to-gray-600/10 blur-3xl"
 		></div>
 		<div
-			class="absolute bottom-1/4 right-1/4 h-80 w-80 animate-pulse rounded-full bg-gradient-to-r from-indigo-500/20 to-purple-600/20 blur-3xl"
+			class="absolute bottom-1/4 right-1/4 h-80 w-80 animate-pulse rounded-full bg-gradient-to-r from-gray-600/10 to-gray-700/10 blur-3xl"
 		></div>
 		<div
-			class="absolute left-1/2 top-1/2 h-72 w-72 -translate-x-1/2 -translate-y-1/2 animate-pulse rounded-full bg-gradient-to-r from-sky-400/20 to-indigo-500/20 blur-3xl"
+			class="absolute left-1/2 top-1/2 h-72 w-72 -translate-x-1/2 -translate-y-1/2 animate-pulse rounded-full bg-gradient-to-r from-gray-400/10 to-gray-500/10 blur-3xl"
 		></div>
 	</div>
 
-	<!-- Top navigation bar -->
 	<nav class="relative z-10 border-b border-white/10 bg-black/30 backdrop-blur-md">
 		<div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
 			<div class="flex h-16 items-center justify-between">
-				<!-- App logo and name -->
 				<a href="/" class="group flex items-center gap-3">
 					<div
-						class="flex h-10 w-10 items-center justify-center rounded-xl border border-white/30 bg-white/20 bg-gradient-to-r from-sky-500 to-indigo-500 backdrop-blur-sm transition-transform group-hover:scale-105"
+						class="flex h-10 w-10 items-center justify-center rounded-xl border border-white/30 bg-white/20 bg-gradient-to-r from-gray-500 to-gray-700 backdrop-blur-sm transition-transform group-hover:scale-105"
 					>
 						<Code2 class="h-5 w-5 text-white" />
 					</div>
@@ -94,7 +90,6 @@
 					</div>
 				</a>
 
-				<!-- Links and auth actions -->
 				<div class="hidden items-center gap-4 md:flex">
 					<div class="flex items-center gap-2">
 						<a href="/">
@@ -128,7 +123,6 @@
 						</a>
 					</div>
 
-					<!-- Right side auth action. Login when logged out. Logout when logged in. -->
 					{#if data.session}
 						<button
 							class="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm text-white/90 hover:bg-white/20"
@@ -146,7 +140,6 @@
 					{/if}
 				</div>
 
-				<!-- Mobile auth action -->
 				<div class="md:hidden">
 					{#if data.session}
 						<button
@@ -168,17 +161,14 @@
 		</div>
 	</nav>
 
-	<!-- Sub navigation. Show on every page when signed in. -->
 	{#if data.session}
 		<SubNav />
 	{/if}
 
-	<!-- Main content -->
 	<main class="relative z-10 flex-1">
 		<slot />
 	</main>
 
-	<!-- Footer note -->
 	<footer class="relative z-10 border-t border-white/10 bg-black/20 backdrop-blur-md">
 		<div class="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
 			<div class="flex items-center justify-center">

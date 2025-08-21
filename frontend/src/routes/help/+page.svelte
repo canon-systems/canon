@@ -5,11 +5,10 @@
 
 <div class="min-h-screen px-4 py-12 sm:px-6 lg:px-8">
 	<div class="mx-auto max-w-4xl">
-		<!-- Header -->
 		<div class="mb-12 text-center" in:fade={{ duration: 250 }}>
 			<div class="mb-6 inline-flex items-center gap-3">
 				<div
-					class="flex h-16 w-16 items-center justify-center rounded-2xl border border-white/30 bg-white/20 bg-gradient-to-r from-purple-500 to-pink-500 backdrop-blur-sm"
+					class="flex h-16 w-16 items-center justify-center rounded-2xl border border-white/30 bg-white/20 bg-gradient-to-r from-gray-500 to-gray-700 backdrop-blur-sm"
 				>
 					<HelpCircle class="h-8 w-8 text-white" />
 				</div>
@@ -19,7 +18,6 @@
 			<p class="text-xl text-white/80">Get help or learn more about CodeSense.</p>
 		</div>
 
-		<!-- Card -->
 		<div
 			class="rounded-2xl border border-white/20 bg-white/10 backdrop-blur-md"
 			in:fade={{ duration: 200 }}
