@@ -1,83 +1,126 @@
-/**
- * ─────────────────────────────────────────────────────────────────────────────
- * PURPOSE
- * - This endpoint powers the "List files" button in your UI.
- * - It takes a POSTed JSON body with the repo URL (and optional branch/subdir),
- *   asks GitHub for the tree at that branch, and returns only "file" (blob) items.
- *
- * WHY YOU SAW: "Please provide a valid GitHub repo URL."
- * - The old version was strict and sometimes received an empty or untrimmed repoUrl.
- * - We now:
- *    1) Trim the input
- *    2) Accept either `repoUrl` OR `repo_url` (defensive)
- *    3) Validate with a regex (`/^https?:\/\/(www\.)?github\.com\//i`)
- *    4) Automatically infer branch + subdir from a pasted /tree/... URL if missing
- *
- * NOTE
- * - We rely on server helper `parseRepoUrl` to intelligently extract owner/repo
- *   and (if present) branch + subdir from the URL itself.
- * ─────────────────────────────────────────────────────────────────────────────
- */
+// src/routes/api/github/list/+server.ts
+// PURPOSE:
+// Return a flat list of files in a repo (optionally under a subdir) with sizes.
+// This keeps your GitHub token server-side and supports nested folders.
+//
+// INPUT  (POST JSON):
+//   { repoUrl: string, branch?: string, subdir?: string }
+//
+// OUTPUT (JSON):
+//   { files: Array<{ path: string; size: number }> }
+//
+// Notes:
+// - Uses GitHub "Contents API": GET /repos/{owner}/{repo}/contents/{path}?ref=branch
+//   - If "path" is a directory, it returns an array of items. If it's a file, it returns one object.
+// - We walk directories recursively to collect all files under `subdir`.
 
 import type { RequestHandler } from "@sveltejs/kit";
-import { listRepoFiles, parseRepoUrl } from "$lib/server/github";
+import { GITHUB_TOKEN } from "$env/static/private";
+
+// A tiny helper for consistent JSON responses
+function jsonResponse(data: unknown, status = 200) {
+    return new Response(JSON.stringify(data), {
+        status,
+        headers: { "content-type": "application/json" }
+    });
+}
+
+// Build Contents API URL for owner/repo/path?ref=branch
+function contentsUrl(owner: string, repo: string, branch: string, path: string) {
+    const encodedPath = encodeURIComponent(path).replace(/%2F/g, "/");
+    const encodedRef = encodeURIComponent(branch);
+    return `https://api.github.com/repos/${owner}/${repo}/contents/${encodedPath}?ref=${encodedRef}`;
+}
+
+// GET one path (file or directory listing) from GitHub
+async function fetchContents(owner: string, repo: string, branch: string, path: string) {
+    const headers: Record<string, string> = {
+        accept: "application/vnd.github+json",
+        "x-github-api-version": "2022-11-28"
+    };
+    if (GITHUB_TOKEN) headers.authorization = `Bearer ${GITHUB_TOKEN}`;
+
+    const url = contentsUrl(owner, repo, branch, path);
+    const r = await fetch(url, { headers });
+
+    if (!r.ok) {
+        // Bubble up a readable message (rate limit / 404 / etc.)
+        const text = await r.text().catch(() => "");
+        throw new Error(`GitHub ${r.status}: ${text.slice(0, 200)}`);
+    }
+    return r.json(); // may be an array (directory) or an object (file)
+}
+
+// Walk a directory tree and collect files
+async function listAllFiles(owner: string, repo: string, branch: string, rootPath: string) {
+    // We use an explicit stack to avoid deep recursion issues
+    const stack: string[] = [rootPath || ""];
+    const files: Array<{ path: string; size: number }> = [];
+
+    while (stack.length) {
+        const current = stack.pop()!; // a path relative to repo root
+        try {
+            const node = await fetchContents(owner, repo, branch, current || "");
+
+            if (Array.isArray(node)) {
+                // It's a directory listing. Each item has: type: "file" | "dir"
+                for (const item of node) {
+                    const itemPath = item.path as string;   // repo-relative full path
+                    if (item.type === "file") {
+                        files.push({ path: itemPath, size: Number(item.size || 0) });
+                    } else if (item.type === "dir") {
+                        stack.push(itemPath); // dive deeper
+                    }
+                }
+            } else if (node && node.type === "file") {
+                // Direct file object
+                files.push({ path: node.path as string, size: Number(node.size || 0) });
+            }
+        } catch (e) {
+            // If a folder doesn't exist or rate-limited, we skip with minimal fuss for now.
+            // You can surface this to the client if you want stricter behavior.
+            // console.warn("Skipping path due to error:", current, e);
+        }
+    }
+
+    return files;
+}
 
 export const POST: RequestHandler = async ({ request }) => {
     try {
-        // 1) Read JSON body safely; coerce to strings; trim whitespace.
-        const body = (await request.json().catch(() => null)) as any;
-        const rawUrl = (body?.repoUrl ?? body?.repo_url ?? "").toString().trim();
-        const rawBranch = (body?.branch ?? "").toString().trim();
-        const rawSubdir = (body?.subdir ?? "").toString().trim();
+        const body = await request.json().catch(() => ({} as Record<string, unknown>));
+        const repoUrl = String(body.repoUrl || "");
+        const branch = String(body.branch || "main");
+        const subdirRaw = String(body.subdir || "");
 
-        // 2) Validate the URL in a tolerant way (handles or skips www.).
-        const looksLikeGithub = /^https?:\/\/(www\.)?github\.com\//i.test(rawUrl);
-        if (!rawUrl || !looksLikeGithub) {
-            return new Response(
-                JSON.stringify({ error: "Please provide a valid GitHub repo URL." }),
-                { status: 400 }
-            );
+        if (!repoUrl.includes("github.com")) {
+            return jsonResponse({ error: "repoUrl must be a GitHub URL" }, 400);
         }
 
-        // 3) If user omitted branch/subdir, try to derive them from a /tree/<branch>/<subdir> URL.
-        const parsed = parseRepoUrl(rawUrl); // returns branch/subdir when URL is a "tree" URL
-        const branch = rawBranch || parsed?.branch || "";
-        const subdir = rawSubdir || parsed?.subdir || "";
+        // Parse owner/repo from full URL like https://github.com/owner/repo
+        const noProto = repoUrl.replace(/^https?:\/\//, "");
+        const parts = noProto.split("/").filter(Boolean);
+        const owner = parts[1];
+        const repo = parts[2];
 
-        if (!branch) {
-            return new Response(
-                JSON.stringify({
-                    error:
-                        "Missing branch. Add it in the request or include /tree/<branch> in the URL."
-                }),
-                { status: 400 }
-            );
+        if (!owner || !repo) {
+            return jsonResponse({ error: "repoUrl missing owner or repo" }, 400);
         }
 
-        // 4) Ask GitHub for the file list (server helper applies the same inference).
-        const files = await listRepoFiles({ repoUrl: rawUrl, branch, subdir });
+        // Clean subdir (trim leading/trailing slashes)
+        const subdir = subdirRaw.replace(/^\/+|\/+$/g, "");
 
-        // 5) Optional tidy filter by extension so the UI stays readable.
-        const allowed = new Set([
-            ".ts", ".tsx", ".js", ".jsx", ".py", ".go", ".rs", ".java", ".kt", ".cs", ".cpp", ".c", ".h", ".hpp",
-            ".rb", ".php", ".scala", ".swift", ".m", ".mm", ".sql", ".json", ".yml", ".yaml", ".toml", ".md", ".svelte"
-        ]);
-        const filtered = files.filter((f) => {
-            const p = f.path.toLowerCase();
-            const dot = p.lastIndexOf(".");
-            if (dot < 0) return false;
-            return allowed.has(p.slice(dot));
-        });
+        // Grab all files (under subdir if given, otherwise repo root)
+        const files = await listAllFiles(owner, repo, branch, subdir);
 
-        return new Response(JSON.stringify({ files: filtered }), {
-            status: 200,
-            headers: { "content-type": "application/json" }
-        });
-    } catch (err: any) {
-        const msg =
-            typeof err?.message === "string"
-                ? err.message
-                : "Server error while listing repo files.";
-        return new Response(JSON.stringify({ error: msg }), { status: 500 });
+        // Return sorted for stable UI (optional)
+        files.sort((a, b) => a.path.localeCompare(b.path));
+
+        return jsonResponse({ files }, 200);
+    } catch (err) {
+        return jsonResponse(
+            { error: "Failed to list repository files", detail: String(err) },
+            500
+        );
     }
 };
