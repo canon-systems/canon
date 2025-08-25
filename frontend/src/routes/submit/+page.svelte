@@ -1,11 +1,21 @@
 <script lang="ts">
-	// Streamlined submit page
+	// ------------------------------------------------------------
+	// /submit — Streamlined intake → summarize → save
+	// Only necessary changes:
+	//   - Do NOT preselect all files when loading Git files
+	//   - "Clear" now truly deselects everything (reactive Set reassign)
+	//   - Hide the "Load files" button once files are loaded
+	//   - Reset file list when repoUrl/branch/subdir/method changes (so lists don't carry over)
+	//   - Redirect to /edit/{id} after successful analyze+save
+	// ------------------------------------------------------------
+
 	import { supabase } from '$lib/supabaseClient';
 	import { Github, FolderOpen, Upload, Code, Loader2 } from '@lucide/svelte';
 
 	type InputType = 'github_repo' | 'github_repo_directory' | 'zipped_folder' | 'pasted_code';
 	type Status = 'completed' | 'failed' | 'processing';
 
+	// ---------------- UI STATE ----------------
 	let method: InputType = 'github_repo_directory';
 
 	// Git inputs
@@ -13,19 +23,21 @@
 	let branch = 'master';
 	let subdir = 'backend';
 
-	// Zip & Paste
+	// Zip & Paste inputs
 	let zipFile: File | null = null;
 	let pasteFilename = 'snippet.txt';
 	let pasteCode = '';
 
+	// Doc title (saved with the record)
 	let docTitle = 'Documentation Draft';
 
-	let listing = false;
-	let running = false;
+	// Progress + errors
+	let listing = false; // when loading Git file list
+	let running = false; // when orchestrating analyze → save
 	let errorMsg = '';
-	let statusMsg = '';
+	let statusMsg = ''; // small status line while running
 
-	// Git file picker
+	// Git file picker data
 	let pickerFiles: Array<{ path: string; size: number }> = [];
 	let selectedPaths = new Set<string>();
 
@@ -42,41 +54,68 @@
 		}
 	}
 
-	/* ---------------- CHANGES START ---------------- */
+	// ---------------- HELPERS ----------------
 
-	// Clear file list + selections (used when inputs change)
-	function resetFileList() {
-		pickerFiles = [];
-		selectedPaths = new Set();
-	}
-
-	/* ---------------- CHANGES END ---------------- */
-
-	// --- helpers (Set reactivity) ---
+	// IMPORTANT: In Svelte, mutating a Set in place (e.g., .clear()) won't trigger reactivity.
+	// To notify the UI, always assign a *new* Set instance.
 	function selectAll() {
-		selectedPaths = new Set(pickerFiles.map((f) => f.path));
+		// CHANGED: assign a new Set so checkboxes react immediately
+		selectedPaths = new Set(pickerFiles.map((f) => f.path)); // NEW
 	}
 	function clearAll() {
-		selectedPaths = new Set();
+		// CHANGED: assign a brand new Set (not .clear()) for reactivity
+		selectedPaths = new Set(); // NEW
 	}
 	function togglePick(path: string) {
-		const next = new Set(selectedPaths);
+		// CHANGED: clone -> mutate -> reassign (reactive)
+		const next = new Set(selectedPaths); // NEW
 		if (next.has(path)) next.delete(path);
 		else next.add(path);
-		selectedPaths = next;
+		selectedPaths = next; // NEW
 	}
 	function selectedArray(): string[] {
 		return Array.from(selectedPaths);
 	}
 
-	// List files for Git (no auto-preselect)
+	// --------- REACT to Git input changes (reset lists) ----------
+	// These reactive statements ensure the file list is *cleared* whenever
+	// any Git selector changes, so lists never carry across inputs.
+
+	// Is current method a Git method?
+	$: isGit = method === 'github_repo' || method === 'github_repo_directory'; // NEW
+
+	// A key that changes whenever relevant Git params change
+	$: gitKey = isGit
+		? `${method}|${repoUrl}|${branch}|${method === 'github_repo_directory' ? subdir : ''}`
+		: ''; // NEW
+
+	// When leaving Git methods altogether, wipe lists
+	$: if (!isGit) {
+		pickerFiles = []; // NEW
+		selectedPaths = new Set(); // NEW
+	}
+
+	// When *any* Git input changes (repo/branch/subdir/method), wipe lists
+	$: if (isGit && gitKey) {
+		// This runs whenever gitKey changes (Svelte tracks the dependency).
+		pickerFiles = []; // NEW
+		selectedPaths = new Set(); // NEW
+	}
+
+	// Whether to show the "Load files" button:
+	// - Only for Git methods
+	// - Only when files are not loaded yet
+	// - Not while we're listing
+	$: showLoadButton = isGit && !pickerFiles.length && !listing; // NEW
+
+	// --------- List files for Git methods ----------
 	async function listGitFiles() {
-		if (!(method === 'github_repo' || method === 'github_repo_directory')) return;
+		if (!isGit) return;
 
 		errorMsg = '';
 		listing = true;
 		pickerFiles = [];
-		selectedPaths = new Set();
+		selectedPaths = new Set(); // ensure fresh state
 
 		try {
 			const r = await fetch('/api/github/list', {
@@ -92,8 +131,10 @@
 			if (!r.ok) throw new Error(data?.error || `Git list failed (${r.status})`);
 
 			pickerFiles = Array.isArray(data.files) ? data.files : [];
-			// Do not preselect; user will choose
-			selectedPaths = new Set();
+
+			// NOTE: Previously, we preselected all files. The new requirement is:
+			// "Files should not all be selected initially."
+			// So we intentionally do *not* call selectAll() here. // CHANGED
 		} catch (e) {
 			errorMsg = String(e);
 		} finally {
@@ -101,9 +142,12 @@
 		}
 	}
 
+	// Build a friendly input_content string for logging
 	function buildInputContent(): string {
 		if (method === 'pasted_code') return `${pasteFilename} (pasted)`;
 		if (method === 'zipped_folder') return zipFile ? zipFile.name : '(no zip selected)';
+
+		// Git
 		const files = selectedArray();
 		return [
 			repoUrl || '',
@@ -113,7 +157,7 @@
 		].join('');
 	}
 
-	// Main CTA
+	// ---------------- MAIN CTA: ANALYZE & SAVE ----------------
 	async function analyzeAndSave() {
 		errorMsg = '';
 		statusMsg = '';
@@ -122,14 +166,14 @@
 		let submissionId: string | null = null;
 
 		try {
-			// 1) insert processing row
+			// 1) Log "processing"
 			statusMsg = 'Queuing…';
 			const filesForLog =
 				method === 'pasted_code'
 					? [pasteFilename]
 					: method === 'zipped_folder'
 						? []
-						: selectedArray();
+						: selectedArray(); // zip names are captured in source_meta
 
 			const source_meta =
 				method === 'pasted_code'
@@ -150,15 +194,16 @@
 					})
 					.select('id')
 					.single();
+
 				if (error) throw new Error(error.message);
 				submissionId = (data as { id: string }).id;
 			}
 
-			// 2) gather files
+			// 2) Gather files/content for LLM
 			statusMsg = 'Collecting source files…';
 			let filesForDoc: Array<{ path: string; content: string }> = [];
 
-			if (method === 'github_repo' || method === 'github_repo_directory') {
+			if (isGit) {
 				const chosen = selectedArray();
 				if (!chosen.length) throw new Error('Pick at least one file.');
 				const r = await fetch('/api/github/batchRaw', {
@@ -191,17 +236,21 @@
 				const got = Array.isArray(data.files) ? data.files : [];
 				filesForDoc = got.map((f: any) => ({ path: f.path, content: String(f.content || '') }));
 			} else {
+				// pasted_code
 				filesForDoc = [{ path: pasteFilename || 'snippet.txt', content: pasteCode || '' }];
 			}
 
 			if (!filesForDoc.length) throw new Error('No content gathered for summarization.');
 
-			// 3) generate
+			// 3) LLM: generate documentation
 			statusMsg = 'Summarizing with AI…';
 			const rGen = await fetch('/api/docs/generate', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ projectName: docTitle || 'Documentation Draft', files: filesForDoc })
+				body: JSON.stringify({
+					projectName: docTitle || 'Documentation Draft',
+					files: filesForDoc
+				})
 			});
 			const text = await rGen.text();
 			let gen: any;
@@ -218,7 +267,7 @@
 			if (!rGen.ok) throw new Error(gen?.error || `Generate failed (${rGen.status})`);
 			const markdown = String(gen.markdown || '');
 
-			// 4) save
+			// 4) Save final result
 			statusMsg = 'Saving to Supabase…';
 			const { error: uerr } = await supabase
 				.from('submissions')
@@ -231,12 +280,13 @@
 				.eq('id', submissionId as string);
 			if (uerr) throw new Error(uerr.message);
 
-			// 5) go to history
+			// 5) Done → /edit/{id}  (CHANGED from /history)
 			statusMsg = 'Done. Redirecting…';
-			window.location.href = `/history?new=${submissionId}`;
+			window.location.href = `/edit/${submissionId}`; // CHANGED
 		} catch (e) {
 			errorMsg = String(e);
 			statusMsg = '';
+			// best-effort: mark failed if we created a submission row
 			if (submissionId) {
 				await supabase
 					.from('submissions')
@@ -249,8 +299,10 @@
 	}
 </script>
 
+<!-- ======================= MARKUP ======================= -->
 <div class="min-h-screen px-4 py-8 sm:px-6 lg:px-8">
 	<div class="mx-auto max-w-3xl">
+		<!-- Header -->
 		<div class="mb-8">
 			<h1 class="mb-2 text-3xl font-bold text-white">Submit Source</h1>
 			<p class="text-white/70">
@@ -258,17 +310,13 @@
 			</p>
 		</div>
 
-		<!-- method selector -->
+		<!-- Method selector -->
 		<div class="mb-6 grid grid-cols-2 gap-2 md:grid-cols-4">
 			{#each [{ id: 'github_repo', label: 'Git Repo' }, { id: 'github_repo_directory', label: 'Git Directory' }, { id: 'zipped_folder', label: 'Zip Upload' }, { id: 'pasted_code', label: 'Paste Code' }] as opt}
 				<button
 					class="flex items-center justify-center gap-2 rounded-xl border border-white/20 px-3 py-2 text-sm text-white transition hover:bg-white/10"
 					class:selected={method === (opt.id as InputType)}
-					on:click={() => {
-						method = opt.id as InputType;
-						/* CHANGED: clear file list when switching methods */
-						resetFileList();
-					}}
+					on:click={() => (method = opt.id as InputType)}
 					aria-pressed={method === (opt.id as InputType)}
 				>
 					<svelte:component this={getMethodIcon(opt.id as InputType)} class="h-4 w-4" />
@@ -277,7 +325,7 @@
 			{/each}
 		</div>
 
-		<!-- title -->
+		<!-- Common: Title -->
 		<label class="mb-4 block">
 			<div class="mb-1 text-sm text-white/70">Document title</div>
 			<input
@@ -287,6 +335,7 @@
 			/>
 		</label>
 
+		<!-- Method-specific inputs -->
 		{#if method === 'github_repo' || method === 'github_repo_directory'}
 			<div class="mb-4 grid gap-3 md:grid-cols-2">
 				<label class="block md:col-span-2">
@@ -295,7 +344,6 @@
 						class="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white placeholder-white/60 outline-none focus:border-white/40"
 						bind:value={repoUrl}
 						placeholder="https://github.com/owner/repo"
-						on:input={resetFileList}
 					/>
 				</label>
 
@@ -305,7 +353,6 @@
 						class="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white placeholder-white/60 outline-none focus:border-white/40"
 						bind:value={branch}
 						placeholder="main"
-						on:input={resetFileList}
 					/>
 				</label>
 
@@ -316,21 +363,21 @@
 							class="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white placeholder-white/60 outline-none focus:border-white/40"
 							bind:value={subdir}
 							placeholder="e.g. backend"
-							on:input={resetFileList}
 						/>
 					</label>
 				{/if}
 			</div>
 
-			<!-- file list -->
+			<!-- Git file list -->
 			<div class="mb-6 rounded-2xl border border-white/20 bg-white/10 p-4">
 				<div class="mb-3 flex items-center justify-between">
 					<div class="text-sm text-white/70">
-						Files in repository{#if method === 'github_repo_directory' && subdir}/{subdir}{/if}
+						Files in repository{#if method === 'github_repo_directory' && subdir}
+							/{subdir}{/if}
 					</div>
 					<div class="flex items-center gap-2">
-						<!-- CHANGED: hide "Load files" when files are present -->
-						{#if !pickerFiles.length}
+						{#if showLoadButton}
+							<!-- CHANGED: Only show while no files are loaded -->
 							<button
 								class="rounded-lg border border-white/20 px-3 py-1 text-sm text-white hover:bg-white/10"
 								on:click={listGitFiles}
@@ -423,6 +470,7 @@
 			</div>
 		{/if}
 
+		<!-- Error / Status -->
 		{#if errorMsg}
 			<div class="mb-4 rounded-xl border border-red-400/30 bg-red-500/10 px-3 py-2 text-red-200">
 				{errorMsg}
@@ -434,6 +482,7 @@
 			</div>
 		{/if}
 
+		<!-- Primary CTA -->
 		<div class="flex items-center gap-3">
 			<button
 				class="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 px-5 py-2.5 text-white shadow hover:from-purple-600 hover:to-pink-600 disabled:opacity-60"
@@ -459,7 +508,8 @@
 </div>
 
 <style>
-	button[selected],
+	/* Small helper so the selected method chip feels active */
+	/* button[selected], */
 	button[aria-pressed='true'] {
 		background: rgba(255, 255, 255, 0.12);
 		border-color: rgba(255, 255, 255, 0.35);

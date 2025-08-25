@@ -1,7 +1,14 @@
 <script lang="ts">
+	// ------------------------------------------------------------
+	// /history — LIST PREVIOUS REQUESTS
+	// Only necessary changes:
+	//   - Show the UUID (id) in the card list and in the modal
+	// ------------------------------------------------------------
+
 	import { Clock, FileText, Github, FolderOpen, Upload, Code, ExternalLink } from '@lucide/svelte';
 	import { onMount } from 'svelte';
 	import { fade, scale } from 'svelte/transition';
+
 	import { supabase } from '$lib/supabaseClient';
 
 	let isAuthed = true;
@@ -9,11 +16,11 @@
 	type InputType = 'github_repo' | 'github_repo_directory' | 'zipped_folder' | 'pasted_code';
 	type Status = 'completed' | 'failed' | 'processing';
 	type SubmissionItem = {
-		id: string; // uuid
+		id: string; // uuid (string)
 		input_type: InputType;
 		input_content: string;
 		status: Status;
-		created_date: string;
+		created_date: string; // ISO (mapped from created_at)
 		summary?: string | null;
 		error_message?: string | null;
 	};
@@ -35,7 +42,7 @@
 		}
 
 		return (data ?? []).map((row: any) => ({
-			id: String(row.id),
+			id: String(row.id), // <- ensure string
 			input_type: row.input_type as InputType,
 			input_content: row.input_content ?? '',
 			status: row.status as Status,
@@ -109,6 +116,7 @@
 {:else}
 	<div class="min-h-screen px-4 py-8 sm:px-6 lg:px-8">
 		<div class="mx-auto max-w-6xl">
+			<!-- Header -->
 			<div class="mb-12 text-center" in:fade={{ duration: 200 }}>
 				<div class="mb-6 inline-flex items-center gap-3">
 					<div
@@ -124,6 +132,7 @@
 			</div>
 
 			{#if isLoading}
+				<!-- Skeletons -->
 				<div class="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
 					{#each Array(6) as _, i}
 						<div
@@ -140,6 +149,7 @@
 					{/each}
 				</div>
 			{:else if submissions.length === 0}
+				<!-- Empty state -->
 				<div class="py-12 text-center" in:fade>
 					<div
 						class="mx-auto mb-6 flex h-24 w-24 items-center justify-center rounded-full bg-white/10"
@@ -156,7 +166,7 @@
 					</a>
 				</div>
 			{:else}
-				<!-- Cards -->
+				<!-- Submissions grid -->
 				<div class="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
 					{#each submissions as s, index (s.id)}
 						<button
@@ -179,7 +189,13 @@
 								</div>
 							</div>
 
-							<div class="mt-2 line-clamp-3 break-all text-sm text-white/80">{s.input_content}</div>
+							<!-- NEW: show UUID under the snippet for auditability -->
+							<div class="mt-2 font-mono text-xs text-white/50">ID: {s.id}</div>
+							<!-- NEW -->
+
+							<div class="mt-2 line-clamp-3 break-all text-sm text-white/80">
+								{s.input_content}
+							</div>
 
 							<div class="mt-2">
 								{#if s.status === 'completed'}
@@ -199,9 +215,6 @@
 									>
 								{/if}
 							</div>
-
-							<!-- UUID (audit) -->
-							<div class="mt-1 truncate font-mono text-[11px] text-white/40">ID: {s.id}</div>
 						</button>
 					{/each}
 				</div>
@@ -215,6 +228,15 @@
 					aria-label="Close details"
 					tabindex="0"
 					on:click={() => (selectedSubmission = null)}
+					on:keydown={(e) => {
+						if (e.key === 'Enter' || e.key === ' ') {
+							e.preventDefault();
+							selectedSubmission = null;
+						}
+						if (e.key === 'Escape') {
+							selectedSubmission = null;
+						}
+					}}
 					in:fade={{ duration: 120 }}
 					out:fade={{ duration: 120 }}
 				>
@@ -222,6 +244,8 @@
 						class="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-2xl border border-white/20 bg-white/10 outline-none backdrop-blur-md"
 						role="dialog"
 						aria-modal="true"
+						aria-labelledby="analysis-dialog-title"
+						aria-describedby="analysis-dialog-desc"
 						tabindex="-1"
 						on:pointerdown|stopPropagation
 						in:scale={{ duration: 120, start: 0.95 }}
@@ -230,7 +254,9 @@
 						<div
 							class="flex items-center justify-between rounded-t-2xl border-b border-white/10 px-6 py-4"
 						>
-							<h2 class="text-xl font-semibold text-white">Analysis Details</h2>
+							<h2 id="analysis-dialog-title" class="text-xl font-semibold text-white">
+								Analysis Details
+							</h2>
 							<button
 								type="button"
 								class="rounded px-2 py-1 text-white/80 hover:bg-white/10 hover:text-white"
@@ -239,7 +265,14 @@
 							>
 						</div>
 
-						<div class="space-y-6 p-6 text-white">
+						<div id="analysis-dialog-desc" class="space-y-6 p-6 text-white">
+							<!-- NEW: Show UUID prominently -->
+							<div>
+								<p class="text-sm text-white/60">ID</p>
+								<p class="font-mono text-sm text-white/80">{selectedSubmission.id}</p>
+								<!-- NEW -->
+							</div>
+
 							<div class="grid grid-cols-2 gap-4">
 								<div>
 									<p class="text-sm text-white/60">Method</p>
@@ -248,11 +281,6 @@
 								<div>
 									<p class="text-sm text-white/60">Status</p>
 									<p class="capitalize">{selectedSubmission.status}</p>
-								</div>
-								<!-- UUID (audit) -->
-								<div class="col-span-2">
-									<p class="text-sm text-white/60">Submission ID</p>
-									<p class="truncate font-mono text-sm text-white/80">{selectedSubmission.id}</p>
 								</div>
 							</div>
 
@@ -302,12 +330,24 @@
 												class="underline hover:no-underline"
 												href={selectedSubmission.input_content}
 												target="_blank"
-												rel="noreferrer">Source</a
+												rel="noreferrer"
 											>
+												Source
+											</a>
 											<ExternalLink class="h-3 w-3" />
 										</p>
 									</div>
 								{/if}
+							</div>
+
+							<!-- Optional: link to edit this item directly -->
+							<div class="pt-2">
+								<a
+									class="inline-flex items-center gap-2 rounded border border-white/20 px-3 py-1 text-sm text-white hover:bg-white/10"
+									href={`/edit/${selectedSubmission.id}`}
+								>
+									Edit this doc
+								</a>
 							</div>
 						</div>
 					</div>
