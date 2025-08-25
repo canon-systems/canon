@@ -2,49 +2,47 @@
 	import { Clock, FileText, Github, FolderOpen, Upload, Code, ExternalLink } from '@lucide/svelte';
 	import { onMount } from 'svelte';
 	import { fade, scale } from 'svelte/transition';
+	import { supabase } from '$lib/supabaseClient';
 
-	// Simple auth flag (replace with your real check later)
 	let isAuthed = true;
 
-	// Types + state
 	type InputType = 'github_repo' | 'github_repo_directory' | 'zipped_folder' | 'pasted_code';
 	type Status = 'completed' | 'failed' | 'processing';
 	type SubmissionItem = {
-		id: number;
+		id: string; // uuid
 		input_type: InputType;
 		input_content: string;
 		status: Status;
-		created_date: string; // ISO
-		summary?: string;
-		error_message?: string;
+		created_date: string;
+		summary?: string | null;
+		error_message?: string | null;
 	};
 
 	let submissions: SubmissionItem[] = [];
 	let isLoading = true;
 	let selectedSubmission: SubmissionItem | null = null;
 
-	// Fake API — swap with your real Submission.list
 	async function listSubmissions(_order: string, limit: number): Promise<SubmissionItem[]> {
-		await new Promise((r) => setTimeout(r, 400));
-		const now = Date.now();
-		const demo: SubmissionItem[] = [
-			{
-				id: now - 1,
-				input_type: 'github_repo',
-				input_content: 'https://github.com/sveltejs/kit',
-				status: 'completed',
-				created_date: new Date(now - 30 * 60 * 1000).toISOString(),
-				summary: 'SvelteKit app framework with file-based routing.'
-			},
-			{
-				id: now - 2,
-				input_type: 'github_repo_directory',
-				input_content: 'https://github.com/vercel/next.js/tree/canary/packages/next/src',
-				status: 'processing',
-				created_date: new Date(now - 90 * 60 * 1000).toISOString()
-			}
-		];
-		return demo.slice(0, limit);
+		const { data, error } = await supabase
+			.from('submissions')
+			.select('id, created_at, input_type, input_content, status, summary, error_message')
+			.order('created_at', { ascending: false })
+			.limit(limit);
+
+		if (error) {
+			console.warn('submissions select failed:', error.message);
+			return [];
+		}
+
+		return (data ?? []).map((row: any) => ({
+			id: String(row.id),
+			input_type: row.input_type as InputType,
+			input_content: row.input_content ?? '',
+			status: row.status as Status,
+			created_date: row.created_at,
+			summary: row.summary ?? null,
+			error_message: row.error_message ?? null
+		}));
 	}
 
 	onMount(async () => {
@@ -55,7 +53,6 @@
 		}
 	});
 
-	// Helpers
 	function getMethodIcon(t: InputType) {
 		switch (t) {
 			case 'github_repo':
@@ -103,7 +100,6 @@
 </script>
 
 {#if !isAuthed}
-	<!-- Unauthed view -->
 	<div class="flex min-h-screen items-center justify-center p-6">
 		<div class="rounded-2xl border border-white/20 bg-white/10 p-6 text-center text-white">
 			<p class="mb-4">You must be signed in to view history</p>
@@ -111,10 +107,8 @@
 		</div>
 	</div>
 {:else}
-	<!-- Authed view -->
 	<div class="min-h-screen px-4 py-8 sm:px-6 lg:px-8">
 		<div class="mx-auto max-w-6xl">
-			<!-- Header -->
 			<div class="mb-12 text-center" in:fade={{ duration: 200 }}>
 				<div class="mb-6 inline-flex items-center gap-3">
 					<div
@@ -130,7 +124,6 @@
 			</div>
 
 			{#if isLoading}
-				<!-- Skeletons -->
 				<div class="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
 					{#each Array(6) as _, i}
 						<div
@@ -147,7 +140,6 @@
 					{/each}
 				</div>
 			{:else if submissions.length === 0}
-				<!-- Empty state -->
 				<div class="py-12 text-center" in:fade>
 					<div
 						class="mx-auto mb-6 flex h-24 w-24 items-center justify-center rounded-full bg-white/10"
@@ -164,7 +156,7 @@
 					</a>
 				</div>
 			{:else}
-				<!-- Submissions grid -->
+				<!-- Cards -->
 				<div class="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
 					{#each submissions as s, index (s.id)}
 						<button
@@ -187,9 +179,7 @@
 								</div>
 							</div>
 
-							<div class="mt-2 line-clamp-3 break-all text-sm text-white/80">
-								{s.input_content}
-							</div>
+							<div class="mt-2 line-clamp-3 break-all text-sm text-white/80">{s.input_content}</div>
 
 							<div class="mt-2">
 								{#if s.status === 'completed'}
@@ -209,6 +199,9 @@
 									>
 								{/if}
 							</div>
+
+							<!-- UUID (audit) -->
+							<div class="mt-1 truncate font-mono text-[11px] text-white/40">ID: {s.id}</div>
 						</button>
 					{/each}
 				</div>
@@ -216,32 +209,19 @@
 
 			<!-- Modal -->
 			{#if selectedSubmission}
-				<!-- Backdrop -->
 				<div
 					class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
 					role="button"
 					aria-label="Close details"
 					tabindex="0"
 					on:click={() => (selectedSubmission = null)}
-					on:keydown={(e) => {
-						if (e.key === 'Enter' || e.key === ' ') {
-							e.preventDefault();
-							selectedSubmission = null;
-						}
-						if (e.key === 'Escape') {
-							selectedSubmission = null;
-						}
-					}}
 					in:fade={{ duration: 120 }}
 					out:fade={{ duration: 120 }}
 				>
-					<!-- Dialog panel -->
 					<div
 						class="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-2xl border border-white/20 bg-white/10 outline-none backdrop-blur-md"
 						role="dialog"
 						aria-modal="true"
-						aria-labelledby="analysis-dialog-title"
-						aria-describedby="analysis-dialog-desc"
 						tabindex="-1"
 						on:pointerdown|stopPropagation
 						in:scale={{ duration: 120, start: 0.95 }}
@@ -250,20 +230,16 @@
 						<div
 							class="flex items-center justify-between rounded-t-2xl border-b border-white/10 px-6 py-4"
 						>
-							<h2 id="analysis-dialog-title" class="text-xl font-semibold text-white">
-								Analysis Details
-							</h2>
+							<h2 class="text-xl font-semibold text-white">Analysis Details</h2>
 							<button
 								type="button"
 								class="rounded px-2 py-1 text-white/80 hover:bg-white/10 hover:text-white"
 								aria-label="Close"
-								on:click={() => (selectedSubmission = null)}
+								on:click={() => (selectedSubmission = null)}>✕</button
 							>
-								✕
-							</button>
 						</div>
 
-						<div id="analysis-dialog-desc" class="space-y-6 p-6 text-white">
+						<div class="space-y-6 p-6 text-white">
 							<div class="grid grid-cols-2 gap-4">
 								<div>
 									<p class="text-sm text-white/60">Method</p>
@@ -272,6 +248,11 @@
 								<div>
 									<p class="text-sm text-white/60">Status</p>
 									<p class="capitalize">{selectedSubmission.status}</p>
+								</div>
+								<!-- UUID (audit) -->
+								<div class="col-span-2">
+									<p class="text-sm text-white/60">Submission ID</p>
+									<p class="truncate font-mono text-sm text-white/80">{selectedSubmission.id}</p>
 								</div>
 							</div>
 
@@ -321,10 +302,8 @@
 												class="underline hover:no-underline"
 												href={selectedSubmission.input_content}
 												target="_blank"
-												rel="noreferrer"
+												rel="noreferrer">Source</a
 											>
-												Source
-											</a>
 											<ExternalLink class="h-3 w-3" />
 										</p>
 									</div>

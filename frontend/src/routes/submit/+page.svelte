@@ -1,607 +1,467 @@
 <script lang="ts">
-	// ------------------------------------------------------------
-	// THIS <script> TAG HOLDS ALL THE PAGE LOGIC (TypeScript).
-	// Super-detailed comments are included to explain every step.
-	// ------------------------------------------------------------
-
-	// We import the browser-safe Supabase client we created at:
-	//   src/lib/supabaseClient.ts
-	// This uses PUBLIC_ env vars and is safe in the browser.
+	// Streamlined submit page
 	import { supabase } from '$lib/supabaseClient';
+	import { Github, FolderOpen, Upload, Code, Loader2 } from '@lucide/svelte';
 
-	// -------------------------------
-	// SECTION 1: UI STATE / VARIABLES
-	// -------------------------------
+	type InputType = 'github_repo' | 'github_repo_directory' | 'zipped_folder' | 'pasted_code';
+	type Status = 'completed' | 'failed' | 'processing';
 
-	// repoUrl: which GitHub repo we want to read from.
-	// It should look like: https://github.com/<owner>/<repo>
+	let method: InputType = 'github_repo_directory';
+
+	// Git inputs
 	let repoUrl = 'https://github.com/John-Sellers/documentation-generator';
-
-	// branch: which Git branch to use (your repo currently uses "master").
 	let branch = 'master';
-
-	// subdir: optional subfolder inside the repo. If set, it will prefix short filenames.
-	// Example: "backend" → "backend/summarizer_modal.py"
 	let subdir = 'backend';
 
-	// filesText: users can paste/enter one filename per line here.
-	// We will split this string into an array of filenames later.
-	let filesText = 'summarizer_modal.py\nrequirements.txt';
+	// Zip & Paste
+	let zipFile: File | null = null;
+	let pasteFilename = 'snippet.txt';
+	let pasteCode = '';
 
-	// includeContent: when true, we ask the server to return full content for each file,
-	// capped by "maxBytes". When false, we only show previews to keep payloads small.
-	let includeContent = true;
-
-	// maxBytes: the maximum number of characters/bytes we allow per file when including full content.
-	// This prevents giant files from overloading the browser.
-	let maxBytes = 200_000; // ≈200 KB
-
-	// results: the array of file info returned by /api/github/batchRaw.
-	// Each item looks like: { path, size, preview, content? }
-	// "content" is optional and present only when includeContent=true and file is under the cap.
-	type FileResult = { path: string; size: number; preview: string; content?: string };
-	let results: FileResult[] = [];
-
-	// generatedMarkdown: the final documentation draft returned by /api/docs/generate.
-	// We render it on the page and offer a "Download .md" button.
-	let generatedMarkdown = '';
-
-	// docTitle: a friendly title for the generated documentation.
-	// We also use this as the default filename when downloading.
 	let docTitle = 'Documentation Draft';
 
-	// Type describing rows in the "doc_outputs" table (Supabase).
-	// This lets TypeScript help us when reading saved docs.
-	type DocRow = {
-		id: string;
-		created_at: string;
-		title: string;
-		markdown: string;
-		repo_url: string | null;
-		branch: string | null;
-		subdir: string | null;
-		selected_files: string[] | null;
-	};
-
-	// recentDocs: we fill this when you click "Load recent docs".
-	let recentDocs: DocRow[] = [];
-
-	// loading: flips to true while we are doing fetches or DB work,
-	// so we can disable buttons and show "Working..." text.
-	let loading = false;
-
-	// errorMsg: a friendly error string we show near the top when something fails.
+	let listing = false;
+	let running = false;
 	let errorMsg = '';
+	let statusMsg = '';
 
-	// ---------------------------------------------------
-	// SECTION 2: SMALL HELPERS
-	// ---------------------------------------------------
-
-	// parseFiles(): break the textarea into clean filenames.
-	// Steps:
-	//   1) split by newline,
-	//   2) trim spaces,
-	//   3) drop empty lines.
-	function parseFiles(): string[] {
-		return filesText
-			.split('\n')
-			.map((s) => s.trim())
-			.filter(Boolean);
-	}
-
-	// ---------------------------------------------------
-	// SECTION 3: TALK TO /api/github/batchRaw  (FETCH FILES)
-	// ---------------------------------------------------
-	// This sends repo/branch/subdir and filenames to our local server route,
-	// which talks to GitHub server-to-server (keeps your token private).
-	// It returns previews and (optionally) full content for each file.
-	async function fetchPreviews() {
-		loading = true; // turn on spinner/disable buttons
-		errorMsg = ''; // clear previous errors
-		results = []; // clear old results so it's obvious we are reloading
-		generatedMarkdown = ''; // clear generated doc so the user knows this is a new run
-
-		try {
-			// The exact JSON shape expected by /api/github/batchRaw
-			const body = {
-				repoUrl, // full repo URL like "https://github.com/owner/repo"
-				branch, // which branch to read
-				subdir, // optional subfolder prefix for short filenames
-				selectedFiles: parseFiles(), // filenames array from textarea
-				previewChars: 800, // the number of characters we keep for "preview"
-				includeContent, // whether to include full content (capped)
-				maxBytes // the cap for "content"
-			};
-
-			// Call our local server route. This keeps tokens/magic on the server only.
-			const r = await fetch('/api/github/batchRaw', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify(body)
-			});
-
-			// Parse the JSON it returns (or a helpful error object).
-			const data = await r.json();
-
-			// If the HTTP status code is not OK (>=400), show error message and bail out.
-			if (!r.ok) {
-				errorMsg = data?.error || `Server said ${r.status}`;
-				return;
-			}
-
-			// Success path: store the files to render on the page.
-			results = Array.isArray(data.files) ? (data.files as FileResult[]) : [];
-		} catch (e) {
-			// Network or parse failures end up here. Show a friendly error.
-			errorMsg = String(e);
-		} finally {
-			// Always turn off the spinner/enable buttons even if there was an error.
-			loading = false;
-		}
-	}
-
-	// ---------------------------------------------------
-	// SECTION 4: TALK TO /api/docs/generate (BUILD MARKDOWN)
-	// ---------------------------------------------------
-	// Sends the list of { path, content } to a local route that creates a
-	// human-friendly Markdown draft. No LLM involved—runs offline locally.
-	async function generateDocs() {
-		loading = true; // turn on spinner
-		errorMsg = ''; // clear errors
-		generatedMarkdown = ''; // clear any old doc
-
-		try {
-			// We only need path + content for the generator route.
-			// If content wasn't included (includeContent=false), we'll send empty strings.
-			const filesForDoc = results.map((f) => ({
-				path: f.path,
-				content: f.content || ''
-			}));
-
-			// Call the local generator route. It returns { markdown } on success.
-			const r = await fetch('/api/docs/generate', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					projectName: docTitle || 'Documentation Draft',
-					files: filesForDoc
-				})
-			});
-
-			// Read as TEXT first, so if the server ever sent HTML, we can show a helpful message.
-			const text = await r.text();
-
-			// Try to parse as JSON. If that fails, we likely received HTML/plain-text.
-			let data: any;
-			try {
-				data = JSON.parse(text);
-			} catch {
-				errorMsg =
-					`Expected JSON but got non-JSON (status ${r.status}). First bytes:\n` +
-					text.slice(0, 200);
-				return;
-			}
-
-			// If the HTTP status indicates an error, surface the server's error field (if present).
-			if (!r.ok) {
-				errorMsg = data?.error || `Generate said ${r.status}`;
-				return;
-			}
-
-			// Happy path: show the Markdown so users can read, copy, or download it.
-			generatedMarkdown = String(data.markdown || '');
-		} catch (e) {
-			errorMsg = String(e);
-		} finally {
-			loading = false;
-		}
-	}
-
-	// ---------------------------------------------------
-	// SECTION 5: SAVE TO SUPABASE (doc_outputs table)
-	// ---------------------------------------------------
-	// Push the current generatedMarkdown into your Supabase table for later retrieval.
-	async function saveDoc() {
-		// Guardrail: don't try to save an empty doc.
-		if (!generatedMarkdown) {
-			alert('Generate the document first.');
-			return;
-		}
-
-		loading = true;
-		errorMsg = '';
-
-		try {
-			// Insert one row. If there’s an RLS/policy error, Supabase returns { error }.
-			const { error } = await supabase.from('doc_outputs').insert({
-				title: docTitle || 'Untitled',
-				repo_url: repoUrl,
-				branch,
-				subdir,
-				selected_files: parseFiles(),
-				markdown: generatedMarkdown
-			});
-
-			if (error) {
-				errorMsg = error.message;
-				return;
-			}
-
-			// Friendly confirmation to show the user something good happened.
-			alert('Saved to Supabase ✅');
-		} catch (e) {
-			errorMsg = String(e);
-		} finally {
-			loading = false;
-		}
-	}
-
-	// ---------------------------------------------------
-	// SECTION 6: LOAD RECENT DOCS FROM SUPABASE
-	// ---------------------------------------------------
-	// Read the last 10 saved documents and display them as a clickable list.
-	async function loadRecentDocs(limit = 10) {
-		loading = true;
-		errorMsg = '';
-
-		try {
-			const { data, error } = await supabase
-				.from('doc_outputs')
-				.select('id, created_at, title, markdown, repo_url, branch, subdir, selected_files')
-				.order('created_at', { ascending: false })
-				.limit(limit);
-
-			if (error) {
-				errorMsg = error.message;
-				return;
-			}
-
-			recentDocs = Array.isArray(data) ? (data as DocRow[]) : [];
-
-			if (!recentDocs.length) {
-				alert('No saved docs yet.');
-			}
-		} catch (e) {
-			errorMsg = String(e);
-		} finally {
-			loading = false;
-		}
-	}
-
-	// ---------------------------------------------------
-	// SECTION 7: OPEN ONE SAVED DOC INTO THE VIEWER
-	// ---------------------------------------------------
-	// When the user clicks a saved doc, fill the viewer and optionally repopulate inputs.
-	function openDoc(doc: DocRow) {
-		generatedMarkdown = doc.markdown || '';
-		docTitle = doc.title || 'Documentation Draft';
-
-		// Optionally repopulate inputs so the user can re-run with the same settings.
-		if (doc.repo_url) repoUrl = doc.repo_url;
-		if (doc.branch) branch = doc.branch;
-		if (doc.subdir) subdir = doc.subdir;
-		if (Array.isArray(doc.selected_files)) filesText = doc.selected_files.join('\n');
-
-		// Scroll to the top so they immediately see the content.
-		window.scrollTo({ top: 0, behavior: 'smooth' });
-	}
-
-	// ---------------------------------------------------
-	// SECTION 8: DOWNLOAD THE MARKDOWN LOCALLY
-	// ---------------------------------------------------
-	// Convert the markdown string to a Blob and trigger a download in the browser.
-	function downloadMarkdown() {
-		const blob = new Blob([generatedMarkdown || ''], {
-			type: 'text/markdown;charset=utf-8'
-		});
-		const url = URL.createObjectURL(blob);
-
-		const a = document.createElement('a');
-		a.href = url;
-		a.download = (docTitle || 'documentation_draft') + '.md';
-		document.body.appendChild(a);
-		a.click();
-		a.remove();
-
-		URL.revokeObjectURL(url);
-	}
-
-	// ---------------------------------------------------
-	// SECTION 9: FILE PICKER (BROWSE GITHUB REPO)
-	// ---------------------------------------------------
-	// A small "modal" UI to browse files under `subdir` and tick checkboxes,
-	// so users don't have to manually type filenames.
-
-	// pickerOpen: whether the modal is visible or not.
-	let pickerOpen = false;
-
-	// pickerFiles: filled by the /api/github/list route, which lists repo files.
+	// Git file picker
 	let pickerFiles: Array<{ path: string; size: number }> = [];
-
-	// selectedPaths: a Set of paths the user has checked in the list.
 	let selectedPaths = new Set<string>();
 
-	// togglePick(): add/remove a path from the selected set when a checkbox is clicked.
-	function togglePick(path: string) {
-		if (selectedPaths.has(path)) selectedPaths.delete(path);
-		else selectedPaths.add(path);
+	function getMethodIcon(m: InputType) {
+		switch (m) {
+			case 'github_repo':
+				return Github;
+			case 'github_repo_directory':
+				return FolderOpen;
+			case 'zipped_folder':
+				return Upload;
+			case 'pasted_code':
+				return Code;
+		}
 	}
 
-	// browseFiles(): call our local /api/github/list to get files under subdir.
-	async function browseFiles() {
-		errorMsg = '';
+	/* ---------------- CHANGES START ---------------- */
+
+	// Clear file list + selections (used when inputs change)
+	function resetFileList() {
 		pickerFiles = [];
-		selectedPaths.clear();
+		selectedPaths = new Set();
+	}
+
+	/* ---------------- CHANGES END ---------------- */
+
+	// --- helpers (Set reactivity) ---
+	function selectAll() {
+		selectedPaths = new Set(pickerFiles.map((f) => f.path));
+	}
+	function clearAll() {
+		selectedPaths = new Set();
+	}
+	function togglePick(path: string) {
+		const next = new Set(selectedPaths);
+		if (next.has(path)) next.delete(path);
+		else next.add(path);
+		selectedPaths = next;
+	}
+	function selectedArray(): string[] {
+		return Array.from(selectedPaths);
+	}
+
+	// List files for Git (no auto-preselect)
+	async function listGitFiles() {
+		if (!(method === 'github_repo' || method === 'github_repo_directory')) return;
+
+		errorMsg = '';
+		listing = true;
+		pickerFiles = [];
+		selectedPaths = new Set();
 
 		try {
 			const r = await fetch('/api/github/list', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ repoUrl, branch, subdir })
+				body: JSON.stringify({
+					repoUrl,
+					branch,
+					subdir: method === 'github_repo_directory' ? subdir : ''
+				})
 			});
-
-			const data = await r.json();
-			if (!r.ok) {
-				errorMsg = data?.error || `List said ${r.status}`;
-				return;
-			}
+			const data = await r.json().catch(() => ({}));
+			if (!r.ok) throw new Error(data?.error || `Git list failed (${r.status})`);
 
 			pickerFiles = Array.isArray(data.files) ? data.files : [];
-			pickerOpen = true; // open the modal
+			// Do not preselect; user will choose
+			selectedPaths = new Set();
 		} catch (e) {
 			errorMsg = String(e);
+		} finally {
+			listing = false;
 		}
 	}
 
-	// Select all visible files in the modal (for convenience).
-	function pickAll() {
-		selectedPaths = new Set(pickerFiles.map((f) => f.path));
+	function buildInputContent(): string {
+		if (method === 'pasted_code') return `${pasteFilename} (pasted)`;
+		if (method === 'zipped_folder') return zipFile ? zipFile.name : '(no zip selected)';
+		const files = selectedArray();
+		return [
+			repoUrl || '',
+			branch ? `@${branch}` : '',
+			method === 'github_repo_directory' && subdir ? `/${subdir}` : '',
+			files.length ? ` • files: ${files.slice(0, 6).join(', ')}${files.length > 6 ? '…' : ''}` : ''
+		].join('');
 	}
 
-	// Clear all selections in the modal.
-	function clearAll() {
-		selectedPaths.clear();
-	}
+	// Main CTA
+	async function analyzeAndSave() {
+		errorMsg = '';
+		statusMsg = '';
+		running = true;
 
-	// Put the selected file paths into the textarea (one per line) and close the modal.
-	function useSelected() {
-		if (!selectedPaths.size) {
-			alert('Pick at least one file.');
-			return;
+		let submissionId: string | null = null;
+
+		try {
+			// 1) insert processing row
+			statusMsg = 'Queuing…';
+			const filesForLog =
+				method === 'pasted_code'
+					? [pasteFilename]
+					: method === 'zipped_folder'
+						? []
+						: selectedArray();
+
+			const source_meta =
+				method === 'pasted_code'
+					? { filename: pasteFilename }
+					: method === 'zipped_folder'
+						? { zip_name: zipFile?.name ?? null }
+						: { repoUrl, branch, ...(method === 'github_repo_directory' ? { subdir } : {}) };
+
+			{
+				const { data, error } = await supabase
+					.from('submissions')
+					.insert({
+						input_type: method,
+						input_content: buildInputContent(),
+						status: 'processing' as Status,
+						selected_files: filesForLog,
+						source_meta
+					})
+					.select('id')
+					.single();
+				if (error) throw new Error(error.message);
+				submissionId = (data as { id: string }).id;
+			}
+
+			// 2) gather files
+			statusMsg = 'Collecting source files…';
+			let filesForDoc: Array<{ path: string; content: string }> = [];
+
+			if (method === 'github_repo' || method === 'github_repo_directory') {
+				const chosen = selectedArray();
+				if (!chosen.length) throw new Error('Pick at least one file.');
+				const r = await fetch('/api/github/batchRaw', {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({
+						repoUrl,
+						branch,
+						subdir: method === 'github_repo_directory' ? subdir : '',
+						selectedFiles: chosen,
+						includeContent: true,
+						previewChars: 0,
+						maxBytes: 200_000
+					})
+				});
+				const data = await r.json().catch(() => ({}));
+				if (!r.ok) throw new Error(data?.error || `Git fetch failed (${r.status})`);
+				const got = Array.isArray(data.files) ? data.files : [];
+				filesForDoc = got.map((f: any) => ({ path: f.path, content: String(f.content || '') }));
+			} else if (method === 'zipped_folder') {
+				if (!zipFile) throw new Error('Please choose a .zip file first.');
+				const fd = new FormData();
+				fd.append('zip', zipFile);
+				fd.append('includeContent', 'true');
+				fd.append('previewChars', '0');
+				fd.append('maxBytes', '200000');
+				const r = await fetch('/api/files/zip', { method: 'POST', body: fd });
+				const data = await r.json().catch(() => ({}));
+				if (!r.ok) throw new Error(data?.error || `Zip read failed (${r.status})`);
+				const got = Array.isArray(data.files) ? data.files : [];
+				filesForDoc = got.map((f: any) => ({ path: f.path, content: String(f.content || '') }));
+			} else {
+				filesForDoc = [{ path: pasteFilename || 'snippet.txt', content: pasteCode || '' }];
+			}
+
+			if (!filesForDoc.length) throw new Error('No content gathered for summarization.');
+
+			// 3) generate
+			statusMsg = 'Summarizing with AI…';
+			const rGen = await fetch('/api/docs/generate', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ projectName: docTitle || 'Documentation Draft', files: filesForDoc })
+			});
+			const text = await rGen.text();
+			let gen: any;
+			try {
+				gen = JSON.parse(text);
+			} catch {
+				throw new Error(
+					`Expected JSON from generator but got non-JSON (status ${rGen.status}). First bytes: ${text.slice(
+						0,
+						200
+					)}`
+				);
+			}
+			if (!rGen.ok) throw new Error(gen?.error || `Generate failed (${rGen.status})`);
+			const markdown = String(gen.markdown || '');
+
+			// 4) save
+			statusMsg = 'Saving to Supabase…';
+			const { error: uerr } = await supabase
+				.from('submissions')
+				.update({
+					title: docTitle || 'Untitled',
+					markdown,
+					status: 'completed' as Status,
+					summary: markdown.replace(/\s+/g, ' ').slice(0, 200)
+				})
+				.eq('id', submissionId as string);
+			if (uerr) throw new Error(uerr.message);
+
+			// 5) go to history
+			statusMsg = 'Done. Redirecting…';
+			window.location.href = `/history?new=${submissionId}`;
+		} catch (e) {
+			errorMsg = String(e);
+			statusMsg = '';
+			if (submissionId) {
+				await supabase
+					.from('submissions')
+					.update({ status: 'failed' as Status, error_message: errorMsg.slice(0, 500) })
+					.eq('id', submissionId);
+			}
+		} finally {
+			running = false;
 		}
-		filesText = Array.from(selectedPaths).join('\n');
-		pickerOpen = false;
 	}
 </script>
 
-<!--
-  --------------------------------------------------------
-  BELOW IS THE MARKUP (HTML + Svelte bindings and logic).
-  Each section is commented to explain what it shows/does.
-  --------------------------------------------------------
--->
+<div class="min-h-screen px-4 py-8 sm:px-6 lg:px-8">
+	<div class="mx-auto max-w-3xl">
+		<div class="mb-8">
+			<h1 class="mb-2 text-3xl font-bold text-white">Submit Source</h1>
+			<p class="text-white/70">
+				Pick a method, provide inputs, select files (for Git), then Analyze & Save.
+			</p>
+		</div>
 
-<!-- Outer container with padding and vertical spacing between sections -->
-<div class="space-y-4 p-4">
-	<!-- Page title -->
-	<h1 class="text-xl font-bold">Doc Intake → Generate → Save (local)</h1>
-
-	<!-- Document title input (used for the generated doc and download filename) -->
-	<label class="block">
-		<div class="font-semibold">Document title</div>
-		<input class="w-full border p-2" bind:value={docTitle} style="background:#fff;color:#000;" />
-	</label>
-
-	<!-- Grid of inputs: repo URL, branch, subfolder, filenames -->
-	<div class="grid gap-3 md:grid-cols-2">
-		<!-- Repo URL -->
-		<label class="block">
-			<div class="font-semibold">GitHub repo URL</div>
-			<input class="w-full border p-2" bind:value={repoUrl} style="background:#fff;color:#000;" />
-		</label>
-
-		<!-- Branch -->
-		<label class="block">
-			<div class="font-semibold">Branch</div>
-			<input class="w-full border p-2" bind:value={branch} style="background:#fff;color:#000;" />
-		</label>
-
-		<!-- Subfolder -->
-		<label class="block">
-			<div class="font-semibold">Subfolder inside repo</div>
-			<input class="w-full border p-2" bind:value={subdir} style="background:#fff;color:#000;" />
-		</label>
-
-		<!-- Filenames textarea (one per line) -->
-		<label class="block md:col-span-2">
-			<div class="font-semibold">File names, one per line</div>
-			<textarea
-				class="h-28 w-full border p-2"
-				bind:value={filesText}
-				style="background:#fff;color:#000;"
-			></textarea>
-		</label>
-	</div>
-
-	<!-- Options row: include full content + safety cap field -->
-	<div class="flex items-center gap-4">
-		<label class="flex items-center gap-2">
-			<input type="checkbox" bind:checked={includeContent} />
-			<span>Include full content (respect cap)</span>
-		</label>
-
-		<label class="flex items-center gap-2">
-			<span>Cap (bytes/chars per file):</span>
-			<input
-				type="number"
-				class="w-28 border p-1"
-				bind:value={maxBytes}
-				min="50000"
-				step="10000"
-				style="background:#fff;color:#000;"
-			/>
-		</label>
-	</div>
-
-	<!-- Buttons row: browse → fetch → generate → download → save → load -->
-	<div class="flex flex-wrap gap-2">
-		<!-- Browse the repo and pick files via checkboxes -->
-		<button
-			class="rounded border px-3 py-2"
-			on:click|preventDefault={browseFiles}
-			disabled={loading}
-			style="background:#fff;color:#000;border-color:#000;"
-		>
-			Browse files (GitHub)
-		</button>
-
-		<!-- Fetch file previews (and optional content) -->
-		<button
-			class="rounded border px-3 py-2"
-			on:click|preventDefault={fetchPreviews}
-			disabled={loading}
-		>
-			{loading ? 'Working...' : '1) Fetch files'}
-		</button>
-
-		<!-- Generate the documentation draft from the files -->
-		<button
-			class="rounded border px-3 py-2"
-			on:click|preventDefault={generateDocs}
-			disabled={loading || !results.length}
-			title={!results.length ? 'Fetch files first' : ''}
-		>
-			2) Generate documentation
-		</button>
-
-		<!-- Download the generated markdown as a .md file -->
-		<button
-			class="rounded border px-3 py-2"
-			on:click|preventDefault={downloadMarkdown}
-			disabled={!generatedMarkdown}
-			title={!generatedMarkdown ? 'Generate docs first' : ''}
-		>
-			3) Download .md
-		</button>
-
-		<!-- Save the document to Supabase (doc_outputs table) -->
-		<button
-			class="rounded border px-3 py-2"
-			on:click|preventDefault={saveDoc}
-			disabled={!generatedMarkdown}
-			title={!generatedMarkdown ? 'Generate docs first' : ''}
-		>
-			4) Save to Supabase
-		</button>
-
-		<!-- Load recent saved docs from Supabase and show them in a list -->
-		<button
-			class="rounded border px-3 py-2"
-			on:click|preventDefault={() => loadRecentDocs(10)}
-			disabled={loading}
-		>
-			5) Load recent docs
-		</button>
-	</div>
-
-	<!-- Error box: only appears if errorMsg is non-empty -->
-	{#if errorMsg}
-		<div class="text-red-600">{errorMsg}</div>
-	{/if}
-
-	<!-- Results: one “card” per fetched file -->
-	{#if results.length}
-		<div class="space-y-4">
-			{#each results as f}
-				<div class="rounded border p-3">
-					<div class="font-semibold">{f.path} • {f.size} chars</div>
-					<pre class="mt-2 whitespace-pre-wrap text-sm">{f.preview}</pre>
-
-					{#if f.content}
-						<details class="mt-2">
-							<summary class="cursor-pointer text-sm underline">Full content (capped)</summary>
-							<pre class="mt-2 whitespace-pre-wrap text-xs">{f.content}</pre>
-						</details>
-					{/if}
-				</div>
+		<!-- method selector -->
+		<div class="mb-6 grid grid-cols-2 gap-2 md:grid-cols-4">
+			{#each [{ id: 'github_repo', label: 'Git Repo' }, { id: 'github_repo_directory', label: 'Git Directory' }, { id: 'zipped_folder', label: 'Zip Upload' }, { id: 'pasted_code', label: 'Paste Code' }] as opt}
+				<button
+					class="flex items-center justify-center gap-2 rounded-xl border border-white/20 px-3 py-2 text-sm text-white transition hover:bg-white/10"
+					class:selected={method === (opt.id as InputType)}
+					on:click={() => {
+						method = opt.id as InputType;
+						/* CHANGED: clear file list when switching methods */
+						resetFileList();
+					}}
+					aria-pressed={method === (opt.id as InputType)}
+				>
+					<svelte:component this={getMethodIcon(opt.id as InputType)} class="h-4 w-4" />
+					<span>{opt.label}</span>
+				</button>
 			{/each}
 		</div>
-	{/if}
 
-	<!-- Saved docs list: appears after clicking “Load recent docs” -->
-	{#if recentDocs.length}
-		<div class="rounded border p-3">
-			<div class="mb-2 font-semibold">Recent saved docs</div>
-			<ul class="list-disc pl-5">
-				{#each recentDocs as d}
-					<li class="mb-1">
-						<button class="underline" on:click={() => openDoc(d)}>
-							{new Date(d.created_at).toLocaleString()} — {d.title}
-						</button>
-					</li>
-				{/each}
-			</ul>
-		</div>
-	{/if}
+		<!-- title -->
+		<label class="mb-4 block">
+			<div class="mb-1 text-sm text-white/70">Document title</div>
+			<input
+				class="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white placeholder-white/60 outline-none focus:border-white/40"
+				bind:value={docTitle}
+				placeholder="e.g., API Overview"
+			/>
+		</label>
 
-	<!-- Markdown viewer: shows the generated or loaded markdown -->
-	{#if generatedMarkdown}
-		<div class="rounded border p-3">
-			<div class="mb-2 font-semibold">Documentation draft</div>
-			<pre class="whitespace-pre-wrap text-sm">{generatedMarkdown}</pre>
-		</div>
-	{/if}
+		{#if method === 'github_repo' || method === 'github_repo_directory'}
+			<div class="mb-4 grid gap-3 md:grid-cols-2">
+				<label class="block md:col-span-2">
+					<div class="mb-1 text-sm text-white/70">GitHub repo URL</div>
+					<input
+						class="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white placeholder-white/60 outline-none focus:border-white/40"
+						bind:value={repoUrl}
+						placeholder="https://github.com/owner/repo"
+						on:input={resetFileList}
+					/>
+				</label>
 
-	<!-- ------------------------------ -->
-	<!-- SIMPLE FILE-PICKER MODAL (UI)  -->
-	<!-- ------------------------------ -->
-	{#if pickerOpen}
-		<!-- dimmed backdrop -->
-		<div class="fixed inset-0 z-10 bg-black/40"></div>
+				<label class="block">
+					<div class="mb-1 text-sm text-white/70">Branch</div>
+					<input
+						class="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white placeholder-white/60 outline-none focus:border-white/40"
+						bind:value={branch}
+						placeholder="main"
+						on:input={resetFileList}
+					/>
+				</label>
 
-		<!-- centered panel -->
-		<div class="fixed inset-0 z-20 flex items-center justify-center p-4">
-			<div class="bg-black-1000 w-full max-w-3xl rounded border p-4 shadow">
+				{#if method === 'github_repo_directory'}
+					<label class="block">
+						<div class="mb-1 text-sm text-white/70">Subfolder (optional)</div>
+						<input
+							class="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white placeholder-white/60 outline-none focus:border-white/40"
+							bind:value={subdir}
+							placeholder="e.g. backend"
+							on:input={resetFileList}
+						/>
+					</label>
+				{/if}
+			</div>
+
+			<!-- file list -->
+			<div class="mb-6 rounded-2xl border border-white/20 bg-white/10 p-4">
 				<div class="mb-3 flex items-center justify-between">
-					<h2 class="text-lg font-semibold">Pick files from GitHub</h2>
-					<button class="text-sm underline" on:click={() => (pickerOpen = false)}>Close</button>
+					<div class="text-sm text-white/70">
+						Files in repository{#if method === 'github_repo_directory' && subdir}/{subdir}{/if}
+					</div>
+					<div class="flex items-center gap-2">
+						<!-- CHANGED: hide "Load files" when files are present -->
+						{#if !pickerFiles.length}
+							<button
+								class="rounded-lg border border-white/20 px-3 py-1 text-sm text-white hover:bg-white/10"
+								on:click={listGitFiles}
+								disabled={listing}
+								title="List files from Git"
+							>
+								{#if listing}
+									<span class="inline-flex items-center gap-2"
+										><Loader2 class="h-4 w-4 animate-spin" /> Loading…</span
+									>
+								{:else}
+									Load files
+								{/if}
+							</button>
+						{/if}
+
+						{#if pickerFiles.length}
+							<button
+								class="rounded-lg border border-white/20 px-3 py-1 text-sm text-white hover:bg-white/10"
+								on:click={selectAll}
+							>
+								Select all
+							</button>
+							<button
+								class="rounded-lg border border-white/20 px-3 py-1 text-sm text-white hover:bg-white/10"
+								on:click={clearAll}
+							>
+								Clear
+							</button>
+						{/if}
+					</div>
 				</div>
 
-				<!-- select-all / clear-all controls -->
-				<div class="mb-2 flex items-center gap-2">
-					<button class="rounded border px-2 py-1 text-sm" on:click={pickAll}>Select all</button>
-					<button class="rounded border px-2 py-1 text-sm" on:click={clearAll}>Clear</button>
-					<div class="text-sm opacity-70">({pickerFiles.length} files)</div>
-				</div>
-
-				<!-- scrollable list of files with checkboxes -->
-				<div class="max-h-80 overflow-auto rounded border">
-					{#if pickerFiles.length}
-						<ul>
+				{#if pickerFiles.length}
+					<div class="max-h-64 overflow-auto rounded-lg border border-white/10">
+						<ul class="divide-y divide-white/10">
 							{#each pickerFiles as f}
-								<li class="flex items-center gap-2 border-b p-2">
+								<li class="flex items-center gap-3 px-3 py-2">
 									<input
 										type="checkbox"
 										checked={selectedPaths.has(f.path)}
 										on:change={() => togglePick(f.path)}
 									/>
-									<span class="font-mono text-sm">{f.path}</span>
-									<span class="ml-auto text-xs opacity-60">{f.size} bytes</span>
+									<span class="font-mono text-sm text-white/90">{f.path}</span>
+									<span class="ml-auto text-xs text-white/50">{f.size} bytes</span>
 								</li>
 							{/each}
 						</ul>
-					{:else}
-						<div class="p-4 text-sm opacity-70">No files found in this folder.</div>
+					</div>
+				{:else}
+					<div class="text-sm text-white/60">No files loaded yet.</div>
+				{/if}
+			</div>
+		{:else if method === 'zipped_folder'}
+			<div class="mb-6 rounded-2xl border border-white/20 bg-white/10 p-4">
+				<label class="block">
+					<div class="mb-1 text-sm text-white/70">Upload a .zip file</div>
+					<input
+						type="file"
+						accept=".zip"
+						class="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white file:mr-3 file:rounded file:border-0 file:bg-white/20 file:px-3 file:py-1 file:text-white hover:bg-white/5"
+						on:change={(e: any) => (zipFile = e?.currentTarget?.files?.[0] ?? null)}
+					/>
+					{#if zipFile}
+						<div class="mt-2 text-sm text-white/70">Selected: {zipFile.name}</div>
 					{/if}
-				</div>
-
-				<!-- apply selection -->
-				<div class="mt-3 flex justify-end">
-					<button class="rounded border px-3 py-2" on:click={useSelected}>
-						Use selected files
-					</button>
+				</label>
+			</div>
+		{:else if method === 'pasted_code'}
+			<div class="mb-6 rounded-2xl border border-white/20 bg-white/10 p-4">
+				<div class="grid gap-3 md:grid-cols-2">
+					<label class="block">
+						<div class="mb-1 text-sm text-white/70">Filename</div>
+						<input
+							class="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white placeholder-white/60 outline-none focus:border-white/40"
+							bind:value={pasteFilename}
+							placeholder="snippet.txt"
+						/>
+					</label>
+					<div></div>
+					<label class="block md:col-span-2">
+						<div class="mb-1 text-sm text-white/70">Paste your code</div>
+						<textarea
+							class="h-48 w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white placeholder-white/60 outline-none focus:border-white/40"
+							bind:value={pasteCode}
+							placeholder="// paste here…"
+						></textarea>
+					</label>
 				</div>
 			</div>
+		{/if}
+
+		{#if errorMsg}
+			<div class="mb-4 rounded-xl border border-red-400/30 bg-red-500/10 px-3 py-2 text-red-200">
+				{errorMsg}
+			</div>
+		{/if}
+		{#if statusMsg}
+			<div class="mb-4 rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-white/80">
+				{statusMsg}
+			</div>
+		{/if}
+
+		<div class="flex items-center gap-3">
+			<button
+				class="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 px-5 py-2.5 text-white shadow hover:from-purple-600 hover:to-pink-600 disabled:opacity-60"
+				on:click|preventDefault={analyzeAndSave}
+				disabled={running}
+			>
+				{#if running}
+					<Loader2 class="h-4 w-4 animate-spin" />
+					<span>Analyzing…</span>
+				{:else}
+					<span>Analyze & Save</span>
+				{/if}
+			</button>
+
+			<a
+				href="/history"
+				class="rounded-xl border border-white/20 px-4 py-2 text-white/80 hover:bg-white/10"
+			>
+				View History
+			</a>
 		</div>
-	{/if}
+	</div>
 </div>
+
+<style>
+	button[selected],
+	button[aria-pressed='true'] {
+		background: rgba(255, 255, 255, 0.12);
+		border-color: rgba(255, 255, 255, 0.35);
+	}
+</style>
