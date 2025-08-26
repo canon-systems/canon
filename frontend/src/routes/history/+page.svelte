@@ -1,64 +1,45 @@
 <script lang="ts">
 	// ------------------------------------------------------------
 	// /history — LIST PREVIOUS REQUESTS
-	// Only necessary changes:
-	//   - Show the UUID (id) in the card list and in the modal
+	// CHANGE: We STOP fetching on the client with supabase.
+	//         We START reading data from $page.data that the server gave us.
+	// WHY:    Server-side fetching + RLS is safer, simpler, and avoids flashes.
 	// ------------------------------------------------------------
 
-	import { Clock, FileText, Github, FolderOpen, Upload, Code, ExternalLink } from '@lucide/svelte';
-	import { onMount } from 'svelte';
-	import { fade, scale } from 'svelte/transition';
-
-	import { supabase } from '$lib/supabaseClient';
-
-	let isAuthed = true;
-
-	type InputType = 'github_repo' | 'github_repo_directory' | 'zipped_folder' | 'pasted_code';
-	type Status = 'completed' | 'failed' | 'processing';
-	type SubmissionItem = {
-		id: string; // uuid (string)
-		input_type: InputType;
-		input_content: string;
-		status: Status;
-		created_date: string; // ISO (mapped from created_at)
-		summary?: string | null;
-		error_message?: string | null;
+	// 1) SvelteKit passes server data into this component as "data".
+	export let data: {
+		user: { email?: string | null } | null; // verified user (or null)
+		submissions: Array<{
+			id: string;
+			input_type: 'github_repo' | 'github_repo_directory' | 'zipped_folder' | 'pasted_code';
+			input_content: string;
+			status: 'completed' | 'failed' | 'processing';
+			created_date: string; // ISO
+			summary?: string | null;
+			error_message?: string | null;
+		}>;
+		loadError: string | null;
 	};
 
-	let submissions: SubmissionItem[] = [];
-	let isLoading = true;
+	// 2) We mirror your original types for clarity.
+	type InputType = 'github_repo' | 'github_repo_directory' | 'zipped_folder' | 'pasted_code';
+	type Status = 'completed' | 'failed' | 'processing';
+	type SubmissionItem = (typeof data.submissions)[number];
+
+	// 3) The page is protected in +page.server.ts already, so user is never null here.
+	//    We keep the simple isAuthed flag for your existing markup.
+	const isAuthed = !!data.user;
+
+	// 4) Use the server-provided list directly. No onMount needed.
+	let submissions: SubmissionItem[] = data.submissions;
+
+	// 5) Local UI state. Unchanged.
+	let isLoading = false; // server already did the loading
 	let selectedSubmission: SubmissionItem | null = null;
 
-	async function listSubmissions(_order: string, limit: number): Promise<SubmissionItem[]> {
-		const { data, error } = await supabase
-			.from('submissions')
-			.select('id, created_at, input_type, input_content, status, summary, error_message')
-			.order('created_at', { ascending: false })
-			.limit(limit);
-
-		if (error) {
-			console.warn('submissions select failed:', error.message);
-			return [];
-		}
-
-		return (data ?? []).map((row: any) => ({
-			id: String(row.id), // <- ensure string
-			input_type: row.input_type as InputType,
-			input_content: row.input_content ?? '',
-			status: row.status as Status,
-			created_date: row.created_at,
-			summary: row.summary ?? null,
-			error_message: row.error_message ?? null
-		}));
-	}
-
-	onMount(async () => {
-		try {
-			submissions = await listSubmissions('-created_date', 50);
-		} finally {
-			isLoading = false;
-		}
-	});
+	// 6) Helper functions: unchanged (formatting and icon/color choice).
+	import { Clock, FileText, Github, FolderOpen, Upload, Code, ExternalLink } from '@lucide/svelte';
+	import { fade, scale } from 'svelte/transition';
 
 	function getMethodIcon(t: InputType) {
 		switch (t) {

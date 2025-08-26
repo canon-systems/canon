@@ -1,42 +1,40 @@
 // -------------------------------------------------------------
-// PURPOSE:
-// This tiny file creates ONE Supabase client that the browser UI
-// can reuse to talk to your Supabase project (insert/select docs).
+// PURPOSE
+// Create one Supabase client for the browser only.
+// The browser client uses your public URL and public anon key.
+// Row Level Security protects the data on the server.
+// We use the SSR helper's createBrowserClient so cookies and
+// auth state line up with what the server sees.
 // -------------------------------------------------------------
 
-// We import the "createClient" function from the official SDK.
-// This SDK knows how to talk to Supabase over HTTPS.
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+// We import the "createBrowserClient" from the Supabase SSR helper.
+// This version is made for browser use and cooperates with cookies.
+import { createBrowserClient, type SupabaseClient } from "@supabase/ssr";
 
-// We read the PUBLIC env vars from SvelteKit's public env module.
-// IMPORTANT: only variables starting with PUBLIC_ are exposed to the browser.
-// You already have these in your .env (safe to ship to the client).
+// We read the public env values SvelteKit exposes to the browser.
+// Only PUBLIC_ variables are available on the client side.
 import {
     PUBLIC_SUPABASE_URL,
     PUBLIC_SUPABASE_ANON_KEY
 } from "$env/static/public";
 
-// We do a tiny bit of guard-rail checking so errors are obvious.
-// If either value is missing, we throw right now with a friendly message.
-// (This shows up clearly in your browser console/dev server logs.)
+// Helpful guard so misconfigurations are loud and clear.
+// If you forget to set these in .env, you will see an error early.
 if (!PUBLIC_SUPABASE_URL) {
     throw new Error(
-        "PUBLIC_SUPABASE_URL is missing. Put it in frontend/.env (or .env.local)."
+        "PUBLIC_SUPABASE_URL is missing. Put it in frontend/.env or .env.local."
     );
 }
 if (!PUBLIC_SUPABASE_ANON_KEY) {
     throw new Error(
-        "PUBLIC_SUPABASE_ANON_KEY is missing. Put it in frontend/.env (or .env.local)."
+        "PUBLIC_SUPABASE_ANON_KEY is missing. Put it in frontend/.env or .env.local."
     );
 }
 
-// We create ONE shared client instance using your project's URL and anon key.
-// The anon key is the public, browser-safe key (limited by RLS policies).
-export const supabase: SupabaseClient = createClient(
+// We create one shared browser client.
+// The anon key is safe for the browser because RLS protects your data.
+// We do not pass custom headers here. Defaults are fine for now.
+export const supabase: SupabaseClient = createBrowserClient(
     PUBLIC_SUPABASE_URL,
-    PUBLIC_SUPABASE_ANON_KEY,
-    {
-        // Optional settings (left default/simple for now):
-        // - You could set auth.persistSession, headers, etc.
-    }
+    PUBLIC_SUPABASE_ANON_KEY
 );

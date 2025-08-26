@@ -7,6 +7,12 @@
 	//   - Hide the "Load files" button once files are loaded
 	//   - Reset file list when repoUrl/branch/subdir/method changes (so lists don't carry over)
 	//   - Redirect to /edit/{id} after successful analyze+save
+	// RLS NOTE (important):
+	//   Our table has created_by defaulting to auth.uid().
+	//   Policies only allow a user to read/update/delete rows where
+	//   created_by = auth.uid(). We never set created_by in the client.
+	//   Postgres fills it in. This guarantees the row belongs to the
+	//   current user and prevents cross-user access.
 	// ------------------------------------------------------------
 
 	import { supabase } from '$lib/supabaseClient';
@@ -56,57 +62,54 @@
 
 	// ---------------- HELPERS ----------------
 
-	// IMPORTANT: In Svelte, mutating a Set in place (e.g., .clear()) won't trigger reactivity.
-	// To notify the UI, always assign a *new* Set instance.
+	// IMPORTANT: In Svelte, mutating a Set in place (e.g., .clear()) will not trigger reactivity.
+	// To notify the UI, always assign a new Set instance.
 	function selectAll() {
-		// CHANGED: assign a new Set so checkboxes react immediately
-		selectedPaths = new Set(pickerFiles.map((f) => f.path)); // NEW
+		// assign a new Set so checkboxes react immediately
+		selectedPaths = new Set(pickerFiles.map((f) => f.path));
 	}
 	function clearAll() {
-		// CHANGED: assign a brand new Set (not .clear()) for reactivity
-		selectedPaths = new Set(); // NEW
+		// assign a brand new Set (not .clear()) for reactivity
+		selectedPaths = new Set();
 	}
 	function togglePick(path: string) {
-		// CHANGED: clone -> mutate -> reassign (reactive)
-		const next = new Set(selectedPaths); // NEW
+		// clone -> mutate -> reassign (reactive)
+		const next = new Set(selectedPaths);
 		if (next.has(path)) next.delete(path);
 		else next.add(path);
-		selectedPaths = next; // NEW
+		selectedPaths = next;
 	}
 	function selectedArray(): string[] {
 		return Array.from(selectedPaths);
 	}
 
 	// --------- REACT to Git input changes (reset lists) ----------
-	// These reactive statements ensure the file list is *cleared* whenever
-	// any Git selector changes, so lists never carry across inputs.
-
 	// Is current method a Git method?
-	$: isGit = method === 'github_repo' || method === 'github_repo_directory'; // NEW
+	$: isGit = method === 'github_repo' || method === 'github_repo_directory';
 
 	// A key that changes whenever relevant Git params change
 	$: gitKey = isGit
 		? `${method}|${repoUrl}|${branch}|${method === 'github_repo_directory' ? subdir : ''}`
-		: ''; // NEW
+		: '';
 
 	// When leaving Git methods altogether, wipe lists
 	$: if (!isGit) {
-		pickerFiles = []; // NEW
-		selectedPaths = new Set(); // NEW
+		pickerFiles = [];
+		selectedPaths = new Set();
 	}
 
-	// When *any* Git input changes (repo/branch/subdir/method), wipe lists
+	// When any Git input changes (repo/branch/subdir/method), wipe lists
 	$: if (isGit && gitKey) {
 		// This runs whenever gitKey changes (Svelte tracks the dependency).
-		pickerFiles = []; // NEW
-		selectedPaths = new Set(); // NEW
+		pickerFiles = [];
+		selectedPaths = new Set();
 	}
 
 	// Whether to show the "Load files" button:
 	// - Only for Git methods
 	// - Only when files are not loaded yet
-	// - Not while we're listing
-	$: showLoadButton = isGit && !pickerFiles.length && !listing; // NEW
+	// - Not while we are listing
+	$: showLoadButton = isGit && !pickerFiles.length && !listing;
 
 	// --------- List files for Git methods ----------
 	async function listGitFiles() {
@@ -132,9 +135,7 @@
 
 			pickerFiles = Array.isArray(data.files) ? data.files : [];
 
-			// NOTE: Previously, we preselected all files. The new requirement is:
-			// "Files should not all be selected initially."
-			// So we intentionally do *not* call selectAll() here. // CHANGED
+			// We intentionally do NOT preselect files.
 		} catch (e) {
 			errorMsg = String(e);
 		} finally {
@@ -182,6 +183,12 @@
 						? { zip_name: zipFile?.name ?? null }
 						: { repoUrl, branch, ...(method === 'github_repo_directory' ? { subdir } : {}) };
 
+			// ------------------------------------------------------------
+			// RLS ENFORCEMENT (important)
+			// We do NOT send created_by. Postgres fills created_by = auth.uid().
+			// Our policy allows INSERT only when created_by = auth.uid().
+			// This guarantees the new row belongs to the current user.
+			// ------------------------------------------------------------
 			{
 				const { data, error } = await supabase
 					.from('submissions')
@@ -196,7 +203,10 @@
 					.single();
 
 				if (error) throw new Error(error.message);
-				submissionId = (data as { id: string }).id;
+				submissionId = (data as { id: string }).id ?? null;
+
+				// tiny guard so we fail early if something odd happened
+				if (!submissionId) throw new Error('Insert did not return a submission id.');
 			}
 
 			// 2) Gather files/content for LLM
@@ -269,6 +279,8 @@
 
 			// 4) Save final result
 			statusMsg = 'Saving to Supabase…';
+			// RLS allows UPDATE only if created_by = auth.uid().
+			// Because this row was created by us, this update will succeed only for us.
 			const { error: uerr } = await supabase
 				.from('submissions')
 				.update({
@@ -280,9 +292,9 @@
 				.eq('id', submissionId as string);
 			if (uerr) throw new Error(uerr.message);
 
-			// 5) Done → /edit/{id}  (CHANGED from /history)
+			// 5) Done → /edit/{id} (changed from /history)
 			statusMsg = 'Done. Redirecting…';
-			window.location.href = `/edit/${submissionId}`; // CHANGED
+			window.location.href = `/edit/${submissionId}`;
 		} catch (e) {
 			errorMsg = String(e);
 			statusMsg = '';
