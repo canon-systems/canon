@@ -29,8 +29,6 @@
 	let saveMsg = '';
 	let saveErr = '';
 
-	let previewPane: HTMLDivElement | null = null;
-
 	// 4) Bring in Supabase + icons
 	import { supabase } from '$lib/supabaseClient';
 	import { Loader2 } from '@lucide/svelte';
@@ -91,6 +89,9 @@
 		}
 	}
 
+	// Add a ref to the preview container for imperative scrolling.
+	let previewPane: HTMLDivElement | null = null;
+
 	// Scroll-sync: when editor emits a ratio (0..1), scroll preview accordingly.
 	function handleCursor(e: CustomEvent<{ ratio: number }>) {
 		if (!previewPane) return;
@@ -137,19 +138,21 @@
 		<div class="space-y-2">
 			<div class="mb-1 text-sm text-white/70">Content</div>
 
-			<!-- Center a wide workspace across the viewport -->
 			<div class="flex justify-center">
-				<!-- Wide container across most of the screen, with a comfortable gap -->
 				<div class="flex w-[95vw] max-w-[1800px] gap-8">
-					<!-- Left: Rich Text Editor (exact 50%) with its own vertical scroll -->
+					<!-- Left: Editor pane (fills and scrolls internally) -->
 					<div class="h-[78vh] flex-[0_0_50%]">
-						<!-- The editor's outer container is flex-col h-full, so it fills and scrolls inside -->
-						<RichTextEditor initialHTML={String(initialHTML)} on:change={handleChange} />
+						<RichTextEditor
+							initialHTML={String(initialHTML)}
+							on:change={handleChange}
+							on:cursor={handleCursor}
+						/>
 					</div>
 
-					<!-- Right: Live Preview (exact 50%) with its own vertical scroll -->
+					<!-- Right: Preview pane (its own scrollbar) -->
 					<div
 						class="h-[78vh] flex-[0_0_50%] overflow-y-auto rounded-2xl border border-white/10 bg-black/20 p-6 backdrop-blur-md"
+						bind:this={previewPane}
 					>
 						<div class="mb-2 text-sm text-white/70">Live preview</div>
 						<div
