@@ -1,61 +1,46 @@
 <script lang="ts">
-	import { Clock, FileText, Github, FolderOpen, Upload, Code, ExternalLink } from '@lucide/svelte';
-	import { onMount } from 'svelte';
-	import { fade, scale } from 'svelte/transition';
+	// ------------------------------------------------------------
+	// /history — LIST PREVIOUS REQUESTS
+	// CHANGE: We STOP fetching on the client with supabase.
+	//         We START reading data from $page.data that the server gave us.
+	// WHY:    Server-side fetching + RLS is safer, simpler, and avoids flashes.
+	// ------------------------------------------------------------
 
-	// Simple auth flag (replace with your real check later)
-	let isAuthed = true;
-
-	// Types + state
-	type InputType = 'github_repo' | 'github_repo_directory' | 'zipped_folder' | 'pasted_code';
-	type Status = 'completed' | 'failed' | 'processing';
-	type SubmissionItem = {
-		id: number;
-		input_type: InputType;
-		input_content: string;
-		status: Status;
-		created_date: string; // ISO
-		summary?: string;
-		error_message?: string;
+	// 1) SvelteKit passes server data into this component as "data".
+	export let data: {
+		user: { email?: string | null } | null; // verified user (or null)
+		submissions: Array<{
+			id: string;
+			input_type: 'github_repo' | 'github_repo_directory' | 'zipped_folder' | 'pasted_code';
+			input_content: string;
+			status: 'completed' | 'failed' | 'processing';
+			created_date: string; // ISO
+			summary?: string | null;
+			error_message?: string | null;
+		}>;
+		loadError: string | null;
 	};
 
-	let submissions: SubmissionItem[] = [];
-	let isLoading = true;
+	// 2) We mirror your original types for clarity.
+	type InputType = 'github_repo' | 'github_repo_directory' | 'zipped_folder' | 'pasted_code';
+	type Status = 'completed' | 'failed' | 'processing';
+	type SubmissionItem = (typeof data.submissions)[number];
+
+	// 3) The page is protected in +page.server.ts already, so user is never null here.
+	//    We keep the simple isAuthed flag for your existing markup.
+	const isAuthed = !!data.user;
+
+	// 4) Use the server-provided list directly. No onMount needed.
+	let submissions: SubmissionItem[] = data.submissions;
+
+	// 5) Local UI state. Unchanged.
+	let isLoading = false; // server already did the loading
 	let selectedSubmission: SubmissionItem | null = null;
 
-	// Fake API — swap with your real Submission.list
-	async function listSubmissions(_order: string, limit: number): Promise<SubmissionItem[]> {
-		await new Promise((r) => setTimeout(r, 400));
-		const now = Date.now();
-		const demo: SubmissionItem[] = [
-			{
-				id: now - 1,
-				input_type: 'github_repo',
-				input_content: 'https://github.com/sveltejs/kit',
-				status: 'completed',
-				created_date: new Date(now - 30 * 60 * 1000).toISOString(),
-				summary: 'SvelteKit app framework with file-based routing.'
-			},
-			{
-				id: now - 2,
-				input_type: 'github_repo_directory',
-				input_content: 'https://github.com/vercel/next.js/tree/canary/packages/next/src',
-				status: 'processing',
-				created_date: new Date(now - 90 * 60 * 1000).toISOString()
-			}
-		];
-		return demo.slice(0, limit);
-	}
+	// 6) Helper functions: unchanged (formatting and icon/color choice).
+	import { Clock, FileText, Github, FolderOpen, Upload, Code, ExternalLink } from '@lucide/svelte';
+	import { fade, scale } from 'svelte/transition';
 
-	onMount(async () => {
-		try {
-			submissions = await listSubmissions('-created_date', 50);
-		} finally {
-			isLoading = false;
-		}
-	});
-
-	// Helpers
 	function getMethodIcon(t: InputType) {
 		switch (t) {
 			case 'github_repo':
@@ -103,7 +88,6 @@
 </script>
 
 {#if !isAuthed}
-	<!-- Unauthed view -->
 	<div class="flex min-h-screen items-center justify-center p-6">
 		<div class="rounded-2xl border border-white/20 bg-white/10 p-6 text-center text-white">
 			<p class="mb-4">You must be signed in to view history</p>
@@ -111,7 +95,6 @@
 		</div>
 	</div>
 {:else}
-	<!-- Authed view -->
 	<div class="min-h-screen px-4 py-8 sm:px-6 lg:px-8">
 		<div class="mx-auto max-w-6xl">
 			<!-- Header -->
@@ -187,6 +170,10 @@
 								</div>
 							</div>
 
+							<!-- NEW: show UUID under the snippet for auditability -->
+							<div class="mt-2 font-mono text-xs text-white/50">ID: {s.id}</div>
+							<!-- NEW -->
+
 							<div class="mt-2 line-clamp-3 break-all text-sm text-white/80">
 								{s.input_content}
 							</div>
@@ -216,7 +203,6 @@
 
 			<!-- Modal -->
 			{#if selectedSubmission}
-				<!-- Backdrop -->
 				<div
 					class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
 					role="button"
@@ -235,7 +221,6 @@
 					in:fade={{ duration: 120 }}
 					out:fade={{ duration: 120 }}
 				>
-					<!-- Dialog panel -->
 					<div
 						class="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-2xl border border-white/20 bg-white/10 outline-none backdrop-blur-md"
 						role="dialog"
@@ -257,13 +242,18 @@
 								type="button"
 								class="rounded px-2 py-1 text-white/80 hover:bg-white/10 hover:text-white"
 								aria-label="Close"
-								on:click={() => (selectedSubmission = null)}
+								on:click={() => (selectedSubmission = null)}>✕</button
 							>
-								✕
-							</button>
 						</div>
 
 						<div id="analysis-dialog-desc" class="space-y-6 p-6 text-white">
+							<!-- NEW: Show UUID prominently -->
+							<div>
+								<p class="text-sm text-white/60">ID</p>
+								<p class="font-mono text-sm text-white/80">{selectedSubmission.id}</p>
+								<!-- NEW -->
+							</div>
+
 							<div class="grid grid-cols-2 gap-4">
 								<div>
 									<p class="text-sm text-white/60">Method</p>
@@ -329,6 +319,16 @@
 										</p>
 									</div>
 								{/if}
+							</div>
+
+							<!-- Optional: link to edit this item directly -->
+							<div class="pt-2">
+								<a
+									class="inline-flex items-center gap-2 rounded border border-white/20 px-3 py-1 text-sm text-white hover:bg-white/10"
+									href={`/edit/${selectedSubmission.id}`}
+								>
+									Edit this doc
+								</a>
 							</div>
 						</div>
 					</div>

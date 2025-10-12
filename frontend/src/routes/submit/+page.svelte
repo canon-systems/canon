@@ -1,444 +1,529 @@
 <script lang="ts">
-	/**
-	 * /submit page (client)
-	 * - Opens a modal to collect input for one of 4 source types
-	 * - Submits to +page.server.ts via SvelteKit form "enhance"
-	 * - After server action finishes, `form` updates; we close the modal reactively
-	 * - Lets you list files by calling /api/github/list with server‑confirmed values
-	 */
+	// ------------------------------------------------------------
+	// /submit — Streamlined intake → summarize → save
+	// Only necessary changes:
+	//   - Do NOT preselect all files when loading Git files
+	//   - "Clear" now truly deselects everything (reactive Set reassign)
+	//   - Hide the "Load files" button once files are loaded
+	//   - Reset file list when repoUrl/branch/subdir/method changes (so lists don't carry over)
+	//   - Redirect to /edit/{id} after successful analyze+save
+	// RLS NOTE (important):
+	//   Our table has created_by defaulting to auth.uid().
+	//   Policies only allow a user to read/update/delete rows where
+	//   created_by = auth.uid(). We never set created_by in the client.
+	//   Postgres fills it in. This guarantees the row belongs to the
+	//   current user and prevents cross-user access.
+	// ------------------------------------------------------------
 
-	import { enhance } from '$app/forms';
+	import { supabase } from '$lib/supabaseClient';
+	import { Github, FolderOpen, Upload, Code, Loader2 } from '@lucide/svelte';
 
-	// From the server load() / action()
-	export let data: { envStatus: { allPresent: boolean; status: Record<string, boolean> } };
-	export let form: any;
+	type InputType = 'github_repo' | 'github_repo_directory' | 'zipped_folder' | 'pasted_code';
+	type Status = 'completed' | 'failed' | 'processing';
 
-	type SourceType = 'github' | 'git_subdir' | 'zip' | 'snippet' | null;
+	// ---------------- UI STATE ----------------
+	let method: InputType = 'github_repo_directory';
 
-	// Which source the user is working with (controls which form fields appear)
-	let selected: SourceType = null;
+	// Git inputs
+	let repoUrl = 'https://github.com/John-Sellers/documentation-generator';
+	let branch = 'master';
+	let subdir = 'backend';
 
-	// Modal visibility flag
-	let modalOpen = false;
+	// Zip & Paste inputs
+	let zipFile: File | null = null;
+	let pasteFilename = 'snippet.txt';
+	let pasteCode = '';
 
-	// Local inputs bound to form fields in the modal
-	let inputs = {
-		repoUrl: '',
-		branch: '',
-		subdir: '',
-		snippet: ''
-	};
+	// Doc title (saved with the record)
+	let docTitle = 'Documentation Draft';
 
-	// Open/close modal helpers
-	function openModal(type: SourceType) {
-		selected = type;
-		modalOpen = true;
-	}
-	function closeModal() {
-		modalOpen = false;
-	}
+	// Progress + errors
+	let listing = false; // when loading Git file list
+	let running = false; // when orchestrating analyze → save
+	let errorMsg = '';
+	let statusMsg = ''; // small status line while running
 
-	// IMPORTANT:
-	// In SvelteKit v2, `enhance` can be used with no options. When the server
-	// action finishes, SvelteKit injects the return value into the `form` prop.
-	// We watch `form` reactively: once it changes *and* the modal is open, we
-	// close the modal so the success panel underneath is visible.
-	$: if (modalOpen && form) {
-		modalOpen = false;
-	}
+	// Git file picker data
+	let pickerFiles: Array<{ path: string; size: number }> = [];
+	let selectedPaths = new Set<string>();
 
-	// If the user pasted a GitHub "tree" URL, auto‑fill branch/subdir on blur
-	function tryAutofillFromUrl(url: string) {
-		try {
-			const u = new URL(url);
-			if (u.hostname !== 'github.com') return;
-			const parts = u.pathname.split('/').filter(Boolean);
-			// e.g. /owner/repo/tree/<branch>/<maybe/sub/dir/...>
-			if (parts.length >= 4 && parts[2] === 'tree') {
-				const branch = parts[3];
-				const rest = parts.slice(4);
-				if (!inputs.branch) inputs.branch = branch;
-				if (!inputs.subdir && rest.length > 0) inputs.subdir = rest.join('/');
-			}
-		} catch {
-			// ignore malformed URLs
+	function getMethodIcon(m: InputType) {
+		switch (m) {
+			case 'github_repo':
+				return Github;
+			case 'github_repo_directory':
+				return FolderOpen;
+			case 'zipped_folder':
+				return Upload;
+			case 'pasted_code':
+				return Code;
 		}
 	}
 
-	// ─────────── File listing state & helpers (uses /api/github/list) ───────────
-	let files: Array<{ path: string; size: number }> = [];
-	let selectedPaths = new Set<string>();
-	let listingError = '';
-	let isListing = false;
+	// ---------------- HELPERS ----------------
 
-	// Prefer server‑confirmed values (form.echo.*) after submit, fallback to current inputs
-	function effectiveRepoUrl(): string {
-		return (form?.echo?.repoUrl ?? inputs.repoUrl ?? '').toString().trim();
+	// IMPORTANT: In Svelte, mutating a Set in place (e.g., .clear()) will not trigger reactivity.
+	// To notify the UI, always assign a new Set instance.
+	function selectAll() {
+		// assign a new Set so checkboxes react immediately
+		selectedPaths = new Set(pickerFiles.map((f) => f.path));
 	}
-	function effectiveBranch(): string {
-		return (form?.echo?.branch ?? inputs.branch ?? '').toString().trim();
+	function clearAll() {
+		// assign a brand new Set (not .clear()) for reactivity
+		selectedPaths = new Set();
 	}
-	function effectiveSubdir(): string {
-		return (form?.echo?.subdir ?? inputs.subdir ?? '').toString().trim();
+	function togglePick(path: string) {
+		// clone -> mutate -> reassign (reactive)
+		const next = new Set(selectedPaths);
+		if (next.has(path)) next.delete(path);
+		else next.add(path);
+		selectedPaths = next;
+	}
+	function selectedArray(): string[] {
+		return Array.from(selectedPaths);
 	}
 
-	async function fetchFiles() {
-		listingError = '';
-		files = [];
-		selectedPaths.clear();
-		isListing = true;
+	// --------- REACT to Git input changes (reset lists) ----------
+	// Is current method a Git method?
+	$: isGit = method === 'github_repo' || method === 'github_repo_directory';
+
+	// A key that changes whenever relevant Git params change
+	$: gitKey = isGit
+		? `${method}|${repoUrl}|${branch}|${method === 'github_repo_directory' ? subdir : ''}`
+		: '';
+
+	// When leaving Git methods altogether, wipe lists
+	$: if (!isGit) {
+		pickerFiles = [];
+		selectedPaths = new Set();
+	}
+
+	// When any Git input changes (repo/branch/subdir/method), wipe lists
+	$: if (isGit && gitKey) {
+		// This runs whenever gitKey changes (Svelte tracks the dependency).
+		pickerFiles = [];
+		selectedPaths = new Set();
+	}
+
+	// Whether to show the "Load files" button:
+	// - Only for Git methods
+	// - Only when files are not loaded yet
+	// - Not while we are listing
+	$: showLoadButton = isGit && !pickerFiles.length && !listing;
+
+	// --------- List files for Git methods ----------
+	async function listGitFiles() {
+		if (!isGit) return;
+
+		errorMsg = '';
+		listing = true;
+		pickerFiles = [];
+		selectedPaths = new Set(); // ensure fresh state
 
 		try {
-			const payload: any = {
-				repoUrl: effectiveRepoUrl(),
-				branch: effectiveBranch()
-			};
-			const subdir = effectiveSubdir();
-			if (subdir) payload.subdir = subdir;
-
-			if (!payload.repoUrl || !/^https?:\/\/(www\.)?github\.com\//i.test(payload.repoUrl)) {
-				listingError = 'Please provide a valid GitHub repo URL in the form.';
-				return;
-			}
-
-			const res = await fetch('/api/github/list', {
+			const r = await fetch('/api/github/list', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify(payload)
+				body: JSON.stringify({
+					repoUrl,
+					branch,
+					subdir: method === 'github_repo_directory' ? subdir : ''
+				})
 			});
-			const data = await res.json();
+			const data = await r.json().catch(() => ({}));
+			if (!r.ok) throw new Error(data?.error || `Git list failed (${r.status})`);
 
-			if (!res.ok) {
-				listingError = data?.error || 'Failed to list files.';
-				return;
-			}
+			pickerFiles = Array.isArray(data.files) ? data.files : [];
 
-			files = data.files || [];
-
-			// Convenience pre‑selections
-			for (const f of files) {
-				const p = f.path.toLowerCase();
-				if (
-					p.endsWith('readme.md') ||
-					p.endsWith('main.py') ||
-					p.endsWith('main.go') ||
-					p.endsWith('index.ts') ||
-					p.endsWith('app.svelte')
-				) {
-					selectedPaths.add(f.path);
-				}
-			}
-		} catch (e: any) {
-			listingError = e?.message || 'Unexpected error while listing files.';
+			// We intentionally do NOT preselect files.
+		} catch (e) {
+			errorMsg = String(e);
 		} finally {
-			isListing = false;
+			listing = false;
 		}
 	}
 
-	function togglePath(p: string) {
-		if (selectedPaths.has(p)) selectedPaths.delete(p);
-		else selectedPaths.add(p);
-		// reassign so Svelte detects the Set change
-		selectedPaths = new Set(selectedPaths);
+	// Build a friendly input_content string for logging
+	function buildInputContent(): string {
+		if (method === 'pasted_code') return `${pasteFilename} (pasted)`;
+		if (method === 'zipped_folder') return zipFile ? zipFile.name : '(no zip selected)';
+
+		// Git
+		const files = selectedArray();
+		return [
+			repoUrl || '',
+			branch ? `@${branch}` : '',
+			method === 'github_repo_directory' && subdir ? `/${subdir}` : '',
+			files.length ? ` • files: ${files.slice(0, 6).join(', ')}${files.length > 6 ? '…' : ''}` : ''
+		].join('');
+	}
+
+	// ---------------- MAIN CTA: ANALYZE & SAVE ----------------
+	async function analyzeAndSave() {
+		errorMsg = '';
+		statusMsg = '';
+		running = true;
+
+		let submissionId: string | null = null;
+
+		try {
+			// 1) Log "processing"
+			statusMsg = 'Queuing…';
+			const filesForLog =
+				method === 'pasted_code'
+					? [pasteFilename]
+					: method === 'zipped_folder'
+						? []
+						: selectedArray(); // zip names are captured in source_meta
+
+			const source_meta =
+				method === 'pasted_code'
+					? { filename: pasteFilename }
+					: method === 'zipped_folder'
+						? { zip_name: zipFile?.name ?? null }
+						: { repoUrl, branch, ...(method === 'github_repo_directory' ? { subdir } : {}) };
+
+			// ------------------------------------------------------------
+			// RLS ENFORCEMENT (important)
+			// We do NOT send created_by. Postgres fills created_by = auth.uid().
+			// Our policy allows INSERT only when created_by = auth.uid().
+			// This guarantees the new row belongs to the current user.
+			// ------------------------------------------------------------
+			{
+				const { data, error } = await supabase
+					.from('submissions')
+					.insert({
+						input_type: method,
+						input_content: buildInputContent(),
+						status: 'processing' as Status,
+						selected_files: filesForLog,
+						source_meta
+					})
+					.select('id')
+					.single();
+
+				if (error) throw new Error(error.message);
+				submissionId = (data as { id: string }).id ?? null;
+
+				// tiny guard so we fail early if something odd happened
+				if (!submissionId) throw new Error('Insert did not return a submission id.');
+			}
+
+			// 2) Gather files/content for LLM
+			statusMsg = 'Collecting source files…';
+			let filesForDoc: Array<{ path: string; content: string }> = [];
+
+			if (isGit) {
+				const chosen = selectedArray();
+				if (!chosen.length) throw new Error('Pick at least one file.');
+				const r = await fetch('/api/github/batchRaw', {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({
+						repoUrl,
+						branch,
+						subdir: method === 'github_repo_directory' ? subdir : '',
+						selectedFiles: chosen,
+						includeContent: true,
+						previewChars: 0,
+						maxBytes: 200_000
+					})
+				});
+				const data = await r.json().catch(() => ({}));
+				if (!r.ok) throw new Error(data?.error || `Git fetch failed (${r.status})`);
+				const got = Array.isArray(data.files) ? data.files : [];
+				filesForDoc = got.map((f: any) => ({ path: f.path, content: String(f.content || '') }));
+			} else if (method === 'zipped_folder') {
+				if (!zipFile) throw new Error('Please choose a .zip file first.');
+				const fd = new FormData();
+				fd.append('zip', zipFile);
+				fd.append('includeContent', 'true');
+				fd.append('previewChars', '0');
+				fd.append('maxBytes', '200000');
+				const r = await fetch('/api/files/zip', { method: 'POST', body: fd });
+				const data = await r.json().catch(() => ({}));
+				if (!r.ok) throw new Error(data?.error || `Zip read failed (${r.status})`);
+				const got = Array.isArray(data.files) ? data.files : [];
+				filesForDoc = got.map((f: any) => ({ path: f.path, content: String(f.content || '') }));
+			} else {
+				// pasted_code
+				filesForDoc = [{ path: pasteFilename || 'snippet.txt', content: pasteCode || '' }];
+			}
+
+			if (!filesForDoc.length) throw new Error('No content gathered for summarization.');
+
+			// 3) LLM: generate documentation
+			statusMsg = 'Summarizing with AI…';
+			const rGen = await fetch('/api/docs/generate', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					projectName: docTitle || 'Documentation Draft',
+					files: filesForDoc
+				})
+			});
+			const text = await rGen.text();
+			let gen: any;
+			try {
+				gen = JSON.parse(text);
+			} catch {
+				throw new Error(
+					`Expected JSON from generator but got non-JSON (status ${rGen.status}). First bytes: ${text.slice(
+						0,
+						200
+					)}`
+				);
+			}
+			if (!rGen.ok) throw new Error(gen?.error || `Generate failed (${rGen.status})`);
+			const markdown = String(gen.markdown || '');
+
+			// 4) Save final result
+			statusMsg = 'Saving to Supabase…';
+			// RLS allows UPDATE only if created_by = auth.uid().
+			// Because this row was created by us, this update will succeed only for us.
+			const { error: uerr } = await supabase
+				.from('submissions')
+				.update({
+					title: docTitle || 'Untitled',
+					markdown,
+					status: 'completed' as Status,
+					summary: markdown.replace(/\s+/g, ' ').slice(0, 200)
+				})
+				.eq('id', submissionId as string);
+			if (uerr) throw new Error(uerr.message);
+
+			// 5) Done → /edit/{id} (changed from /history)
+			statusMsg = 'Done. Redirecting…';
+			window.location.href = `/edit/${submissionId}`;
+		} catch (e) {
+			errorMsg = String(e);
+			statusMsg = '';
+			// best-effort: mark failed if we created a submission row
+			if (submissionId) {
+				await supabase
+					.from('submissions')
+					.update({ status: 'failed' as Status, error_message: errorMsg.slice(0, 500) })
+					.eq('id', submissionId);
+			}
+		} finally {
+			running = false;
+		}
 	}
 </script>
 
-<!-- PAGE WRAPPER -->
-<div class="mx-auto max-w-3xl p-6">
-	<h1 class="mb-2 text-3xl font-bold text-white">Connect a source</h1>
-	<p class="mb-6 text-white/80">Choose a method, fill in the form, then submit.</p>
-
-	<!-- Env status -->
-	{#if data?.envStatus}
-		{#if data.envStatus.allPresent}
-			<div class="mb-6 rounded-xl border border-emerald-300/40 bg-emerald-500/20 p-4 text-white">
-				<div class="font-semibold">Server can read all Orkes variables</div>
-				<p class="text-sm opacity-80">You are ready to start workflows.</p>
-			</div>
-		{:else}
-			<div class="mb-6 rounded-xl border border-red-300/50 bg-red-500/20 p-4 text-white">
-				<div class="font-semibold">Some variables are missing</div>
-				<p class="text-sm opacity-80">Fix <code>.env.local</code> and restart the dev server.</p>
-				<ul class="mt-2 list-disc pl-6 text-sm">
-					{#each Object.entries(data.envStatus.status) as [k, present]}
-						{#if !present}<li>{k} is missing</li>{/if}
-					{/each}
-				</ul>
-			</div>
-		{/if}
-	{/if}
-
-	<!-- Source picker -->
-	<div class="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
-		<button
-			class="rounded-xl border border-white/20 bg-white/10 px-4 py-3 text-left text-white hover:bg-white/20"
-			on:click={() => openModal('github')}
-		>
-			<div class="font-semibold">GITHUB REPOSITORY</div>
-			<div class="text-xs text-white/70">Analyze the whole repo</div>
-		</button>
-
-		<button
-			class="rounded-xl border border-white/20 bg-white/10 px-4 py-3 text-left text-white hover:bg-white/20"
-			on:click={() => openModal('git_subdir')}
-		>
-			<div class="font-semibold">GIT SUBDIRECTORY</div>
-			<div class="text-xs text-white/70">Focus on a folder inside a repo</div>
-		</button>
-
-		<button
-			class="rounded-xl border border-white/20 bg-white/10 px-4 py-3 text-left text-white hover:bg-white/20"
-			on:click={() => openModal('zip')}
-		>
-			<div class="font-semibold">ZIP UPLOAD</div>
-			<div class="text-xs text-white/70">Upload a .zip</div>
-		</button>
-
-		<button
-			class="rounded-xl border border-white/20 bg-white/10 px-4 py-3 text-left text-white hover:bg-white/20"
-			on:click={() => openModal('snippet')}
-		>
-			<div class="font-semibold">PASTED CODE</div>
-			<div class="text-xs text-white/70">Paste code directly</div>
-		</button>
-	</div>
-
-	<!-- Success & workflow details -->
-	{#if form?.ok}
-		<div class="rounded-xl border border-emerald-300/40 bg-emerald-500/20 p-4 text-white">
-			<div class="font-semibold">Inputs received by the server ✓</div>
-			<p class="text-sm opacity-80">Exactly what was sent to your Orkes workflow:</p>
-			<pre class="mt-2 overflow-auto rounded bg-black/30 p-3 text-xs">{JSON.stringify(
-					form.echo,
-					null,
-					2
-				)}</pre>
-		</div>
-
-		{#if form?.orkes}
-			<div class="mt-4 rounded-xl border border-white/20 bg-white/10 p-3 text-white">
-				<div class="text-sm">
-					<span class="opacity-80">Workflow</span>
-					<span class="mx-1">•</span>
-					<span class="font-semibold">{form.orkes.name} v{form.orkes.version}</span>
-				</div>
-				<div class="mt-1 text-xs opacity-80">Execution ID: {form.orkes.workflowId}</div>
-			</div>
-		{/if}
-	{/if}
-
-	{#if form?.error}
-		<div class="rounded-xl border border-red-300/50 bg-red-500/20 p-4 text-white">
-			<div class="font-semibold">There was a problem</div>
-			<p class="mt-1 text-sm opacity-80">{form.error}</p>
-		</div>
-	{/if}
-
-	<!-- File picker (only for GitHub modes after a successful submit) -->
-	{#if form?.ok && (form?.echo?.sourceType === 'github' || form?.echo?.sourceType === 'git_subdir')}
-		<div class="mt-6 rounded-2xl border border-white/20 bg-white/10 p-6 text-white">
-			<div class="mb-3 text-lg font-semibold">Pick files to summarize</div>
-			<p class="mb-4 text-sm text-white/70">
-				Click "List files" to fetch the repo tree (we use server‑confirmed values).
+<!-- ======================= MARKUP ======================= -->
+<div class="min-h-screen px-4 py-8 sm:px-6 lg:px-8">
+	<div class="mx-auto max-w-3xl">
+		<!-- Header -->
+		<div class="mb-8">
+			<h1 class="mb-2 text-3xl font-bold text-white">Submit Source</h1>
+			<p class="text-white/70">
+				Pick a method, provide inputs, select files (for Git), then Analyze & Save.
 			</p>
+		</div>
 
+		<!-- Method selector -->
+		<div class="mb-6 grid grid-cols-2 gap-2 md:grid-cols-4">
+			{#each [{ id: 'github_repo', label: 'Git Repo' }, { id: 'github_repo_directory', label: 'Git Directory' }, { id: 'zipped_folder', label: 'Zip Upload' }, { id: 'pasted_code', label: 'Paste Code' }] as opt}
+				<button
+					class="flex items-center justify-center gap-2 rounded-xl border border-white/20 px-3 py-2 text-sm text-white transition hover:bg-white/10"
+					class:selected={method === (opt.id as InputType)}
+					on:click={() => (method = opt.id as InputType)}
+					aria-pressed={method === (opt.id as InputType)}
+				>
+					<svelte:component this={getMethodIcon(opt.id as InputType)} class="h-4 w-4" />
+					<span>{opt.label}</span>
+				</button>
+			{/each}
+		</div>
+
+		<!-- Common: Title -->
+		<label class="mb-4 block">
+			<div class="mb-1 text-sm text-white/70">Document title</div>
+			<input
+				class="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white placeholder-white/60 outline-none focus:border-white/40"
+				bind:value={docTitle}
+				placeholder="e.g., API Overview"
+			/>
+		</label>
+
+		<!-- Method-specific inputs -->
+		{#if method === 'github_repo' || method === 'github_repo_directory'}
+			<div class="mb-4 grid gap-3 md:grid-cols-2">
+				<label class="block md:col-span-2">
+					<div class="mb-1 text-sm text-white/70">GitHub repo URL</div>
+					<input
+						class="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white placeholder-white/60 outline-none focus:border-white/40"
+						bind:value={repoUrl}
+						placeholder="https://github.com/owner/repo"
+					/>
+				</label>
+
+				<label class="block">
+					<div class="mb-1 text-sm text-white/70">Branch</div>
+					<input
+						class="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white placeholder-white/60 outline-none focus:border-white/40"
+						bind:value={branch}
+						placeholder="main"
+					/>
+				</label>
+
+				{#if method === 'github_repo_directory'}
+					<label class="block">
+						<div class="mb-1 text-sm text-white/70">Subfolder (optional)</div>
+						<input
+							class="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white placeholder-white/60 outline-none focus:border-white/40"
+							bind:value={subdir}
+							placeholder="e.g. backend"
+						/>
+					</label>
+				{/if}
+			</div>
+
+			<!-- Git file list -->
+			<div class="mb-6 rounded-2xl border border-white/20 bg-white/10 p-4">
+				<div class="mb-3 flex items-center justify-between">
+					<div class="text-sm text-white/70">
+						Files in repository{#if method === 'github_repo_directory' && subdir}
+							/{subdir}{/if}
+					</div>
+					<div class="flex items-center gap-2">
+						{#if showLoadButton}
+							<!-- CHANGED: Only show while no files are loaded -->
+							<button
+								class="rounded-lg border border-white/20 px-3 py-1 text-sm text-white hover:bg-white/10"
+								on:click={listGitFiles}
+								disabled={listing}
+								title="List files from Git"
+							>
+								{#if listing}
+									<span class="inline-flex items-center gap-2"
+										><Loader2 class="h-4 w-4 animate-spin" /> Loading…</span
+									>
+								{:else}
+									Load files
+								{/if}
+							</button>
+						{/if}
+
+						{#if pickerFiles.length}
+							<button
+								class="rounded-lg border border-white/20 px-3 py-1 text-sm text-white hover:bg-white/10"
+								on:click={selectAll}
+							>
+								Select all
+							</button>
+							<button
+								class="rounded-lg border border-white/20 px-3 py-1 text-sm text-white hover:bg-white/10"
+								on:click={clearAll}
+							>
+								Clear
+							</button>
+						{/if}
+					</div>
+				</div>
+
+				{#if pickerFiles.length}
+					<div class="max-h-64 overflow-auto rounded-lg border border-white/10">
+						<ul class="divide-y divide-white/10">
+							{#each pickerFiles as f}
+								<li class="flex items-center gap-3 px-3 py-2">
+									<input
+										type="checkbox"
+										checked={selectedPaths.has(f.path)}
+										on:change={() => togglePick(f.path)}
+									/>
+									<span class="font-mono text-sm text-white/90">{f.path}</span>
+									<span class="ml-auto text-xs text-white/50">{f.size} bytes</span>
+								</li>
+							{/each}
+						</ul>
+					</div>
+				{:else}
+					<div class="text-sm text-white/60">No files loaded yet.</div>
+				{/if}
+			</div>
+		{:else if method === 'zipped_folder'}
+			<div class="mb-6 rounded-2xl border border-white/20 bg-white/10 p-4">
+				<label class="block">
+					<div class="mb-1 text-sm text-white/70">Upload a .zip file</div>
+					<input
+						type="file"
+						accept=".zip"
+						class="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white file:mr-3 file:rounded file:border-0 file:bg-white/20 file:px-3 file:py-1 file:text-white hover:bg-white/5"
+						on:change={(e: any) => (zipFile = e?.currentTarget?.files?.[0] ?? null)}
+					/>
+					{#if zipFile}
+						<div class="mt-2 text-sm text-white/70">Selected: {zipFile.name}</div>
+					{/if}
+				</label>
+			</div>
+		{:else if method === 'pasted_code'}
+			<div class="mb-6 rounded-2xl border border-white/20 bg-white/10 p-4">
+				<div class="grid gap-3 md:grid-cols-2">
+					<label class="block">
+						<div class="mb-1 text-sm text-white/70">Filename</div>
+						<input
+							class="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white placeholder-white/60 outline-none focus:border-white/40"
+							bind:value={pasteFilename}
+							placeholder="snippet.txt"
+						/>
+					</label>
+					<div></div>
+					<label class="block md:col-span-2">
+						<div class="mb-1 text-sm text-white/70">Paste your code</div>
+						<textarea
+							class="h-48 w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white placeholder-white/60 outline-none focus:border-white/40"
+							bind:value={pasteCode}
+							placeholder="// paste here…"
+						></textarea>
+					</label>
+				</div>
+			</div>
+		{/if}
+
+		<!-- Error / Status -->
+		{#if errorMsg}
+			<div class="mb-4 rounded-xl border border-red-400/30 bg-red-500/10 px-3 py-2 text-red-200">
+				{errorMsg}
+			</div>
+		{/if}
+		{#if statusMsg}
+			<div class="mb-4 rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-white/80">
+				{statusMsg}
+			</div>
+		{/if}
+
+		<!-- Primary CTA -->
+		<div class="flex items-center gap-3">
 			<button
-				class="rounded bg-white/10 px-3 py-2 hover:bg-white/20 disabled:opacity-60"
-				on:click|preventDefault={fetchFiles}
-				disabled={isListing}
+				class="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 px-5 py-2.5 text-white shadow hover:from-purple-600 hover:to-pink-600 disabled:opacity-60"
+				on:click|preventDefault={analyzeAndSave}
+				disabled={running}
 			>
-				{#if isListing}Listing…{:else}List files{/if}
+				{#if running}
+					<Loader2 class="h-4 w-4 animate-spin" />
+					<span>Analyzing…</span>
+				{:else}
+					<span>Analyze & Save</span>
+				{/if}
 			</button>
 
-			{#if listingError}
-				<div class="mt-3 rounded border border-red-300/50 bg-red-500/20 p-3 text-sm">
-					{listingError}
-				</div>
-			{/if}
-
-			{#if files.length > 0}
-				<div class="mt-4 text-sm opacity-80">
-					{files.length} files. Selected {selectedPaths.size}.
-				</div>
-				<div class="mt-2 max-h-80 overflow-auto rounded border border-white/10">
-					<table class="w-full text-sm">
-						<thead class="sticky top-0 bg-white/10">
-							<tr>
-								<th class="p-2 text-left">Select</th>
-								<th class="p-2 text-left">Path</th>
-								<th class="p-2 text-right">Size</th>
-							</tr>
-						</thead>
-						<tbody>
-							{#each files as f}
-								<tr class="border-t border-white/10 hover:bg-white/5">
-									<td class="p-2">
-										<input
-											type="checkbox"
-											checked={selectedPaths.has(f.path)}
-											on:change={() => togglePath(f.path)}
-										/>
-									</td>
-									<td class="p-2 font-mono">{f.path}</td>
-									<td class="p-2 text-right tabular-nums">{f.size}</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
-
-				<div class="mt-4">
-					<button
-						class="rounded bg-gradient-to-r from-purple-500 to-pink-500 px-4 py-2 font-medium hover:from-purple-600 hover:to-pink-600"
-						on:click|preventDefault={() => console.log('Selected paths', Array.from(selectedPaths))}
-					>
-						Continue with {selectedPaths.size} files
-					</button>
-				</div>
-			{/if}
-		</div>
-	{/if}
-</div>
-
-<!-- MODAL -->
-{#if modalOpen && selected}
-	<div class="fixed inset-0 z-50 flex items-center justify-center">
-		<!-- backdrop -->
-		<div class="absolute inset-0 bg-black/60" on:click={closeModal} aria-hidden="true"></div>
-
-		<!-- card -->
-		<div
-			role="dialog"
-			aria-modal="true"
-			class="relative z-10 w-full max-w-xl rounded-2xl border border-white/20 bg-[#0b0b12]/95 p-6 text-white shadow-2xl backdrop-blur"
-		>
-			<div class="mb-4 flex items-center justify-between">
-				<h2 class="text-lg font-semibold">
-					{#if selected === 'github'}
-						GitHub repository
-					{:else if selected === 'git_subdir'}
-						Git subdirectory
-					{:else if selected === 'zip'}
-						Upload ZIP
-					{:else if selected === 'snippet'}
-						Pasted code
-					{/if}
-				</h2>
-				<button class="rounded bg-white/10 px-2 py-1 hover:bg-white/20" on:click={closeModal}
-					>Close</button
-				>
-			</div>
-
-			<!-- IMPORTANT: use:enhance with NO options; avoid any control named/id "submit" -->
-			<form method="post" enctype="multipart/form-data" use:enhance class="space-y-4">
-				<input type="hidden" name="sourceType" value={selected} />
-
-				{#if selected === 'github'}
-					<div>
-						<label for="repoUrl" class="mb-1 block text-sm font-medium">Repository URL</label>
-						<input
-							id="repoUrl"
-							name="repoUrl"
-							class="w-full rounded border border-white/30 bg-white/10 px-3 py-2 placeholder:text-white/50"
-							placeholder="https://github.com/owner/repo OR /tree/branch"
-							bind:value={inputs.repoUrl}
-							on:blur={() => tryAutofillFromUrl(inputs.repoUrl)}
-							required
-						/>
-					</div>
-					<div>
-						<label for="branch" class="mb-1 block text-sm font-medium"
-							>Branch (optional if in URL)</label
-						>
-						<input
-							id="branch"
-							name="branch"
-							class="w-full rounded border border-white/30 bg-white/10 px-3 py-2 placeholder:text-white/50"
-							placeholder="e.g. main"
-							bind:value={inputs.branch}
-						/>
-					</div>
-				{/if}
-
-				{#if selected === 'git_subdir'}
-					<div>
-						<label for="repoUrl" class="mb-1 block text-sm font-medium">Repository URL</label>
-						<input
-							id="repoUrl"
-							name="repoUrl"
-							class="w-full rounded border border-white/30 bg-white/10 px-3 py-2 placeholder:text-white/50"
-							placeholder="https://github.com/owner/repo OR /tree/branch/sub/dir"
-							bind:value={inputs.repoUrl}
-							on:blur={() => tryAutofillFromUrl(inputs.repoUrl)}
-							required
-						/>
-					</div>
-					<div>
-						<label for="branch" class="mb-1 block text-sm font-medium"
-							>Branch (optional if in URL)</label
-						>
-						<input
-							id="branch"
-							name="branch"
-							class="w-full rounded border border-white/30 bg-white/10 px-3 py-2 placeholder:text-white/50"
-							placeholder="e.g. main"
-							bind:value={inputs.branch}
-						/>
-					</div>
-					<div>
-						<label for="subdir" class="mb-1 block text-sm font-medium"
-							>Subdirectory (optional if in URL)</label
-						>
-						<input
-							id="subdir"
-							name="subdir"
-							class="w-full rounded border border-white/30 bg-white/10 px-3 py-2 placeholder:text-white/50"
-							placeholder="e.g. backend or src/app"
-							bind:value={inputs.subdir}
-						/>
-					</div>
-				{/if}
-
-				{#if selected === 'zip'}
-					<div>
-						<label for="zipFile" class="mb-1 block text-sm font-medium">Upload a .zip</label>
-						<input
-							id="zipFile"
-							name="zipFile"
-							type="file"
-							accept=".zip"
-							class="block w-full rounded border border-white/30 bg-white/10 px-3 py-2 file:mr-3 file:rounded-md file:border-0 file:bg-white/20 file:px-3 file:py-2"
-							required
-						/>
-					</div>
-				{/if}
-
-				{#if selected === 'snippet'}
-					<div>
-						<label for="snippet" class="mb-1 block text-sm font-medium">Code snippet</label>
-						<textarea
-							id="snippet"
-							name="snippet"
-							rows="10"
-							class="w-full rounded border border-white/30 bg-white/10 px-3 py-2 font-mono text-sm placeholder:text-white/50"
-							placeholder="// paste code here"
-							bind:value={inputs.snippet}
-							required
-						></textarea>
-					</div>
-				{/if}
-
-				<button
-					type="submit"
-					class="w-full rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 py-3 font-medium hover:from-purple-600 hover:to-pink-600"
-				>
-					Submit
-				</button>
-			</form>
-
-			<p class="mt-3 text-xs text-white/60">
-				Tip: Paste a full GitHub URL like <code>.../tree/branch/subdir</code> and fields auto‑fill.
-			</p>
+			<a
+				href="/history"
+				class="rounded-xl border border-white/20 px-4 py-2 text-white/80 hover:bg-white/10"
+			>
+				View History
+			</a>
 		</div>
 	</div>
-{/if}
+</div>
+
+<style>
+	/* Small helper so the selected method chip feels active */
+	/* button[selected], */
+	button[aria-pressed='true'] {
+		background: rgba(255, 255, 255, 0.12);
+		border-color: rgba(255, 255, 255, 0.35);
+	}
+</style>
