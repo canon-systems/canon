@@ -106,7 +106,7 @@
      MARKUP
      ------------------------------------------------------------ -->
 <div class="min-h-screen px-4 py-8 sm:px-6 lg:px-8">
-	<div class="mx-auto max-w-4xl space-y-6">
+	<div class="mx-auto w-full max-w-none space-y-6">
 		<header>
 			<h1 class="text-3xl font-bold text-white">Edit Documentation</h1>
 			<p class="text-white/60">
@@ -134,29 +134,27 @@
 			/>
 		</label>
 
-		<!-- Side-by-side full-width layout (desktop-focused, true 50/50) -->
+		<!-- Side-by-side full-width layout (desktop-focused, true 50/50 without overflow) -->
 		<div class="space-y-2">
 			<div class="mb-1 text-sm text-white/70">Content</div>
 
-			<div class="flex justify-center">
-				<div class="flex w-[95vw] max-w-[1800px] gap-8">
-					<!-- Left: Editor pane (fills and scrolls internally) -->
-					<div class="h-[78vh] flex-[0_0_50%]">
+			<!-- Center the workspace. overflow-x-hidden guards against rare subpixel overflow -->
+			<div class="flex justify-center overflow-x-hidden">
+				<div class="flex w-full max-w-[4000px] gap-8">
+					<div class="h-[75vh] min-w-0 flex-1">
 						<RichTextEditor
 							initialHTML={String(initialHTML)}
 							on:change={handleChange}
 							on:cursor={handleCursor}
 						/>
 					</div>
-
-					<!-- Right: Preview pane (its own scrollbar) -->
 					<div
-						class="h-[78vh] flex-[0_0_50%] overflow-y-auto rounded-2xl border border-white/10 bg-black/20 p-6 backdrop-blur-md"
+						class="h-[75vh] min-w-0 flex-1 overflow-y-auto rounded-2xl border border-white/10 bg-black/20 p-6 backdrop-blur-md"
 						bind:this={previewPane}
 					>
 						<div class="mb-2 text-sm text-white/70">Live preview</div>
 						<div
-							class="prose prose-invert min-h-full max-w-none text-white"
+							class="prose prose-invert min-h-full max-w-none break-words text-white"
 							on:click|stopPropagation
 						>
 							{@html html}
