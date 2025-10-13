@@ -1,12 +1,11 @@
 <script lang="ts">
 	// ------------------------------------------------------------
 	// PURPOSE
-	// Show one submission, and allow the owner to edit title/markdown.
-	// The UPDATE call will only succeed for the owner due to RLS.
-	// We read the row from $page.data.submission which the SERVER loaded.
+	// Show one submission and allow the owner to edit title + rich content.
+	// We still persist Markdown in the DB, converting from/to HTML for TipTap.
 	// ------------------------------------------------------------
 
-	// 1) Get the server-loaded row.
+	// 1) Server-loaded row
 	export let data: {
 		submission: {
 			id: string;
@@ -21,22 +20,52 @@
 		};
 	};
 
-	// 2) Local editable copies of title and markdown.
+	// 2) Local editable copies of title and markdown (we keep storing markdown)
 	let title = data.submission.title;
 	let markdown = data.submission.markdown;
 
-	// 3) UI state for saves.
+	// 3) UI state for saves
 	let saving = false;
 	let saveMsg = '';
 	let saveErr = '';
 
-	// 4) We still use the browser client for the UPDATE.
-	//    RLS ensures only the owner can update this row.
+	// 4) Bring in Supabase + icons
 	import { supabase } from '$lib/supabaseClient';
-	import { onMount } from 'svelte';
 	import { Loader2 } from '@lucide/svelte';
 
-	// 5) Save handler: write title/markdown back to Supabase.
+	// 5) Bring in our rich editor component
+	import RichTextEditor from '$lib/components/RichTextEditor.svelte';
+
+	// 6) Converters
+	// marked: Markdown -> HTML for TipTap initial content
+	import { marked } from 'marked';
+	// turndown: HTML -> Markdown when saving
+	import TurndownService from 'turndown';
+	const turndown = new TurndownService();
+
+	// 7) Make initial HTML for the editor from the DB markdown
+	//    If empty, provide a simple paragraph so the canvas is clickable.
+	let initialHTML = (markdown && marked.parse(markdown)) || '<p></p>';
+
+	// 8) Live HTML coming from the editor (we keep it in sync and convert on save)
+	let html = String(initialHTML);
+
+	// 9) Status hint
+	$: statusNotice =
+		data.submission.status === 'processing'
+			? 'Note: This submission is still processing.'
+			: data.submission.error_message
+				? `Last run failed: ${data.submission.error_message}`
+				: '';
+
+	// 10) Receive change events from the editor and update our html + markdown
+	function handleChange(e: CustomEvent<{ html: string }>) {
+		html = e.detail.html;
+		// keep the canonical markdown up to date, so Save uses latest value
+		markdown = turndown.turndown(html);
+	}
+
+	// 11) Save handler: write title/markdown back to Supabase (unchanged table shape)
 	async function saveChanges() {
 		saveErr = '';
 		saveMsg = '';
@@ -46,7 +75,7 @@
 				.from('submissions')
 				.update({
 					title: title || 'Untitled',
-					markdown,
+					markdown, // store markdown as before
 					summary: (markdown || '').replace(/\s+/g, ' ').slice(0, 200)
 				})
 				.eq('id', data.submission.id);
@@ -60,21 +89,24 @@
 		}
 	}
 
-	// 6) Nicety: show a warning if the doc is still "processing" or had an error.
-	$: statusNotice =
-		data.submission.status === 'processing'
-			? 'Note: This submission is still processing.'
-			: data.submission.error_message
-				? `Last run failed: ${data.submission.error_message}`
-				: '';
+	// Add a ref to the preview container for imperative scrolling.
+	let previewPane: HTMLDivElement | null = null;
+
+	// Scroll-sync: when editor emits a ratio (0..1), scroll preview accordingly.
+	function handleCursor(e: CustomEvent<{ ratio: number }>) {
+		if (!previewPane) return;
+		const ratio = e.detail.ratio;
+		const max = Math.max(1, previewPane.scrollHeight - previewPane.clientHeight);
+		// Choose 'smooth' if you prefer animated sync; 'auto' is instant.
+		previewPane.scrollTo({ top: ratio * max, behavior: 'auto' });
+	}
 </script>
 
 <!-- ------------------------------------------------------------
      MARKUP
-     A simple, clean editor view for one submission.
      ------------------------------------------------------------ -->
 <div class="min-h-screen px-4 py-8 sm:px-6 lg:px-8">
-	<div class="mx-auto max-w-4xl space-y-6">
+	<div class="mx-auto w-full max-w-none space-y-6">
 		<header>
 			<h1 class="text-3xl font-bold text-white">Edit Documentation</h1>
 			<p class="text-white/60">
@@ -102,15 +134,35 @@
 			/>
 		</label>
 
-		<!-- Markdown editor -->
-		<label class="block">
-			<div class="mb-1 text-sm text-white/70">Markdown</div>
-			<textarea
-				class="h-[50vh] w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 font-mono text-sm text-white placeholder-white/60 outline-none focus:border-white/40"
-				bind:value={markdown}
-				placeholder="# Your document..."
-			></textarea>
-		</label>
+		<!-- Side-by-side full-width layout (desktop-focused, true 50/50 without overflow) -->
+		<div class="space-y-2">
+			<div class="mb-1 text-sm text-white/70">Content</div>
+
+			<!-- Center the workspace. overflow-x-hidden guards against rare subpixel overflow -->
+			<div class="flex justify-center overflow-x-hidden">
+				<div class="flex w-full max-w-[4000px] gap-8">
+					<div class="h-[75vh] min-w-0 flex-1">
+						<RichTextEditor
+							initialHTML={String(initialHTML)}
+							on:change={handleChange}
+							on:cursor={handleCursor}
+						/>
+					</div>
+					<div
+						class="h-[75vh] min-w-0 flex-1 overflow-y-auto rounded-2xl border border-white/10 bg-black/20 p-6 backdrop-blur-md"
+						bind:this={previewPane}
+					>
+						<div class="mb-2 text-sm text-white/70">Live preview</div>
+						<div
+							class="prose prose-invert min-h-full max-w-none break-words text-white"
+							on:click|stopPropagation
+						>
+							{@html html}
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
 
 		<!-- Save controls -->
 		<div class="flex items-center gap-3">
