@@ -52,13 +52,15 @@
 	// Used to force Svelte to re-evaluate button active/disabled states
 	let _refresh = 0;
 
-	// Toolbar button classes; add a subtle “active” fill when a mark/node is active
-	function btn(active = false) {
+	// Toolbar button classes; add a subtle "active" fill when a mark/node is active
+	function btn(active = false, disabled = false) {
 		return [
-			'inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-sm',
-			'transition-colors select-none',
-			'border-white/10 text-white/90 bg-black/40 hover:bg-black/50',
-			active ? 'bg-white/10 border-white/20' : ''
+			'inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border text-sm',
+			'transition-all duration-200 select-none',
+			disabled
+				? 'border-white/10 text-white/40 bg-white/5 cursor-not-allowed opacity-50'
+				: 'border-white/20 text-white/90 bg-white/5 hover:bg-white/10 hover:border-white/30',
+			active && !disabled ? 'bg-white/20 border-white/30 text-white shadow-sm' : ''
 		].join(' ');
 	}
 
@@ -168,7 +170,7 @@
   - h-full so it fills the parent 50% column in the page layout
 -->
 <div
-	class="flex h-full flex-col overflow-hidden rounded-2xl border border-white/10 bg-black/20 shadow-xl backdrop-blur-md"
+	class="flex h-full flex-col overflow-hidden rounded-2xl border border-white/10 bg-black/20 shadow-lg backdrop-blur-md"
 >
 	<!--
     TOOLBAR
@@ -176,13 +178,13 @@
     - Buttons are disabled until editor is ready.
   -->
 	<div
-		class="flex flex-wrap items-center gap-2 border-b border-white/10 bg-gradient-to-r from-gray-800/60 to-gray-900/60 p-3"
+		class="flex flex-wrap items-center gap-2 border-b border-white/10 bg-black/30 p-3 backdrop-blur-sm"
 	>
 		<!-- Undo / Redo -->
 		<div class="flex items-center gap-2">
 			<button
 				type="button"
-				class={btn()}
+				class={btn(false, !editor?.can().undo())}
 				title="Undo"
 				on:click={() => editor?.chain().focus().undo().run()}
 				disabled={!editor?.can().undo()}
@@ -191,7 +193,7 @@
 			</button>
 			<button
 				type="button"
-				class={btn()}
+				class={btn(false, !editor?.can().redo())}
 				title="Redo"
 				on:click={() => editor?.chain().focus().redo().run()}
 				disabled={!editor?.can().redo()}
@@ -200,13 +202,13 @@
 			</button>
 		</div>
 
-		<div class="mx-1 h-5 w-px bg-white/10" />
+		<div class="mx-1 h-6 w-px bg-white/10"></div>
 
 		<!-- Paragraph + Headings -->
 		<div class="flex items-center gap-2">
 			<button
 				type="button"
-				class={btn(editor?.isActive('paragraph'))}
+				class={btn(editor?.isActive('paragraph'), !editor)}
 				title="Paragraph"
 				on:click={() => editor?.chain().focus().setParagraph().run()}
 				disabled={!editor}
@@ -215,7 +217,7 @@
 			</button>
 			<button
 				type="button"
-				class={btn(editor?.isActive('heading', { level: 1 }))}
+				class={btn(editor?.isActive('heading', { level: 1 }), !editor)}
 				title="Heading 1"
 				on:click={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}
 				disabled={!editor}
@@ -224,7 +226,7 @@
 			</button>
 			<button
 				type="button"
-				class={btn(editor?.isActive('heading', { level: 2 }))}
+				class={btn(editor?.isActive('heading', { level: 2 }), !editor)}
 				title="Heading 2"
 				on:click={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}
 				disabled={!editor}
@@ -233,7 +235,7 @@
 			</button>
 			<button
 				type="button"
-				class={btn(editor?.isActive('heading', { level: 3 }))}
+				class={btn(editor?.isActive('heading', { level: 3 }), !editor)}
 				title="Heading 3"
 				on:click={() => editor?.chain().focus().toggleHeading({ level: 3 }).run()}
 				disabled={!editor}
@@ -242,13 +244,13 @@
 			</button>
 		</div>
 
-		<div class="mx-1 h-5 w-px bg-white/10" />
+		<div class="mx-1 h-6 w-px bg-white/10"></div>
 
 		<!-- Inline formatting -->
 		<div class="flex items-center gap-2">
 			<button
 				type="button"
-				class={btn(editor?.isActive('bold'))}
+				class={btn(editor?.isActive('bold'), !editor)}
 				title="Bold"
 				on:click={() => editor?.chain().focus().toggleBold().run()}
 				disabled={!editor}
@@ -257,7 +259,7 @@
 			</button>
 			<button
 				type="button"
-				class={btn(editor?.isActive('italic'))}
+				class={btn(editor?.isActive('italic'), !editor)}
 				title="Italic"
 				on:click={() => editor?.chain().focus().toggleItalic().run()}
 				disabled={!editor}
@@ -266,7 +268,7 @@
 			</button>
 			<button
 				type="button"
-				class={btn(editor?.isActive('underline'))}
+				class={btn(editor?.isActive('underline'), !editor)}
 				title="Underline"
 				on:click={() => editor?.chain().focus().toggleUnderline().run()}
 				disabled={!editor}
@@ -275,7 +277,7 @@
 			</button>
 			<button
 				type="button"
-				class={btn(editor?.isActive('strike'))}
+				class={btn(editor?.isActive('strike'), !editor)}
 				title="Strikethrough"
 				on:click={() => editor?.chain().focus().toggleStrike().run()}
 				disabled={!editor}
@@ -284,7 +286,7 @@
 			</button>
 			<button
 				type="button"
-				class={btn(editor?.isActive('code'))}
+				class={btn(editor?.isActive('code'), !editor)}
 				title="Inline code"
 				on:click={() => editor?.chain().focus().toggleCode().run()}
 				disabled={!editor}
@@ -293,7 +295,7 @@
 			</button>
 			<button
 				type="button"
-				class={btn(editor?.isActive('link'))}
+				class={btn(editor?.isActive('link'), !editor)}
 				title="Insert or edit link"
 				on:click={setLink}
 				disabled={!editor}
@@ -302,13 +304,13 @@
 			</button>
 		</div>
 
-		<div class="mx-1 h-5 w-px bg-white/10" />
+		<div class="mx-1 h-6 w-px bg-white/10"></div>
 
 		<!-- Lists and blocks -->
 		<div class="flex items-center gap-2">
 			<button
 				type="button"
-				class={btn(editor?.isActive('bulletList'))}
+				class={btn(editor?.isActive('bulletList'), !editor)}
 				title="Bullet list"
 				on:click={() => editor?.chain().focus().toggleBulletList().run()}
 				disabled={!editor}
@@ -317,7 +319,7 @@
 			</button>
 			<button
 				type="button"
-				class={btn(editor?.isActive('orderedList'))}
+				class={btn(editor?.isActive('orderedList'), !editor)}
 				title="Numbered list"
 				on:click={() => editor?.chain().focus().toggleOrderedList().run()}
 				disabled={!editor}
@@ -326,7 +328,7 @@
 			</button>
 			<button
 				type="button"
-				class={btn(editor?.isActive('blockquote'))}
+				class={btn(editor?.isActive('blockquote'), !editor)}
 				title="Blockquote"
 				on:click={() => editor?.chain().focus().toggleBlockquote().run()}
 				disabled={!editor}
@@ -335,7 +337,7 @@
 			</button>
 			<button
 				type="button"
-				class={btn(editor?.isActive('codeBlock'))}
+				class={btn(editor?.isActive('codeBlock'), !editor)}
 				title="Code block"
 				on:click={() => editor?.chain().focus().toggleCodeBlock().run()}
 				disabled={!editor}
@@ -344,7 +346,7 @@
 			</button>
 			<button
 				type="button"
-				class={btn()}
+				class={btn(false, !editor)}
 				title="Horizontal rule"
 				on:click={() => editor?.chain().focus().setHorizontalRule().run()}
 				disabled={!editor}
@@ -353,13 +355,13 @@
 			</button>
 		</div>
 
-		<div class="mx-1 h-5 w-px bg-white/10" />
+		<div class="mx-1 h-6 w-px bg-white/10"></div>
 
 		<!-- Alignment -->
 		<div class="flex items-center gap-2">
 			<button
 				type="button"
-				class={btn(editor?.isActive({ textAlign: 'left' }))}
+				class={btn(editor?.isActive({ textAlign: 'left' }), !editor)}
 				title="Align left"
 				on:click={() => editor?.chain().focus().setTextAlign('left').run()}
 				disabled={!editor}
@@ -368,7 +370,7 @@
 			</button>
 			<button
 				type="button"
-				class={btn(editor?.isActive({ textAlign: 'center' }))}
+				class={btn(editor?.isActive({ textAlign: 'center' }), !editor)}
 				title="Align center"
 				on:click={() => editor?.chain().focus().setTextAlign('center').run()}
 				disabled={!editor}
@@ -377,7 +379,7 @@
 			</button>
 			<button
 				type="button"
-				class={btn(editor?.isActive({ textAlign: 'right' }))}
+				class={btn(editor?.isActive({ textAlign: 'right' }), !editor)}
 				title="Align right"
 				on:click={() => editor?.chain().focus().setTextAlign('right').run()}
 				disabled={!editor}
@@ -386,7 +388,7 @@
 			</button>
 			<button
 				type="button"
-				class={btn(editor?.isActive({ textAlign: 'justify' }))}
+				class={btn(editor?.isActive({ textAlign: 'justify' }), !editor)}
 				title="Justify"
 				on:click={() => editor?.chain().focus().setTextAlign('justify').run()}
 				disabled={!editor}
@@ -395,13 +397,13 @@
 			</button>
 		</div>
 
-		<div class="mx-1 h-5 w-px bg-white/10" />
+		<div class="mx-1 h-6 w-px bg-white/10"></div>
 
 		<!-- Images -->
 		<div class="flex items-center gap-2">
 			<button
 				type="button"
-				class={btn()}
+				class={btn(false, !editor)}
 				title="Insert image (URL)"
 				on:click={insertImage}
 				disabled={!editor}
@@ -418,9 +420,154 @@
     - on:scroll is a fallback that also triggers preview sync
   -->
 	<div
-		class="flex-1 overflow-y-auto border-t border-white/10 bg-black/30 p-6 text-white ring-white/20 focus-within:ring-2"
+		class="prose prose-invert max-w-none flex-1 overflow-y-auto border-t border-white/10 bg-white/5 p-6 text-white transition-colors focus-within:bg-white/10"
 		bind:this={el}
 		on:scroll={emitCursorRatioFromScroll}
 		contenteditable="true"
-	/>
+	></div>
 </div>
+
+<style>
+	/* TipTap editor content styling to match app design */
+	:global([contenteditable='true']) {
+		outline: none;
+	}
+
+	:global([contenteditable='true']:focus) {
+		outline: none;
+	}
+
+	/* Style headings */
+	:global([contenteditable='true'] h1) {
+		font-size: 1.875rem;
+		line-height: 2.25rem;
+		font-weight: 700;
+		color: rgb(255 255 255);
+		margin-bottom: 1rem;
+		margin-top: 1.5rem;
+	}
+
+	:global([contenteditable='true'] h2) {
+		font-size: 1.5rem;
+		line-height: 2rem;
+		font-weight: 700;
+		color: rgb(255 255 255);
+		margin-bottom: 0.75rem;
+		margin-top: 1.25rem;
+	}
+
+	:global([contenteditable='true'] h3) {
+		font-size: 1.25rem;
+		line-height: 1.75rem;
+		font-weight: 600;
+		color: rgb(255 255 255);
+		margin-bottom: 0.5rem;
+		margin-top: 1rem;
+	}
+
+	/* Style paragraphs */
+	:global([contenteditable='true'] p) {
+		color: rgba(255, 255, 255, 0.9);
+		margin-bottom: 1rem;
+		line-height: 1.625;
+	}
+
+	:global([contenteditable='true'] p.is-editor-empty:first-child::before) {
+		color: rgba(255, 255, 255, 0.4);
+		content: attr(data-placeholder);
+		float: left;
+		height: 0;
+		pointer-events: none;
+	}
+
+	/* Style lists */
+	:global([contenteditable='true'] ul),
+	:global([contenteditable='true'] ol) {
+		color: rgba(255, 255, 255, 0.9);
+		margin-bottom: 1rem;
+		padding-left: 1.5rem;
+	}
+
+	:global([contenteditable='true'] li) {
+		color: rgba(255, 255, 255, 0.9);
+		margin-bottom: 0.5rem;
+	}
+
+	/* Style blockquotes */
+	:global([contenteditable='true'] blockquote) {
+		border-left: 4px solid rgba(255, 255, 255, 0.3);
+		padding-left: 1rem;
+		font-style: italic;
+		color: rgba(255, 255, 255, 0.8);
+		margin-top: 1rem;
+		margin-bottom: 1rem;
+	}
+
+	/* Style code */
+	:global([contenteditable='true'] code) {
+		background-color: rgba(255, 255, 255, 0.1);
+		color: rgba(255, 255, 255, 0.9);
+		padding: 0.125rem 0.375rem;
+		border-radius: 0.25rem;
+		font-size: 0.875rem;
+		font-family:
+			ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+	}
+
+	:global([contenteditable='true'] pre) {
+		background-color: rgba(0, 0, 0, 0.4);
+		border: 1px solid rgba(255, 255, 255, 0.1);
+		border-radius: 0.5rem;
+		padding: 1rem;
+		margin-top: 1rem;
+		margin-bottom: 1rem;
+		overflow-x: auto;
+	}
+
+	:global([contenteditable='true'] pre code) {
+		background-color: transparent;
+		padding: 0;
+	}
+
+	/* Style links */
+	:global([contenteditable='true'] a) {
+		color: rgb(196 181 253);
+		text-decoration: underline;
+		transition: color 0.15s ease-in-out;
+	}
+
+	:global([contenteditable='true'] a:hover) {
+		color: rgb(167 139 250);
+	}
+
+	/* Style images */
+	:global([contenteditable='true'] img) {
+		border-radius: 0.5rem;
+		margin-top: 1rem;
+		margin-bottom: 1rem;
+		max-width: 100%;
+	}
+
+	/* Style horizontal rules */
+	:global([contenteditable='true'] hr) {
+		border-color: rgba(255, 255, 255, 0.1);
+		margin-top: 1.5rem;
+		margin-bottom: 1.5rem;
+	}
+
+	/* Style strong/em */
+	:global([contenteditable='true'] strong) {
+		font-weight: 700;
+		color: rgb(255 255 255);
+	}
+
+	:global([contenteditable='true'] em) {
+		font-style: italic;
+		color: rgba(255, 255, 255, 0.9);
+	}
+
+	/* Selection color */
+	:global([contenteditable='true'] ::selection) {
+		background-color: rgba(168, 85, 247, 0.3);
+	}
+</style>

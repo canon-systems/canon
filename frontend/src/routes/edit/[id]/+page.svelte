@@ -180,10 +180,10 @@
 			</button>
 
 			<a
-				href="/history"
+				href="/edit"
 				class="rounded-xl border border-white/20 px-4 py-2 text-white/80 hover:bg-white/10"
 			>
-				Back to History
+				Back to Edit
 			</a>
 		</div>
 
