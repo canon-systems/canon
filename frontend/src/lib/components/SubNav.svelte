@@ -3,8 +3,7 @@
 
 	const tabs = [
 		{ name: 'Submit', href: '/submit' },
-		{ name: 'Edit', href: '/edit' },
-		{ name: 'History', href: '/history' }
+		{ name: 'Edit', href: '/edit' }
 	];
 
 	function isActive(currentPath: string, href: string) {

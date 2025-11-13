@@ -277,22 +277,54 @@
 			if (!rGen.ok) throw new Error(gen?.error || `Generate failed (${rGen.status})`);
 			const markdown = String(gen.markdown || '');
 
-			// 4) Save final result
+			// 4) Save final result with code snapshot (for GitHub repos)
 			statusMsg = 'Saving to Supabase…';
 			// RLS allows UPDATE only if created_by = auth.uid().
 			// Because this row was created by us, this update will succeed only for us.
+
+			// Build code snapshot for tracking changes (only for GitHub repos)
+			let codeSnapshot: any = null;
+			if (isGit && repoUrl && branch) {
+				try {
+					// Get commit SHA and file SHAs
+					const snapshotRes = await fetch('/api/github/snapshot', {
+						method: 'POST',
+						headers: { 'content-type': 'application/json' },
+						body: JSON.stringify({
+							repoUrl,
+							branch,
+							selectedFiles: selectedArray()
+						})
+					});
+					if (snapshotRes.ok) {
+						const snapshotData = await snapshotRes.json().catch(() => null);
+						if (snapshotData?.commitSha && snapshotData?.fileShas) {
+							codeSnapshot = {
+								commitSha: snapshotData.commitSha,
+								fileShas: snapshotData.fileShas,
+								createdAt: new Date().toISOString()
+							};
+						}
+					}
+				} catch (e) {
+					// Non-fatal: continue without snapshot
+					console.warn('Failed to create code snapshot:', e);
+				}
+			}
+
 			const { error: uerr } = await supabase
 				.from('submissions')
 				.update({
 					title: docTitle || 'Untitled',
 					markdown,
 					status: 'completed' as Status,
-					summary: markdown.replace(/\s+/g, ' ').slice(0, 200)
+					summary: markdown.replace(/\s+/g, ' ').slice(0, 200),
+					...(codeSnapshot ? { code_snapshot: codeSnapshot } : {})
 				})
 				.eq('id', submissionId as string);
 			if (uerr) throw new Error(uerr.message);
 
-			// 5) Done → /edit/{id} (changed from /history)
+			// 5) Done → /edit/{id}
 			statusMsg = 'Done. Redirecting…';
 			window.location.href = `/edit/${submissionId}`;
 		} catch (e) {
@@ -510,7 +542,7 @@
 			</button>
 
 			<a
-				href="/history"
+				href="/edit"
 				class="rounded-xl border border-white/20 px-4 py-2 text-white/80 hover:bg-white/10"
 			>
 				View History
