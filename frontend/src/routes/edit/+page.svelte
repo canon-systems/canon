@@ -14,6 +14,9 @@
 			created_date: string;
 			title: string;
 			status: 'Processing' | 'Completed' | 'Failed';
+			input_type: 'github_repo' | 'github_repo_directory' | 'zipped_folder' | 'pasted_code' | null;
+			last_checked_at: string | null;
+			is_outdated: boolean;
 		}>;
 		loadError: string | null;
 	};
@@ -80,7 +83,7 @@
 	let viewMode: ViewMode = 'row';
 
 	// Load view preference from localStorage on mount
-	import { Grid3x3, List, MoreVertical } from '@lucide/svelte';
+	import { Grid3x3, List, MoreVertical, RefreshCw, Clock, CheckCircle2, AlertCircle } from '@lucide/svelte';
 	import { supabase } from '$lib/supabaseClient';
 	import { invalidate } from '$app/navigation';
 
@@ -144,6 +147,101 @@
 		const d = new Date(iso);
 		return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(d);
 	}
+
+	// Format relative time (e.g., "2 hours ago")
+	function fmtRelative(iso: string | null): string {
+		if (!iso) return 'Never checked';
+		const d = new Date(iso);
+		const now = new Date();
+		const diffMs = now.getTime() - d.getTime();
+		const diffMins = Math.floor(diffMs / 60000);
+		const diffHours = Math.floor(diffMs / 3600000);
+		const diffDays = Math.floor(diffMs / 86400000);
+
+		if (diffMins < 1) return 'Just now';
+		if (diffMins < 60) return `${diffMins} min${diffMins === 1 ? '' : 's'} ago`;
+		if (diffHours < 24) return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
+		return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
+	}
+
+	// Check if item is a GitHub repo (can be checked for updates)
+	function isGitRepo(item: typeof data.items[0]): boolean {
+		return item.input_type === 'github_repo' || item.input_type === 'github_repo_directory';
+	}
+
+	// Batch refresh state
+	let refreshingAll = false;
+	let refreshAllMsg = '';
+	let refreshAllErr = '';
+
+	// Refresh all outdated submissions
+	async function refreshAllOutdated() {
+		refreshingAll = true;
+		refreshAllMsg = '';
+		refreshAllErr = '';
+
+		try {
+			// Get the session token for the API call
+			const { data: userData, error: userError } = await supabase.auth.getUser();
+			if (userError || !userData?.user) {
+				throw new Error('No authenticated user available');
+			}
+			const { data: sessionData } = await supabase.auth.getSession();
+			const token = sessionData?.session?.access_token;
+
+			if (!token) {
+				throw new Error('No session token available');
+			}
+
+			// First check for updates
+			const checkRes = await fetch('/api/docs/batch-check', {
+				method: 'POST',
+				headers: {
+					'content-type': 'application/json',
+					authorization: `Bearer ${token}`
+				}
+			});
+
+			const checkResult = await checkRes.json().catch(() => ({}));
+			if (!checkRes.ok) {
+				throw new Error(checkResult?.error || `Check failed (${checkRes.status})`);
+			}
+
+			const { outdated } = checkResult;
+
+			if (outdated === 0) {
+				refreshAllMsg = 'All documentation is up to date!';
+				return;
+			}
+
+			// Then refresh outdated ones
+			const refreshRes = await fetch('/api/docs/batch-refresh', {
+				method: 'POST',
+				headers: {
+					'content-type': 'application/json',
+					authorization: `Bearer ${token}`
+				}
+			});
+
+			const refreshResult = await refreshRes.json().catch(() => ({}));
+			if (!refreshRes.ok) {
+				throw new Error(refreshResult?.error || `Refresh failed (${refreshRes.status})`);
+			}
+
+			const { refreshed, failed } = refreshResult;
+			refreshAllMsg = `Refreshed ${refreshed} submission${refreshed === 1 ? '' : 's'}. ${failed > 0 ? `${failed} failed.` : ''}`;
+
+			// Refresh the page data
+			await invalidate('supabase:submissions');
+			setTimeout(() => {
+				window.location.reload();
+			}, 2000);
+		} catch (e) {
+			refreshAllErr = String(e);
+		} finally {
+			refreshingAll = false;
+		}
+	}
 </script>
 
 {#if !isAuthed}
@@ -167,6 +265,22 @@
 							due to Row Level Security.
 						</p>
 					</div>
+					{#if hasItems}
+						<button
+							class="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm text-white/90 transition-colors hover:bg-white/20 disabled:opacity-60"
+							on:click|preventDefault={refreshAllOutdated}
+							disabled={refreshingAll}
+							title="Check and refresh all outdated documentation"
+						>
+							{#if refreshingAll}
+								<Loader2 class="h-4 w-4 animate-spin" />
+								<span class="hidden sm:inline">Refreshing...</span>
+							{:else}
+								<RefreshCw class="h-4 w-4" />
+								<span class="hidden sm:inline">Refresh All</span>
+							{/if}
+						</button>
+					{/if}
 					{#if hasItems}
 						<div
 							class="flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 p-1 backdrop-blur-sm"
@@ -228,16 +342,44 @@
 							<li
 								class="flex flex-col gap-2 p-4 text-white md:flex-row md:items-center md:justify-between"
 							>
-								<div class="min-w-0">
+								<div class="min-w-0 flex-1">
 									<!-- Title and created time -->
 									<div class="truncate text-lg font-semibold">{item.title}</div>
 									<div class="text-sm text-white/60">{fmt(item.created_date)}</div>
 									<!-- Show the UUID for clarity/auditing -->
 									<div class="font-mono text-xs text-white/50">ID: {item.id}</div>
+									<!-- Stale/Fresh status for GitHub repos -->
+									{#if isGitRepo(item) && item.status?.toLowerCase() === 'completed'}
+										<div class="mt-1 flex items-center gap-2 text-xs">
+											{#if item.is_outdated}
+												<span
+													class="inline-flex items-center gap-1 rounded border border-orange-400/30 bg-orange-500/20 px-2 py-0.5 text-orange-200"
+													title="Source files have changed"
+												>
+													<AlertCircle class="h-3 w-3" />
+													Outdated
+												</span>
+											{:else}
+												<span
+													class="inline-flex items-center gap-1 rounded border border-green-400/30 bg-green-500/20 px-2 py-0.5 text-green-200"
+													title="Up to date"
+												>
+													<CheckCircle2 class="h-3 w-3" />
+													Fresh
+												</span>
+											{/if}
+											{#if item.last_checked_at}
+												<span class="inline-flex items-center gap-1 text-white/50" title="Last checked">
+													<Clock class="h-3 w-3" />
+													{fmtRelative(item.last_checked_at)}
+												</span>
+											{/if}
+										</div>
+									{/if}
 								</div>
 
 								<!-- Status -->
-								<div class="mt-2 md:mt-0">
+								<div class="mt-2 flex flex-col items-end gap-2 md:mt-0">
 									{#if item.status?.toLowerCase() === 'completed'}
 										<span
 											class="inline-block rounded border border-green-400/30 bg-green-500/20 px-2 py-1 text-xs text-green-200"
@@ -306,6 +448,34 @@
 									<div class="mb-2 truncate text-lg font-semibold text-white">{item.title}</div>
 									<div class="mb-1 text-sm text-white/60">{fmt(item.created_date)}</div>
 									<div class="truncate font-mono text-xs text-white/50">ID: {item.id}</div>
+									<!-- Stale/Fresh status for GitHub repos -->
+									{#if isGitRepo(item) && item.status?.toLowerCase() === 'completed'}
+										<div class="mt-2 flex flex-wrap items-center gap-2 text-xs">
+											{#if item.is_outdated}
+												<span
+													class="inline-flex items-center gap-1 rounded border border-orange-400/30 bg-orange-500/20 px-2 py-0.5 text-orange-200"
+													title="Source files have changed"
+												>
+													<AlertCircle class="h-3 w-3" />
+													Outdated
+												</span>
+											{:else}
+												<span
+													class="inline-flex items-center gap-1 rounded border border-green-400/30 bg-green-500/20 px-2 py-0.5 text-green-200"
+													title="Up to date"
+												>
+													<CheckCircle2 class="h-3 w-3" />
+													Fresh
+												</span>
+											{/if}
+											{#if item.last_checked_at}
+												<span class="inline-flex items-center gap-1 text-white/50" title="Last checked">
+													<Clock class="h-3 w-3" />
+													{fmtRelative(item.last_checked_at)}
+												</span>
+											{/if}
+										</div>
+									{/if}
 								</div>
 
 								<div
@@ -379,6 +549,22 @@
 						class="mt-4 rounded-xl border border-red-400/30 bg-red-500/10 px-3 py-2 text-red-200"
 					>
 						Error deleting document: {deleteError}
+					</div>
+				{/if}
+
+				<!-- Refresh all messages -->
+				{#if refreshAllMsg}
+					<div
+						class="mt-4 rounded-xl border border-green-400/30 bg-green-500/10 px-3 py-2 text-green-200"
+					>
+						{refreshAllMsg}
+					</div>
+				{/if}
+				{#if refreshAllErr}
+					<div
+						class="mt-4 rounded-xl border border-red-400/30 bg-red-500/10 px-3 py-2 text-red-200"
+					>
+						Error refreshing: {refreshAllErr}
 					</div>
 				{/if}
 			{/if}

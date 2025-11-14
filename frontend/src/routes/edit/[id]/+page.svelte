@@ -39,7 +39,7 @@
 
 	// 5) Bring in Supabase + icons
 	import { supabase } from '$lib/supabaseClient';
-	import { Loader2, RefreshCw, AlertCircle } from '@lucide/svelte';
+	import { Loader2, RefreshCw, AlertCircle, CheckCircle2 } from '@lucide/svelte';
 	import { onMount } from 'svelte';
 
 	// 6) Bring in our rich editor component
@@ -110,11 +110,13 @@
 		previewPane.scrollTo({ top: ratio * max, behavior: 'auto' });
 	}
 
+	// Check if this is a GitHub repo
+	const isGitRepo =
+		data.submission.input_type === 'github_repo' ||
+		data.submission.input_type === 'github_repo_directory';
+
 	// Check for outdated files (only for GitHub repos)
 	async function checkForUpdates() {
-		const isGitRepo =
-			data.submission.input_type === 'github_repo' ||
-			data.submission.input_type === 'github_repo_directory';
 		if (!isGitRepo) return;
 
 		checkingUpdates = true;
@@ -284,6 +286,28 @@
 					{#if regenerateMsg}
 						<div class="mt-2 text-sm text-green-300">{regenerateMsg}</div>
 					{/if}
+				</div>
+			{:else if isGitRepo && data.submission.status === 'completed'}
+				<!-- Fresh status indicator -->
+				<div
+					class="mt-2 flex items-center gap-2 rounded-xl border border-green-300/30 bg-green-500/10 px-3 py-2 text-green-200"
+				>
+					<CheckCircle2 class="h-4 w-4" />
+					<span class="text-sm">Documentation is up to date</span>
+					<button
+						class="ml-auto inline-flex items-center gap-1 rounded-lg bg-green-500/20 px-3 py-1 text-xs font-medium text-green-200 hover:bg-green-500/30 disabled:opacity-60"
+						on:click|preventDefault={checkForUpdates}
+						disabled={checkingUpdates}
+						title="Check for updates"
+					>
+						{#if checkingUpdates}
+							<Loader2 class="h-3 w-3 animate-spin" />
+							Checking...
+						{:else}
+							<RefreshCw class="h-3 w-3" />
+							Check Now
+						{/if}
+					</button>
 				</div>
 			{/if}
 		</header>
