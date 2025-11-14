@@ -21,7 +21,7 @@ export const load = async ({ locals: { safeGetSession, supabase } }) => {
     //     already hides rows that do not belong to auth.uid() for this request.
     const { data, error } = await supabase
         .from("submissions")
-        .select("id, created_at, title, status")
+        .select("id, created_at, title, status, input_type, last_checked_at, is_outdated")
         .order("created_at", { ascending: false })
         .limit(30); // keep the list short and snappy
 
@@ -34,6 +34,9 @@ export const load = async ({ locals: { safeGetSession, supabase } }) => {
                 created_date: string;
                 title: string | null;
                 status: "processing" | "completed" | "failed";
+                input_type: "github_repo" | "github_repo_directory" | "zipped_folder" | "pasted_code" | null;
+                last_checked_at: string | null;
+                is_outdated: boolean | null;
             }>,
             loadError: error.message as string
         };
@@ -44,7 +47,10 @@ export const load = async ({ locals: { safeGetSession, supabase } }) => {
         id: String(row.id),
         created_date: row.created_at as string,
         title: (row.title ?? "Untitled") as string,
-        status: row.status as "processing" | "completed" | "failed"
+        status: row.status as "processing" | "completed" | "failed",
+        input_type: row.input_type as "github_repo" | "github_repo_directory" | "zipped_folder" | "pasted_code" | null,
+        last_checked_at: row.last_checked_at as string | null,
+        is_outdated: (row.is_outdated ?? false) as boolean
     }));
 
     // [6] Hand the data to the page. It becomes $page.data.* on the client.

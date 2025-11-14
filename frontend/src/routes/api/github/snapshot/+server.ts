@@ -8,7 +8,7 @@
 
 import type { RequestHandler } from '@sveltejs/kit';
 import { json } from '@sveltejs/kit';
-import { getLatestCommitSha, getFileShas } from '$lib/server/githubTracking';
+import { getLatestCommitSha, getFileShas } from '$lib/server/github/githubTracking';
 
 function jsonResponse(data: unknown, status = 200) {
     return json(data, { status });

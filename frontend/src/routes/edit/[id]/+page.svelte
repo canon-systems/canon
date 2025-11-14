@@ -29,28 +29,37 @@
 	let saveMsg = '';
 	let saveErr = '';
 
-	// 4) Bring in Supabase + icons
-	import { supabase } from '$lib/supabaseClient';
-	import { Loader2 } from '@lucide/svelte';
+	// 4) Outdated files check state
+	let checkingUpdates = false;
+	let outdatedFiles: Array<{ file_path: string; old_hash: string; new_hash: string }> = [];
+	let isOutdated = false;
+	let regenerating = false;
+	let regenerateMsg = '';
+	let regenerateErr = '';
 
-	// 5) Bring in our rich editor component
+	// 5) Bring in Supabase + icons
+	import { supabase } from '$lib/supabaseClient';
+	import { Loader2, RefreshCw, AlertCircle, CheckCircle2 } from '@lucide/svelte';
+	import { onMount } from 'svelte';
+
+	// 6) Bring in our rich editor component
 	import RichTextEditor from '$lib/components/RichTextEditor.svelte';
 
-	// 6) Converters
+	// 7) Converters
 	// marked: Markdown -> HTML for TipTap initial content
 	import { marked } from 'marked';
 	// turndown: HTML -> Markdown when saving
 	import TurndownService from 'turndown';
 	const turndown = new TurndownService();
 
-	// 7) Make initial HTML for the editor from the DB markdown
+	// 8) Make initial HTML for the editor from the DB markdown
 	//    If empty, provide a simple paragraph so the canvas is clickable.
 	let initialHTML = (markdown && marked.parse(markdown)) || '<p></p>';
 
-	// 8) Live HTML coming from the editor (we keep it in sync and convert on save)
+	// 9) Live HTML coming from the editor (we keep it in sync and convert on save)
 	let html = String(initialHTML);
 
-	// 9) Status hint
+	// 10) Status hint
 	$: statusNotice =
 		data.submission.status === 'processing'
 			? 'Note: This submission is still processing.'
@@ -58,14 +67,14 @@
 				? `Last run failed: ${data.submission.error_message}`
 				: '';
 
-	// 10) Receive change events from the editor and update our html + markdown
+	// 11) Receive change events from the editor and update our html + markdown
 	function handleChange(e: CustomEvent<{ html: string }>) {
 		html = e.detail.html;
 		// keep the canonical markdown up to date, so Save uses latest value
 		markdown = turndown.turndown(html);
 	}
 
-	// 11) Save handler: write title/markdown back to Supabase (unchanged table shape)
+	// 12) Save handler: write title/markdown back to Supabase (unchanged table shape)
 	async function saveChanges() {
 		saveErr = '';
 		saveMsg = '';
@@ -100,6 +109,116 @@
 		// Choose 'smooth' if you prefer animated sync; 'auto' is instant.
 		previewPane.scrollTo({ top: ratio * max, behavior: 'auto' });
 	}
+
+	// Check if this is a GitHub repo
+	const isGitRepo =
+		data.submission.input_type === 'github_repo' ||
+		data.submission.input_type === 'github_repo_directory';
+
+	// Check for outdated files (only for GitHub repos)
+	async function checkForUpdates() {
+		if (!isGitRepo) return;
+
+		checkingUpdates = true;
+		outdatedFiles = [];
+		isOutdated = false;
+
+		try {
+			// Verify user is authenticated (more secure than getSession)
+			const { data: userData, error: userError } = await supabase.auth.getUser();
+			if (userError || !userData?.user) {
+				console.warn('No authenticated user available for update check');
+				return;
+			}
+			// Get session token after verifying user
+			const { data: sessionData } = await supabase.auth.getSession();
+			const token = sessionData?.session?.access_token;
+
+			if (!token) {
+				console.warn('No session token available for update check');
+				return;
+			}
+
+			const res = await fetch('/api/docs/check-updates', {
+				method: 'POST',
+				headers: {
+					'content-type': 'application/json',
+					authorization: `Bearer ${token}`
+				},
+				body: JSON.stringify({
+					submissionId: data.submission.id
+				})
+			});
+
+			const result = await res.json().catch(() => ({}));
+			if (res.ok && result.outdated) {
+				isOutdated = true;
+				outdatedFiles = result.changedFiles || [];
+			}
+		} catch (e) {
+			console.error('Failed to check for updates:', e);
+		} finally {
+			checkingUpdates = false;
+		}
+	}
+
+	// Regenerate documentation with latest code
+	async function regenerateDocumentation() {
+		regenerateErr = '';
+		regenerateMsg = '';
+		regenerating = true;
+
+		try {
+			// Get the authenticated user (more secure than getSession)
+			const { data: userData, error: userError } = await supabase.auth.getUser();
+			if (userError || !userData?.user) {
+				throw new Error('No authenticated user available');
+			}
+			// Get session token after verifying user
+			const { data: sessionData } = await supabase.auth.getSession();
+			const token = sessionData?.session?.access_token;
+
+			if (!token) {
+				throw new Error('No session token available');
+			}
+
+			const res = await fetch('/api/docs/update', {
+				method: 'POST',
+				headers: {
+					'content-type': 'application/json',
+					authorization: `Bearer ${token}`
+				},
+				body: JSON.stringify({
+					submissionId: data.submission.id
+				})
+			});
+
+			const result = await res.json().catch(() => ({}));
+			if (!res.ok) {
+				throw new Error(result?.error || result?.details || `Update failed (${res.status})`);
+			}
+
+			regenerateMsg = 'Documentation regenerated successfully! Refreshing...';
+			// Refresh the page after a short delay to show the updated content
+			setTimeout(() => {
+				window.location.reload();
+			}, 1500);
+		} catch (e) {
+			regenerateErr = String(e);
+		} finally {
+			regenerating = false;
+		}
+	}
+
+	// Auto-check for updates when page loads (only for GitHub repos)
+	onMount(() => {
+		const isGitRepo =
+			data.submission.input_type === 'github_repo' ||
+			data.submission.input_type === 'github_repo_directory';
+		if (isGitRepo && data.submission.status === 'completed') {
+			checkForUpdates();
+		}
+	});
 </script>
 
 <!-- ------------------------------------------------------------
@@ -120,6 +239,75 @@
 					class="mt-2 rounded-xl border border-yellow-300/30 bg-yellow-500/10 px-3 py-2 text-yellow-200"
 				>
 					{statusNotice}
+				</div>
+			{/if}
+
+			<!-- Outdated files banner -->
+			{#if checkingUpdates}
+				<div
+					class="mt-2 flex items-center gap-2 rounded-xl border border-blue-300/30 bg-blue-500/10 px-3 py-2 text-blue-200"
+				>
+					<Loader2 class="h-4 w-4 animate-spin" />
+					<span>Checking for updates...</span>
+				</div>
+			{:else if isOutdated && outdatedFiles.length > 0}
+				<div
+					class="mt-2 rounded-xl border border-orange-300/30 bg-orange-500/10 px-4 py-3 text-orange-200"
+				>
+					<div class="mb-2 flex items-center gap-2">
+						<AlertCircle class="h-5 w-5" />
+						<span class="font-semibold">Source files have changed</span>
+					</div>
+					<p class="mb-3 text-sm text-orange-200/80">
+						{outdatedFiles.length} file{outdatedFiles.length === 1 ? '' : 's'} have been modified since
+						this documentation was created:
+					</p>
+					<ul class="mb-3 ml-4 list-disc space-y-1 text-sm">
+						{#each outdatedFiles as file}
+							<li class="font-mono text-xs">{file.file_path}</li>
+						{/each}
+					</ul>
+					<button
+						class="inline-flex items-center gap-2 rounded-lg bg-orange-500/20 px-4 py-2 text-sm font-medium text-orange-200 hover:bg-orange-500/30 disabled:opacity-60"
+						on:click|preventDefault={regenerateDocumentation}
+						disabled={regenerating}
+					>
+						{#if regenerating}
+							<Loader2 class="h-4 w-4 animate-spin" />
+							<span>Regenerating...</span>
+						{:else}
+							<RefreshCw class="h-4 w-4" />
+							<span>Regenerate Documentation</span>
+						{/if}
+					</button>
+					{#if regenerateErr}
+						<div class="mt-2 text-sm text-red-300">{regenerateErr}</div>
+					{/if}
+					{#if regenerateMsg}
+						<div class="mt-2 text-sm text-green-300">{regenerateMsg}</div>
+					{/if}
+				</div>
+			{:else if isGitRepo && data.submission.status === 'completed'}
+				<!-- Fresh status indicator -->
+				<div
+					class="mt-2 flex items-center gap-2 rounded-xl border border-green-300/30 bg-green-500/10 px-3 py-2 text-green-200"
+				>
+					<CheckCircle2 class="h-4 w-4" />
+					<span class="text-sm">Documentation is up to date</span>
+					<button
+						class="ml-auto inline-flex items-center gap-1 rounded-lg bg-green-500/20 px-3 py-1 text-xs font-medium text-green-200 hover:bg-green-500/30 disabled:opacity-60"
+						on:click|preventDefault={checkForUpdates}
+						disabled={checkingUpdates}
+						title="Check for updates"
+					>
+						{#if checkingUpdates}
+							<Loader2 class="h-3 w-3 animate-spin" />
+							Checking...
+						{:else}
+							<RefreshCw class="h-3 w-3" />
+							Check Now
+						{/if}
+					</button>
 				</div>
 			{/if}
 		</header>
