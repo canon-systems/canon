@@ -30,6 +30,12 @@
 	let branch = 'master';
 	let subdir = 'backend';
 
+	// Dropdown options
+	let branches: string[] = [];
+	let directories: string[] = [];
+	let loadingBranches = false;
+	let loadingDirectories = false;
+
 	// Zip & Paste inputs
 	let zipFile: File | null = null;
 	let pasteFilename = 'snippet.txt';
@@ -262,11 +268,111 @@
 		selectedPaths = new Set();
 	}
 
+	// React to repo URL changes (with debounce to avoid multiple calls)
+	let repoUrlKey = '';
+	$: {
+		const newKey = isGit && repoUrl && repoUrl.includes('github.com') ? repoUrl : '';
+		if (newKey !== repoUrlKey) {
+			repoUrlKey = newKey;
+			if (newKey) {
+				fetchBranches();
+			} else {
+				branches = [];
+				directories = [];
+				subdir = '';
+			}
+		}
+	}
+
+	// React to branch changes
+	let branchKey = '';
+	$: {
+		const newKey = isGit && branch && repoUrl && repoUrl.includes('github.com') ? `${repoUrl}|${branch}` : '';
+		if (newKey !== branchKey) {
+			branchKey = newKey;
+			if (newKey && branch && method === 'github_repo_directory') {
+				fetchDirectories();
+			} else {
+				directories = [];
+			}
+		}
+	}
+
+	// React to method changes - fetch directories if switching to github_repo_directory
+	$: if (isGit && method === 'github_repo_directory' && branch && repoUrl && repoUrl.includes('github.com')) {
+		fetchDirectories();
+	}
+
 	// Whether to show the "Load files" button:
 	// - Only for Git methods
 	// - Only when files are not loaded yet
 	// - Not while we are listing
 	$: showLoadButton = isGit && !pickerFiles.length && !listing;
+
+	// --------- Fetch branches and directories ----------
+	async function fetchBranches() {
+		if (!repoUrl.trim() || !repoUrl.includes('github.com')) {
+			branches = [];
+			return;
+		}
+
+		loadingBranches = true;
+		try {
+			const response = await fetch('/api/github/branches', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ repoUrl })
+			});
+
+			if (response.ok) {
+				const data = await response.json();
+				branches = data.branches || [];
+				// Auto-select first branch if available and current branch not in list
+				if (branches.length > 0 && !branches.includes(branch)) {
+					branch = branches[0];
+					// Fetch directories for the new branch
+					if (method === 'github_repo_directory') {
+						fetchDirectories();
+					}
+				}
+			} else {
+				branches = [];
+			}
+		} catch (err) {
+			console.error('Failed to fetch branches:', err);
+			branches = [];
+		} finally {
+			loadingBranches = false;
+		}
+	}
+
+	async function fetchDirectories() {
+		if (!repoUrl.trim() || !repoUrl.includes('github.com') || !branch) {
+			directories = [];
+			return;
+		}
+
+		loadingDirectories = true;
+		try {
+			const response = await fetch('/api/github/directories', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ repoUrl, branch })
+			});
+
+			if (response.ok) {
+				const data = await response.json();
+				directories = data.directories || [];
+			} else {
+				directories = [];
+			}
+		} catch (err) {
+			console.error('Failed to fetch directories:', err);
+			directories = [];
+		} finally {
+			loadingDirectories = false;
+		}
+	}
 
 	// --------- List files for Git methods ----------
 	async function listGitFiles() {
@@ -659,25 +765,49 @@
 						bind:value={repoUrl}
 						placeholder="https://github.com/owner/repo"
 					/>
+					{#if loadingBranches}
+						<p class="mt-1 text-xs text-white/50">Loading branches...</p>
+					{/if}
 				</label>
 
 				<label class="block">
 					<div class="mb-1 text-sm text-white/70">Branch</div>
-					<input
-						class="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white placeholder-white/60 outline-none focus:border-white/40"
+					<select
 						bind:value={branch}
-						placeholder="main"
-					/>
+						disabled={loadingBranches || branches.length === 0}
+						class="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white outline-none focus:border-white/40 disabled:cursor-not-allowed disabled:opacity-50"
+					>
+						{#if branches.length === 0 && !loadingBranches}
+							<option value="">Enter repo URL first</option>
+						{:else if loadingBranches}
+							<option value="">Loading...</option>
+						{:else}
+							{#each branches as b}
+								<option value={b}>{b}</option>
+							{/each}
+						{/if}
+					</select>
 				</label>
 
 				{#if method === 'github_repo_directory'}
 					<label class="block">
 						<div class="mb-1 text-sm text-white/70">Subfolder (optional)</div>
-						<input
-							class="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white placeholder-white/60 outline-none focus:border-white/40"
+						<select
 							bind:value={subdir}
-							placeholder="e.g. backend"
-						/>
+							disabled={loadingDirectories || !branch || branches.length === 0}
+							class="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white outline-none focus:border-white/40 disabled:cursor-not-allowed disabled:opacity-50"
+						>
+							<option value="">Root (all files)</option>
+							{#if loadingDirectories}
+								<option value="" disabled>Loading directories...</option>
+							{:else if directories.length > 0}
+								{#each directories as d}
+									<option value={d}>{d}</option>
+								{/each}
+							{:else if branch && !loadingDirectories}
+								<option value="" disabled>No subdirectories found</option>
+							{/if}
+						</select>
 					</label>
 				{/if}
 			</div>
