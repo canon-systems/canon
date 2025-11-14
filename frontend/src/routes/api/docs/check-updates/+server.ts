@@ -1,97 +1,233 @@
-/**
- * ─────────────────────────────────────────────────────────────────────────────
- * PURPOSE
- * - Check for code changes in GitHub repositories
- * - Find documents that depend on changed code
- * - Returns list of submissions that need updating
- * ─────────────────────────────────────────────────────────────────────────────
- */
+// ============================================================================
+// /api/docs/check-updates  (POST)
+//
+// PURPOSE:
+//   Given a submissionId, this endpoint checks GitHub to see whether any of the
+//   files used to create the documentation have changed since the last snapshot.
+//
+// RETURNS:
+//   {
+//      outdated: boolean,
+//      changedFiles: [
+//         { file_path: "...", old_hash: "...", new_hash: "..." }
+//      ]
+//   }
+//
+// BACKGROUND:
+//   Each submission stores: code_snapshot.commitSha + fileShas (at time of run)
+//   submission_files stores a row per file, each with file_hash (blob SHA)
+//   To detect changes:
+//       - Fetch latest blob SHAs from GitHub for those file paths
+//       - Compare with stored file_hash
+//       - Any mismatch = outdated
+// ============================================================================
 
-import type { RequestHandler } from '@sveltejs/kit';
-import { json } from '@sveltejs/kit';
-import { getLatestCommitSha, checkForChanges } from '$lib/server/githubTracking';
+import type { RequestHandler } from '@sveltejs/kit'
+import { json } from '@sveltejs/kit'
+import { Octokit } from '@octokit/rest'
 
-function jsonResponse(data: unknown, status = 200) {
-    return json(data, { status });
+// NEW: import createClient so we can build a Supabase client for this request
+import { createClient } from '@supabase/supabase-js'
+
+// NEW: import your Supabase URL and anon key from public env
+import { PUBLIC_SUPABASE_URL, PUBLIC_SUPABASE_ANON_KEY } from '$env/static/public'
+import { GITHUB_TOKEN } from '$env/static/private'
+
+// GitHub client (must have GITHUB_TOKEN env var)
+const octokit = new Octokit({
+    auth: GITHUB_TOKEN || undefined
+})
+
+// Helper: parse GitHub repo URL ("https://github.com/user/repo")
+function parseRepoUrl(url: string) {
+    const match = url.match(/github\.com\/([^\/]+)\/([^\/]+)(?:\.git|$|\/)/)
+    if (!match) throw new Error(`Invalid GitHub URL: ${url}`)
+    return { owner: match[1], repo: match[2].replace(/\.git$/, '') }
 }
 
-export const POST: RequestHandler = async ({ request, locals: { supabase } }) => {
+export const POST: RequestHandler = async (event) => {
+    // Wrap everything in try/catch so we can see the real error
     try {
-        const body = await request.json().catch(() => ({}));
-        const { repoUrl, branch } = body;
+        // ------------------------------------------------------------
+        // 1) Read JSON body
+        // ------------------------------------------------------------
+        const body = await event.request.json().catch(() => ({}))
+        const submissionId = body.submissionId
 
-        if (!repoUrl || !branch) {
-            return jsonResponse({ error: 'repoUrl and branch are required' }, 400);
+        if (!submissionId) {
+            return json({ error: 'submissionId required' }, { status: 400 })
         }
 
-        // Find all submissions that use this repo/branch
-        const { data: submissions, error } = await supabase
-            .from('submissions')
-            .select('id, source_meta, selected_files, code_snapshot')
-            .in('input_type', ['github_repo', 'github_repo_directory'])
-            .eq('status', 'completed');
+        // ------------------------------------------------------------
+        // 2) Create Supabase client that uses the incoming Authorization header
+        //    so RLS sees auth.uid() correctly when you call from Postman
+        // ------------------------------------------------------------
 
-        if (error) {
-            return jsonResponse({ error: error.message }, 500);
-        }
+        // Read the Authorization header from the incoming request
+        // In Postman you will send: Authorization: Bearer <your Supabase JWT>
+        const authHeader = event.request.headers.get('authorization') ?? ''
 
-        if (!submissions || submissions.length === 0) {
-            return jsonResponse({ needsUpdate: [], message: 'No submissions found for this repo' });
-        }
-
-        // Filter submissions that match this repo/branch
-        const relevantSubmissions = submissions.filter((sub: any) => {
-            const meta = sub.source_meta;
-            if (!meta) return false;
-            return meta.repoUrl === repoUrl && meta.branch === branch;
-        });
-
-        if (relevantSubmissions.length === 0) {
-            return jsonResponse({ needsUpdate: [], message: 'No submissions match this repo/branch' });
-        }
-
-        // Check each submission for changes
-        const needsUpdate: Array<{ id: string; changedFiles: string[] }> = [];
-        const latestCommitSha = await getLatestCommitSha(repoUrl, branch);
-
-        for (const sub of relevantSubmissions) {
-            const codeSnapshot = sub.code_snapshot || {};
-            const storedCommitSha = codeSnapshot.commitSha;
-            const storedFileShas = codeSnapshot.fileShas || {};
-            const selectedFiles = sub.selected_files || [];
-
-            // Check if branch commit changed
-            if (storedCommitSha && latestCommitSha && storedCommitSha !== latestCommitSha) {
-                // Branch moved, check which files changed
-                const changeResult = await checkForChanges(
-                    repoUrl,
-                    branch,
-                    selectedFiles,
-                    storedFileShas
-                );
-
-                if (changeResult.changed) {
-                    needsUpdate.push({
-                        id: sub.id,
-                        changedFiles: changeResult.changedFiles
-                    });
+        // Create a Supabase client that forwards that Authorization header
+        // This means Supabase will validate the JWT and RLS will run as that user
+        const supabase = createClient(PUBLIC_SUPABASE_URL, PUBLIC_SUPABASE_ANON_KEY, {
+            global: {
+                headers: {
+                    Authorization: authHeader
                 }
-            } else if (!storedCommitSha) {
-                // No stored snapshot, mark for update
-                needsUpdate.push({
-                    id: sub.id,
-                    changedFiles: selectedFiles
-                });
+            }
+        })
+
+        // OLD LINE REMOVED:
+        // const supabase = event.locals.supabase
+
+        // ------------------------------------------------------------
+        // 3) Load the submission
+        // ------------------------------------------------------------
+        const { data: submission, error: subErr } = await supabase
+            .from('submissions')
+            .select('*')
+            .eq('id', submissionId)
+            .single()
+
+        if (subErr || !submission) {
+            return json(
+                {
+                    error: 'Submission not found',
+                    details: subErr?.message
+                },
+                { status: 404 }
+            )
+        }
+
+        // Guard: ensure repo
+        if (!submission.source_meta?.repoUrl) {
+            return json(
+                { error: 'Submission has no repoUrl (not a GitHub submission)' },
+                { status: 400 }
+            )
+        }
+
+        // ------------------------------------------------------------
+        // 4) Load all submission_files rows for this submission
+        // ------------------------------------------------------------
+        const { data: files, error: fileErr } = await supabase
+            .from('submission_files')
+            .select('*')
+            .eq('submission_id', submissionId)
+
+        if (fileErr) {
+            return json(
+                {
+                    error: 'Failed to load submission_files',
+                    details: fileErr.message
+                },
+                { status: 500 }
+            )
+        }
+
+        // If there are no rows, there is nothing to compare
+        if (!files || files.length === 0) {
+            return json(
+                {
+                    outdated: false,
+                    changedFiles: [],
+                    message: 'No tracked files for this submission'
+                },
+                { status: 200 }
+            )
+        }
+
+        // ------------------------------------------------------------
+        // 5) Parse repo info from the submission
+        // ------------------------------------------------------------
+        const repoUrl = submission.source_meta.repoUrl
+        const branch = submission.source_meta.branch || 'master'
+
+        const { owner, repo } = parseRepoUrl(repoUrl)
+
+        // ------------------------------------------------------------
+        // 6) For each tracked file, fetch the new SHA from GitHub
+        // ------------------------------------------------------------
+        const changedFiles: {
+            file_path: string
+            old_hash: string
+            new_hash: string
+        }[] = []
+
+        for (const row of files) {
+            const filePath = row.file_path
+            const oldHash = row.file_hash
+
+            try {
+                // GitHub returns metadata for this file path
+                // Note: filePath should be relative to repo root (e.g., "frontend/src/..." if subdir was "frontend")
+                const { data } = await octokit.repos.getContent({
+                    owner,
+                    repo,
+                    path: filePath,
+                    ref: branch
+                })
+
+                // If file was found and is single file:
+                if (!Array.isArray(data) && data.type === 'file' && data.sha) {
+                    const newHash = data.sha
+
+                    // Compare → if mismatch, file changed
+                    if (newHash !== oldHash) {
+                        changedFiles.push({
+                            file_path: filePath,
+                            old_hash: oldHash,
+                            new_hash: newHash
+                        })
+                    }
+                }
+            } catch (e: any) {
+                // 🔍 NEW: log all context + raw error
+                const errorMessage = e?.message || String(e)
+                const errorStatus = e?.status || e?.response?.status
+                console.error('GitHub getContent error', {
+                    owner,
+                    repo,
+                    branch,
+                    filePath,
+                    error: errorMessage,
+                    status: errorStatus,
+                    hasToken: !!GITHUB_TOKEN
+                })
+                // If getContent fails (path deleted, moved, 404), we count this as changed.
+                changedFiles.push({
+                    file_path: filePath,
+                    old_hash: oldHash,
+                    new_hash: `(missing or unreachable: ${errorStatus || errorMessage})`
+                })
             }
         }
 
-        return jsonResponse({
-            needsUpdate,
-            latestCommitSha,
-            message: `${needsUpdate.length} document(s) need updating`
-        });
-    } catch (err) {
-        return jsonResponse({ error: 'Check failed', detail: String(err) }, 500);
-    }
-};
+        // ------------------------------------------------------------
+        // 7) Return results
+        // ------------------------------------------------------------
+        const outdated = changedFiles.length > 0
 
+        return json(
+            {
+                outdated,
+                changedFiles
+            },
+            { status: 200 }
+        )
+    } catch (err: unknown) {
+        // If anything unexpected blows up, we log it and return details in JSON
+        console.error('Error in /api/docs/check-updates', err)
+
+        const message =
+            err instanceof Error ? err.message : typeof err === 'string' ? err : 'Unknown error'
+
+        return json(
+            {
+                error: 'Internal server error',
+                details: message
+            },
+            { status: 500 }
+        )
+    }
+}

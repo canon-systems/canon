@@ -286,24 +286,35 @@
 			let codeSnapshot: any = null;
 			if (isGit && repoUrl && branch) {
 				try {
-					// Get commit SHA and file SHAs
-					const snapshotRes = await fetch('/api/github/snapshot', {
-						method: 'POST',
-						headers: { 'content-type': 'application/json' },
-						body: JSON.stringify({
-							repoUrl,
-							branch,
-							selectedFiles: selectedArray()
-						})
-					});
-					if (snapshotRes.ok) {
-						const snapshotData = await snapshotRes.json().catch(() => null);
-						if (snapshotData?.commitSha && snapshotData?.fileShas) {
-							codeSnapshot = {
-								commitSha: snapshotData.commitSha,
-								fileShas: snapshotData.fileShas,
-								createdAt: new Date().toISOString()
-							};
+					const selectedFiles = selectedArray();
+					if (selectedFiles.length === 0) {
+						console.warn('No files selected for snapshot');
+					} else {
+						// Get commit SHA and file SHAs
+						const snapshotRes = await fetch('/api/github/snapshot', {
+							method: 'POST',
+							headers: { 'content-type': 'application/json' },
+							body: JSON.stringify({
+								repoUrl,
+								branch,
+								selectedFiles
+							})
+						});
+
+						if (snapshotRes.ok) {
+							const snapshotData = await snapshotRes.json().catch(() => null);
+							if (snapshotData?.commitSha && snapshotData?.fileShas) {
+								codeSnapshot = {
+									commitSha: snapshotData.commitSha,
+									fileShas: snapshotData.fileShas,
+									createdAt: new Date().toISOString()
+								};
+							} else {
+								console.warn('Snapshot API returned invalid data:', snapshotData);
+							}
+						} else {
+							const errorData = await snapshotRes.json().catch(() => ({}));
+							console.warn('Snapshot API failed:', snapshotRes.status, errorData);
 						}
 					}
 				} catch (e) {
@@ -323,6 +334,31 @@
 				})
 				.eq('id', submissionId as string);
 			if (uerr) throw new Error(uerr.message);
+
+			// At this point:
+			//   - The submission row exists
+			//   - markdown, summary, status, and code_snapshot are saved
+			//
+			// Now we tell the server:
+			//   "Hey, for this submissionId, please update submission_files
+			//    using the stored code_snapshot."
+			//
+			// We do this as a best-effort, non-blocking step.
+			// If it fails, the documentation is STILL saved and usable.
+			// It just means auto-update tracking might be missing for that run.
+			if (submissionId && codeSnapshot) {
+				try {
+					await fetch('/api/docs/post-process', {
+						method: 'POST',
+						headers: { 'content-type': 'application/json' },
+						body: JSON.stringify({ submissionId })
+					});
+					// We do not need to inspect the response here.
+					// If it fails, logs on the server will tell us what happened.
+				} catch (e) {
+					console.warn('Failed to post-process submission (submission_files):', e);
+				}
+			}
 
 			// 5) Done → /edit/{id}
 			statusMsg = 'Done. Redirecting…';

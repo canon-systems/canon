@@ -12,10 +12,11 @@ import { json, error } from '@sveltejs/kit';
 import {
     VERCEL_AI_GATEWAY_URL,
     VERCEL_AI_GATEWAY_API_KEY,
-    LLM_MODEL
+    LLM_MODEL,
+    GITHUB_TOKEN
 } from '$env/static/private';
-import { getFileShas, getLatestCommitSha } from '$lib/server/githubTracking';
-import { parseRepoUrl } from '$lib/server/github';
+import { getFileShas, getLatestCommitSha } from '$lib/server/github/githubTracking';
+import { parseRepoUrl } from '$lib/server/github/github';
 
 function jsonResponse(data: unknown, status = 200) {
     return json(data, { status });
@@ -50,7 +51,6 @@ async function callGateway(messages: Array<{ role: 'system' | 'user' | 'assistan
 
 // Fetch file content from GitHub
 async function fetchFileContent(owner: string, repo: string, branch: string, path: string): Promise<string | null> {
-    const { GITHUB_TOKEN } = await import('$env/dynamic/private');
     try {
         const res = await fetch(
             `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}?ref=${encodeURIComponent(branch)}`,
@@ -64,7 +64,7 @@ async function fetchFileContent(owner: string, repo: string, branch: string, pat
 
         if (!res.ok) return null;
         const data = (await res.json()) as { content: string; encoding: string };
-        
+
         if (data.encoding === 'base64') {
             return Buffer.from(data.content, 'base64').toString('utf-8');
         }
@@ -195,14 +195,17 @@ export const POST: RequestHandler = async ({ request, locals: { supabase } }) =>
     } catch (err) {
         // Mark as failed if we have a submission ID
         if (submissionId) {
-            await supabase
-                .from('submissions')
-                .update({
-                    status: 'failed',
-                    error_message: String(err).slice(0, 500)
-                })
-                .eq('id', submissionId)
-                .catch(() => {}); // Ignore errors in error handler
+            try {
+                await supabase
+                    .from('submissions')
+                    .update({
+                        status: 'failed',
+                        error_message: String(err).slice(0, 500)
+                    })
+                    .eq('id', submissionId);
+            } catch {
+                // Ignore errors in error handler
+            }
         }
 
         return jsonResponse({ error: 'Update failed', detail: String(err) }, 500);
