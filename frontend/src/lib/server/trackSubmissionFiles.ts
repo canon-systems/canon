@@ -31,6 +31,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { Octokit } from '@octokit/rest'
+import { GITHUB_TOKEN } from '$env/static/private'
 
 // -----------------------------------------------------------------------------
 // CREATE A GITHUB CLIENT
@@ -39,7 +40,7 @@ import { Octokit } from '@octokit/rest'
 // This token MUST be set in your environment as GITHUB_TOKEN.
 // Without this, all GitHub API calls will fail (403).
 const octokit = new Octokit({
-    auth: process.env.GITHUB_TOKEN
+    auth: GITHUB_TOKEN || undefined
 })
 
 // -----------------------------------------------------------------------------
@@ -271,17 +272,22 @@ export async function trackSubmissionFiles(params: {
 
             // If this is a real file (not a directory), GitHub gives size here.
             if (!Array.isArray(data) && data.type === 'file') {
-                size_bytes = typeof data.size === 'number' ? data.size : null
+                // GitHub API returns size as a number
+                if (typeof data.size === 'number' && data.size >= 0) {
+                    size_bytes = data.size
+                }
                 file_type = guessFileTypeFromPath(file_path)
             } else {
                 // Directory or weird shape → fallback later
                 file_type = guessFileTypeFromPath(file_path)
             }
-        } catch (e) {
+        } catch (e: any) {
             // If this fails (404, wrong path, etc), we log and fallback below.
+            const errorMsg = e?.message || String(e)
+            const errorStatus = e?.status || e?.response?.status
             console.warn(
                 `trackSubmissionFiles: getContent FAILED for ${file_path} in submission ${submission.id}`,
-                e
+                { error: errorMsg, status: errorStatus }
             )
 
             // We still set file_type here because we DO know the extension.
@@ -303,22 +309,42 @@ export async function trackSubmissionFiles(params: {
         // -------------------------------------------------------------------------
         if (size_bytes === null) {
             try {
-                const blob = await octokit.git.getBlob({
+                const { data: blobData } = await octokit.git.getBlob({
                     owner,
                     repo,
                     file_sha: file_hash // ← using the SHA directly!
                 })
 
-                const rawSize = (blob.data as any).size
-                if (typeof rawSize === 'number') {
-                    size_bytes = rawSize
+                // GitHub blob API returns size as a number
+                // Response structure: { sha: string, size: number, content: string, encoding: string }
+                if (blobData && typeof blobData.size === 'number' && blobData.size >= 0) {
+                    size_bytes = blobData.size
+                    console.log(
+                        `trackSubmissionFiles: got size ${size_bytes} bytes for ${file_path} via blob API`
+                    )
+                } else {
+                    console.warn(
+                        `trackSubmissionFiles: blob API returned invalid size for ${file_path}`,
+                        { size: blobData?.size, type: typeof blobData?.size }
+                    )
                 }
-            } catch (e) {
+            } catch (e: any) {
+                const errorMsg = e?.message || String(e)
+                const errorStatus = e?.status || e?.response?.status
                 console.warn(
                     `trackSubmissionFiles: blob fallback FAILED for ${file_path} in submission ${submission.id}`,
-                    e
+                    { error: errorMsg, status: errorStatus, file_hash }
                 )
             }
+        }
+
+        // -------------------------------------------------------------------------
+        // Log if we couldn't get size (for debugging)
+        // -------------------------------------------------------------------------
+        if (size_bytes === null) {
+            console.warn(
+                `trackSubmissionFiles: WARNING - could not determine size for ${file_path} in submission ${submission.id}. Both getContent and blob API failed or returned no size.`
+            )
         }
 
         // -------------------------------------------------------------------------
