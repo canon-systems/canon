@@ -42,15 +42,20 @@ export const POST: RequestHandler = async ({ request, url, locals: { supabase } 
 
 async function handleCron(request: Request, url: URL, supabase: any) {
     try {
-        // Security: Verify cron secret
+        // Security: Verify cron secret or Vercel cron header
+        // Vercel automatically adds 'x-vercel-cron' header for cron jobs
+        const isVercelCron = request.headers.get('x-vercel-cron') === '1'
         const authHeader = request.headers.get('authorization')
         const secretParam = url.searchParams.get('secret')
         const providedSecret = authHeader?.replace('Bearer ', '') || secretParam
 
-        if (!CRON_SECRET) {
-            console.warn('CRON_SECRET not set - allowing request (not recommended for production)')
-        } else if (providedSecret !== CRON_SECRET) {
-            return error(401, 'Unauthorized: Invalid cron secret')
+        // Allow if it's a Vercel cron job OR if the secret matches
+        if (!isVercelCron) {
+            if (!CRON_SECRET) {
+                console.warn('CRON_SECRET not set - allowing request (not recommended for production)')
+            } else if (providedSecret !== CRON_SECRET) {
+                return error(401, 'Unauthorized: Invalid cron secret')
+            }
         }
 
         // Step 1: Batch check for outdated submissions
