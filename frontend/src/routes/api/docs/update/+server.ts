@@ -23,10 +23,16 @@ function jsonResponse(data: unknown, status = 200) {
 }
 
 // Helper to call LLM
-async function callGateway(messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>) {
+async function callGateway(
+    messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
+    model?: string
+) {
     if (!VERCEL_AI_GATEWAY_URL || !VERCEL_AI_GATEWAY_API_KEY) {
         throw new Error('Gateway env vars missing');
     }
+
+    // Use provided model or fall back to env default
+    const modelToUse = model || LLM_MODEL;
 
     const r = await fetch(`${VERCEL_AI_GATEWAY_URL.replace(/\/+$/, '')}/chat/completions`, {
         method: 'POST',
@@ -36,7 +42,7 @@ async function callGateway(messages: Array<{ role: 'system' | 'user' | 'assistan
             'x-vercel-ai-key': VERCEL_AI_GATEWAY_API_KEY
         },
         body: JSON.stringify({
-            model: LLM_MODEL,
+            model: modelToUse,
             temperature: 0.3,
             messages
         })
@@ -103,7 +109,7 @@ export const POST: RequestHandler = async ({ request, locals: { supabase } }) =>
             return jsonResponse({ error: 'Auto-update only supported for GitHub repos' }, 400);
         }
 
-        const { repoUrl, branch, subdir } = sourceMeta;
+        const { repoUrl, branch, subdir, model } = sourceMeta;
         if (!repoUrl || !branch) {
             return jsonResponse({ error: 'Missing repoUrl or branch in source_meta' }, 400);
         }
@@ -163,10 +169,13 @@ export const POST: RequestHandler = async ({ request, locals: { supabase } }) =>
                 .join('\n\n') +
             `\n\nPlease update the documentation to reflect these changes.`;
 
-        const markdown = (await callGateway([
-            { role: 'system', content: system },
-            { role: 'user', content: user }
-        ])).trim();
+        const markdown = (await callGateway(
+            [
+                { role: 'system', content: system },
+                { role: 'user', content: user }
+            ],
+            model
+        )).trim();
 
         // Save updated documentation and snapshot
         const { error: updateError } = await supabase

@@ -14,10 +14,16 @@ function json(data: unknown, status = 200) {
 
 // Very small OpenAI-compatible caller that targets your Gateway.
 // Returns assistant text (or throws on HTTP error).
-async function callGateway(messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>) {
+async function callGateway(
+    messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
+    model?: string
+) {
     if (!VERCEL_AI_GATEWAY_URL || !VERCEL_AI_GATEWAY_API_KEY) {
         throw new Error('Gateway env vars missing');
     }
+
+    // Use provided model or fall back to env default
+    const modelToUse = model || LLM_MODEL;
 
     const r = await fetch(`${VERCEL_AI_GATEWAY_URL.replace(/\/+$/, '')}/chat/completions`, {
         method: 'POST',
@@ -28,7 +34,7 @@ async function callGateway(messages: Array<{ role: 'system' | 'user' | 'assistan
             'x-vercel-ai-key': VERCEL_AI_GATEWAY_API_KEY
         },
         body: JSON.stringify({
-            model: LLM_MODEL,
+            model: modelToUse,
             temperature: 0.3,
             messages
         })
@@ -44,10 +50,11 @@ async function callGateway(messages: Array<{ role: 'system' | 'user' | 'assistan
 // --- the API handler ---
 export const POST: RequestHandler = async ({ request }) => {
     try {
-        // Expect: { projectName, files: [{ path, content }] }
+        // Expect: { projectName, files: [{ path, content }], model?: string }
         const body = await request.json().catch(() => ({}));
         const projectName = String(body.projectName || 'Project');
         const files = Array.isArray(body.files) ? body.files : [];
+        const model = body.model ? String(body.model) : undefined;
 
         if (!files.length) {
             return json({ error: 'No files provided' }, 400);
@@ -80,10 +87,13 @@ export const POST: RequestHandler = async ({ request }) => {
                 .join('\n\n');
 
         // Call the Gateway
-        const markdown = (await callGateway([
-            { role: 'system', content: system },
-            { role: 'user', content: user }
-        ])).trim();
+        const markdown = (await callGateway(
+            [
+                { role: 'system', content: system },
+                { role: 'user', content: user }
+            ],
+            model
+        )).trim();
 
         return json({ markdown }, 200);
     } catch (err) {

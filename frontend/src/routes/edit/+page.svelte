@@ -257,8 +257,8 @@
 		<div class="mx-auto max-w-4xl space-y-6">
 			<!-- Header -->
 			<header class="space-y-2">
-				<div class="flex items-center justify-between">
-					<div>
+				<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+					<div class="flex-1">
 						<h1 class="text-3xl font-bold text-white">Edit a Document</h1>
 						<p class="text-white/70">
 							Choose one of your submissions to open the editor. You will only see your own items
@@ -266,25 +266,24 @@
 						</p>
 					</div>
 					{#if hasItems}
-						<button
-							class="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm text-white/90 transition-colors hover:bg-white/20 disabled:opacity-60"
-							on:click|preventDefault={refreshAllOutdated}
-							disabled={refreshingAll}
-							title="Check and refresh all outdated documentation"
-						>
-							{#if refreshingAll}
-								<Loader2 class="h-4 w-4 animate-spin" />
-								<span class="hidden sm:inline">Refreshing...</span>
-							{:else}
-								<RefreshCw class="h-4 w-4" />
-								<span class="hidden sm:inline">Refresh All</span>
-							{/if}
-						</button>
-					{/if}
-					{#if hasItems}
-						<div
-							class="flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 p-1 backdrop-blur-sm"
-						>
+						<div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+							<button
+								class="inline-flex items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm text-white/90 transition-colors hover:bg-white/20 disabled:opacity-60"
+								on:click|preventDefault={refreshAllOutdated}
+								disabled={refreshingAll}
+								title="Check and refresh all outdated documentation"
+							>
+								{#if refreshingAll}
+									<Loader2 class="h-4 w-4 animate-spin" />
+									<span>Refreshing...</span>
+								{:else}
+									<RefreshCw class="h-4 w-4" />
+									<span>Refresh All</span>
+								{/if}
+							</button>
+							<div
+								class="flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 p-1 backdrop-blur-sm"
+							>
 							<button
 								type="button"
 								class="flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors {viewMode ===
@@ -309,6 +308,7 @@
 								<List class="h-4 w-4" />
 								<span class="hidden sm:inline">Row</span>
 							</button>
+							</div>
 						</div>
 					{/if}
 				</div>
@@ -336,11 +336,11 @@
 				{#if viewMode === 'row'}
 					<!-- Row/List View -->
 					<ul
-						class="divide-y divide-white/10 overflow-hidden rounded-2xl border border-white/20 bg-white/10"
+						class="divide-y divide-white/10 rounded-2xl border border-white/20 bg-white/10"
 					>
 						{#each items as item}
 							<li
-								class="flex flex-col gap-2 p-4 text-white md:flex-row md:items-center md:justify-between"
+								class="relative flex flex-col gap-3 p-4 text-white md:flex-row md:items-start md:justify-between"
 							>
 								<div class="min-w-0 flex-1">
 									<!-- Title and created time -->
@@ -350,7 +350,7 @@
 									<div class="font-mono text-xs text-white/50">ID: {item.id}</div>
 									<!-- Stale/Fresh status for GitHub repos -->
 									{#if isGitRepo(item) && item.status?.toLowerCase() === 'completed'}
-										<div class="mt-1 flex items-center gap-2 text-xs">
+										<div class="mt-1 flex flex-wrap items-center gap-2 text-xs">
 											{#if item.is_outdated}
 												<span
 													class="inline-flex items-center gap-1 rounded border border-orange-400/30 bg-orange-500/20 px-2 py-0.5 text-orange-200"
@@ -378,61 +378,64 @@
 									{/if}
 								</div>
 
-								<!-- Status -->
-								<div class="mt-2 flex flex-col items-end gap-2 md:mt-0">
-									{#if item.status?.toLowerCase() === 'completed'}
-										<span
-											class="inline-block rounded border border-green-400/30 bg-green-500/20 px-2 py-1 text-xs text-green-200"
-										>
-											completed
-										</span>
-									{:else if item.status?.toLowerCase() === 'failed'}
-										<span
-											class="inline-block rounded border border-red-400/30 bg-red-500/20 px-2 py-1 text-xs text-red-200"
-										>
-											failed
-										</span>
-									{:else}
-										<span
-											class="inline-block rounded border border-yellow-400/30 bg-yellow-500/20 px-2 py-1 text-xs text-yellow-200"
-										>
-											processing
-										</span>
-									{/if}
-								</div>
+								<!-- Status and Actions Container -->
+								<div class="flex shrink-0 items-center gap-3 md:flex-col md:items-end">
+									<!-- Status -->
+									<div class="shrink-0">
+										{#if item.status?.toLowerCase() === 'completed'}
+											<span
+												class="inline-block rounded border border-green-400/30 bg-green-500/20 px-2 py-1 text-xs text-green-200"
+											>
+												completed
+											</span>
+										{:else if item.status?.toLowerCase() === 'failed'}
+											<span
+												class="inline-block rounded border border-red-400/30 bg-red-500/20 px-2 py-1 text-xs text-red-200"
+											>
+												failed
+											</span>
+										{:else}
+											<span
+												class="inline-block rounded border border-yellow-400/30 bg-yellow-500/20 px-2 py-1 text-xs text-yellow-200"
+											>
+												processing
+											</span>
+										{/if}
+									</div>
 
-								<!-- Actions -->
-								<div class="relative mt-2 md:mt-0">
-									<button
-										type="button"
-										class="rounded-lg border border-white/20 bg-white/5 p-2 text-white/70 transition-colors hover:bg-white/10 hover:text-white"
-										on:click={(e) => toggleMenu(item.id, e)}
-										title="More options"
-									>
-										<MoreVertical class="h-4 w-4" />
-									</button>
-									{#if openMenuId === item.id}
-										<div
-											class="absolute right-0 top-full z-50 mt-1 min-w-[160px] rounded-lg border border-white/20 bg-black/90 p-1 shadow-lg backdrop-blur-md"
-											bind:this={menuRefs[item.id]}
-											on:click|stopPropagation
+									<!-- Actions -->
+									<div class="relative shrink-0">
+										<button
+											type="button"
+											class="rounded-lg border border-white/20 bg-white/5 p-2 text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+											on:click={(e) => toggleMenu(item.id, e)}
+											title="More options"
 										>
-											<a
-												href={`/edit/${item.id}`}
-												class="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-white/90 transition-colors hover:bg-white/10"
-												on:click={closeMenu}
+											<MoreVertical class="h-4 w-4" />
+										</button>
+										{#if openMenuId === item.id}
+											<div
+												class="absolute right-0 top-full z-[100] mt-1 min-w-[160px] rounded-lg border border-white/20 bg-black/95 p-1 shadow-xl backdrop-blur-md"
+												bind:this={menuRefs[item.id]}
+												on:click|stopPropagation
 											>
-												Open Editor
-											</a>
-											<button
-												type="button"
-												class="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-red-400 transition-colors hover:bg-red-500/10"
-												on:click={(e) => openDeleteModal(item, e)}
-											>
-												Delete
-											</button>
-										</div>
-									{/if}
+												<a
+													href={`/edit/${item.id}`}
+													class="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-white/90 transition-colors hover:bg-white/10"
+													on:click={closeMenu}
+												>
+													Open Editor
+												</a>
+												<button
+													type="button"
+													class="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-red-400 transition-colors hover:bg-red-500/10"
+													on:click={(e) => openDeleteModal(item, e)}
+												>
+													Delete
+												</button>
+											</div>
+										{/if}
+									</div>
 								</div>
 							</li>
 						{/each}
