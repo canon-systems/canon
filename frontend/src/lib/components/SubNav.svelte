@@ -4,13 +4,15 @@
 	const tabs = [
 		{ name: 'Submit', href: '/submit' },
 		{ name: 'Edit', href: '/edit' },
-		{ name: 'Architecture', href: '/architecture' }
+		{ name: 'Architecture', href: '/architecture' },
+		{ name: 'Integrations', href: '/integrations' }
 	];
 
 	function isActive(currentPath: string, href: string) {
 		// Treat /edit and /edit/[id] as active when you're anywhere under /edit
 		if (href === '/edit' && currentPath.startsWith('/edit')) return true;
 		if (href === '/architecture' && currentPath.startsWith('/architecture')) return true;
+		if (href === '/integrations' && currentPath.startsWith('/integrations')) return true;
 		return currentPath === href;
 	}
 </script>

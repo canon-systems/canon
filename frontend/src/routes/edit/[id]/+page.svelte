@@ -37,9 +37,18 @@
 	let regenerateMsg = '';
 	let regenerateErr = '';
 
+	// 4b) Notion push state
+	let notionModalOpen = false;
+	let loadingNotionPages = false;
+	let notionPages: Array<{ id: string; properties?: any; url?: string }> = [];
+	let selectedNotionPageId = '';
+	let pushingToNotion = false;
+	let notionPushMsg = '';
+	let notionPushErr = '';
+
 	// 5) Bring in Supabase + icons
 	import { supabase } from '$lib/supabaseClient';
-	import { Loader2, RefreshCw, AlertCircle, CheckCircle2 } from '@lucide/svelte';
+	import { Loader2, RefreshCw, AlertCircle, CheckCircle2, FileText, X } from '@lucide/svelte';
 	import { onMount } from 'svelte';
 
 	// 6) Bring in our rich editor component
@@ -210,6 +219,79 @@
 		}
 	}
 
+	// Notion push functions
+	async function openNotionModal() {
+		notionModalOpen = true;
+		notionPushMsg = '';
+		notionPushErr = '';
+		selectedNotionPageId = '';
+		await loadNotionPages();
+	}
+
+	async function refreshNotionPages() {
+		notionPushErr = '';
+		await loadNotionPages();
+	}
+
+	async function loadNotionPages() {
+		loadingNotionPages = true;
+		try {
+			const response = await fetch('/api/integrations/notion/pages');
+			if (!response.ok) {
+				const data = await response.json();
+				throw new Error(data.error || 'Failed to load Notion pages');
+			}
+			const data = await response.json();
+			notionPages = data.pages || [];
+		} catch (err: any) {
+			notionPushErr = err.message || 'Failed to load Notion pages';
+		} finally {
+			loadingNotionPages = false;
+		}
+	}
+
+	async function pushToNotion() {
+		if (!selectedNotionPageId) {
+			notionPushErr = 'Please select a Notion page';
+			return;
+		}
+
+		pushingToNotion = true;
+		notionPushMsg = '';
+		notionPushErr = '';
+
+		try {
+			const response = await fetch('/api/integrations/notion/push', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					submissionId: data.submission.id,
+					pageId: selectedNotionPageId,
+					title: title || 'Documentation',
+					html: html, // Send HTML to preserve formatting
+					markdown: markdown // Fallback
+				})
+			});
+
+			if (!response.ok) {
+				const data = await response.json();
+				throw new Error(data.error || data.detail || 'Failed to push to Notion');
+			}
+
+			const result = await response.json();
+			notionPushMsg = result.message || 'Successfully pushed to Notion!';
+			
+			// Close modal after a short delay
+			setTimeout(() => {
+				notionModalOpen = false;
+			}, 2000);
+		} catch (err: any) {
+			notionPushErr = err.message || 'Failed to push to Notion';
+		} finally {
+			pushingToNotion = false;
+		}
+	}
+
 	// Auto-check for updates when page loads (only for GitHub repos)
 	onMount(() => {
 		const isGitRepo =
@@ -367,6 +449,15 @@
 				{/if}
 			</button>
 
+			<button
+				class="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/5 px-4 py-2 text-white/80 hover:bg-white/10 disabled:opacity-60"
+				on:click|preventDefault={openNotionModal}
+				disabled={saving}
+			>
+				<FileText class="h-4 w-4" />
+				<span>Push to Notion</span>
+			</button>
+
 			<a
 				href="/edit"
 				class="rounded-xl border border-white/20 px-4 py-2 text-white/80 hover:bg-white/10"
@@ -388,3 +479,112 @@
 		{/if}
 	</div>
 </div>
+
+<!-- Notion Push Modal -->
+{#if notionModalOpen}
+	<div
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+		on:click={() => (notionModalOpen = false)}
+		on:keydown={(e) => e.key === 'Escape' && (notionModalOpen = false)}
+		role="dialog"
+		aria-modal="true"
+	>
+		<div
+			class="w-full max-w-lg rounded-xl border border-white/20 bg-black/90 p-6 shadow-xl backdrop-blur-md"
+			on:click|stopPropagation
+		>
+			<div class="mb-4 flex items-center justify-between">
+				<h2 class="text-xl font-semibold text-white">Push to Notion</h2>
+				<button
+					class="rounded-lg p-1 text-white/60 hover:bg-white/10 hover:text-white"
+					on:click={() => (notionModalOpen = false)}
+				>
+					<X class="h-5 w-5" />
+				</button>
+			</div>
+			<p class="mb-4 text-sm text-white/70">
+				Select a Notion page to create a new child page with this documentation.
+			</p>
+
+			{#if loadingNotionPages}
+				<div class="flex items-center justify-center py-8">
+					<Loader2 class="h-6 w-6 animate-spin text-white/50" />
+					<span class="ml-2 text-white/70">Loading pages...</span>
+				</div>
+			{:else if notionPages.length === 0}
+				<div class="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4 text-yellow-200">
+					<p class="text-sm">
+						No Notion pages found. Make sure you've shared pages with your integration.
+					</p>
+					<a
+						href="/integrations"
+						class="mt-2 inline-block text-sm underline"
+					>
+						Check your Notion connection
+					</a>
+				</div>
+			{:else}
+				<div class="mb-4">
+					<div class="mb-2 flex items-center justify-between">
+						<label class="block text-sm text-white/70">Select a page:</label>
+						<button
+							class="flex items-center gap-1 rounded-lg border border-white/20 bg-white/5 px-2 py-1 text-xs text-white/70 hover:bg-white/10"
+							on:click={refreshNotionPages}
+							disabled={loadingNotionPages}
+							title="Refresh pages list"
+						>
+							<RefreshCw class="h-3 w-3" />
+							Refresh
+						</button>
+					</div>
+					<select
+						bind:value={selectedNotionPageId}
+						class="w-full rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-white focus:border-white/40 focus:outline-none focus:ring-2 focus:ring-white/20"
+					>
+						<option value="">-- Select a page --</option>
+						{#each notionPages as page}
+							<option value={page.id}>
+								{page.properties?.title?.title?.[0]?.plain_text || page.id}
+							</option>
+						{/each}
+					</select>
+				</div>
+			{/if}
+
+			{#if notionPushErr}
+				<div class="mb-4 rounded-lg border border-red-500/50 bg-red-500/10 p-3 text-sm text-red-200">
+					{notionPushErr}
+				</div>
+			{/if}
+
+			{#if notionPushMsg}
+				<div class="mb-4 rounded-lg border border-green-500/50 bg-green-500/10 p-3 text-sm text-green-200">
+					{notionPushMsg}
+				</div>
+			{/if}
+
+			<div class="flex justify-end gap-3">
+				<button
+					class="rounded-lg border border-white/20 px-4 py-2 text-white/80 hover:bg-white/10"
+					on:click={() => (notionModalOpen = false)}
+				>
+					Cancel
+				</button>
+				<button
+					class="rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
+					on:click|preventDefault={pushToNotion}
+					disabled={!selectedNotionPageId || pushingToNotion || loadingNotionPages}
+				>
+					{#if pushingToNotion}
+						<span class="flex items-center gap-2">
+							<Loader2 class="h-4 w-4 animate-spin" />
+							Pushing...
+						</span>
+					{:else}
+						Push to Notion
+					{/if}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}

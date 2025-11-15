@@ -28,7 +28,8 @@
 		AlignCenter,
 		AlignRight,
 		AlignJustify,
-		Image as ImageIcon
+		Image as ImageIcon,
+		X
 	} from '@lucide/svelte';
 
 	// Props: starting HTML content and editability
@@ -140,24 +141,53 @@
 		editor = null;
 	});
 
-	// Prompt user for link URL
+	// Modal state for link and image
+	let linkModalOpen = false;
+	let imageModalOpen = false;
+	let linkUrl = '';
+	let imageUrl = '';
+	let isEditingLink = false;
+
+	// Open link modal
 	function setLink(): void {
 		if (!editor) return;
-		const url = prompt('Enter URL. Empty removes the link.');
-		if (url === null) return;
-		if (url === '') {
-			editor.chain().focus().unsetLink().run();
-			return;
+		const attrs = editor.getAttributes('link');
+		if (attrs.href) {
+			linkUrl = attrs.href;
+			isEditingLink = true;
+		} else {
+			linkUrl = '';
+			isEditingLink = false;
 		}
-		editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
+		linkModalOpen = true;
 	}
 
-	// Prompt for image URL and insert
+	// Confirm link
+	function confirmLink(): void {
+		if (!editor) return;
+		if (linkUrl.trim() === '') {
+			editor.chain().focus().unsetLink().run();
+		} else {
+			editor.chain().focus().extendMarkRange('link').setLink({ href: linkUrl.trim() }).run();
+		}
+		linkModalOpen = false;
+		linkUrl = '';
+		isEditingLink = false;
+	}
+
+	// Open image modal
 	function insertImage(): void {
 		if (!editor) return;
-		const url = prompt('Paste image URL');
-		if (!url) return;
-		editor.chain().focus().setImage({ src: url }).run();
+		imageUrl = '';
+		imageModalOpen = true;
+	}
+
+	// Confirm image
+	function confirmImage(): void {
+		if (!editor || !imageUrl.trim()) return;
+		editor.chain().focus().setImage({ src: imageUrl.trim() }).run();
+		imageModalOpen = false;
+		imageUrl = '';
 	}
 </script>
 
@@ -426,6 +456,128 @@
 		contenteditable="true"
 	></div>
 </div>
+
+<!-- Link Modal -->
+{#if linkModalOpen}
+	<div
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+		on:click={() => (linkModalOpen = false)}
+		on:keydown={(e) => e.key === 'Escape' && (linkModalOpen = false)}
+		role="dialog"
+		aria-modal="true"
+	>
+		<div
+			class="w-full max-w-md rounded-xl border border-white/20 bg-black/90 p-6 shadow-xl backdrop-blur-md"
+			on:click|stopPropagation
+		>
+			<div class="mb-4 flex items-center justify-between">
+				<h2 class="text-xl font-semibold text-white">
+					{isEditingLink ? 'Edit Link' : 'Insert Link'}
+				</h2>
+				<button
+					class="rounded-lg p-1 text-white/60 hover:bg-white/10 hover:text-white"
+					on:click={() => (linkModalOpen = false)}
+				>
+					<X class="h-5 w-5" />
+				</button>
+			</div>
+			<label class="mb-2 block text-sm text-white/70">URL</label>
+			<input
+				type="url"
+				bind:value={linkUrl}
+				placeholder="https://example.com"
+				class="mb-4 w-full rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-white placeholder:text-white/40 focus:border-white/40 focus:outline-none focus:ring-2 focus:ring-white/20"
+				on:keydown={(e) => {
+					if (e.key === 'Enter') confirmLink();
+					if (e.key === 'Escape') linkModalOpen = false;
+				}}
+				autofocus
+			/>
+			<div class="flex justify-end gap-3">
+				<button
+					class="rounded-lg border border-white/20 px-4 py-2 text-white/80 hover:bg-white/10"
+					on:click={() => (linkModalOpen = false)}
+				>
+					Cancel
+				</button>
+				<button
+					class="rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
+					on:click={confirmLink}
+				>
+					{isEditingLink ? 'Update' : 'Insert'}
+				</button>
+				{#if isEditingLink}
+					<button
+						class="rounded-lg border border-red-500/50 bg-red-500/10 px-4 py-2 text-red-300 hover:bg-red-500/20"
+						on:click={() => {
+							if (editor) {
+								editor.chain().focus().unsetLink().run();
+							}
+							linkModalOpen = false;
+							linkUrl = '';
+							isEditingLink = false;
+						}}
+					>
+						Remove
+					</button>
+				{/if}
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Image Modal -->
+{#if imageModalOpen}
+	<div
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+		on:click={() => (imageModalOpen = false)}
+		on:keydown={(e) => e.key === 'Escape' && (imageModalOpen = false)}
+		role="dialog"
+		aria-modal="true"
+	>
+		<div
+			class="w-full max-w-md rounded-xl border border-white/20 bg-black/90 p-6 shadow-xl backdrop-blur-md"
+			on:click|stopPropagation
+		>
+			<div class="mb-4 flex items-center justify-between">
+				<h2 class="text-xl font-semibold text-white">Insert Image</h2>
+				<button
+					class="rounded-lg p-1 text-white/60 hover:bg-white/10 hover:text-white"
+					on:click={() => (imageModalOpen = false)}
+				>
+					<X class="h-5 w-5" />
+				</button>
+			</div>
+			<label class="mb-2 block text-sm text-white/70">Image URL</label>
+			<input
+				type="url"
+				bind:value={imageUrl}
+				placeholder="https://example.com/image.jpg"
+				class="mb-4 w-full rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-white placeholder:text-white/40 focus:border-white/40 focus:outline-none focus:ring-2 focus:ring-white/20"
+				on:keydown={(e) => {
+					if (e.key === 'Enter') confirmImage();
+					if (e.key === 'Escape') imageModalOpen = false;
+				}}
+				autofocus
+			/>
+			<div class="flex justify-end gap-3">
+				<button
+					class="rounded-lg border border-white/20 px-4 py-2 text-white/80 hover:bg-white/10"
+					on:click={() => (imageModalOpen = false)}
+				>
+					Cancel
+				</button>
+				<button
+					class="rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
+					on:click={confirmImage}
+					disabled={!imageUrl.trim()}
+				>
+					Insert
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	/* TipTap editor content styling to match app design */
