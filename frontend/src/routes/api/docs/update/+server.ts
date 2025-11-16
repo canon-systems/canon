@@ -60,7 +60,7 @@ async function callGateway(
 }
 
 
-export const POST: RequestHandler = async ({ request, locals: { supabase } }) => {
+export const POST: RequestHandler = async ({ request, locals: { supabase, safeGetSession } }) => {
     let submissionId: string | undefined;
     try {
         const body = await request.json().catch(() => ({}));
@@ -156,10 +156,10 @@ export const POST: RequestHandler = async ({ request, locals: { supabase } }) =>
             
             if (workspaceInfo && workspaceInfo.provider && workspaceInfo.resourceId) {
                 try {
-                    const { data: { user } } = await locals.safeGetSession();
+                    const { user } = await safeGetSession();
                     if (user) {
                         // Find workspace connection
-                        const { data: connection } = await locals.supabase
+                        const { data: connection } = await supabase
                             .from('oauth_connections')
                             .select('connection_id')
                             .eq('user_id', user.id)
@@ -252,10 +252,10 @@ export const POST: RequestHandler = async ({ request, locals: { supabase } }) =>
         
         if (workspaceInfo && workspaceInfo.provider && workspaceInfo.resourceId) {
             try {
-                const { data: { user } } = await locals.safeGetSession();
+                const { user } = await safeGetSession();
                 if (user) {
                     // Find workspace connection
-                    const { data: connection } = await locals.supabase
+                    const { data: connection } = await supabase
                         .from('oauth_connections')
                         .select('connection_id')
                         .eq('user_id', user.id)

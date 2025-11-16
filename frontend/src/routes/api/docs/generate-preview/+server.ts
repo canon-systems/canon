@@ -145,7 +145,7 @@ export const POST: RequestHandler = async ({ request, locals: { supabase, safeGe
         
         if (workspaceInfo && workspaceInfo.provider && workspaceInfo.resourceId) {
             try {
-                const { data: { user } } = await safeGetSession();
+                const { user } = await safeGetSession();
                 if (user) {
                     // Find workspace connection
                     const { data: connection } = await supabase

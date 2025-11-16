@@ -41,6 +41,19 @@
 	let showChangedFiles = false; // For collapsible file list
 	let checkDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
+	// Prompt customization state (declared first since it's used below)
+	let promptConfig: {
+		personality?: string;
+		style?: string;
+		customInstructions?: string;
+		temperature?: number;
+	} = data.submission.source_meta?.llm_prompt_config || {
+		personality: 'default',
+		style: 'default',
+		customInstructions: '',
+		temperature: 0.3
+	};
+
 	// 4a) Regeneration modal state
 	let regenerationModalOpen = false;
 	let currentStep: 'config' | 'preview' = 'config';
@@ -53,19 +66,8 @@
 	let regenPromptConfig: typeof promptConfig = { ...promptConfig };
 	let showRegenModelDropdown = false;
 	let regenModelDropdownRef: HTMLElement | null = null;
-
-	// Prompt customization state
-	let promptConfig: {
-		personality?: string;
-		style?: string;
-		customInstructions?: string;
-		temperature?: number;
-	} = data.submission.source_meta?.llm_prompt_config || {
-		personality: 'default',
-		style: 'default',
-		customInstructions: '',
-		temperature: 0.3
-	};
+	let diffViewerRef: DiffViewer | null = null; // Reference to DiffViewer component
+	let selectedFileForDiff: { filePath: string; repoUrl: string; branch: string; oldCommitSha?: string } | null = null;
 	let savingPromptConfig = false;
 	let promptConfigMsg = '';
 	let promptConfigErr = '';
@@ -106,6 +108,7 @@
 	import { onMount } from 'svelte';
 	import IntegrationLogos from '$lib/components/IntegrationLogos.svelte';
 	import PromptCustomizer from '$lib/components/PromptCustomizer.svelte';
+	import DiffViewer from '$lib/components/DiffViewer.svelte';
 	import { buildFileChangeUrl } from '$lib/utils/repoUrls';
 
 	// 6) Bring in our rich editor component
@@ -932,6 +935,28 @@
 												History
 											</a>
 										{/if}
+										<button
+											class="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-orange-300 hover:bg-orange-500/20 hover:text-orange-200 transition-colors"
+											title="View Git diff"
+											on:click|preventDefault={async () => {
+												// Show Git diff in regeneration modal if open, or open it
+												if (regenerationModalOpen && currentStep === 'preview') {
+													// We'll add a way to show file-specific diffs
+													// For now, just open the compare URL
+													if (urls.compare) {
+														window.open(urls.compare, '_blank');
+													}
+												} else {
+													// Open compare URL
+													if (urls.compare) {
+														window.open(urls.compare, '_blank');
+													}
+												}
+											}}
+										>
+											<GitCompare class="h-3 w-3" />
+											View Diff
+										</button>
 									</div>
 								</div>
 							{/each}
@@ -1640,28 +1665,55 @@
 						</button>
 					</div>
 
-					<!-- Side-by-side comparison -->
-					<div class="grid grid-cols-2 gap-4">
-						<!-- Original -->
-						<div>
-							<div class="mb-2 text-sm font-medium text-white/70">Original Documentation</div>
-							<div class="h-[60vh] overflow-y-auto rounded-lg border border-white/10 bg-black/20 p-4">
-								<div class="prose prose-invert max-w-none text-white text-sm">
-									{@html (markdown && marked.parse(markdown)) || '<p class="text-white/50">No content</p>'}
-								</div>
-							</div>
-						</div>
+					<!-- Enhanced Diff Viewer -->
+					<DiffViewer
+						bind:this={diffViewerRef}
+						originalText={markdown}
+						newText={previewContent}
+						showMarkdown={true}
+					/>
 
-						<!-- Preview -->
-						<div>
-							<div class="mb-2 text-sm font-medium text-white/70">New Documentation (Preview)</div>
-							<div class="h-[60vh] overflow-y-auto rounded-lg border border-green-500/30 bg-green-500/5 p-4">
-								<div class="prose prose-invert max-w-none text-white text-sm">
-									{@html (previewContent && marked.parse(previewContent)) || '<p class="text-white/50">No preview content</p>'}
-								</div>
+					<!-- File-specific Git diffs section -->
+					{#if outdatedFiles.length > 0}
+						<div class="mt-4 rounded-lg border border-white/10 bg-white/5 p-4">
+							<div class="mb-2 text-sm font-medium text-white/70">Changed Source Files</div>
+							<p class="mb-3 text-xs text-white/60">
+								View Git diffs for the files that triggered this regeneration:
+							</p>
+							<div class="space-y-2 max-h-48 overflow-y-auto">
+								{#each outdatedFiles as file}
+									{@const repoUrl = data.submission.source_meta?.repoUrl || ''}
+									{@const branch = data.submission.source_meta?.branch || 'main'}
+									{@const oldCommitSha = data.submission.code_snapshot?.commitSha}
+									{@const urls = buildFileChangeUrl(file.file_path, repoUrl, branch, oldCommitSha)}
+									
+									<div class="flex items-center justify-between rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+										<span class="font-mono text-xs text-white/90 flex-1 truncate" title={file.file_path}>
+											{file.file_path}
+										</span>
+										<button
+											class="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-orange-300 hover:bg-orange-500/20 hover:text-orange-200 transition-colors"
+											title="View Git diff for this file"
+											on:click|preventDefault={async () => {
+												if (diffViewerRef) {
+													selectedFileForDiff = {
+														filePath: file.file_path,
+														repoUrl,
+														branch,
+														oldCommitSha
+													};
+													await diffViewerRef.fetchGitDiff(repoUrl, branch, file.file_path, oldCommitSha);
+												}
+											}}
+										>
+											<GitCompare class="h-3 w-3" />
+											View Git Diff
+										</button>
+									</div>
+								{/each}
 							</div>
 						</div>
-					</div>
+					{/if}
 
 					<!-- Actions -->
 					<div class="flex justify-end gap-3">
