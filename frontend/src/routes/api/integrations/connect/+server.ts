@@ -26,10 +26,18 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 		// Validate provider
 		if (!(provider in NANGO_CONFIG.providers)) {
+			console.error('Invalid provider requested:', provider);
+			console.error('Available providers:', Object.keys(NANGO_CONFIG.providers));
 			return jsonResponse({ error: `Invalid provider: ${provider}` }, 400);
 		}
 
 		const providerConfig = NANGO_CONFIG.providers[provider as keyof typeof NANGO_CONFIG.providers];
+		
+		console.log('Creating Connect session for provider:', {
+			requestedProvider: provider,
+			providerConfigKey: providerConfig.providerConfigKey,
+			oauthScopes: providerConfig.oauthScopes
+		});
 
 		// Verify secret key is set
 		if (!NANGO_CONFIG.secretKey) {
@@ -58,10 +66,27 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 		if (!sessionResponse.ok) {
 			const errorData = await sessionResponse.json().catch(() => ({}));
-			console.error('Nango session creation failed:', errorData);
+			const errorText = await sessionResponse.text().catch(() => '');
+			console.error('Nango session creation failed:', {
+				status: sessionResponse.status,
+				statusText: sessionResponse.statusText,
+				errorData,
+				errorText,
+				providerConfigKey: providerConfig.providerConfigKey,
+				requestBody: {
+					end_user: {
+						id: user.id,
+						email: user.email || undefined,
+						display_name: user.email || undefined
+					},
+					allowed_integrations: [providerConfig.providerConfigKey]
+				}
+			});
 			throw new Error(
 				errorData.error?.message || 
-				`Failed to create Connect session: ${sessionResponse.statusText}`
+				errorData.message ||
+				errorText ||
+				`Failed to create Connect session: ${sessionResponse.status} ${sessionResponse.statusText}`
 			);
 		}
 

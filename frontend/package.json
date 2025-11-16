@@ -52,6 +52,7 @@
 		"jszip": "^3.10.1",
 		"marked": "^16.4.0",
 		"node-html-parser": "^7.0.1",
+		"simple-icons": "^15.20.0",
 		"turndown": "^7.2.1"
 	}
 }

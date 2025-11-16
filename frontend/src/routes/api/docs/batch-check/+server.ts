@@ -2,7 +2,9 @@
 // /api/docs/batch-check  (POST)
 //
 // PURPOSE:
-//   Check all GitHub-based submissions for outdated files.
+//   Check all repository-based submissions for outdated files.
+//   Uses provider abstraction to support GitHub, GitLab, Bitbucket, etc.
+//   Groups submissions by provider+repo+branch for efficient batch checking.
 //   Updates the submissions table with:
 //     - last_checked_at: timestamp of when check was performed
 //     - is_outdated: boolean indicating if files have changed
@@ -21,28 +23,241 @@
 
 import type { RequestHandler } from '@sveltejs/kit'
 import { json } from '@sveltejs/kit'
-import { Octokit } from '@octokit/rest'
-import { GITHUB_TOKEN } from '$env/static/private'
+import { getRepoProvider, detectProvider } from '$lib/server/repos/providerFactory'
+import type { ChangedFile } from '$lib/server/repos/types'
 
-const octokit = new Octokit({
-    auth: GITHUB_TOKEN || undefined
-})
+// Helper: Group submissions by provider+repo+branch for efficient batch checking
+function groupSubmissionsByRepo(
+    submissions: Array<{
+        id: string
+        source_meta: any
+        code_snapshot: any
+    }>
+): Map<string, typeof submissions> {
+    const groups = new Map<string, typeof submissions>()
 
-// Helper: parse GitHub repo URL
-function parseRepoUrl(url: string) {
-    const match = url.match(/github\.com\/([^\/]+)\/([^\/]+)(?:\.git|$|\/)/)
-    if (!match) throw new Error(`Invalid GitHub URL: ${url}`)
-    return { owner: match[1], repo: match[2].replace(/\.git$/, '') }
+    for (const sub of submissions) {
+        const repoUrl = sub.source_meta?.repoUrl
+        const branch = sub.source_meta?.branch || 'master'
+
+        if (!repoUrl) continue
+
+        const providerName = detectProvider(repoUrl) || 'unknown'
+        const groupKey = `${providerName}|${repoUrl}|${branch}`
+
+        if (!groups.has(groupKey)) {
+            groups.set(groupKey, [])
+        }
+        groups.get(groupKey)!.push(sub)
+    }
+
+    return groups
 }
 
-export const POST: RequestHandler = async ({ locals: { supabase } }) => {
-    try {
-        // Get all completed GitHub submissions
-        const { data: submissions, error: subError } = await supabase
+// Process a single group of submissions (same provider+repo+branch)
+async function processSubmissionGroup(
+    groupKey: string,
+    submissions: Array<{
+        id: string
+        source_meta: any
+        code_snapshot: any
+    }>,
+    supabase: any
+): Promise<Array<{ submissionId: string; outdated: boolean; changedFiles: ChangedFile[] }>> {
+    const results: Array<{ submissionId: string; outdated: boolean; changedFiles: ChangedFile[] }> = []
+
+    if (submissions.length === 0) return results
+
+    const firstSub = submissions[0]
+    const repoUrl = firstSub.source_meta?.repoUrl
+    const branch = firstSub.source_meta?.branch || 'master'
+
+    if (!repoUrl) return results
+
+    const provider = getRepoProvider(repoUrl)
+    if (!provider) {
+        console.warn(`No provider found for ${repoUrl}, skipping group`)
+        // Mark all as checked but not outdated
+        for (const sub of submissions) {
+            await supabase
             .from('submissions')
-            .select('id, source_meta, selected_files, code_snapshot, input_type')
+                .update({
+                    last_checked_at: new Date().toISOString(),
+                    is_outdated: false
+                })
+                .eq('id', sub.id)
+            results.push({
+                submissionId: sub.id,
+                outdated: false,
+                changedFiles: []
+            })
+        }
+        return results
+    }
+
+    const repoInfo = provider.parseRepoUrl(repoUrl)
+    if (!repoInfo) {
+        console.warn(`Failed to parse repo URL ${repoUrl}, skipping group`)
+        return results
+    }
+
+    try {
+        // Get all files for all submissions in this group
+        const submissionFilesMap = new Map<string, Array<{ file_path: string; file_hash: string }>>()
+
+        for (const sub of submissions) {
+            const { data: files } = await supabase
+                .from('submission_files')
+                .select('file_path, file_hash')
+                .eq('submission_id', sub.id)
+
+            if (files && files.length > 0) {
+                submissionFilesMap.set(sub.id, files)
+        }
+        }
+
+        // Collect all unique file paths across all submissions in this group
+        const allFilePaths = new Set<string>()
+        for (const files of submissionFilesMap.values()) {
+            for (const file of files) {
+                allFilePaths.add(file.file_path)
+            }
+        }
+
+        if (allFilePaths.size === 0) {
+            // No files to check, mark all as not outdated
+            for (const sub of submissions) {
+                await supabase
+                    .from('submissions')
+                    .update({
+                        last_checked_at: new Date().toISOString(),
+                        is_outdated: false
+                    })
+                    .eq('id', sub.id)
+                results.push({
+                    submissionId: sub.id,
+                    outdated: false,
+                    changedFiles: []
+                })
+            }
+            return results
+        }
+
+        // Fast path: Check commit SHA first for submissions that have it
+        const commitShaChecks = new Map<string, string | null>()
+        for (const sub of submissions) {
+            const storedCommitSha = sub.code_snapshot?.commitSha
+            if (storedCommitSha) {
+                commitShaChecks.set(sub.id, storedCommitSha)
+            }
+        }
+
+        // Get latest commit SHA once for the branch
+        let latestCommitSha: string | null = null
+        if (commitShaChecks.size > 0) {
+            latestCommitSha = await provider.getBranchCommitSha(repoInfo, branch)
+        }
+
+        // Batch fetch all file SHAs once for this repo/branch
+        const currentShas = await provider.fetchFileShas(repoInfo, branch, Array.from(allFilePaths))
+
+        // Process each submission
+        for (const sub of submissions) {
+            const submissionId = sub.id
+            const files = submissionFilesMap.get(submissionId) || []
+
+            // Fast path: If commit SHA unchanged, no files changed
+            const storedCommitSha = commitShaChecks.get(submissionId)
+            if (storedCommitSha && latestCommitSha && storedCommitSha === latestCommitSha) {
+                await supabase
+                    .from('submissions')
+                    .update({
+                        last_checked_at: new Date().toISOString(),
+                        is_outdated: false
+                    })
+                    .eq('id', submissionId)
+                results.push({
+                    submissionId,
+                    outdated: false,
+                    changedFiles: []
+                })
+                continue
+            }
+
+            // Check files for this submission
+            const changedFiles: ChangedFile[] = []
+            for (const file of files) {
+                const oldHash = file.file_hash
+                const newHash = currentShas[file.file_path]
+
+                if (oldHash && newHash !== oldHash) {
+                                changedFiles.push({
+                        file_path: file.file_path,
+                                    old_hash: oldHash,
+                        new_hash: newHash || '(missing or unreachable)'
+                        })
+                    }
+                }
+
+                const isOutdated = changedFiles.length > 0
+
+                await supabase
+                    .from('submissions')
+                    .update({
+                        last_checked_at: new Date().toISOString(),
+                        is_outdated: isOutdated
+                    })
+                    .eq('id', submissionId)
+
+            results.push({
+                submissionId,
+                outdated: isOutdated,
+                changedFiles
+            })
+        }
+            } catch (e: any) {
+        console.error(`Error processing group ${groupKey}:`, e)
+        // Mark all as checked but not outdated on error
+        for (const sub of submissions) {
+                await supabase
+                    .from('submissions')
+                    .update({
+                        last_checked_at: new Date().toISOString(),
+                        is_outdated: false
+                    })
+                .eq('id', sub.id)
+                results.push({
+                submissionId: sub.id,
+                    outdated: false,
+                    changedFiles: []
+                })
+            }
+        }
+
+    return results
+}
+
+export const POST: RequestHandler = async ({ locals: { supabase }, url }) => {
+    try {
+        // Get tiered checking parameters from query string (optional)
+        const skipRecent = url.searchParams.get('skip_recent') !== 'false'; // Default: true
+        const recentThresholdMinutes = parseInt(url.searchParams.get('recent_threshold') || '60', 10); // Default: 60 minutes
+
+        // Build query for completed repository-based submissions
+        let query = supabase
+            .from('submissions')
+            .select('id, source_meta, code_snapshot, input_type, last_checked_at')
             .in('input_type', ['github_repo', 'github_repo_directory'])
             .eq('status', 'completed')
+
+        // Smart caching: Skip submissions checked recently (tiered checking)
+        if (skipRecent) {
+            const thresholdTime = new Date(Date.now() - recentThresholdMinutes * 60 * 1000).toISOString()
+            // Only check submissions that haven't been checked recently OR don't have last_checked_at
+            query = query.or(`last_checked_at.is.null,last_checked_at.lt.${thresholdTime}`)
+        }
+
+        const { data: submissions, error: subError } = await query
 
         if (subError) {
             return json({ error: 'Failed to fetch submissions', details: subError.message }, { status: 500 })
@@ -53,122 +268,33 @@ export const POST: RequestHandler = async ({ locals: { supabase } }) => {
                 checked: 0,
                 outdated: 0,
                 results: [],
-                message: 'No GitHub submissions found'
+                message: 'No repository-based submissions found'
             })
         }
 
-        const results: Array<{
-            submissionId: string
-            outdated: boolean
-            changedFiles: Array<{ file_path: string; old_hash: string; new_hash: string }>
-        }> = []
+        // Group submissions by provider+repo+branch for efficient batch checking
+        const groups = groupSubmissionsByRepo(submissions)
 
-        let outdatedCount = 0
+        // Process groups in parallel (with reasonable concurrency limit)
+        const MAX_CONCURRENT = 5
+        const groupEntries = Array.from(groups.entries())
+        const allResults: Array<{ submissionId: string; outdated: boolean; changedFiles: ChangedFile[] }> = []
 
-        // Check each submission
-        for (const sub of submissions) {
-            const submissionId = sub.id
-            const sourceMeta = sub.source_meta || {}
-            const repoUrl = sourceMeta.repoUrl
-            const branch = sourceMeta.branch || 'master'
-
-            if (!repoUrl) {
-                continue // Skip submissions without repoUrl
-            }
-
-            // Get submission_files for this submission
-            const { data: files, error: fileErr } = await supabase
-                .from('submission_files')
-                .select('*')
-                .eq('submission_id', submissionId)
-
-            if (fileErr || !files || files.length === 0) {
-                // No tracked files, mark as not outdated
-                results.push({
-                    submissionId,
-                    outdated: false,
-                    changedFiles: []
-                })
-                continue
-            }
-
-            try {
-                const { owner, repo } = parseRepoUrl(repoUrl)
-                const changedFiles: Array<{ file_path: string; old_hash: string; new_hash: string }> = []
-
-                // Check each file
-                for (const row of files) {
-                    const filePath = row.file_path
-                    const oldHash = row.file_hash
-
-                    try {
-                        const { data } = await octokit.repos.getContent({
-                            owner,
-                            repo,
-                            path: filePath,
-                            ref: branch
-                        })
-
-                        if (!Array.isArray(data) && data.type === 'file' && data.sha) {
-                            const newHash = data.sha
-                            if (newHash !== oldHash) {
-                                changedFiles.push({
-                                    file_path: filePath,
-                                    old_hash: oldHash,
-                                    new_hash: newHash
-                                })
-                            }
-                        }
-                    } catch (e: any) {
-                        // File might be deleted or moved - count as changed
-                        changedFiles.push({
-                            file_path: filePath,
-                            old_hash: oldHash,
-                            new_hash: '(missing or unreachable)'
-                        })
-                    }
-                }
-
-                const isOutdated = changedFiles.length > 0
-                if (isOutdated) outdatedCount++
-
-                results.push({
-                    submissionId,
-                    outdated: isOutdated,
-                    changedFiles
-                })
-
-                // Update submission with check results
-                await supabase
-                    .from('submissions')
-                    .update({
-                        last_checked_at: new Date().toISOString(),
-                        is_outdated: isOutdated
-                    })
-                    .eq('id', submissionId)
-            } catch (e: any) {
-                console.error(`Error checking submission ${submissionId}:`, e)
-                // Mark as checked but don't mark as outdated if we can't check
-                await supabase
-                    .from('submissions')
-                    .update({
-                        last_checked_at: new Date().toISOString(),
-                        is_outdated: false
-                    })
-                    .eq('id', submissionId)
-
-                results.push({
-                    submissionId,
-                    outdated: false,
-                    changedFiles: []
-                })
-            }
+        // Process groups in batches to avoid overwhelming APIs
+        for (let i = 0; i < groupEntries.length; i += MAX_CONCURRENT) {
+            const batch = groupEntries.slice(i, i + MAX_CONCURRENT)
+            const batchResults = await Promise.all(
+                batch.map(([groupKey, groupSubs]) => processSubmissionGroup(groupKey, groupSubs, supabase))
+            )
+            allResults.push(...batchResults.flat())
         }
+
+        const outdatedCount = allResults.filter((r) => r.outdated).length
 
         return json({
             checked: submissions.length,
             outdated: outdatedCount,
-            results,
+            results: allResults,
             message: `Checked ${submissions.length} submissions, ${outdatedCount} are outdated`
         })
     } catch (err: unknown) {

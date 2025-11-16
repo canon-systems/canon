@@ -50,16 +50,22 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 		const connectionData = await nangoResponse.json();
 
+		// Map Nango provider names to our internal provider names
+		// Nango might use 'google-docs', 'googledocs', or 'google' - we store as 'googledocs' for consistency
+		const internalProvider = (provider === 'google' || provider === 'google-docs' || provider === 'googledocs') 
+			? 'googledocs' 
+			: provider;
+
 		// Store the connection in Supabase
 		const { error: dbError } = await locals.supabase
 			.from('oauth_connections')
 			.upsert({
 				user_id: user.id,
-				provider: provider,
+				provider: internalProvider,
 				connection_id: connectionId,
 				status: 'active',
 				metadata: {
-					provider_config_key: provider,
+					provider_config_key: provider, // Store the Nango provider name
 					connected_at: new Date().toISOString(),
 					// Store any additional metadata from Nango if needed
 				},

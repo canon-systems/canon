@@ -30,6 +30,7 @@ import {
     LLM_MODEL,
     GITHUB_TOKEN
 } from '$env/static/private'
+import { buildSystemPrompt } from '$lib/server/prompts/buildSystemPrompt'
 
 function jsonResponse(data: unknown, status = 200) {
     return json(data, { status })
@@ -38,7 +39,8 @@ function jsonResponse(data: unknown, status = 200) {
 // Helper to call LLM
 async function callGateway(
     messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
-    model?: string
+    model?: string,
+    temperature?: number
 ) {
     if (!VERCEL_AI_GATEWAY_URL || !VERCEL_AI_GATEWAY_API_KEY) {
         throw new Error('Gateway env vars missing')
@@ -46,6 +48,8 @@ async function callGateway(
 
     // Use provided model or fall back to env default
     const modelToUse = model || LLM_MODEL
+    // Use provided temperature or fall back to default 0.3
+    const temperatureToUse = temperature !== undefined ? temperature : 0.3
 
     const r = await fetch(`${VERCEL_AI_GATEWAY_URL.replace(/\/+$/, '')}/chat/completions`, {
         method: 'POST',
@@ -56,7 +60,7 @@ async function callGateway(
         },
         body: JSON.stringify({
             model: modelToUse,
-            temperature: 0.3,
+            temperature: temperatureToUse,
             messages
         })
     })
@@ -197,15 +201,11 @@ export const POST: RequestHandler = async ({ locals: { supabase } }) => {
                     .update({ status: 'processing' })
                     .eq('id', submissionId)
 
-                // Generate updated documentation
-                const system = [
-                    'You are a senior technical writer.',
-                    'You are updating existing documentation. The source code has changed, and you need to update the documentation accordingly.',
-                    'Maintain the same structure and style as much as possible, but reflect all code changes accurately.',
-                    'Include: overview, key components, data flow, API/CLI usage (if any), setup/run, and limitations.',
-                    'When helpful, include short code snippets or pseudo-diagrams.',
-                    'Use headings, subheadings, and bullet points. No HTML.'
-                ].join(' ')
+                // Get prompt config from source_meta if available
+                const promptConfig = sourceMeta.llm_prompt_config || null;
+
+                // Generate updated documentation with custom prompt if configured
+                const system = buildSystemPrompt(promptConfig, true)
 
                 const user =
                     `Project: ${submission.title || 'Documentation'}\n\n` +
@@ -215,12 +215,15 @@ export const POST: RequestHandler = async ({ locals: { supabase } }) => {
                         .join('\n\n') +
                     `\n\nPlease update the documentation to reflect these changes.`
 
+                // Use custom temperature if provided in prompt config
+                const temperature = promptConfig?.temperature;
                 const markdown = (await callGateway(
                     [
                         { role: 'system', content: system },
                         { role: 'user', content: user }
                     ],
-                    model
+                    model,
+                    temperature
                 )).trim()
 
                 // Save updated documentation and snapshot

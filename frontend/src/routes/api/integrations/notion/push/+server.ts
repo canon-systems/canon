@@ -124,9 +124,38 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		}
 
 		const createData = await createResponse.json();
+		const createdPageId = createData.id;
+
+		// Store workspace info in submission's source_meta if submissionId provided
+		if (submissionId) {
+			const { data: submission } = await locals.supabase
+				.from('submissions')
+				.select('source_meta')
+				.eq('id', submissionId)
+				.eq('created_by', user.id)
+				.single();
+
+			if (submission) {
+				const sourceMeta = submission.source_meta || {};
+				await locals.supabase
+					.from('submissions')
+					.update({
+						source_meta: {
+							...sourceMeta,
+							workspace: {
+								provider: 'notion',
+								resourceId: createdPageId,
+								metadata: {}
+							}
+						}
+					})
+					.eq('id', submissionId);
+			}
+		}
+
 		return jsonResponse({
 			success: true,
-			pageId: createData.id,
+			pageId: createdPageId,
 			message: 'Documentation pushed to Notion successfully'
 		});
 	} catch (err: any) {

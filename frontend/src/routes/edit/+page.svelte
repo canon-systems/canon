@@ -340,7 +340,16 @@
 					>
 						{#each items as item}
 							<li
-								class="relative flex flex-col gap-3 p-4 text-white md:flex-row md:items-start md:justify-between"
+								class="relative flex flex-col gap-3 p-4 text-white md:flex-row md:items-start md:justify-between cursor-pointer transition-colors hover:bg-white/15"
+								on:click={() => window.location.href = `/edit/${item.id}`}
+								role="button"
+								tabindex="0"
+								on:keydown={(e) => {
+									if (e.key === 'Enter' || e.key === ' ') {
+										e.preventDefault();
+										window.location.href = `/edit/${item.id}`;
+									}
+								}}
 							>
 								<div class="min-w-0 flex-1">
 									<!-- Title and created time -->
@@ -408,7 +417,10 @@
 										<button
 											type="button"
 											class="rounded-lg border border-white/20 bg-white/5 p-2 text-white/70 transition-colors hover:bg-white/10 hover:text-white"
-											on:click={(e) => toggleMenu(item.id, e)}
+											on:click={(e) => {
+												e.stopPropagation();
+												toggleMenu(item.id, e);
+											}}
 											title="More options"
 										>
 											<MoreVertical class="h-4 w-4" />
@@ -445,7 +457,16 @@
 					<div class="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
 						{#each items as item}
 							<div
-								class="flex flex-col rounded-2xl border border-white/20 bg-white/10 p-5 backdrop-blur-md transition hover:bg-white/15"
+								class="flex flex-col rounded-2xl border border-white/20 bg-white/10 p-5 backdrop-blur-md transition hover:bg-white/15 cursor-pointer"
+								on:click={() => window.location.href = `/edit/${item.id}`}
+								role="button"
+								tabindex="0"
+								on:keydown={(e) => {
+									if (e.key === 'Enter' || e.key === ' ') {
+										e.preventDefault();
+										window.location.href = `/edit/${item.id}`;
+									}
+								}}
 							>
 								<div class="mb-3">
 									<div class="mb-2 truncate text-lg font-semibold text-white">{item.title}</div>
@@ -512,7 +533,10 @@
 										<button
 											type="button"
 											class="rounded-lg border border-white/20 bg-white/5 p-2 text-white/70 transition-colors hover:bg-white/10 hover:text-white"
-											on:click={(e) => toggleMenu(item.id, e)}
+											on:click={(e) => {
+												e.stopPropagation();
+												toggleMenu(item.id, e);
+											}}
 											title="More options"
 										>
 											<MoreVertical class="h-4 w-4" />

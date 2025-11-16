@@ -6,6 +6,7 @@ import {
     VERCEL_AI_GATEWAY_API_KEY,
     LLM_MODEL
 } from '$env/static/private';
+import { buildSystemPrompt } from '$lib/server/prompts/buildSystemPrompt';
 
 // --- utilities ---
 function json(data: unknown, status = 200) {
@@ -16,7 +17,8 @@ function json(data: unknown, status = 200) {
 // Returns assistant text (or throws on HTTP error).
 async function callGateway(
     messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
-    model?: string
+    model?: string,
+    temperature?: number
 ) {
     if (!VERCEL_AI_GATEWAY_URL || !VERCEL_AI_GATEWAY_API_KEY) {
         throw new Error('Gateway env vars missing');
@@ -24,6 +26,8 @@ async function callGateway(
 
     // Use provided model or fall back to env default
     const modelToUse = model || LLM_MODEL;
+    // Use provided temperature or fall back to default 0.3
+    const temperatureToUse = temperature !== undefined ? temperature : 0.3;
 
     const r = await fetch(`${VERCEL_AI_GATEWAY_URL.replace(/\/+$/, '')}/chat/completions`, {
         method: 'POST',
@@ -35,7 +39,7 @@ async function callGateway(
         },
         body: JSON.stringify({
             model: modelToUse,
-            temperature: 0.3,
+            temperature: temperatureToUse,
             messages
         })
     });
@@ -50,11 +54,12 @@ async function callGateway(
 // --- the API handler ---
 export const POST: RequestHandler = async ({ request }) => {
     try {
-        // Expect: { projectName, files: [{ path, content }], model?: string }
+        // Expect: { projectName, files: [{ path, content }], model?: string, promptConfig?: PromptConfig }
         const body = await request.json().catch(() => ({}));
         const projectName = String(body.projectName || 'Project');
         const files = Array.isArray(body.files) ? body.files : [];
         const model = body.model ? String(body.model) : undefined;
+        const promptConfig = body.promptConfig || null;
 
         if (!files.length) {
             return json({ error: 'No files provided' }, 400);
@@ -70,13 +75,8 @@ export const POST: RequestHandler = async ({ request }) => {
             return { path, content };
         });
 
-        const system = [
-            'You are a senior technical writer.',
-            'Produce clear, well-structured Markdown documentation for the given codebase.',
-            'Include: overview, key components, data flow, API/CLI usage (if any), setup/run, and limitations.',
-            'When helpful, include short code snippets or pseudo-diagrams.',
-            'Use headings, subheadings, and bullet points. No HTML.'
-        ].join(' ');
+        // Build system prompt from config
+        const system = buildSystemPrompt(promptConfig, false);
 
         // Concise, explicit user content with file separators
         const user =
@@ -86,13 +86,15 @@ export const POST: RequestHandler = async ({ request }) => {
                 .map((f: { path: string; content: string }) => `--- FILE: ${f.path} ---\n${f.content}`)
                 .join('\n\n');
 
-        // Call the Gateway
+        // Call the Gateway with custom temperature if provided
+        const temperature = promptConfig?.temperature;
         const markdown = (await callGateway(
             [
                 { role: 'system', content: system },
                 { role: 'user', content: user }
             ],
-            model
+            model,
+            temperature
         )).trim();
 
         return json({ markdown }, 200);

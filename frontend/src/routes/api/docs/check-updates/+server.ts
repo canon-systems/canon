@@ -2,7 +2,7 @@
 // /api/docs/check-updates  (POST)
 //
 // PURPOSE:
-//   Given a submissionId, this endpoint checks GitHub to see whether any of the
+//   Given a submissionId, this endpoint checks the repository to see whether any of the
 //   files used to create the documentation have changed since the last snapshot.
 //
 // RETURNS:
@@ -17,33 +17,19 @@
 //   Each submission stores: code_snapshot.commitSha + fileShas (at time of run)
 //   submission_files stores a row per file, each with file_hash (blob SHA)
 //   To detect changes:
-//       - Fetch latest blob SHAs from GitHub for those file paths
+//       - Fast path: Compare stored commit SHA with latest branch commit SHA
+//       - If commit SHA unchanged, no files changed (fast return)
+//       - If commit SHA changed, batch fetch latest file SHAs using provider's Tree API
 //       - Compare with stored file_hash
 //       - Any mismatch = outdated
 // ============================================================================
 
 import type { RequestHandler } from '@sveltejs/kit'
 import { json } from '@sveltejs/kit'
-import { Octokit } from '@octokit/rest'
-
-// NEW: import createClient so we can build a Supabase client for this request
 import { createClient } from '@supabase/supabase-js'
-
-// NEW: import your Supabase URL and anon key from public env
 import { PUBLIC_SUPABASE_URL, PUBLIC_SUPABASE_ANON_KEY } from '$env/static/public'
-import { GITHUB_TOKEN } from '$env/static/private'
-
-// GitHub client (must have GITHUB_TOKEN env var)
-const octokit = new Octokit({
-    auth: GITHUB_TOKEN || undefined
-})
-
-// Helper: parse GitHub repo URL ("https://github.com/user/repo")
-function parseRepoUrl(url: string) {
-    const match = url.match(/github\.com\/([^\/]+)\/([^\/]+)(?:\.git|$|\/)/)
-    if (!match) throw new Error(`Invalid GitHub URL: ${url}`)
-    return { owner: match[1], repo: match[2].replace(/\.git$/, '') }
-}
+import { getRepoProvider } from '$lib/server/repos/providerFactory'
+import type { ChangedFile } from '$lib/server/repos/types'
 
 export const POST: RequestHandler = async (event) => {
     // Wrap everything in try/catch so we can see the real error
@@ -102,13 +88,56 @@ export const POST: RequestHandler = async (event) => {
         // Guard: ensure repo
         if (!submission.source_meta?.repoUrl) {
             return json(
-                { error: 'Submission has no repoUrl (not a GitHub submission)' },
+                { error: 'Submission has no repoUrl (not a repository-based submission)' },
                 { status: 400 }
             )
         }
 
         // ------------------------------------------------------------
-        // 4) Load all submission_files rows for this submission
+        // 4) Get repository provider
+        // ------------------------------------------------------------
+        const repoUrl = submission.source_meta.repoUrl
+        const branch = submission.source_meta.branch || 'master'
+
+        const provider = getRepoProvider(repoUrl)
+        if (!provider) {
+            return json(
+                { error: `Unsupported repository provider for URL: ${repoUrl}` },
+                { status: 400 }
+            )
+        }
+
+        const repoInfo = provider.parseRepoUrl(repoUrl)
+        if (!repoInfo) {
+            return json(
+                { error: `Failed to parse repository URL: ${repoUrl}` },
+                { status: 400 }
+            )
+        }
+
+        // ------------------------------------------------------------
+        // 5) Fast path: Check commit SHA first
+        // ------------------------------------------------------------
+        const codeSnapshot = submission.code_snapshot || {}
+        const storedCommitSha = codeSnapshot.commitSha
+
+        if (storedCommitSha) {
+            const latestCommitSha = await provider.getBranchCommitSha(repoInfo, branch)
+            if (latestCommitSha && latestCommitSha === storedCommitSha) {
+                // Fast path: commit SHA unchanged, so no files changed
+                return json(
+                    {
+                        outdated: false,
+                        changedFiles: [],
+                        message: 'No changes detected (commit SHA unchanged)'
+                    },
+                    { status: 200 }
+                )
+            }
+        }
+
+        // ------------------------------------------------------------
+        // 6) Load all submission_files rows for this submission
         // ------------------------------------------------------------
         const { data: files, error: fileErr } = await supabase
             .from('submission_files')
@@ -138,73 +167,35 @@ export const POST: RequestHandler = async (event) => {
         }
 
         // ------------------------------------------------------------
-        // 5) Parse repo info from the submission
+        // 7) Batch fetch file SHAs using provider's efficient method
         // ------------------------------------------------------------
-        const repoUrl = submission.source_meta.repoUrl
-        const branch = submission.source_meta.branch || 'master'
-
-        const { owner, repo } = parseRepoUrl(repoUrl)
+        const filePaths = files.map((f) => f.file_path)
+        const currentShas = await provider.fetchFileShas(repoInfo, branch, filePaths)
 
         // ------------------------------------------------------------
-        // 6) For each tracked file, fetch the new SHA from GitHub
+        // 8) Compare stored hashes with current hashes
         // ------------------------------------------------------------
-        const changedFiles: {
-            file_path: string
-            old_hash: string
-            new_hash: string
-        }[] = []
+        const changedFiles: ChangedFile[] = []
 
         for (const row of files) {
             const filePath = row.file_path
             const oldHash = row.file_hash
+            const newHash = currentShas[filePath]
 
-            try {
-                // GitHub returns metadata for this file path
-                // Note: filePath should be relative to repo root (e.g., "frontend/src/..." if subdir was "frontend")
-                const { data } = await octokit.repos.getContent({
-                    owner,
-                    repo,
-                    path: filePath,
-                    ref: branch
-                })
-
-                // If file was found and is single file:
-                if (!Array.isArray(data) && data.type === 'file' && data.sha) {
-                    const newHash = data.sha
-
-                    // Compare → if mismatch, file changed
-                    if (newHash !== oldHash) {
-                        changedFiles.push({
-                            file_path: filePath,
-                            old_hash: oldHash,
-                            new_hash: newHash
-                        })
-                    }
-                }
-            } catch (e: any) {
-                // 🔍 NEW: log all context + raw error
-                const errorMessage = e?.message || String(e)
-                const errorStatus = e?.status || e?.response?.status
-                console.error('GitHub getContent error', {
-                    owner,
-                    repo,
-                    branch,
-                    filePath,
-                    error: errorMessage,
-                    status: errorStatus,
-                    hasToken: !!GITHUB_TOKEN
-                })
-                // If getContent fails (path deleted, moved, 404), we count this as changed.
+            // File changed if:
+            // - SHA is different
+            // - File was deleted (newHash is null but oldHash exists)
+            if (oldHash && newHash !== oldHash) {
                 changedFiles.push({
                     file_path: filePath,
                     old_hash: oldHash,
-                    new_hash: `(missing or unreachable: ${errorStatus || errorMessage})`
+                    new_hash: newHash || '(missing or unreachable)'
                 })
             }
         }
 
         // ------------------------------------------------------------
-        // 7) Return results
+        // 9) Return results
         // ------------------------------------------------------------
         const outdated = changedFiles.length > 0
 

@@ -18,6 +18,7 @@
 	import { supabase } from '$lib/supabaseClient';
 	import { Github, FolderOpen, Upload, Code, Loader2 } from '@lucide/svelte';
 	import { onMount } from 'svelte';
+	import PromptCustomizer from '$lib/components/PromptCustomizer.svelte';
 
 	type InputType = 'github_repo' | 'github_repo_directory' | 'zipped_folder' | 'pasted_code';
 	type Status = 'completed' | 'failed' | 'processing';
@@ -43,6 +44,19 @@
 
 	// Doc title (saved with the record)
 	let docTitle = 'Documentation Draft';
+
+	// LLM Prompt customization
+	let promptConfig: {
+		personality?: string;
+		style?: string;
+		customInstructions?: string;
+		temperature?: number;
+	} = {
+		personality: 'default',
+		style: 'default',
+		customInstructions: '',
+		temperature: 0.3
+	};
 
 	// Model selection
 	// Complete list of models available through Vercel AI Gateway
@@ -406,6 +420,21 @@
 		}
 	}
 
+	// Detect repository provider from URL (client-side version)
+	function detectRepoProvider(repoUrl: string): string | null {
+		if (!repoUrl) return null;
+		try {
+			const url = new URL(repoUrl);
+			if (url.hostname === 'github.com' || url.hostname.includes('github.com')) {
+				return 'github';
+			}
+			// Future: Add GitLab, Bitbucket detection
+		} catch {
+			return null;
+		}
+		return null;
+	}
+
 	// Build a friendly input_content string for logging
 	function buildInputContent(): string {
 		if (method === 'pasted_code') return `${pasteFilename} (pasted)`;
@@ -441,10 +470,13 @@
 
 			const source_meta =
 				method === 'pasted_code'
-					? { filename: pasteFilename, model: selectedModel }
+					? { filename: pasteFilename, model: selectedModel, llm_prompt_config: promptConfig }
 					: method === 'zipped_folder'
-						? { zip_name: zipFile?.name ?? null, model: selectedModel }
-						: { repoUrl, branch, model: selectedModel, ...(method === 'github_repo_directory' ? { subdir } : {}) };
+						? { zip_name: zipFile?.name ?? null, model: selectedModel, llm_prompt_config: promptConfig }
+						: { repoUrl, branch, model: selectedModel, llm_prompt_config: promptConfig, ...(method === 'github_repo_directory' ? { subdir } : {}) };
+
+			// Detect and set repo_provider for repository-based submissions
+			const repoProvider = isGit && repoUrl ? detectRepoProvider(repoUrl) : null;
 
 			// ------------------------------------------------------------
 			// RLS ENFORCEMENT (important)
@@ -453,15 +485,22 @@
 			// This guarantees the new row belongs to the current user.
 			// ------------------------------------------------------------
 			{
+				const insertData: any = {
+					input_type: method,
+					input_content: buildInputContent(),
+					status: 'processing' as Status,
+					selected_files: filesForLog,
+					source_meta
+				};
+
+				// Only set repo_provider if we detected one (for repository-based submissions)
+				if (repoProvider) {
+					insertData.repo_provider = repoProvider;
+				}
+
 				const { data, error } = await supabase
 					.from('submissions')
-					.insert({
-						input_type: method,
-						input_content: buildInputContent(),
-						status: 'processing' as Status,
-						selected_files: filesForLog,
-						source_meta
-					})
+					.insert(insertData)
 					.select('id')
 					.single();
 
@@ -523,7 +562,8 @@
 				body: JSON.stringify({
 					projectName: docTitle || 'Documentation Draft',
 					files: filesForDoc,
-					model: selectedModel
+					model: selectedModel,
+					promptConfig: promptConfig
 				})
 			});
 			const text = await rGen.text();
@@ -542,7 +582,7 @@
 			const markdown = String(gen.markdown || '');
 
 			// 4) Save final result with code snapshot (for GitHub repos)
-			statusMsg = 'Saving to Supabase…';
+			statusMsg = 'Saving…';
 			// RLS allows UPDATE only if created_by = auth.uid().
 			// Because this row was created by us, this update will succeed only for us.
 
@@ -913,6 +953,11 @@
 				</div>
 			</div>
 		{/if}
+
+		<!-- LLM Prompt Customization -->
+		<div class="mb-6">
+			<PromptCustomizer bind:promptConfig />
+		</div>
 
 		<!-- Error / Status -->
 		{#if errorMsg}

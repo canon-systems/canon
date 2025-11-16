@@ -12,11 +12,12 @@ import { json, error } from '@sveltejs/kit';
 import {
     VERCEL_AI_GATEWAY_URL,
     VERCEL_AI_GATEWAY_API_KEY,
-    LLM_MODEL,
-    GITHUB_TOKEN
+    LLM_MODEL
 } from '$env/static/private';
-import { getFileShas, getLatestCommitSha } from '$lib/server/github/githubTracking';
-import { parseRepoUrl } from '$lib/server/github/github';
+import { getRepoProvider } from '$lib/server/repos/providerFactory';
+import { buildSystemPrompt } from '$lib/server/prompts/buildSystemPrompt';
+import { getWorkspaceProvider } from '$lib/server/workspaces/workspaceFactory';
+import type { WorkspaceInfo, WorkspaceContent } from '$lib/server/workspaces/types';
 
 function jsonResponse(data: unknown, status = 200) {
     return json(data, { status });
@@ -25,7 +26,8 @@ function jsonResponse(data: unknown, status = 200) {
 // Helper to call LLM
 async function callGateway(
     messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
-    model?: string
+    model?: string,
+    temperature?: number
 ) {
     if (!VERCEL_AI_GATEWAY_URL || !VERCEL_AI_GATEWAY_API_KEY) {
         throw new Error('Gateway env vars missing');
@@ -33,6 +35,8 @@ async function callGateway(
 
     // Use provided model or fall back to env default
     const modelToUse = model || LLM_MODEL;
+    // Use provided temperature or fall back to default 0.3
+    const temperatureToUse = temperature !== undefined ? temperature : 0.3;
 
     const r = await fetch(`${VERCEL_AI_GATEWAY_URL.replace(/\/+$/, '')}/chat/completions`, {
         method: 'POST',
@@ -43,7 +47,7 @@ async function callGateway(
         },
         body: JSON.stringify({
             model: modelToUse,
-            temperature: 0.3,
+            temperature: temperatureToUse,
             messages
         })
     });
@@ -55,30 +59,6 @@ async function callGateway(
     return String(j?.choices?.[0]?.message?.content ?? '');
 }
 
-// Fetch file content from GitHub
-async function fetchFileContent(owner: string, repo: string, branch: string, path: string): Promise<string | null> {
-    try {
-        const res = await fetch(
-            `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}?ref=${encodeURIComponent(branch)}`,
-            {
-                headers: {
-                    accept: "application/vnd.github+json",
-                    ...(GITHUB_TOKEN ? { authorization: `Bearer ${GITHUB_TOKEN}` } : {})
-                }
-            }
-        );
-
-        if (!res.ok) return null;
-        const data = (await res.json()) as { content: string; encoding: string };
-
-        if (data.encoding === 'base64') {
-            return Buffer.from(data.content, 'base64').toString('utf-8');
-        }
-        return data.content;
-    } catch {
-        return null;
-    }
-}
 
 export const POST: RequestHandler = async ({ request, locals: { supabase } }) => {
     let submissionId: string | undefined;
@@ -104,9 +84,9 @@ export const POST: RequestHandler = async ({ request, locals: { supabase } }) =>
         const sourceMeta = submission.source_meta || {};
         const inputType = submission.input_type;
 
-        // Only handle GitHub repos for now
+        // Only handle repository-based submissions
         if (inputType !== 'github_repo' && inputType !== 'github_repo_directory') {
-            return jsonResponse({ error: 'Auto-update only supported for GitHub repos' }, 400);
+            return jsonResponse({ error: 'Auto-update only supported for repository-based submissions' }, 400);
         }
 
         const { repoUrl, branch, subdir, model } = sourceMeta;
@@ -114,9 +94,15 @@ export const POST: RequestHandler = async ({ request, locals: { supabase } }) =>
             return jsonResponse({ error: 'Missing repoUrl or branch in source_meta' }, 400);
         }
 
-        const parsed = parseRepoUrl(repoUrl);
-        if (!parsed) {
-            return jsonResponse({ error: 'Invalid repo URL' }, 400);
+        // Get repository provider
+        const provider = getRepoProvider(repoUrl);
+        if (!provider) {
+            return jsonResponse({ error: `Unsupported repository provider for URL: ${repoUrl}` }, 400);
+        }
+
+        const repoInfo = provider.parseRepoUrl(repoUrl);
+        if (!repoInfo) {
+            return jsonResponse({ error: `Failed to parse repository URL: ${repoUrl}` }, 400);
         }
 
         // Get selected files
@@ -125,12 +111,12 @@ export const POST: RequestHandler = async ({ request, locals: { supabase } }) =>
             return jsonResponse({ error: 'No files selected for this submission' }, 400);
         }
 
-        // Fetch latest file contents
+        // Fetch latest file contents using provider
         const filesForDoc: Array<{ path: string; content: string }> = [];
         const MAX_PER_FILE = 200_000;
 
         for (const filePath of selectedFiles) {
-            const content = await fetchFileContent(parsed.owner, parsed.repo, branch, filePath);
+            const content = await provider.fetchFileContent(repoInfo, branch, filePath);
             if (content) {
                 const clipped = content.length > MAX_PER_FILE ? content.slice(0, MAX_PER_FILE) : content;
                 filesForDoc.push({ path: filePath, content: clipped });
@@ -141,9 +127,9 @@ export const POST: RequestHandler = async ({ request, locals: { supabase } }) =>
             return jsonResponse({ error: 'Could not fetch any file contents' }, 500);
         }
 
-        // Get current commit SHA and file SHAs for snapshot
-        const latestCommitSha = await getLatestCommitSha(repoUrl, branch);
-        const fileShas = await getFileShas(repoUrl, branch, selectedFiles);
+        // Get current commit SHA and file SHAs for snapshot using provider
+        const latestCommitSha = await provider.getBranchCommitSha(repoInfo, branch);
+        const fileShas = await provider.fetchFileShas(repoInfo, branch, selectedFiles);
 
         // Update submission status
         await supabase
@@ -151,33 +137,82 @@ export const POST: RequestHandler = async ({ request, locals: { supabase } }) =>
             .update({ status: 'processing' })
             .eq('id', submissionId);
 
-        // Generate updated documentation
-        const system = [
-            'You are a senior technical writer.',
-            'You are updating existing documentation. The source code has changed, and you need to update the documentation accordingly.',
-            'Maintain the same structure and style as much as possible, but reflect all code changes accurately.',
-            'Include: overview, key components, data flow, API/CLI usage (if any), setup/run, and limitations.',
-            'When helpful, include short code snippets or pseudo-diagrams.',
-            'Use headings, subheadings, and bullet points. No HTML.'
-        ].join(' ');
+        // Get prompt config from source_meta if available
+        const promptConfig = sourceMeta.llm_prompt_config || null;
 
-        const user =
-            `Project: ${submission.title || 'Documentation'}\n\n` +
-            `The following files have been updated:\n` +
+        // Pull existing documentation from workspace if linked (generic for any workspace provider)
+        let existingWorkspaceContent = '';
+        const workspaceInfo: WorkspaceInfo | null = sourceMeta.workspace || null;
+        
+        if (workspaceInfo && workspaceInfo.provider && workspaceInfo.resourceId) {
+            try {
+                const { data: { user } } = await locals.safeGetSession();
+                if (user) {
+                    // Find workspace connection
+                    const { data: connection } = await locals.supabase
+                        .from('oauth_connections')
+                        .select('connection_id')
+                        .eq('user_id', user.id)
+                        .eq('provider', workspaceInfo.provider)
+                        .eq('status', 'active')
+                        .single();
+
+                    if (connection) {
+                        // Get workspace provider
+                        const workspaceProvider = getWorkspaceProvider(workspaceInfo.provider);
+                        if (workspaceProvider) {
+                            // Pull content from workspace
+                            const pulledContent = await workspaceProvider.pullContent(
+                                workspaceInfo,
+                                connection.connection_id
+                            );
+                            
+                            if (pulledContent) {
+                                existingWorkspaceContent = pulledContent.markdown || '';
+                            }
+                        }
+                    }
+                }
+            } catch (err) {
+                console.warn(`Failed to pull from ${workspaceInfo.provider}, continuing without existing content:`, err);
+            }
+        }
+
+        // Generate updated documentation with custom prompt if configured
+        const system = buildSystemPrompt(promptConfig, true);
+
+        // Build user prompt with existing workspace content if available
+        let userPrompt = `Project: ${submission.title || 'Documentation'}\n\n`;
+        
+        if (existingWorkspaceContent && workspaceInfo) {
+            userPrompt += `EXISTING DOCUMENTATION (from ${workspaceInfo.provider}):\n${existingWorkspaceContent}\n\n`;
+        }
+        
+        userPrompt += `The following files have been updated:\n` +
             filesForDoc
                 .map((f: { path: string; content: string }) => `--- FILE: ${f.path} ---\n${f.content}`)
                 .join('\n\n') +
             `\n\nPlease update the documentation to reflect these changes.`;
+        
+        if (existingWorkspaceContent) {
+            userPrompt += ` Maintain the same structure and style as the existing documentation when possible.`;
+        }
 
+        const user = userPrompt;
+
+        // Use custom temperature if provided in prompt config
+        const temperature = promptConfig?.temperature;
         const markdown = (await callGateway(
             [
                 { role: 'system', content: system },
                 { role: 'user', content: user }
             ],
-            model
+            model,
+            temperature
         )).trim();
 
         // Save updated documentation and snapshot
+        // Clear is_outdated flag since we've regenerated with latest code
         const { error: updateError } = await supabase
             .from('submissions')
             .update({
@@ -188,7 +223,9 @@ export const POST: RequestHandler = async ({ request, locals: { supabase } }) =>
                     commitSha: latestCommitSha,
                     fileShas,
                     updatedAt: new Date().toISOString()
-                }
+                },
+                is_outdated: false, // Clear outdated flag after successful regeneration
+                last_checked_at: new Date().toISOString()
             })
             .eq('id', submissionId);
 
@@ -196,10 +233,60 @@ export const POST: RequestHandler = async ({ request, locals: { supabase } }) =>
             throw new Error(updateError.message);
         }
 
+        // Update workspace if linked (generic for any workspace provider)
+        let workspaceUpdated = false;
+        let workspaceProviderName = '';
+        
+        if (workspaceInfo && workspaceInfo.provider && workspaceInfo.resourceId) {
+            try {
+                const { data: { user } } = await locals.safeGetSession();
+                if (user) {
+                    // Find workspace connection
+                    const { data: connection } = await locals.supabase
+                        .from('oauth_connections')
+                        .select('connection_id')
+                        .eq('user_id', user.id)
+                        .eq('provider', workspaceInfo.provider)
+                        .eq('status', 'active')
+                        .single();
+
+                    if (connection) {
+                        // Get workspace provider
+                        const workspaceProvider = getWorkspaceProvider(workspaceInfo.provider);
+                        if (workspaceProvider) {
+                            // Update workspace with new content
+                            const success = await workspaceProvider.updateContent(
+                                workspaceInfo,
+                                {
+                                    title: submission.title || 'Documentation',
+                                    markdown,
+                                    html: undefined // Will be generated from markdown if needed
+                                },
+                                connection.connection_id
+                            );
+
+                            if (success) {
+                                workspaceUpdated = true;
+                                workspaceProviderName = workspaceInfo.provider;
+                            }
+                        }
+                    }
+                }
+            } catch (err) {
+                console.warn(`Failed to update ${workspaceInfo.provider} workspace:`, err);
+            }
+        }
+
+        const workspaceMessage = workspaceUpdated 
+            ? ` and synced to ${workspaceProviderName}` 
+            : '';
+
         return jsonResponse({
             success: true,
             submissionId,
-            message: 'Documentation updated successfully'
+            message: 'Documentation updated successfully' + workspaceMessage,
+            workspaceUpdated,
+            workspaceProvider: workspaceProviderName || null
         });
     } catch (err) {
         // Mark as failed if we have a submission ID

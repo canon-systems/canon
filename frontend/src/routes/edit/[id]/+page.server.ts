@@ -23,7 +23,7 @@ export const load = async ({ params, locals: { safeGetSession, supabase } }) => 
     const { data, error: qerr } = await supabase
         .from("submissions")
         .select(
-            "id, created_at, title, markdown, status, error_message, input_type, input_content, summary"
+            "id, created_at, title, markdown, status, error_message, input_type, input_content, summary, source_meta"
         )
         .eq("id", id)
         .single();
@@ -53,7 +53,8 @@ export const load = async ({ params, locals: { safeGetSession, supabase } }) => 
                 | "zipped_folder"
                 | "pasted_code",
             input_content: (data.input_content ?? "") as string,
-            summary: (data.summary ?? null) as string | null
+            summary: (data.summary ?? null) as string | null,
+            source_meta: (data.source_meta ?? {}) as any
         }
     };
 };

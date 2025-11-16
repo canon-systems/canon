@@ -3,6 +3,7 @@
 	import { supabase } from '$lib/supabaseClient';
 	import { Link2, Check, X, Loader2, FileText, ExternalLink } from '@lucide/svelte';
 	import Nango from '@nangohq/frontend';
+	import IntegrationLogos from '$lib/components/IntegrationLogos.svelte';
 
 	type Connection = {
 		id: string;
@@ -49,7 +50,8 @@
 		}
 	}
 
-	async function connectToNotion() {
+	// Generic connect function for any provider
+	async function connectToProvider(providerName: string) {
 		connecting = true;
 		error = '';
 		success = '';
@@ -59,7 +61,7 @@
 			const response = await fetch('/api/integrations/connect', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ provider: 'notion' })
+				body: JSON.stringify({ provider: providerName })
 			});
 
 			if (!response.ok) {
@@ -112,7 +114,8 @@
 						}
 
 						// Show success message and refresh connections
-						success = 'Successfully connected to Notion!';
+						const providerDisplayName = providerName === 'google-docs' ? 'Google Docs' : providerName.charAt(0).toUpperCase() + providerName.slice(1);
+						success = `Successfully connected to ${providerDisplayName}!`;
 						connecting = false;
 						
 						// Refresh connections list to show the new connection
@@ -133,6 +136,19 @@
 			console.error('Connection error:', err);
 			connecting = false;
 		}
+	}
+
+	// Convenience functions for each provider
+	async function connectToNotion() {
+		await connectToProvider('notion');
+	}
+
+	async function connectToConfluence() {
+		await connectToProvider('confluence');
+	}
+
+	async function connectToGoogleDocs() {
+		await connectToProvider('google-docs');
 	}
 
 	// Disconnect modal state
@@ -170,21 +186,12 @@
 	}
 
 	function getProviderIcon(provider: string) {
-		switch (provider) {
-			case 'notion':
-				return '📝';
-			case 'slack':
-				return '💬';
-			case 'jira':
-				return '🎯';
-			case 'confluence':
-				return '📚';
-			default:
-				return '🔗';
-		}
+		// Return the provider name for use with IntegrationLogos component
+		return provider;
 	}
 
 	function getProviderName(provider: string) {
+		if (provider === 'googledocs') return 'Google Docs';
 		return provider.charAt(0).toUpperCase() + provider.slice(1);
 	}
 
@@ -196,8 +203,10 @@
 		});
 	}
 
-	// Reactive check for Notion connection status - updates when connections change
+	// Reactive checks for connection status - updates when connections change
 	$: isNotionConnected = connections.some(c => c.provider === 'notion' && c.status === 'active');
+	$: isConfluenceConnected = connections.some(c => c.provider === 'confluence' && c.status === 'active');
+	$: isGoogleDocsConnected = connections.some(c => c.provider === 'googledocs' && c.status === 'active');
 </script>
 
 <div class="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
@@ -233,7 +242,9 @@
 			<div class="rounded-xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm">
 				<div class="flex items-start justify-between mb-4">
 					<div class="flex items-center gap-3">
-						<span class="text-3xl">📝</span>
+						<div class="flex h-12 w-12 items-center justify-center rounded-lg bg-white/5">
+							<IntegrationLogos provider="notion" size={28} />
+						</div>
 						<div>
 							<h3 class="text-lg font-semibold text-white">Notion</h3>
 							<p class="text-sm text-white/60">Access and sync your Notion pages</p>
@@ -277,11 +288,13 @@
 				{/if}
 			</div>
 
-			<!-- Placeholder for future integrations -->
+			<!-- Slack Integration -->
 			<div class="rounded-xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm opacity-50">
 				<div class="flex items-start justify-between mb-4">
 					<div class="flex items-center gap-3">
-						<span class="text-3xl">💬</span>
+						<div class="flex h-12 w-12 items-center justify-center rounded-lg bg-white/5">
+							<IntegrationLogos provider="slack" size={28} />
+						</div>
 						<div>
 							<h3 class="text-lg font-semibold text-white">Slack</h3>
 							<p class="text-sm text-white/60">Coming soon</p>
@@ -294,6 +307,106 @@
 				>
 					Coming Soon
 				</button>
+			</div>
+
+			<!-- Confluence Integration -->
+			<div class="rounded-xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm">
+				<div class="flex items-start justify-between mb-4">
+					<div class="flex items-center gap-3">
+						<div class="flex h-12 w-12 items-center justify-center rounded-lg bg-white/5">
+							<IntegrationLogos provider="confluence" size={28} />
+						</div>
+						<div>
+							<h3 class="text-lg font-semibold text-white">Confluence</h3>
+							<p class="text-sm text-white/60">Access and sync your Confluence pages</p>
+						</div>
+					</div>
+					{#if isConfluenceConnected}
+						<span class="flex items-center gap-1 rounded-full bg-green-500/20 px-3 py-1 text-xs text-green-300">
+							<Check class="h-3 w-3" />
+							Connected
+						</span>
+					{/if}
+				</div>
+				{#if isConfluenceConnected}
+					<button
+						on:click={() => {
+							const conn = connections.find(c => c.provider === 'confluence');
+							if (conn) openDisconnectModal(conn.connection_id, 'confluence');
+						}}
+						class="w-full rounded-lg border border-red-500/50 bg-red-500/10 px-4 py-2 text-sm text-red-300 transition-colors hover:bg-red-500/20"
+					>
+						Disconnect
+					</button>
+				{:else}
+					<button
+						on:click={connectToConfluence}
+						disabled={connecting}
+						class="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+					>
+						{#if connecting}
+							<span class="flex items-center justify-center gap-2">
+								<Loader2 class="h-4 w-4 animate-spin" />
+								Connecting...
+							</span>
+						{:else}
+							<span class="flex items-center justify-center gap-2">
+								<Link2 class="h-4 w-4" />
+								Connect Confluence
+							</span>
+						{/if}
+					</button>
+				{/if}
+			</div>
+
+			<!-- Google Docs Integration -->
+			<div class="rounded-xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm">
+				<div class="flex items-start justify-between mb-4">
+					<div class="flex items-center gap-3">
+						<div class="flex h-12 w-12 items-center justify-center rounded-lg bg-white/5">
+							<IntegrationLogos provider="google-docs" size={28} />
+						</div>
+						<div>
+							<h3 class="text-lg font-semibold text-white">Google Docs</h3>
+							<p class="text-sm text-white/60">Access and sync your Google Docs</p>
+						</div>
+					</div>
+					{#if isGoogleDocsConnected}
+						<span class="flex items-center gap-1 rounded-full bg-green-500/20 px-3 py-1 text-xs text-green-300">
+							<Check class="h-3 w-3" />
+							Connected
+						</span>
+					{/if}
+				</div>
+				{#if isGoogleDocsConnected}
+					<button
+						on:click={() => {
+							const conn = connections.find(c => c.provider === 'googledocs');
+							if (conn) openDisconnectModal(conn.connection_id, 'googledocs');
+						}}
+						class="w-full rounded-lg border border-red-500/50 bg-red-500/10 px-4 py-2 text-sm text-red-300 transition-colors hover:bg-red-500/20"
+					>
+						Disconnect
+					</button>
+				{:else}
+					<button
+						on:click={connectToGoogleDocs}
+						disabled={connecting}
+						class="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+					>
+						{#if connecting}
+							<span class="flex items-center justify-center gap-2">
+								<Loader2 class="h-4 w-4 animate-spin" />
+								Connecting...
+							</span>
+						{:else}
+							<span class="flex items-center justify-center gap-2">
+								<Link2 class="h-4 w-4" />
+								Connect Google Docs
+							</span>
+						{/if}
+					</button>
+				{/if}
 			</div>
 		</div>
 	</div>
@@ -318,7 +431,12 @@
 					<div class="rounded-lg border border-white/10 bg-white/5 p-4 backdrop-blur-sm">
 						<div class="flex items-center justify-between">
 							<div class="flex items-center gap-3">
-								<span class="text-2xl">{getProviderIcon(connection.provider)}</span>
+								<div class="flex h-10 w-10 items-center justify-center rounded-lg bg-white/5">
+									<IntegrationLogos 
+										provider={(connection.provider === 'googledocs' ? 'google-docs' : connection.provider) as 'notion' | 'slack' | 'confluence' | 'google-docs' | 'jira'} 
+										size={24} 
+									/>
+								</div>
 								<div>
 									<p class="font-medium text-white">{getProviderName(connection.provider)}</p>
 									<p class="text-xs text-white/60">
