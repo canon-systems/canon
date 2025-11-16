@@ -41,6 +41,19 @@
 	let showChangedFiles = false; // For collapsible file list
 	let checkDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
+	// 4a) Regeneration modal state
+	let regenerationModalOpen = false;
+	let currentStep: 'config' | 'preview' = 'config';
+	let generatingPreview = false;
+	let previewContent = '';
+	let previewModel = '';
+	let previewPromptConfig: typeof promptConfig = {};
+	let previewError = '';
+	let selectedRegenModel = data.submission.source_meta?.model || 'gpt-4o';
+	let regenPromptConfig: typeof promptConfig = { ...promptConfig };
+	let showRegenModelDropdown = false;
+	let regenModelDropdownRef: HTMLElement | null = null;
+
 	// Prompt customization state
 	let promptConfig: {
 		personality?: string;
@@ -89,10 +102,11 @@
 
 	// 5) Bring in Supabase + icons
 	import { supabase } from '$lib/supabaseClient';
-	import { Loader2, RefreshCw, AlertCircle, CheckCircle2, FileText, X } from '@lucide/svelte';
+	import { Loader2, RefreshCw, AlertCircle, CheckCircle2, FileText, X, ExternalLink, GitCompare, Clock } from '@lucide/svelte';
 	import { onMount } from 'svelte';
 	import IntegrationLogos from '$lib/components/IntegrationLogos.svelte';
 	import PromptCustomizer from '$lib/components/PromptCustomizer.svelte';
+	import { buildFileChangeUrl } from '$lib/utils/repoUrls';
 
 	// 6) Bring in our rich editor component
 	import RichTextEditor from '$lib/components/RichTextEditor.svelte';
@@ -103,6 +117,142 @@
 	// turndown: HTML -> Markdown when saving
 	import TurndownService from 'turndown';
 	const turndown = new TurndownService();
+
+	// 7a) Available models for regeneration (same as submit page)
+	const availableModels = [
+		// OpenAI Models
+		{
+			value: 'gpt-4o',
+			label: 'GPT-4o',
+			provider: 'OpenAI',
+			cost: '$$$$',
+			context: '128K tokens',
+			description: 'Our most advanced, multimodal flagship model that\'s faster and 50% cheaper than GPT-4 Turbo. GPT-4o ("o" for "omni") is trained across text, vision, and audio.'
+		},
+		{
+			value: 'gpt-4o-mini',
+			label: 'GPT-4o Mini',
+			provider: 'OpenAI',
+			cost: '$',
+			context: '128K tokens',
+			description: 'A smaller, more affordable variant of GPT-4o. Fast, intelligent, and cost-effective for most tasks.'
+		},
+		{
+			value: 'gpt-4-turbo',
+			label: 'GPT-4 Turbo',
+			provider: 'OpenAI',
+			cost: '$$$$$',
+			context: '128K tokens',
+			description: 'A large multimodal model (accepting text or image inputs and outputting text) that can solve complex tasks with greater accuracy than any of our previous models.'
+		},
+		{
+			value: 'gpt-4',
+			label: 'GPT-4',
+			provider: 'OpenAI',
+			cost: '$$$$$',
+			context: '8K tokens',
+			description: 'A large multimodal model (accepting text or image inputs and outputting text) that can solve difficult problems with greater accuracy than any of our previous models.'
+		},
+		{
+			value: 'gpt-3.5-turbo',
+			label: 'GPT-3.5 Turbo',
+			provider: 'OpenAI',
+			cost: '$',
+			context: '16K tokens',
+			description: 'A high-performance, cost-effective model optimized for chat and text completion tasks. Fast and efficient for most use cases.'
+		},
+		{
+			value: 'o1-preview',
+			label: 'O1 Preview',
+			provider: 'OpenAI',
+			cost: '$$$$$',
+			context: '128K tokens',
+			description: 'Advanced reasoning model optimized for complex problem-solving and deep analysis. Uses a different architecture focused on reasoning capabilities.'
+		},
+		{
+			value: 'o1-mini',
+			label: 'O1 Mini',
+			provider: 'OpenAI',
+			cost: '$$$',
+			context: '128K tokens',
+			description: 'A smaller, more affordable version of O1. Optimized for reasoning tasks with improved cost efficiency.'
+		},
+		// Anthropic Models
+		{
+			value: 'claude-3-5-sonnet-20241022',
+			label: 'Claude 3.5 Sonnet',
+			provider: 'Anthropic',
+			cost: '$$$$',
+			context: '200K tokens',
+			description: 'Our most intelligent model, with improved performance on coding tasks, math, and following complex, multi-step instructions. Excels at nuanced content creation and sophisticated Q&A.'
+		},
+		{
+			value: 'claude-3-opus-20240229',
+			label: 'Claude 3 Opus',
+			provider: 'Anthropic',
+			cost: '$$$$$',
+			context: '200K tokens',
+			description: 'Our most powerful model for highly complex tasks. Best for tasks that require deep analysis, complex content creation, code generation, and research.'
+		},
+		{
+			value: 'claude-3-sonnet-20240229',
+			label: 'Claude 3 Sonnet',
+			provider: 'Anthropic',
+			cost: '$$$',
+			context: '200K tokens',
+			description: 'A balanced model for enterprise workloads. Ideal for tasks requiring rapid responses, like knowledge retrieval or sales automation.'
+		},
+		{
+			value: 'claude-3-haiku-20240307',
+			label: 'Claude 3 Haiku',
+			provider: 'Anthropic',
+			cost: '$',
+			context: '200K tokens',
+			description: 'Our fastest and most compact model for near-instant responsiveness. Perfect for simple queries, lightweight tasks, and high-volume use cases.'
+		},
+		{
+			value: 'claude-3-5-haiku-20241022',
+			label: 'Claude 3.5 Haiku',
+			provider: 'Anthropic',
+			cost: '$$',
+			context: '200K tokens',
+			description: 'An improved version of Haiku with better performance while maintaining speed and cost efficiency. Great for general-purpose tasks.'
+		},
+		// Google Models
+		{
+			value: 'gemini-2.0-flash-exp',
+			label: 'Gemini 2.0 Flash (Experimental)',
+			provider: 'Google',
+			cost: '$$',
+			context: '1M tokens',
+			description: 'Experimental model with massive 1M token context window. Supports text, vision, audio, and function calling. Optimized for speed and efficiency.'
+		},
+		{
+			value: 'gemini-1.5-pro',
+			label: 'Gemini 1.5 Pro',
+			provider: 'Google',
+			cost: '$$$$',
+			context: '2M tokens',
+			description: 'Google\'s most capable model with an enormous 2M token context window. Excellent for complex reasoning, code generation, and multimodal tasks.'
+		},
+		{
+			value: 'gemini-1.5-flash',
+			label: 'Gemini 1.5 Flash',
+			provider: 'Google',
+			cost: '$$',
+			context: '1M tokens',
+			description: 'Fast and efficient model with 1M token context window. Great balance of speed, cost, and capability for most use cases.'
+		},
+		{
+			value: 'gemini-1.5-flash-8b',
+			label: 'Gemini 1.5 Flash 8B',
+			provider: 'Google',
+			cost: '$',
+			context: '1M tokens',
+			description: 'Lightweight 8B parameter model with 1M token context. Ultra-fast and cost-effective for simple tasks.'
+		}
+	];
+	$: selectedRegenModelObj = availableModels.find((m) => m.value === selectedRegenModel) || availableModels[0];
 
 	// 8) Make initial HTML for the editor from the DB markdown
 	//    If empty, provide a simple paragraph so the canvas is clickable.
@@ -277,21 +427,43 @@
 				checkForUpdates(true); // Skip debounce for initial check
 			}
 		}
+
+		// Click outside handler for model dropdown
+		function handleClickOutside(event: MouseEvent) {
+			if (showRegenModelDropdown && regenModelDropdownRef && !regenModelDropdownRef.contains(event.target as Node)) {
+				showRegenModelDropdown = false;
+			}
+		}
+		document.addEventListener('click', handleClickOutside);
+		return () => {
+			document.removeEventListener('click', handleClickOutside);
+		};
 	});
 
-	// Regenerate documentation with latest code
-	async function regenerateDocumentation() {
-		regenerateErr = '';
-		regenerateMsg = '';
-		regenerating = true;
+	// Open regeneration modal
+	function openRegenerationModal() {
+		regenerationModalOpen = true;
+		currentStep = 'config';
+		previewContent = '';
+		previewError = '';
+		generatingPreview = false;
+		// Reset to saved or default values
+		selectedRegenModel = data.submission.source_meta?.model || 'gpt-4o';
+		regenPromptConfig = { ...promptConfig };
+	}
+
+	// Generate preview of updated documentation
+	async function generatePreview() {
+		generatingPreview = true;
+		previewError = '';
+		previewContent = '';
 
 		try {
-			// Get the authenticated user (more secure than getSession)
+			// Get the authenticated user
 			const { data: userData, error: userError } = await supabase.auth.getUser();
 			if (userError || !userData?.user) {
 				throw new Error('No authenticated user available');
 			}
-			// Get session token after verifying user
 			const { data: sessionData } = await supabase.auth.getSession();
 			const token = sessionData?.session?.access_token;
 
@@ -299,6 +471,55 @@
 				throw new Error('No session token available');
 			}
 
+			const res = await fetch('/api/docs/generate-preview', {
+				method: 'POST',
+				headers: {
+					'content-type': 'application/json',
+					authorization: `Bearer ${token}`
+				},
+				body: JSON.stringify({
+					submissionId: data.submission.id,
+					model: selectedRegenModel,
+					promptConfig: regenPromptConfig
+				})
+			});
+
+			const result = await res.json().catch(() => ({}));
+			if (!res.ok) {
+				throw new Error(result?.error || result?.detail || `Preview generation failed (${res.status})`);
+			}
+
+			previewContent = result.markdown || '';
+			previewModel = result.model || selectedRegenModel;
+			previewPromptConfig = result.promptConfig || regenPromptConfig;
+			currentStep = 'preview';
+		} catch (e) {
+			previewError = String(e);
+		} finally {
+			generatingPreview = false;
+		}
+	}
+
+	// Apply the preview changes
+	async function applyPreviewChanges() {
+		regenerating = true;
+		regenerateErr = '';
+		regenerateMsg = '';
+
+		try {
+			// Get the authenticated user
+			const { data: userData, error: userError } = await supabase.auth.getUser();
+			if (userError || !userData?.user) {
+				throw new Error('No authenticated user available');
+			}
+			const { data: sessionData } = await supabase.auth.getSession();
+			const token = sessionData?.session?.access_token;
+
+			if (!token) {
+				throw new Error('No session token available');
+			}
+
+			// Use the preview content
 			const res = await fetch('/api/docs/update', {
 				method: 'POST',
 				headers: {
@@ -306,13 +527,14 @@
 					authorization: `Bearer ${token}`
 				},
 				body: JSON.stringify({
-					submissionId: data.submission.id
+					submissionId: data.submission.id,
+					previewContent: previewContent // Send preview content to use instead of generating
 				})
 			});
 
 			const result = await res.json().catch(() => ({}));
 			if (!res.ok) {
-				throw new Error(result?.error || result?.details || `Update failed (${res.status})`);
+				throw new Error(result?.error || result?.detail || `Update failed (${res.status})`);
 			}
 
 			// Fetch updated submission data
@@ -338,6 +560,11 @@
 			isOutdated = false;
 			outdatedFiles = [];
 			
+			// Close modal
+			regenerationModalOpen = false;
+			currentStep = 'config';
+			previewContent = '';
+			
 			// Show success message with workspace sync status
 			if (result.workspaceUpdated && result.workspaceProvider) {
 				regenerateMsg = `Documentation regenerated and synced to ${result.workspaceProvider}!`;
@@ -359,6 +586,8 @@
 			regenerating = false;
 		}
 	}
+
+	// Click outside handler for model dropdown (will be added to existing onMount)
 
 	// Notion push functions
 	async function openNotionModal() {
@@ -594,15 +823,6 @@
 		}
 	}
 
-	// Auto-check for updates when page loads (only for GitHub repos)
-	onMount(() => {
-		const isGitRepo =
-			data.submission.input_type === 'github_repo' ||
-			data.submission.input_type === 'github_repo_directory';
-		if (isGitRepo && data.submission.status === 'completed') {
-			checkForUpdates();
-		}
-	});
 </script>
 
 <!-- ------------------------------------------------------------
@@ -666,15 +886,60 @@
 						<span>{showChangedFiles ? 'Hide' : 'Show'} changed files</span>
 					</button>
 					{#if showChangedFiles}
-						<ul class="mb-3 ml-4 max-h-48 list-disc space-y-1 overflow-y-auto text-sm">
+						<div class="mb-3 ml-4 max-h-48 space-y-2 overflow-y-auto">
 							{#each outdatedFiles as file}
-								<li class="font-mono text-xs">{file.file_path}</li>
+								{@const repoUrl = data.submission.source_meta?.repoUrl || ''}
+								{@const branch = data.submission.source_meta?.branch || 'main'}
+								{@const oldCommitSha = data.submission.code_snapshot?.commitSha}
+								{@const urls = buildFileChangeUrl(file.file_path, repoUrl, branch, oldCommitSha)}
+								
+								<div class="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-2 py-1.5">
+									<span class="font-mono text-xs text-orange-200/90 flex-1 truncate" title={file.file_path}>
+										{file.file_path}
+									</span>
+									<div class="flex items-center gap-1">
+										<a
+											href={urls.view}
+											target="_blank"
+											rel="noopener noreferrer"
+											class="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-blue-300 hover:bg-blue-500/20 hover:text-blue-200 transition-colors"
+											title="View current version"
+										>
+											<FileText class="h-3 w-3" />
+											View
+										</a>
+										{#if urls.compare}
+											<a
+												href={urls.compare}
+												target="_blank"
+												rel="noopener noreferrer"
+												class="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-purple-300 hover:bg-purple-500/20 hover:text-purple-200 transition-colors"
+												title="Compare changes"
+											>
+												<GitCompare class="h-3 w-3" />
+												Compare
+											</a>
+										{/if}
+										{#if urls.history}
+											<a
+												href={urls.history}
+												target="_blank"
+												rel="noopener noreferrer"
+												class="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-green-300 hover:bg-green-500/20 hover:text-green-200 transition-colors"
+												title="View commit history"
+											>
+												<Clock class="h-3 w-3" />
+												History
+											</a>
+										{/if}
+									</div>
+								</div>
 							{/each}
-						</ul>
+						</div>
 					{/if}
 					<button
 						class="inline-flex items-center gap-2 rounded-lg bg-orange-500/20 px-4 py-2 text-sm font-medium text-orange-200 hover:bg-orange-500/30 disabled:opacity-60 disabled:cursor-not-allowed"
-						on:click|preventDefault={regenerateDocumentation}
+						on:click|preventDefault={openRegenerationModal}
 						disabled={regenerating}
 					>
 						{#if regenerating}
@@ -1201,6 +1466,241 @@
 					{/if}
 				</button>
 			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Regeneration Modal -->
+{#if regenerationModalOpen}
+	<div
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+		on:click={() => {
+			if (currentStep === 'config') {
+				regenerationModalOpen = false;
+			}
+		}}
+		on:keydown={(e) => e.key === 'Escape' && currentStep === 'config' && (regenerationModalOpen = false)}
+		role="dialog"
+		aria-modal="true"
+	>
+		<div
+			class="w-full max-w-4xl max-h-[90vh] rounded-xl border border-white/20 bg-black/90 p-6 shadow-xl backdrop-blur-md overflow-y-auto"
+			on:click|stopPropagation
+		>
+			<div class="mb-4 flex items-center justify-between">
+				<h2 class="text-2xl font-semibold text-white">Update Documentation</h2>
+				{#if currentStep === 'config'}
+					<button
+						class="rounded-lg p-1 text-white/60 hover:bg-white/10 hover:text-white"
+						on:click={() => (regenerationModalOpen = false)}
+					>
+						<X class="h-5 w-5" />
+					</button>
+				{/if}
+			</div>
+
+			{#if currentStep === 'config'}
+				<!-- Configuration Step -->
+				<div class="space-y-6">
+					<p class="text-sm text-white/70">
+						Configure the model and prompt settings for regenerating your documentation.
+					</p>
+
+					<!-- Model Selection -->
+					<div>
+						<label class="mb-2 block text-sm font-medium text-white/70">AI Model</label>
+						<div class="relative" bind:this={regenModelDropdownRef}>
+							<button
+								type="button"
+								class="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-left text-white outline-none focus:border-white/40 focus:ring-2 focus:ring-white/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-between"
+								on:click={() => (showRegenModelDropdown = !showRegenModelDropdown)}
+								disabled={generatingPreview}
+							>
+								<div class="flex items-center gap-2 flex-wrap">
+									<span class="font-medium">{selectedRegenModelObj.label}</span>
+									<span class="text-xs text-white/60">({selectedRegenModelObj.provider})</span>
+									<span class="text-xs text-yellow-400">{selectedRegenModelObj.cost}</span>
+									<span class="text-xs text-blue-400">{selectedRegenModelObj.context}</span>
+								</div>
+								<svg
+									class="h-4 w-4 text-white/60 transition-transform"
+									class:rotate-180={showRegenModelDropdown}
+									fill="none"
+									viewBox="0 0 24 24"
+									stroke="currentColor"
+								>
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+								</svg>
+							</button>
+
+							{#if showRegenModelDropdown}
+								<div
+									class="absolute z-50 mt-1 max-h-96 w-full overflow-auto rounded-lg border border-white/20 bg-gray-900 shadow-xl"
+									role="listbox"
+								>
+									{#each availableModels as model}
+										<button
+											type="button"
+											class="w-full px-4 py-3 text-left transition-colors hover:bg-white/10 focus:bg-white/10 focus:outline-none {selectedRegenModel === model.value ? 'bg-white/15' : ''}"
+											on:click={() => {
+												selectedRegenModel = model.value;
+												showRegenModelDropdown = false;
+											}}
+											role="option"
+											aria-selected={selectedRegenModel === model.value}
+										>
+											<div class="flex items-start justify-between gap-3">
+												<div class="flex-1 min-w-0">
+													<div class="flex items-center gap-2 mb-1 flex-wrap">
+														<span class="font-semibold text-white">{model.label}</span>
+														<span class="text-xs text-white/60">({model.provider})</span>
+														<span class="text-xs text-yellow-400 font-medium">{model.cost}</span>
+														<span class="text-xs text-blue-400 font-medium">{model.context}</span>
+													</div>
+													<p class="text-xs text-white/70 leading-relaxed">{model.description}</p>
+												</div>
+												{#if selectedRegenModel === model.value}
+													<svg
+														class="h-5 w-5 shrink-0 text-green-400"
+														fill="currentColor"
+														viewBox="0 0 20 20"
+													>
+														<path
+															fill-rule="evenodd"
+															d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+															clip-rule="evenodd"
+														/>
+													</svg>
+												{/if}
+											</div>
+										</button>
+									{/each}
+								</div>
+							{/if}
+						</div>
+					</div>
+
+					<!-- Prompt Customization -->
+					<div>
+						<PromptCustomizer bind:promptConfig={regenPromptConfig} />
+					</div>
+
+					<!-- Error Message -->
+					{#if previewError}
+						<div class="rounded-lg border border-red-500/50 bg-red-500/10 p-3 text-sm text-red-200">
+							{previewError}
+						</div>
+					{/if}
+
+					<!-- Actions -->
+					<div class="flex justify-end gap-3">
+						<button
+							class="rounded-lg border border-white/20 px-4 py-2 text-white/80 hover:bg-white/10"
+							on:click={() => (regenerationModalOpen = false)}
+						>
+							Cancel
+						</button>
+						<button
+							class="rounded-lg bg-gradient-to-r from-purple-500 to-pink-500 px-4 py-2 text-white hover:from-purple-600 hover:to-pink-600 disabled:opacity-50 disabled:cursor-not-allowed"
+							on:click|preventDefault={generatePreview}
+							disabled={generatingPreview}
+						>
+							{#if generatingPreview}
+								<span class="flex items-center gap-2">
+									<Loader2 class="h-4 w-4 animate-spin" />
+									Generating Preview...
+								</span>
+							{:else}
+								Generate Preview
+							{/if}
+						</button>
+					</div>
+				</div>
+			{:else if currentStep === 'preview'}
+				<!-- Preview Step -->
+				<div class="space-y-4">
+					<div class="mb-4 flex items-center justify-between">
+						<div>
+							<p class="text-sm text-white/70">
+								Generated with <strong>{previewModel}</strong>
+								{#if previewPromptConfig.personality && previewPromptConfig.personality !== 'default'}
+									, {previewPromptConfig.personality} personality
+								{/if}
+								{#if previewPromptConfig.style && previewPromptConfig.style !== 'default'}
+									, {previewPromptConfig.style} style
+								{/if}
+							</p>
+						</div>
+						<button
+							class="rounded-lg p-1 text-white/60 hover:bg-white/10 hover:text-white"
+							on:click={() => (currentStep = 'config')}
+							title="Back to configuration"
+						>
+							<X class="h-5 w-5" />
+						</button>
+					</div>
+
+					<!-- Side-by-side comparison -->
+					<div class="grid grid-cols-2 gap-4">
+						<!-- Original -->
+						<div>
+							<div class="mb-2 text-sm font-medium text-white/70">Original Documentation</div>
+							<div class="h-[60vh] overflow-y-auto rounded-lg border border-white/10 bg-black/20 p-4">
+								<div class="prose prose-invert max-w-none text-white text-sm">
+									{@html (markdown && marked.parse(markdown)) || '<p class="text-white/50">No content</p>'}
+								</div>
+							</div>
+						</div>
+
+						<!-- Preview -->
+						<div>
+							<div class="mb-2 text-sm font-medium text-white/70">New Documentation (Preview)</div>
+							<div class="h-[60vh] overflow-y-auto rounded-lg border border-green-500/30 bg-green-500/5 p-4">
+								<div class="prose prose-invert max-w-none text-white text-sm">
+									{@html (previewContent && marked.parse(previewContent)) || '<p class="text-white/50">No preview content</p>'}
+								</div>
+							</div>
+						</div>
+					</div>
+
+					<!-- Actions -->
+					<div class="flex justify-end gap-3">
+						<button
+							class="rounded-lg border border-white/20 px-4 py-2 text-white/80 hover:bg-white/10"
+							on:click={() => {
+								currentStep = 'config';
+								previewContent = '';
+							}}
+						>
+							Back to Settings
+						</button>
+						<button
+							class="rounded-lg border border-white/20 px-4 py-2 text-white/80 hover:bg-white/10"
+							on:click={() => {
+								regenerationModalOpen = false;
+								currentStep = 'config';
+								previewContent = '';
+							}}
+						>
+							Cancel
+						</button>
+						<button
+							class="rounded-lg bg-gradient-to-r from-purple-500 to-pink-500 px-4 py-2 text-white hover:from-purple-600 hover:to-pink-600 disabled:opacity-50 disabled:cursor-not-allowed"
+							on:click|preventDefault={applyPreviewChanges}
+							disabled={regenerating || !previewContent}
+						>
+							{#if regenerating}
+								<span class="flex items-center gap-2">
+									<Loader2 class="h-4 w-4 animate-spin" />
+									Applying Changes...
+								</span>
+							{:else}
+								Apply Changes
+							{/if}
+						</button>
+					</div>
+				</div>
+			{/if}
 		</div>
 	</div>
 {/if}

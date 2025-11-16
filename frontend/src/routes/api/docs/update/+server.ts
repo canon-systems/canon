@@ -65,6 +65,7 @@ export const POST: RequestHandler = async ({ request, locals: { supabase } }) =>
     try {
         const body = await request.json().catch(() => ({}));
         submissionId = body.submissionId;
+        const previewContent = body.previewContent; // Optional: if provided, use this instead of generating
 
         if (!submissionId) {
             return jsonResponse({ error: 'submissionId is required' }, 400);
@@ -137,79 +138,89 @@ export const POST: RequestHandler = async ({ request, locals: { supabase } }) =>
             .update({ status: 'processing' })
             .eq('id', submissionId);
 
-        // Get prompt config from source_meta if available
-        const promptConfig = sourceMeta.llm_prompt_config || null;
-
-        // Pull existing documentation from workspace if linked (generic for any workspace provider)
-        let existingWorkspaceContent = '';
-        const workspaceInfo: WorkspaceInfo | null = sourceMeta.workspace || null;
+        // If previewContent is provided, use it directly (user already reviewed it)
+        // Otherwise, generate new content
+        let markdown: string;
         
-        if (workspaceInfo && workspaceInfo.provider && workspaceInfo.resourceId) {
-            try {
-                const { data: { user } } = await locals.safeGetSession();
-                if (user) {
-                    // Find workspace connection
-                    const { data: connection } = await locals.supabase
-                        .from('oauth_connections')
-                        .select('connection_id')
-                        .eq('user_id', user.id)
-                        .eq('provider', workspaceInfo.provider)
-                        .eq('status', 'active')
-                        .single();
+        if (previewContent && typeof previewContent === 'string') {
+            // Use the preview content that was already generated and reviewed
+            markdown = previewContent.trim();
+        } else {
+            // Generate new documentation (original behavior)
+            // Get prompt config from source_meta if available
+            const promptConfig = sourceMeta.llm_prompt_config || null;
 
-                    if (connection) {
-                        // Get workspace provider
-                        const workspaceProvider = getWorkspaceProvider(workspaceInfo.provider);
-                        if (workspaceProvider) {
-                            // Pull content from workspace
-                            const pulledContent = await workspaceProvider.pullContent(
-                                workspaceInfo,
-                                connection.connection_id
-                            );
-                            
-                            if (pulledContent) {
-                                existingWorkspaceContent = pulledContent.markdown || '';
+            // Pull existing documentation from workspace if linked (generic for any workspace provider)
+            let existingWorkspaceContent = '';
+            const workspaceInfo: WorkspaceInfo | null = sourceMeta.workspace || null;
+            
+            if (workspaceInfo && workspaceInfo.provider && workspaceInfo.resourceId) {
+                try {
+                    const { data: { user } } = await locals.safeGetSession();
+                    if (user) {
+                        // Find workspace connection
+                        const { data: connection } = await locals.supabase
+                            .from('oauth_connections')
+                            .select('connection_id')
+                            .eq('user_id', user.id)
+                            .eq('provider', workspaceInfo.provider)
+                            .eq('status', 'active')
+                            .single();
+
+                        if (connection) {
+                            // Get workspace provider
+                            const workspaceProvider = getWorkspaceProvider(workspaceInfo.provider);
+                            if (workspaceProvider) {
+                                // Pull content from workspace
+                                const pulledContent = await workspaceProvider.pullContent(
+                                    workspaceInfo,
+                                    connection.connection_id
+                                );
+                                
+                                if (pulledContent) {
+                                    existingWorkspaceContent = pulledContent.markdown || '';
+                                }
                             }
                         }
                     }
+                } catch (err) {
+                    console.warn(`Failed to pull from ${workspaceInfo.provider}, continuing without existing content:`, err);
                 }
-            } catch (err) {
-                console.warn(`Failed to pull from ${workspaceInfo.provider}, continuing without existing content:`, err);
             }
+
+            // Generate updated documentation with custom prompt if configured
+            const system = buildSystemPrompt(promptConfig, true);
+
+            // Build user prompt with existing workspace content if available
+            let userPrompt = `Project: ${submission.title || 'Documentation'}\n\n`;
+            
+            if (existingWorkspaceContent && workspaceInfo) {
+                userPrompt += `EXISTING DOCUMENTATION (from ${workspaceInfo.provider}):\n${existingWorkspaceContent}\n\n`;
+            }
+            
+            userPrompt += `The following files have been updated:\n` +
+                filesForDoc
+                    .map((f: { path: string; content: string }) => `--- FILE: ${f.path} ---\n${f.content}`)
+                    .join('\n\n') +
+                `\n\nPlease update the documentation to reflect these changes.`;
+            
+            if (existingWorkspaceContent) {
+                userPrompt += ` Maintain the same structure and style as the existing documentation when possible.`;
+            }
+
+            const user = userPrompt;
+
+            // Use custom temperature if provided in prompt config
+            const temperature = promptConfig?.temperature;
+            markdown = (await callGateway(
+                [
+                    { role: 'system', content: system },
+                    { role: 'user', content: user }
+                ],
+                model,
+                temperature
+            )).trim();
         }
-
-        // Generate updated documentation with custom prompt if configured
-        const system = buildSystemPrompt(promptConfig, true);
-
-        // Build user prompt with existing workspace content if available
-        let userPrompt = `Project: ${submission.title || 'Documentation'}\n\n`;
-        
-        if (existingWorkspaceContent && workspaceInfo) {
-            userPrompt += `EXISTING DOCUMENTATION (from ${workspaceInfo.provider}):\n${existingWorkspaceContent}\n\n`;
-        }
-        
-        userPrompt += `The following files have been updated:\n` +
-            filesForDoc
-                .map((f: { path: string; content: string }) => `--- FILE: ${f.path} ---\n${f.content}`)
-                .join('\n\n') +
-            `\n\nPlease update the documentation to reflect these changes.`;
-        
-        if (existingWorkspaceContent) {
-            userPrompt += ` Maintain the same structure and style as the existing documentation when possible.`;
-        }
-
-        const user = userPrompt;
-
-        // Use custom temperature if provided in prompt config
-        const temperature = promptConfig?.temperature;
-        const markdown = (await callGateway(
-            [
-                { role: 'system', content: system },
-                { role: 'user', content: user }
-            ],
-            model,
-            temperature
-        )).trim();
 
         // Save updated documentation and snapshot
         // Clear is_outdated flag since we've regenerated with latest code
@@ -234,6 +245,8 @@ export const POST: RequestHandler = async ({ request, locals: { supabase } }) =>
         }
 
         // Update workspace if linked (generic for any workspace provider)
+        // Get workspace info from source_meta
+        const workspaceInfo: WorkspaceInfo | null = sourceMeta.workspace || null;
         let workspaceUpdated = false;
         let workspaceProviderName = '';
         
