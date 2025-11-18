@@ -31,17 +31,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { Octokit } from '@octokit/rest'
-import { GITHUB_TOKEN } from '$env/static/private'
-
-// -----------------------------------------------------------------------------
-// CREATE A GITHUB CLIENT
-// -----------------------------------------------------------------------------
-// We create one Octokit client using your GitHub token.
-// This token MUST be set in your environment as GITHUB_TOKEN.
-// Without this, all GitHub API calls will fail (403).
-const octokit = new Octokit({
-    auth: GITHUB_TOKEN || undefined
-})
+import { getUserOctokit } from './github/getUserOctokit'
 
 // -----------------------------------------------------------------------------
 // TYPE: SubmissionRow
@@ -121,8 +111,12 @@ function guessFileTypeFromPath(path: string): string {
 export async function trackSubmissionFiles(params: {
     supabase: SupabaseClient
     submission: SubmissionRow
+    userId?: string | null
 }) {
-    const { supabase, submission } = params
+    const { supabase, submission, userId } = params
+
+    // Get user's GitHub connection (or anonymous if not connected)
+    const octokit = await getUserOctokit(supabase, userId || null)
 
     // ============================================================================
     // STEP 1: Ensure this submission *should* have trackable GitHub files
@@ -143,7 +137,7 @@ export async function trackSubmissionFiles(params: {
     }
 
     // ============================================================================
-    // STEP 2: Check that a code_snapshot exists
+    // STEP 2: Extract code_snapshot (optional but helpful)
     // ============================================================================
     //
     // code_snapshot looks like:
@@ -152,28 +146,26 @@ export async function trackSubmissionFiles(params: {
     //     fileShas: { "path/to/file.ts": "abc123sha", ... }
     //   }
     //
-    const snapshot = submission.code_snapshot
+    // We use this for:
+    //   - commitSha: to fetch file metadata at the correct commit
+    //   - fileShas: to get file hashes for blob API fallback
+    //
+    // But we can still work without it by using selected_files directly.
+    //
+    const snapshot = submission.code_snapshot || null
+    const commitSha = snapshot?.commitSha || null
+    const fileShas = snapshot?.fileShas || {}
 
+    // Log if we don't have a snapshot (for debugging)
     if (!snapshot) {
         console.warn(
-            `trackSubmissionFiles: submission ${submission.id} has no code_snapshot, nothing to track`
+            `trackSubmissionFiles: submission ${submission.id} has no code_snapshot, will use selected_files only`
         )
-        return
     }
 
-    // Extract commit SHA
-    const commitSha = snapshot.commitSha
-
-    // Extract mapping of file paths → file blob SHAs
-    const fileShas = snapshot.fileShas
-
-    // If anything is missing, we cannot proceed
-    if (!commitSha || !fileShas || Object.keys(fileShas).length === 0) {
-        console.warn(
-            `trackSubmissionFiles: submission ${submission.id} has incomplete fileShas or no files.`
-        )
-        return
-    }
+    // We need either a commitSha OR we can try to get it from the branch
+    // For now, if we don't have commitSha, we'll try to fetch files at the branch tip
+    // (This might not work perfectly, but it's better than nothing)
 
     // ============================================================================
     // STEP 3: Extract repoUrl so we know what GitHub repo to query
@@ -191,11 +183,14 @@ export async function trackSubmissionFiles(params: {
     // Parse owner + repo name
     let owner: string
     let repo: string
+    let branch: string
 
     try {
         const parsed = parseGitHubRepoUrl(repoUrl)
         owner = parsed.owner
         repo = parsed.repo
+        // Get branch from source_meta (fallback to 'main' if not available)
+        branch = meta.branch || 'main'
     } catch (e) {
         console.error(
             `trackSubmissionFiles: failed to parse repoUrl for submission ${submission.id}`,
@@ -204,8 +199,28 @@ export async function trackSubmissionFiles(params: {
         return
     }
 
+    // If we don't have a commitSha from snapshot, we'll use the branch name
+    // This means we'll fetch files at the current branch tip
+    const refToUse = commitSha || branch
+
     // ============================================================================
-    // STEP 4: Build rows that will be UPSERT-ed into submission_files
+    // STEP 4: Use selected_files as the source of truth
+    // ============================================================================
+    //
+    // We use the selected_files array directly (not fileShas keys).
+    // This ensures we only track files that were actually selected by the user.
+    //
+    const selectedFiles = submission.selected_files || []
+
+    if (selectedFiles.length === 0) {
+        console.warn(
+            `trackSubmissionFiles: submission ${submission.id} has no selected_files, nothing to track`
+        )
+        return
+    }
+
+    // ============================================================================
+    // STEP 5: Build rows that will be UPSERT-ed into submission_files
     // ============================================================================
     //
     // Each row looks like:
@@ -220,26 +235,24 @@ export async function trackSubmissionFiles(params: {
     const rowsToUpsert: {
         submission_id: string
         file_path: string
-        file_hash: string
+        file_hash: string | null
         size_bytes: number | null
         file_type: string | null
     }[] = []
 
     // ============================================================================
-    // LOOP OVER EACH FILE IN THE SNAPSHOT
+    // LOOP OVER EACH FILE IN selected_files
     // ============================================================================
-    for (const [file_path, file_hash_raw] of Object.entries(fileShas)) {
-        // -------------------------------------------------------------------------
-        // SAFETY CHECK:
-        // If file_hash is null or undefined, there's no blob to fetch.
-        // So we skip it entirely.
-        // -------------------------------------------------------------------------
-        const file_hash = file_hash_raw ?? null
+    for (const file_path of selectedFiles) {
+        // Get file hash from code_snapshot.fileShas if available
+        const file_hash = fileShas[file_path] ?? null
+
+        // Note: We still track files even if file_hash is null.
+        // We can still try to get size via getContent API using the path.
         if (!file_hash) {
             console.warn(
-                `trackSubmissionFiles: skipping ${file_path} because file_hash was null`
+                `trackSubmissionFiles: no file_hash for ${file_path} (submission ${submission.id}), will try to get size via path only`
             )
-            continue
         }
 
         // Initialize our metadata with null so we always return *something*.
@@ -267,7 +280,7 @@ export async function trackSubmissionFiles(params: {
                 owner,
                 repo,
                 path: file_path,
-                ref: commitSha
+                ref: refToUse
             })
 
             // If this is a real file (not a directory), GitHub gives size here.
@@ -305,9 +318,11 @@ export async function trackSubmissionFiles(params: {
         //     • size of the blob (file)
         //     • base64 content (which we ignore)
         //
-        // We only run this fallback if size_bytes is STILL null.
+        // We only run this fallback if:
+        //   - size_bytes is STILL null
+        //   - AND we have a file_hash (can't use blob API without a hash)
         // -------------------------------------------------------------------------
-        if (size_bytes === null) {
+        if (size_bytes === null && file_hash) {
             try {
                 const { data: blobData } = await octokit.git.getBlob({
                     owner,
@@ -362,40 +377,38 @@ export async function trackSubmissionFiles(params: {
     // If there's somehow no rows to insert, we bail.
     if (rowsToUpsert.length === 0) {
         console.warn(
-            `trackSubmissionFiles: no usable fileShas entries for submission ${submission.id}`
+            `trackSubmissionFiles: no rows to insert for submission ${submission.id} (selected_files was empty or all files were skipped)`
         )
         return
     }
 
     // ============================================================================
-    // STEP 5: UPSERT into submission_files
+    // STEP 6: INSERT into submission_files
     // ============================================================================
     //
-    // onConflict: 'submission_id,file_path'
-    // means:
-    //   - If this pair exists → UPDATE existing row
-    //   - If it does not exist → INSERT a new one
+    // Simple INSERT with ignoreDuplicates - if a row with the same
+    // (submission_id, file_path) already exists, we skip it (no error).
+    // This allows the same file_path to exist for different submission_ids.
     //
-    // This protects us from duplicate primary key errors.
-    //
-    const { error: upsertError } = await supabase
+    const { error: insertError } = await supabase
         .from('submission_files')
-        .upsert(rowsToUpsert, {
-            onConflict: 'submission_id,file_path'
+        .insert(rowsToUpsert, {
+            onConflict: 'submission_id,file_path',
+            ignoreDuplicates: true
         })
 
-    if (upsertError) {
+    if (insertError) {
         console.error(
-            `trackSubmissionFiles: UPSERT FAILED for submission ${submission.id}`,
-            upsertError
+            `trackSubmissionFiles: INSERT FAILED for submission ${submission.id}`,
+            insertError
         )
-        throw upsertError
+        throw insertError
     }
 
     // ============================================================================
     // SUCCESS!!!
     // ============================================================================
     console.log(
-        `trackSubmissionFiles: successfully upserted ${rowsToUpsert.length} rows for submission ${submission.id}`
+        `trackSubmissionFiles: Successfully inserted ${rowsToUpsert.length} rows for submission ${submission.id}`
     )
 }

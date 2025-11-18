@@ -27,9 +27,9 @@ import { parseRepoUrl } from '$lib/server/github/github'
 import {
     VERCEL_AI_GATEWAY_URL,
     VERCEL_AI_GATEWAY_API_KEY,
-    LLM_MODEL,
-    GITHUB_TOKEN
+    LLM_MODEL
 } from '$env/static/private'
+import { getUserOctokit } from '$lib/server/github/getUserOctokit'
 import { buildSystemPrompt } from '$lib/server/prompts/buildSystemPrompt'
 
 function jsonResponse(data: unknown, status = 200) {
@@ -72,28 +72,29 @@ async function callGateway(
     return String(j?.choices?.[0]?.message?.content ?? '')
 }
 
-// Fetch file content from GitHub
-async function fetchFileContent(owner: string, repo: string, branch: string, path: string): Promise<string | null> {
+// Fetch file content from GitHub using Octokit
+async function fetchFileContent(
+    octokit: Awaited<ReturnType<typeof getUserOctokit>>,
+    owner: string,
+    repo: string,
+    branch: string,
+    path: string
+): Promise<string | null> {
     try {
-        const res = await fetch(
-            `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}?ref=${encodeURIComponent(branch)}`,
-            {
-                headers: {
-                    accept: "application/vnd.github+json",
-                    ...(GITHUB_TOKEN ? { authorization: `Bearer ${GITHUB_TOKEN}` } : {})
-                }
-            }
-        )
+        const { data } = await octokit.repos.getContent({
+            owner,
+            repo,
+            path,
+            ref: branch
+        });
 
-        if (!res.ok) return null
-        const data = (await res.json()) as { content: string; encoding: string }
-
-        if (data.encoding === 'base64') {
-            return Buffer.from(data.content, 'base64').toString('utf-8')
+        if (!Array.isArray(data) && data.type === 'file' && 'content' in data && typeof data.content === 'string') {
+            // GitHub returns base64 encoded content
+            return Buffer.from(data.content, 'base64').toString('utf-8');
         }
-        return data.content
+        return null;
     } catch {
-        return null
+        return null;
     }
 }
 
@@ -174,7 +175,9 @@ export const POST: RequestHandler = async ({ locals: { supabase } }) => {
                 const MAX_PER_FILE = 200_000
 
                 for (const filePath of selectedFiles) {
-                    const content = await fetchFileContent(parsed.owner, parsed.repo, branch, filePath)
+                    // Get user's GitHub connection (or anonymous if not connected)
+                    const octokit = await getUserOctokit(supabase, sub.created_by || null)
+                    const content = await fetchFileContent(octokit, parsed.owner, parsed.repo, branch, filePath)
                     if (content) {
                         const clipped = content.length > MAX_PER_FILE ? content.slice(0, MAX_PER_FILE) : content
                         filesForDoc.push({ path: filePath, content: clipped })
@@ -192,8 +195,10 @@ export const POST: RequestHandler = async ({ locals: { supabase } }) => {
                 }
 
                 // Get current commit SHA and file SHAs for snapshot
-                const latestCommitSha = await getLatestCommitSha(repoUrl, branch)
-                const fileShas = await getFileShas(repoUrl, branch, selectedFiles)
+                // Get user's GitHub connection (or anonymous if not connected)
+                const octokit = await getUserOctokit(supabase, sub.created_by || null)
+                const latestCommitSha = await getLatestCommitSha(octokit, repoUrl, branch)
+                const fileShas = await getFileShas(octokit, repoUrl, branch, selectedFiles)
 
                 // Update submission status to processing
                 await supabase

@@ -21,15 +21,20 @@ import { json } from '@sveltejs/kit'
 import { trackSubmissionFiles } from '$lib/server/trackSubmissionFiles'
 
 export const POST: RequestHandler = async (event) => {
+    console.log('[post-process] ===== REQUEST RECEIVED =====');
+    
     // 1) Read the request body as JSON.
     // We expect something like: { "submissionId": "uuid-here" }
     const body = await event.request.json().catch(() => ({} as any))
 
     const submissionId: string | undefined = body.submissionId
 
+    console.log('[post-process] Processing submission', submissionId);
+
     // If the client forgot to send a submissionId,
     // we return a 400 Bad Request so it is clear what is wrong.
     if (!submissionId) {
+        console.error('[post-process] Missing submissionId');
         return json(
             { error: 'submissionId is required in the request body' },
             { status: 400 }
@@ -49,6 +54,7 @@ export const POST: RequestHandler = async (event) => {
 
     // If we could not find it or there was a DB error, tell the client.
     if (error || !submission) {
+        console.error('[post-process] Submission not found:', error?.message);
         return json(
             {
                 error: 'Submission not found',
@@ -58,17 +64,30 @@ export const POST: RequestHandler = async (event) => {
         )
     }
 
+    console.log('[post-process] Submission loaded:', {
+        id: submission.id,
+        input_type: submission.input_type,
+        selected_files_count: Array.isArray(submission.selected_files) ? submission.selected_files.length : 0,
+        has_code_snapshot: !!submission.code_snapshot
+    });
+
     try {
+        // Get user ID from the submission (created_by field)
+        const userId = submission.created_by || null
+
         // 4) Call our helper.
         // This will:
-        //   - Use submission.code_snapshot (commit + fileShas)
+        //   - Use submission.selected_files as the source of truth
+        //   - Use submission.code_snapshot if available (for hashes and commit SHA)
         //   - Contact GitHub for metadata (size, etc.)
         //   - Upsert rows into submission_files
         await trackSubmissionFiles({
             supabase,
-            submission
+            submission,
+            userId
         })
 
+        console.log('[post-process] ===== SUCCESS =====');
         // 5) Tell the client it worked.
         return json(
             {
@@ -78,7 +97,11 @@ export const POST: RequestHandler = async (event) => {
             { status: 200 }
         )
     } catch (e: any) {
-        console.error('Error in /api/docs/post-process:', e)
+        console.error('[post-process] ===== ERROR =====');
+        console.error('[post-process] Error details:', {
+            message: e?.message ?? String(e),
+            stack: e?.stack
+        });
 
         // If anything throws inside trackSubmissionFiles,
         // we return a 500 error so the client knows it failed.

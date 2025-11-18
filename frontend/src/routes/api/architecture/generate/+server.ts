@@ -1,8 +1,8 @@
 import type { RequestHandler } from '@sveltejs/kit';
-import { GITHUB_TOKEN } from '$env/static/private';
 import JSZip from 'jszip';
 import { detectTools } from '$lib/server/architecture/detectTools';
 import { generateMarkdownDoc } from '$lib/server/architecture/generateDiagram';
+import { getUserOctokit } from '$lib/server/github/getUserOctokit';
 
 function jsonResponse(data: unknown, status = 200) {
 	return new Response(JSON.stringify(data), {
@@ -12,30 +12,24 @@ function jsonResponse(data: unknown, status = 200) {
 }
 
 /**
- * Fetch file content from GitHub
+ * Fetch file content from GitHub using Octokit
  */
 async function fetchFileContent(
+	octokit: Awaited<ReturnType<typeof getUserOctokit>>,
 	owner: string,
 	repo: string,
 	branch: string,
 	path: string
 ): Promise<string | null> {
-	const headers: Record<string, string> = {
-		accept: 'application/vnd.github+json',
-		'x-github-api-version': '2022-11-28'
-	};
-	if (GITHUB_TOKEN) headers.authorization = `Bearer ${GITHUB_TOKEN}`;
-
-	const encodedPath = encodeURIComponent(path).replace(/%2F/g, '/');
-	const encodedRef = encodeURIComponent(branch);
-	const url = `https://api.github.com/repos/${owner}/${repo}/contents/${encodedPath}?ref=${encodedRef}`;
-
 	try {
-		const response = await fetch(url, { headers });
-		if (!response.ok) return null;
+		const { data } = await octokit.repos.getContent({
+			owner,
+			repo,
+			path,
+			ref: branch
+		});
 
-		const data = await response.json();
-		if (data.type === 'file' && data.content) {
+		if (!Array.isArray(data) && data.type === 'file' && 'content' in data && typeof data.content === 'string') {
 			// GitHub returns base64 encoded content
 			return Buffer.from(data.content, 'base64').toString('utf-8');
 		}
@@ -46,9 +40,10 @@ async function fetchFileContent(
 }
 
 /**
- * List all files in a GitHub repo (recursively)
+ * List all files in a GitHub repo (recursively) using Octokit
  */
 async function listAllFiles(
+	octokit: Awaited<ReturnType<typeof getUserOctokit>>,
 	owner: string,
 	repo: string,
 	branch: string,
@@ -57,35 +52,26 @@ async function listAllFiles(
 	const stack: string[] = [rootPath || ''];
 	const files: Array<{ path: string; size: number }> = [];
 
-	const headers: Record<string, string> = {
-		accept: 'application/vnd.github+json',
-		'x-github-api-version': '2022-11-28'
-	};
-	if (GITHUB_TOKEN) headers.authorization = `Bearer ${GITHUB_TOKEN}`;
-
 	while (stack.length) {
 		const current = stack.pop()!;
 		try {
-			const encodedPath = encodeURIComponent(current || '').replace(/%2F/g, '/');
-			const encodedRef = encodeURIComponent(branch);
-			const url = `https://api.github.com/repos/${owner}/${repo}/contents/${encodedPath}?ref=${encodedRef}`;
+			const { data } = await octokit.repos.getContent({
+				owner,
+				repo,
+				path: current || '',
+				ref: branch
+			});
 
-			const response = await fetch(url, { headers });
-			if (!response.ok) continue;
-
-			const node = await response.json();
-
-			if (Array.isArray(node)) {
-				for (const item of node) {
-					const itemPath = item.path as string;
+			if (Array.isArray(data)) {
+				for (const item of data) {
 					if (item.type === 'file') {
-						files.push({ path: itemPath, size: Number(item.size || 0) });
+						files.push({ path: item.path, size: Number(item.size || 0) });
 					} else if (item.type === 'dir') {
-						stack.push(itemPath);
+						stack.push(item.path);
 					}
 				}
-			} else if (node && node.type === 'file') {
-				files.push({ path: node.path as string, size: Number(node.size || 0) });
+			} else if (data && data.type === 'file') {
+				files.push({ path: data.path, size: Number(data.size || 0) });
 			}
 		} catch {
 			// Skip errors and continue
@@ -99,6 +85,7 @@ async function listAllFiles(
  * Fetch files from GitHub repo
  */
 async function fetchFilesFromGitHub(
+	octokit: Awaited<ReturnType<typeof getUserOctokit>>,
 	repoUrl: string,
 	branch: string,
 	subdir?: string
@@ -117,7 +104,7 @@ async function fetchFilesFromGitHub(
 	const rootPath = subdir ? subdir.replace(/^\/+|\/+$/g, '') : '';
 
 	// List all files (limit to reasonable files for analysis)
-	const allFiles = await listAllFiles(owner, repo, branch, rootPath);
+	const allFiles = await listAllFiles(octokit, owner, repo, branch, rootPath);
 	
 	// Filter to important files for tool detection
 	const importantPatterns = [
@@ -146,7 +133,7 @@ async function fetchFilesFromGitHub(
 	// Fetch content for each file
 	const filesWithContent: Array<{ path: string; content: string }> = [];
 	for (const file of filesToFetch) {
-		const content = await fetchFileContent(owner, repo, branch, file.path);
+		const content = await fetchFileContent(octokit, owner, repo, branch, file.path);
 		if (content) {
 			filesWithContent.push({ path: file.path, content });
 		}
@@ -194,7 +181,7 @@ async function extractFilesFromZip(zipFile: File): Promise<Array<{ path: string;
 	return files;
 }
 
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async ({ request, locals }) => {
 	try {
 		const formData = await request.formData();
 		const method = formData.get('method');
@@ -210,7 +197,11 @@ export const POST: RequestHandler = async ({ request }) => {
 				return jsonResponse({ error: 'Missing repoUrl' }, 400);
 			}
 
-			files = await fetchFilesFromGitHub(repoUrl, branch, subdir);
+			// Get user's GitHub connection (or anonymous if not connected)
+			const { user } = await locals.safeGetSession();
+			const octokit = await getUserOctokit(locals.supabase, user?.id || null);
+
+			files = await fetchFilesFromGitHub(octokit, repoUrl, branch, subdir);
 		} else if (method === 'zip') {
 			const zipFile = formData.get('zipFile');
 			if (!(zipFile instanceof File)) {

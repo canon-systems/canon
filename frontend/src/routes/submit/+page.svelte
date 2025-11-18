@@ -797,35 +797,86 @@
 			if (isGit && repoUrl && branch) {
 				try {
 					const selectedFiles = selectedArray();
+					console.log('[code_snapshot] Starting snapshot creation', {
+						isGit,
+						repoUrl,
+						branch,
+						selectedFilesCount: selectedFiles.length
+					});
+					
 					if (selectedFiles.length === 0) {
-						// No files selected - this is expected if user hasn't selected any files yet
+						console.warn('[code_snapshot] No files selected, skipping snapshot');
 					} else {
 						// Get commit SHA and file SHAs
-						const snapshotRes = await fetch('/api/github/snapshot', {
-							method: 'POST',
-							headers: { 'content-type': 'application/json' },
-							body: JSON.stringify({
-								repoUrl,
-								branch,
-								selectedFiles
-							})
-						});
+						console.log('[code_snapshot] Calling snapshot endpoint with', selectedFiles.length, 'files');
+						try {
+							const snapshotRes = await fetch('/api/github/snapshot', {
+								method: 'POST',
+								headers: { 'content-type': 'application/json' },
+								body: JSON.stringify({
+									repoUrl,
+									branch,
+									selectedFiles
+								})
+							});
 
-						if (snapshotRes.ok) {
-							const snapshotData = await snapshotRes.json().catch(() => null);
-							if (snapshotData?.commitSha && snapshotData?.fileShas) {
-								codeSnapshot = {
-									commitSha: snapshotData.commitSha,
-									fileShas: snapshotData.fileShas,
-									createdAt: new Date().toISOString()
-								};
+							console.log('[code_snapshot] Snapshot response status:', snapshotRes.status, snapshotRes.ok);
+
+							if (snapshotRes.ok) {
+								const snapshotData = await snapshotRes.json().catch((e) => {
+									console.error('[code_snapshot] Failed to parse JSON response:', e);
+									return null;
+								});
+								
+								console.log('[code_snapshot] Snapshot data received:', {
+									hasCommitSha: !!snapshotData?.commitSha,
+									hasFileShas: !!snapshotData?.fileShas,
+									fileShasCount: snapshotData?.fileShas ? Object.keys(snapshotData.fileShas).length : 0,
+									fileShasType: typeof snapshotData?.fileShas
+								});
+								
+								if (snapshotData?.commitSha && snapshotData?.fileShas) {
+									codeSnapshot = {
+										commitSha: snapshotData.commitSha,
+										fileShas: snapshotData.fileShas,
+										createdAt: new Date().toISOString()
+									};
+									console.log('[code_snapshot] Successfully created snapshot:', {
+										commitSha: codeSnapshot.commitSha,
+										fileShasCount: Object.keys(codeSnapshot.fileShas).length
+									});
+								} else {
+									console.warn('[code_snapshot] Missing commitSha or fileShas in response:', {
+										hasCommitSha: !!snapshotData?.commitSha,
+										hasFileShas: !!snapshotData?.fileShas,
+										fullResponse: snapshotData
+									});
+								}
+							} else {
+								const errorText = await snapshotRes.text().catch(() => 'Unknown error');
+								console.error('[code_snapshot] Snapshot endpoint failed:', snapshotRes.status, errorText);
 							}
+						} catch (fetchError) {
+							// Handle "Failed to fetch" and other network errors
+							console.error('[code_snapshot] Fetch error (network/CORS/endpoint issue):', {
+								error: fetchError,
+								message: fetchError instanceof Error ? fetchError.message : String(fetchError),
+								name: fetchError instanceof Error ? fetchError.name : 'Unknown',
+								stack: fetchError instanceof Error ? fetchError.stack : undefined
+							});
+							// Don't rethrow - continue without snapshot
 						}
 					}
 				} catch (e) {
 					// Non-fatal: continue without snapshot
-					// Silently fail - snapshot is optional
+					console.error('[code_snapshot] Exception during snapshot creation:', e);
 				}
+			} else {
+				console.log('[code_snapshot] Skipping snapshot (not Git submission or missing repoUrl/branch)', {
+					isGit,
+					repoUrl: !!repoUrl,
+					branch: !!branch
+				});
 			}
 
 			const { error: uerr } = await supabase
@@ -846,23 +897,33 @@
 			//
 			// Now we tell the server:
 			//   "Hey, for this submissionId, please update submission_files
-			//    using the stored code_snapshot."
+			//    using the selected_files array (and code_snapshot if available)."
 			//
 			// We do this as a best-effort, non-blocking step.
 			// If it fails, the documentation is STILL saved and usable.
 			// It just means auto-update tracking might be missing for that run.
-			if (submissionId && codeSnapshot) {
+			// 
+			// Note: We call this for Git submissions even if codeSnapshot is missing,
+			// because trackSubmissionFiles now uses selected_files directly.
+			if (submissionId && isGit) {
 				try {
-					await fetch('/api/docs/post-process', {
+					console.log('[post-process] Calling post-process endpoint for submission:', submissionId);
+					const postProcessRes = await fetch('/api/docs/post-process', {
 						method: 'POST',
 						headers: { 'content-type': 'application/json' },
 						body: JSON.stringify({ submissionId })
 					});
-					// We do not need to inspect the response here.
-					// If it fails, logs on the server will tell us what happened.
+					
+					if (postProcessRes.ok) {
+						const result = await postProcessRes.json().catch(() => null);
+						console.log('[post-process] Post-process completed:', result);
+					} else {
+						const errorText = await postProcessRes.text().catch(() => 'Unknown error');
+						console.error('[post-process] Post-process failed:', postProcessRes.status, errorText);
+					}
 				} catch (e) {
 					// Non-fatal: post-processing is optional
-					// Silently fail - documentation is still saved
+					console.error('[post-process] Exception calling post-process endpoint:', e);
 				}
 			}
 
