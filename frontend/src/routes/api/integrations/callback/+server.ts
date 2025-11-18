@@ -22,7 +22,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 
 		if (error) {
 			console.error('OAuth error:', error);
-			return redirect(302, '/integrations?error=' + encodeURIComponent(error));
+			return redirect(302, '/settings?tab=integrations&error=' + encodeURIComponent(error));
 		}
 
 		if (!connectionId || !providerConfigKey) {
@@ -87,11 +87,11 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 			return jsonResponse({ error: 'Failed to store connection' }, 500);
 		}
 
-		// Redirect to integrations page with success message
-		return redirect(302, '/integrations?success=true&provider=' + encodeURIComponent(providerConfigKey));
+		// Redirect to settings page with integrations tab and success message
+		return redirect(302, '/settings?tab=integrations&success=true&provider=' + encodeURIComponent(providerConfigKey));
 	} catch (err: any) {
 		console.error('OAuth callback error:', err);
-		return redirect(302, '/integrations?error=' + encodeURIComponent(err.message || 'Unknown error'));
+		return redirect(302, '/settings?tab=integrations&error=' + encodeURIComponent(err.message || 'Unknown error'));
 	}
 };
 

@@ -1,5 +1,5 @@
 import type { RequestHandler } from '@sveltejs/kit';
-import { GITHUB_TOKEN } from '$env/static/private';
+import { getUserOctokit } from '$lib/server/github/getUserOctokit';
 
 function jsonResponse(data: unknown, status = 200) {
 	return new Response(JSON.stringify(data), {
@@ -8,31 +8,7 @@ function jsonResponse(data: unknown, status = 200) {
 	});
 }
 
-/**
- * Fetch all top-level directories for a GitHub repository
- */
-async function fetchContents(owner: string, repo: string, branch: string, path: string) {
-	const headers: Record<string, string> = {
-		accept: 'application/vnd.github+json',
-		'x-github-api-version': '2022-11-28'
-	};
-	if (GITHUB_TOKEN) headers.authorization = `Bearer ${GITHUB_TOKEN}`;
-
-	const encodedPath = encodeURIComponent(path || '').replace(/%2F/g, '/');
-	const encodedRef = encodeURIComponent(branch);
-	const url = `https://api.github.com/repos/${owner}/${repo}/contents/${encodedPath}?ref=${encodedRef}`;
-
-	const response = await fetch(url, { headers });
-
-	if (!response.ok) {
-		const text = await response.text().catch(() => '');
-		throw new Error(`GitHub ${response.status}: ${text.slice(0, 200)}`);
-	}
-
-	return response.json();
-}
-
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async ({ request, locals }) => {
 	try {
 		const body = await request.json().catch(() => ({} as Record<string, unknown>));
 		const repoUrl = String(body.repoUrl || '');
@@ -52,8 +28,17 @@ export const POST: RequestHandler = async ({ request }) => {
 			return jsonResponse({ error: 'repoUrl missing owner or repo' }, 400);
 		}
 
+		// Get user's GitHub connection (or anonymous if not connected)
+		const { user } = await locals.safeGetSession();
+		const octokit = await getUserOctokit(locals.supabase, user?.id || null);
+
 		// Fetch root directory contents
-		const contents = await fetchContents(owner, repo, branch, '');
+		const { data: contents } = await octokit.repos.getContent({
+			owner,
+			repo,
+			path: '',
+			ref: branch
+		});
 
 		if (!Array.isArray(contents)) {
 			return jsonResponse({ directories: [] }, 200);
@@ -61,8 +46,8 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		// Filter to only directories and extract names
 		const directories = contents
-			.filter((item: { type: string }) => item.type === 'dir')
-			.map((item: { name: string }) => item.name)
+			.filter((item) => item.type === 'dir')
+			.map((item) => item.name)
 			.sort();
 
 		return jsonResponse({ directories }, 200);

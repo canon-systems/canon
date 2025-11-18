@@ -147,79 +147,79 @@ export const POST: RequestHandler = async ({ request, locals: { supabase, safeGe
             markdown = previewContent.trim();
         } else {
             // Generate new documentation (original behavior)
-            // Get prompt config from source_meta if available
-            const promptConfig = sourceMeta.llm_prompt_config || null;
+        // Get prompt config from source_meta if available
+        const promptConfig = sourceMeta.llm_prompt_config || null;
 
-            // Pull existing documentation from workspace if linked (generic for any workspace provider)
-            let existingWorkspaceContent = '';
-            const workspaceInfo: WorkspaceInfo | null = sourceMeta.workspace || null;
-            
-            if (workspaceInfo && workspaceInfo.provider && workspaceInfo.resourceId) {
-                try {
+        // Pull existing documentation from workspace if linked (generic for any workspace provider)
+        let existingWorkspaceContent = '';
+        const workspaceInfo: WorkspaceInfo | null = sourceMeta.workspace || null;
+        
+        if (workspaceInfo && workspaceInfo.provider && workspaceInfo.resourceId) {
+            try {
                     const { user } = await safeGetSession();
-                    if (user) {
-                        // Find workspace connection
+                if (user) {
+                    // Find workspace connection
                         const { data: connection } = await supabase
-                            .from('oauth_connections')
-                            .select('connection_id')
-                            .eq('user_id', user.id)
-                            .eq('provider', workspaceInfo.provider)
-                            .eq('status', 'active')
-                            .single();
+                        .from('oauth_connections')
+                        .select('connection_id')
+                        .eq('user_id', user.id)
+                        .eq('provider', workspaceInfo.provider)
+                        .eq('status', 'active')
+                        .single();
 
-                        if (connection) {
-                            // Get workspace provider
-                            const workspaceProvider = getWorkspaceProvider(workspaceInfo.provider);
-                            if (workspaceProvider) {
-                                // Pull content from workspace
-                                const pulledContent = await workspaceProvider.pullContent(
-                                    workspaceInfo,
-                                    connection.connection_id
-                                );
-                                
-                                if (pulledContent) {
-                                    existingWorkspaceContent = pulledContent.markdown || '';
-                                }
+                    if (connection) {
+                        // Get workspace provider
+                        const workspaceProvider = getWorkspaceProvider(workspaceInfo.provider);
+                        if (workspaceProvider) {
+                            // Pull content from workspace
+                            const pulledContent = await workspaceProvider.pullContent(
+                                workspaceInfo,
+                                connection.connection_id
+                            );
+                            
+                            if (pulledContent) {
+                                existingWorkspaceContent = pulledContent.markdown || '';
                             }
                         }
                     }
-                } catch (err) {
-                    console.warn(`Failed to pull from ${workspaceInfo.provider}, continuing without existing content:`, err);
                 }
+            } catch (err) {
+                console.warn(`Failed to pull from ${workspaceInfo.provider}, continuing without existing content:`, err);
             }
+        }
 
-            // Generate updated documentation with custom prompt if configured
-            const system = buildSystemPrompt(promptConfig, true);
+        // Generate updated documentation with custom prompt if configured
+        const system = buildSystemPrompt(promptConfig, true);
 
-            // Build user prompt with existing workspace content if available
-            let userPrompt = `Project: ${submission.title || 'Documentation'}\n\n`;
-            
-            if (existingWorkspaceContent && workspaceInfo) {
-                userPrompt += `EXISTING DOCUMENTATION (from ${workspaceInfo.provider}):\n${existingWorkspaceContent}\n\n`;
-            }
-            
-            userPrompt += `The following files have been updated:\n` +
-                filesForDoc
-                    .map((f: { path: string; content: string }) => `--- FILE: ${f.path} ---\n${f.content}`)
-                    .join('\n\n') +
-                `\n\nPlease update the documentation to reflect these changes.`;
-            
-            if (existingWorkspaceContent) {
-                userPrompt += ` Maintain the same structure and style as the existing documentation when possible.`;
-            }
+        // Build user prompt with existing workspace content if available
+        let userPrompt = `Project: ${submission.title || 'Documentation'}\n\n`;
+        
+        if (existingWorkspaceContent && workspaceInfo) {
+            userPrompt += `EXISTING DOCUMENTATION (from ${workspaceInfo.provider}):\n${existingWorkspaceContent}\n\n`;
+        }
+        
+        userPrompt += `The following files have been updated:\n` +
+            filesForDoc
+                .map((f: { path: string; content: string }) => `--- FILE: ${f.path} ---\n${f.content}`)
+                .join('\n\n') +
+            `\n\nPlease update the documentation to reflect these changes.`;
+        
+        if (existingWorkspaceContent) {
+            userPrompt += ` Maintain the same structure and style as the existing documentation when possible.`;
+        }
 
-            const user = userPrompt;
+        const user = userPrompt;
 
-            // Use custom temperature if provided in prompt config
-            const temperature = promptConfig?.temperature;
+        // Use custom temperature if provided in prompt config
+        const temperature = promptConfig?.temperature;
             markdown = (await callGateway(
-                [
-                    { role: 'system', content: system },
-                    { role: 'user', content: user }
-                ],
-                model,
-                temperature
-            )).trim();
+            [
+                { role: 'system', content: system },
+                { role: 'user', content: user }
+            ],
+            model,
+            temperature
+        )).trim();
         }
 
         // Save updated documentation and snapshot

@@ -7,6 +7,7 @@ export interface RepoFileUrls {
     view: string;
     compare?: string;
     history?: string;
+    fileDiff?: string; // Direct link to file diff between commits
 }
 
 /**
@@ -37,7 +38,14 @@ export function buildFileChangeUrl(
                         ? `https://github.com/${owner}/${repo}/compare/${oldCommitSha}...${branch}`
                         : undefined,
                     // View commit history for this file
-                    history: `https://github.com/${owner}/${repo}/commits/${branch}/${encodedPath}`
+                    history: `https://github.com/${owner}/${repo}/commits/${branch}/${encodedPath}`,
+                    // Direct link to file diff between commits
+                    // For GitHub, we use the compare view which shows all changed files
+                    // If oldCommitSha is available, show diff between old and new
+                    // Otherwise, show the file's commit history (which includes diffs)
+                    fileDiff: oldCommitSha
+                        ? `https://github.com/${owner}/${repo}/compare/${oldCommitSha}...${branch}`
+                        : `https://github.com/${owner}/${repo}/commits/${branch}/${encodedPath}`
                 };
             }
         }
@@ -55,7 +63,11 @@ export function buildFileChangeUrl(
                     compare: oldCommitSha 
                         ? `https://gitlab.com/${owner}/${repo}/-/compare/${oldCommitSha}...${branch}`
                         : undefined,
-                    history: `https://gitlab.com/${owner}/${repo}/-/commits/${branch}/${encodedPath}`
+                    history: `https://gitlab.com/${owner}/${repo}/-/commits/${branch}/${encodedPath}`,
+                    // GitLab file diff URL
+                    fileDiff: oldCommitSha
+                        ? `https://gitlab.com/${owner}/${repo}/-/compare/${oldCommitSha}...${branch}#${encodedPath}`
+                        : undefined
                 };
             }
         }
@@ -73,7 +85,11 @@ export function buildFileChangeUrl(
                     compare: oldCommitSha 
                         ? `https://bitbucket.org/${owner}/${repo}/compare/${oldCommitSha}..${branch}`
                         : undefined,
-                    history: `https://bitbucket.org/${owner}/${repo}/commits/branch/${branch}#${encodedPath}`
+                    history: `https://bitbucket.org/${owner}/${repo}/commits/branch/${branch}#${encodedPath}`,
+                    // Bitbucket file diff URL (compare view)
+                    fileDiff: oldCommitSha
+                        ? `https://bitbucket.org/${owner}/${repo}/compare/${oldCommitSha}..${branch}#chg-${encodedPath}`
+                        : undefined
                 };
             }
         }

@@ -4,6 +4,7 @@
 	export let promptConfig: {
 		personality?: string;
 		style?: string;
+		audience?: string;
 		customInstructions?: string;
 		temperature?: number;
 	} = {};
@@ -18,6 +19,9 @@
 	if (!promptConfig.style) {
 		promptConfig.style = 'default';
 	}
+	if (!promptConfig.audience) {
+		promptConfig.audience = 'technical';
+	}
 	if (!promptConfig.customInstructions) {
 		promptConfig.customInstructions = '';
 	}
@@ -25,19 +29,17 @@
 	$: hasCustomization = 
 		(promptConfig.personality && promptConfig.personality !== 'default') ||
 		(promptConfig.style && promptConfig.style !== 'default') ||
+		(promptConfig.audience && promptConfig.audience !== 'technical') ||
 		(promptConfig.customInstructions?.trim() || '').length > 0 ||
 		(promptConfig.temperature !== undefined && promptConfig.temperature !== 0.3);
 
-	// Start expanded if there's customization, otherwise collapsed
-	// Check if any customization exists at initialization
-	const hasInitialCustomization = 
-		(promptConfig.personality && promptConfig.personality !== 'default') ||
-		(promptConfig.style && promptConfig.style !== 'default') ||
-		(promptConfig.customInstructions?.trim() || '').length > 0 ||
-		(promptConfig.temperature !== undefined && promptConfig.temperature !== 0.3);
-	
-	let expanded = hasInitialCustomization;
+	// Start collapsed by default
+	let expanded = false;
 	let showAdvancedSection = false;
+	let useCustomPersonality = false;
+	let useCustomStyle = false;
+	let customPersonalityText = '';
+	let customStyleText = '';
 
 	const personalityOptions = [
 		{ value: 'default', label: 'Default (Professional)' },
@@ -56,6 +58,47 @@
 		{ value: 'reference', label: 'Reference Manual' },
 		{ value: 'blog-post', label: 'Blog Post Style' }
 	];
+
+	const audienceOptions = [
+		{ value: 'technical', label: 'Technical (Developers, Engineers)' },
+		{ value: 'non-technical', label: 'Non-Technical (Business, End Users)' },
+		{ value: 'mixed', label: 'Mixed Audience' },
+		{ value: 'beginner', label: 'Beginners (No Prior Knowledge)' },
+		{ value: 'intermediate', label: 'Intermediate (Some Experience)' },
+		{ value: 'expert', label: 'Expert (Advanced Users)' }
+	];
+
+	// Check if current values are custom (not in predefined options)
+	// Only update if we're not already in custom mode (to avoid overwriting manual toggles)
+	$: {
+		if (!useCustomPersonality) {
+			const personalityOpts = personalityOptions.map(o => o.value);
+			const isCustom = promptConfig.personality ? !personalityOpts.includes(promptConfig.personality) : false;
+			if (isCustom) {
+				useCustomPersonality = true;
+				if (promptConfig.personality) {
+					customPersonalityText = promptConfig.personality;
+				}
+			}
+		} else if (promptConfig.personality) {
+			// If in custom mode, keep the custom text in sync
+			customPersonalityText = promptConfig.personality;
+		}
+		
+		if (!useCustomStyle) {
+			const styleOpts = styleOptions.map(o => o.value);
+			const isCustom = promptConfig.style ? !styleOpts.includes(promptConfig.style) : false;
+			if (isCustom) {
+				useCustomStyle = true;
+				if (promptConfig.style) {
+					customStyleText = promptConfig.style;
+				}
+			}
+		} else if (promptConfig.style) {
+			// If in custom mode, keep the custom text in sync
+			customStyleText = promptConfig.style;
+		}
+	}
 
 	const temperaturePresets = [
 		{ value: 0.0, label: 'Deterministic (0.0)', description: 'Most consistent, same input = same output' },
@@ -99,8 +142,12 @@
 				{#if promptConfig.personality && promptConfig.personality !== 'default'} • {/if}
 				{styleOptions.find(o => o.value === promptConfig.style)?.label || promptConfig.style}
 			{/if}
+					{#if promptConfig.audience && promptConfig.audience !== 'technical'}
+						{#if (promptConfig.personality && promptConfig.personality !== 'default') || (promptConfig.style && promptConfig.style !== 'default')} • {/if}
+						{audienceOptions.find(o => o.value === promptConfig.audience)?.label || promptConfig.audience}
+					{/if}
 			{#if promptConfig.temperature !== undefined && promptConfig.temperature !== 0.3}
-				{#if (promptConfig.personality && promptConfig.personality !== 'default') || (promptConfig.style && promptConfig.style !== 'default')} • {/if}
+						{#if (promptConfig.personality && promptConfig.personality !== 'default') || (promptConfig.style && promptConfig.style !== 'default') || (promptConfig.audience && promptConfig.audience !== 'technical')} • {/if}
 				Temp: {promptConfig.temperature.toFixed(1)}
 			{/if}
 		</div>
@@ -110,9 +157,41 @@
 		<div class="mt-4 space-y-4">
 			<!-- Personality -->
 			<div>
-				<label class="mb-1.5 block text-xs font-medium text-white/70">
+				<div class="mb-1.5 flex items-center justify-between">
+					<label class="block text-xs font-medium text-white/70">
 					Personality
 				</label>
+					<button
+						type="button"
+						class="text-xs text-purple-400 hover:text-purple-300 transition-colors"
+						on:click|stopPropagation={(e) => {
+							e.preventDefault();
+							useCustomPersonality = !useCustomPersonality;
+							if (!useCustomPersonality) {
+								// Reset to default when switching back to dropdown
+								promptConfig.personality = 'default';
+								customPersonalityText = '';
+							} else {
+								// Clear the value when switching to custom
+								customPersonalityText = '';
+								promptConfig.personality = '';
+							}
+						}}
+					>
+						{useCustomPersonality ? 'Use Preset' : 'Use Custom'}
+					</button>
+				</div>
+				{#if useCustomPersonality}
+					<input
+						type="text"
+						bind:value={customPersonalityText}
+						on:input={() => {
+							promptConfig.personality = customPersonalityText;
+						}}
+						placeholder="e.g., 'Witty and engaging', 'Serious and authoritative', 'Casual and friendly'"
+						class="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white placeholder-white/40 outline-none focus:border-white/40"
+					/>
+				{:else}
 				<select
 					bind:value={promptConfig.personality}
 					class="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white outline-none focus:border-white/40"
@@ -121,6 +200,7 @@
 						<option value={opt.value}>{opt.label}</option>
 					{/each}
 				</select>
+				{/if}
 				<p class="mt-1 text-xs text-white/50">
 					Sets the tone and voice of the documentation
 				</p>
@@ -128,9 +208,41 @@
 
 			<!-- Writing Style -->
 			<div>
-				<label class="mb-1.5 block text-xs font-medium text-white/70">
+				<div class="mb-1.5 flex items-center justify-between">
+					<label class="block text-xs font-medium text-white/70">
 					Writing Style
 				</label>
+					<button
+						type="button"
+						class="text-xs text-purple-400 hover:text-purple-300 transition-colors"
+						on:click|stopPropagation={(e) => {
+							e.preventDefault();
+							useCustomStyle = !useCustomStyle;
+							if (!useCustomStyle) {
+								// Reset to default when switching back to dropdown
+								promptConfig.style = 'default';
+								customStyleText = '';
+							} else {
+								// Clear the value when switching to custom
+								customStyleText = '';
+								promptConfig.style = '';
+							}
+						}}
+					>
+						{useCustomStyle ? 'Use Preset' : 'Use Custom'}
+					</button>
+				</div>
+				{#if useCustomStyle}
+					<input
+						type="text"
+						bind:value={customStyleText}
+						on:input={() => {
+							promptConfig.style = customStyleText;
+						}}
+						placeholder="e.g., 'Step-by-step tutorials with screenshots', 'API reference with code samples', 'Visual diagrams and examples'"
+						class="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white placeholder-white/40 outline-none focus:border-white/40"
+					/>
+				{:else}
 				<select
 					bind:value={promptConfig.style}
 					class="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white outline-none focus:border-white/40"
@@ -139,8 +251,27 @@
 						<option value={opt.value}>{opt.label}</option>
 					{/each}
 				</select>
+				{/if}
 				<p class="mt-1 text-xs text-white/50">
 					Determines the technical level and format of the documentation
+				</p>
+			</div>
+
+			<!-- Audience -->
+			<div>
+				<label class="mb-1.5 block text-xs font-medium text-white/70">
+					Target Audience
+				</label>
+				<select
+					bind:value={promptConfig.audience}
+					class="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white outline-none focus:border-white/40"
+				>
+					{#each audienceOptions as opt}
+						<option value={opt.value}>{opt.label}</option>
+					{/each}
+				</select>
+				<p class="mt-1 text-xs text-white/50">
+					Specifies the intended audience for the documentation
 				</p>
 			</div>
 
@@ -201,8 +332,13 @@
 					on:click={() => {
 						promptConfig.personality = 'default';
 						promptConfig.style = 'default';
+						promptConfig.audience = 'technical';
 						promptConfig.customInstructions = '';
 						promptConfig.temperature = 0.3;
+						useCustomPersonality = false;
+						useCustomStyle = false;
+						customPersonalityText = '';
+						customStyleText = '';
 					}}
 				>
 					Reset to Default

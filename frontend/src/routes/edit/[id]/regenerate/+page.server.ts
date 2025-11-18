@@ -1,6 +1,6 @@
 // -------------------------------------------------------------
 // PURPOSE
-// Load a single submission by its id on the SERVER.
+// Load a single submission by its id on the SERVER for regeneration.
 // RLS guarantees we will only find the row if it belongs to
 // the signed-in user (created_by = auth.uid()).
 // If not found (either it doesn't exist or it is not yours),
@@ -15,7 +15,7 @@ export const load = async ({ params, locals: { safeGetSession, supabase } }) => 
     const { session } = await safeGetSession();
     if (!session) throw redirect(303, "/login");
 
-    // 2) Read the id from the URL like /edit/abc-uuid-here
+    // 2) Read the id from the URL like /edit/abc-uuid-here/regenerate
     const { id } = params;
 
     // 3) Ask Supabase for that single row.
@@ -59,3 +59,4 @@ export const load = async ({ params, locals: { safeGetSession, supabase } }) => 
         }
     };
 };
+

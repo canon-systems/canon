@@ -5,15 +5,14 @@
 
 import type { RequestHandler } from '@sveltejs/kit';
 import { json } from '@sveltejs/kit';
-import { GITHUB_TOKEN } from '$env/static/private';
 import { getRepoProvider } from '$lib/server/repos/providerFactory';
-import { Octokit } from '@octokit/rest';
+import { getUserOctokit } from '$lib/server/github/getUserOctokit';
 
 function jsonResponse(data: unknown, status = 200) {
     return json(data, { status });
 }
 
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async ({ request, locals }) => {
     try {
         const body = await request.json().catch(() => ({}));
         const { repoUrl, branch, filePath, oldCommitSha } = body as {
@@ -38,11 +37,11 @@ export const POST: RequestHandler = async ({ request }) => {
             return jsonResponse({ error: `Failed to parse repository URL: ${repoUrl}` }, 400);
         }
 
-        // For GitHub, use Octokit to get the diff
+        // For GitHub, use user's Octokit instance (or anonymous for public repos)
         if (repoInfo && (repoUrl.includes('github.com'))) {
-            const octokit = new Octokit({
-                auth: GITHUB_TOKEN || undefined
-            });
+            // Get user's GitHub connection (or anonymous if not connected)
+            const { user } = await locals.safeGetSession();
+            const octokit = await getUserOctokit(locals.supabase, user?.id || null);
 
             // Get latest commit SHA for the branch
             const { data: branchData } = await octokit.repos.getBranch({

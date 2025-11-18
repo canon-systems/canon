@@ -195,10 +195,27 @@ export const POST: RequestHandler = async (event) => {
         }
 
         // ------------------------------------------------------------
-        // 9) Return results
+        // 9) Update the database with the check results
         // ------------------------------------------------------------
         const outdated = changedFiles.length > 0
 
+        // Update the submission's is_outdated flag and last_checked_at timestamp
+        const { error: updateError } = await supabase
+            .from('submissions')
+            .update({
+                is_outdated: outdated,
+                last_checked_at: new Date().toISOString()
+            })
+            .eq('id', submissionId)
+
+        if (updateError) {
+            console.error('Failed to update is_outdated flag:', updateError)
+            // Continue anyway - we still return the check results
+        }
+
+        // ------------------------------------------------------------
+        // 10) Return results
+        // ------------------------------------------------------------
         return json(
             {
                 outdated,

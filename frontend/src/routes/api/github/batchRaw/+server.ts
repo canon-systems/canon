@@ -1,22 +1,7 @@
 // We import SvelteKit types so TypeScript knows this is a server handler.
 // This tells the editor and compiler that this file is a SvelteKit server route.
 import type { RequestHandler } from "@sveltejs/kit";
-
-// We read private env vars (these live in your .env file and DO NOT go to the browser).
-// IMPORTANT: Keep your secrets private. Do not commit .env to git.
-import { GITHUB_TOKEN } from "$env/static/private";
-
-// -------------------------------
-// TINY CONSTANTS & HELPERS (TOP)
-// -------------------------------
-
-// We set up default headers to talk nicely to GitHub's API. We ask for JSON.
-// If we have a token, we add it to avoid strict rate limits.
-const headers: Record<string, string> = {
-    "accept": "application/vnd.github+json"
-};
-// If we have your secret token, we add it to requests (this stays on server only).
-if (GITHUB_TOKEN) headers["authorization"] = `Bearer ${GITHUB_TOKEN}`;
+import { getUserOctokit } from "$lib/server/github/getUserOctokit";
 
 // This is a small helper to return JSON to the browser with a status code.
 // It keeps things tidy and avoids repeating Response boilerplate over and over.
@@ -51,14 +36,6 @@ function safePreview(s: string, maxChars: number): string {
     return s.slice(0, Math.max(0, maxChars | 0));
 }
 
-// Build a GitHub Contents API URL for one file path inside a repo at a branch/ref.
-// Example: https://api.github.com/repos/owner/repo/contents/path?ref=branch
-function contentsApiUrl(owner: string, repo: string, branch: string, repoPath: string): string {
-    const encodedPath = encodeURIComponent(repoPath).replace(/%2F/g, "/");
-    const encodedRef = encodeURIComponent(branch);
-    return `https://api.github.com/repos/${owner}/${repo}/contents/${encodedPath}?ref=${encodedRef}`;
-}
-
 // Build the "raw" URL that serves the plain file text directly (no JSON wrapper).
 // Example: https://raw.githubusercontent.com/owner/repo/branch/path
 function rawUrl(owner: string, repo: string, branch: string, repoPath: string): string {
@@ -74,16 +51,17 @@ function rawUrl(owner: string, repo: string, branch: string, repoPath: string): 
 // We also support an OPTION to include full content (with a safety cap so we don't
 // ship massive blobs to the browser).
 async function fetchOneFile(
+    octokit: Awaited<ReturnType<typeof getUserOctokit>>,
     owner: string,
     repo: string,
     branch: string,
     repoPath: string,
     previewChars: number,
-    includeContent: boolean, // NEW: should we include the full text if it’s small enough?
-    maxBytes: number         // NEW: hard cap so we don’t send huge payloads
+    includeContent: boolean, // NEW: should we include the full text if it's small enough?
+    maxBytes: number         // NEW: hard cap so we don't send huge payloads
 ) {
     // We keep the answer here. We always return path, size (in characters of text),
-    // and a tiny preview. We only add "content" if includeContent=true and it’s safe.
+    // and a tiny preview. We only add "content" if includeContent=true and it's safe.
     const result = {
         path: repoPath,                           // repo relative path like "backend/summarizer_modal.py"
         size: 0,                                  // count of characters in the decoded text
@@ -91,22 +69,17 @@ async function fetchOneFile(
         content: undefined as string | undefined  // OPTIONAL: full text (capped)
     };
 
-    // We extend our base headers with the GitHub API version ONLY for Contents API calls.
-    const apiHeaders: Record<string, string> = {
-        ...headers,
-        "x-github-api-version": "2022-11-28"
-    };
-
     // --------------- Try #1: Contents API (JSON with base64 "content") ---------------
     try {
-        const url = contentsApiUrl(owner, repo, branch, repoPath);
-        const r = await fetch(url, { headers: apiHeaders });
-
-        if (r.ok) {
-            const j = await r.json();
+        const { data: j } = await octokit.repos.getContent({
+            owner,
+            repo,
+            path: repoPath,
+            ref: branch
+        });
 
             // "type" === "file" and "content" present => we can decode it here!
-            if (j && j.type === "file" && typeof j.content === "string") {
+        if (j && !Array.isArray(j) && j.type === "file" && typeof j.content === "string") {
                 // Decode base64 → utf8 string, normalize newlines for nicer previews/sizes.
                 const text = normalizeNewlines(base64ToString(j.content));
 
@@ -114,7 +87,7 @@ async function fetchOneFile(
                 result.size = text.length;
                 result.preview = safePreview(text, previewChars);
 
-                // NEW: If the caller asked for full content AND it’s not too big, add it.
+            // NEW: If the caller asked for full content AND it's not too big, add it.
                 // j.size is bytes, result.size is characters. We trust the decoded text length
                 // to be similar in most source-code cases; for stricter control we respect maxBytes.
                 if (includeContent && text.length <= maxBytes) {
@@ -123,9 +96,8 @@ async function fetchOneFile(
                 return result;
             }
 
-            // If it’s a file but “content” is missing (GitHub omits content for big files),
-            // we’ll fall through and try the raw URL next.
-        }
+        // If it's a file but "content" is missing (GitHub omits content for big files),
+        // we'll fall through and try the raw URL next.
     } catch {
         // If the Contents API call failed for any reason, we silently try raw next.
     }
@@ -163,7 +135,7 @@ async function fetchOneFile(
 // --------------------------------------------------
 // The browser gives us: repoUrl, branch, subdir, selectedFiles, previewChars,
 // and (optionally) includeContent + maxBytes. We fetch each file and reply.
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async ({ request, locals }) => {
     try {
         // Step 1. Parse the body (we expect JSON). If parsing fails, use an empty object.
         const body = await request.json().catch(() => ({} as Record<string, unknown>));
@@ -196,7 +168,11 @@ export const POST: RequestHandler = async ({ request }) => {
         // This avoids double slashes like "backend//file.py".
         const subdir = subdirRaw.replace(/^\/+|\/+$/g, "");
 
-        // Step 6. Normalize selectedFiles into a clean array of strings.
+        // Step 6. Get user's GitHub connection (or anonymous if not connected)
+        const { user } = await locals.safeGetSession();
+        const octokit = await getUserOctokit(locals.supabase, user?.id || null);
+
+        // Step 7. Normalize selectedFiles into a clean array of strings.
         // This lets the caller send a single string OR an array—they both work.
         const files: string[] = Array.isArray(selectedFiles)
             ? selectedFiles.map(String)
@@ -204,7 +180,7 @@ export const POST: RequestHandler = async ({ request }) => {
                 ? [selectedFiles]
                 : [];
 
-        // Step 7. Build repo-relative paths.
+        // Step 8. Build repo-relative paths.
         // If the user typed "app.py" and subdir is "backend", we produce "backend/app.py".
         const repoRelative = files.map((name) => {
             const clean = String(name).replace(/^\/+/, ""); // strip any leading slash
@@ -212,10 +188,10 @@ export const POST: RequestHandler = async ({ request }) => {
             return clean;
         });
 
-        // Step 8. Fetch each file in parallel so it feels snappy in the UI.
+        // Step 9. Fetch each file in parallel so it feels snappy in the UI.
         const results = await Promise.all(
             repoRelative.map((path) =>
-                fetchOneFile(owner, repo, branch, path, previewChars, includeContent, maxBytes)
+                fetchOneFile(octokit, owner, repo, branch, path, previewChars, includeContent, maxBytes)
             )
         );
 

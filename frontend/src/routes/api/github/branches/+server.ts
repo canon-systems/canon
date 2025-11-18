@@ -1,5 +1,5 @@
 import type { RequestHandler } from '@sveltejs/kit';
-import { GITHUB_TOKEN } from '$env/static/private';
+import { getUserOctokit } from '$lib/server/github/getUserOctokit';
 
 function jsonResponse(data: unknown, status = 200) {
 	return new Response(JSON.stringify(data), {
@@ -11,7 +11,7 @@ function jsonResponse(data: unknown, status = 200) {
 /**
  * Fetch all branches for a GitHub repository
  */
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async ({ request, locals }) => {
 	try {
 		const body = await request.json().catch(() => ({} as Record<string, unknown>));
 		const repoUrl = String(body.repoUrl || '');
@@ -30,23 +30,18 @@ export const POST: RequestHandler = async ({ request }) => {
 			return jsonResponse({ error: 'repoUrl missing owner or repo' }, 400);
 		}
 
+		// Get user's GitHub connection (or anonymous if not connected)
+		const { user } = await locals.safeGetSession();
+		const octokit = await getUserOctokit(locals.supabase, user?.id || null);
+
 		// Fetch branches from GitHub API
-		const headers: Record<string, string> = {
-			accept: 'application/vnd.github+json',
-			'x-github-api-version': '2022-11-28'
-		};
-		if (GITHUB_TOKEN) headers.authorization = `Bearer ${GITHUB_TOKEN}`;
+		const { data: branches } = await octokit.repos.listBranches({
+			owner,
+			repo,
+			per_page: 100
+		});
 
-		const url = `https://api.github.com/repos/${owner}/${repo}/branches?per_page=100`;
-		const response = await fetch(url, { headers });
-
-		if (!response.ok) {
-			const text = await response.text().catch(() => '');
-			throw new Error(`GitHub ${response.status}: ${text.slice(0, 200)}`);
-		}
-
-		const branches = await response.json();
-		const branchNames = branches.map((b: { name: string }) => b.name).sort();
+		const branchNames = branches.map((b) => b.name).sort();
 
 		return jsonResponse({ branches: branchNames }, 200);
 	} catch (err: any) {

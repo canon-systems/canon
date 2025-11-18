@@ -1,22 +1,31 @@
 /**
  * GitHub repository provider implementation
  * Uses GitHub API with Tree API for efficient batch SHA fetching
+ * 
+ * IMPORTANT: Never uses global GITHUB_TOKEN. Users must connect their own GitHub account.
+ * For public repos, allows anonymous access (no token).
  */
 
-import { env } from '$env/dynamic/private';
 import { Octokit } from '@octokit/rest';
 import type { RepoProvider } from './base';
 import type { RepoInfo, WebhookResult } from '../types';
-
-const GH_TOKEN = env.GITHUB_TOKEN || '';
+import { getGitHubTokenForUser } from '../../github/getUserToken';
 
 export class GitHubProvider implements RepoProvider {
-    private octokit: Octokit;
-
-    constructor() {
-        this.octokit = new Octokit({
-            auth: GH_TOKEN || undefined
-        });
+    /**
+     * Get an Octokit instance for a user's GitHub connection
+     * If connectionId is provided, fetches token from Nango
+     * If no connectionId, returns Octokit without auth (for public repos only)
+     */
+    private async getOctokit(connectionId?: string): Promise<Octokit> {
+        if (connectionId) {
+            const token = await getGitHubTokenForUser(connectionId);
+            if (token) {
+                return new Octokit({ auth: token });
+            }
+        }
+        // No token - anonymous access (public repos only, lower rate limits)
+        return new Octokit();
     }
 
     getName(): string {
@@ -61,16 +70,22 @@ export class GitHubProvider implements RepoProvider {
         }
     }
 
-    async getBranchCommitSha(repoInfo: RepoInfo, branch: string): Promise<string | null> {
+    async getBranchCommitSha(repoInfo: RepoInfo, branch: string, connectionId?: string): Promise<string | null> {
         try {
-            const { data } = await this.octokit.repos.getBranch({
+            const octokit = await this.getOctokit(connectionId);
+            const { data } = await octokit.repos.getBranch({
                 owner: repoInfo.owner,
                 repo: repoInfo.repo,
                 branch
             });
             return data.commit.sha;
-        } catch (error) {
-            console.error(`Error getting branch commit SHA for ${repoInfo.owner}/${repoInfo.repo}/${branch}:`, error);
+        } catch (error: any) {
+            // If 404, repo might be private and user doesn't have access
+            if (error.status === 404) {
+                console.error(`Repository ${repoInfo.owner}/${repoInfo.repo} not found or not accessible`);
+            } else {
+                console.error(`Error getting branch commit SHA for ${repoInfo.owner}/${repoInfo.repo}/${branch}:`, error);
+            }
             return null;
         }
     }
@@ -82,7 +97,8 @@ export class GitHubProvider implements RepoProvider {
     async fetchFileShas(
         repoInfo: RepoInfo,
         branch: string,
-        filePaths: string[]
+        filePaths: string[],
+        connectionId?: string
     ): Promise<Record<string, string | null>> {
         if (filePaths.length === 0) {
             return {};
@@ -90,14 +106,15 @@ export class GitHubProvider implements RepoProvider {
 
         try {
             // First, get the commit SHA for the branch
-            const commitSha = await this.getBranchCommitSha(repoInfo, branch);
+            const commitSha = await this.getBranchCommitSha(repoInfo, branch, connectionId);
             if (!commitSha) {
                 // If we can't get the commit SHA, fall back to individual calls
-                return await this.fetchFileShasIndividual(repoInfo, branch, filePaths);
+                return await this.fetchFileShasIndividual(repoInfo, branch, filePaths, connectionId);
             }
 
+            const octokit = await this.getOctokit(connectionId);
             // Get the tree recursively for the commit
-            const { data: treeData } = await this.octokit.git.getTree({
+            const { data: treeData } = await octokit.git.getTree({
                 owner: repoInfo.owner,
                 repo: repoInfo.repo,
                 tree_sha: commitSha,
@@ -127,7 +144,7 @@ export class GitHubProvider implements RepoProvider {
                 error
             );
             // Fall back to individual calls if tree API fails
-            return await this.fetchFileShasIndividual(repoInfo, branch, filePaths);
+            return await this.fetchFileShasIndividual(repoInfo, branch, filePaths, connectionId);
         }
     }
 
@@ -137,12 +154,13 @@ export class GitHubProvider implements RepoProvider {
     private async fetchFileShasIndividual(
         repoInfo: RepoInfo,
         branch: string,
-        filePaths: string[]
+        filePaths: string[],
+        connectionId?: string
     ): Promise<Record<string, string | null>> {
         const result: Record<string, string | null> = {};
 
         // Get commit SHA first
-        const commitSha = await this.getBranchCommitSha(repoInfo, branch);
+        const commitSha = await this.getBranchCommitSha(repoInfo, branch, connectionId);
         if (!commitSha) {
             // If we can't get commit SHA, return all nulls
             for (const path of filePaths) {
@@ -151,10 +169,11 @@ export class GitHubProvider implements RepoProvider {
             return result;
         }
 
+        const octokit = await this.getOctokit(connectionId);
         // Fetch each file individually
         for (const path of filePaths) {
             try {
-                const { data } = await this.octokit.repos.getContent({
+                const { data } = await octokit.repos.getContent({
                     owner: repoInfo.owner,
                     repo: repoInfo.repo,
                     path,
@@ -179,27 +198,30 @@ export class GitHubProvider implements RepoProvider {
         return result;
     }
 
-    async fetchFileContent(repoInfo: RepoInfo, branch: string, path: string): Promise<string | null> {
+    async fetchFileContent(repoInfo: RepoInfo, branch: string, path: string, connectionId?: string): Promise<string | null> {
         try {
-            const res = await fetch(
-                `https://api.github.com/repos/${repoInfo.owner}/${repoInfo.repo}/contents/${encodeURIComponent(path)}?ref=${encodeURIComponent(branch)}`,
-                {
-                    headers: {
-                        accept: 'application/vnd.github+json',
-                        ...(GH_TOKEN ? { authorization: `Bearer ${GH_TOKEN}` } : {})
-                    }
-                }
-            );
+            const octokit = await this.getOctokit(connectionId);
+            const { data } = await octokit.repos.getContent({
+                owner: repoInfo.owner,
+                repo: repoInfo.repo,
+                path,
+                ref: branch
+            });
 
-            if (!res.ok) return null;
-            const data = (await res.json()) as { content: string; encoding: string };
+            if (Array.isArray(data) || data.type !== 'file') {
+                return null;
+            }
 
-            if (data.encoding === 'base64') {
+            if (data.encoding === 'base64' && data.content) {
                 return Buffer.from(data.content, 'base64').toString('utf-8');
             }
-            return data.content;
-        } catch (error) {
-            console.error(`Error fetching file content for ${path}:`, error);
+            return data.content || null;
+        } catch (error: any) {
+            if (error.status === 404) {
+                console.error(`File ${path} not found in ${repoInfo.owner}/${repoInfo.repo}`);
+            } else {
+                console.error(`Error fetching file content for ${path}:`, error);
+            }
             return null;
         }
     }
@@ -249,4 +271,3 @@ export class GitHubProvider implements RepoProvider {
         }
     }
 }
-

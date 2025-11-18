@@ -52,9 +52,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 		// Map Nango provider names to our internal provider names
 		// Nango might use 'google-docs', 'googledocs', or 'google' - we store as 'googledocs' for consistency
+		// GitHub is stored as 'github' (no mapping needed)
 		const internalProvider = (provider === 'google' || provider === 'google-docs' || provider === 'googledocs') 
 			? 'googledocs' 
-			: provider;
+			: provider; // github, notion, confluence stay as-is
 
 		// Store the connection in Supabase
 		const { error: dbError } = await locals.supabase

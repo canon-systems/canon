@@ -20,6 +20,13 @@ export const NANGO_CONFIG = {
 	
 	// Integration providers configuration
 	providers: {
+		github: {
+			providerConfigKey: 'github',
+			// GitHub OAuth scopes
+			// - repo: Full control of private repositories (includes read/write access)
+			// - read:user: Read user profile data
+			oauthScopes: ['repo', 'read:user'],
+		},
 		notion: {
 			providerConfigKey: 'notion',
 			oauthScopes: ['read', 'write'],

@@ -1,11 +1,6 @@
-// Protect the /integrations page so only logged-in users can use it
+// Redirect old /integrations route to new /settings/integrations
 import { redirect } from "@sveltejs/kit";
 
-export const load = async ({ locals: { safeGetSession } }) => {
-    const { session } = await safeGetSession();
-
-    if (!session) throw redirect(303, "/login");
-
-    return {};
+export const load = async () => {
+    throw redirect(301, "/settings/integrations");
 };
-

@@ -13,6 +13,7 @@
 	import HomeIcon from '@lucide/svelte/icons/home';
 	import BookOpen from '@lucide/svelte/icons/book-open';
 	import HelpCircle from '@lucide/svelte/icons/help-circle';
+	import Settings from '@lucide/svelte/icons/settings';
 
 	// Your sub navigation
 	import SubNav from '../lib/components/SubNav.svelte';
@@ -121,6 +122,18 @@
 								<span class="text-sm font-medium">Help</span>
 							</div>
 						</a>
+
+						{#if data.session}
+							<a href="/settings">
+								<div
+									class={'flex items-center gap-2 rounded-full border border-transparent bg-white/5 px-4 py-2 text-white/80 backdrop-blur-sm transition-colors hover:bg-white/20 hover:text-white ' +
+										(pathname.startsWith('/settings') ? 'border-white/20 bg-white/20 text-white' : '')}
+								>
+									<Settings class="h-4 w-4" />
+									<span class="text-sm font-medium">Settings</span>
+								</div>
+							</a>
+						{/if}
 					</div>
 
 					{#if data.session}

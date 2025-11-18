@@ -16,9 +16,11 @@
 	// ------------------------------------------------------------
 
 	import { supabase } from '$lib/supabaseClient';
-	import { Github, FolderOpen, Upload, Code, Loader2 } from '@lucide/svelte';
+	import { Github, FolderOpen, Upload, Code, Loader2, AlertTriangle, Info } from '@lucide/svelte';
 	import { onMount } from 'svelte';
+	import { page } from '$app/stores';
 	import PromptCustomizer from '$lib/components/PromptCustomizer.svelte';
+	import SearchableSelect from '$lib/components/SearchableSelect.svelte';
 
 	type InputType = 'github_repo' | 'github_repo_directory' | 'zipped_folder' | 'pasted_code';
 	type Status = 'completed' | 'failed' | 'processing';
@@ -34,8 +36,11 @@
 	// Dropdown options
 	let branches: string[] = [];
 	let directories: string[] = [];
+	let repos: Array<{ name: string; full_name: string; url: string; private: boolean }> = [];
 	let loadingBranches = false;
 	let loadingDirectories = false;
+	let loadingRepos = false;
+	let baseOwner = ''; // Extracted owner from URL for repo search
 
 	// Zip & Paste inputs
 	let zipFile: File | null = null;
@@ -49,11 +54,13 @@
 	let promptConfig: {
 		personality?: string;
 		style?: string;
+		audience?: string;
 		customInstructions?: string;
 		temperature?: number;
 	} = {
 		personality: 'default',
 		style: 'default',
+		audience: 'technical',
 		customInstructions: '',
 		temperature: 0.3
 	};
@@ -69,7 +76,8 @@
 			provider: 'OpenAI',
 			cost: '$$$$',
 			context: '128K tokens',
-			description: 'Our most advanced, multimodal flagship model that\'s faster and 50% cheaper than GPT-4 Turbo. GPT-4o ("o" for "omni") is trained across text, vision, and audio.'
+			description:
+				'Our most advanced, multimodal flagship model that\'s faster and 50% cheaper than GPT-4 Turbo. GPT-4o ("o" for "omni") is trained across text, vision, and audio.'
 		},
 		{
 			value: 'gpt-4o-mini',
@@ -77,7 +85,8 @@
 			provider: 'OpenAI',
 			cost: '$',
 			context: '128K tokens',
-			description: 'A smaller, more affordable variant of GPT-4o. Fast, intelligent, and cost-effective for most tasks.'
+			description:
+				'A smaller, more affordable variant of GPT-4o. Fast, intelligent, and cost-effective for most tasks.'
 		},
 		{
 			value: 'gpt-4-turbo',
@@ -85,7 +94,8 @@
 			provider: 'OpenAI',
 			cost: '$$$$$',
 			context: '128K tokens',
-			description: 'A large multimodal model (accepting text or image inputs and outputting text) that can solve complex tasks with greater accuracy than any of our previous models.'
+			description:
+				'A large multimodal model (accepting text or image inputs and outputting text) that can solve complex tasks with greater accuracy than any of our previous models.'
 		},
 		{
 			value: 'gpt-4',
@@ -93,7 +103,8 @@
 			provider: 'OpenAI',
 			cost: '$$$$$',
 			context: '8K tokens',
-			description: 'A large multimodal model (accepting text or image inputs and outputting text) that can solve difficult problems with greater accuracy than any of our previous models.'
+			description:
+				'A large multimodal model (accepting text or image inputs and outputting text) that can solve difficult problems with greater accuracy than any of our previous models.'
 		},
 		{
 			value: 'gpt-3.5-turbo',
@@ -101,7 +112,8 @@
 			provider: 'OpenAI',
 			cost: '$',
 			context: '16K tokens',
-			description: 'A high-performance, cost-effective model optimized for chat and text completion tasks. Fast and efficient for most use cases.'
+			description:
+				'A high-performance, cost-effective model optimized for chat and text completion tasks. Fast and efficient for most use cases.'
 		},
 		{
 			value: 'o1-preview',
@@ -109,7 +121,8 @@
 			provider: 'OpenAI',
 			cost: '$$$$$',
 			context: '128K tokens',
-			description: 'Advanced reasoning model optimized for complex problem-solving and deep analysis. Uses a different architecture focused on reasoning capabilities.'
+			description:
+				'Advanced reasoning model optimized for complex problem-solving and deep analysis. Uses a different architecture focused on reasoning capabilities.'
 		},
 		{
 			value: 'o1-mini',
@@ -117,7 +130,8 @@
 			provider: 'OpenAI',
 			cost: '$$$',
 			context: '128K tokens',
-			description: 'A smaller, more affordable version of O1. Optimized for reasoning tasks with improved cost efficiency.'
+			description:
+				'A smaller, more affordable version of O1. Optimized for reasoning tasks with improved cost efficiency.'
 		},
 		// Anthropic Models
 		{
@@ -126,7 +140,8 @@
 			provider: 'Anthropic',
 			cost: '$$$$',
 			context: '200K tokens',
-			description: 'Our most intelligent model, with improved performance on coding tasks, math, and following complex, multi-step instructions. Excels at nuanced content creation and sophisticated Q&A.'
+			description:
+				'Our most intelligent model, with improved performance on coding tasks, math, and following complex, multi-step instructions. Excels at nuanced content creation and sophisticated Q&A.'
 		},
 		{
 			value: 'claude-3-opus-20240229',
@@ -134,7 +149,8 @@
 			provider: 'Anthropic',
 			cost: '$$$$$',
 			context: '200K tokens',
-			description: 'Our most powerful model for highly complex tasks. Best for tasks that require deep analysis, complex content creation, code generation, and research.'
+			description:
+				'Our most powerful model for highly complex tasks. Best for tasks that require deep analysis, complex content creation, code generation, and research.'
 		},
 		{
 			value: 'claude-3-sonnet-20240229',
@@ -142,7 +158,8 @@
 			provider: 'Anthropic',
 			cost: '$$$',
 			context: '200K tokens',
-			description: 'A balanced model for enterprise workloads. Ideal for tasks requiring rapid responses, like knowledge retrieval or sales automation.'
+			description:
+				'A balanced model for enterprise workloads. Ideal for tasks requiring rapid responses, like knowledge retrieval or sales automation.'
 		},
 		{
 			value: 'claude-3-haiku-20240307',
@@ -150,7 +167,8 @@
 			provider: 'Anthropic',
 			cost: '$',
 			context: '200K tokens',
-			description: 'Our fastest and most compact model for near-instant responsiveness. Perfect for simple queries, lightweight tasks, and high-volume use cases.'
+			description:
+				'Our fastest and most compact model for near-instant responsiveness. Perfect for simple queries, lightweight tasks, and high-volume use cases.'
 		},
 		{
 			value: 'claude-3-5-haiku-20241022',
@@ -158,7 +176,8 @@
 			provider: 'Anthropic',
 			cost: '$$',
 			context: '200K tokens',
-			description: 'An improved version of Haiku with better performance while maintaining speed and cost efficiency. Great for general-purpose tasks.'
+			description:
+				'An improved version of Haiku with better performance while maintaining speed and cost efficiency. Great for general-purpose tasks.'
 		},
 		// Google Models
 		{
@@ -167,7 +186,8 @@
 			provider: 'Google',
 			cost: '$$',
 			context: '1M tokens',
-			description: 'Experimental model with massive 1M token context window. Supports text, vision, audio, and function calling. Optimized for speed and efficiency.'
+			description:
+				'Experimental model with massive 1M token context window. Supports text, vision, audio, and function calling. Optimized for speed and efficiency.'
 		},
 		{
 			value: 'gemini-1.5-pro',
@@ -175,7 +195,8 @@
 			provider: 'Google',
 			cost: '$$$$',
 			context: '2M tokens',
-			description: 'Google\'s most capable model with an enormous 2M token context window. Excellent for complex reasoning, code generation, and multimodal tasks.'
+			description:
+				"Google's most capable model with an enormous 2M token context window. Excellent for complex reasoning, code generation, and multimodal tasks."
 		},
 		{
 			value: 'gemini-1.5-flash',
@@ -183,7 +204,8 @@
 			provider: 'Google',
 			cost: '$$',
 			context: '1M tokens',
-			description: 'Fast and efficient model with 1M token context window. Great balance of speed, cost, and capability for most use cases.'
+			description:
+				'Fast and efficient model with 1M token context window. Great balance of speed, cost, and capability for most use cases.'
 		},
 		{
 			value: 'gemini-1.5-flash-8b',
@@ -191,20 +213,48 @@
 			provider: 'Google',
 			cost: '$',
 			context: '1M tokens',
-			description: 'Lightweight 8B parameter model with 1M token context. Ultra-fast and cost-effective for simple tasks.'
+			description:
+				'Lightweight 8B parameter model with 1M token context. Ultra-fast and cost-effective for simple tasks.'
 		}
 	];
 	let selectedModel = 'gpt-4o'; // Default model
 	let showModelDropdown = false; // For custom dropdown
 
 	// Helper to get selected model object
-	$: selectedModelObj = availableModels.find((m) => m.value === selectedModel) || availableModels[0];
+	$: selectedModelObj =
+		availableModels.find((m) => m.value === selectedModel) ||
+		(availableModels.length > 0 ? availableModels[0] : null);
+
+	// Check GitHub connection status
+	async function checkGitHubConnection() {
+		checkingGitHub = true;
+		try {
+			const response = await fetch('/api/integrations/list');
+			if (response.ok) {
+				const data = await response.json();
+				hasGitHubConnection = (data.connections || []).some(
+					(c: { provider: string; status: string }) =>
+						c.provider === 'github' && c.status === 'active'
+				);
+			}
+		} catch (err) {
+			console.error('Failed to check GitHub connection:', err);
+		} finally {
+			checkingGitHub = false;
+		}
+	}
 
 	// Click outside handler for dropdown
 	let modelDropdownRef: HTMLElement | null = null;
 	onMount(() => {
+		checkGitHubConnection();
+
 		function handleClickOutside(event: MouseEvent) {
-			if (showModelDropdown && modelDropdownRef && !modelDropdownRef.contains(event.target as Node)) {
+			if (
+				showModelDropdown &&
+				modelDropdownRef &&
+				!modelDropdownRef.contains(event.target as Node)
+			) {
 				showModelDropdown = false;
 			}
 		}
@@ -219,6 +269,10 @@
 	let running = false; // when orchestrating analyze → save
 	let errorMsg = '';
 	let statusMsg = ''; // small status line while running
+
+	// GitHub connection status
+	let hasGitHubConnection = false;
+	let checkingGitHub = true;
 
 	// Git file picker data
 	let pickerFiles: Array<{ path: string; size: number }> = [];
@@ -282,6 +336,31 @@
 		selectedPaths = new Set();
 	}
 
+	// Separate owner input for repo search
+	let ownerInput = '';
+	let showRepoSelector = false;
+
+	// Function to search for repos
+	function searchRepos() {
+		if (ownerInput.trim()) {
+			showRepoSelector = true;
+			const trimmed = ownerInput.trim();
+			// Remove github.com/ prefix if present
+			const cleanOwner = trimmed
+				.replace(/^https?:\/\/github\.com\//, '')
+				.replace(/\/$/, '')
+				.split('/')[0];
+			if (cleanOwner && cleanOwner !== baseOwner) {
+				baseOwner = cleanOwner;
+				fetchRepos(cleanOwner);
+			}
+		} else {
+			showRepoSelector = false;
+			baseOwner = '';
+			repos = [];
+		}
+	}
+
 	// React to repo URL changes (with debounce to avoid multiple calls)
 	let repoUrlKey = '';
 	$: {
@@ -289,7 +368,12 @@
 		if (newKey !== repoUrlKey) {
 			repoUrlKey = newKey;
 			if (newKey) {
-				fetchBranches();
+				// Only fetch branches if we have a full repo URL (owner/repo)
+				const noProto = newKey.replace(/^https?:\/\//, '');
+				const parts = noProto.split('/').filter(Boolean);
+				if (parts.length >= 3) {
+					fetchBranches();
+				}
 			} else {
 				branches = [];
 				directories = [];
@@ -301,7 +385,8 @@
 	// React to branch changes
 	let branchKey = '';
 	$: {
-		const newKey = isGit && branch && repoUrl && repoUrl.includes('github.com') ? `${repoUrl}|${branch}` : '';
+		const newKey =
+			isGit && branch && repoUrl && repoUrl.includes('github.com') ? `${repoUrl}|${branch}` : '';
 		if (newKey !== branchKey) {
 			branchKey = newKey;
 			if (newKey && branch && method === 'github_repo_directory') {
@@ -313,17 +398,59 @@
 	}
 
 	// React to method changes - fetch directories if switching to github_repo_directory
-	$: if (isGit && method === 'github_repo_directory' && branch && repoUrl && repoUrl.includes('github.com')) {
+	$: if (
+		isGit &&
+		method === 'github_repo_directory' &&
+		branch &&
+		repoUrl &&
+		repoUrl.includes('github.com')
+	) {
 		fetchDirectories();
 	}
 
 	// Whether to show the "Load files" button:
 	// - Only for Git methods
 	// - Only when files are not loaded yet
-	// - Not while we are listing
-	$: showLoadButton = isGit && !pickerFiles.length && !listing;
+	// - Show even while listing (so loading state is visible)
+	$: showLoadButton = isGit && !pickerFiles.length;
 
-	// --------- Fetch branches and directories ----------
+	// --------- Fetch repos, branches and directories ----------
+	async function fetchRepos(owner: string) {
+		if (!owner || loadingRepos) return;
+
+		loadingRepos = true;
+		try {
+			const response = await fetch('/api/github/repos', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ owner })
+			});
+
+			if (response.ok) {
+				const data = await response.json();
+				repos = (data.repos || [])
+					.filter((r: any) => r && r.name && r.full_name && r.url)
+					.map((r: { name: string; full_name: string; url: string; private: boolean }) => ({
+						name: r.name,
+						full_name: r.full_name,
+						url: r.url,
+						private: r.private || false
+					}));
+			} else {
+				repos = [];
+				const errorData = await response.json().catch(() => ({}));
+				if (response.status !== 404) {
+					console.error('Failed to fetch repos:', errorData);
+				}
+			}
+		} catch (err) {
+			console.error('Failed to fetch repos:', err);
+			repos = [];
+		} finally {
+			loadingRepos = false;
+		}
+	}
+
 	async function fetchBranches() {
 		if (!repoUrl.trim() || !repoUrl.includes('github.com')) {
 			branches = [];
@@ -331,6 +458,7 @@
 		}
 
 		loadingBranches = true;
+		errorMsg = ''; // Clear previous errors
 		try {
 			const response = await fetch('/api/github/branches', {
 				method: 'POST',
@@ -351,6 +479,19 @@
 				}
 			} else {
 				branches = [];
+				const errorData = await response.json().catch(() => ({}));
+				// Only show error if it's not a public repo access issue
+				if (response.status === 404 && !hasGitHubConnection) {
+					errorMsg =
+						'Repository not found or is private. Connect your GitHub account in Settings to access private repositories.';
+				} else if (response.status === 403 && !hasGitHubConnection) {
+					errorMsg =
+						'Rate limit exceeded. Connect your GitHub account in Settings for higher rate limits (5,000/hr vs 60/hr).';
+				} else if (response.status !== 404) {
+					// Don't show error for 404 on public repos - might just be invalid URL
+					errorMsg =
+						errorData?.error || errorData?.detail || `Failed to load branches (${response.status})`;
+				}
 			}
 		} catch (err) {
 			console.error('Failed to fetch branches:', err);
@@ -379,6 +520,7 @@
 				directories = data.directories || [];
 			} else {
 				directories = [];
+				// Don't show error for directories - it's not critical, user can still proceed
 			}
 		} catch (err) {
 			console.error('Failed to fetch directories:', err);
@@ -408,7 +550,27 @@
 				})
 			});
 			const data = await r.json().catch(() => ({}));
-			if (!r.ok) throw new Error(data?.error || `Git list failed (${r.status})`);
+			if (!r.ok) {
+				// Check if it's a 404 (private repo without connection) or rate limit
+				if (r.status === 404) {
+					if (!hasGitHubConnection) {
+						throw new Error(
+							'Repository not found or is private. Connect your GitHub account in Settings to access private repositories.'
+						);
+					} else {
+						throw new Error("Repository not found or you don't have access to it.");
+					}
+				} else if (r.status === 403) {
+					if (!hasGitHubConnection) {
+						throw new Error(
+							'Rate limit exceeded or access denied. Connect your GitHub account in Settings for higher rate limits (5,000/hr vs 60/hr).'
+						);
+					} else {
+						throw new Error('Access denied. Please check your GitHub connection in Settings.');
+					}
+				}
+				throw new Error(data?.error || data?.detail || `Git list failed (${r.status})`);
+			}
 
 			pickerFiles = Array.isArray(data.files) ? data.files : [];
 
@@ -456,6 +618,20 @@
 		statusMsg = '';
 		running = true;
 
+		// Validate GitHub inputs for Git methods
+		if (isGit) {
+			if (!ownerInput.trim()) {
+				errorMsg = 'Please enter a GitHub owner/organization.';
+				running = false;
+				return;
+			}
+			if (!repoUrl || !repoUrl.includes('github.com')) {
+				errorMsg = 'Please select a repository from the dropdown.';
+				running = false;
+				return;
+			}
+		}
+
 		let submissionId: string | null = null;
 
 		try {
@@ -472,8 +648,18 @@
 				method === 'pasted_code'
 					? { filename: pasteFilename, model: selectedModel, llm_prompt_config: promptConfig }
 					: method === 'zipped_folder'
-						? { zip_name: zipFile?.name ?? null, model: selectedModel, llm_prompt_config: promptConfig }
-						: { repoUrl, branch, model: selectedModel, llm_prompt_config: promptConfig, ...(method === 'github_repo_directory' ? { subdir } : {}) };
+						? {
+								zip_name: zipFile?.name ?? null,
+								model: selectedModel,
+								llm_prompt_config: promptConfig
+							}
+						: {
+								repoUrl,
+								branch,
+								model: selectedModel,
+								llm_prompt_config: promptConfig,
+								...(method === 'github_repo_directory' ? { subdir } : {})
+							};
 
 			// Detect and set repo_provider for repository-based submissions
 			const repoProvider = isGit && repoUrl ? detectRepoProvider(repoUrl) : null;
@@ -532,7 +718,27 @@
 					})
 				});
 				const data = await r.json().catch(() => ({}));
-				if (!r.ok) throw new Error(data?.error || `Git fetch failed (${r.status})`);
+				if (!r.ok) {
+					// Check if it's a 404 (private repo without connection) or rate limit
+					if (r.status === 404) {
+						if (!hasGitHubConnection) {
+							throw new Error(
+								'Repository not found or is private. Connect your GitHub account in Settings to access private repositories.'
+							);
+						} else {
+							throw new Error("Repository not found or you don't have access to it.");
+						}
+					} else if (r.status === 403) {
+						if (!hasGitHubConnection) {
+							throw new Error(
+								'Rate limit exceeded or access denied. Connect your GitHub account in Settings for higher rate limits (5,000/hr vs 60/hr).'
+							);
+						} else {
+							throw new Error('Access denied. Please check your GitHub connection in Settings.');
+						}
+					}
+					throw new Error(data?.error || data?.detail || `Git fetch failed (${r.status})`);
+				}
 				const got = Array.isArray(data.files) ? data.files : [];
 				filesForDoc = got.map((f: any) => ({ path: f.path, content: String(f.content || '') }));
 			} else if (method === 'zipped_folder') {
@@ -592,7 +798,7 @@
 				try {
 					const selectedFiles = selectedArray();
 					if (selectedFiles.length === 0) {
-						console.warn('No files selected for snapshot');
+						// No files selected - this is expected if user hasn't selected any files yet
 					} else {
 						// Get commit SHA and file SHAs
 						const snapshotRes = await fetch('/api/github/snapshot', {
@@ -613,17 +819,12 @@
 									fileShas: snapshotData.fileShas,
 									createdAt: new Date().toISOString()
 								};
-							} else {
-								console.warn('Snapshot API returned invalid data:', snapshotData);
 							}
-						} else {
-							const errorData = await snapshotRes.json().catch(() => ({}));
-							console.warn('Snapshot API failed:', snapshotRes.status, errorData);
 						}
 					}
 				} catch (e) {
 					// Non-fatal: continue without snapshot
-					console.warn('Failed to create code snapshot:', e);
+					// Silently fail - snapshot is optional
 				}
 			}
 
@@ -660,7 +861,8 @@
 					// We do not need to inspect the response here.
 					// If it fails, logs on the server will tell us what happened.
 				} catch (e) {
-					console.warn('Failed to post-process submission (submission_files):', e);
+					// Non-fatal: post-processing is optional
+					// Silently fail - documentation is still saved
 				}
 			}
 
@@ -725,15 +927,19 @@
 					<!-- Custom Dropdown Button -->
 					<button
 						type="button"
-						class="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-left text-white outline-none focus:border-white/40 focus:ring-2 focus:ring-white/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-between"
+						class="flex w-full items-center justify-between rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-left text-white outline-none focus:border-white/40 focus:ring-2 focus:ring-white/20 disabled:cursor-not-allowed disabled:opacity-50"
 						on:click={() => !running && (showModelDropdown = !showModelDropdown)}
 						disabled={running}
 					>
-						<div class="flex items-center gap-2 flex-wrap">
-							<span class="font-medium">{selectedModelObj.label}</span>
-							<span class="text-xs text-white/60">({selectedModelObj.provider})</span>
-							<span class="text-xs text-yellow-400">{selectedModelObj.cost}</span>
-							<span class="text-xs text-blue-400">{selectedModelObj.context}</span>
+						<div class="flex flex-wrap items-center gap-2">
+							{#if selectedModelObj}
+								<span class="font-medium">{selectedModelObj.label}</span>
+								<span class="text-xs text-white/60">({selectedModelObj.provider})</span>
+								<span class="text-xs text-yellow-400">{selectedModelObj.cost}</span>
+								<span class="text-xs text-blue-400">{selectedModelObj.context}</span>
+							{:else}
+								<span class="font-medium">Select model...</span>
+							{/if}
 						</div>
 						<svg
 							class="h-4 w-4 text-white/60 transition-transform"
@@ -742,7 +948,12 @@
 							viewBox="0 0 24 24"
 							stroke="currentColor"
 						>
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+							<path
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								stroke-width="2"
+								d="M19 9l-7 7-7-7"
+							/>
 						</svg>
 					</button>
 
@@ -752,28 +963,43 @@
 							class="absolute z-50 mt-1 max-h-96 w-full overflow-auto rounded-lg border border-white/20 bg-gray-900 shadow-xl"
 							role="listbox"
 						>
-							{#each availableModels as model}
+							{#each availableModels.filter((m) => m && m.value && m.label) as model}
 								<button
 									type="button"
-									class="w-full px-4 py-3 text-left transition-colors hover:bg-white/10 focus:bg-white/10 focus:outline-none {selectedModel === model.value ? 'bg-white/15' : ''}"
+									class="w-full px-4 py-3 text-left transition-colors hover:bg-white/10 focus:bg-white/10 focus:outline-none {model?.value &&
+									selectedModel === model.value
+										? 'bg-white/15'
+										: ''}"
 									on:click={() => {
-										selectedModel = model.value;
-										showModelDropdown = false;
+										if (model?.value) {
+											selectedModel = model.value;
+											showModelDropdown = false;
+										}
 									}}
 									role="option"
-									aria-selected={selectedModel === model.value}
+									aria-selected={model?.value ? selectedModel === model.value : false}
 								>
 									<div class="flex items-start justify-between gap-3">
-										<div class="flex-1 min-w-0">
-											<div class="flex items-center gap-2 mb-1 flex-wrap">
-												<span class="font-semibold text-white">{model.label}</span>
-												<span class="text-xs text-white/60">({model.provider})</span>
-												<span class="text-xs text-yellow-400 font-medium">{model.cost}</span>
-												<span class="text-xs text-blue-400 font-medium">{model.context}</span>
+										<div class="min-w-0 flex-1">
+											<div class="mb-1 flex flex-wrap items-center gap-2">
+												<span class="font-semibold text-white"
+													>{model?.label || 'Unknown Model'}</span
+												>
+												{#if model?.provider}
+													<span class="text-xs text-white/60">({model.provider})</span>
+												{/if}
+												{#if model?.cost}
+													<span class="text-xs font-medium text-yellow-400">{model.cost}</span>
+												{/if}
+												{#if model?.context}
+													<span class="text-xs font-medium text-blue-400">{model.context}</span>
+												{/if}
 											</div>
-											<p class="text-xs text-white/70 leading-relaxed">{model.description}</p>
+											{#if model?.description}
+												<p class="text-xs leading-relaxed text-white/70">{model.description}</p>
+											{/if}
 										</div>
-										{#if selectedModel === model.value}
+										{#if model?.value && selectedModel === model.value}
 											<svg
 												class="h-5 w-5 shrink-0 text-green-400"
 												fill="currentColor"
@@ -797,57 +1023,161 @@
 
 		<!-- Method-specific inputs -->
 		{#if method === 'github_repo' || method === 'github_repo_directory'}
+			<!-- GitHub Connection Warning -->
+			{#if !checkingGitHub && !hasGitHubConnection}
+				<div class="mb-4 rounded-lg border border-yellow-500/50 bg-yellow-500/10 p-4">
+					<div class="flex items-start gap-3">
+						<AlertTriangle class="mt-0.5 h-5 w-5 flex-shrink-0 text-yellow-400" />
+						<div class="flex-1">
+							<p class="mb-1 text-sm font-medium text-yellow-200">GitHub Connection Recommended</p>
+							<p class="mb-2 text-xs text-yellow-200/80">
+								Public repositories will work without a connection, but you'll have lower rate
+								limits (60 requests/hour). Private repositories require a GitHub connection.
+							</p>
+							<a
+								href="/settings?tab=integrations"
+								class="inline-flex items-center gap-1 text-xs text-yellow-300 underline hover:text-yellow-200"
+							>
+								Connect GitHub for higher rate limits and private repo access
+							</a>
+						</div>
+					</div>
+				</div>
+			{/if}
+
+			<!-- Info for public repos -->
+			{#if !checkingGitHub && !hasGitHubConnection && repoUrl && repoUrl.includes('github.com')}
+				<div class="mb-4 rounded-lg border border-blue-500/50 bg-blue-500/10 p-3">
+					<div class="flex items-start gap-2">
+						<Info class="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-400" />
+						<p class="text-xs text-blue-200">
+							Public repositories can be accessed without a GitHub connection. If you encounter rate
+							limit errors, consider connecting your GitHub account in Settings.
+						</p>
+					</div>
+				</div>
+			{/if}
+
 			<div class="mb-4 grid gap-3 md:grid-cols-2">
+				<!-- Owner input for repo search -->
 				<label class="block md:col-span-2">
-					<div class="mb-1 text-sm text-white/70">GitHub repo URL</div>
-					<input
-						class="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white placeholder-white/60 outline-none focus:border-white/40"
-						bind:value={repoUrl}
-						placeholder="https://github.com/owner/repo"
+					<div class="mb-1 text-sm text-white/70">
+						GitHub Owner/Organization <span class="text-red-400">*</span>
+					</div>
+					<div class="flex gap-2">
+						<input
+							class="flex-1 rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white placeholder-white/60 outline-none focus:border-white/40"
+							bind:value={ownerInput}
+							placeholder="Enter owner/org (e.g., 'facebook' or 'github.com/facebook')"
+							required
+							on:keydown={(e) => {
+								if (e.key === 'Enter') {
+									e.preventDefault();
+									searchRepos();
+								}
+							}}
+						/>
+						<button
+							type="button"
+							class="rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-50"
+							on:click={searchRepos}
+							disabled={!ownerInput.trim() || loadingRepos}
+						>
+							Search
+						</button>
+					</div>
+					<p class="mt-1 text-xs text-white/50">
+						Enter a GitHub username or organization to search for repositories
+					</p>
+				</label>
+
+				<!-- Repo selector dropdown -->
+				{#if showRepoSelector && baseOwner}
+					<label class="block md:col-span-2">
+						<div class="mb-1 text-sm text-white/70">
+							Repository <span class="text-red-400">*</span>
+						</div>
+						<SearchableSelect
+							options={repos && Array.isArray(repos)
+								? repos
+										.filter((r) => r && r.url && r.full_name)
+										.map((r) => ({
+											value: r.url || '',
+											label: `${r.full_name || ''}${r.private ? ' (private)' : ''}`
+										}))
+								: []}
+							value={repoUrl}
+							placeholder={loadingRepos ? 'Loading repositories...' : 'Search repositories...'}
+							searchPlaceholder="Search repositories..."
+							disabled={loadingRepos}
+							on:change={(e) => {
+								repoUrl = e.detail.value;
+							}}
+						/>
+						{#if loadingRepos}
+							<p class="mt-1 text-xs text-white/50">Loading repositories...</p>
+						{:else if Array.isArray(repos) && repos.length === 0 && baseOwner}
+							<p class="mt-1 text-xs text-white/50">No repositories found for {baseOwner}</p>
+						{/if}
+					</label>
+				{/if}
+
+				<label class="block">
+					<div class="mb-1 text-sm text-white/70">Branch</div>
+					<SearchableSelect
+						options={branches.map((b) => ({ value: b, label: b }))}
+						value={branch}
+						placeholder={loadingBranches
+							? 'Loading...'
+							: branches.length === 0
+								? 'Enter repo URL first'
+								: 'Select branch...'}
+						searchPlaceholder="Search branches..."
+						disabled={loadingBranches || branches.length === 0}
+						on:change={(e) => {
+							branch = e.detail.value;
+						}}
 					/>
 					{#if loadingBranches}
 						<p class="mt-1 text-xs text-white/50">Loading branches...</p>
 					{/if}
-				</label>
-
-				<label class="block">
-					<div class="mb-1 text-sm text-white/70">Branch</div>
-					<select
-						bind:value={branch}
-						disabled={loadingBranches || branches.length === 0}
-						class="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white outline-none focus:border-white/40 disabled:cursor-not-allowed disabled:opacity-50"
-					>
-						{#if branches.length === 0 && !loadingBranches}
-							<option value="">Enter repo URL first</option>
-						{:else if loadingBranches}
-							<option value="">Loading...</option>
-						{:else}
-							{#each branches as b}
-								<option value={b}>{b}</option>
-							{/each}
-						{/if}
-					</select>
+					{#if !hasGitHubConnection && !checkingGitHub && branches.length === 0 && !loadingBranches && repoUrl && repoUrl.includes('github.com')}
+						<p class="mt-1 text-xs text-yellow-200/70">
+							⚠️ If this is a private repo, you'll need to connect GitHub. Public repos should load
+							automatically.
+						</p>
+					{/if}
 				</label>
 
 				{#if method === 'github_repo_directory'}
 					<label class="block">
 						<div class="mb-1 text-sm text-white/70">Subfolder (optional)</div>
-						<select
-							bind:value={subdir}
-							disabled={loadingDirectories || !branch || branches.length === 0}
-							class="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white outline-none focus:border-white/40 disabled:cursor-not-allowed disabled:opacity-50"
-						>
-							<option value="">Root (all files)</option>
-							{#if loadingDirectories}
-								<option value="" disabled>Loading directories...</option>
-							{:else if directories.length > 0}
-								{#each directories as d}
-									<option value={d}>{d}</option>
-								{/each}
-							{:else if branch && !loadingDirectories}
-								<option value="" disabled>No subdirectories found</option>
-							{/if}
-						</select>
+						<SearchableSelect
+							options={[
+								{ value: '', label: 'Root (all files)' },
+								...directories.map((d) => ({ value: d, label: d }))
+							]}
+							value={subdir}
+							placeholder={loadingDirectories
+								? 'Loading...'
+								: directories.length === 0 && branch
+									? 'No subdirectories found'
+									: 'Select subfolder...'}
+							searchPlaceholder="Search directories..."
+							disabled={loadingDirectories || !branch}
+							on:change={(e) => {
+								subdir = e.detail.value;
+							}}
+						/>
+						{#if loadingDirectories}
+							<p class="mt-1 text-xs text-white/50">Loading directories...</p>
+						{/if}
+						{#if !hasGitHubConnection && !checkingGitHub && directories.length === 0 && !loadingDirectories && branch && repoUrl && repoUrl.includes('github.com')}
+							<p class="mt-1 text-xs text-yellow-200/70">
+								⚠️ If this is a private repo, you'll need to connect GitHub. Public repos should
+								load automatically.
+							</p>
+						{/if}
 					</label>
 				{/if}
 			</div>
@@ -863,7 +1193,7 @@
 						{#if showLoadButton}
 							<!-- CHANGED: Only show while no files are loaded -->
 							<button
-								class="rounded-lg border border-white/20 px-3 py-1 text-sm text-white hover:bg-white/10"
+								class="rounded-lg border border-white/20 px-3 py-1 text-sm text-white hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-white/10"
 								on:click={listGitFiles}
 								disabled={listing}
 								title="List files from Git"

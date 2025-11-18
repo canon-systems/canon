@@ -15,7 +15,7 @@
 // - We walk directories recursively to collect all files under `subdir`.
 
 import type { RequestHandler } from "@sveltejs/kit";
-import { GITHUB_TOKEN } from "$env/static/private";
+import { getUserOctokit } from "$lib/server/github/getUserOctokit";
 
 // A tiny helper for consistent JSON responses
 function jsonResponse(data: unknown, status = 200) {
@@ -25,34 +25,38 @@ function jsonResponse(data: unknown, status = 200) {
     });
 }
 
-// Build Contents API URL for owner/repo/path?ref=branch
-function contentsUrl(owner: string, repo: string, branch: string, path: string) {
-    const encodedPath = encodeURIComponent(path).replace(/%2F/g, "/");
-    const encodedRef = encodeURIComponent(branch);
-    return `https://api.github.com/repos/${owner}/${repo}/contents/${encodedPath}?ref=${encodedRef}`;
-}
-
-// GET one path (file or directory listing) from GitHub
-async function fetchContents(owner: string, repo: string, branch: string, path: string) {
-    const headers: Record<string, string> = {
-        accept: "application/vnd.github+json",
-        "x-github-api-version": "2022-11-28"
-    };
-    if (GITHUB_TOKEN) headers.authorization = `Bearer ${GITHUB_TOKEN}`;
-
-    const url = contentsUrl(owner, repo, branch, path);
-    const r = await fetch(url, { headers });
-
-    if (!r.ok) {
-        // Bubble up a readable message (rate limit / 404 / etc.)
-        const text = await r.text().catch(() => "");
-        throw new Error(`GitHub ${r.status}: ${text.slice(0, 200)}`);
+// GET one path (file or directory listing) from GitHub using user's token
+async function fetchContents(
+    octokit: Awaited<ReturnType<typeof getUserOctokit>>,
+    owner: string,
+    repo: string,
+    branch: string,
+    path: string
+) {
+    try {
+        const { data } = await octokit.repos.getContent({
+            owner,
+            repo,
+            path: path || '',
+            ref: branch
+        });
+        return data;
+    } catch (error: any) {
+        if (error.status === 404) {
+            throw new Error(`GitHub 404: Path not found`);
+        }
+        throw new Error(`GitHub ${error.status}: ${error.message || 'Unknown error'}`);
     }
-    return r.json(); // may be an array (directory) or an object (file)
 }
 
 // Walk a directory tree and collect files
-async function listAllFiles(owner: string, repo: string, branch: string, rootPath: string) {
+async function listAllFiles(
+    octokit: Awaited<ReturnType<typeof getUserOctokit>>,
+    owner: string,
+    repo: string,
+    branch: string,
+    rootPath: string
+) {
     // We use an explicit stack to avoid deep recursion issues
     const stack: string[] = [rootPath || ""];
     const files: Array<{ path: string; size: number }> = [];
@@ -60,7 +64,7 @@ async function listAllFiles(owner: string, repo: string, branch: string, rootPat
     while (stack.length) {
         const current = stack.pop()!; // a path relative to repo root
         try {
-            const node = await fetchContents(owner, repo, branch, current || "");
+            const node = await fetchContents(octokit, owner, repo, branch, current || "");
 
             if (Array.isArray(node)) {
                 // It's a directory listing. Each item has: type: "file" | "dir"
@@ -72,7 +76,7 @@ async function listAllFiles(owner: string, repo: string, branch: string, rootPat
                         stack.push(itemPath); // dive deeper
                     }
                 }
-            } else if (node && node.type === "file") {
+            } else if (node && 'type' in node && node.type === "file") {
                 // Direct file object
                 files.push({ path: node.path as string, size: Number(node.size || 0) });
             }
@@ -86,7 +90,7 @@ async function listAllFiles(owner: string, repo: string, branch: string, rootPat
     return files;
 }
 
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async ({ request, locals }) => {
     try {
         const body = await request.json().catch(() => ({} as Record<string, unknown>));
         const repoUrl = String(body.repoUrl || "");
@@ -110,8 +114,12 @@ export const POST: RequestHandler = async ({ request }) => {
         // Clean subdir (trim leading/trailing slashes)
         const subdir = subdirRaw.replace(/^\/+|\/+$/g, "");
 
+        // Get user's GitHub connection (or anonymous if not connected)
+        const { user } = await locals.safeGetSession();
+        const octokit = await getUserOctokit(locals.supabase, user?.id || null);
+
         // Grab all files (under subdir if given, otherwise repo root)
-        const files = await listAllFiles(owner, repo, branch, subdir);
+        const files = await listAllFiles(octokit, owner, repo, branch, subdir);
 
         // Return sorted for stable UI (optional)
         files.sort((a, b) => a.path.localeCompare(b.path));
