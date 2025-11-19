@@ -18,7 +18,6 @@
 	import { supabase } from '$lib/supabaseClient';
 	import { Github, FolderOpen, Upload, Code, Loader2, AlertTriangle, Info } from '@lucide/svelte';
 	import { onMount } from 'svelte';
-	import { page } from '$app/stores';
 	import PromptCustomizer from '$lib/components/PromptCustomizer.svelte';
 	import SearchableSelect from '$lib/components/SearchableSelect.svelte';
 

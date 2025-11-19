@@ -25,7 +25,6 @@
 
 	// Results
 	let diagramMarkdown = '';
-	let diagramHtml = '';
 	let detectedTools: any = null;
 	let copied = false;
 
@@ -165,7 +164,6 @@
 		status = 'processing';
 		errorMessage = '';
 		diagramMarkdown = '';
-		diagramHtml = '';
 		detectedTools = null;
 
 		try {
@@ -204,7 +202,6 @@
 
 			const result = await response.json();
 			diagramMarkdown = result.diagram;
-			diagramHtml = result.html || '';
 			detectedTools = result.tools;
 			status = 'completed';
 
