@@ -4,7 +4,7 @@
  * NEVER falls back to global GITHUB_TOKEN - users must connect their own GitHub
  */
 
-import { NANGO_CONFIG } from '@/lib/server/nango/config';
+import { NANGO_CONFIG } from '$lib/server/nango/config';
 
 export async function getGitHubTokenForUser(connectionId: string): Promise<string | null> {
 	try {

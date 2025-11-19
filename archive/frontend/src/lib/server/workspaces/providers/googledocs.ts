@@ -3,7 +3,7 @@
  */
 
 import type { WorkspaceProvider, WorkspaceInfo, WorkspaceContent } from '../base';
-import { NANGO_CONFIG } from '@/lib/server/nango/config';
+import { NANGO_CONFIG } from '$lib/server/nango/config';
 import { marked } from 'marked';
 import { parse, HTMLElement } from 'node-html-parser';
 

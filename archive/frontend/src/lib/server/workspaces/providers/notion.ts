@@ -3,8 +3,8 @@
  */
 
 import type { WorkspaceProvider, WorkspaceInfo, WorkspaceContent } from '../base';
-import { NANGO_CONFIG } from '@/lib/server/nango/config';
-import { htmlToNotionBlocks } from '@/lib/server/notion/htmlToBlocks';
+import { NANGO_CONFIG } from '$lib/server/nango/config';
+import { htmlToNotionBlocks } from '$lib/server/notion/htmlToBlocks';
 import { marked } from 'marked';
 
 /**

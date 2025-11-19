@@ -5,15 +5,18 @@
  * Supports multiple knowledge management platforms
  */
 
+import { env } from '$env/dynamic/private';
+import { PUBLIC_NANGO_HOST } from '$env/static/public';
+
 export const NANGO_CONFIG = {
 	// Server-side secret key (from Nango dashboard)
 	// Required for API calls to Nango (including creating Connect sessions)
-	secretKey: process.env.NANGO_SECRET_KEY || '',
+	secretKey: env.NANGO_SECRET_KEY || '',
 	
 	// Nango host URL
 	// Default: https://api.nango.dev (cloud)
 	// For self-hosted: your Nango instance URL
-	host: process.env.NANGO_HOST || process.env.NEXT_PUBLIC_NANGO_HOST || 'https://api.nango.dev',
+	host: env.NANGO_HOST || PUBLIC_NANGO_HOST || 'https://api.nango.dev',
 	
 	// Integration providers configuration
 	providers: {
