@@ -121,10 +121,10 @@ function processParagraphWithImages(p: HTMLElement): NotionBlock[] {
 	if (tempElement) {
 		tempElement.querySelectorAll('img').forEach(img => img.remove());
 		const richText = extractRichText(tempElement);
-		
-		// Add text paragraph if there's text
-		if (richText.length > 0) {
-			blocks.push(createParagraphBlock(richText));
+	
+	// Add text paragraph if there's text
+	if (richText.length > 0) {
+		blocks.push(createParagraphBlock(richText));
 		}
 	} else {
 		// Fallback: extract rich text directly from p (will include image alt text)
