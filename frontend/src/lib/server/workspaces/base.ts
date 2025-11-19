@@ -7,6 +7,9 @@
 
 import type { WorkspaceInfo, WorkspaceContent } from './types';
 
+// Re-export types for convenience
+export type { WorkspaceInfo, WorkspaceContent };
+
 export interface WorkspaceProvider {
 	/**
 	 * Provider name (e.g., 'notion', 'confluence', 'googledocs')

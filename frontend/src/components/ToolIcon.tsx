@@ -10,7 +10,7 @@ interface ToolIconProps {
 
 // Map tool names to simple-icons export names
 // Format: tool name -> simple-icons key (e.g., 'github' -> 'siGithub)
-const iconMap: Record<string, keyof typeof simpleIcons> = {
+const iconMap: Record<string, string> = {
   'github': 'siGithub',
   'vercel': 'siVercel',
   'react': 'siReact',
@@ -63,8 +63,8 @@ export function ToolIcon({ toolName, size = 24, className = '' }: ToolIconProps)
   // If still no match, try to find in simple-icons by name
   if (!iconKey) {
     // Try to construct the simple-icons key (e.g., 'tailwindcss' -> 'siTailwindcss')
-    const possibleKey = `si${cleanName.charAt(0).toUpperCase()}${cleanName.slice(1)}` as keyof typeof simpleIcons;
-    if (simpleIcons[possibleKey]) {
+    const possibleKey = `si${cleanName.charAt(0).toUpperCase()}${cleanName.slice(1)}`;
+    if (possibleKey in simpleIcons) {
       iconKey = possibleKey;
     } else {
       // Try searching for partial matches
@@ -74,13 +74,13 @@ export function ToolIcon({ toolName, size = 24, className = '' }: ToolIconProps)
         return keyName.includes(searchTerm) || searchTerm.includes(keyName);
       });
       if (possibleKeys.length > 0) {
-        iconKey = possibleKeys[0] as keyof typeof simpleIcons;
+        iconKey = possibleKeys[0];
       }
     }
   }
   
   // Fallback to a default icon if not found
-  if (!iconKey || !simpleIcons[iconKey]) {
+  if (!iconKey || !(iconKey in simpleIcons)) {
     // Return a default placeholder
     return (
       <div 
@@ -92,7 +92,7 @@ export function ToolIcon({ toolName, size = 24, className = '' }: ToolIconProps)
     );
   }
   
-  const icon = simpleIcons[iconKey] as { title: string; hex: string; path: string };
+  const icon = (simpleIcons as any)[iconKey] as { title: string; hex: string; path: string };
   
   return (
     <svg
@@ -102,9 +102,10 @@ export function ToolIcon({ toolName, size = 24, className = '' }: ToolIconProps)
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       role="img"
-      title={icon.title}
+      aria-label={icon.title}
       className={className}
     >
+      <title>{icon.title}</title>
       <path d={icon.path} fill={`#${icon.hex}`} />
     </svg>
   );

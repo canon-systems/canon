@@ -115,14 +115,23 @@ function processParagraphWithImages(p: HTMLElement): NotionBlock[] {
 	const images = p.querySelectorAll('img');
 	
 	// Extract text content (excluding images)
-	// Clone the element and remove images to get just text
-	const textClone = p.cloneNode(true) as HTMLElement;
-	textClone.querySelectorAll('img').forEach(img => img.remove());
-	const richText = extractRichText(textClone);
-	
-	// Add text paragraph if there's text
-	if (richText.length > 0) {
-		blocks.push(createParagraphBlock(richText));
+	// Create a copy by parsing the outerHTML and removing images
+	const htmlContent = p.outerHTML;
+	const tempElement = parse(htmlContent).querySelector(p.tagName);
+	if (tempElement) {
+		tempElement.querySelectorAll('img').forEach(img => img.remove());
+		const richText = extractRichText(tempElement);
+		
+		// Add text paragraph if there's text
+		if (richText.length > 0) {
+			blocks.push(createParagraphBlock(richText));
+		}
+	} else {
+		// Fallback: extract rich text directly from p (will include image alt text)
+		const richText = extractRichText(p);
+		if (richText.length > 0) {
+			blocks.push(createParagraphBlock(richText));
+		}
 	}
 	
 	// Add image blocks
@@ -184,8 +193,8 @@ function elementToNotionBlock(element: HTMLElement): NotionBlock | null {
 		case 'pre':
 			const codeElement = element.querySelector('code');
 			const codeText = codeElement?.text || element.text || '';
-			const className = codeElement?.className || '';
-			const language = className.match(/language-(\w+)/)?.[1] || 'plain text';
+			const classNames = (codeElement?.classNames as string) || '';
+			const language = classNames.match(/language-(\w+)/)?.[1] || 'plain text';
 			return {
 				object: 'block',
 				type: 'code',

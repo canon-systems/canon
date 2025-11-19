@@ -30,8 +30,9 @@ export function IntegrationLogos({ size = 24, provider }: IntegrationLogosProps)
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       role="img"
-      title={icon.title}
+      aria-label={icon.title}
     >
+      <title>{icon.title}</title>
       <path d={icon.path} fill={`#${icon.hex}`} />
     </svg>
   );

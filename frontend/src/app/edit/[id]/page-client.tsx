@@ -39,9 +39,11 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
   const [title, setTitle] = useState(initialSubmission.title);
   const [markdown, setMarkdown] = useState(initialSubmission.markdown);
   // Convert markdown to HTML for RichTextEditor
-  const [html, setHtml] = useState(
-    (initialSubmission.markdown && marked.parse(initialSubmission.markdown)) || '<p></p>'
-  );
+  const [html, setHtml] = useState<string>(() => {
+    if (!initialSubmission.markdown) return '<p></p>';
+    const parsed = marked.parse(initialSubmission.markdown);
+    return typeof parsed === 'string' ? parsed : '<p></p>';
+  });
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
   const [saveErr, setSaveErr] = useState('');

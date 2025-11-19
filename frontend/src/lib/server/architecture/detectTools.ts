@@ -212,7 +212,7 @@ export interface DetectionResult {
 /**
  * Parse package.json content
  */
-function parsePackageJson(content: string): { dependencies?: Record<string, string>; devDependencies?: Record<string, string> } | null {
+function parsePackageJson(content: string): { dependencies?: Record<string, string>; devDependencies?: Record<string, string>; peerDependencies?: Record<string, string> } | null {
 	try {
 		return JSON.parse(content);
 	} catch {
