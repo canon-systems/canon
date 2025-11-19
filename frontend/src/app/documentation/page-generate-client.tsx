@@ -1083,7 +1083,18 @@ export function DocumentationPageClient() {
 
         {/* LLM Prompt Customization */}
         <section className="form-panel space-y-4 mt-6">
-          <PromptCustomizer promptConfig={promptConfig} onChange={setPromptConfig} />
+          <PromptCustomizer 
+            promptConfig={promptConfig} 
+            onChange={(config) => {
+              setPromptConfig({
+                personality: config.personality ?? 'default',
+                style: config.style ?? 'default',
+                audience: config.audience ?? 'technical',
+                customInstructions: config.customInstructions ?? '',
+                temperature: config.temperature ?? 0.3
+              });
+            }} 
+          />
         </section>
 
         {/* Error / Status */}

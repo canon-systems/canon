@@ -107,7 +107,7 @@ export function LogsPageClient({ user, logs }: LogsPageClientProps) {
 
   const getStatusBadge = (status?: string) => {
     if (!status) return null;
-    
+
     const statusColors: Record<string, string> = {
       completed: 'bg-green-500/20 text-green-400',
       processing: 'bg-yellow-500/20 text-yellow-400',
@@ -185,19 +185,21 @@ export function LogsPageClient({ user, logs }: LogsPageClientProps) {
                     </div>
                   </div>
                   {entry.link && (
-                    <Link
+                    <a
                       href={entry.link}
-                      className="text-white/60 hover:text-white transition-colors"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-white/60 hover:text-white transition-colors flex-shrink-0"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <ExternalLink className="h-4 w-4" />
-                    </Link>
+                    </a>
                   )}
                 </div>
               );
 
               return entry.link ? (
-                <Link key={entry.id} href={entry.link}>
+                <Link key={entry.id} href={entry.link} className="block">
                   {content}
                 </Link>
               ) : (
