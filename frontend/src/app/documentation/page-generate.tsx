@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/auth';
-import { SubmitPageClient } from './page-generate-client';
+import { DocumentationPageClient } from './page-generate-client';
 
 export default async function DocumentationPage() {
   const { session } = await getSession();
@@ -9,6 +9,6 @@ export default async function DocumentationPage() {
     redirect('/login');
   }
 
-  return <SubmitPageClient />;
+  return <DocumentationPageClient />;
 }
 
