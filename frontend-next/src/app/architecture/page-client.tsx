@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Github, Upload, Loader2, Download, Copy, Check, RefreshCw } from 'lucide-react';
+import { Github, Upload, Loader2, Download, Copy, Check } from 'lucide-react';
 import { ArchitectureFlow } from '@/components/ArchitectureFlow';
 import { SearchableSelect } from '@/components/SearchableSelect';
 import type { DetectionResult } from '@/lib/server/architecture/detectTools';
@@ -34,16 +34,6 @@ export function ArchitecturePageClient() {
   const [detectionResult, setDetectionResult] = useState<DetectionResult | null>(null);
   const [diagramMarkdown, setDiagramMarkdown] = useState('');
   const [copied, setCopied] = useState(false);
-  
-  // Diagram persistence state
-  const [diagramTitle, setDiagramTitle] = useState('');
-  const [diagramDescription, setDiagramDescription] = useState('');
-  const [saveDiagram, setSaveDiagram] = useState(false);
-  const [savedDiagramId, setSavedDiagramId] = useState<string | null>(null);
-  const [existingDiagrams, setExistingDiagrams] = useState<any[]>([]);
-  const [loadingExisting, setLoadingExisting] = useState(false);
-  const [checkingUpdates, setCheckingUpdates] = useState(false);
-  const [updateStatus, setUpdateStatus] = useState<{ outdated: boolean; message?: string } | null>(null);
 
   // Function to search for repos (matches SvelteKit behavior)
   function searchRepos() {
@@ -234,13 +224,6 @@ export function ArchitecturePageClient() {
         if (subdir.trim()) {
           formData.append('subdir', subdir.trim());
         }
-        if (saveDiagram) {
-          formData.append('saveDiagram', 'true');
-          formData.append('title', diagramTitle.trim() || 'Untitled Diagram');
-          if (diagramDescription.trim()) {
-            formData.append('description', diagramDescription.trim());
-          }
-        }
       } else if (method === 'zipped_folder') {
         if (!zipFile) {
           throw new Error('Please select a ZIP file');
@@ -263,14 +246,6 @@ export function ArchitecturePageClient() {
       setDiagramMarkdown(result.diagram);
       setDetectionResult(result.tools);
       setStatus('completed');
-      
-      if (result.saved && result.diagramId) {
-        setSavedDiagramId(result.diagramId);
-        if (result.isNewDiagram) {
-          setDiagramTitle('');
-          setDiagramDescription('');
-        }
-      }
     } catch (err: any) {
       setErrorMessage(err.message || 'Failed to generate architecture diagram');
       setStatus('error');
@@ -303,109 +278,9 @@ export function ArchitecturePageClient() {
     }
   }
 
-  // Load existing diagrams for current repo
-  async function loadExistingDiagrams() {
-    if (!repoUrl || method !== 'github_repo_directory') return;
-
-    setLoadingExisting(true);
-    try {
-      const params = new URLSearchParams({
-        repoUrl,
-        branch,
-        ...(subdir ? { subdir } : {}),
-      });
-
-      const response = await fetch(`/api/architecture/generate?${params}`);
-      if (response.ok) {
-        const data = await response.json();
-        setExistingDiagrams(data.diagrams || []);
-      }
-    } catch (err) {
-      console.error('Failed to load existing diagrams:', err);
-    } finally {
-      setLoadingExisting(false);
-    }
-  }
-
-  // Load a specific diagram
-  async function loadDiagram(diagram: any) {
-    setDiagramTitle(diagram.title);
-    setDiagramDescription(diagram.description || '');
-    setDiagramMarkdown(diagram.diagram_markdown || '');
-    setDetectionResult(diagram.detection_result);
-    setSavedDiagramId(diagram.id);
-    setStatus('completed');
-  }
-
-  // Check for updates
-  async function checkForUpdates() {
-    if (!savedDiagramId) return;
-
-    setCheckingUpdates(true);
-    setUpdateStatus(null);
-    try {
-      const response = await fetch('/api/architecture/check-updates', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ diagramId: savedDiagramId }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setUpdateStatus({
-          outdated: data.outdated,
-          message: data.outdated
-            ? `Changes detected: ${data.filesChanged} files changed, commit ${data.currentCommitSha?.substring(0, 7)}`
-            : 'Diagram is up to date',
-        });
-      }
-    } catch (err) {
-      setUpdateStatus({ outdated: false, message: 'Failed to check updates' });
-    } finally {
-      setCheckingUpdates(false);
-    }
-  }
-
-  // Refresh diagram
-  async function refreshDiagram() {
-    if (!savedDiagramId) return;
-
-    setStatus('processing');
-    try {
-      const response = await fetch('/api/architecture/refresh', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ diagramId: savedDiagramId }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setDiagramMarkdown(data.diagramMarkdown);
-        setDetectionResult(data.detectionResult);
-        setUpdateStatus({ outdated: false, message: 'Diagram refreshed successfully' });
-        setStatus('completed');
-      } else {
-        throw new Error('Failed to refresh diagram');
-      }
-    } catch (err: any) {
-      setErrorMessage(err.message || 'Failed to refresh diagram');
-      setStatus('error');
-    }
-  }
-
-  // Load existing diagrams when repo/branch/subdir changes
-  useEffect(() => {
-    if (repoUrl && branch && method === 'github_repo_directory') {
-      loadExistingDiagrams();
-    } else {
-      setExistingDiagrams([]);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [repoUrl, branch, subdir, method]);
-
   return (
-    <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mb-8">
+    <div className="mx-auto max-w-4xl space-y-10 px-4 py-8 sm:px-6 lg:px-8">
+      <div>
         <h1 className="text-3xl font-bold text-white mb-2">Architecture Diagram Generator</h1>
         <p className="text-white/70">
           Analyze your codebase and automatically generate a visual architecture diagram showing all tools,
@@ -414,105 +289,99 @@ export function ArchitecturePageClient() {
       </div>
 
       {/* Input Form */}
-      <div className="mb-8 rounded-xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm">
-        <div className="mb-6">
-          <label className="mb-3 block text-sm font-medium text-white">Input Method</label>
-          <div className="flex gap-4">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="radio"
-                name="method"
-                value="github_repo_directory"
-                checked={method === 'github_repo_directory'}
-                onChange={() => setMethod('github_repo_directory')}
-                className="h-4 w-4 text-blue-500"
-              />
-              <Github className="h-4 w-4 text-white/70" />
-              <span className="text-sm text-white/80">GitHub Repository</span>
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="radio"
-                name="method"
-                value="zipped_folder"
-                checked={method === 'zipped_folder'}
-                onChange={() => setMethod('zipped_folder')}
-                className="h-4 w-4 text-blue-500"
-              />
-              <Upload className="h-4 w-4 text-white/70" />
-              <span className="text-sm text-white/80">ZIP File</span>
-            </label>
-          </div>
+      <section className="form-panel space-y-6 mb-8">
+        <div>
+          <p className="section-label">Input Method</p>
+          <p className="section-helper">Choose how you’d like us to inspect your architecture.</p>
         </div>
 
+        <div className="flex flex-wrap gap-3">
+          <button
+            className="method-pill"
+            data-active={method === 'github_repo_directory'}
+            onClick={() => setMethod('github_repo_directory')}
+          >
+            <Github className="h-4 w-4" />
+            GitHub Repository
+          </button>
+          <button
+            className="method-pill"
+            data-active={method === 'zipped_folder'}
+            onClick={() => setMethod('zipped_folder')}
+          >
+            <Upload className="h-4 w-4" />
+            ZIP File
+          </button>
+        </div>
+
+        <div className="form-divider" />
+
         {method === 'github_repo_directory' ? (
-          <div className="space-y-4">
-            <div>
-              <label htmlFor="ownerInput" className="mb-2 block text-sm font-medium text-white">
-                <div className="mb-1 text-sm text-white/70">
-                  GitHub Owner/Organization <span className="text-red-400">*</span>
-                </div>
-                <div className="flex gap-2">
-                  <input
-                    id="ownerInput"
-                    type="text"
-                    value={ownerInput}
-                    onChange={(e) => setOwnerInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        searchRepos();
-                      }
-                    }}
-                    placeholder="Enter owner/org (e.g., 'facebook' or 'github.com/facebook')"
-                    className="flex-1 rounded-lg border border-white/20 bg-white/5 px-4 py-2 text-white placeholder:text-white/40 focus:border-white/40 focus:outline-none focus:ring-2 focus:ring-white/20"
-                    required
-                  />
-                  <button
-                    type="button"
-                    className="rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-50"
-                    onClick={searchRepos}
-                    disabled={!ownerInput.trim() || loadingRepos}
-                  >
-                    Search
-                  </button>
-                </div>
-                <p className="mt-1 text-xs text-white/50">
-                  Enter a GitHub username or organization to search for repositories
-                </p>
-              </label>
+          <div className="space-y-6">
+            <div className="field-group">
+              <span className="field-label">
+                GitHub owner/organization <span className="text-red-400">*</span>
+              </span>
+              <div className="flex gap-2">
+                <input
+                  id="ownerInput"
+                  type="text"
+                  value={ownerInput}
+                  onChange={(e) => setOwnerInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      searchRepos();
+                    }
+                  }}
+                  placeholder="Enter owner/org (e.g., 'facebook' or 'github.com/facebook')"
+                  className="field-input"
+                  required
+                />
+                <button
+                  type="button"
+                  className="secondary-action whitespace-nowrap"
+                  onClick={searchRepos}
+                  disabled={!ownerInput.trim() || loadingRepos}
+                >
+                  Search
+                </button>
+              </div>
+              <p className="field-note">Enter a GitHub username or organization to search for repositories.</p>
             </div>
 
-            {/* Repo selector dropdown */}
             {showRepoSelector && baseOwner && (
-              <div>
-                <label htmlFor="repoSelect" className="mb-2 block text-sm font-medium text-white">
+              <div className="field-group">
+                <span className="field-label">
                   Repository <span className="text-red-400">*</span>
-                </label>
+                </span>
                 <SearchableSelect
                   options={repos
                     .filter((r) => r && r.url && r.full_name)
                     .map((r) => ({
                       value: r.url || '',
-                      label: `${r.full_name || ''}${r.private ? ' (private)' : ''}`
+                      label: `${r.full_name || ''}${r.private ? ' (private)' : ''}`,
                     }))}
                   value={repoUrl}
                   placeholder={loadingRepos ? 'Loading repositories...' : 'Search repositories...'}
                   searchPlaceholder="Search repositories..."
                   disabled={loadingRepos}
                   onChange={(value) => setRepoUrl(value)}
+                  triggerClassName="field-select"
                 />
-                {loadingRepos && (
-                  <p className="mt-1 text-xs text-white/50">Loading repositories...</p>
-                )}
-                {!loadingRepos && Array.isArray(repos) && repos.length === 0 && baseOwner && (
-                  <p className="mt-1 text-xs text-white/50">No repositories found for {baseOwner}</p>
+                {loadingRepos ? (
+                  <p className="field-note">Loading repositories…</p>
+                ) : (
+                  Array.isArray(repos) &&
+                  repos.length === 0 &&
+                  baseOwner && <p className="field-note">No repositories found for {baseOwner}</p>
                 )}
               </div>
             )}
+
             <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <label htmlFor="branch" className="mb-2 block text-sm font-medium text-white">Branch</label>
+              <div className="field-group">
+                <span className="field-label">Branch</span>
                 <SearchableSelect
                   options={branches.map((b) => ({ value: b, label: b }))}
                   value={branch}
@@ -520,131 +389,49 @@ export function ArchitecturePageClient() {
                   searchPlaceholder="Search branches..."
                   disabled={loadingBranches || branches.length === 0}
                   onChange={(value) => setBranch(value)}
+                  triggerClassName="field-select"
                 />
-                {loadingBranches && (
-                  <p className="mt-1 text-xs text-white/50">Loading branches...</p>
-                )}
               </div>
-              <div>
-                <label htmlFor="subdir" className="mb-2 block text-sm font-medium text-white">
-                  Subdirectory (optional)
-                </label>
+              <div className="field-group">
+                <span className="field-label">Subdirectory (optional)</span>
                 <SearchableSelect
                   options={[
                     { value: '', label: 'Root (all files)' },
-                    ...directories.map((d) => ({ value: d, label: d }))
+                    ...directories.map((d) => ({ value: d, label: d })),
                   ]}
                   value={subdir}
                   placeholder={
                     loadingDirectories
                       ? 'Loading...'
                       : directories.length === 0 && branch
-                        ? 'No subdirectories found'
-                        : 'Select subfolder...'
+                      ? 'No subdirectories found'
+                      : 'Select subfolder...'
                   }
                   searchPlaceholder="Search directories..."
                   disabled={loadingDirectories || !branch || branches.length === 0}
                   onChange={(value) => setSubdir(value)}
+                  triggerClassName="field-select"
                 />
-                {loadingDirectories && (
-                  <p className="mt-1 text-xs text-white/50">Loading directories...</p>
-                )}
               </div>
             </div>
           </div>
         ) : (
-          <div>
-            <label htmlFor="zipFile" className="mb-2 block text-sm font-medium text-white">ZIP File</label>
+          <div className="field-group">
+            <span className="field-label">ZIP file</span>
             <input
               id="zipFile"
               type="file"
               accept=".zip"
               onChange={handleFileSelect}
-              className="w-full rounded-lg border border-white/20 bg-white/5 px-4 py-2 text-white file:mr-4 file:rounded file:border-0 file:bg-white/10 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-white/20"
+              className="field-input file:mr-4 file:rounded file:border-0 file:bg-white/10 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white"
             />
-            {zipFile && (
-              <p className="mt-2 text-sm text-white/60">Selected: {zipFile.name}</p>
-            )}
+            {zipFile && <span className="field-note">Selected: {zipFile.name}</span>}
           </div>
         )}
 
-        {/* Save Diagram Options (GitHub only) */}
-        {method === 'github_repo_directory' && repoUrl && (
-          <div className="mt-6 space-y-4 rounded-lg border border-white/10 bg-white/5 p-4">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={saveDiagram}
-                onChange={(e) => setSaveDiagram(e.target.checked)}
-                className="h-4 w-4 text-blue-500"
-              />
-              <span className="text-sm font-medium text-white">Save diagram</span>
-            </label>
-
-            {saveDiagram && (
-              <div className="space-y-3 pl-6">
-                <div>
-                  <label htmlFor="diagramTitle" className="mb-1 block text-sm font-medium text-white">
-                    Diagram Title <span className="text-red-400">*</span>
-                  </label>
-                  <input
-                    id="diagramTitle"
-                    type="text"
-                    value={diagramTitle}
-                    onChange={(e) => setDiagramTitle(e.target.value)}
-                    placeholder="e.g., Frontend Architecture"
-                    className="w-full rounded-lg border border-white/20 bg-white/5 px-4 py-2 text-white placeholder:text-white/40 focus:border-white/40 focus:outline-none focus:ring-2 focus:ring-white/20"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="diagramDescription" className="mb-1 block text-sm font-medium text-white">
-                    Description (optional)
-                  </label>
-                  <textarea
-                    id="diagramDescription"
-                    value={diagramDescription}
-                    onChange={(e) => setDiagramDescription(e.target.value)}
-                    placeholder="Optional description..."
-                    rows={2}
-                    className="w-full rounded-lg border border-white/20 bg-white/5 px-4 py-2 text-white placeholder:text-white/40 focus:border-white/40 focus:outline-none focus:ring-2 focus:ring-white/20"
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Load Existing Diagrams */}
-            {existingDiagrams.length > 0 && (
-              <div className="pl-6">
-                <label htmlFor="existingDiagrams" className="mb-2 block text-sm font-medium text-white">
-                  Load Existing Diagram
-                </label>
-                <select
-                  id="existingDiagrams"
-                  onChange={(e) => {
-                    const diagram = existingDiagrams.find((d) => d.id === e.target.value);
-                    if (diagram) loadDiagram(diagram);
-                  }}
-                  className="w-full rounded-lg border border-white/20 bg-white/5 px-4 py-2 text-white focus:border-white/40 focus:outline-none focus:ring-2 focus:ring-white/20"
-                >
-                  <option value="">Select a saved diagram...</option>
-                  {existingDiagrams.map((diagram) => (
-                    <option key={diagram.id} value={diagram.id}>
-                      {diagram.title} (Updated: {new Date(diagram.last_updated_at).toLocaleDateString()})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-          </div>
-        )}
-
-        <button
-          onClick={handleSubmit}
-          disabled={status === 'processing'}
-          className="mt-6 w-full rounded-lg bg-blue-600 px-4 py-3 font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-        >
+        <button onClick={handleSubmit} disabled={status === 'processing'} className="primary-action w-full">
           {status === 'processing' ? (
-            <span className="flex items-center justify-center gap-2">
+            <span className="flex items-center justify-center gap-2 text-sm">
               <Loader2 className="h-4 w-4 animate-spin" />
               Analyzing codebase...
             </span>
@@ -652,7 +439,7 @@ export function ArchitecturePageClient() {
             'Generate Architecture Diagram'
           )}
         </button>
-      </div>
+      </section>
 
       {/* Error Message */}
       {errorMessage && (
@@ -662,48 +449,12 @@ export function ArchitecturePageClient() {
         </div>
       )}
 
-      {/* Update Status */}
-      {savedDiagramId && updateStatus && (
-        <div className={`mb-6 rounded-lg border p-4 ${
-          updateStatus.outdated
-            ? 'border-yellow-500/50 bg-yellow-500/10 text-yellow-200'
-            : 'border-green-500/50 bg-green-500/10 text-green-200'
-        }`}>
-          <p className="text-sm">{updateStatus.message}</p>
-          {updateStatus.outdated && (
-            <button
-              onClick={refreshDiagram}
-              disabled={status === 'processing'}
-              className="mt-2 rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Refresh Diagram
-            </button>
-          )}
-        </div>
-      )}
-
       {/* Results */}
       {status === 'completed' && detectionResult && (
         <div className="rounded-xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-xl font-bold text-white">Generated Architecture Diagram</h2>
             <div className="flex gap-2">
-              {savedDiagramId && (
-                <button
-                  onClick={checkForUpdates}
-                  disabled={checkingUpdates}
-                  className="flex items-center gap-2 rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-sm text-white/80 transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {checkingUpdates ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Checking...
-                    </>
-                  ) : (
-                    'Check Updates'
-                  )}
-                </button>
-              )}
               <button
                 onClick={copyToClipboard}
                 className="flex items-center gap-2 rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-sm text-white/80 transition-colors hover:bg-white/10"

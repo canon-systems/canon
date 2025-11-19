@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
 
-export async function GET(_request: NextRequest) {
+export async function GET() {
   try {
     const { user } = await getSession();
     if (!user) {
@@ -23,14 +23,15 @@ export async function GET(_request: NextRequest) {
     }
 
     return NextResponse.json({
-      connections: connections || []
+      connections: connections || [],
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
     console.error('List connections error:', err);
     return NextResponse.json(
       {
         error: 'Failed to list connections',
-        detail: err.message || String(err)
+        detail: message,
       },
       { status: 500 }
     );

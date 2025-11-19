@@ -166,7 +166,7 @@ function getMethodIcon(m: InputType) {
   }
 }
 
-export function SubmitPageClient() {
+export function DocumentationPageClient() {
   const router = useRouter();
   const supabase = createClient();
   const modelDropdownRef = useRef<HTMLDivElement>(null);
@@ -557,17 +557,17 @@ export function SubmitPageClient() {
           ? { filename: pasteFilename, model: selectedModel, llm_prompt_config: promptConfig }
           : method === 'zipped_folder'
             ? {
-                zip_name: zipFile?.name ?? null,
-                model: selectedModel,
-                llm_prompt_config: promptConfig
-              }
+              zip_name: zipFile?.name ?? null,
+              model: selectedModel,
+              llm_prompt_config: promptConfig
+            }
             : {
-                repoUrl,
-                branch,
-                model: selectedModel,
-                llm_prompt_config: promptConfig,
-                ...(method === 'github_repo_directory' ? { subdir } : {})
-              };
+              repoUrl,
+              branch,
+              model: selectedModel,
+              llm_prompt_config: promptConfig,
+              ...(method === 'github_repo_directory' ? { subdir } : {})
+            };
 
       const repoProvider = isGit && repoUrl ? detectRepoProvider(repoUrl) : null;
 
@@ -756,243 +756,252 @@ export function SubmitPageClient() {
 
   return (
     <div className="min-h-screen px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-3xl">
-        <div className="mb-8">
-          <h1 className="mb-2 text-3xl font-bold text-white">Submit Source</h1>
+      <div className="mx-auto max-w-3xl space-y-10">
+        <div>
+          <h1 className="mb-2 text-3xl font-bold text-white">Generate Documentation</h1>
           <p className="text-white/70">
             Pick a method, provide inputs, select files (for Git), then Analyze & Save.
           </p>
         </div>
 
-        {/* Method selector */}
-        <div className="mb-6 grid grid-cols-2 gap-2 md:grid-cols-4">
-          {[
-            { id: 'github_repo', label: 'Git Repo' },
-            { id: 'github_repo_directory', label: 'Git Directory' },
-            { id: 'zipped_folder', label: 'Zip Upload' },
-            { id: 'pasted_code', label: 'Paste Code' }
-          ].map(opt => {
-            const Icon = getMethodIcon(opt.id as InputType);
-            return (
-              <button
-                key={opt.id}
-                className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm text-white transition hover:bg-white/10 ${
-                  method === opt.id
-                    ? 'border-white/35 bg-white/12'
-                    : 'border-white/20'
-                }`}
-                onClick={() => setMethod(opt.id as InputType)}
-                aria-pressed={method === opt.id}
-              >
-                <Icon className="h-4 w-4" />
-                <span>{opt.label}</span>
-              </button>
-            );
-          })}
-        </div>
+        <section className="form-panel space-y-6">
+          <div>
+            <p className="section-label">Input Method</p>
+            <p className="section-helper">Select how you want to provide your source material.</p>
+          </div>
 
-        {/* Common: Title and Model */}
-        <div className="mb-4 grid gap-4 md:grid-cols-2">
-          <label className="block">
-            <div className="mb-1 text-sm text-white/70">Document title</div>
-            <input
-              className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white placeholder-white/60 outline-none focus:border-white/40"
-              value={docTitle}
-              onChange={(e) => setDocTitle(e.target.value)}
-              placeholder="e.g., API Overview"
-            />
-          </label>
-          <label className="block">
-            <div className="mb-1 text-sm text-white/70">AI Model</div>
-            <div className="relative" ref={modelDropdownRef}>
-              <button
-                type="button"
-                className="flex w-full items-center justify-between rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-left text-white outline-none focus:border-white/40 focus:ring-2 focus:ring-white/20 disabled:cursor-not-allowed disabled:opacity-50"
-                onClick={() => !running && setShowModelDropdown(!showModelDropdown)}
-                disabled={running}
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  {selectedModelObj ? (
-                    <>
-                      <span className="font-medium">{selectedModelObj.label}</span>
-                      <span className="text-xs text-white/60">({selectedModelObj.provider})</span>
-                      <span className="text-xs text-yellow-400">{selectedModelObj.cost}</span>
-                      <span className="text-xs text-blue-400">{selectedModelObj.context}</span>
-                    </>
-                  ) : (
-                    <span className="font-medium">Select model...</span>
-                  )}
-                </div>
-                <ChevronDown className={`h-4 w-4 text-white/60 transition-transform ${showModelDropdown ? 'rotate-180' : ''}`} />
-              </button>
+          <div className="method-grid">
+            {[
+              { id: 'github_repo', label: 'Git Repo' },
+              { id: 'github_repo_directory', label: 'Git Directory' },
+              { id: 'zipped_folder', label: 'ZIP Upload' },
+              { id: 'pasted_code', label: 'Paste Code' }
+            ].map((opt) => {
+              const Icon = getMethodIcon(opt.id as InputType);
+              return (
+                <button
+                  key={opt.id}
+                  className="method-pill"
+                  data-active={method === opt.id}
+                  onClick={() => setMethod(opt.id as InputType)}
+                  aria-pressed={method === opt.id}
+                >
+                  <Icon className="h-4 w-4" />
+                  <span>{opt.label}</span>
+                </button>
+              );
+            })}
+          </div>
 
-              {showModelDropdown && (
-                <div className="absolute z-50 mt-1 max-h-96 w-full overflow-auto rounded-lg border border-white/20 bg-gray-900 shadow-xl">
-                  {availableModels.filter(m => m && m.value && m.label).map(model => (
-                    <button
-                      key={model.value}
-                      type="button"
-                      className={`w-full px-4 py-3 text-left transition-colors hover:bg-white/10 focus:bg-white/10 focus:outline-none ${
-                        selectedModel === model.value ? 'bg-white/15' : ''
-                      }`}
-                      onClick={() => {
-                        setSelectedModel(model.value);
-                        setShowModelDropdown(false);
-                      }}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="mb-1 flex flex-wrap items-center gap-2">
-                            <span className="font-semibold text-white">{model.label}</span>
-                            {model.provider && <span className="text-xs text-white/60">({model.provider})</span>}
-                            {model.cost && <span className="text-xs font-medium text-yellow-400">{model.cost}</span>}
-                            {model.context && <span className="text-xs font-medium text-blue-400">{model.context}</span>}
+          <div className="form-divider" />
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="field-group">
+              <span className="field-label">Document title</span>
+              <input
+                className="field-input"
+                value={docTitle}
+                onChange={(e) => setDocTitle(e.target.value)}
+                placeholder="e.g., API Overview"
+              />
+            </label>
+
+            <label className="field-group">
+              <span className="field-label">AI model</span>
+              <div className="relative" ref={modelDropdownRef}>
+                <button
+                  type="button"
+                  className={`field-input flex items-center justify-between text-left disabled:cursor-not-allowed disabled:opacity-50 ${running ? 'opacity-70' : ''
+                    }`}
+                  onClick={() => !running && setShowModelDropdown(!showModelDropdown)}
+                  disabled={running}
+                >
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                    {selectedModelObj ? (
+                      <>
+                        <span className="font-medium">{selectedModelObj.label}</span>
+                        <span className="text-xs text-white/60">({selectedModelObj.provider})</span>
+                        <span className="text-xs text-white/70">{selectedModelObj.cost}</span>
+                        <span className="text-xs text-white/50">{selectedModelObj.context}</span>
+                      </>
+                    ) : (
+                      <span className="font-medium text-white/60">Select model...</span>
+                    )}
+                  </div>
+                  <ChevronDown className={`h-4 w-4 text-white/60 transition-transform ${showModelDropdown ? 'rotate-180' : ''}`} />
+                </button>
+
+                {showModelDropdown && (
+                  <div className="absolute z-50 mt-1 max-h-96 w-full overflow-auto rounded-lg border border-white/15 bg-[#0f0f12] shadow-xl">
+                    {availableModels
+                      .filter((m) => m && m.value && m.label)
+                      .map((model) => (
+                        <button
+                          key={model.value}
+                          type="button"
+                          className={`w-full px-4 py-3 text-left transition-colors hover:bg-white/5 focus:bg-white/5 focus:outline-none ${selectedModel === model.value ? 'bg-white/10' : ''
+                            }`}
+                          onClick={() => {
+                            setSelectedModel(model.value);
+                            setShowModelDropdown(false);
+                          }}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1 text-sm">
+                              <div className="mb-1 flex flex-wrap items-center gap-2">
+                                <span className="font-semibold text-white">{model.label}</span>
+                                {model.provider && <span className="text-xs text-white/60">({model.provider})</span>}
+                                {model.cost && <span className="text-xs font-medium text-white/70">{model.cost}</span>}
+                                {model.context && (
+                                  <span className="text-xs font-medium text-white/50">{model.context}</span>
+                                )}
+                              </div>
+                              {model.description && (
+                                <p className="text-xs leading-relaxed text-white/60">{model.description}</p>
+                              )}
+                            </div>
+                            {selectedModel === model.value && <Check className="h-5 w-5 shrink-0 text-green-400" />}
                           </div>
-                          {model.description && (
-                            <p className="text-xs leading-relaxed text-white/70">{model.description}</p>
-                          )}
-                        </div>
-                        {selectedModel === model.value && (
-                          <Check className="h-5 w-5 shrink-0 text-green-400" />
-                        )}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </label>
-        </div>
+                        </button>
+                      ))}
+                  </div>
+                )}
+              </div>
+            </label>
+          </div>
+        </section>
 
         {/* Method-specific inputs */}
         {isGit && (
-          <>
+          <section className="form-panel space-y-6 mt-10">
             {!checkingGitHub && !hasGitHubConnection && (
-              <div className="mb-4 rounded-lg border border-yellow-500/50 bg-yellow-500/10 p-4">
+              <div className="rounded-xl border border-yellow-500/40 bg-yellow-500/15 p-4 text-sm text-yellow-100">
                 <div className="flex items-start gap-3">
-                  <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-yellow-400" />
+                  <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0" />
                   <div className="flex-1">
-                    <p className="mb-1 text-sm font-medium text-yellow-200">GitHub Connection Recommended</p>
-                    <p className="mb-2 text-xs text-yellow-200/80">
-                      Public repositories will work without a connection, but you'll have lower rate
-                      limits (60 requests/hour). Private repositories require a GitHub connection.
+                    <p className="font-medium">GitHub connection recommended</p>
+                    <p className="mt-1 text-xs text-yellow-100/80">
+                      Public repositories work without a connection, but you'll have lower rate limits (60 requests/hour).
+                      Private repositories require a GitHub connection.
                     </p>
                     <a
                       href="/settings?tab=integrations"
-                      className="inline-flex items-center gap-1 text-xs text-yellow-300 underline hover:text-yellow-200"
+                      className="mt-2 inline-flex items-center gap-1 text-xs font-semibold underline"
                     >
-                      Connect GitHub for higher rate limits and private repo access
+                      Connect GitHub for higher rate limits →
                     </a>
                   </div>
                 </div>
               </div>
             )}
 
-            <div className="mb-4 grid gap-3 md:grid-cols-2">
-              <label className="block md:col-span-2">
-                <div className="mb-1 text-sm text-white/70">
-                  GitHub Owner/Organization <span className="text-red-400">*</span>
-                </div>
-                <div className="flex gap-2">
-                  <input
-                    className="flex-1 rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white placeholder-white/60 outline-none focus:border-white/40"
-                    value={ownerInput}
-                    onChange={(e) => setOwnerInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        searchRepos();
-                      }
-                    }}
-                    placeholder="Enter owner/org (e.g., 'facebook' or 'github.com/facebook')"
-                    required
-                  />
-                  <button
-                    type="button"
-                    className="rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-50"
-                    onClick={searchRepos}
-                    disabled={!ownerInput.trim() || loadingRepos}
-                  >
-                    Search
-                  </button>
-                </div>
-                <p className="mt-1 text-xs text-white/50">
-                  Enter a GitHub username or organization to search for repositories
-                </p>
-              </label>
+            <div className="field-group">
+              <span className="field-label">
+                GitHub owner/organization <span className="text-red-400">*</span>
+              </span>
+              <div className="flex gap-2">
+                <input
+                  className="field-input"
+                  value={ownerInput}
+                  onChange={(e) => setOwnerInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      searchRepos();
+                    }
+                  }}
+                  placeholder="Enter owner/org (e.g., 'facebook' or 'github.com/facebook')"
+                  required
+                />
+                <button
+                  type="button"
+                  className="secondary-action"
+                  onClick={searchRepos}
+                  disabled={!ownerInput.trim() || loadingRepos}
+                >
+                  Search
+                </button>
+              </div>
+              <p className="field-note">Enter a GitHub username or organization to search for repositories.</p>
+            </div>
 
-              {showRepoSelector && baseOwner && (
-                <label className="block md:col-span-2">
-                  <div className="mb-1 text-sm text-white/70">
-                    Repository <span className="text-red-400">*</span>
-                  </div>
-                  <SearchableSelect
-                    options={repos
-                      .filter(r => r && r.url && r.full_name)
-                      .map(r => ({
-                        value: r.url || '',
-                        label: `${r.full_name || ''}${r.private ? ' (private)' : ''}`
-                      }))}
-                    value={repoUrl}
-                    placeholder={loadingRepos ? 'Loading repositories...' : 'Search repositories...'}
-                    searchPlaceholder="Search repositories..."
-                    disabled={loadingRepos}
-                    onChange={(value) => setRepoUrl(value)}
-                  />
-                  {loadingRepos && <p className="mt-1 text-xs text-white/50">Loading repositories...</p>}
-                  {!loadingRepos && repos.length === 0 && baseOwner && (
-                    <p className="mt-1 text-xs text-white/50">No repositories found for {baseOwner}</p>
-                  )}
-                </label>
-              )}
-
-              <label className="block">
-                <div className="mb-1 text-sm text-white/70">Branch</div>
+            {showRepoSelector && baseOwner && (
+              <div className="field-group">
+                <span className="field-label">
+                  Repository <span className="text-red-400">*</span>
+                </span>
                 <SearchableSelect
-                  options={branches.map(b => ({ value: b, label: b }))}
+                  options={repos
+                    .filter((r) => r && r.url && r.full_name)
+                    .map((r) => ({
+                      value: r.url || '',
+                      label: `${r.full_name || ''}${r.private ? ' (private)' : ''}`,
+                    }))}
+                  value={repoUrl}
+                  placeholder={loadingRepos ? 'Loading repositories...' : 'Search repositories...'}
+                  searchPlaceholder="Search repositories..."
+                  disabled={loadingRepos}
+                  onChange={(value) => setRepoUrl(value)}
+                  triggerClassName="field-select"
+                />
+                {loadingRepos ? (
+                  <p className="field-note">Loading repositories…</p>
+                ) : (
+                  repos.length === 0 &&
+                  baseOwner && <p className="field-note">No repositories found for {baseOwner}</p>
+                )}
+              </div>
+            )}
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="field-group">
+                <span className="field-label">Branch</span>
+                <SearchableSelect
+                  options={branches.map((b) => ({ value: b, label: b }))}
                   value={branch}
                   placeholder={loadingBranches ? 'Loading...' : branches.length === 0 ? 'Enter repo URL first' : 'Select branch...'}
                   searchPlaceholder="Search branches..."
                   disabled={loadingBranches || branches.length === 0}
                   onChange={(value) => setBranch(value)}
+                  triggerClassName="field-select"
                 />
-                {loadingBranches && <p className="mt-1 text-xs text-white/50">Loading branches...</p>}
-              </label>
+              </div>
 
               {method === 'github_repo_directory' && (
-                <label className="block">
-                  <div className="mb-1 text-sm text-white/70">Subfolder (optional)</div>
+                <div className="field-group">
+                  <span className="field-label">Subdirectory (optional)</span>
                   <SearchableSelect
                     options={[
                       { value: '', label: 'Root (all files)' },
-                      ...directories.map(d => ({ value: d, label: d }))
+                      ...directories.map((d) => ({ value: d, label: d })),
                     ]}
                     value={subdir}
-                    placeholder={loadingDirectories ? 'Loading...' : directories.length === 0 && branch ? 'No subdirectories found' : 'Select subfolder...'}
+                    placeholder={
+                      loadingDirectories
+                        ? 'Loading...'
+                        : directories.length === 0 && branch
+                          ? 'No subdirectories found'
+                          : 'Select subfolder...'
+                    }
                     searchPlaceholder="Search directories..."
                     disabled={loadingDirectories || !branch}
                     onChange={(value) => setSubdir(value)}
+                    triggerClassName="field-select"
                   />
-                  {loadingDirectories && <p className="mt-1 text-xs text-white/50">Loading directories...</p>}
-                </label>
+                </div>
               )}
             </div>
 
-            {/* Git file list */}
-            <div className="mb-6 rounded-2xl border border-white/20 bg-white/10 p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <div className="text-sm text-white/70">
-                  Files in repository{method === 'github_repo_directory' && subdir ? `/${subdir}` : ''}
-                </div>
+            <div className="form-divider" />
+
+            <div>
+              <div className="mb-3 flex items-center justify-between text-sm text-white/80">
+                <span>Files in repository{method === 'github_repo_directory' && subdir ? `/${subdir}` : ''}</span>
                 <div className="flex items-center gap-2">
                   {showLoadButton && (
-                    <button
-                      className="rounded-lg border border-white/20 px-3 py-1 text-sm text-white hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-                      onClick={listGitFiles}
-                      disabled={listing}
-                    >
+                    <button className="secondary-action px-3 py-1 text-xs" onClick={listGitFiles} disabled={listing}>
                       {listing ? (
-                        <span className="inline-flex items-center gap-2">
+                        <span className="inline-flex items-center gap-1">
                           <Loader2 className="h-4 w-4 animate-spin" /> Loading…
                         </span>
                       ) : (
@@ -1000,19 +1009,12 @@ export function SubmitPageClient() {
                       )}
                     </button>
                   )}
-
                   {pickerFiles.length > 0 && (
                     <>
-                      <button
-                        className="rounded-lg border border-white/20 px-3 py-1 text-sm text-white hover:bg-white/10"
-                        onClick={selectAll}
-                      >
+                      <button className="secondary-action px-3 py-1 text-xs" onClick={selectAll}>
                         Select all
                       </button>
-                      <button
-                        className="rounded-lg border border-white/20 px-3 py-1 text-sm text-white hover:bg-white/10"
-                        onClick={clearAll}
-                      >
+                      <button className="secondary-action px-3 py-1 text-xs" onClick={clearAll}>
                         Clear
                       </button>
                     </>
@@ -1021,73 +1023,68 @@ export function SubmitPageClient() {
               </div>
 
               {pickerFiles.length > 0 ? (
-                <div className="max-h-64 overflow-auto rounded-lg border border-white/10">
+                <div className="max-h-64 overflow-auto rounded-xl border border-white/10">
                   <ul className="divide-y divide-white/10">
-                    {pickerFiles.map(f => (
-                      <li key={f.path} className="flex items-center gap-3 px-3 py-2">
-                        <input
-                          type="checkbox"
-                          checked={selectedPaths.has(f.path)}
-                          onChange={() => togglePick(f.path)}
-                        />
-                        <span className="font-mono text-sm text-white/90">{f.path}</span>
+                    {pickerFiles.map((f) => (
+                      <li key={f.path} className="flex items-center gap-3 px-3 py-2 text-sm">
+                        <input type="checkbox" checked={selectedPaths.has(f.path)} onChange={() => togglePick(f.path)} />
+                        <span className="font-mono text-white/90">{f.path}</span>
                         <span className="ml-auto text-xs text-white/50">{f.size} bytes</span>
                       </li>
                     ))}
                   </ul>
                 </div>
               ) : (
-                <div className="text-sm text-white/60">No files loaded yet.</div>
+                <p className="text-sm text-white/60">No files loaded yet.</p>
               )}
             </div>
-          </>
+          </section>
         )}
 
         {method === 'zipped_folder' && (
-          <div className="mb-6 rounded-2xl border border-white/20 bg-white/10 p-4">
-            <label className="block">
-              <div className="mb-1 text-sm text-white/70">Upload a .zip file</div>
+          <section className="form-panel space-y-4 mt-6">
+            <label className="field-group">
+              <span className="field-label">Upload a .zip file</span>
               <input
                 type="file"
                 accept=".zip"
-                className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white file:mr-3 file:rounded file:border-0 file:bg-white/20 file:px-3 file:py-1 file:text-white hover:bg-white/5"
+                className="field-input file:mr-3 file:rounded file:border-0 file:bg-white/10 file:px-3 file:py-1 file:text-white"
                 onChange={(e) => setZipFile(e.target.files?.[0] || null)}
               />
-              {zipFile && <div className="mt-2 text-sm text-white/70">Selected: {zipFile.name}</div>}
+              {zipFile && <span className="field-note">Selected: {zipFile.name}</span>}
             </label>
-          </div>
+          </section>
         )}
 
         {method === 'pasted_code' && (
-          <div className="mb-6 rounded-2xl border border-white/20 bg-white/10 p-4">
-            <div className="grid gap-3 md:grid-cols-2">
-              <label className="block">
-                <div className="mb-1 text-sm text-white/70">Filename</div>
-                <input
-                  className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white placeholder-white/60 outline-none focus:border-white/40"
-                  value={pasteFilename}
-                  onChange={(e) => setPasteFilename(e.target.value)}
-                  placeholder="snippet.txt"
-                />
-              </label>
-              <div></div>
-              <label className="block md:col-span-2">
-                <div className="mb-1 text-sm text-white/70">Paste your code</div>
-                <textarea
-                  className="h-48 w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white placeholder-white/60 outline-none focus:border-white/40"
-                  value={pasteCode}
-                  onChange={(e) => setPasteCode(e.target.value)}
-                  placeholder="// paste here…"
-                />
-              </label>
-            </div>
-          </div>
+          <section className="form-panel space-y-4 mt-6">
+            <label className="field-group">
+              <span className="field-label">Filename</span>
+              <input
+                className="field-input"
+                value={pasteFilename}
+                onChange={(e) => setPasteFilename(e.target.value)}
+                placeholder="snippet.txt"
+              />
+            </label>
+            <div className="form-divider" />
+            <label className="field-group">
+              <span className="field-label">Paste your code</span>
+              <textarea
+                className="field-input"
+                style={{ minHeight: 180 }}
+                value={pasteCode}
+                onChange={(e) => setPasteCode(e.target.value)}
+                placeholder="// paste here…"
+              />
+            </label>
+          </section>
         )}
 
         {/* LLM Prompt Customization */}
-        <div className="mb-6">
+        <section className="form-panel space-y-4 mt-6">
           <PromptCustomizer promptConfig={promptConfig} onChange={setPromptConfig} />
-        </div>
+        </section>
 
         {/* Error / Status */}
         {errorMsg && (
@@ -1102,26 +1099,18 @@ export function SubmitPageClient() {
         )}
 
         {/* Primary CTA */}
-        <div className="flex items-center gap-3">
-          <button
-            className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 px-5 py-2.5 text-white shadow hover:from-purple-600 hover:to-pink-600 disabled:opacity-60"
-            onClick={analyzeAndSave}
-            disabled={running}
-          >
+        <div className="flex flex-wrap gap-3 mt-6">
+          <button className="primary-action flex-1 min-w-[200px]" onClick={analyzeAndSave} disabled={running}>
             {running ? (
-              <>
+              <span className="inline-flex items-center gap-2 text-sm">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                <span>Analyzing…</span>
-              </>
+                Analyzing…
+              </span>
             ) : (
-              <span>Analyze & Save</span>
+              'Analyze & Save'
             )}
           </button>
-
-          <a
-            href="/edit"
-            className="rounded-xl border border-white/20 px-4 py-2 text-white/80 hover:bg-white/10"
-          >
+          <a href="/edit" className="secondary-action min-w-[160px] text-center">
             View History
           </a>
         </div>

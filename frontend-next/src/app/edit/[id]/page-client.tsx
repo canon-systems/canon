@@ -3,12 +3,13 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Loader2, AlertCircle, CheckCircle2, RefreshCw, Clock, FileText, GitCompare } from 'lucide-react';
+import { Loader2, AlertCircle, CheckCircle2, RefreshCw, Clock, FileText, GitCompare, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { PromptCustomizer } from '@/components/PromptCustomizer';
 import { RichTextEditor } from '@/components/RichTextEditor';
 import { marked } from 'marked';
 import TurndownService from 'turndown';
+import { buildFileChangeUrl } from '@/lib/utils/repoUrls';
 
 interface Submission {
   id: string;
@@ -21,6 +22,7 @@ interface Submission {
   input_content: string;
   summary: string | null;
   source_meta?: any;
+  code_snapshot?: any;
   is_outdated: boolean;
 }
 
@@ -50,6 +52,7 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
   const [isOutdated, setIsOutdated] = useState(initialSubmission.is_outdated || false);
   const [lastCheckedAt, setLastCheckedAt] = useState<Date | null>(null);
   const [showChangedFiles, setShowChangedFiles] = useState(false);
+  const [dismissedBanner, setDismissedBanner] = useState(false);
 
   // Prompt customization state
   const [promptConfig, setPromptConfig] = useState(
@@ -177,6 +180,7 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
         if (result.outdated) {
           setIsOutdated(true);
           setOutdatedFiles(result.changedFiles || []);
+          setDismissedBanner(false); // Reset dismissal when new outdated files are detected
         } else {
           setIsOutdated(false);
           setOutdatedFiles([]);
@@ -224,66 +228,98 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
 
           {/* Outdated files banner */}
           {checkingUpdates && (
-            <div className="mt-2 flex items-center gap-2 rounded-xl border border-blue-300/30 bg-blue-500/10 px-3 py-2 text-blue-200">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span>Checking for updates...</span>
+            <div className="glass-panel mt-4 flex items-center gap-3 border-blue-500/30 bg-blue-500/10 p-4">
+              <div className="rounded-lg bg-blue-500/20 p-2">
+                <Loader2 className="h-5 w-5 animate-spin text-blue-400" />
+              </div>
+              <div>
+                <p className="font-medium text-blue-200">Checking for updates...</p>
+                <p className="text-sm text-blue-200/70">Comparing your source files with the latest changes</p>
+              </div>
             </div>
           )}
 
-          {(isOutdated || initialSubmission.is_outdated) && outdatedFiles.length > 0 && (
-            <div className="mt-2 rounded-xl border border-orange-300/30 bg-orange-500/10 px-4 py-3 text-orange-200">
-              <div className="mb-2 flex items-center gap-2">
-                <AlertCircle className="h-5 w-5" />
-                <span className="font-semibold">Source files have changed</span>
+          {(isOutdated || initialSubmission.is_outdated) && outdatedFiles.length > 0 && !dismissedBanner && (
+            <div className="glass-panel mt-4 border-orange-500/30 bg-gradient-to-br from-orange-500/10 to-orange-600/5 p-6 relative overflow-hidden">
+              {/* Decorative background pattern */}
+              <div className="absolute inset-0 opacity-5">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-orange-400 rounded-full blur-3xl"></div>
+                <div className="absolute bottom-0 left-0 w-24 h-24 bg-orange-500 rounded-full blur-2xl"></div>
               </div>
-              <p className="mb-3 text-sm text-orange-200/80">
-                {outdatedFiles.length} file{outdatedFiles.length === 1 ? '' : 's'} have been modified since
-                this documentation was created.
-              </p>
-              {lastCheckedAt && (
-                <p className="mb-3 text-xs text-orange-200/60">
-                  Last checked: {lastCheckedAt.toLocaleTimeString()}
-                </p>
-              )}
-              <button
-                className="mb-3 inline-flex items-center gap-2 rounded-lg bg-orange-500/20 px-3 py-1.5 text-xs font-medium text-orange-200 hover:bg-orange-500/30"
-                onClick={() => setShowChangedFiles(!showChangedFiles)}
-              >
-                <FileText className="h-3 w-3" />
-                <span>{showChangedFiles ? 'Hide' : 'Show'} changed files</span>
-              </button>
-              {showChangedFiles && (
-                <div className="mb-3 ml-4 max-h-48 space-y-2 overflow-y-auto">
-                  {outdatedFiles.map((file, idx) => (
-                    <div key={idx} className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-2 py-1.5">
-                      <span className="font-mono text-xs text-orange-200/90 flex-1 truncate" title={file.file_path}>
-                        {file.file_path}
-                      </span>
+              
+              <div className="relative">
+                <div className="mb-4 flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-4 flex-1">
+                    <div className="rounded-xl bg-orange-500/20 p-3 border border-orange-500/30">
+                      <AlertCircle className="h-6 w-6 text-orange-400" />
                     </div>
-                  ))}
+                    <div className="flex-1">
+                      <h3 className="text-lg font-semibold text-orange-100 mb-1">
+                        Source files have changed
+                      </h3>
+                      <p className="text-sm text-orange-200/90 mb-3">
+                        {outdatedFiles.length} file{outdatedFiles.length === 1 ? '' : 's'} {outdatedFiles.length === 1 ? 'has' : 'have'} been modified since this documentation was created.
+                      </p>
+                      
+                      {initialSubmission.source_meta?.workspace && (
+                        <div className="mb-3 rounded-lg border border-orange-500/20 bg-orange-500/10 px-3 py-2">
+                          <p className="text-xs text-orange-200/90">
+                            <span className="font-medium">📝 {initialSubmission.source_meta.workspace.provider || 'workspace'} linked:</span> Existing documentation will be pulled from {initialSubmission.source_meta.workspace.provider || 'workspace'} and used as context for regeneration. The {initialSubmission.source_meta.workspace.provider || 'workspace'} page will be updated after regeneration.
+                          </p>
+                        </div>
+                      )}
+                      
+                      {lastCheckedAt && (
+                        <p className="text-xs text-orange-200/60 mb-4">
+                          Last checked: {lastCheckedAt.toLocaleTimeString()}
+                        </p>
+                      )}
+                      
+                      <div className="flex flex-wrap items-center gap-3">
+                        <button
+                          className="inline-flex items-center gap-2 rounded-lg border border-orange-500/40 bg-orange-500/20 px-4 py-2 text-sm font-medium text-orange-100 transition-all hover:bg-orange-500/30 hover:border-orange-500/60 hover:shadow-lg hover:shadow-orange-500/20"
+                          onClick={() => setShowChangedFiles(true)}
+                        >
+                          <FileText className="h-4 w-4" />
+                          <span>View changed files ({outdatedFiles.length})</span>
+                        </button>
+                        <Link
+                          href={`/edit/${initialSubmission.id}/regenerate`}
+                          className="inline-flex items-center gap-2 rounded-lg border border-orange-500/50 bg-orange-500/30 px-5 py-2 text-sm font-semibold text-orange-50 transition-all hover:bg-orange-500/40 hover:border-orange-500/70 hover:shadow-lg hover:shadow-orange-500/30 hover:-translate-y-0.5"
+                        >
+                          <RefreshCw className="h-4 w-4" />
+                          <span>Update Documentation</span>
+                        </Link>
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    className="rounded-lg p-1.5 text-orange-200/60 hover:bg-orange-500/20 hover:text-orange-100 transition-colors flex-shrink-0"
+                    onClick={() => setDismissedBanner(true)}
+                    aria-label="Dismiss"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
                 </div>
-              )}
-              <Link
-                href={`/edit/${initialSubmission.id}/regenerate`}
-                className="inline-flex items-center gap-2 rounded-lg bg-orange-500/20 px-4 py-2 text-sm font-medium text-orange-200 hover:bg-orange-500/30"
-              >
-                <RefreshCw className="h-4 w-4" />
-                <span>Update Documentation</span>
-              </Link>
+              </div>
             </div>
           )}
 
           {isGitRepo && initialSubmission.status === 'completed' && !isOutdated && !initialSubmission.is_outdated && (
-            <div className="mt-2 flex items-center gap-2 rounded-xl border border-green-300/30 bg-green-500/10 px-3 py-2 text-green-200">
-              <CheckCircle2 className="h-4 w-4" />
-              <span className="text-sm">Documentation is up to date</span>
-              {lastCheckedAt && (
-                <span className="ml-2 text-xs text-green-200/60">
-                  (Checked {Math.round((Date.now() - lastCheckedAt.getTime()) / 1000 / 60)} min ago)
-                </span>
-              )}
+            <div className="glass-panel mt-4 flex items-center gap-4 border-green-500/30 bg-green-500/10 p-4">
+              <div className="rounded-lg bg-green-500/20 p-2 border border-green-500/30">
+                <CheckCircle2 className="h-5 w-5 text-green-400" />
+              </div>
+              <div className="flex-1">
+                <p className="font-medium text-green-200">Documentation is up to date</p>
+                {lastCheckedAt && (
+                  <p className="text-xs text-green-200/70 mt-0.5">
+                    Checked {Math.round((Date.now() - lastCheckedAt.getTime()) / 1000 / 60)} min ago
+                  </p>
+                )}
+              </div>
               <button
-                className="ml-auto inline-flex items-center gap-1 rounded-lg bg-green-500/20 px-3 py-1 text-xs font-medium text-green-200 hover:bg-green-500/30 disabled:opacity-60 disabled:cursor-not-allowed"
+                className="inline-flex items-center gap-2 rounded-lg border border-green-500/40 bg-green-500/20 px-3 py-1.5 text-xs font-medium text-green-200 transition-all hover:bg-green-500/30 hover:border-green-500/60 disabled:opacity-60 disabled:cursor-not-allowed"
                 onClick={checkForUpdates}
                 disabled={checkingUpdates}
                 title="Check for updates"
@@ -392,6 +428,143 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
           </div>
         )}
       </div>
+
+      {/* Changed Files Modal */}
+      {showChangedFiles && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+          style={{
+            animation: 'fadeIn 0.2s ease-out'
+          }}
+          onClick={() => setShowChangedFiles(false)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setShowChangedFiles(false);
+          }}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="changed-files-title"
+        >
+          <div
+            className="glass-panel w-full max-w-2xl max-h-[80vh] flex flex-col shadow-xl"
+            style={{
+              animation: 'slideUp 0.2s ease-out'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-white/10 p-6">
+              <div className="flex items-center gap-3">
+                <div className="rounded-lg bg-orange-500/20 p-2">
+                  <AlertCircle className="h-5 w-5 text-orange-400" />
+                </div>
+                <div>
+                  <h2 id="changed-files-title" className="text-xl font-semibold text-white">
+                    Changed Files
+                  </h2>
+                  <p className="text-sm text-white/60 mt-0.5">
+                    {outdatedFiles.length} file{outdatedFiles.length === 1 ? '' : 's'} modified since documentation was created
+                  </p>
+                </div>
+              </div>
+              <button
+                className="rounded-lg p-1.5 text-white/60 hover:bg-white/10 hover:text-white transition-colors"
+                onClick={() => setShowChangedFiles(false)}
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* File List */}
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="space-y-2">
+                {outdatedFiles.map((file, idx) => {
+                  const repoUrl = initialSubmission.source_meta?.repoUrl || '';
+                  const branch = initialSubmission.source_meta?.branch || 'main';
+                  const oldCommitSha = initialSubmission.code_snapshot?.commitSha;
+                  const urls = buildFileChangeUrl(file.file_path, repoUrl, branch, oldCommitSha);
+                  
+                  return (
+                    <div
+                      key={idx}
+                      className="group flex items-center gap-3 rounded-lg border border-white/10 bg-white/5 p-3 transition-all hover:border-white/20 hover:bg-white/10"
+                    >
+                      <div className="rounded-md bg-blue-500/20 p-1.5">
+                        <FileText className="h-4 w-4 text-blue-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-mono text-sm text-white truncate" title={file.file_path}>
+                          {file.file_path}
+                        </p>
+                        <p className="text-xs text-white/50 mt-0.5">
+                          {repoUrl ? `${repoUrl.split('/').pop()} • ${branch}` : 'Repository'}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <a
+                          href={urls.view}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-xs font-medium text-blue-300 transition-all hover:border-blue-500/50 hover:bg-blue-500/20 hover:text-blue-200"
+                          title="View current version"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <FileText className="h-3.5 w-3.5" />
+                          View
+                        </a>
+                        {urls.compare && (
+                          <a
+                            href={urls.compare}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-purple-500/30 bg-purple-500/10 px-3 py-1.5 text-xs font-medium text-purple-300 transition-all hover:border-purple-500/50 hover:bg-purple-500/20 hover:text-purple-200"
+                            title="Compare changes"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <GitCompare className="h-3.5 w-3.5" />
+                            Compare
+                          </a>
+                        )}
+                        {urls.history && (
+                          <a
+                            href={urls.history}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-green-500/30 bg-green-500/10 px-3 py-1.5 text-xs font-medium text-green-300 transition-all hover:border-green-500/50 hover:bg-green-500/20 hover:text-green-200"
+                            title="View commit history"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <Clock className="h-3.5 w-3.5" />
+                            History
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="border-t border-white/10 p-4 flex items-center justify-end gap-3">
+              <button
+                className="rounded-lg border border-white/20 px-4 py-2 text-sm font-medium text-white/80 hover:bg-white/10 transition-colors"
+                onClick={() => setShowChangedFiles(false)}
+              >
+                Close
+              </button>
+              <Link
+                href={`/edit/${initialSubmission.id}/regenerate`}
+                className="inline-flex items-center gap-2 rounded-lg bg-orange-500/20 px-4 py-2 text-sm font-medium text-orange-200 hover:bg-orange-500/30 transition-colors"
+                onClick={() => setShowChangedFiles(false)}
+              >
+                <RefreshCw className="h-4 w-4" />
+                Update Documentation
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

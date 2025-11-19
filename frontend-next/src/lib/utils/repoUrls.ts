@@ -3,6 +3,29 @@
  * Supports GitHub, GitLab, Bitbucket, etc.
  */
 
+/**
+ * Detect repository provider from URL
+ * Returns 'github', 'gitlab', 'bitbucket', etc., or null if unknown
+ */
+export function detectRepoProvider(repoUrl: string): string | null {
+  if (!repoUrl) return null;
+  try {
+    const url = new URL(repoUrl);
+    if (url.hostname === 'github.com' || url.hostname.includes('github.com')) {
+      return 'github';
+    }
+    if (url.hostname === 'gitlab.com' || url.hostname.includes('gitlab.com')) {
+      return 'gitlab';
+    }
+    if (url.hostname === 'bitbucket.org' || url.hostname.includes('bitbucket.org')) {
+      return 'bitbucket';
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 export interface RepoFileUrls {
     view: string;
     compare?: string;

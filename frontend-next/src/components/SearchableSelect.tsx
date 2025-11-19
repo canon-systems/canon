@@ -10,6 +10,7 @@ interface SearchableSelectProps {
   disabled?: boolean;
   searchPlaceholder?: string;
   onChange: (value: string) => void;
+  triggerClassName?: string;
 }
 
 export function SearchableSelect({
@@ -19,6 +20,7 @@ export function SearchableSelect({
   disabled = false,
   searchPlaceholder = 'Search...',
   onChange,
+  triggerClassName = '',
 }: SearchableSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -70,7 +72,7 @@ export function SearchableSelect({
   }, [isOpen]);
 
   return (
-    <div className="relative" ref={dropdownRef}>
+    <div className={`relative ${isOpen ? 'z-50' : ''}`} ref={dropdownRef}>
       <button
         type="button"
         onClick={() => {
@@ -82,7 +84,7 @@ export function SearchableSelect({
           }
         }}
         disabled={disabled}
-        className="flex w-full items-center justify-between rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-left text-white outline-none focus:border-white/40 focus:ring-2 focus:ring-white/20 disabled:cursor-not-allowed disabled:opacity-50"
+        className={`field-select flex w-full items-center justify-between text-left text-white disabled:cursor-not-allowed disabled:opacity-50 ${triggerClassName}`}
       >
         <span className={value ? 'text-white' : 'text-white/60'}>{selectedLabel}</span>
         <ChevronDown className="h-4 w-4 text-white/60" />
@@ -90,11 +92,11 @@ export function SearchableSelect({
 
       {isOpen && !disabled && (
         <div
-          className="absolute z-50 mt-1 max-h-64 w-full overflow-hidden rounded-lg border border-white/20 bg-gray-900 shadow-xl"
+          className="absolute z-50 mt-1 max-h-64 w-full overflow-hidden rounded-lg border border-white/15 bg-[#0f0f0f] shadow-xl"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Search input */}
-          <div className="sticky top-0 border-b border-white/10 bg-gray-900 p-2">
+          <div className="sticky top-0 border-b border-white/10 bg-[#0f0f0f] p-2">
             <div className="relative">
               <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" />
               <input
@@ -102,7 +104,7 @@ export function SearchableSelect({
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={searchPlaceholder}
-                className="w-full rounded bg-white/5 px-8 py-1.5 text-sm text-white placeholder-white/40 outline-none focus:bg-white/10"
+                className="w-full rounded bg-[#1c1c1c] px-8 py-1.5 text-sm text-white placeholder-white/40 outline-none focus:bg-[#252525]"
                 onClick={(e) => e.stopPropagation()}
               />
             </div>
@@ -123,8 +125,8 @@ export function SearchableSelect({
                     selectOption(option.value);
                   }}
                   onMouseDown={(e) => e.preventDefault()}
-                  className={`w-full px-3 py-2 text-left text-sm text-white hover:bg-white/10 focus:bg-white/10 focus:outline-none ${
-                    value === option.value ? 'bg-blue-500/20' : ''
+                  className={`w-full px-3 py-2 text-left text-sm text-white hover:bg-[#252525] focus:bg-[#252525] focus:outline-none ${
+                    value === option.value ? 'bg-[#2f2f2f]' : ''
                   }`}
                 >
                   {option.label}
