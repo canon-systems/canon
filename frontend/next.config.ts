@@ -5,7 +5,14 @@ const nextConfig: NextConfig = {
   reactCompiler: true,
   // Ensure packages using Node.js APIs are not bundled for Edge Runtime
   experimental: {
-    serverComponentsExternalPackages: ['@nangohq/node'],
+    serverComponentsExternalPackages: [
+      '@nangohq/node',
+      '@octokit/rest',
+      'jszip',
+      'turndown',
+      'marked',
+      'node-html-parser',
+    ],
   },
 };
 
