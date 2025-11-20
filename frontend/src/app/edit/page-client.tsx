@@ -478,7 +478,7 @@ export function EditListPageClient({ user, items: initialItems, loadError }: Edi
                           ref={(el) => {
                             if (el) menuRefs.current[item.id] = el;
                           }}
-                          className="absolute right-0 top-full z-50 mt-1 min-w-[160px] rounded-lg border border-white/20 bg-black/90 p-1 shadow-lg backdrop-blur-md"
+                          className="absolute right-0 top-full z-[100] mt-1 min-w-[160px] rounded-lg border border-white/20 bg-black/95 p-1 shadow-xl backdrop-blur-md"
                           onClick={(e) => e.stopPropagation()}
                         >
                           <Link

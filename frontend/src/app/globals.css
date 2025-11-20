@@ -725,6 +725,15 @@ a[data-active="true"] {
   color: white;
 }
 
+/* User menu button hover fix */
+.user-menu-button {
+  background: transparent !important;
+}
+
+.user-menu-button:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+
 .page-shell {
   width: min(1200px, 100%);
   margin-inline: auto;

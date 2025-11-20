@@ -36,10 +36,11 @@ export function RootLayoutClient({
   async function handleLogout() {
     try {
       await supabase.auth.signOut();
-      router.push('/login');
-      router.refresh();
     } catch (e) {
       console.error('Logout failed', e);
+    } finally {
+      router.push('/login');
+      router.refresh();
     }
   }
 

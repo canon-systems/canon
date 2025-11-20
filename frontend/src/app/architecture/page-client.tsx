@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Github, Upload, Loader2, Download, Copy, Check } from 'lucide-react';
+import { Github, Upload, Loader2, Download, Copy, Check, Save, ExternalLink, Layers3 } from 'lucide-react';
 import { ArchitectureFlow } from '@/components/ArchitectureFlow';
 import { SearchableSelect } from '@/components/SearchableSelect';
 import type { DetectionResult } from '@/lib/server/architecture/detectTools';
+import Link from 'next/link';
 
 type InputType = 'github_repo_directory' | 'zipped_folder';
 type Status = 'idle' | 'processing' | 'completed' | 'error';
@@ -34,6 +35,13 @@ export function ArchitecturePageClient() {
   const [detectionResult, setDetectionResult] = useState<DetectionResult | null>(null);
   const [diagramMarkdown, setDiagramMarkdown] = useState('');
   const [copied, setCopied] = useState(false);
+  
+  // Save functionality
+  const [saving, setSaving] = useState(false);
+  const [savedDiagramId, setSavedDiagramId] = useState<string | null>(null);
+  const [saveTitle, setSaveTitle] = useState('');
+  const [saveDescription, setSaveDescription] = useState('');
+  const [saveError, setSaveError] = useState('');
 
   // Function to search for repos (matches SvelteKit behavior)
   function searchRepos() {
@@ -246,6 +254,18 @@ export function ArchitecturePageClient() {
       setDiagramMarkdown(result.diagram);
       setDetectionResult(result.tools);
       setStatus('completed');
+      
+      // Auto-populate title if saved
+      if (result.saved && result.diagramId) {
+        setSavedDiagramId(result.diagramId);
+        // Extract repo name for default title
+        if (method === 'github_repo_directory' && repoUrl) {
+          const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+          if (match) {
+            setSaveTitle(`${match[2]} - ${branch}${subdir ? ` (${subdir})` : ''}`);
+          }
+        }
+      }
     } catch (err: any) {
       setErrorMessage(err.message || 'Failed to generate architecture diagram');
       setStatus('error');
@@ -278,14 +298,77 @@ export function ArchitecturePageClient() {
     }
   }
 
+  async function handleSave() {
+    if (saving || !diagramMarkdown || !detectionResult) return;
+    
+    // Only allow saving GitHub repos (not ZIP files)
+    if (method !== 'github_repo_directory' || !repoUrl) {
+      setSaveError('Can only save diagrams from GitHub repositories');
+      return;
+    }
+
+    if (!saveTitle.trim()) {
+      setSaveError('Please enter a title');
+      return;
+    }
+
+    setSaving(true);
+    setSaveError('');
+
+    try {
+      const formData = new FormData();
+      formData.append('method', 'github');
+      formData.append('repoUrl', repoUrl.trim());
+      formData.append('branch', branch.trim());
+      if (subdir.trim()) {
+        formData.append('subdir', subdir.trim());
+      }
+      formData.append('saveDiagram', 'true');
+      formData.append('title', saveTitle.trim());
+      if (saveDescription.trim()) {
+        formData.append('description', saveDescription.trim());
+      }
+
+      const response = await fetch('/api/architecture/generate', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(error.error || `Server error: ${response.status}`);
+      }
+
+      const result = await response.json();
+      if (result.saved && result.diagramId) {
+        setSavedDiagramId(result.diagramId);
+      } else {
+        throw new Error('Failed to save diagram');
+      }
+    } catch (err: any) {
+      setSaveError(err.message || 'Failed to save diagram');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-4xl space-y-10 px-4 py-8 sm:px-6 lg:px-8">
-      <div>
-        <h1 className="text-3xl font-bold text-white mb-2">Architecture Diagram Generator</h1>
-        <p className="text-white/70">
-          Analyze your codebase and automatically generate a visual architecture diagram showing all tools,
-          services, and their connections.
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-white mb-2">Architecture Diagram Generator</h1>
+          <p className="text-white/70">
+            Analyze your codebase and automatically generate a visual architecture diagram showing all tools,
+            services, and their connections.
+          </p>
+        </div>
+        <Link
+          href="/architecture/manage"
+          className="flex items-center gap-2 rounded-lg border border-white/20 bg-white/5 px-4 py-2 text-sm text-white/80 transition-colors hover:bg-white/10 whitespace-nowrap"
+        >
+          <Layers3 className="h-4 w-4" />
+          Manage Diagrams
+        </Link>
       </div>
 
       {/* Input Form */}
@@ -451,26 +534,121 @@ export function ArchitecturePageClient() {
 
       {/* Results */}
       {status === 'completed' && detectionResult && (
-        <div className="rounded-xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-xl font-bold text-white">Generated Architecture Diagram</h2>
-            <div className="flex gap-2">
-              <button
-                onClick={copyToClipboard}
-                className="flex items-center gap-2 rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-sm text-white/80 transition-colors hover:bg-white/10"
-              >
-                {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                {copied ? 'Copied!' : 'Copy'}
-              </button>
-              <button
-                onClick={downloadMarkdown}
-                className="flex items-center gap-2 rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-sm text-white/80 transition-colors hover:bg-white/10"
-              >
-                <Download className="h-4 w-4" />
-                Download
-              </button>
+        <div className="space-y-6">
+          {/* Save Form - Only show for GitHub repos if not already saved */}
+          {method === 'github_repo_directory' && repoUrl && !savedDiagramId && (
+            <section className="form-panel space-y-6 mb-8">
+              <div>
+                <p className="section-label">Save Diagram</p>
+                <p className="section-helper">Save this architecture diagram to your account for future reference and updates.</p>
+              </div>
+
+              <div className="space-y-6">
+                <div className="field-group">
+                  <span className="field-label">
+                    Title <span className="text-red-400">*</span>
+                  </span>
+                  <input
+                    type="text"
+                    value={saveTitle}
+                    onChange={(e) => setSaveTitle(e.target.value)}
+                    placeholder="e.g., My Project - Main Branch"
+                    className="field-input"
+                  />
+                  <p className="field-note">Give your diagram a descriptive name to easily identify it later.</p>
+                </div>
+
+                <div className="field-group">
+                  <span className="field-label">Description (optional)</span>
+                  <textarea
+                    value={saveDescription}
+                    onChange={(e) => setSaveDescription(e.target.value)}
+                    placeholder="Add a description for this diagram..."
+                    rows={3}
+                    className="field-input"
+                  />
+                  <p className="field-note">Optional notes about this architecture diagram.</p>
+                </div>
+
+                {saveError && (
+                  <div className="rounded-lg border border-red-500/50 bg-red-500/10 p-4 text-red-200">
+                    <p className="font-medium">Error</p>
+                    <p className="text-sm">{saveError}</p>
+                  </div>
+                )}
+
+                <button
+                  onClick={handleSave}
+                  disabled={saving || !saveTitle.trim()}
+                  className="primary-action w-full"
+                >
+                  {saving ? (
+                    <span className="flex items-center justify-center gap-2 text-sm">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Saving...
+                    </span>
+                  ) : (
+                    <span className="flex items-center justify-center gap-2">
+                      <Save className="h-4 w-4" />
+                      Save Diagram
+                    </span>
+                  )}
+                </button>
+              </div>
+            </section>
+          )}
+
+          {/* Success Message */}
+          {savedDiagramId && (
+            <div className="rounded-xl border border-green-500/50 bg-green-500/10 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-green-200 font-medium">Diagram saved successfully!</p>
+                  <p className="text-green-300/80 text-sm mt-1">
+                    You can view and manage it from the architecture management page.
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Link
+                    href={`/architecture/${savedDiagramId}/history`}
+                    className="flex items-center gap-2 rounded-lg border border-green-500/50 bg-green-500/20 px-3 py-2 text-sm text-green-200 transition-colors hover:bg-green-500/30"
+                  >
+                    View History
+                    <ExternalLink className="h-4 w-4" />
+                  </Link>
+                  <Link
+                    href="/architecture/manage"
+                    className="flex items-center gap-2 rounded-lg border border-green-500/50 bg-green-500/20 px-3 py-2 text-sm text-green-200 transition-colors hover:bg-green-500/30"
+                  >
+                    Manage Diagrams
+                    <ExternalLink className="h-4 w-4" />
+                  </Link>
+                </div>
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* Diagram Display */}
+          <div className="rounded-xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-white">Generated Architecture Diagram</h2>
+              <div className="flex gap-2">
+                <button
+                  onClick={copyToClipboard}
+                  className="flex items-center gap-2 rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-sm text-white/80 transition-colors hover:bg-white/10"
+                >
+                  {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                  {copied ? 'Copied!' : 'Copy'}
+                </button>
+                <button
+                  onClick={downloadMarkdown}
+                  className="flex items-center gap-2 rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-sm text-white/80 transition-colors hover:bg-white/10"
+                >
+                  <Download className="h-4 w-4" />
+                  Download
+                </button>
+              </div>
+            </div>
 
           {/* React Flow Diagram */}
           <div className="mb-6">
@@ -508,6 +686,7 @@ export function ArchitecturePageClient() {
               </div>
             </div>
           )}
+          </div>
         </div>
       )}
     </div>
