@@ -734,6 +734,15 @@ a[data-active="true"] {
   background: rgba(255, 255, 255, 0.1) !important;
 }
 
+/* Edit menu delete button hover fix */
+.edit-menu-button {
+  background: transparent !important;
+}
+
+.edit-menu-button:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+
 .page-shell {
   width: min(1200px, 100%);
   margin-inline: auto;
