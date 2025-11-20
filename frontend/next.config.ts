@@ -31,25 +31,9 @@ const nextConfig: NextConfig = {
       'simple-icons',
     ],
   },
-  webpack: (config, { isServer }) => {
-    // Fix for Edge Runtime __dirname issue
-    // Prevent Node.js-specific modules from being bundled for Edge Runtime
-    if (!isServer) {
-      config.resolve.fallback = {
-        ...config.resolve.fallback,
-        fs: false,
-        net: false,
-        tls: false,
-      };
-    }
-
-    // Additional configuration for Edge Runtime compatibility
-    config.resolve.alias = {
-      ...config.resolve.alias,
-    };
-
-    return config;
-  },
+  // Note: webpack config removed - middleware uses esbuild, not webpack
+  // Middleware is configured to use Node.js runtime in middleware.ts
+  // to support dependencies that use Node.js APIs like __dirname
 };
 
 export default nextConfig;
