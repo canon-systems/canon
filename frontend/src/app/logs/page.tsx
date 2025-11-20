@@ -19,19 +19,24 @@ export default async function LogsPage() {
     .order('created_at', { ascending: false })
     .limit(100);
 
-  // Get architecture diagram updates
+  // Get architecture diagram updates for current user
   const { data: diagrams, error: diagramsError } = await supabase
     .from('architecture_diagrams')
     .select('id, created_at, last_updated_at, title, repo_url, branch, subdir, repo_provider')
+    .eq('user_id', user.id)
     .order('last_updated_at', { ascending: false })
     .limit(50);
 
-  // Get architecture diagram versions
-  const { data: versions, error: versionsError } = await supabase
-    .from('architecture_diagram_versions')
-    .select('id, created_at, diagram_id, version_number, change_summary')
-    .order('created_at', { ascending: false })
-    .limit(50);
+  // Get architecture diagram versions for current user's diagrams
+  const diagramIdsForUser = diagrams?.map(d => d.id) || [];
+  const { data: versions, error: versionsError } = diagramIdsForUser.length > 0
+    ? await supabase
+        .from('architecture_diagram_versions')
+        .select('id, created_at, diagram_id, version_number, change_summary')
+        .in('diagram_id', diagramIdsForUser)
+        .order('created_at', { ascending: false })
+        .limit(50)
+    : { data: null, error: null };
 
   // Get diagram info for versions
   const diagramIds = versions?.map(v => v.diagram_id) || [];
@@ -49,7 +54,7 @@ export default async function LogsPage() {
   // Build activity log entries
   const logEntries: Array<{
     id: string;
-    type: 'document' | 'document_error' | 'architecture' | 'architecture_version';
+    type: 'document' | 'document_error' | 'document_regenerated' | 'architecture' | 'architecture_version';
     timestamp: string;
     title: string;
     message: string;
@@ -107,12 +112,12 @@ export default async function LogsPage() {
       if (sub.last_checked_at && sub.last_checked_at !== sub.created_at) {
         logEntries.push({
           id: `${sub.id}-regenerated`,
-          type: 'document',
+          type: 'document_regenerated',
           timestamp: sub.last_checked_at,
           title: sub.title || 'Untitled Document',
           message: sub.is_outdated 
             ? 'Document regenerated (outdated due to code changes)'
-            : 'Document regenerated',
+            : 'Document regenerated with updated content',
           status: sub.status,
           link: `/edit/${sub.id}`,
           metadata: {

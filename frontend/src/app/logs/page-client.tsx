@@ -2,12 +2,12 @@
 
 import { useState, useMemo } from 'react';
 import type { User } from '@supabase/supabase-js';
-import { FileText, Layers3, AlertCircle, RefreshCw, ExternalLink, Calendar, GitBranch, Folder, Code, Clock } from 'lucide-react';
+import { FileText, Layers3, AlertCircle, RefreshCw, ExternalLink, Calendar, GitBranch, Folder, Code, Clock, Hash } from 'lucide-react';
 import Link from 'next/link';
 
 interface LogEntry {
   id: string;
-  type: 'document' | 'document_error' | 'architecture' | 'architecture_version';
+  type: 'document' | 'document_error' | 'document_regenerated' | 'architecture' | 'architecture_version';
   timestamp: string;
   title: string;
   message: string;
@@ -35,7 +35,7 @@ interface LogsData {
 
 type TimeFilter = '24h' | '3d' | '7d' | '14d' | '30d' | '90d' | '180d' | '1y' | 'all';
 type StatusFilter = 'all' | 'completed' | 'processing' | 'failed';
-type TypeFilter = 'all' | 'document' | 'document_error' | 'architecture' | 'architecture_version';
+type TypeFilter = 'all' | 'document' | 'document_error' | 'document_regenerated' | 'architecture' | 'architecture_version';
 
 interface LogsPageClientProps {
   user: User | null;
@@ -123,6 +123,8 @@ export function LogsPageClient({ user, logs }: LogsPageClientProps) {
         return FileText;
       case 'document_error':
         return AlertCircle;
+      case 'document_regenerated':
+        return RefreshCw;
       case 'architecture':
         return Layers3;
       case 'architecture_version':
@@ -138,6 +140,8 @@ export function LogsPageClient({ user, logs }: LogsPageClientProps) {
         return 'bg-blue-500/20 text-blue-400';
       case 'document_error':
         return 'bg-red-500/20 text-red-400';
+      case 'document_regenerated':
+        return 'bg-gradient-to-br from-purple-500/30 to-pink-500/30 text-purple-200 border border-purple-500/50';
       case 'architecture':
         return 'bg-purple-500/20 text-purple-400';
       case 'architecture_version':
@@ -207,6 +211,7 @@ export function LogsPageClient({ user, logs }: LogsPageClientProps) {
             <option value="all">All types</option>
             <option value="document">Document</option>
             <option value="document_error">Document Error</option>
+            <option value="document_regenerated">Regenerated</option>
             <option value="architecture">Architecture</option>
             <option value="architecture_version">Architecture Version</option>
           </select>
@@ -244,16 +249,29 @@ export function LogsPageClient({ user, logs }: LogsPageClientProps) {
           <div className="max-h-[calc(100vh-300px)] overflow-y-auto pr-2 space-y-3">
             {filteredEntries.map((entry) => {
               const Icon = getIcon(entry.type);
+              const isRegenerated = entry.type === 'document_regenerated';
               const content = (
-                <div className="flex items-start gap-4 p-4 rounded-xl border border-white/10 hover:border-white/20 transition-colors">
-                  <div className={`rounded-lg p-2 ${getTypeColor(entry.type)} flex-shrink-0`}>
-                    <Icon className="h-4 w-4" />
+                <div className={`flex items-start gap-4 p-4 rounded-xl border transition-all ${
+                  isRegenerated 
+                    ? 'border-purple-500/50 bg-gradient-to-br from-purple-500/10 to-pink-500/10 hover:border-purple-500/70 hover:from-purple-500/15 hover:to-pink-500/15 shadow-lg shadow-purple-500/10' 
+                    : 'border-white/10 hover:border-white/20'
+                }`}>
+                  <div className={`rounded-lg p-2 ${getTypeColor(entry.type)} flex-shrink-0 ${isRegenerated ? 'animate-pulse' : ''}`}>
+                    <Icon className={`h-4 w-4 ${isRegenerated ? 'text-purple-200' : ''}`} />
                   </div>
-                  <div className="flex-1 min-w-0">
+                    <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-4 mb-2">
                       <div className="flex-1 min-w-0">
-                        <h3 className="text-white font-medium truncate mb-1">{entry.title}</h3>
-                        <p className="text-sm text-white/70">{entry.message}</p>
+                        <div className="flex items-center gap-2 mb-1">
+                          <h3 className={`font-medium truncate ${isRegenerated ? 'text-purple-200' : 'text-white'}`}>{entry.title}</h3>
+                          {isRegenerated && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-500/30 text-purple-200 text-xs font-semibold border border-purple-500/50">
+                              <RefreshCw className="h-3 w-3" />
+                              Regenerated
+                            </span>
+                          )}
+                        </div>
+                        <p className={`text-sm ${isRegenerated ? 'text-purple-100/90' : 'text-white/70'}`}>{entry.message}</p>
                       </div>
                       <div className="flex flex-col items-end gap-1 flex-shrink-0">
                         <span className="text-xs text-white/50 whitespace-nowrap">
@@ -269,8 +287,12 @@ export function LogsPageClient({ user, logs }: LogsPageClientProps) {
                     </div>
                     
                     {/* Metadata Section */}
-                    {(entry.metadata?.repoUrl || entry.metadata?.inputType || entry.metadata?.branch || entry.metadata?.versionNumber) && (
+                    {(entry.metadata?.repoUrl || entry.metadata?.inputType || entry.metadata?.branch || entry.metadata?.versionNumber || entry.id) && (
                       <div className="mt-3 pt-3 border-t border-white/10 flex flex-wrap gap-3 text-xs">
+                        <div className="flex items-center gap-1.5 text-white/50 font-mono">
+                          <Hash className="h-3 w-3" />
+                          <span className="text-xs">{entry.id}</span>
+                        </div>
                         {entry.metadata.inputType && (
                           <div className="flex items-center gap-1.5 text-white/60">
                             <Code className="h-3 w-3" />

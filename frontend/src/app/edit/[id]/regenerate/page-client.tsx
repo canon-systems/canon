@@ -3,10 +3,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Loader2, X, ArrowLeft, ChevronDown, Check } from 'lucide-react';
+import { Loader2, X, ArrowLeft, ChevronDown, Check, RefreshCw, Settings, Eye, Sparkles } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { PromptCustomizer } from '@/components/PromptCustomizer';
-import { DiffViewer } from '@/components/DiffViewer';
+import { RegeneratePreview } from '@/components/RegeneratePreview';
 
 interface Submission {
   id: string;
@@ -299,29 +299,76 @@ export function RegeneratePageClient({ submission }: RegeneratePageClientProps) 
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900 p-4 sm:p-6 lg:p-8">
       <div className="mx-auto max-w-6xl">
         {/* Header */}
+        <div className="mb-8">
+          <div className="mb-4 flex items-center gap-4">
+            <Link
+              href={`/edit/${submission.id}`}
+              className="inline-flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white/90 transition-colors hover:bg-white/20"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back to Editor
+            </Link>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="rounded-xl bg-gradient-to-br from-purple-500/20 to-pink-500/20 p-3 border border-purple-500/30">
+              <RefreshCw className="h-6 w-6 text-purple-300" />
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold text-white">Regenerate Documentation</h1>
+              <p className="text-white/60 mt-1">Update your documentation with new AI-generated content</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Step Indicator */}
         <div className="mb-6 flex items-center gap-4">
-          <Link
-            href={`/edit/${submission.id}`}
-            className="inline-flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white/90 transition-colors hover:bg-white/20"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back to Editor
-          </Link>
-          <h1 className="text-2xl font-semibold text-white">Update Documentation</h1>
+          <div className={`flex items-center gap-2 ${currentStep === 'config' ? 'text-white' : 'text-white/40'}`}>
+            <div className={`flex h-10 w-10 items-center justify-center rounded-full border-2 ${
+              currentStep === 'config' 
+                ? 'border-purple-500 bg-purple-500/20 text-purple-300' 
+                : 'border-white/30 bg-white/5 text-white/40'
+            }`}>
+              {currentStep === 'config' ? (
+                <Settings className="h-5 w-5" />
+              ) : (
+                <Check className="h-5 w-5" />
+              )}
+            </div>
+            <span className="font-medium">Configure</span>
+          </div>
+          <div className="h-px flex-1 bg-white/20" />
+          <div className={`flex items-center gap-2 ${currentStep === 'preview' ? 'text-white' : 'text-white/40'}`}>
+            <div className={`flex h-10 w-10 items-center justify-center rounded-full border-2 ${
+              currentStep === 'preview' 
+                ? 'border-purple-500 bg-purple-500/20 text-purple-300' 
+                : 'border-white/30 bg-white/5 text-white/40'
+            }`}>
+              <Eye className="h-5 w-5" />
+            </div>
+            <span className="font-medium">Preview</span>
+          </div>
         </div>
 
         {/* Main Content */}
-        <div className="rounded-xl border border-white/20 bg-black/90 p-6 shadow-xl backdrop-blur-md">
+        <div className="rounded-xl border border-white/20 bg-black/90 p-8 shadow-xl backdrop-blur-md">
           {currentStep === 'config' ? (
             /* Configuration Step */
-            <div className="space-y-6">
-              <p className="text-sm text-white/70">
-                Configure the model and prompt settings for regenerating your documentation.
-              </p>
+            <div className="space-y-8">
+              <div>
+                <h2 className="text-xl font-semibold text-white mb-2">Configuration</h2>
+                <p className="text-sm text-white/60">
+                  Choose your AI model and customize the prompt settings to regenerate your documentation.
+                </p>
+              </div>
 
               {/* Model Selection */}
               <div>
-                <label className="mb-2 block text-sm font-medium text-white/70">AI Model</label>
+                <label className="mb-3 block text-sm font-semibold text-white/90">
+                  <span className="flex items-center gap-2">
+                    <Sparkles className="h-4 w-4 text-purple-400" />
+                    AI Model
+                  </span>
+                </label>
                 <div className="relative" ref={regenModelDropdownRef}>
                   <button
                     type="button"
@@ -388,46 +435,50 @@ export function RegeneratePageClient({ submission }: RegeneratePageClientProps) 
               )}
 
               {/* Actions */}
-              <div className="flex justify-end gap-3">
+              <div className="flex justify-between items-center pt-6 border-t border-white/10">
                 <Link
                   href={`/edit/${submission.id}`}
-                  className="rounded-lg border border-white/20 px-4 py-2 text-white/80 hover:bg-white/10"
+                  className="rounded-lg border border-white/20 px-5 py-2.5 text-sm font-medium text-white/80 hover:bg-white/10 transition-colors"
                 >
                   Cancel
                 </Link>
                 <button
-                  className="rounded-lg bg-gradient-to-r from-purple-500 to-pink-500 px-4 py-2 text-white hover:from-purple-600 hover:to-pink-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-purple-500 to-pink-500 px-6 py-2.5 text-sm font-semibold text-white hover:from-purple-600 hover:to-pink-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-purple-500/20 hover:shadow-purple-500/30"
                   onClick={generatePreview}
                   disabled={generatingPreview}
                 >
                   {generatingPreview ? (
-                    <span className="flex items-center gap-2">
+                    <>
                       <Loader2 className="h-4 w-4 animate-spin" />
                       Generating Preview...
-                    </span>
+                    </>
                   ) : (
-                    'Generate Preview'
+                    <>
+                      <Eye className="h-4 w-4" />
+                      Generate Preview
+                    </>
                   )}
                 </button>
               </div>
             </div>
           ) : (
             /* Preview Step */
-            <div className="space-y-4">
-              <div className="mb-4 flex items-center justify-between">
+            <div className="space-y-6">
+              <div className="mb-6 flex items-start justify-between">
                 <div>
-                  <p className="text-sm text-white/70">
-                    Generated with <strong>{previewModel}</strong>
+                  <h2 className="text-xl font-semibold text-white mb-2">Preview Changes</h2>
+                  <p className="text-sm text-white/60">
+                    Generated with <strong className="text-white/90">{previewModel}</strong>
                     {previewPromptConfig.personality && previewPromptConfig.personality !== 'default' && (
-                      <>, {previewPromptConfig.personality} personality</>
+                      <>, <strong className="text-white/90">{previewPromptConfig.personality}</strong> personality</>
                     )}
                     {previewPromptConfig.style && previewPromptConfig.style !== 'default' && (
-                      <>, {previewPromptConfig.style} style</>
+                      <>, <strong className="text-white/90">{previewPromptConfig.style}</strong> style</>
                     )}
                   </p>
                 </div>
                 <button
-                  className="rounded-lg p-1 text-white/60 hover:bg-white/10 hover:text-white"
+                  className="rounded-lg p-2 text-white/60 hover:bg-white/10 hover:text-white transition-colors"
                   onClick={() => setCurrentStep('config')}
                   title="Back to configuration"
                 >
@@ -435,42 +486,46 @@ export function RegeneratePageClient({ submission }: RegeneratePageClientProps) 
                 </button>
               </div>
 
-              {/* Enhanced Diff Viewer */}
-              <DiffViewer
+              {/* Enhanced Preview */}
+              <RegeneratePreview
                 originalText={submission.markdown}
                 newText={previewContent}
-                showMarkdown={true}
               />
 
               {/* Actions */}
-              <div className="flex justify-end gap-3">
+              <div className="flex justify-between items-center pt-6 border-t border-white/10">
+                <div className="flex gap-3">
+                  <button
+                    className="rounded-lg border border-white/20 px-5 py-2.5 text-sm font-medium text-white/80 hover:bg-white/10 transition-colors"
+                    onClick={() => {
+                      setCurrentStep('config');
+                      setPreviewContent('');
+                    }}
+                  >
+                    Back to Settings
+                  </button>
+                  <Link
+                    href={`/edit/${submission.id}`}
+                    className="rounded-lg border border-white/20 px-5 py-2.5 text-sm font-medium text-white/80 hover:bg-white/10 transition-colors"
+                  >
+                    Cancel
+                  </Link>
+                </div>
                 <button
-                  className="rounded-lg border border-white/20 px-4 py-2 text-white/80 hover:bg-white/10"
-                  onClick={() => {
-                    setCurrentStep('config');
-                    setPreviewContent('');
-                  }}
-                >
-                  Back to Settings
-                </button>
-                <Link
-                  href={`/edit/${submission.id}`}
-                  className="rounded-lg border border-white/20 px-4 py-2 text-white/80 hover:bg-white/10"
-                >
-                  Cancel
-                </Link>
-                <button
-                  className="rounded-lg bg-gradient-to-r from-purple-500 to-pink-500 px-4 py-2 text-white hover:from-purple-600 hover:to-pink-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-purple-500 to-pink-500 px-6 py-2.5 text-sm font-semibold text-white hover:from-purple-600 hover:to-pink-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-purple-500/20 hover:shadow-purple-500/30"
                   onClick={applyPreviewChanges}
                   disabled={regenerating || !previewContent}
                 >
                   {regenerating ? (
-                    <span className="flex items-center gap-2">
+                    <>
                       <Loader2 className="h-4 w-4 animate-spin" />
                       Applying Changes...
-                    </span>
+                    </>
                   ) : (
-                    'Apply Changes'
+                    <>
+                      <RefreshCw className="h-4 w-4" />
+                      Apply Changes
+                    </>
                   )}
                 </button>
               </div>

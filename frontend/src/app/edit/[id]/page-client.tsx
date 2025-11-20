@@ -215,13 +215,26 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
     <div className="min-h-screen px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto w-full max-w-none space-y-6">
         <header>
-          <h1 className="text-3xl font-bold text-white">Edit Documentation</h1>
-          <p className="text-white/60">
-            Submission ID: <span className="font-mono">{initialSubmission.id}</span>
-          </p>
-          <p className="text-white/60">
-            Created: {new Date(initialSubmission.created_date).toLocaleString()}
-          </p>
+          <div className="flex items-start justify-between gap-4 mb-4">
+            <div className="flex-1">
+              <h1 className="text-3xl font-bold text-white">Edit Documentation</h1>
+              <p className="text-white/60 mt-1">
+                Submission ID: <span className="font-mono">{initialSubmission.id}</span>
+              </p>
+              <p className="text-white/60">
+                Created: {new Date(initialSubmission.created_date).toLocaleString()}
+              </p>
+            </div>
+            {initialSubmission.status === 'completed' && (
+              <Link
+                href={`/edit/${initialSubmission.id}/regenerate`}
+                className="inline-flex items-center gap-2 rounded-lg border border-purple-500/50 bg-gradient-to-r from-purple-500/20 to-pink-500/20 px-5 py-2.5 text-sm font-semibold text-purple-200 hover:from-purple-500/30 hover:to-pink-500/30 hover:border-purple-500/70 transition-all shadow-lg shadow-purple-500/10 hover:shadow-purple-500/20"
+              >
+                <RefreshCw className="h-4 w-4" />
+                Regenerate
+              </Link>
+            )}
+          </div>
           {statusNotice && (
             <div className="mt-2 rounded-xl border border-yellow-300/30 bg-yellow-500/10 px-3 py-2 text-yellow-200">
               {statusNotice}
