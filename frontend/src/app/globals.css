@@ -743,6 +743,17 @@ a[data-active="true"] {
   background: rgba(255, 255, 255, 0.1) !important;
 }
 
+/* Toggle switch styling fix */
+.toggle-switch {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border: 2px solid rgba(255, 255, 255, 0.4) !important;
+}
+
+.toggle-switch[aria-checked="true"] {
+  background: rgb(34, 197, 94) !important;
+  border-color: rgb(74, 222, 128) !important;
+}
+
 .page-shell {
   width: min(1200px, 100%);
   margin-inline: auto;

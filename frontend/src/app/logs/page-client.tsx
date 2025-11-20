@@ -293,34 +293,34 @@ export function LogsPageClient({ user, logs }: LogsPageClientProps) {
                           <Hash className="h-3 w-3" />
                           <span className="text-xs">{entry.id}</span>
                         </div>
-                        {entry.metadata.inputType && (
+                        {entry.metadata?.inputType && (
                           <div className="flex items-center gap-1.5 text-white/60">
                             <Code className="h-3 w-3" />
-                            <span className="capitalize">{entry.metadata.inputType.replace(/_/g, ' ')}</span>
+                            <span className="capitalize">{entry.metadata!.inputType.replace(/_/g, ' ')}</span>
                           </div>
                         )}
-                        {entry.metadata.repoUrl && (
+                        {entry.metadata?.repoUrl && (
                           <div className="flex items-center gap-1.5 text-white/60 max-w-xs truncate">
                             <Layers3 className="h-3 w-3 flex-shrink-0" />
-                            <span className="truncate">{entry.metadata.repoUrl}</span>
+                            <span className="truncate">{entry.metadata!.repoUrl}</span>
                           </div>
                         )}
-                        {entry.metadata.branch && (
+                        {entry.metadata?.branch && (
                           <div className="flex items-center gap-1.5 text-white/60">
                             <GitBranch className="h-3 w-3" />
-                            <span>{entry.metadata.branch}</span>
+                            <span>{entry.metadata!.branch}</span>
                           </div>
                         )}
-                        {entry.metadata.subdir && (
+                        {entry.metadata?.subdir && (
                           <div className="flex items-center gap-1.5 text-white/60">
                             <Folder className="h-3 w-3" />
-                            <span>{entry.metadata.subdir}</span>
+                            <span>{entry.metadata!.subdir}</span>
                           </div>
                         )}
-                        {entry.metadata.versionNumber && (
+                        {entry.metadata?.versionNumber && (
                           <div className="flex items-center gap-1.5 text-white/60">
                             <RefreshCw className="h-3 w-3" />
-                            <span>v{entry.metadata.versionNumber}</span>
+                            <span>v{entry.metadata!.versionNumber}</span>
                           </div>
                         )}
                       </div>

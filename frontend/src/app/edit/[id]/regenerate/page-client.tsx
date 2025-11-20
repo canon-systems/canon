@@ -7,6 +7,7 @@ import { Loader2, X, ArrowLeft, ChevronDown, Check, RefreshCw, Settings, Eye, Sp
 import { createClient } from '@/lib/supabase/client';
 import { PromptCustomizer } from '@/components/PromptCustomizer';
 import { RegeneratePreview } from '@/components/RegeneratePreview';
+import { DocumentStructure, type DocumentStructureConfig } from '@/components/DocumentStructure';
 
 interface Submission {
   id: string;
@@ -183,6 +184,12 @@ export function RegeneratePageClient({ submission }: RegeneratePageClientProps) 
       temperature: 0.3
     }
   );
+  const [structureConfig, setStructureConfig] = useState<DocumentStructureConfig>(
+    submission.source_meta?.document_structure || {
+      sections: [],
+      includeTableOfContents: false,
+    }
+  );
   const [showRegenModelDropdown, setShowRegenModelDropdown] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
 
@@ -233,7 +240,10 @@ export function RegeneratePageClient({ submission }: RegeneratePageClientProps) 
         body: JSON.stringify({
           submissionId: submission.id,
           model: selectedRegenModel,
-          promptConfig: regenPromptConfig
+          promptConfig: {
+            ...regenPromptConfig,
+            document_structure: structureConfig
+          }
         })
       });
 
@@ -423,8 +433,9 @@ export function RegeneratePageClient({ submission }: RegeneratePageClientProps) 
               </div>
 
               {/* Prompt Customization */}
-              <div>
+              <div className="space-y-4">
                 <PromptCustomizer promptConfig={regenPromptConfig} onChange={setRegenPromptConfig} />
+                <DocumentStructure config={structureConfig} onChange={setStructureConfig} />
               </div>
 
               {/* Error Message */}
