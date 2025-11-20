@@ -31,6 +31,25 @@ const nextConfig: NextConfig = {
       'simple-icons',
     ],
   },
+  webpack: (config, { isServer }) => {
+    // Fix for Edge Runtime __dirname issue
+    // Prevent Node.js-specific modules from being bundled for Edge Runtime
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+        net: false,
+        tls: false,
+      };
+    }
+
+    // Additional configuration for Edge Runtime compatibility
+    config.resolve.alias = {
+      ...config.resolve.alias,
+    };
+
+    return config;
+  },
 };
 
 export default nextConfig;
