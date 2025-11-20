@@ -21,11 +21,9 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-import { env } from "$env/dynamic/private";
-
 // OPTIONAL: GitHub token to raise rate limits / avoid certain org restrictions.
 //  - The code works without a token for public repos (under anonymous limits).
-const GH_TOKEN = env.GITHUB_TOKEN || "";
+const GH_TOKEN = process.env.GITHUB_TOKEN || "";
 
 /**
  * parseRepoUrl(input)
