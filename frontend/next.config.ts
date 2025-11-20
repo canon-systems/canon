@@ -24,7 +24,8 @@ const nextConfig: NextConfig = {
       'node-html-parser',
       // Supabase packages (may have Node.js dependencies)
       '@supabase/supabase-js',
-      '@supabase/ssr',
+      // Note: '@supabase/ssr' is Edge-compatible and should NOT be externalized
+      // Externalizing it causes bundling issues in middleware (Edge Runtime)
       // Other potential Node.js packages
       'dagre',
       'simple-icons',
