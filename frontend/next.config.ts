@@ -32,8 +32,7 @@ const nextConfig: NextConfig = {
     ],
   },
   // Note: webpack config removed - middleware uses esbuild, not webpack
-  // Middleware is configured to use Node.js runtime in middleware.ts
-  // to support dependencies that use Node.js APIs like __dirname
+  // Middleware runs on Edge Runtime (default) - all dependencies must be Edge-compatible
 };
 
 export default nextConfig;
