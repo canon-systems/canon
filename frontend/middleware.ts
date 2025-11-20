@@ -3,9 +3,8 @@ import { createServerClient } from '@supabase/ssr';
 
 // Use Node.js runtime to support dependencies that use __dirname
 // This is required because some transitive dependencies use Node.js APIs
-export const runtime = 'nodejs';
-
 export const config = {
+  runtime: 'nodejs', // Must be inside config object for Next.js 16
   matcher: [
     '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
