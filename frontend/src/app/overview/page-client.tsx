@@ -65,6 +65,16 @@ function StatCard({ title, value, icon: Icon, description, trend, color = 'blue'
   );
 }
 
+function ChartNoDataOverlay({ message }: { message: string }) {
+  return (
+    <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+      <div className="rounded-lg border border-dashed border-white/20 bg-black/40 px-4 py-2 text-sm text-white/70">
+        {message}
+      </div>
+    </div>
+  );
+}
+
 interface OverviewStats {
   totalDocuments: number;
   totalSubmissions: number;
@@ -263,14 +273,33 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
       { name: 'Outdated', value: outdated, color: '#8b5cf6' },
     ].filter(item => item.value > 0);
 
+    const activityHasData = activityData.length > 0;
+    const statusHasData = statusData.length > 0;
+    const inputTypeHasData = inputTypeData.length > 0;
+
     return {
       totalDocuments: filteredSubmissions.filter(s => s.status === 'completed').length,
       totalRegenerated: filteredRegenerated.length,
       totalArchitectureDiagrams: filteredDiagrams.length,
       totalArchitectureVersions: filteredVersions.length,
-      activityData,
-      inputTypeData,
-      statusData,
+      activityData: activityHasData ? activityData : [{
+        date: new Date().toISOString().split('T')[0],
+        documents: 0,
+        diagrams: 0,
+        versions: 0,
+      }],
+      inputTypeData: inputTypeHasData ? inputTypeData : [{
+        name: 'No Data',
+        value: 0,
+      }],
+      statusData: statusHasData ? statusData : [{
+        name: 'No Data',
+        value: 1,
+        color: '#4b5563',
+      }],
+      hasActivityData: activityHasData,
+      hasStatusData: statusHasData,
+      hasInputTypeData: inputTypeHasData,
       completed,
       processing,
       failed,
@@ -398,8 +427,8 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
         {/* Activity Over Time */}
         <div className="glass-panel p-6">
           <h3 className="text-lg font-semibold text-white mb-4">Activity Over Time</h3>
-          {filteredStats.activityData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={300}>
+          <div className="relative h-[300px]">
+            <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={filteredStats.activityData}>
                 <defs>
                   <linearGradient id="colorDocuments" x1="0" y1="0" x2="0" y2="1">
@@ -470,18 +499,17 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
                 />
               </AreaChart>
             </ResponsiveContainer>
-          ) : (
-            <div className="flex items-center justify-center h-[300px] text-white/60">
-              <p>No activity data for selected period</p>
-            </div>
-          )}
+            {!filteredStats.hasActivityData && (
+              <ChartNoDataOverlay message="No activity data for the selected period" />
+            )}
+          </div>
         </div>
 
         {/* Status Breakdown */}
         <div className="glass-panel p-6">
           <h3 className="text-lg font-semibold text-white mb-4">Document Status</h3>
-          {filteredStats.statusData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={300}>
+          <div className="relative h-[300px]">
+            <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
                   data={filteredStats.statusData}
@@ -507,18 +535,17 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
                 />
               </PieChart>
             </ResponsiveContainer>
-          ) : (
-            <div className="flex items-center justify-center h-[300px] text-white/60">
-              <p>No status data available</p>
-            </div>
-          )}
+            {!filteredStats.hasStatusData && (
+              <ChartNoDataOverlay message="No status data available" />
+            )}
+          </div>
         </div>
 
         {/* Input Type Distribution */}
         <div className="glass-panel p-6">
           <h3 className="text-lg font-semibold text-white mb-4">Input Type Distribution</h3>
-          {filteredStats.inputTypeData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={300}>
+          <div className="relative h-[300px]">
+            <ResponsiveContainer width="100%" height="100%">
               <BarChart data={filteredStats.inputTypeData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
                 <XAxis 
@@ -544,11 +571,10 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
                 <Bar dataKey="value" fill="#3b82f6" radius={[8, 8, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
-          ) : (
-            <div className="flex items-center justify-center h-[300px] text-white/60">
-              <p>No input type data available</p>
-            </div>
-          )}
+            {!filteredStats.hasInputTypeData && (
+              <ChartNoDataOverlay message="No input type data available" />
+            )}
+          </div>
         </div>
 
         {/* Recent Activity Timeline */}

@@ -42,6 +42,15 @@ interface LogsPageClientProps {
   logs: LogsData;
 }
 
+function ListNoDataOverlay({ message }: { message: string }) {
+  return (
+    <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-white/60">
+      <FileText className="h-12 w-12 mb-4 opacity-50" />
+      <p>{message}</p>
+    </div>
+  );
+}
+
 export function LogsPageClient({ user, logs }: LogsPageClientProps) {
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -167,6 +176,8 @@ export function LogsPageClient({ user, logs }: LogsPageClientProps) {
     );
   };
 
+  const hasEntries = filteredEntries.length > 0;
+
   return (
     <div className="page-shell space-y-6">
       <div className="flex items-start justify-between">
@@ -240,125 +251,127 @@ export function LogsPageClient({ user, logs }: LogsPageClientProps) {
 
       {/* Logs List */}
       <div className="glass-panel p-6">
-        {filteredEntries.length === 0 ? (
-          <div className="text-center py-12 text-white/60">
-            <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
-            <p>No logs available for the selected time period</p>
-          </div>
-        ) : (
-          <div className="max-h-[calc(100vh-300px)] overflow-y-auto pr-2 space-y-3">
-            {filteredEntries.map((entry) => {
-              const Icon = getIcon(entry.type);
-              const isRegenerated = entry.type === 'document_regenerated';
-              const content = (
-                <div className={`flex items-start gap-4 p-4 rounded-xl border transition-all ${
-                  isRegenerated 
-                    ? 'border-purple-500/50 bg-gradient-to-br from-purple-500/10 to-pink-500/10 hover:border-purple-500/70 hover:from-purple-500/15 hover:to-pink-500/15 shadow-lg shadow-purple-500/10' 
-                    : 'border-white/10 hover:border-white/20'
-                }`}>
-                  <div className={`rounded-lg p-2 ${getTypeColor(entry.type)} flex-shrink-0 ${isRegenerated ? 'animate-pulse' : ''}`}>
-                    <Icon className={`h-4 w-4 ${isRegenerated ? 'text-purple-200' : ''}`} />
-                  </div>
+        <div className="relative">
+          {hasEntries && (
+            <div className="max-h-[calc(100vh-300px)] overflow-y-auto pr-2 space-y-3">
+              {filteredEntries.map((entry) => {
+                const Icon = getIcon(entry.type);
+                const isRegenerated = entry.type === 'document_regenerated';
+                const content = (
+                  <div className={`flex items-start gap-4 p-4 rounded-xl border transition-all ${
+                    isRegenerated 
+                      ? 'border-purple-500/50 bg-gradient-to-br from-purple-500/10 to-pink-500/10 hover:border-purple-500/70 hover:from-purple-500/15 hover:to-pink-500/15 shadow-lg shadow-purple-500/10' 
+                      : 'border-white/10 hover:border-white/20'
+                  }`}>
+                    <div className={`rounded-lg p-2 ${getTypeColor(entry.type)} flex-shrink-0 ${isRegenerated ? 'animate-pulse' : ''}`}>
+                      <Icon className={`h-4 w-4 ${isRegenerated ? 'text-purple-200' : ''}`} />
+                    </div>
                     <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-4 mb-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <h3 className={`font-medium truncate ${isRegenerated ? 'text-purple-200' : 'text-white'}`}>{entry.title}</h3>
-                          {isRegenerated && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-500/30 text-purple-200 text-xs font-semibold border border-purple-500/50">
-                              <RefreshCw className="h-3 w-3" />
-                              Regenerated
+                      <div className="flex items-start justify-between gap-4 mb-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <h3 className={`font-medium truncate ${isRegenerated ? 'text-purple-200' : 'text-white'}`}>{entry.title}</h3>
+                            {isRegenerated && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-500/30 text-purple-200 text-xs font-semibold border border-purple-500/50">
+                                <RefreshCw className="h-3 w-3" />
+                                Regenerated
+                              </span>
+                            )}
+                          </div>
+                          <p className={`text-sm ${isRegenerated ? 'text-purple-100/90' : 'text-white/70'}`}>{entry.message}</p>
+                        </div>
+                        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                          <span className="text-xs text-white/50 whitespace-nowrap">
+                            {formatDate(entry.timestamp)}
+                          </span>
+                          {entry.metadata?.isOutdated && (
+                            <span className="text-xs text-yellow-400 flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              Outdated
                             </span>
                           )}
                         </div>
-                        <p className={`text-sm ${isRegenerated ? 'text-purple-100/90' : 'text-white/70'}`}>{entry.message}</p>
                       </div>
-                      <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                        <span className="text-xs text-white/50 whitespace-nowrap">
-                          {formatDate(entry.timestamp)}
-                        </span>
-                        {entry.metadata?.isOutdated && (
-                          <span className="text-xs text-yellow-400 flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            Outdated
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    
-                    {/* Metadata Section */}
-                    {(entry.metadata?.repoUrl || entry.metadata?.inputType || entry.metadata?.branch || entry.metadata?.versionNumber || entry.id) && (
-                      <div className="mt-3 pt-3 border-t border-white/10 flex flex-wrap gap-3 text-xs">
-                        <div className="flex items-center gap-1.5 text-white/50 font-mono">
-                          <Hash className="h-3 w-3" />
-                          <span className="text-xs">{entry.id}</span>
+                      
+                      {/* Metadata Section */}
+                      {(entry.metadata?.repoUrl || entry.metadata?.inputType || entry.metadata?.branch || entry.metadata?.versionNumber || entry.id) && (
+                        <div className="mt-3 pt-3 border-t border-white/10 flex flex-wrap gap-3 text-xs">
+                          <div className="flex items-center gap-1.5 text-white/50 font-mono">
+                            <Hash className="h-3 w-3" />
+                            <span className="text-xs">{entry.id}</span>
+                          </div>
+                          {entry.metadata?.inputType && (
+                            <div className="flex items-center gap-1.5 text-white/60">
+                              <Code className="h-3 w-3" />
+                              <span className="capitalize">{entry.metadata!.inputType.replace(/_/g, ' ')}</span>
+                            </div>
+                          )}
+                          {entry.metadata?.repoUrl && (
+                            <div className="flex items-center gap-1.5 text-white/60 max-w-xs truncate">
+                              <Layers3 className="h-3 w-3 flex-shrink-0" />
+                              <span className="truncate">{entry.metadata!.repoUrl}</span>
+                            </div>
+                          )}
+                          {entry.metadata?.branch && (
+                            <div className="flex items-center gap-1.5 text-white/60">
+                              <GitBranch className="h-3 w-3" />
+                              <span>{entry.metadata!.branch}</span>
+                            </div>
+                          )}
+                          {entry.metadata?.subdir && (
+                            <div className="flex items-center gap-1.5 text-white/60">
+                              <Folder className="h-3 w-3" />
+                              <span>{entry.metadata!.subdir}</span>
+                            </div>
+                          )}
+                          {entry.metadata?.versionNumber && (
+                            <div className="flex items-center gap-1.5 text-white/60">
+                              <RefreshCw className="h-3 w-3" />
+                              <span>v{entry.metadata!.versionNumber}</span>
+                            </div>
+                          )}
                         </div>
-                        {entry.metadata?.inputType && (
-                          <div className="flex items-center gap-1.5 text-white/60">
-                            <Code className="h-3 w-3" />
-                            <span className="capitalize">{entry.metadata!.inputType.replace(/_/g, ' ')}</span>
-                          </div>
-                        )}
-                        {entry.metadata?.repoUrl && (
-                          <div className="flex items-center gap-1.5 text-white/60 max-w-xs truncate">
-                            <Layers3 className="h-3 w-3 flex-shrink-0" />
-                            <span className="truncate">{entry.metadata!.repoUrl}</span>
-                          </div>
-                        )}
-                        {entry.metadata?.branch && (
-                          <div className="flex items-center gap-1.5 text-white/60">
-                            <GitBranch className="h-3 w-3" />
-                            <span>{entry.metadata!.branch}</span>
-                          </div>
-                        )}
-                        {entry.metadata?.subdir && (
-                          <div className="flex items-center gap-1.5 text-white/60">
-                            <Folder className="h-3 w-3" />
-                            <span>{entry.metadata!.subdir}</span>
-                          </div>
-                        )}
-                        {entry.metadata?.versionNumber && (
-                          <div className="flex items-center gap-1.5 text-white/60">
-                            <RefreshCw className="h-3 w-3" />
-                            <span>v{entry.metadata!.versionNumber}</span>
-                          </div>
-                        )}
+                      )}
+                      
+                      <div className="flex items-center gap-2 flex-wrap mt-3">
+                        <span className={`text-xs px-2 py-0.5 rounded ${getTypeColor(entry.type)}`}>
+                          {entry.type.replace('_', ' ')}
+                        </span>
+                        {getStatusBadge(entry.status)}
                       </div>
-                    )}
-                    
-                    <div className="flex items-center gap-2 flex-wrap mt-3">
-                      <span className={`text-xs px-2 py-0.5 rounded ${getTypeColor(entry.type)}`}>
-                        {entry.type.replace('_', ' ')}
-                      </span>
-                      {getStatusBadge(entry.status)}
                     </div>
+                    {entry.link && (
+                      <Link
+                        href={entry.link}
+                        className="text-white/60 hover:text-white transition-colors flex-shrink-0"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                      </Link>
+                    )}
                   </div>
-                  {entry.link && (
-                    <Link
-                      href={entry.link}
-                      className="text-white/60 hover:text-white transition-colors flex-shrink-0"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <ExternalLink className="h-4 w-4" />
-                    </Link>
-                  )}
-                </div>
-              );
+                );
 
-              return (
-                <div key={entry.id}>
-                  {entry.link ? (
-                    <Link href={entry.link} className="block">
-                      {content}
-                    </Link>
-                  ) : (
-                    content
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
+                return (
+                  <div key={entry.id}>
+                    {entry.link ? (
+                      <Link href={entry.link} className="block">
+                        {content}
+                      </Link>
+                    ) : (
+                      content
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {!hasEntries && (
+            <div className="min-h-[320px]">
+              <ListNoDataOverlay message="No logs available for the selected filters" />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

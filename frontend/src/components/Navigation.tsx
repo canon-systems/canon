@@ -67,9 +67,9 @@ export function Navigation({ user, session, onLogout }: NavigationProps) {
 
   function isActive(item: NavItem) {
     if (item.matchPrefix) {
-      // Special handling for Generate: active on /documentation or /architecture (but not /architecture/manage)
+      // Special handling for Generate: active on /documentation or /architecture (including /architecture/manage)
       if (item.href === '/documentation') {
-        return pathname.startsWith('/documentation') || (pathname.startsWith('/architecture') && !pathname.startsWith('/architecture/manage'));
+        return pathname.startsWith('/documentation') || pathname.startsWith('/architecture');
       }
       // Special handling for Edit: active on /edit or /architecture/manage
       if (item.href === '/edit') {
@@ -210,6 +210,15 @@ export function Navigation({ user, session, onLogout }: NavigationProps) {
                         >
                           <Sparkles className="h-4 w-4" />
                           <span>Architecture</span>
+                        </Link>
+                        <Link
+                          href="/architecture/manage"
+                          className="nav-item ml-8 text-sm"
+                          onClick={() => setGenerateMenuOpen(false)}
+                          data-active={pathname.startsWith('/architecture/manage')}
+                        >
+                          <Layers3 className="h-4 w-4" />
+                          <span>Manage</span>
                         </Link>
                       </div>
                     )}

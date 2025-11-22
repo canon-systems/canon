@@ -30,7 +30,7 @@ export function LoginPageClient() {
         email,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/submit`
+          emailRedirectTo: `${window.location.origin}/overview`
         }
       });
 

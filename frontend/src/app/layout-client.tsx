@@ -39,7 +39,7 @@ export function RootLayoutClient({
     } catch (e) {
       console.error('Logout failed', e);
     } finally {
-      router.push('/login');
+      router.replace('/login');
       router.refresh();
     }
   }

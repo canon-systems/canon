@@ -58,11 +58,8 @@ export async function middleware(request: NextRequest) {
 
     // Protected routes (updated to match current routes)
     const pathname = request.nextUrl.pathname;
-    const isProtectedRoute =
-      pathname === '/documentation' ||
-      pathname === '/history' ||
-      pathname === '/logs' ||
-      pathname === '/architecture';
+    const protectedPrefixes = ['/overview', '/documentation', '/history', '/logs', '/architecture', '/edit', '/settings'];
+    const isProtectedRoute = protectedPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 
     if (!user && isProtectedRoute) {
       const url = request.nextUrl.clone();
@@ -73,7 +70,7 @@ export async function middleware(request: NextRequest) {
     // Redirect logged-in users away from login
     if (user && request.nextUrl.pathname === '/login') {
       const url = request.nextUrl.clone();
-      url.pathname = '/';
+      url.pathname = '/overview';
       return NextResponse.redirect(url);
     }
 
