@@ -93,7 +93,12 @@ export function ArchitectureManageClient({ initialDiagrams }: ArchitectureManage
             >
               <div className="flex items-start justify-between">
                 <div className="flex-1">
-                  <h3 className="text-xl font-bold text-white mb-1">{diagram.title}</h3>
+                  <Link
+                    href={`/architecture/${diagram.id}/history`}
+                    className="text-xl font-bold text-white mb-1 hover:text-blue-400 transition-colors block"
+                  >
+                    {diagram.title}
+                  </Link>
                   {diagram.description && (
                     <p className="text-white/70 mb-3">{diagram.description}</p>
                   )}

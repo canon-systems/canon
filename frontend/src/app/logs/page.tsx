@@ -31,22 +31,22 @@ export default async function LogsPage() {
   const diagramIdsForUser = diagrams?.map(d => d.id) || [];
   const { data: versions, error: versionsError } = diagramIdsForUser.length > 0
     ? await supabase
-        .from('architecture_diagram_versions')
-        .select('id, created_at, diagram_id, version_number, change_summary')
-        .in('diagram_id', diagramIdsForUser)
-        .order('created_at', { ascending: false })
-        .limit(50)
+      .from('architecture_diagram_versions')
+      .select('id, created_at, diagram_id, version_number, change_summary')
+      .in('diagram_id', diagramIdsForUser)
+      .order('created_at', { ascending: false })
+      .limit(50)
     : { data: null, error: null };
 
   // Get diagram info for versions
   const diagramIds = versions?.map(v => v.diagram_id) || [];
   const { data: versionDiagrams } = diagramIds.length > 0
     ? await supabase
-        .from('architecture_diagrams')
-        .select('id, title, repo_url, branch')
-        .in('id', diagramIds)
+      .from('architecture_diagrams')
+      .select('id, title, repo_url, branch')
+      .in('id', diagramIds)
     : { data: null };
-  
+
   const diagramMap = new Map(
     (versionDiagrams || []).map(d => [d.id, d])
   );
@@ -77,7 +77,7 @@ export default async function LogsPage() {
       const sourceMeta = sub.source_meta || {};
       const repoUrl = sourceMeta.repoUrl || null;
       const branch = sourceMeta.branch || null;
-      
+
       // Build informative message
       let message = '';
       if (sub.error_message) {
@@ -115,7 +115,7 @@ export default async function LogsPage() {
           type: 'document_regenerated',
           timestamp: sub.last_checked_at,
           title: sub.title || 'Untitled Document',
-          message: sub.is_outdated 
+          message: sub.is_outdated
             ? 'Document regenerated (outdated due to code changes)'
             : 'Document regenerated with updated content',
           status: sub.status,
@@ -136,14 +136,14 @@ export default async function LogsPage() {
     diagrams.forEach((diag) => {
       const repoName = diag.repo_url ? diag.repo_url.split('/').pop()?.replace('.git', '') || 'repository' : null;
       const branchInfo = diag.branch ? ` (${diag.branch}${diag.subdir ? `/${diag.subdir}` : ''})` : '';
-      
+
       // Add creation entry
       logEntries.push({
         id: `${diag.id}-created`,
         type: 'architecture',
         timestamp: diag.created_at,
         title: diag.title,
-        message: repoName 
+        message: repoName
           ? `Architecture diagram created from ${repoName}${branchInfo}`
           : 'Architecture diagram created',
         link: `/architecture/${diag.id}/history`,
@@ -181,7 +181,7 @@ export default async function LogsPage() {
       const diagram = diagramMap.get(version.diagram_id);
       const diagramTitle = diagram?.title || 'Architecture Diagram';
       const repoName = diagram?.repo_url ? diagram.repo_url.split('/').pop()?.replace('.git', '') || 'repository' : null;
-      
+
       logEntries.push({
         id: version.id,
         type: 'architecture_version',
@@ -229,8 +229,8 @@ export default async function LogsPage() {
     entries: logEntries.slice(0, 100), // Limit to 100 most recent
     errors: {
       // Only report errors that aren't "table not found" (migration not run)
-      submissions: submissionsError && !isTableNotFoundError(submissionsError) 
-        ? (submissionsError.message || submissionsError.code) 
+      submissions: submissionsError && !isTableNotFoundError(submissionsError)
+        ? (submissionsError.message || submissionsError.code)
         : undefined,
       diagrams: diagramsError && !isTableNotFoundError(diagramsError)
         ? (diagramsError.message || diagramsError.code)
