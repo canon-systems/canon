@@ -57,7 +57,14 @@ export async function middleware(request: NextRequest) {
     }
 
     // Protected routes (updated to match current routes)
-    if (!user && (request.nextUrl.pathname === '/documentation' || request.nextUrl.pathname === '/history')) {
+    const pathname = request.nextUrl.pathname;
+    const isProtectedRoute =
+      pathname === '/documentation' ||
+      pathname === '/history' ||
+      pathname === '/logs' ||
+      pathname === '/architecture';
+
+    if (!user && isProtectedRoute) {
       const url = request.nextUrl.clone();
       url.pathname = '/login';
       return NextResponse.redirect(url);

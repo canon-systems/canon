@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Github, FolderOpen, Upload, Code, Loader2, AlertTriangle, Info, ChevronDown, Check } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { PromptCustomizer } from '@/components/PromptCustomizer';
+import { DocumentStructure, type DocumentStructureConfig } from '@/components/DocumentStructure';
 import { SearchableSelect } from '@/components/SearchableSelect';
 
 type InputType = 'github_repo' | 'github_repo_directory' | 'zipped_folder' | 'pasted_code';
@@ -204,6 +205,12 @@ export function DocumentationPageClient() {
     audience: 'technical',
     customInstructions: '',
     temperature: 0.3
+  });
+
+  // Document structure configuration
+  const [structureConfig, setStructureConfig] = useState<DocumentStructureConfig>({
+    sections: [],
+    includeTableOfContents: false,
   });
 
   // Progress + errors
@@ -554,18 +561,25 @@ export function DocumentationPageClient() {
 
       const source_meta =
         method === 'pasted_code'
-          ? { filename: pasteFilename, model: selectedModel, llm_prompt_config: promptConfig }
+          ? { 
+              filename: pasteFilename, 
+              model: selectedModel, 
+              llm_prompt_config: promptConfig,
+              document_structure: structureConfig
+            }
           : method === 'zipped_folder'
             ? {
               zip_name: zipFile?.name ?? null,
               model: selectedModel,
-              llm_prompt_config: promptConfig
+              llm_prompt_config: promptConfig,
+              document_structure: structureConfig
             }
             : {
               repoUrl,
               branch,
               model: selectedModel,
               llm_prompt_config: promptConfig,
+              document_structure: structureConfig,
               ...(method === 'github_repo_directory' ? { subdir } : {})
             };
 
@@ -660,7 +674,10 @@ export function DocumentationPageClient() {
           projectName: docTitle || 'Documentation Draft',
           files: filesForDoc,
           model: selectedModel,
-          promptConfig: promptConfig
+          promptConfig: {
+            ...promptConfig,
+            document_structure: structureConfig
+          }
         })
       });
       const text = await rGen.text();
@@ -1094,6 +1111,14 @@ export function DocumentationPageClient() {
                 temperature: config.temperature ?? 0.3
               });
             }} 
+          />
+        </section>
+
+        {/* Document Structure */}
+        <section className="form-panel space-y-4 mt-6">
+          <DocumentStructure 
+            config={structureConfig} 
+            onChange={setStructureConfig} 
           />
         </section>
 

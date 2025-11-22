@@ -386,7 +386,7 @@ export function EditListPageClient({ user, items: initialItems, loadError }: Edi
                           </Link>
                           <button
                             type="button"
-                            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-red-400 transition-colors hover:bg-red-500/10"
+                            className="edit-menu-button flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-red-400 transition-colors border-0 bg-transparent text-left outline-none focus:outline-none"
                             onClick={(e) => openDeleteModal(item, e)}
                           >
                             Delete
@@ -403,7 +403,7 @@ export function EditListPageClient({ user, items: initialItems, loadError }: Edi
               {items.map(item => (
                 <div
                   key={item.id}
-                  className="flex flex-col rounded-2xl border border-white/20 bg-white/10 p-5 backdrop-blur-md transition hover:bg-white/15 cursor-pointer"
+                  className={`flex flex-col rounded-2xl border border-white/20 bg-white/10 p-5 backdrop-blur-md transition hover:bg-white/15 cursor-pointer ${openMenuId === item.id ? 'relative z-[9999]' : ''}`}
                   onClick={() => router.push(`/edit/${item.id}`)}
                   role="button"
                   tabIndex={0}
@@ -478,7 +478,7 @@ export function EditListPageClient({ user, items: initialItems, loadError }: Edi
                           ref={(el) => {
                             if (el) menuRefs.current[item.id] = el;
                           }}
-                          className="absolute right-0 top-full z-50 mt-1 min-w-[160px] rounded-lg border border-white/20 bg-black/90 p-1 shadow-lg backdrop-blur-md"
+                          className="absolute right-0 top-full z-[100] mt-1 min-w-[160px] rounded-lg border border-white/20 bg-black/95 p-1 shadow-xl backdrop-blur-md"
                           onClick={(e) => e.stopPropagation()}
                         >
                           <Link
@@ -490,7 +490,7 @@ export function EditListPageClient({ user, items: initialItems, loadError }: Edi
                           </Link>
                           <button
                             type="button"
-                            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-red-400 transition-colors hover:bg-red-500/10"
+                            className="edit-menu-button flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-red-400 transition-colors border-0 bg-transparent text-left outline-none focus:outline-none"
                             onClick={(e) => openDeleteModal(item, e)}
                           >
                             Delete

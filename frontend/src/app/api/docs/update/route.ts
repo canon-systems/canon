@@ -47,61 +47,68 @@ export async function POST(request: NextRequest) {
 
     const sourceMeta = submission.source_meta || {};
     const { repoUrl, branch } = sourceMeta;
+    const now = new Date().toISOString();
 
-    if (!repoUrl || !branch) {
-      return NextResponse.json({ error: 'Missing repoUrl or branch in source_meta' }, { status: 400 });
-    }
+    // Prepare update data - always set last_checked_at for regeneration tracking
+    const updateData: any = {
+      markdown: previewContent.trim(),
+      status: 'completed',
+      summary: previewContent.replace(/\s+/g, ' ').slice(0, 200),
+      is_outdated: false,
+      last_checked_at: now // Always update this for regeneration tracking
+    };
 
-    const repoInfo = parseRepoUrl(repoUrl);
-    if (!repoInfo) {
-      return NextResponse.json({ error: `Failed to parse repository URL: ${repoUrl}` }, { status: 400 });
-    }
+    // If GitHub repo, update code snapshot
+    if (repoUrl && branch) {
+      const repoInfo = parseRepoUrl(repoUrl);
+      if (repoInfo) {
+        try {
+          // Get latest commit SHA and file SHAs for snapshot
+          const octokit = await getUserOctokit(supabase, user?.id || null);
+          const { data: branchData } = await octokit.repos.getBranch({
+            owner: repoInfo.owner,
+            repo: repoInfo.repo,
+            branch
+          });
+          const latestCommitSha = branchData.commit.sha;
 
-    // Get latest commit SHA and file SHAs for snapshot
-    const octokit = await getUserOctokit(supabase, user?.id || null);
-    const { data: branchData } = await octokit.repos.getBranch({
-      owner: repoInfo.owner,
-      repo: repoInfo.repo,
-      branch
-    });
-    const latestCommitSha = branchData.commit.sha;
+          const selectedFiles = submission.selected_files || [];
+          const fileShas: Record<string, string | null> = {};
 
-    const selectedFiles = submission.selected_files || [];
-    const fileShas: Record<string, string | null> = {};
+          for (const filePath of selectedFiles) {
+            try {
+              const { data: fileData } = await octokit.repos.getContent({
+                owner: repoInfo.owner,
+                repo: repoInfo.repo,
+                path: filePath,
+                ref: latestCommitSha
+              });
 
-    for (const filePath of selectedFiles) {
-      try {
-        const { data: fileData } = await octokit.repos.getContent({
-          owner: repoInfo.owner,
-          repo: repoInfo.repo,
-          path: filePath,
-          ref: latestCommitSha
-        });
+              if (fileData && !Array.isArray(fileData) && fileData.type === 'file' && 'sha' in fileData) {
+                fileShas[filePath] = fileData.sha;
+              }
+            } catch (e) {
+              console.error(`Failed to get SHA for ${filePath}:`, e);
+              fileShas[filePath] = null;
+            }
+          }
 
-        if (fileData && !Array.isArray(fileData) && fileData.type === 'file' && 'sha' in fileData) {
-          fileShas[filePath] = fileData.sha;
+          updateData.code_snapshot = {
+            commitSha: latestCommitSha,
+            fileShas,
+            updatedAt: now
+          };
+        } catch (e) {
+          console.error('Failed to update code snapshot:', e);
+          // Continue with update even if snapshot fails
         }
-      } catch (e) {
-        console.error(`Failed to get SHA for ${filePath}:`, e);
-        fileShas[filePath] = null;
       }
     }
 
     // Update submission with preview content
     const { error: updateError } = await supabase
       .from('submissions')
-      .update({
-        markdown: previewContent.trim(),
-        status: 'completed',
-        summary: previewContent.replace(/\s+/g, ' ').slice(0, 200),
-        code_snapshot: {
-          commitSha: latestCommitSha,
-          fileShas,
-          updatedAt: new Date().toISOString()
-        },
-        is_outdated: false,
-        last_checked_at: new Date().toISOString()
-      })
+      .update(updateData)
       .eq('id', submissionId);
 
     if (updateError) {

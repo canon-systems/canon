@@ -2,11 +2,18 @@
  * Build system prompt for LLM based on customization settings
  */
 
+export interface DocumentStructureConfig {
+	sections?: Array<{ id: string; title: string; description?: string; required: boolean }>;
+	includeTableOfContents?: boolean;
+	customStructure?: string;
+}
+
 export interface PromptConfig {
 	personality?: string;
 	style?: string;
 	customInstructions?: string;
 	temperature?: number;
+	document_structure?: DocumentStructureConfig;
 }
 
 /**
@@ -61,9 +68,40 @@ export function buildSystemPrompt(
 		}
 	}
 
+	// Add document structure requirements
+	const structureConfig = config?.document_structure;
+	if (structureConfig && structureConfig.sections && structureConfig.sections.length > 0) {
+		const requiredSections = structureConfig.sections.filter(s => s.required);
+		const optionalSections = structureConfig.sections.filter(s => !s.required);
+		
+		let structureInstruction = 'Structure the documentation with the following sections:\n';
+		
+		structureConfig.sections.forEach((section, index) => {
+			structureInstruction += `${index + 1}. ${section.title}${section.required ? ' (REQUIRED)' : ' (optional)'}`;
+			if (section.description) {
+				structureInstruction += ` - ${section.description}`;
+			}
+			structureInstruction += '\n';
+		});
+		
+		if (structureConfig.includeTableOfContents) {
+			structureInstruction += '\nInclude a table of contents at the beginning listing all sections.';
+		}
+		
+		if (structureConfig.customStructure) {
+			structureInstruction += `\nAdditional structure guidance: ${structureConfig.customStructure}`;
+		}
+		
+		basePrompt.push(structureInstruction);
+	} else {
+		// Default structure if no custom structure is provided
+		basePrompt.push(
+			'Include: overview, key components, data flow, API/CLI usage (if any), setup/run, and limitations.',
+		);
+	}
+
 	// Add standard requirements
 	basePrompt.push(
-		'Include: overview, key components, data flow, API/CLI usage (if any), setup/run, and limitations.',
 		'When helpful, include short code snippets or pseudo-diagrams.',
 		'Use headings, subheadings, and bullet points. No HTML.'
 	);
