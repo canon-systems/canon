@@ -4,7 +4,7 @@ import * as simpleIcons from 'simple-icons';
 
 interface IntegrationLogosProps {
   size?: number;
-  provider: 'notion' | 'slack' | 'confluence' | 'google-docs' | 'googledocs' | 'jira' | 'github';
+  provider: 'notion' | 'slack' | 'confluence' | 'google-docs' | 'googledocs' | 'jira' | 'github' | 'coda';
 }
 
 // Map provider names to simple-icons export names
@@ -15,7 +15,8 @@ const iconMap: Record<string, keyof typeof simpleIcons> = {
   'google-docs': 'siGoogledocs',
   'googledocs': 'siGoogledocs', // Also support the database format
   'jira': 'siJira',
-  'github': 'siGithub'
+  'github': 'siGithub',
+  'coda': 'siCoda'
 };
 
 export function IntegrationLogos({ size = 24, provider }: IntegrationLogosProps) {

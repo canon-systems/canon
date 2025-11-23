@@ -83,6 +83,15 @@ class NangoClient:
                 if 'application/json' in content_type:
                     return response.json()
                 return {'status': 'success'}
+            else:
+                # Return error details for better debugging
+                error_detail = f"HTTP {response.status_code}"
+                try:
+                    error_data = response.json()
+                    error_detail = error_data.get('message') or error_data.get('error') or str(error_data)
+                except:
+                    error_detail = response.text or error_detail
+                raise Exception(f"Nango proxy request failed: {error_detail}")
         return None
 
 

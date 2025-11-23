@@ -76,39 +76,121 @@ class NotionProvider(WorkspaceProvider):
             
             if create_new:
                 # Create new page
-                parent_page_id = workspace_info.resource_id
+                # Notion requires a parent - can be a page or database
+                parent = None
                 
-                page_data = await self.nango.proxy_request(
-                    connection_id=connection_id,
-                    provider='notion',
-                    method='POST',
-                    path='/v1/pages',
-                    json={
-                        'parent': {'page_id': parent_page_id},
-                        'properties': {
-                            'title': {
-                                'title': [{'text': {'content': content.title}}]
+                if workspace_info and workspace_info.resource_id:
+                    # Use provided parent page or database
+                    # Check if it's a database_id or page_id from metadata
+                    # Also check if resource_id itself is a database (from the list_resources response)
+                    if workspace_info.metadata and workspace_info.metadata.get('database_id'):
+                        parent = {'database_id': workspace_info.metadata['database_id']}
+                    elif workspace_info.metadata and workspace_info.metadata.get('type') == 'database':
+                        parent = {'database_id': workspace_info.resource_id}
+                    else:
+                        parent = {'page_id': workspace_info.resource_id}
+                else:
+                    # Try to get user's default workspace by searching for pages
+                    # Notion API requires either a page_id or database_id as parent
+                    try:
+                        # Search for pages in the user's workspace
+                        search_response = await self.nango.proxy_request(
+                            connection_id=connection_id,
+                            provider='notion',
+                            method='POST',
+                            path='/v1/search',
+                            json={
+                                'filter': {'property': 'object', 'value': 'page'},
+                                'page_size': 1
                             }
-                        },
-                        'children': blocks
-                    }
-                )
+                        )
+                        
+                        if search_response and search_response.get('results'):
+                            # Use the first page as parent
+                            first_page = search_response['results'][0]
+                            parent = {'page_id': first_page.get('id')}
+                        else:
+                            # Try to find a database instead
+                            db_search = await self.nango.proxy_request(
+                                connection_id=connection_id,
+                                provider='notion',
+                                method='POST',
+                                path='/v1/search',
+                                json={
+                                    'filter': {'property': 'object', 'value': 'database'},
+                                    'page_size': 1
+                                }
+                            )
+                            
+                            if db_search and db_search.get('results'):
+                                first_db = db_search['results'][0]
+                                parent = {'database_id': first_db.get('id')}
+                            else:
+                                raise ValueError(
+                                    "Notion requires a parent page or database to create a new page. "
+                                    "No pages or databases found in your Notion workspace. "
+                                    "Please create a page or database in Notion first, or provide a "
+                                    "workspace_info with a resource_id (page_id) or metadata with database_id."
+                                )
+                    except Exception as search_error:
+                        # If search fails, provide helpful error
+                        raise ValueError(
+                            f"Could not find a default workspace in Notion: {str(search_error)}. "
+                            "Please provide a workspace_info with a resource_id (page_id) or "
+                            "metadata with database_id."
+                        )
+                
+                try:
+                    page_data = await self.nango.proxy_request(
+                        connection_id=connection_id,
+                        provider='notion',
+                        method='POST',
+                        path='/v1/pages',
+                        json={
+                            'parent': parent,
+                            'properties': {
+                                'title': {
+                                    'title': [{'text': {'content': content.title}}]
+                                }
+                            },
+                            'children': blocks
+                        }
+                    )
+                except Exception as nango_error:
+                    # Re-raise with more context
+                    raise Exception(f"Failed to create Notion page: {str(nango_error)}")
                 
                 if not page_data:
-                    return None
+                    raise Exception("Notion API returned no data")
+                
+                page_id = page_data.get('id')
+                if not page_id:
+                    raise Exception("Notion API did not return a page ID")
+                
+                # Get the page URL from the response
+                page_url = page_data.get('url') or f"https://notion.so/{page_id.replace('-', '')}"
                 
                 return WorkspaceInfo(
                     provider='notion',
-                    resource_id=page_data.get('id'),
-                    metadata=workspace_info.metadata
+                    resource_id=page_id,
+                    metadata={
+                        **(workspace_info.metadata or {}),
+                        'url': page_url
+                    }
                 )
             else:
                 # Update existing page
+                if not workspace_info or not workspace_info.resource_id:
+                    raise ValueError("workspace_info.resource_id is required for updating")
                 success = await self.update_content(workspace_info, content, connection_id)
                 return workspace_info if success else None
+        except ValueError as e:
+            # Re-raise ValueError so it can be caught as a 400 error
+            raise
         except Exception as e:
-            print(f'Notion push error: {e}')
-            return None
+            error_msg = str(e)
+            print(f'Notion push error: {error_msg}')
+            raise Exception(f"Failed to push to Notion: {error_msg}")
     
     async def update_content(
         self,

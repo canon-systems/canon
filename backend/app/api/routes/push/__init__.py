@@ -1,9 +1,6 @@
 """
-Push endpoints for workspace providers
+Push routes for knowledge base integrations
 """
-from . import notion
-from . import confluence
-from . import coda
+from . import notion, confluence, coda
 
 __all__ = ["notion", "confluence", "coda"]
-

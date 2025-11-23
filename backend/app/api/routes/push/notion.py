@@ -58,9 +58,13 @@ async def push_to_notion(
         if not result:
             raise Exception("Failed to push content to Notion")
         
+        # Extract URL from metadata if available
+        url = result.metadata.get('url') if result.metadata else None
+        
         return {
             'success': True,
             'resource_id': result.resource_id,
+            'url': url,
             'workspace_info': {
                 'provider': result.provider,
                 'resource_id': result.resource_id,
@@ -70,5 +74,7 @@ async def push_to_notion(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # Include the actual error message for debugging
+        error_detail = str(e)
+        raise HTTPException(status_code=500, detail=error_detail)
 

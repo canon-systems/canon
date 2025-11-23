@@ -10,6 +10,7 @@ from app.api.routes import apply_ai_fix
 from app.api.routes.push import notion
 from app.api.routes.push import confluence
 from app.api.routes.push import coda
+from app.api.routes.push import list_resources
 
 app = FastAPI(
     title="Sync API",
@@ -47,6 +48,7 @@ app.include_router(apply_ai_fix.router, prefix="/api", tags=["ai-fix"])
 app.include_router(notion.router, prefix="/api/push", tags=["push"])
 app.include_router(confluence.router, prefix="/api/push", tags=["push"])
 app.include_router(coda.router, prefix="/api/push", tags=["push"])
+app.include_router(list_resources.router, prefix="/api/push", tags=["push"])
 
 
 @app.get("/")
