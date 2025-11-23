@@ -1,49 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { buildSystemPrompt } from '@/lib/server/prompts/buildSystemPrompt';
+import { apiPost } from '@/lib/api/client';
 
-const VERCEL_AI_GATEWAY_URL = process.env.VERCEL_AI_GATEWAY_URL;
-const VERCEL_AI_GATEWAY_API_KEY = process.env.VERCEL_AI_GATEWAY_API_KEY;
-const LLM_MODEL = process.env.LLM_MODEL || 'gpt-4o-mini';
-
-// Very small OpenAI-compatible caller that targets your Gateway.
-// Returns assistant text (or throws on HTTP error).
-async function callGateway(
-  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
-  model?: string,
-  temperature?: number
-) {
-  if (!VERCEL_AI_GATEWAY_URL || !VERCEL_AI_GATEWAY_API_KEY) {
-    throw new Error('Gateway env vars missing');
-  }
-
-  // Use provided model or fall back to env default
-  const modelToUse = model || LLM_MODEL;
-  // Use provided temperature or fall back to default 0.3
-  const temperatureToUse = temperature !== undefined ? temperature : 0.3;
-
-  const r = await fetch(`${VERCEL_AI_GATEWAY_URL.replace(/\/+$/, '')}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      authorization: `Bearer ${VERCEL_AI_GATEWAY_API_KEY}`,
-      // Extra header is safe; some gateways prefer Bearer only.
-      'x-vercel-ai-key': VERCEL_AI_GATEWAY_API_KEY
-    },
-    body: JSON.stringify({
-      model: modelToUse,
-      temperature: temperatureToUse,
-      messages
-    })
-  });
-
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) {
-    throw new Error(j?.error?.message || j?.message || `LLM HTTP ${r.status}`);
-  }
-  return String(j?.choices?.[0]?.message?.content ?? '');
-}
-
-// --- the API handler ---
+/**
+ * Proxy endpoint that forwards requests to the FastAPI backend
+ * Maps frontend field names to backend field names
+ */
 export async function POST(request: NextRequest) {
   try {
     // Expect: { projectName, files: [{ path, content }], model?: string, promptConfig?: PromptConfig }
@@ -57,41 +18,44 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No files provided' }, { status: 400 });
     }
 
-    // Build a compact, LLM-friendly prompt (kept simple and robust).
-    // We avoid sending massive blobs by trimming very long files.
-    const MAX_PER_FILE = 200_000; // safety cap
-    const clipped = files.map((f: any) => {
-      const path = String(f?.path || 'unknown');
-      const raw = String(f?.content || '');
-      const content = raw.length > MAX_PER_FILE ? raw.slice(0, MAX_PER_FILE) : raw;
-      return { path, content };
-    });
+    // Map frontend format to backend format
+    // Frontend: { projectName, files, model, promptConfig }
+    // Backend: { project_name, files, model, prompt_config }
+    const backendRequest = {
+      project_name: projectName,
+      files: files.map((f: any) => ({
+        path: String(f?.path || 'unknown'),
+        content: String(f?.content || '')
+      })),
+      model: model,
+      prompt_config: promptConfig ? {
+        personality: promptConfig.personality,
+        style: promptConfig.style,
+        custom_instructions: promptConfig.customInstructions,
+        temperature: promptConfig.temperature,
+        document_structure: promptConfig.document_structure ? {
+          sections: promptConfig.document_structure.sections,
+          include_table_of_contents: promptConfig.document_structure.includeTableOfContents,
+          custom_structure: promptConfig.document_structure.customStructure
+        } : undefined
+      } : undefined
+    };
 
-    // Build system prompt from config
-    const system = buildSystemPrompt(promptConfig, false);
+    // Call backend API
+    // Note: generate-doc endpoint uses get_optional_user, so auth is optional
+    const result = await apiPost<{ markdown: string; model?: string; prompt_config?: any }>(
+      '/api/generate-doc',
+      backendRequest,
+      false // Auth not required when files are provided directly
+    );
 
-    // Concise, explicit user content with file separators
-    const user =
-      `Project: ${projectName}\n\n` +
-      `Files (${clipped.length}):\n` +
-      clipped
-        .map((f: { path: string; content: string }) => `--- FILE: ${f.path} ---\n${f.content}`)
-        .join('\n\n');
-
-    // Call the Gateway with custom temperature if provided
-    const temperature = promptConfig?.temperature;
-    const markdown = (await callGateway(
-      [
-        { role: 'system', content: system },
-        { role: 'user', content: user }
-      ],
-      model,
-      temperature
-    )).trim();
-
-    return NextResponse.json({ markdown }, { status: 200 });
-  } catch (err) {
-    return NextResponse.json({ error: 'Generator failed', detail: String(err) }, { status: 500 });
+    return NextResponse.json({ markdown: result.markdown }, { status: 200 });
+  } catch (err: any) {
+    console.error('Generate doc error:', err);
+    return NextResponse.json({ 
+      error: 'Generator failed', 
+      detail: err.message || String(err) 
+    }, { status: 500 });
   }
 }
 
