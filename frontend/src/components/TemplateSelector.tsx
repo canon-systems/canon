@@ -10,7 +10,7 @@ interface Template {
 }
 
 interface TemplateSelectorProps {
-  templates: Template[];
+  templates?: Template[];
   onApply: (templateId: string) => Promise<void>;
   disabled?: boolean;
 }
