@@ -97,11 +97,11 @@ async def execute_rule(
                     supabase=supabase,
                     user_id=workspace_id,
                     project_name=repo['name'],
+                    model=model,
                     files=files,
                     repo_url=repo_url,
                     branch=branch,
                     subdir=subdir,
-                    model=model,
                     prompt_config=settings.get('prompt_config')
                 )
                 

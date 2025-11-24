@@ -13,11 +13,11 @@ async def generate_documentation(
     supabase: Client,
     user_id: Optional[str],
     project_name: str,
+    model: str,
     files: Optional[List[Dict[str, str]]] = None,
     repo_url: Optional[str] = None,
     branch: Optional[str] = None,
     subdir: Optional[str] = None,
-    model: str,
     prompt_config: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """

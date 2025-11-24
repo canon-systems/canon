@@ -21,12 +21,12 @@ async def apply_ai_fix_endpoint(
         result = await apply_ai_fix_to_doc(
             supabase=supabase,
             user_id=user["id"],
+            model=request.model,
             doc_id=request.doc_id,
             markdown_content=request.markdown_content,
             section=request.section,
             issue=request.issue,
-            instruction=request.instruction,
-            model=request.model
+            instruction=request.instruction
         )
         return result
     except ValueError as e:

@@ -246,11 +246,11 @@ async def analyze_and_generate_repo(
             supabase=supabase,
             user_id=user['id'],
             project_name=repo['name'],
+            model=request.model,  # Required model from request
             files=files,
             repo_url=repo_url,
             branch=branch,
             subdir=subdir,
-            model=request.model,  # Required model from request
             prompt_config=settings.get('prompt_config')
         )
         

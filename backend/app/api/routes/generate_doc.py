@@ -29,11 +29,11 @@ async def generate_doc_endpoint(
             supabase=supabase,
             user_id=user["id"] if user else None,
             project_name=request.project_name,
+            model=request.model,
             files=[{"path": f.path, "content": f.content} for f in request.files] if request.files else None,
             repo_url=request.repo_url,
             branch=request.branch,
             subdir=request.subdir,
-            model=request.model,
             prompt_config=request.prompt_config.model_dump() if request.prompt_config else None
         )
         return result

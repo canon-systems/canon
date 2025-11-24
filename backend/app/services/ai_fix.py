@@ -9,12 +9,12 @@ from app.utils.markdown_parser import extract_section, replace_section
 async def apply_ai_fix_to_doc(
     supabase: Client,
     user_id: str,
+    model: str,
     doc_id: Optional[str] = None,
     markdown_content: Optional[str] = None,
     section: Optional[str] = None,
     issue: Optional[str] = None,
-    instruction: Optional[str] = None,
-    model: str
+    instruction: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Use AI to improve or fix a portion of the documentation.
