@@ -17,12 +17,15 @@ async def generate_documentation(
     repo_url: Optional[str] = None,
     branch: Optional[str] = None,
     subdir: Optional[str] = None,
-    model: Optional[str] = None,
+    model: str,
     prompt_config: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Generate documentation from files or repository.
     """
+    if not model:
+        raise ValueError("Model is required")
+    
     # Get files if repo_url provided
     if repo_url and not files:
         if not user_id:

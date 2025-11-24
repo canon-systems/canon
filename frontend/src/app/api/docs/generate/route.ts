@@ -7,7 +7,7 @@ import { apiPost } from '@/lib/api/client';
  */
 export async function POST(request: NextRequest) {
   try {
-    // Expect: { projectName, files: [{ path, content }], model?: string, promptConfig?: PromptConfig }
+    // Expect: { projectName, files: [{ path, content }], model: string, promptConfig?: PromptConfig }
     const body = await request.json().catch(() => ({}));
     const projectName = String(body.projectName || 'Project');
     const files = Array.isArray(body.files) ? body.files : [];
@@ -16,6 +16,10 @@ export async function POST(request: NextRequest) {
 
     if (!files.length) {
       return NextResponse.json({ error: 'No files provided' }, { status: 400 });
+    }
+
+    if (!model) {
+      return NextResponse.json({ error: 'model is required' }, { status: 400 });
     }
 
     // Map frontend format to backend format

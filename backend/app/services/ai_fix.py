@@ -14,11 +14,14 @@ async def apply_ai_fix_to_doc(
     section: Optional[str] = None,
     issue: Optional[str] = None,
     instruction: Optional[str] = None,
-    model: Optional[str] = None
+    model: str
 ) -> Dict[str, Any]:
     """
     Use AI to improve or fix a portion of the documentation.
     """
+    if not model:
+        raise ValueError("Model is required")
+    
     # Get markdown content
     if doc_id and not markdown_content:
         try:
@@ -76,7 +79,7 @@ Return the improved documentation in full."""
     }
 
 
-async def _call_ai_for_fix(prompt: str, model: Optional[str] = None) -> str:
+async def _call_ai_for_fix(prompt: str, model: str) -> str:
     """Call AI to fix documentation"""
     gateway = LLMGateway()
     

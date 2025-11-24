@@ -389,7 +389,10 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
       const response = await fetch(`/api/repos/${repoId}/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ generate_diagram: false }),
+        body: JSON.stringify({ 
+          generate_diagram: false,
+          model: 'gpt-4o' // Default model - consider adding model selector to UI
+        }),
       });
 
       if (!response.ok) {

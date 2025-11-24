@@ -17,7 +17,11 @@ export async function POST(
 
     const { id } = await params;
     const body = await request.json().catch(() => ({}));
-    const { generate_diagram = false } = body;
+    const { generate_diagram = false, model } = body;
+
+    if (!model) {
+      return NextResponse.json({ error: 'model is required' }, { status: 400 });
+    }
 
     const result = await apiPost<{
       success: boolean;
@@ -26,7 +30,7 @@ export async function POST(
       message: string;
     }>(
       `/api/repos/${id}/analyze`,
-      { generate_diagram },
+      { generate_diagram, model },
       true,
       session?.access_token || null
     );

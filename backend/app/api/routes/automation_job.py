@@ -90,6 +90,9 @@ async def execute_rule(
                     result['errors'].append('No files found in repository')
                     return result
                 
+                # Get model from repo settings or use default
+                model = settings.get('model') or 'gpt-4o'
+                
                 doc_result = await generate_documentation(
                     supabase=supabase,
                     user_id=workspace_id,
@@ -98,7 +101,7 @@ async def execute_rule(
                     repo_url=repo_url,
                     branch=branch,
                     subdir=subdir,
-                    model=None,
+                    model=model,
                     prompt_config=settings.get('prompt_config')
                 )
                 

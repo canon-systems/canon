@@ -7,7 +7,7 @@ class ApplyAIFixRequest(BaseModel):
     section: Optional[str] = None  # Section to fix (e.g., "Setup", "API")
     issue: Optional[str] = None  # Description of the issue
     instruction: Optional[str] = None  # Generic instruction (e.g., "proofread for grammar")
-    model: Optional[str] = None
+    model: str
 
 class ApplyAIFixResponse(BaseModel):
     markdown: str

@@ -27,6 +27,7 @@ class CreateRepoRequest(BaseModel):
 
 class AnalyzeRepoRequest(BaseModel):
     generate_diagram: bool = False
+    model: str  # Required: LLM model to use for documentation generation
 
 class RepoResponse(BaseModel):
     id: str
@@ -249,7 +250,7 @@ async def analyze_and_generate_repo(
             repo_url=repo_url,
             branch=branch,
             subdir=subdir,
-            model=None,  # Use default
+            model=request.model,  # Required model from request
             prompt_config=settings.get('prompt_config')
         )
         

@@ -9,13 +9,12 @@ class LLMGateway:
     def __init__(self):
         self.gateway_url = settings.VERCEL_AI_GATEWAY_URL
         self.api_key = settings.VERCEL_AI_GATEWAY_API_KEY
-        self.default_model = settings.LLM_MODEL
         self.default_temperature = 0.3
     
     async def call(
         self,
         messages: List[Dict[str, str]],
-        model: Optional[str] = None,
+        model: str,
         temperature: Optional[float] = None
     ) -> str:
         """
@@ -25,7 +24,10 @@ class LLMGateway:
         if not self.gateway_url or not self.api_key:
             raise ValueError("Gateway env vars missing")
         
-        model_to_use = model or self.default_model
+        if not model:
+            raise ValueError("Model is required")
+        
+        model_to_use = model
         temperature_to_use = temperature if temperature is not None else self.default_temperature
         
         # Clean up gateway URL (remove trailing slashes)

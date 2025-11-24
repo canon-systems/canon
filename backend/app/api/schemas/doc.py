@@ -23,7 +23,7 @@ class GenerateDocRequest(BaseModel):
     repo_url: Optional[str] = None
     branch: Optional[str] = "main"
     subdir: Optional[str] = None
-    model: Optional[str] = None
+    model: str
     prompt_config: Optional[PromptConfig] = None
 
 class GenerateDocResponse(BaseModel):

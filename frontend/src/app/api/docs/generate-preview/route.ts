@@ -6,18 +6,21 @@ import { buildSystemPrompt } from '@/lib/server/prompts/buildSystemPrompt';
 
 const VERCEL_AI_GATEWAY_URL = process.env.VERCEL_AI_GATEWAY_URL;
 const VERCEL_AI_GATEWAY_API_KEY = process.env.VERCEL_AI_GATEWAY_API_KEY;
-const LLM_MODEL = process.env.LLM_MODEL || 'gpt-4o';
 
 async function callGateway(
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
-  model?: string,
+  model: string,
   temperature?: number
 ) {
   if (!VERCEL_AI_GATEWAY_URL || !VERCEL_AI_GATEWAY_API_KEY) {
     throw new Error('Gateway env vars missing');
   }
 
-  const modelToUse = model || LLM_MODEL;
+  if (!model) {
+    throw new Error('Model is required');
+  }
+
+  const modelToUse = model;
   const temperatureToUse = temperature !== undefined ? temperature : 0.3;
 
   const r = await fetch(`${VERCEL_AI_GATEWAY_URL.replace(/\/+$/, '')}/chat/completions`, {
@@ -60,12 +63,16 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}));
     const { submissionId, model, promptConfig } = body as {
       submissionId: string;
-      model?: string;
+      model: string;
       promptConfig?: any;
     };
 
     if (!submissionId) {
       return NextResponse.json({ error: 'submissionId is required' }, { status: 400 });
+    }
+
+    if (!model) {
+      return NextResponse.json({ error: 'model is required' }, { status: 400 });
     }
 
     const supabase = await createClient();
@@ -132,7 +139,11 @@ export async function POST(request: NextRequest) {
     }
 
     const effectivePromptConfig = promptConfig || sourceMeta.llm_prompt_config || null;
-    const effectiveModel = model || sourceMeta.model || LLM_MODEL;
+    const effectiveModel = model || sourceMeta.model;
+    
+    if (!effectiveModel) {
+      return NextResponse.json({ error: 'model is required. Please select a model.' }, { status: 400 });
+    }
 
     const system = buildSystemPrompt(effectivePromptConfig, true);
     const userPrompt = `Project: ${submission.title || 'Documentation'}\n\n` +
