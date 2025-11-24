@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     # GitHub Webhook
     GITHUB_WEBHOOK_SECRET: str = ""
     
+    # Inngest
+    INNGEST_EVENT_KEY: str = "CxrbldPKxk8B5u0hxR9HqhRbw-t0Wt5dBU3mDMXzBxTXLiNKaaSMlKD16h5-Shyl-Eb7fH9w6Tis_nKcBiuLEw"
+    INNGEST_SIGNING_KEY: str = "signkey-prod-09b54bb321bb797657a7641d1035cceb9c08fcfdcbeaf355ca44e2062a29400e"
+    INNGEST_SERVE_PATH: str = "/api/inngest"
+    INNGEST_DEV_SERVER_URL: str = "http://localhost:8288"
+    
     class Config:
         env_file = ".env"
         case_sensitive = False

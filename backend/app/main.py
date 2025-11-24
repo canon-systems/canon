@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.api.routes import analyze_repo
@@ -7,10 +7,21 @@ from app.api.routes import generate_doc
 from app.api.routes import generate_diagram
 from app.api.routes import apply_template
 from app.api.routes import apply_ai_fix
+from app.api.routes import get_doc
+from app.api.routes import get_diff
+from app.api.routes import get_diagram_diff
+from app.api.routes import approve_doc
+from app.api.routes import reject_doc
+from app.api.routes import list_docs
+from app.api.routes import repos
 from app.api.routes.push import notion
 from app.api.routes.push import confluence
 from app.api.routes.push import coda
 from app.api.routes.push import list_resources
+from app.api.routes import automation_job
+from app.core.inngest import inngest_client
+from app.functions.automation import check_due_rules, execute_automation_rule
+import inngest.fast_api
 
 app = FastAPI(
     title="Sync API",
@@ -45,10 +56,28 @@ app.include_router(generate_doc.router, prefix="/api", tags=["docs"])
 app.include_router(generate_diagram.router, prefix="/api", tags=["diagrams"])
 app.include_router(apply_template.router, prefix="/api", tags=["templates"])
 app.include_router(apply_ai_fix.router, prefix="/api", tags=["ai-fix"])
+app.include_router(get_doc.router, prefix="/api", tags=["docs"])
+app.include_router(get_diff.router, prefix="/api", tags=["docs"])
+app.include_router(get_diagram_diff.router, prefix="/api", tags=["docs"])
+app.include_router(approve_doc.router, prefix="/api", tags=["docs"])
+app.include_router(reject_doc.router, prefix="/api", tags=["docs"])
+app.include_router(list_docs.router, prefix="/api", tags=["docs"])
+app.include_router(repos.router, prefix="/api", tags=["repos"])
 app.include_router(notion.router, prefix="/api/push", tags=["push"])
 app.include_router(confluence.router, prefix="/api/push", tags=["push"])
 app.include_router(coda.router, prefix="/api/push", tags=["push"])
 app.include_router(list_resources.router, prefix="/api/push", tags=["push"])
+app.include_router(automation_job.router, prefix="/api", tags=["automation"])
+
+# Inngest serve endpoint - Inngest calls this to discover and invoke functions
+# Register all Inngest functions
+inngest_functions = [
+    check_due_rules,
+    execute_automation_rule,
+]
+
+# Add Inngest serve endpoint
+inngest.fast_api.serve(app, inngest_client, inngest_functions)
 
 
 @app.get("/")

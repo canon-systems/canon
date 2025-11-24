@@ -11,41 +11,37 @@ export interface ApiError {
 
 /**
  * Get authentication headers from Supabase session
- * Works in both browser and server environments
+ * For client components: Gets token from browser session
+ * For server components: Requires authToken to be passed explicitly
  * 
- * @param authToken Optional token to use directly (for server-side routes)
+ * @param authToken Optional token to use directly (required for server-side)
  */
 export async function getAuthHeaders(authToken?: string | null): Promise<HeadersInit> {
-    // If token is provided directly, use it
+    // If token is provided directly, use it (preferred for server-side)
     if (authToken) {
         return {
             'Authorization': `Bearer ${authToken}`,
         };
     }
 
+    // Only try to get from session if we're in a browser environment
+    // This prevents Next.js from analyzing server imports in client components
+    if (typeof window === 'undefined') {
+        // Server-side: return empty if no token provided
+        // Server-side code should always pass authToken explicitly
+        return {};
+    }
+
+    // Client-side: Get token from browser session
     try {
-        // Try server client first (for API routes)
-        try {
-            const { createClient } = await import('@/lib/supabase/server');
-            const supabase = await createClient();
-            const { data: { session } } = await supabase.auth.getSession();
+        const { createClient } = await import('@/lib/supabase/client');
+        const supabase = createClient();
+        const { data: { session } } = await supabase.auth.getSession();
 
-            if (session?.access_token) {
-                return {
-                    'Authorization': `Bearer ${session.access_token}`,
-                };
-            }
-        } catch {
-            // Fall back to browser client (for client-side calls)
-            const { createClient } = await import('@/lib/supabase/client');
-            const supabase = createClient();
-            const { data: { session } } = await supabase.auth.getSession();
-
-            if (session?.access_token) {
-                return {
-                    'Authorization': `Bearer ${session.access_token}`,
-                };
-            }
+        if (session?.access_token) {
+            return {
+                'Authorization': `Bearer ${session.access_token}`,
+            };
         }
     } catch (error) {
         console.warn('Failed to get auth headers:', error);
