@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Sparkles, Loader2 } from 'lucide-react';
 
 interface InlineAIFixProps {
-  onFix: (selectedText: string, instruction?: string) => Promise<string>;
+  onFix: (selectedText: string, instruction?: string) => Promise<void>;
   disabled?: boolean;
 }
 
