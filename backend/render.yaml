@@ -1,0 +1,42 @@
+services:
+  - type: web
+    name: sync-backend
+    runtime: python
+    plan: free  # Change to 'starter' or 'standard' for production
+    region: oregon  # Choose: oregon, frankfurt, singapore, mumbai, ohio
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      # Supabase - Required
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      
+      # Nango - Required
+      - key: NANGO_SECRET_KEY
+        sync: false
+      - key: NANGO_HOST
+        value: https://api.nango.dev
+      
+      # LLM Gateway - Required
+      - key: VERCEL_AI_GATEWAY_URL
+        sync: false
+      - key: VERCEL_AI_GATEWAY_API_KEY
+        sync: false
+      
+      # Inngest - Required
+      - key: INNGEST_EVENT_KEY
+        sync: false
+      - key: INNGEST_SIGNING_KEY
+        sync: false
+      - key: INNGEST_SERVE_PATH
+        value: /api/inngest
+      
+      # CORS_ORIGINS: Set manually in Render dashboard as JSON array string
+      # Example: ["https://your-frontend.vercel.app","https://yourdomain.com"]
+      # Or ["*"] to allow all origins (not recommended for production)
+      # Defaults to localhost URLs if not set
+
