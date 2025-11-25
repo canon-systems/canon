@@ -104,7 +104,7 @@ export function RichTextEditor({
       const currentHTML = editor.getHTML();
       // Only update if the content is actually different to avoid unnecessary updates
       if (currentHTML !== initialHTML) {
-        editor.commands.setContent(initialHTML, false); // false = don't emit update event
+        editor.commands.setContent(initialHTML, { emitUpdate: false }); // don't emit update event
       }
     }
   }, [editor, initialHTML]);

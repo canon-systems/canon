@@ -141,7 +141,7 @@ const premadeInstructions: InstructionOption[] = [
   }
 ];
 
-export function InlineAIFix({ 
+export function InlineAIFix({
   onFix,
   onCancel,
   disabled = false,
@@ -189,7 +189,7 @@ export function InlineAIFix({
       const text = selection.toString().trim();
       if (text.length > 0 && !disabled) {
         setSelectedText(text);
-        
+
         // Get position for menu
         const range = selection.getRangeAt(0);
         const rect = range.getBoundingClientRect();
@@ -223,8 +223,27 @@ export function InlineAIFix({
         const selection = window.getSelection();
         if (selection && selection.rangeCount > 0) {
           const range = selection.getRangeAt(0);
-          if (range.containsNode(event.target as Node, true)) {
-            return;
+          const target = event.target as Node;
+          // Check if target is within the range using standard DOM API
+          try {
+            const commonAncestor = range.commonAncestorContainer;
+            // Check if target is within the common ancestor of the selection
+            if (commonAncestor.contains(target)) {
+              // Check if target is within the range by comparing boundary points
+              const targetRange = document.createRange();
+              targetRange.selectNode(target);
+
+              // Compare if target range intersects with selection range
+              const startCompare = range.compareBoundaryPoints(Range.START_TO_END, targetRange);
+              const endCompare = range.compareBoundaryPoints(Range.END_TO_START, targetRange);
+
+              // If target range is within or overlaps the selection range
+              if (startCompare > 0 && endCompare < 0) {
+                return;
+              }
+            }
+          } catch (e) {
+            // If range operations fail, fall through and close the menu
           }
         }
         setShowMenu(false);
@@ -286,7 +305,7 @@ export function InlineAIFix({
 
   // Show menu if it's open, or if we're streaming/showing accept-reject
   const shouldShow = showMenu || isStreaming || showAcceptReject;
-  
+
   if (!shouldShow) {
     return null;
   }
@@ -452,9 +471,8 @@ export function InlineAIFix({
                       <button
                         key={model.value}
                         type="button"
-                        className={`w-full px-4 py-3 text-left transition-colors hover:bg-white/10 focus:bg-white/10 focus:outline-none ${
-                          selectedModel === model.value ? 'bg-white/15' : ''
-                        }`}
+                        className={`w-full px-4 py-3 text-left transition-colors hover:bg-white/10 focus:bg-white/10 focus:outline-none ${selectedModel === model.value ? 'bg-white/15' : ''
+                          }`}
                         onClick={() => {
                           setSelectedModel(model.value);
                           setShowModelDropdown(false);
@@ -492,11 +510,10 @@ export function InlineAIFix({
                     <button
                       key={cat}
                       onClick={() => setSelectedCategory(cat)}
-                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all whitespace-nowrap ${
-                        selectedCategory === cat
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all whitespace-nowrap ${selectedCategory === cat
                           ? 'bg-purple-500/30 text-purple-200 border border-purple-500/50'
                           : 'text-white/60 hover:text-white/80 hover:bg-white/10'
-                      }`}
+                        }`}
                     >
                       <Icon className="h-3 w-3" />
                       {categoryLabels[cat]}
