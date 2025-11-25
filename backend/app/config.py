@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     INNGEST_EVENT_KEY: str = "CxrbldPKxk8B5u0hxR9HqhRbw-t0Wt5dBU3mDMXzBxTXLiNKaaSMlKD16h5-Shyl-Eb7fH9w6Tis_nKcBiuLEw"
     INNGEST_SIGNING_KEY: str = "signkey-prod-09b54bb321bb797657a7641d1035cceb9c08fcfdcbeaf355ca44e2062a29400e"
     INNGEST_SERVE_PATH: str = "/api/inngest"
+    # Serve host - the base URL where your API is deployed (e.g., https://dev-dohg.onrender.com)
+    # If not set, Inngest will try to auto-detect, but it's better to set it explicitly
+    INNGEST_SERVE_HOST: Optional[str] = os.getenv("INNGEST_SERVE_HOST", None)
     INNGEST_DEV_SERVER_URL: str = "http://localhost:8288"
     
     @field_validator('CORS_ORIGINS', mode='before')

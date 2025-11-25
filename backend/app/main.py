@@ -81,13 +81,24 @@ inngest_functions = [
 # Add Inngest serve endpoint
 # The serve() function will automatically discover and register all decorated functions
 # Functions decorated with @inngest_client.create_function() are automatically registered
-# Note: The serve endpoint is created at the default path, but Inngest Cloud will use
-# the INNGEST_SERVE_PATH environment variable to know where to call
-inngest.fast_api.serve(
-    app,
-    inngest_client,
-    inngest_functions
-)
+# Configure serveHost and servePath so Inngest knows where to reach your functions
+if settings.INNGEST_SERVE_HOST:
+    # Production: explicitly set serveHost and servePath
+    inngest.fast_api.serve(
+        app,
+        inngest_client,
+        inngest_functions,
+        serveHost=settings.INNGEST_SERVE_HOST,
+        servePath=settings.INNGEST_SERVE_PATH
+    )
+else:
+    # Development: let Inngest auto-detect from request, but set servePath
+    inngest.fast_api.serve(
+        app,
+        inngest_client,
+        inngest_functions,
+        servePath=settings.INNGEST_SERVE_PATH
+    )
 
 
 @app.get("/")
@@ -132,6 +143,8 @@ async def inngest_debug():
             "is_production": inngest_client.is_production,
             "event_key_set": bool(inngest_client.event_key),
             "serve_path": settings.INNGEST_SERVE_PATH,
+            "serve_host": settings.INNGEST_SERVE_HOST or "auto-detect",
+            "serve_url": f"{settings.INNGEST_SERVE_HOST or '(auto-detect)'}{settings.INNGEST_SERVE_PATH}",
             "environment": settings.ENVIRONMENT,
             "functions_count": len(inngest_functions),
             "functions": function_info
