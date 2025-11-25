@@ -1,0 +1,35 @@
+# Supabase Configuration
+# This file is for reference only - setup is done via Supabase Dashboard
+
+[project]
+# All configuration is done via Supabase Dashboard web interface
+
+# Edge Function Setup (via Dashboard):
+# 1. Go to Supabase Dashboard → Edge Functions
+# 2. Click "Create a new function"
+# 3. Name: check-due-rules
+# 4. Copy code from supabase/functions/check-due-rules/index.ts
+# 5. Deploy function
+# 6. Go to Settings → Environment Variables:
+#    - Add BACKEND_URL (your Render backend URL)
+#    - Add CRON_SECRET (optional, if configured in backend)
+
+# Cron Job Setup (via Dashboard):
+# 1. Go to Supabase Dashboard → Database → Extensions
+# 2. Enable pg_cron extension (if not already enabled)
+# 3. Go to Database → SQL Editor
+# 4. Get your Service Role Key from Settings → API
+# 5. Run this SQL in SQL Editor (replace placeholders):
+#    SELECT cron.schedule(
+#      'check-due-rules',
+#      '0 * * * *',
+#      $$
+#      SELECT net.http_post(
+#        url := 'https://YOUR_PROJECT_REF.supabase.co/functions/v1/check-due-rules',
+#        headers := jsonb_build_object(
+#          'Authorization', 'Bearer YOUR_SERVICE_ROLE_KEY'
+#        )
+#      ) as request_id;
+#      $$
+#    );
+#    Replace YOUR_PROJECT_REF and YOUR_SERVICE_ROLE_KEY with actual values

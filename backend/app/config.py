@@ -31,18 +31,9 @@ class Settings(BaseSettings):
     VERCEL_AI_GATEWAY_URL: str = "https://ai-gateway.vercel.sh/v1"
     VERCEL_AI_GATEWAY_API_KEY: str = "7Iy637Ds6ryr8ef2yFyPyw8e"
     
-    # Inngest - Environment variables take priority over defaults
-    INNGEST_EVENT_KEY: str = "CxrbldPKxk8B5u0hxR9HqhRbw-t0Wt5dBU3mDMXzBxTXLiNKaaSMlKD16h5-Shyl-Eb7fH9w6Tis_nKcBiuLEw"
-    INNGEST_SIGNING_KEY: str = "signkey-prod-09b54bb321bb797657a7641d1035cceb9c08fcfdcbeaf355ca44e2062a29400e"
-    # Serve path - The Inngest SDK uses /api/inngest by default
-    # This is just for reference in our code, the SDK reads from environment automatically
-    INNGEST_SERVE_PATH: str = "/api/inngest"
-    # Serve host - Set this environment variable in Render for production
-    # The Inngest Python SDK automatically reads INNGEST_SERVE_HOST from environment
-    # Format: https://dev-dohg.onrender.com (no trailing slash)
-    # If not set, Inngest will auto-detect from request headers (works for development)
-    INNGEST_SERVE_HOST: Optional[str] = os.getenv("INNGEST_SERVE_HOST", None)
-    INNGEST_DEV_SERVER_URL: str = "http://localhost:8288"
+    # Automation - Now handled by Supabase Edge Functions + Cron Jobs
+    # CRON_SECRET: Optional secret for authenticating cron job requests (set in environment)
+    # BACKEND_URL: URL of the FastAPI backend (set in Supabase Edge Function environment)
     
     @field_validator('CORS_ORIGINS', mode='before')
     @classmethod

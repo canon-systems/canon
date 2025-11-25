@@ -39,13 +39,8 @@ services:
       - key: VERCEL_AI_GATEWAY_API_KEY
         sync: false
       
-      # Inngest - Required (set in Render dashboard)
-      - key: INNGEST_EVENT_KEY
-        sync: false
-      - key: INNGEST_SIGNING_KEY
-        sync: false
-      - key: INNGEST_SERVE_PATH
-        value: /api/inngest
+      # Automation - Now handled by Supabase Edge Functions + Cron Jobs
+      # CRON_SECRET: Optional secret for authenticating cron job requests (set in Render dashboard if needed)
 
   # Development Backend Service (dev branch)
   - type: web
@@ -87,10 +82,5 @@ services:
       - key: VERCEL_AI_GATEWAY_API_KEY
         sync: false
       
-      # Inngest - Required (set in Render dashboard)
-      - key: INNGEST_EVENT_KEY
-        sync: false
-      - key: INNGEST_SIGNING_KEY
-        sync: false
-      - key: INNGEST_SERVE_PATH
-        value: /api/inngest
+      # Automation - Now handled by Supabase Edge Functions + Cron Jobs
+      # CRON_SECRET: Optional secret for authenticating cron job requests (set in Render dashboard if needed)
