@@ -81,24 +81,18 @@ inngest_functions = [
 # Add Inngest serve endpoint
 # The serve() function will automatically discover and register all decorated functions
 # Functions decorated with @inngest_client.create_function() are automatically registered
-# Configure serveHost and servePath so Inngest knows where to reach your functions
-if settings.INNGEST_SERVE_HOST:
-    # Production: explicitly set serveHost and servePath
-    inngest.fast_api.serve(
-        app,
-        inngest_client,
-        inngest_functions,
-        serveHost=settings.INNGEST_SERVE_HOST,
-        servePath=settings.INNGEST_SERVE_PATH
-    )
-else:
-    # Development: let Inngest auto-detect from request, but set servePath
-    inngest.fast_api.serve(
-        app,
-        inngest_client,
-        inngest_functions,
-        servePath=settings.INNGEST_SERVE_PATH
-    )
+# 
+# Note: The Inngest Python SDK reads serve configuration from environment variables:
+# - INNGEST_SERVE_HOST: The base URL where your API is deployed (e.g., https://dev-dohg.onrender.com)
+# - INNGEST_SERVE_PATH: The path to the serve endpoint (defaults to /api/inngest)
+# 
+# If INNGEST_SERVE_HOST is not set, Inngest will auto-detect from request headers.
+# The serve path is configured via the INNGEST_SERVE_PATH env var or defaults to /api/inngest
+inngest.fast_api.serve(
+    app,
+    inngest_client,
+    inngest_functions
+)
 
 
 @app.get("/")
@@ -109,6 +103,29 @@ async def root():
 @app.get("/health")
 async def health():
     return {"status": "healthy"}
+
+
+@app.get("/api/inngest/sync")
+async def inngest_sync():
+    """
+    Test endpoint that simulates what Inngest Cloud calls to discover functions.
+    This should return the same response as the actual /api/inngest endpoint.
+    """
+    # This endpoint helps verify that Inngest Cloud can discover your functions
+    # Inngest Cloud will call /api/inngest with specific headers
+    return {
+        "message": "This endpoint simulates Inngest Cloud discovery",
+        "note": "Inngest Cloud calls /api/inngest (not this endpoint)",
+        "serve_url": f"{settings.INNGEST_SERVE_HOST or '(set INNGEST_SERVE_HOST)'}{settings.INNGEST_SERVE_PATH}",
+        "functions_registered": len(inngest_functions),
+        "instructions": [
+            "1. Set INNGEST_SERVE_HOST environment variable in Render",
+            "2. Go to Inngest Cloud Dashboard → Your App → Settings",
+            "3. Set 'Serve URL' to: https://dev-dohg.onrender.com/api/inngest",
+            "4. Click 'Sync' or wait for automatic discovery",
+            "5. Functions should appear in the Functions tab"
+        ]
+    }
 
 
 @app.get("/api/inngest/debug")
@@ -123,19 +140,44 @@ async def inngest_debug():
             try:
                 func_data = {
                     "type": type(func).__name__,
-                    "module": func.__module__ if hasattr(func, '__module__') else "unknown",
-                    "name": func.__name__ if hasattr(func, '__name__') else "unknown",
                 }
-                # Try to get function metadata if available
-                if hasattr(func, 'fn_id'):
-                    func_data["fn_id"] = func.fn_id
-                if hasattr(func, 'name'):
-                    func_data["display_name"] = func.name
-                if hasattr(func, 'trigger'):
-                    func_data["trigger"] = str(func.trigger)
+                # Try to access function metadata from Inngest Function object
+                # The function object has internal attributes we can access
+                if hasattr(func, '_fn_id') or hasattr(func, 'fn_id'):
+                    func_data["fn_id"] = getattr(func, '_fn_id', None) or getattr(func, 'fn_id', None)
+                if hasattr(func, '_name') or hasattr(func, 'name'):
+                    func_data["name"] = getattr(func, '_name', None) or getattr(func, 'name', None)
+                if hasattr(func, '_trigger') or hasattr(func, 'trigger'):
+                    trigger = getattr(func, '_trigger', None) or getattr(func, 'trigger', None)
+                    if trigger:
+                        trigger_info = {}
+                        if hasattr(trigger, 'event'):
+                            trigger_info["type"] = "event"
+                            trigger_info["event"] = getattr(trigger, 'event', None)
+                        elif hasattr(trigger, 'cron'):
+                            trigger_info["type"] = "cron"
+                            trigger_info["cron"] = getattr(trigger, 'cron', None)
+                        elif hasattr(trigger, 'method') or hasattr(trigger, 'path'):
+                            trigger_info["type"] = "http"
+                            trigger_info["method"] = getattr(trigger, 'method', None)
+                            trigger_info["path"] = getattr(trigger, 'path', None)
+                        else:
+                            trigger_info["raw"] = str(trigger)
+                        func_data["trigger"] = trigger_info
+                
+                # Also try to get the underlying function name
+                if hasattr(func, '_fn') and hasattr(func._fn, '__name__'):
+                    func_data["function_name"] = func._fn.__name__
+                
                 function_info.append(func_data)
             except Exception as e:
-                function_info.append({"error": str(e), "func": str(func)})
+                import traceback
+                function_info.append({
+                    "error": str(e),
+                    "traceback": traceback.format_exc(),
+                    "func_type": str(type(func)),
+                    "func_attrs": [attr for attr in dir(func) if not attr.startswith('__')]
+                })
         
         return {
             "status": "ok",
