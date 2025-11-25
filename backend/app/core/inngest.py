@@ -6,10 +6,11 @@ from app.config import settings
 import os
 
 # Initialize Inngest client
+# Use ENVIRONMENT from settings (which reads from env var with default "development")
 inngest_client = inngest.Inngest(
     app_id="sync-automation",
     event_key=os.getenv("INNGEST_EVENT_KEY") or settings.INNGEST_EVENT_KEY,
-    is_production=os.getenv("ENVIRONMENT", "").lower() == "production"
+    is_production=settings.ENVIRONMENT.lower() == "production"
 )
 
 # Event definitions

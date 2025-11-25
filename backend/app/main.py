@@ -71,13 +71,23 @@ app.include_router(automation_job.router, prefix="/api", tags=["automation"])
 
 # Inngest serve endpoint - Inngest calls this to discover and invoke functions
 # Register all Inngest functions
+# Note: Functions decorated with @inngest_client.create_function() are automatically
+# registered with the client, but we need to pass them explicitly to serve()
 inngest_functions = [
     check_due_rules,
     execute_automation_rule,
 ]
 
 # Add Inngest serve endpoint
-inngest.fast_api.serve(app, inngest_client, inngest_functions)
+# The serve() function will automatically discover and register all decorated functions
+# Functions decorated with @inngest_client.create_function() are automatically registered
+# Note: The serve endpoint is created at the default path, but Inngest Cloud will use
+# the INNGEST_SERVE_PATH environment variable to know where to call
+inngest.fast_api.serve(
+    app,
+    inngest_client,
+    inngest_functions
+)
 
 
 @app.get("/")
@@ -88,3 +98,49 @@ async def root():
 @app.get("/health")
 async def health():
     return {"status": "healthy"}
+
+
+@app.get("/api/inngest/debug")
+async def inngest_debug():
+    """
+    Debug endpoint to check Inngest function registration.
+    This helps verify that functions are properly registered.
+    """
+    try:
+        function_info = []
+        for func in inngest_functions:
+            try:
+                func_data = {
+                    "type": type(func).__name__,
+                    "module": func.__module__ if hasattr(func, '__module__') else "unknown",
+                    "name": func.__name__ if hasattr(func, '__name__') else "unknown",
+                }
+                # Try to get function metadata if available
+                if hasattr(func, 'fn_id'):
+                    func_data["fn_id"] = func.fn_id
+                if hasattr(func, 'name'):
+                    func_data["display_name"] = func.name
+                if hasattr(func, 'trigger'):
+                    func_data["trigger"] = str(func.trigger)
+                function_info.append(func_data)
+            except Exception as e:
+                function_info.append({"error": str(e), "func": str(func)})
+        
+        return {
+            "status": "ok",
+            "app_id": inngest_client.app_id,
+            "is_production": inngest_client.is_production,
+            "event_key_set": bool(inngest_client.event_key),
+            "serve_path": settings.INNGEST_SERVE_PATH,
+            "environment": settings.ENVIRONMENT,
+            "functions_count": len(inngest_functions),
+            "functions": function_info
+        }
+    except Exception as e:
+        import traceback
+        return {
+            "status": "error",
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+            "serve_path": settings.INNGEST_SERVE_PATH
+        }
