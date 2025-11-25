@@ -98,6 +98,17 @@ export function RichTextEditor({
     }
   }, [editor, editable]);
 
+  // Update editor content when initialHTML prop changes
+  useEffect(() => {
+    if (editor && initialHTML) {
+      const currentHTML = editor.getHTML();
+      // Only update if the content is actually different to avoid unnecessary updates
+      if (currentHTML !== initialHTML) {
+        editor.commands.setContent(initialHTML, false); // false = don't emit update event
+      }
+    }
+  }, [editor, initialHTML]);
+
   // Emit a normalized ratio based on caret position within the scroll area
   function emitCursorRatioFromSelection(): void {
     if (!editor || !editorRef.current) return;
