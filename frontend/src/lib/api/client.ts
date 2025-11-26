@@ -128,20 +128,20 @@ export async function apiGet<T>(
  * POST request helper
  */
 export async function apiPost<T>(
-  endpoint: string,
-  data?: unknown,
-  requireAuth: boolean = false,
-  authToken?: string | null
+    endpoint: string,
+    data?: unknown,
+    requireAuth: boolean = false,
+    authToken?: string | null
 ): Promise<T> {
-  return apiRequest<T>(
-    endpoint,
-    {
-      method: 'POST',
-      body: data ? JSON.stringify(data) : undefined,
-    },
-    requireAuth,
-    authToken
-  );
+    return apiRequest<T>(
+        endpoint,
+        {
+            method: 'POST',
+            body: data ? JSON.stringify(data) : undefined,
+        },
+        requireAuth,
+        authToken
+    );
 }
 
 /**

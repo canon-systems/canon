@@ -140,27 +140,37 @@ WHERE id = 'your-repo-id';
 
 ## Scheduled Execution
 
-The automation system uses **Inngest** for orchestration and scheduling. Inngest provides:
-- Reliable execution with automatic retries
-- Built-in scheduling with cron expressions
-- Event-driven workflows
-- Observability and monitoring
+The automation system runs through **Supabase Edge Functions** triggered by `pg_cron` jobs. This keeps orchestration entirely inside Supabase:
+- Cron schedules fire hourly (or at your configured cadence) and invoke the Edge Function `check-due-rules`.
+- The Edge Function calls `POST /api/automation/trigger` on your backend (secured via `CRON_SECRET`).
+- The backend executes the rule: detect changes, generate docs/diagrams, auto-approve/publish, and track usage.
 
 ### How It Works
 
-1. **Scheduled Function** (`check-due-rules`): Runs every hour via Inngest
-   - Finds all repos with enabled automation rules
-   - Checks if rules are due to run (based on schedule and last run time)
-   - Sends events to trigger rule execution
+1. **Scheduled Job** (Supabase cron job): Runs hourly.
+   - Queries `workspace_repos` for enabled automation rules.
+   - Determines which rules are due and posts to the backend trigger endpoint.
 
-2. **Event-Driven Function** (`execute-automation-rule`): Triggered by events
-   - Executes the rule:
-     - Detects changes (if configured)
-     - Generates documentation (if configured)
-     - Generates diagrams (if configured)
-     - Auto-approves and publishes (if configured and conditions met)
+2. **Edge Function** (`check-due-rules`):
+   - Receives the cron payload.
+   - Calls your backend `/api/automation/trigger` endpoint using `BACKEND_URL` and optional `CRON_SECRET`.
 
-See `INNGEST_SETUP.md` and `INNGEST_QUICKSTART.md` for setup instructions.
+3. **Backend Automation Endpoint** (`/api/automation/trigger`):
+   - Dispatches execution logic (detect change, generate doc/diagram, publish, track usage).
+   - Records results in `usage_events`.
+
+4. **Cleanup & Monitoring**:
+   - Every step logs to Supabase tables and Render logs.
+
+See `supabase/config.toml` for the exact Edge Function + cron setup steps.
+
+## Schema Parity (Keep Prod in Sync)
+
+Because Dev is where you evolve schema/configuration, keep Production in lockstep:
+1. Run any schema change (new column, index, RLS policy) against the Dev project first.
+2. Export the SQL that implements that change (use Dev SQL Editor → **View Definition** or copy the ALTER statement).
+3. Apply the same SQL to the Production project so both environments share the exact schema.
+4. Verify with `information_schema.tables` and `information_schema.columns` in both projects after every change.
 
 ## Automatic Approval Logic
 
@@ -197,24 +207,6 @@ curl -X POST https://your-api.com/api/automation/trigger \
     "rule_id": "rule-id",  # Optional - triggers all enabled rules if omitted
     "workspace_id": "workspace-uuid"
   }'
-```
-
-Or send an Inngest event directly:
-
-```python
-from app.core.inngest import inngest_client, AutomationEvents
-import inngest
-
-await inngest_client.send_sync(
-    inngest.Event(
-        name=AutomationEvents.EXECUTE_RULE,
-        data={
-            "repo_id": "repo-uuid",
-            "rule_id": "rule-id",
-            "workspace_id": "workspace-uuid"
-        }
-    )
-)
 ```
 
 ## Monitoring
