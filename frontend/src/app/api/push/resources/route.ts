@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { apiGet } from '@/lib/api/client';
+import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
+import { listResources } from '@/lib/server/workspaces/resources';
 
 /**
  * GET: List available resources (pages, databases, etc.) for a provider
@@ -8,37 +9,40 @@ import { getSession } from '@/lib/auth';
  */
 export async function GET(request: NextRequest) {
   try {
-    const { user, session } = await getSession();
+    const { user } = await getSession();
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const supabase = await createClient();
     const { searchParams } = new URL(request.url);
     const provider = searchParams.get('provider');
 
     if (!provider) {
-      return NextResponse.json(
-        { error: 'provider parameter is required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'provider parameter is required' }, { status: 400 });
     }
 
-    // Call backend API (requires authentication)
-    const result = await apiGet<{
-      success: boolean;
-      resources: Array<{
-        id: string;
-        type: string;
-        title: string;
-        url?: string;
-      }>;
-    }>(
-      `/api/push/${provider}/resources`,
-      true, // Requires authentication
-      session?.access_token || null
-    );
+    const { data: connection } = await supabase
+      .from<{ connection_id: string }>('oauth_connections')
+      .select('connection_id')
+      .eq('user_id', user.id)
+      .eq('provider', provider)
+      .eq('status', 'active')
+      .single();
 
-    return NextResponse.json(result, { status: 200 });
+    if (!connection?.connection_id) {
+      return NextResponse.json({ error: `No active ${provider} connection found` }, { status: 404 });
+    }
+
+    const resources = await listResources(provider, connection.connection_id);
+
+    return NextResponse.json(
+      {
+        success: true,
+        resources,
+      },
+      { status: 200 }
+    );
   } catch (err: any) {
     console.error('List resources error:', err);
     return NextResponse.json(

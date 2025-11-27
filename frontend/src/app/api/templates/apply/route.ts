@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { apiPost } from '@/lib/api/client';
+import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
+import { applyTemplateToDoc } from '@/lib/server/services/templateEngine';
 
 /**
  * POST: Apply a template to documentation
@@ -8,11 +9,12 @@ import { getSession } from '@/lib/auth';
  */
 export async function POST(request: NextRequest) {
   try {
-    const { user, session } = await getSession();
+    const { user } = await getSession();
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const supabase = await createClient();
     const body = await request.json();
     const { docId, markdownContent, templateId, templateContent } = body;
 
@@ -23,25 +25,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Map frontend format to backend format
-    const backendRequest = {
-      doc_id: docId || null,
-      markdown_content: markdownContent || null,
-      template_id: templateId || null,
-      template_content: templateContent || null,
-    };
-
-    // Call backend API (requires authentication)
-    const result = await apiPost<{
-      markdown: string;
-      template_applied: string;
-      changes_summary?: string;
-    }>(
-      '/api/apply-template',
-      backendRequest,
-      true, // Requires authentication
-      session?.access_token || null
-    );
+    const result = await applyTemplateToDoc({
+      supabase,
+      userId: user.id,
+      docId: docId || null,
+      markdownContent: markdownContent || null,
+      templateId: templateId || null,
+      templateContent: templateContent || null,
+    });
 
     return NextResponse.json(result, { status: 200 });
   } catch (err: any) {

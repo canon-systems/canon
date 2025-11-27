@@ -1,4 +1,0 @@
-"""
-API request/response schemas
-"""
-
