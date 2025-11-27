@@ -273,13 +273,14 @@ function extractRichText(element: HTMLElement): NotionRichText[] {
 			// Handle links
 			if (tagName === 'a') {
 				const href = el.getAttribute('href') || '';
+				const normalized = sanitizeLinkHref(href);
 				const text = el.text || '';
 				if (text) {
 					richText.push({
 						type: 'text',
 						text: {
 							content: text,
-							link: href ? { url: href } : null
+							...(normalized ? { link: { url: normalized } } : {})
 						},
 						annotations: Object.keys(newAnnotations).length > 0 ? newAnnotations : undefined
 					});
@@ -323,5 +324,22 @@ function createParagraphBlock(richText: NotionRichText[]): NotionBlock {
 			rich_text: richText.length > 0 ? richText : []
 		}
 	};
+}
+
+function sanitizeLinkHref(href: string): string | undefined {
+	const trimmed = href.trim();
+	if (!trimmed) return undefined;
+
+	// Only allow absolute URLs (Notion requires valid scheme/data)
+	if (!/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(trimmed)) {
+		return undefined;
+	}
+
+	try {
+		const parsed = new URL(trimmed);
+		return parsed.toString();
+	} catch {
+		return undefined;
+	}
 }
 

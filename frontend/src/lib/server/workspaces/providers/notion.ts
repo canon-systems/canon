@@ -173,42 +173,75 @@ export class NotionProvider implements WorkspaceProvider {
 		createNew = true
 	): Promise<WorkspaceInfo | null> {
 		try {
-			const html = content.html || marked.parse(content.markdown) as string;
+			const html = content.html || (marked.parse(content.markdown) as string);
 			const blocks = htmlToNotionBlocks(html);
 
 			if (createNew) {
-				// Create new page
-				const parentPageId = workspaceInfo.resourceId; // Parent page ID
+				// Create new page or database entry
+				const parentPageId = workspaceInfo.resourceId;
+				const metadata = workspaceInfo.metadata || {};
+				const databaseId =
+					metadata.database_id ||
+					((metadata.type === 'database' || metadata.type === 'collection') ? parentPageId : undefined);
+				const isDatabaseParent = Boolean(databaseId);
+
+				const parentPayload = isDatabaseParent
+					? { database_id: databaseId }
+					: parentPageId
+					? { page_id: parentPageId }
+					: null;
+
+				if (!parentPayload) {
+					console.error('Notion push error: missing parent resource ID');
+					return null;
+				}
+
+				const titleValue = content.title?.trim() || 'Untitled';
+				const titleProperty = isDatabaseParent
+					? {
+							Name: {
+								title: [
+									{
+										text: {
+											content: titleValue
+										}
+									}
+								]
+							}
+					  }
+					: {
+							title: {
+								title: [
+									{
+										text: {
+											content: titleValue
+										}
+									}
+								]
+							}
+					  };
+
 				const createUrl = new URL('/proxy/v1/pages', NANGO_CONFIG.host);
 
 				const createResponse = await fetch(createUrl.toString(), {
 					method: 'POST',
 					headers: {
-						'Authorization': `Bearer ${NANGO_CONFIG.secretKey}`,
+						Authorization: `Bearer ${NANGO_CONFIG.secretKey}`,
 						'Content-Type': 'application/json',
 						'Provider-Config-Key': 'notion',
 						'Connection-Id': connectionId
 					},
 					body: JSON.stringify({
-						parent: {
-							page_id: parentPageId
-						},
-						properties: {
-							title: {
-								title: [
-									{
-										text: {
-											content: content.title
-										}
-									}
-								]
-							}
-						},
+						parent: parentPayload,
+						properties: titleProperty,
 						children: blocks
 					})
 				});
 
-				if (!createResponse.ok) return null;
+				if (!createResponse.ok) {
+					console.error('Notion create response error:', await createResponse.text().catch(() => ''));
+					return null;
+				}
 
 				const createData = await createResponse.json();
 				return {
