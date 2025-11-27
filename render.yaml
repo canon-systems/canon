@@ -1,0 +1,86 @@
+services:
+  # Production Backend Service (master branch)
+  - type: web
+    name: Prod
+    runtime: python
+    plan: free
+    region: ohio  # Choose: oregon, frankfurt, singapore, mumbai, ohio
+    branch: master  # Deploy from master branch
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      # Environment
+      - key: ENVIRONMENT
+        value: production
+      
+      # CORS - Set manually in Render dashboard as JSON array string
+      # Example: ["https://your-frontend.vercel.app"]
+      - key: CORS_ORIGINS
+        sync: false
+      
+      # Supabase - Required (set in Render dashboard)
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      
+      # Nango - Required (set in Render dashboard)
+      - key: NANGO_SECRET_KEY
+        sync: false
+      - key: NANGO_HOST
+        value: https://api.nango.dev
+      
+      # LLM Gateway - Required (set in Render dashboard)
+      - key: VERCEL_AI_GATEWAY_URL
+        sync: false
+      - key: VERCEL_AI_GATEWAY_API_KEY
+        sync: false
+      
+      # Automation - Now handled by Supabase Edge Functions + Cron Jobs
+      # CRON_SECRET: Optional secret for authenticating cron job requests (set in Render dashboard if needed)
+
+  # Development Backend Service (dev branch)
+  - type: web
+    name: Dev
+    runtime: python
+    plan: free
+    region: ohio  # Choose: oregon, frankfurt, singapore, mumbai, ohio
+    branch: dev  # Deploy from dev branch
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      # Environment
+      - key: ENVIRONMENT
+        value: development
+      
+      # CORS - Set manually in Render dashboard as JSON array string
+      # Example: ["https://your-frontend-dev.vercel.app","http://localhost:3000"]
+      - key: CORS_ORIGINS
+        sync: false
+      
+      # Supabase - Required (set in Render dashboard)
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      
+      # Nango - Required (set in Render dashboard)
+      - key: NANGO_SECRET_KEY
+        sync: false
+      - key: NANGO_HOST
+        value: https://api.nango.dev
+      
+      # LLM Gateway - Required (set in Render dashboard)
+      - key: VERCEL_AI_GATEWAY_URL
+        sync: false
+      - key: VERCEL_AI_GATEWAY_API_KEY
+        sync: false
+      
+      # Automation - Now handled by Supabase Edge Functions + Cron Jobs
+      # CRON_SECRET: Optional secret for authenticating cron job requests (set in Render dashboard if needed)

@@ -1,5 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { apiPost } from '@/lib/api/client';
+import { createClient } from '@/lib/supabase/server';
+import { generateDocumentation } from '@/lib/server/services/docGenerator';
+import type { PromptConfig } from '@/lib/server/prompts/buildSystemPrompt';
+
+type GenerateDocRequestBody = {
+  projectName?: string | null;
+  files?: Array<{ path?: string; content?: string }>;
+  model?: string;
+  promptConfig?: PromptConfig | null;
+  repoUrl?: string | null;
+  branch?: string | null;
+  subdir?: string | null;
+};
 
 /**
  * Proxy endpoint that forwards requests to the FastAPI backend
@@ -7,55 +19,49 @@ import { apiPost } from '@/lib/api/client';
  */
 export async function POST(request: NextRequest) {
   try {
-    // Expect: { projectName, files: [{ path, content }], model?: string, promptConfig?: PromptConfig }
-    const body = await request.json().catch(() => ({}));
+    const supabase = await createClient();
+    const body = (await request.json().catch(() => ({}))) as GenerateDocRequestBody;
     const projectName = String(body.projectName || 'Project');
     const files = Array.isArray(body.files) ? body.files : [];
     const model = body.model ? String(body.model) : undefined;
     const promptConfig = body.promptConfig || null;
+    const repoUrl = body.repoUrl || null;
+    const branch = body.branch || null;
+    const subdir = body.subdir || null;
 
-    if (!files.length) {
-      return NextResponse.json({ error: 'No files provided' }, { status: 400 });
+    if (!model) {
+      return NextResponse.json({ error: 'model is required' }, { status: 400 });
     }
 
-    // Map frontend format to backend format
-    // Frontend: { projectName, files, model, promptConfig }
-    // Backend: { project_name, files, model, prompt_config }
-    const backendRequest = {
-      project_name: projectName,
-      files: files.map((f: any) => ({
-        path: String(f?.path || 'unknown'),
-        content: String(f?.content || '')
-      })),
-      model: model,
-      prompt_config: promptConfig ? {
-        personality: promptConfig.personality,
-        style: promptConfig.style,
-        custom_instructions: promptConfig.customInstructions,
-        temperature: promptConfig.temperature,
-        document_structure: promptConfig.document_structure ? {
-          sections: promptConfig.document_structure.sections,
-          include_table_of_contents: promptConfig.document_structure.includeTableOfContents,
-          custom_structure: promptConfig.document_structure.customStructure
-        } : undefined
-      } : undefined
-    };
+    if (!files.length && !repoUrl) {
+      return NextResponse.json({ error: 'Provide files or repoUrl' }, { status: 400 });
+    }
 
-    // Call backend API
-    // Note: generate-doc endpoint uses get_optional_user, so auth is optional
-    const result = await apiPost<{ markdown: string; model?: string; prompt_config?: any }>(
-      '/api/generate-doc',
-      backendRequest,
-      false // Auth not required when files are provided directly
-    );
+    const result = await generateDocumentation({
+      supabase,
+      userId: null,
+      projectName,
+      model,
+      files: files.map((file: any) => ({
+        path: String(file?.path || 'unknown'),
+        content: String(file?.content || ''),
+      })),
+      repoUrl,
+      branch,
+      subdir,
+      promptConfig,
+    });
 
     return NextResponse.json({ markdown: result.markdown }, { status: 200 });
   } catch (err: any) {
     console.error('Generate doc error:', err);
-    return NextResponse.json({ 
-      error: 'Generator failed', 
-      detail: err.message || String(err) 
-    }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: 'Generator failed',
+        detail: err.message || String(err),
+      },
+      { status: 500 }
+    );
   }
 }
 

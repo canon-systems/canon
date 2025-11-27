@@ -1,20 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { apiPost } from '@/lib/api/client';
+import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
+import { applyAIFixToDoc, streamAIFixToDoc } from '@/lib/server/services/aiFix';
 
-/**
- * POST: Apply AI fix to documentation
- * Proxies to FastAPI backend /api/apply-ai-fix
- */
+type AIFixRequestBody = {
+  docId?: string | null;
+  markdownContent?: string | null;
+  section?: string | null;
+  issue?: string | null;
+  instruction?: string | null;
+  model: string;
+  stream?: boolean;
+};
+
 export async function POST(request: NextRequest) {
   try {
-    const { user, session } = await getSession();
+    const { user } = await getSession();
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const body = await request.json();
-    const { docId, markdownContent, section, issue, instruction, model } = body;
+    const supabase = await createClient();
+    const body = (await request.json()) as AIFixRequestBody;
+    const { docId, markdownContent, section, issue, instruction, model, stream } = body;
 
     if (!markdownContent && !docId) {
       return NextResponse.json(
@@ -23,26 +31,63 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Map frontend format to backend format
-    const backendRequest = {
-      doc_id: docId || null,
-      markdown_content: markdownContent || null,
+    if (!model) {
+      return NextResponse.json(
+        { error: 'model is required' },
+        { status: 400 }
+      );
+    }
+
+    if (stream) {
+      const generator = streamAIFixToDoc({
+        supabase,
+        userId: user.id,
+        model,
+        docId: docId || null,
+        markdownContent: markdownContent || null,
+        section: section || null,
+        issue: issue || null,
+        instruction: instruction || null,
+      });
+
+      const streamResponse = new ReadableStream({
+        async start(controller) {
+          try {
+            for await (const chunk of generator) {
+              controller.enqueue(
+                new TextEncoder().encode(`data: ${JSON.stringify({ chunk })}\n\n`)
+              );
+            }
+            controller.enqueue(new TextEncoder().encode('data: {"done": true}\n\n'));
+          } catch (error: any) {
+            controller.enqueue(
+              new TextEncoder().encode(`data: ${JSON.stringify({ error: error.message })}\n\n`)
+            );
+          }
+          controller.close();
+        },
+      });
+
+      return new Response(streamResponse, {
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+          'X-Accel-Buffering': 'no',
+        },
+      });
+    }
+
+    const result = await applyAIFixToDoc({
+      supabase,
+      userId: user.id,
+      model,
+      docId: docId || null,
+      markdownContent: markdownContent || null,
       section: section || null,
       issue: issue || null,
       instruction: instruction || null,
-      model: model || null,
-    };
-
-    // Call backend API (requires authentication)
-    const result = await apiPost<{
-      markdown: string;
-      fixed_section?: string;
-    }>(
-      '/api/apply-ai-fix',
-      backendRequest,
-      true, // Requires authentication
-      session?.access_token || null
-    );
+    });
 
     return NextResponse.json(result, { status: 200 });
   } catch (err: any) {

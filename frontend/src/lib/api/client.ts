@@ -2,7 +2,7 @@
  * API Client for connecting to FastAPI backend
  */
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
 export interface ApiError {
     detail: string;
@@ -69,34 +69,48 @@ export async function apiRequest<T>(
     // Get auth headers if needed
     const authHeaders = requireAuth ? await getAuthHeaders(authToken) : {};
 
-    const response = await fetch(url, {
-        ...options,
-        headers: {
-            'Content-Type': 'application/json',
-            ...authHeaders,
-            ...options.headers,
-        },
-    });
+    try {
+        const response = await fetch(url, {
+            ...options,
+            headers: {
+                'Content-Type': 'application/json',
+                ...authHeaders,
+                ...options.headers,
+            },
+        });
 
-    if (!response.ok) {
-        let errorDetail = `API error: ${response.status}`;
-        try {
-            const errorData: ApiError = await response.json();
-            errorDetail = errorData.detail || errorData.message || errorDetail;
-        } catch {
-            // If response is not JSON, use status text
-            errorDetail = response.statusText || errorDetail;
+        if (!response.ok) {
+            let errorDetail = `API error: ${response.status}`;
+            try {
+                const errorData: ApiError = await response.json();
+                errorDetail = errorData.detail || errorData.message || errorDetail;
+            } catch {
+                // If response is not JSON, use status text
+                errorDetail = response.statusText || errorDetail;
+            }
+            throw new Error(errorDetail);
         }
-        throw new Error(errorDetail);
-    }
 
-    // Handle empty responses
-    const contentType = response.headers.get('content-type');
-    if (contentType && contentType.includes('application/json')) {
-        return response.json();
-    }
+        // Handle empty responses
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+            return response.json();
+        }
 
-    return response.text() as unknown as T;
+        return response.text() as unknown as T;
+    } catch (error: any) {
+        // Handle connection errors
+        if (error?.code === 'ECONNREFUSED' || error?.cause?.code === 'ECONNREFUSED' || error?.message?.includes('fetch failed')) {
+            const backendUrl = API_URL || 'http://localhost:8000';
+            throw new Error(
+                `Cannot connect to backend API at ${backendUrl}. ` +
+                `Please ensure the backend server is running. ` +
+                `If using a different URL, set NEXT_PUBLIC_API_URL environment variable.`
+            );
+        }
+        // Re-throw other errors
+        throw error;
+    }
 }
 
 /**
@@ -114,20 +128,20 @@ export async function apiGet<T>(
  * POST request helper
  */
 export async function apiPost<T>(
-  endpoint: string,
-  data?: unknown,
-  requireAuth: boolean = false,
-  authToken?: string | null
+    endpoint: string,
+    data?: unknown,
+    requireAuth: boolean = false,
+    authToken?: string | null
 ): Promise<T> {
-  return apiRequest<T>(
-    endpoint,
-    {
-      method: 'POST',
-      body: data ? JSON.stringify(data) : undefined,
-    },
-    requireAuth,
-    authToken
-  );
+    return apiRequest<T>(
+        endpoint,
+        {
+            method: 'POST',
+            body: data ? JSON.stringify(data) : undefined,
+        },
+        requireAuth,
+        authToken
+    );
 }
 
 /**

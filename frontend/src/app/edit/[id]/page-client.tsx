@@ -15,7 +15,6 @@ import { DiagramDiffViewer } from '@/components/DiagramDiffViewer';
 import { marked } from 'marked';
 import TurndownService from 'turndown';
 import { buildFileChangeUrl } from '@/lib/utils/repoUrls';
-import { apiPost } from '@/lib/api/client';
 
 interface Submission {
   id: string;
@@ -83,7 +82,7 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
   const [pushing, setPushing] = useState(false);
   const [pushError, setPushError] = useState('');
   const [pushSuccess, setPushSuccess] = useState<{ provider: string; url?: string } | null>(null);
-  
+
   // Push configuration state
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const [pushTitle, setPushTitle] = useState(title || 'Untitled');
@@ -275,7 +274,7 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
     setLoadingResources(true);
     setAvailableResources([]);
     setSelectedParent(null);
-    
+
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData?.session?.access_token;
@@ -395,7 +394,7 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
         provider: selectedProvider,
         url: result.url || result.workspace_info?.metadata?.url
       });
-      
+
       setTimeout(() => {
         closePushModal();
       }, 2000);
@@ -473,13 +472,19 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
         throw new Error('Not authenticated');
       }
 
-      // First approve
-      await apiPost(
-        `/api/docs/${initialSubmission.id}/approve`,
-        {},
-        true,
-        token
-      );
+      // First approve - call Next.js API route
+      const approveResponse = await fetch(`/api/docs/${initialSubmission.id}/approve`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!approveResponse.ok) {
+        const errorData = await approveResponse.json().catch(() => ({}));
+        throw new Error(errorData.error || errorData.detail || `Failed to approve document`);
+      }
 
       // Then push to knowledge base
       const workspaceInfoForPush = workspaceInfo || (selectedParent ? {
@@ -526,7 +531,7 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
 
       setApprovalStatus('published');
       const result = await pushResponse.json();
-      
+
       if (result.url) {
         alert(`Document approved and published successfully! Opening in ${getProviderDisplayName(provider)}...`);
         window.open(result.url, '_blank');
@@ -543,7 +548,23 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
     }
   }
 
-  async function handleAIFix(selectedText: string, instruction?: string) {
+  const [aiFixState, setAiFixState] = useState<{
+    isStreaming: boolean;
+    streamingContent: string;
+    originalMarkdown: string;
+    showAcceptReject: boolean;
+    previewMarkdown: string; // Preview of changes (not applied to editor)
+  }>({
+    isStreaming: false,
+    streamingContent: '',
+    originalMarkdown: '',
+    showAcceptReject: false,
+    previewMarkdown: ''
+  });
+
+  const [streamAbortController, setStreamAbortController] = useState<AbortController | null>(null);
+
+  async function handleAIFix(selectedText: string, instruction?: string, model?: string) {
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData?.session?.access_token;
@@ -552,26 +573,328 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
         throw new Error('Not authenticated');
       }
 
-      const result = await apiPost<{ markdown: string }>(
-        '/api/ai-fix/apply',
-        {
+      // Use provided model or fallback to submission metadata or default
+      const modelToUse = model || initialSubmission.source_meta?.model || 'gpt-4o';
+
+      // Store original markdown for potential rejection
+      const originalMarkdown = markdown;
+
+      // Create abort controller for cancellation
+      const abortController = new AbortController();
+      setStreamAbortController(abortController);
+
+      setAiFixState({
+        isStreaming: true,
+        streamingContent: '',
+        originalMarkdown: originalMarkdown,
+        showAcceptReject: false,
+        previewMarkdown: ''
+      });
+
+      // Call Next.js API route with streaming enabled
+      const response = await fetch('/api/ai-fix/apply', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
           docId: initialSubmission.id,
           markdownContent: markdown,
-          section: selectedText.substring(0, 100), // First 100 chars as section identifier
-          instruction: instruction || 'Improve this section'
-        },
-        true,
-        token
-      );
+          section: selectedText, // Use full selected text to identify section
+          instruction: instruction || 'Improve this section',
+          model: modelToUse,
+          stream: true
+        }),
+        signal: abortController.signal
+      });
 
-      // Update markdown with fixed content
-      setMarkdown(result.markdown);
-      const parsed = marked.parse(result.markdown);
-      setHtml(typeof parsed === 'string' ? parsed : '<p></p>');
+      // Check if request was aborted before processing response
+      if (abortController.signal.aborted) {
+        console.log('Request was aborted before response');
+        return;
+      }
+
+      if (!response.ok) {
+        // Try to get error message
+        let errorMessage = `Request failed with status ${response.status}`;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorData.detail || errorMessage;
+        } catch {
+          // If response isn't JSON, use status text
+          errorMessage = response.statusText || errorMessage;
+        }
+        throw new Error(errorMessage);
+      }
+
+      // Check if response body exists
+      if (response.body === null) {
+        console.log('Response body is null - request may have been aborted');
+        return;
+      }
+
+      // Handle streaming response
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      if (!reader) {
+        throw new Error('No response body');
+      }
+
+      let streamComplete = false;
+      const STREAM_TIMEOUT = 30000; // 30 seconds timeout
+      let chunkCount = 0;
+      let lastActivityTime = Date.now();
+
+      // Set up timeout check interval
+      const timeoutCheckInterval = setInterval(() => {
+        const timeSinceLastActivity = Date.now() - lastActivityTime;
+        if (timeSinceLastActivity > STREAM_TIMEOUT) {
+          console.warn(`Stream timeout after ${STREAM_TIMEOUT}ms - no activity for ${Math.round(timeSinceLastActivity / 1000)}s`);
+          streamComplete = true;
+          // Abort the reader
+          reader.cancel();
+        }
+      }, 1000); // Check every second
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            console.log('Stream reader done - marking as complete');
+            streamComplete = true;
+            break;
+          }
+
+          lastActivityTime = Date.now();
+          const chunk = decoder.decode(value, { stream: true });
+          buffer += chunk;
+
+          // Process complete lines
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+          for (const line of lines) {
+            if (line.trim() === '') continue;
+
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6));
+
+                if (data.error) {
+                  throw new Error(data.error);
+                }
+
+                if (data.done) {
+                  // Streaming complete
+                  console.log('Received done signal');
+                  streamComplete = true;
+                  break;
+                }
+
+                if (data.chunk) {
+                  chunkCount++;
+                  lastActivityTime = Date.now();
+
+                  // The chunk is always the full updated markdown (backend accumulates for us)
+                  const newMarkdown = data.chunk;
+
+                  console.log(`Received chunk ${chunkCount}, length: ${newMarkdown.length}`);
+
+                  // Store preview (don't update editor yet - wait for accept)
+                  setAiFixState(prev => ({
+                    ...prev,
+                    streamingContent: newMarkdown,
+                    previewMarkdown: newMarkdown
+                  }));
+
+                  // Don't update editor - changes are preview only until accepted
+                }
+              } catch (e) {
+                // Skip invalid JSON lines
+                console.warn('Failed to parse SSE data:', e, 'Line:', line.substring(0, 100));
+                continue;
+              }
+            } else if (line.trim()) {
+              // Log non-data lines for debugging
+              console.log('Non-data line:', line.substring(0, 100));
+            }
+          }
+
+          // Break from while loop if stream is complete
+          if (streamComplete) {
+            break;
+          }
+        }
+      } finally {
+        // Clear timeout interval
+        if (timeoutCheckInterval) {
+          clearInterval(timeoutCheckInterval);
+        }
+
+        // Always mark as complete when stream ends (even if done signal wasn't received)
+        console.log(`Stream processing complete. Received ${chunkCount} chunks.`);
+
+        // Only show accept/reject if we actually received content
+        if (chunkCount > 0 || aiFixState.streamingContent) {
+          setAiFixState(prev => ({
+            ...prev,
+            isStreaming: false,
+            showAcceptReject: true
+          }));
+        } else {
+          // If no chunks received, reset to original state
+          console.warn('No chunks received - resetting to original state');
+          setMarkdown(aiFixState.originalMarkdown);
+          const parsed = marked.parse(aiFixState.originalMarkdown);
+          setHtml(typeof parsed === 'string' ? parsed : '<p></p>');
+          setAiFixState({
+            isStreaming: false,
+            streamingContent: '',
+            originalMarkdown: '',
+            showAcceptReject: false,
+            previewMarkdown: ''
+          });
+        }
+
+        setStreamAbortController(null);
+      }
+
+      // Handle any remaining buffer
+      if (buffer.trim()) {
+        const line = buffer.trim();
+        if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.done) {
+              streamComplete = true;
+            } else if (data.chunk) {
+              const newMarkdown = data.chunk;
+              setMarkdown(newMarkdown);
+              const parsed = marked.parse(newMarkdown);
+              setHtml(typeof parsed === 'string' ? parsed : '<p></p>');
+              setAiFixState(prev => ({
+                ...prev,
+                streamingContent: newMarkdown
+              }));
+            }
+          } catch (e) {
+            // Ignore parse errors for buffer
+          }
+        }
+      }
     } catch (error: any) {
       console.error('Failed to apply AI fix:', error);
+
+      // Don't show error if it was a cancellation
+      if (error.name === 'AbortError' || error.message?.includes('aborted')) {
+        console.log('Request was aborted - reverting to original');
+        // Revert to original on cancel
+        if (aiFixState.originalMarkdown) {
+          setMarkdown(aiFixState.originalMarkdown);
+          const parsed = marked.parse(aiFixState.originalMarkdown);
+          setHtml(typeof parsed === 'string' ? parsed : '<p></p>');
+        }
+        setAiFixState({
+          isStreaming: false,
+          streamingContent: '',
+          originalMarkdown: '',
+          showAcceptReject: false,
+          previewMarkdown: ''
+        });
+        setStreamAbortController(null);
+        return;
+      }
+
+      // Revert to original on error
+      if (aiFixState.originalMarkdown) {
+        setMarkdown(aiFixState.originalMarkdown);
+        const parsed = marked.parse(aiFixState.originalMarkdown);
+        setHtml(typeof parsed === 'string' ? parsed : '<p></p>');
+      }
+      setAiFixState({
+        isStreaming: false,
+        streamingContent: '',
+        originalMarkdown: '',
+        showAcceptReject: false,
+        previewMarkdown: ''
+      });
+      setStreamAbortController(null);
       alert(`Failed to improve text: ${error.message}`);
     }
+  }
+
+  function handleCancelAIFix() {
+    console.log('Cancelling AI fix stream...');
+
+    // Abort the fetch request
+    if (streamAbortController) {
+      streamAbortController.abort();
+      setStreamAbortController(null);
+    }
+
+    // Revert to original markdown immediately
+    if (aiFixState.originalMarkdown) {
+      setMarkdown(aiFixState.originalMarkdown);
+      const parsed = marked.parse(aiFixState.originalMarkdown);
+      setHtml(typeof parsed === 'string' ? parsed : '<p></p>');
+    }
+
+    // Reset all state
+    setAiFixState({
+      isStreaming: false,
+      streamingContent: '',
+      originalMarkdown: '',
+      showAcceptReject: false,
+      previewMarkdown: ''
+    });
+
+    // Clear selection
+    window.getSelection()?.removeAllRanges();
+
+    console.log('AI fix cancelled and reverted');
+  }
+
+  function handleAcceptAIFix() {
+    // Apply the preview changes to the editor
+    if (aiFixState.previewMarkdown) {
+      setMarkdown(aiFixState.previewMarkdown);
+      const parsed = marked.parse(aiFixState.previewMarkdown);
+      setHtml(typeof parsed === 'string' ? parsed : '<p></p>');
+    }
+
+    // Reset state
+    setAiFixState({
+      isStreaming: false,
+      streamingContent: '',
+      originalMarkdown: '',
+      showAcceptReject: false,
+      previewMarkdown: ''
+    });
+    // Clear selection
+    window.getSelection()?.removeAllRanges();
+  }
+
+  function handleRejectAIFix() {
+    // Revert to original markdown (already in editor, but ensure it's correct)
+    if (aiFixState.originalMarkdown) {
+      setMarkdown(aiFixState.originalMarkdown);
+      const parsed = marked.parse(aiFixState.originalMarkdown);
+      setHtml(typeof parsed === 'string' ? parsed : '<p></p>');
+    }
+
+    // Reset state
+    setAiFixState({
+      isStreaming: false,
+      streamingContent: '',
+      originalMarkdown: '',
+      showAcceptReject: false,
+      previewMarkdown: ''
+    });
+    // Clear selection
+    window.getSelection()?.removeAllRanges();
   }
 
   async function handleApplyTemplate(templateId: string) {
@@ -583,16 +906,26 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
         throw new Error('Not authenticated');
       }
 
-      const result = await apiPost<{ markdown: string }>(
-        '/api/templates/apply',
-        {
+      // Call Next.js API route (not backend directly)
+      const response = await fetch('/api/templates/apply', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
           docId: initialSubmission.id,
           markdownContent: markdown,
           templateId: templateId
-        },
-        true,
-        token
-      );
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || errorData.detail || `Request failed with status ${response.status}`);
+      }
+
+      const result = await response.json();
 
       // Update markdown with templated content
       setMarkdown(result.markdown);
@@ -607,7 +940,7 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
   async function loadDiff() {
     try {
       const response = await fetch(`/api/docs/diff?docId=${initialSubmission.id}`);
-      
+
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error || error.detail || 'Failed to load diff');
@@ -626,7 +959,7 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
   async function loadDiagramDiff() {
     try {
       const response = await fetch(`/api/docs/diagram-diff?docId=${initialSubmission.id}`);
-      
+
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error || error.detail || 'Failed to load diagram diff');
@@ -721,7 +1054,7 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                 <div className="absolute top-0 right-0 w-32 h-32 bg-orange-400 rounded-full blur-3xl"></div>
                 <div className="absolute bottom-0 left-0 w-24 h-24 bg-orange-500 rounded-full blur-2xl"></div>
               </div>
-              
+
               <div className="relative">
                 <div className="mb-4 flex items-start justify-between gap-4">
                   <div className="flex items-start gap-4 flex-1">
@@ -735,7 +1068,7 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                       <p className="text-sm text-orange-200/90 mb-3">
                         {outdatedFiles.length} file{outdatedFiles.length === 1 ? '' : 's'} {outdatedFiles.length === 1 ? 'has' : 'have'} been modified since this documentation was created.
                       </p>
-                      
+
                       {initialSubmission.source_meta?.workspace && (
                         <div className="mb-3 rounded-lg border border-orange-500/20 bg-orange-500/10 px-3 py-2">
                           <p className="text-xs text-orange-200/90">
@@ -743,13 +1076,13 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                           </p>
                         </div>
                       )}
-                      
+
                       {lastCheckedAt && (
                         <p className="text-xs text-orange-200/60 mb-4">
                           Last checked: {lastCheckedAt.toLocaleTimeString()}
                         </p>
                       )}
-                      
+
                       <div className="flex flex-wrap items-center gap-3">
                         <button
                           className="inline-flex items-center gap-2 rounded-lg border border-orange-500/40 bg-orange-500/20 px-4 py-2 text-sm font-medium text-orange-100 transition-all hover:bg-orange-500/30 hover:border-orange-500/60 hover:shadow-lg hover:shadow-orange-500/20"
@@ -831,114 +1164,123 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left Column - Editor Content */}
           <div className="lg:col-span-2 space-y-4">
-        {/* Content based on view mode */}
-        {viewMode === 'rendered' && (
-          <div className="space-y-2">
-            <div className="mb-1 text-sm text-white/70">Content (Rendered)</div>
-            <div className="rounded-lg border border-white/10 bg-black/20 p-6">
-              <div
-                className="prose prose-invert max-w-none text-white"
-                dangerouslySetInnerHTML={{
-                  __html: markdown ? marked.parse(markdown) : '<p class="text-white/50">No content</p>'
-                }}
-              />
-            </div>
-          </div>
-        )}
-
-        {viewMode === 'raw' && (
-          <div className="space-y-2">
-            <div className="mb-1 text-sm text-white/70">Content (Raw Markdown)</div>
-            <div className="rounded-lg border border-white/10 bg-black/20 p-4">
-              <pre className="whitespace-pre-wrap text-sm text-white/90 font-mono overflow-x-auto">
-                {markdown || 'No content'}
-              </pre>
-            </div>
-          </div>
-        )}
-
-        {viewMode === 'editor' && (
-          <div className="space-y-2">
-            <div className="mb-1 text-sm text-white/70">Content (Editor)</div>
-            <div className="flex justify-center overflow-x-hidden">
-              <div className="w-full max-w-[2000px]">
-                <div className="h-[75vh] min-w-0 relative">
-                  <RichTextEditor
-                    initialHTML={html}
-                    editable={true}
-                    onChange={handleEditorChange}
-                    onCursorChange={handleCursorChange}
+            {/* Content based on view mode */}
+            {viewMode === 'rendered' && (
+              <div className="space-y-2">
+                <div className="mb-1 text-sm text-white/70">Content (Rendered)</div>
+                <div className="rounded-lg border border-white/10 bg-black/20 p-6">
+                  <div
+                    className="prose prose-invert max-w-none text-white"
+                    dangerouslySetInnerHTML={{
+                      __html: markdown ? marked.parse(markdown) : '<p class="text-white/50">No content</p>'
+                    }}
                   />
-                  <InlineAIFix onFix={handleAIFix} disabled={isProcessing} />
                 </div>
               </div>
-            </div>
-          </div>
-        )}
+            )}
 
-        {viewMode === 'diff' && (
-          <div className="space-y-2">
-            <div className="mb-1 flex items-center justify-between">
-              <div className="text-sm text-white/70">Document Diff</div>
-              <button
-                onClick={() => {
-                  setViewMode('editor');
-                  setShowDiff(false);
-                }}
-                className="rounded-lg p-1.5 text-white/60 hover:bg-white/10 hover:text-white transition-all"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="rounded-lg border border-white/10 bg-black/20 p-6">
-              {showDiff && diffData ? (
-                <EnhancedDiffViewer
-                  originalText={originalMarkdown}
-                  newText={markdown}
-                  showLineNumbers={true}
-                />
-              ) : (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="h-6 w-6 animate-spin text-white/50" />
-                  <span className="ml-3 text-white/60">Loading diff...</span>
+            {viewMode === 'raw' && (
+              <div className="space-y-2">
+                <div className="mb-1 text-sm text-white/70">Content (Raw Markdown)</div>
+                <div className="rounded-lg border border-white/10 bg-black/20 p-4">
+                  <pre className="whitespace-pre-wrap text-sm text-white/90 font-mono overflow-x-auto">
+                    {markdown || 'No content'}
+                  </pre>
                 </div>
-              )}
-            </div>
-          </div>
-        )}
+              </div>
+            )}
 
-        {viewMode === 'diagram-diff' && (
-          <div className="space-y-2">
-            <div className="mb-1 flex items-center justify-between">
-              <div className="text-sm text-white/70">Architecture Diagram Diff</div>
-              <button
-                onClick={() => {
-                  setViewMode('editor');
-                  setShowDiagramDiff(false);
-                }}
-                className="rounded-lg p-1.5 text-white/60 hover:bg-white/10 hover:text-white transition-all"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="rounded-lg border border-white/10 bg-black/20 p-6">
-              {showDiagramDiff && diagramDiffData ? (
-                <DiagramDiffViewer
-                  addedNodes={diagramDiffData.added_nodes || []}
-                  removedNodes={diagramDiffData.removed_nodes || []}
-                  addedEdges={diagramDiffData.added_edges || []}
-                  removedEdges={diagramDiffData.removed_edges || []}
-                  currentDiagramMarkdown={diagramDiffData.current_diagram_markdown}
-                />
-              ) : (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="h-6 w-6 animate-spin text-white/50" />
-                  <span className="ml-3 text-white/60">Loading diagram diff...</span>
+            {viewMode === 'editor' && (
+              <div className="space-y-2">
+                <div className="mb-1 text-sm text-white/70">Content (Editor)</div>
+                <div className="flex justify-center overflow-x-hidden">
+                  <div className="w-full max-w-[2000px]">
+                    <div className="h-[75vh] min-w-0 relative">
+                      <RichTextEditor
+                        initialHTML={html}
+                        editable={true}
+                        onChange={handleEditorChange}
+                        onCursorChange={handleCursorChange}
+                      />
+                      <InlineAIFix
+                        onFix={handleAIFix}
+                        onCancel={handleCancelAIFix}
+                        disabled={isProcessing}
+                        isStreaming={aiFixState.isStreaming}
+                        showAcceptReject={aiFixState.showAcceptReject}
+                        onAccept={handleAcceptAIFix}
+                        onReject={handleRejectAIFix}
+                        defaultModel={initialSubmission.source_meta?.model || 'gpt-4o'}
+                      />
+                    </div>
+                  </div>
                 </div>
-              )}
-            </div>
-          </div>
-        )}
+              </div>
+            )}
+
+            {viewMode === 'diff' && (
+              <div className="space-y-2">
+                <div className="mb-1 flex items-center justify-between">
+                  <div className="text-sm text-white/70">Document Diff</div>
+                  <button
+                    onClick={() => {
+                      setViewMode('editor');
+                      setShowDiff(false);
+                    }}
+                    className="rounded-lg p-1.5 text-white/60 hover:bg-white/10 hover:text-white transition-all"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="rounded-lg border border-white/10 bg-black/20 p-6">
+                  {showDiff && diffData ? (
+                    <EnhancedDiffViewer
+                      originalText={originalMarkdown}
+                      newText={markdown}
+                      showLineNumbers={true}
+                    />
+                  ) : (
+                    <div className="flex items-center justify-center py-12">
+                      <Loader2 className="h-6 w-6 animate-spin text-white/50" />
+                      <span className="ml-3 text-white/60">Loading diff...</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {viewMode === 'diagram-diff' && (
+              <div className="space-y-2">
+                <div className="mb-1 flex items-center justify-between">
+                  <div className="text-sm text-white/70">Architecture Diagram Diff</div>
+                  <button
+                    onClick={() => {
+                      setViewMode('editor');
+                      setShowDiagramDiff(false);
+                    }}
+                    className="rounded-lg p-1.5 text-white/60 hover:bg-white/10 hover:text-white transition-all"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="rounded-lg border border-white/10 bg-black/20 p-6">
+                  {showDiagramDiff && diagramDiffData ? (
+                    <DiagramDiffViewer
+                      addedNodes={diagramDiffData.added_nodes || []}
+                      removedNodes={diagramDiffData.removed_nodes || []}
+                      addedEdges={diagramDiffData.added_edges || []}
+                      removedEdges={diagramDiffData.removed_edges || []}
+                      currentDiagramMarkdown={diagramDiffData.current_diagram_markdown}
+                    />
+                  ) : (
+                    <div className="flex items-center justify-center py-12">
+                      <Loader2 className="h-6 w-6 animate-spin text-white/50" />
+                      <span className="ml-3 text-white/60">Loading diagram diff...</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Right Column - Review Panel */}
@@ -1086,7 +1428,7 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                   const branch = initialSubmission.source_meta?.branch || 'main';
                   const oldCommitSha = initialSubmission.code_snapshot?.commitSha;
                   const urls = buildFileChangeUrl(file.file_path, repoUrl, branch, oldCommitSha);
-                  
+
                   return (
                     <div
                       key={idx}

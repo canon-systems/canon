@@ -2,11 +2,5 @@
     "buildCommand": "npm run build",
     "outputDirectory": ".next",
     "installCommand": "npm install",
-    "framework": "nextjs",
-    "crons": [
-        {
-            "path": "/api/cron/refresh-docs",
-            "schedule": "0 0 * * *"
-        }
-    ]
+    "framework": "nextjs"
 }
