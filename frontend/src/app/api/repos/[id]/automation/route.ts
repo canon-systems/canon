@@ -14,13 +14,13 @@ interface RepoRow {
 async function fetchRepoSettings(repoId: string, userId: string) {
   const supabase = await createSupabaseClient();
   const { data, error } = await supabase
-    .from<RepoRow>('workspace_repos')
+    .from('workspace_repos')
     .select('settings')
     .eq('id', repoId)
     .eq('workspace_id', userId)
     .single();
 
-  return { data, error };
+  return { data: data as RepoRow | null, error };
 }
 
 export async function GET(
