@@ -164,6 +164,12 @@ The automation system runs through **Supabase Edge Functions** triggered by `pg_
 
 See `supabase/config.toml` for the exact Edge Function + cron setup steps.
 
+## Cron Deployment Checklist
+
+1. **Edge Function** – Deploy `supabase/functions/check-due-rules/index.ts`, configure `BACKEND_URL` to your backend (e.g., `https://your-render-host/api`), and, if you set `CRON_SECRET` in the backend, mirror it here so the request can authenticate.
+2. **pg_cron Job** – Verify the SQL from `supabase/config.toml` is running (hourly by default, `'0 * * * *'`). Adjust the expression or frequency as needed and ensure the service role key has access to `net.http_post`.
+3. **Validation** – After the cron job runs, check Supabase logs to confirm the Edge Function executed and hit `POST /api/automation/run`. Query `usage_events` for recent `repo_scan_run`, `doc_generated`, `doc_auto_published`, and `push_to_kb` entries to make sure automation activity is recorded.
+
 ## Schema Parity (Keep Prod in Sync)
 
 Because Dev is where you evolve schema/configuration, keep Production in lockstep:

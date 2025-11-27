@@ -15,6 +15,7 @@ from app.utils.usage_tracking import (
     track_repo_scan,
     track_doc_generated,
     track_diagram_generated,
+    track_doc_approved,
     track_auto_publish,
     track_push_to_kb
 )
@@ -221,6 +222,18 @@ async def execute_rule(
                             
                             supabase.table('submissions').update(update_data).eq('id', doc_id).execute()
                             result['actions'].append('auto_approve')
+
+                            track_doc_approved(
+                                supabase,
+                                workspace_id,
+                                doc_id=doc_id,
+                                auto_approved=True,
+                                diff_size=(
+                                    approval_result.get('diff_size', {}).get('total_changes')
+                                    if approval_result.get('diff_size')
+                                    else None
+                                )
+                            )
                     except Exception as e:
                         result['errors'].append(f"Auto-approval update failed: {str(e)}")
                     

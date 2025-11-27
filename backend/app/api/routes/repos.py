@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Extra
 from typing import Optional, Dict, Any, List
 from app.core.auth import get_current_user
 from app.core.database import get_supabase
@@ -41,6 +41,33 @@ class RepoResponse(BaseModel):
     settings: Optional[Dict[str, Any]]
     created_at: str
     updated_at: str
+
+
+class AutomationRuleConfig(BaseModel):
+    id: str
+    name: Optional[str] = None
+    enabled: Optional[bool] = True
+    schedule: Optional[str] = None
+    detect_changes: Optional[bool] = True
+    generate_doc: Optional[bool] = True
+    generate_diagram: Optional[bool] = False
+    auto_publish: Optional[bool] = False
+    auto_publish_new_docs: Optional[bool] = False
+    auto_publish_max_changes: Optional[int] = 50
+    auto_publish_max_change_percentage: Optional[float] = 5.0
+    auto_publish_target: Optional[Dict[str, Any]] = None
+
+    class Config:
+        extra = Extra.allow
+
+
+class UpdateAutomationRulesRequest(BaseModel):
+    automation_rules: List[AutomationRuleConfig]
+
+
+class AutomationRulesResponse(BaseModel):
+    automation_rules: List[Dict[str, Any]]
+    automation_metadata: Dict[str, Any]
 
 @router.post("/repos", response_model=RepoResponse)
 async def create_repo(
@@ -324,4 +351,81 @@ async def analyze_and_generate_repo(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to analyze and generate: {str(e)}")
+
+
+@router.get("/repos/{repo_id}/automation", response_model=AutomationRulesResponse)
+async def get_repo_automation_rules(
+    repo_id: str,
+    user: dict = Depends(get_current_user),
+    supabase: Client = Depends(get_supabase)
+) -> AutomationRulesResponse:
+    """
+    Retrieve the automation rules and metadata for a repo.
+    """
+    try:
+        workspace_id = user['id']
+        result = supabase.table('workspace_repos').select('settings').eq(
+            'id', repo_id
+        ).eq('workspace_id', workspace_id).single().execute()
+
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Repository not found")
+
+        settings = result.data.get('settings', {}) or {}
+        rules = settings.get('automation_rules', [])
+        metadata = settings.get('automation_metadata', {}) or {}
+
+        return AutomationRulesResponse(
+            automation_rules=rules,
+            automation_metadata=metadata
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch automation rules: {str(e)}")
+
+
+@router.patch("/repos/{repo_id}/automation", response_model=AutomationRulesResponse)
+async def update_repo_automation_rules(
+    repo_id: str,
+    request: UpdateAutomationRulesRequest,
+    user: dict = Depends(get_current_user),
+    supabase: Client = Depends(get_supabase)
+) -> AutomationRulesResponse:
+    """
+    Update automation rules for a repository.
+    """
+    try:
+        workspace_id = user['id']
+        repo_result = supabase.table('workspace_repos').select('settings').eq(
+            'id', repo_id
+        ).eq('workspace_id', workspace_id).single().execute()
+
+        if not repo_result.data:
+            raise HTTPException(status_code=404, detail="Repository not found")
+
+        settings = repo_result.data.get('settings', {}) or {}
+        metadata = settings.get('automation_metadata', {}) or {}
+
+        sanitized_rules = [
+            rule.dict(exclude_none=True)
+            for rule in request.automation_rules
+        ]
+
+        settings['automation_rules'] = sanitized_rules
+        settings['automation_metadata'] = metadata
+
+        supabase.table('workspace_repos').update({
+            'settings': settings,
+            'updated_at': datetime.utcnow().isoformat()
+        }).eq('id', repo_id).eq('workspace_id', workspace_id).execute()
+
+        return AutomationRulesResponse(
+            automation_rules=sanitized_rules,
+            automation_metadata=metadata
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update automation rules: {str(e)}")
 
