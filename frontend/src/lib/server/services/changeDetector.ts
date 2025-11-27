@@ -6,6 +6,7 @@ import {
 	compareCodeSnapshots,
 	compareDetectionResults,
 } from '../architecture/detectChanges';
+import { detectTools } from '../architecture/detectTools';
 import type { DetectionResult } from '../architecture/detectTools';
 
 type DetectChangesParams = {

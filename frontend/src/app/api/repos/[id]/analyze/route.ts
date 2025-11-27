@@ -42,18 +42,23 @@ export async function POST(
       return NextResponse.json({ error: 'model is required' }, { status: 400 });
     }
 
-    const { data: repo, error } = await supabase
-      .from<WorkspaceRepo>('workspace_repos')
+    const { data: repoData, error } = await supabase
+      .from('workspace_repos')
       .select('*')
       .eq('id', id)
       .eq('workspace_id', user.id)
       .single();
+    const repo = repoData as WorkspaceRepo | null;
 
     if (error || !repo) {
       return NextResponse.json({ error: 'Repository not found' }, { status: 404 });
     }
 
-    const repoSettings = repo.settings || {};
+    const repoSettings = (repo.settings || {}) as {
+      subdir?: string | null;
+      filters?: Record<string, unknown> | null;
+      prompt_config?: Record<string, unknown> | null;
+    };
     const subdir = repoSettings.subdir || null;
     const filters = repoSettings.filters || null;
     const promptConfig = repoSettings.prompt_config || null;

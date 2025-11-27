@@ -3,6 +3,10 @@ import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
 import { listResources } from '@/lib/server/workspaces/resources';
 
+type OAuthConnectionRow = {
+  connection_id?: string;
+};
+
 /**
  * GET: List available resources (pages, databases, etc.) for a provider
  * Proxies to FastAPI backend /api/push/{provider}/resources
@@ -22,13 +26,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'provider parameter is required' }, { status: 400 });
     }
 
-    const { data: connection } = await supabase
-      .from<{ connection_id: string }>('oauth_connections')
+    const { data: connectionData } = await supabase
+      .from('oauth_connections')
       .select('connection_id')
       .eq('user_id', user.id)
       .eq('provider', provider)
       .eq('status', 'active')
       .single();
+    const connection = connectionData as OAuthConnectionRow | null;
 
     if (!connection?.connection_id) {
       return NextResponse.json({ error: `No active ${provider} connection found` }, { status: 404 });

@@ -1,7 +1,7 @@
 const GATEWAY_URL = process.env.VERCEL_AI_GATEWAY_URL || '';
 const GATEWAY_API_KEY = process.env.VERCEL_AI_GATEWAY_API_KEY || '';
 
-type Message = { role: 'system' | 'user' | 'assistant'; content: string };
+export type Message = { role: 'system' | 'user' | 'assistant'; content: string };
 
 export class LLMGateway {
 	private url: string;

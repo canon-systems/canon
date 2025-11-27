@@ -35,11 +35,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'docId is required' }, { status: 400 });
     }
 
-    const { data: submission, error } = await supabase
-      .from<SubmissionRow>('submissions')
+    const { data: submissionData, error } = await supabase
+      .from('submissions')
       .select('*')
       .eq('id', docId)
       .single();
+    const submission = submissionData as SubmissionRow | null;
 
     if (error || !submission) {
       return NextResponse.json({ error: 'Document not found' }, { status: 404 });

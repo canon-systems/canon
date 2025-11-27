@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
     const workspace: WorkspaceInfo = {
       provider: 'confluence',
       resourceId: workspaceInfo?.resourceId || '',
-      metadata: workspaceInfo?.metadata || null,
+      metadata: workspaceInfo?.metadata ?? undefined,
     };
 
     const content: WorkspaceContent = {

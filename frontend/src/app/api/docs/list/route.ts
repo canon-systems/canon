@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
     const pageSize = Number(searchParams.get('pageSize') || '20');
 
     const { data, error } = await supabase
-      .from<SubmissionRow>('submissions')
+      .from('submissions')
       .select('*')
       .eq('created_by', user.id)
       .order('created_at', { ascending: false });
@@ -60,8 +60,10 @@ export async function GET(request: NextRequest) {
       throw error;
     }
 
+    const submissions = data as SubmissionRow[] | null;
+
     const filtered =
-      data?.filter((doc: any) => {
+      submissions?.filter((doc: any) => {
         const sourceMeta = doc.source_meta || {};
         const approvalStatus = sourceMeta?.approval_status || 'pending_review';
 

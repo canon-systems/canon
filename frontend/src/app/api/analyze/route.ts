@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
       supabase,
       userId: user.id,
       repoUrl,
-      branch,
+      branch: branch ?? undefined,
       subdir,
       filters: filters || null,
     });

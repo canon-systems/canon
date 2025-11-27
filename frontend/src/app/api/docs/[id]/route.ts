@@ -15,6 +15,8 @@ type SubmissionRow = {
   input_type?: string;
   created_at?: string;
   updated_at?: string;
+  created_by?: string;
+  last_checked_at?: string;
 };
 
 /**
@@ -34,11 +36,12 @@ export async function GET(
     const supabase = await createClient();
     const { id } = await params;
 
-    const { data: submission, error } = await supabase
-      .from<SubmissionRow>('submissions')
+    const { data: submissionData, error } = await supabase
+      .from('submissions')
       .select('*')
       .eq('id', id)
       .single();
+    const submission = submissionData as SubmissionRow | null;
 
     if (error || !submission) {
       return NextResponse.json({ error: 'Document not found' }, { status: 404 });

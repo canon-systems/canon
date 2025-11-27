@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { LLMGateway } from './llmGateway';
+import { LLMGateway, type Message } from './llmGateway';
 import { extractSection, replaceSection } from './markdownUtils';
 
 type AIFixParams = {
@@ -106,7 +106,7 @@ function buildAIFixPrompt(
 	issue?: string | null,
 	instruction?: string | null
 ) {
-	const messages = [
+const messages: Message[] = [
 		{
 			role: 'system',
 			content:

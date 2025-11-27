@@ -46,21 +46,22 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'docId is required' }, { status: 400 });
     }
 
-    const submission = await supabase
-      .from<SubmissionRow>('submissions')
+    const submissionResponse = await supabase
+      .from('submissions')
       .select('source_meta, created_by')
       .eq('id', docId)
       .single();
 
-    if (!submission || !submission.data) {
+    if (!submissionResponse || !submissionResponse.data) {
       return NextResponse.json({ error: 'Document not found' }, { status: 404 });
     }
+    const submission = submissionResponse.data as SubmissionRow;
 
-    if (submission.data.created_by !== user.id) {
+    if (submission.created_by !== user.id) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const repoUrl = submission.data.source_meta?.repoUrl;
+    const repoUrl = submission.source_meta?.repoUrl;
     if (!repoUrl) {
       return NextResponse.json({
         doc_id: docId,
@@ -73,7 +74,7 @@ export async function GET(request: NextRequest) {
     }
 
     const diagramResponse = await supabase
-      .from<DiagramRow>('architecture_diagrams')
+      .from('architecture_diagrams')
       .select('*')
       .eq('user_id', user.id)
       .eq('repo_url', repoUrl)
@@ -92,15 +93,15 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const diagram = diagramResponse.data;
+    const diagram = diagramResponse.data as DiagramRow;
     const versionsResponse = await supabase
-      .from<VersionRow>('architecture_diagram_versions')
+      .from('architecture_diagram_versions')
       .select('*')
       .eq('diagram_id', diagram.id)
       .order('created_at', { ascending: false })
       .limit(2);
 
-    const versions = versionsResponse?.data || [];
+    const versions = (versionsResponse?.data || []) as VersionRow[];
     const previousVersion = versions.length > 1 ? versions[1] : null;
 
     const currentTools = diagram.detection_result?.tools || [];

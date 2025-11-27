@@ -19,7 +19,7 @@ export async function executeAutomationRule({
 }: AutomationRuleContext): Promise<{ success: boolean; actions: string[]; errors: string[]; docId?: string | null; diagramId?: string | null }> {
 	const result = {
 		success: false,
-		actions: [],
+		actions: [] as string[],
 		errors: [] as string[],
 		docId: null as string | null,
 		diagramId: null as string | null,

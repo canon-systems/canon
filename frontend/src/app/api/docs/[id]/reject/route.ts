@@ -26,11 +26,12 @@ export async function POST(
     const body = await request.json().catch(() => ({}));
     const { reason } = body as { reason?: string };
 
-    const { data: submission, error } = await supabase
-      .from<SubmissionRow>('submissions')
+    const { data: submissionData, error } = await supabase
+      .from('submissions')
       .select('*')
       .eq('id', id)
       .single();
+    const submission = submissionData as SubmissionRow | null;
 
     if (error || !submission) {
       return NextResponse.json({ error: 'Document not found' }, { status: 404 });
@@ -49,7 +50,7 @@ export async function POST(
     }
 
     await supabase
-      .from<SubmissionRow>('submissions')
+      .from('submissions')
       .update({
         source_meta: sourceMeta,
         updated_at: new Date().toISOString(),

@@ -67,7 +67,7 @@ export async function generateArchitectureDiagram(params: GenerateDiagramParams)
 			filters: null,
 		});
 
-		targetFiles = analysis.rawFiles;
+		targetFiles = analysis.rawFiles ?? [];
 		detectionResult = analysis.detection_result;
 		fileSnapshot = analysis.snapshot;
 	} else if (method === 'files') {

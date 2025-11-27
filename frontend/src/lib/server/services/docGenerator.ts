@@ -54,7 +54,7 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 			filters: null,
 		});
 
-		fileEntries = analysis.rawFiles;
+		fileEntries = analysis.rawFiles ?? [];
 	}
 
 	if (!fileEntries.length) {

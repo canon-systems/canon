@@ -4,7 +4,7 @@ type ParsedSection = {
 	content: string;
 };
 
-function parseMarkdown(markdown: string): ParsedSection[] {
+export function parseMarkdown(markdown: string): ParsedSection[] {
 	const sections: ParsedSection[] = [];
 	const lines = markdown.split('\n');
 	let currentSection: ParsedSection | null = null;
