@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
 import { getUserOctokit } from '@/lib/server/github/getUserOctokit';
+import { updateTrackedFilesForRenames } from '@/lib/server/services/fileRenameHandler';
 
 function parseRepoUrl(repoUrl: string): { owner: string; repo: string } | null {
   try {
@@ -52,6 +53,30 @@ export async function POST(request: NextRequest) {
 
     const repoUrl = submission.source_meta.repoUrl;
     const branch = submission.source_meta.branch || 'main';
+    const trackedFiles = submission.selected_files || [];
+    const codeSnapshot = submission.code_snapshot || {};
+    const storedFileShas = codeSnapshot.fileShas || {};
+    const storedCommitSha = codeSnapshot.commitSha;
+
+    // If no tracked files, can't determine outdated status
+    if (trackedFiles.length === 0) {
+      return NextResponse.json({
+        outdated: submission.is_outdated || false,
+        changedFiles: [],
+        renamedFiles: [],
+        message: 'No tracked files for this submission'
+      });
+    }
+
+    // If no stored file hashes, can't compare
+    if (Object.keys(storedFileShas).length === 0) {
+      return NextResponse.json({
+        outdated: submission.is_outdated || false,
+        changedFiles: [],
+        renamedFiles: [],
+        message: 'No file hashes stored for this submission'
+      });
+    }
 
     const repoInfo = parseRepoUrl(repoUrl);
     if (!repoInfo) {
@@ -61,71 +86,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Fast path: Check commit SHA first
-    const codeSnapshot = submission.code_snapshot || {};
-    const storedCommitSha = codeSnapshot.commitSha;
-
     const octokit = await getUserOctokit(supabase, user?.id || null);
 
-    if (storedCommitSha) {
-      try {
-        const { data: branchData } = await octokit.repos.getBranch({
-          owner: repoInfo.owner,
-          repo: repoInfo.repo,
-          branch
-        });
-        const latestCommitSha = branchData.commit.sha;
-        if (latestCommitSha === storedCommitSha) {
-          // Fast path: commit SHA unchanged
-          await supabase
-            .from('submissions')
-            .update({
-              is_outdated: false,
-              last_checked_at: new Date().toISOString()
-            })
-            .eq('id', submissionId);
-
-          return NextResponse.json({
-            outdated: false,
-            changedFiles: [],
-            message: 'No changes detected (commit SHA unchanged)'
-          });
-        }
-      } catch (e) {
-        console.error('Error checking commit SHA:', e);
-      }
-    }
-
-    // Load submission_files
-    const { data: files, error: fileErr } = await supabase
-      .from('submission_files')
-      .select('*')
-      .eq('submission_id', submissionId);
-
-    if (fileErr) {
-      return NextResponse.json(
-        { error: 'Failed to load submission_files', details: fileErr.message },
-        { status: 500 }
-      );
-    }
-
-    if (!files || files.length === 0) {
-      await supabase
-        .from('submissions')
-        .update({
-          is_outdated: false,
-          last_checked_at: new Date().toISOString()
-        })
-        .eq('id', submissionId);
-
-      return NextResponse.json({
-        outdated: false,
-        changedFiles: [],
-        message: 'No tracked files for this submission'
-      });
-    }
-
-    // Get latest commit SHA
+    // Get current commit SHA (needed to fetch current file hashes and detect renames)
     const { data: branchData } = await octokit.repos.getBranch({
       owner: repoInfo.owner,
       repo: repoInfo.repo,
@@ -133,53 +96,127 @@ export async function POST(request: NextRequest) {
     });
     const latestCommitSha = branchData.commit.sha;
 
-    // Get tree for batch SHA fetching
-    const { data: treeData } = await octokit.git.getTree({
-      owner: repoInfo.owner,
-      repo: repoInfo.repo,
-      tree_sha: latestCommitSha,
-      recursive: '1'
-    });
+    // Detect renames using GitHub's compareCommits API
+    let renamedFiles: Array<{ old_path: string; new_path: string }> = [];
+    if (storedCommitSha && storedCommitSha !== latestCommitSha) {
+      try {
+        const { data: compareData } = await octokit.repos.compareCommits({
+          owner: repoInfo.owner,
+          repo: repoInfo.repo,
+          base: storedCommitSha,
+          head: latestCommitSha,
+        });
 
-    const treeMap = new Map<string, string>();
-    if (treeData.tree) {
-      for (const item of treeData.tree) {
-        if (item.type === 'blob' && item.path && item.sha) {
-          treeMap.set(item.path, item.sha);
+        // Find renames that affect tracked files
+        const trackedFilesSet = new Set(trackedFiles);
+        for (const file of compareData.files || []) {
+          if (file.status === 'renamed') {
+            const oldPath = file.previous_filename || file.filename;
+            const newPath = file.filename;
+            
+            // Only track renames if the old path was in our tracked files
+            if (trackedFilesSet.has(oldPath)) {
+              renamedFiles.push({
+                old_path: oldPath,
+                new_path: newPath,
+              });
+            }
+          }
         }
+
+        // Auto-update tracked files if renames detected
+        if (renamedFiles.length > 0) {
+          await updateTrackedFilesForRenames(
+            supabase,
+            submissionId,
+            renamedFiles
+          );
+        }
+      } catch (e) {
+        console.error('Error detecting renames:', e);
+        // Continue with file hash comparison even if rename detection fails
       }
     }
 
-    // Compare stored hashes with current hashes
+    // Reload submission to get updated tracked files after rename handling
+    const { data: updatedSubmission } = await supabase
+      .from('submissions')
+      .select('selected_files, code_snapshot')
+      .eq('id', submissionId)
+      .single();
+    
+    // Use updated files if renames occurred, otherwise use original
+    const filesToCheck = updatedSubmission?.selected_files || trackedFiles;
+    const fileShasToCheck = updatedSubmission?.code_snapshot?.fileShas || storedFileShas;
+
+    // File-level check: Compare hashes of tracked files only
     const changedFiles: Array<{ file_path: string; old_hash: string; new_hash: string }> = [];
 
-    for (const row of files) {
-      const filePath = row.file_path;
-      const oldHash = row.file_hash;
-      const newHash = treeMap.get(filePath) || null;
+    for (const filePath of filesToCheck) {
+      const storedHash = fileShasToCheck[filePath];
+      
+      // Skip if we don't have a stored hash for this file
+      if (!storedHash) {
+        continue;
+      }
 
-      if (oldHash && newHash !== oldHash) {
+      try {
+        // Get current file hash
+        const { data: fileData } = await octokit.repos.getContent({
+          owner: repoInfo.owner,
+          repo: repoInfo.repo,
+          path: filePath,
+          ref: latestCommitSha
+        });
+
+        if (fileData && !Array.isArray(fileData) && fileData.type === 'file' && 'sha' in fileData) {
+          const currentHash = fileData.sha;
+          
+          // Compare: if hash changed, file changed
+          if (currentHash !== storedHash) {
+            changedFiles.push({
+              file_path: filePath,
+              old_hash: storedHash,
+              new_hash: currentHash
+            });
+          }
+        } else {
+          // File doesn't exist or is not a file (directory, etc.)
+          changedFiles.push({
+            file_path: filePath,
+            old_hash: storedHash,
+            new_hash: '(file removed or not accessible)'
+          });
+        }
+      } catch (e) {
+        // File might not exist anymore or error fetching
         changedFiles.push({
           file_path: filePath,
-          old_hash: oldHash,
-          new_hash: newHash || '(missing or unreachable)'
+          old_hash: storedHash,
+          new_hash: '(file removed or error)'
         });
       }
     }
 
-    const outdated = changedFiles.length > 0;
+    // Outdated = any tracked file's hash changed
+    const isOutdated = changedFiles.length > 0;
 
+    // Update is_outdated based on file-level comparison
     await supabase
       .from('submissions')
       .update({
-        is_outdated: outdated,
+        is_outdated: isOutdated,
         last_checked_at: new Date().toISOString()
       })
       .eq('id', submissionId);
 
     return NextResponse.json({
-      outdated,
-      changedFiles
+      outdated: isOutdated,
+      changedFiles,
+      renamedFiles,
+      trackedFilesCount: filesToCheck.length,
+      changedFilesCount: changedFiles.length,
+      renamedFilesCount: renamedFiles.length
     });
   } catch (err: unknown) {
     console.error('Error in /api/docs/check-updates', err);

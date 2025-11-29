@@ -3,6 +3,11 @@ import { createClient } from '@/lib/supabase/server';
 import { getDueRules, updateRuleLastRun, AutomationRuleEntry } from '@/lib/server/services/automationRules';
 import { executeAutomationRule } from '@/lib/server/services/automationRunner';
 
+/**
+ * Manual trigger endpoint for automation rules.
+ * Note: The primary scheduler is the Trigger.dev task (check-due-rules) which runs every 1 minute.
+ * This endpoint is provided for manual triggering/testing purposes only.
+ */
 export async function POST(request: NextRequest) {
   try {
     const cronSecret = process.env.CRON_SECRET;

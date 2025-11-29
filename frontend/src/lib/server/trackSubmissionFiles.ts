@@ -245,19 +245,20 @@ export async function trackSubmissionFiles(params: {
     return;
   }
 
-  const { error: insertError } = await supabase
+  // Use upsert to handle existing files gracefully
+  const { error: upsertError } = await supabase
     .from('submission_files')
-    .insert(rowsToUpsert, {
+    .upsert(rowsToUpsert, {
       onConflict: 'submission_id,file_path',
-      ignoreDuplicates: true
+      ignoreDuplicates: false
     } as any);
 
-  if (insertError) {
+  if (upsertError) {
     console.error(
-      `trackSubmissionFiles: INSERT FAILED for submission ${submission.id}`,
-      insertError
+      `trackSubmissionFiles: UPSERT FAILED for submission ${submission.id}`,
+      upsertError
     );
-    throw insertError;
+    throw upsertError;
   }
 
   console.log(

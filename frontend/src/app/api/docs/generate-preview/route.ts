@@ -3,6 +3,8 @@ import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
 import { getUserOctokit } from '@/lib/server/github/getUserOctokit';
 import { buildSystemPrompt } from '@/lib/server/prompts/buildSystemPrompt';
+import { detectRepositoryChanges } from '@/lib/server/services/changeDetector';
+import { analyzeChangeSignificance } from '@/lib/server/services/changeSignificanceAnalyzer';
 
 const VERCEL_AI_GATEWAY_URL = process.env.VERCEL_AI_GATEWAY_URL;
 const VERCEL_AI_GATEWAY_API_KEY = process.env.VERCEL_AI_GATEWAY_API_KEY;
@@ -61,10 +63,11 @@ function parseRepoUrl(repoUrl: string): { owner: string; repo: string } | null {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}));
-    const { submissionId, model, promptConfig } = body as {
+    const { submissionId, model, promptConfig, skipSignificanceCheck } = body as {
       submissionId: string;
       model: string;
       promptConfig?: any;
+      skipSignificanceCheck?: boolean;
     };
 
     if (!submissionId) {
@@ -110,8 +113,75 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No files selected for this submission' }, { status: 400 });
     }
 
-    // Fetch latest file contents
     const octokit = await getUserOctokit(supabase, user?.id || null);
+
+    // Perform significance analysis if not skipped
+    let significanceAnalysis: any = null;
+    let changesDetected = false;
+    
+    if (!skipSignificanceCheck && submission.code_snapshot?.commitSha) {
+      try {
+        // Detect changes between stored commit and current branch
+        const changeDetection = await detectRepositoryChanges({
+          supabase,
+          userId: user.id,
+          repoUrl,
+          branch,
+          submissionId: submission.id,
+        });
+
+        if (changeDetection.has_changes) {
+          changesDetected = true;
+          
+          // Filter to only tracked files
+          const trackedFilesSet = new Set(selectedFiles);
+          const relevantRenames = changeDetection.files_renamed.filter(rename =>
+            trackedFilesSet.has(rename.old_path) || trackedFilesSet.has(rename.new_path)
+          );
+          const relevantChanges = changeDetection.files_changed.filter(change => {
+            if (change.status === 'renamed') {
+              return trackedFilesSet.has(change.old_path!) || trackedFilesSet.has(change.path);
+            }
+            return trackedFilesSet.has(change.path);
+          });
+
+          // If there are relevant changes (excluding renames which are always significant), analyze significance
+          if (relevantChanges.length > 0) {
+            significanceAnalysis = await analyzeChangeSignificance(
+              supabase,
+              user.id,
+              repoUrl,
+              branch,
+              changeDetection.old_commit_sha,
+              changeDetection.current_commit_sha,
+              relevantChanges.map(change => ({
+                path: change.path,
+                oldHash: change.old_hash || null,
+                newHash: change.new_hash || null,
+                old_path: change.old_path,
+                status: change.status,
+              })),
+              {
+                model: model || 'gpt-4o-mini',
+              }
+            );
+          } else if (relevantRenames.length > 0) {
+            // Renames are always significant
+            significanceAnalysis = {
+              isSignificant: true,
+              reason: 'File renames detected',
+              confidence: 'high' as const,
+              summary: `${relevantRenames.length} tracked file(s) were renamed`,
+            };
+          }
+        }
+      } catch (e) {
+        console.error('Error performing significance analysis:', e);
+        // Continue with generation even if analysis fails
+      }
+    }
+
+    // Fetch latest file contents
     const filesForDoc: Array<{ path: string; content: string }> = [];
     const MAX_PER_FILE = 200_000;
 
@@ -160,7 +230,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       markdown,
       model: effectiveModel,
-      promptConfig: effectivePromptConfig
+      promptConfig: effectivePromptConfig,
+      significanceAnalysis: significanceAnalysis ? {
+        isSignificant: significanceAnalysis.isSignificant,
+        reason: significanceAnalysis.reason,
+        confidence: significanceAnalysis.confidence,
+        summary: significanceAnalysis.summary,
+        technicalChanges: significanceAnalysis.technicalChanges,
+        businessLogicChanges: significanceAnalysis.businessLogicChanges,
+        unavailableFiles: significanceAnalysis.unavailableFiles,
+      } : null,
+      changesDetected,
     });
   } catch (err: any) {
     console.error('Error in /api/docs/generate-preview', err);

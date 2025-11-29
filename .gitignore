@@ -155,3 +155,8 @@ Thumbs.db
 # Cursor
 .cursorignore
 .cursorindexingignore
+
+# Trigger.dev
+trigger/
+.trigger
+trigger.config.ts

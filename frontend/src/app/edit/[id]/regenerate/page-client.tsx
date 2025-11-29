@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Loader2, X, ArrowLeft, ChevronDown, Check, RefreshCw, Settings, Eye, Sparkles } from 'lucide-react';
+import { Loader2, X, ArrowLeft, ChevronDown, Check, RefreshCw, Settings, Eye, Sparkles, AlertCircle, Info } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { PromptCustomizer } from '@/components/PromptCustomizer';
 import { RegeneratePreview } from '@/components/RegeneratePreview';
@@ -174,6 +174,8 @@ export function RegeneratePageClient({ submission }: RegeneratePageClientProps) 
   const [previewModel, setPreviewModel] = useState('');
   const [previewPromptConfig, setPreviewPromptConfig] = useState<any>({});
   const [previewError, setPreviewError] = useState('');
+  const [significanceAnalysis, setSignificanceAnalysis] = useState<any>(null);
+  const [skipSignificanceCheck, setSkipSignificanceCheck] = useState(false);
   const [selectedRegenModel, setSelectedRegenModel] = useState(submission.source_meta?.model || 'gpt-4o');
   const [regenPromptConfig, setRegenPromptConfig] = useState(
     submission.source_meta?.llm_prompt_config || {
@@ -243,7 +245,8 @@ export function RegeneratePageClient({ submission }: RegeneratePageClientProps) 
           promptConfig: {
             ...regenPromptConfig,
             document_structure: structureConfig
-          }
+          },
+          skipSignificanceCheck: skipSignificanceCheck
         })
       });
 
@@ -255,6 +258,7 @@ export function RegeneratePageClient({ submission }: RegeneratePageClientProps) 
       setPreviewContent(result.markdown || '');
       setPreviewModel(result.model || selectedRegenModel);
       setPreviewPromptConfig(result.promptConfig || regenPromptConfig);
+      setSignificanceAnalysis(result.significanceAnalysis || null);
       setCurrentStep('preview');
     } catch (e) {
       setPreviewError(String(e));
@@ -438,6 +442,20 @@ export function RegeneratePageClient({ submission }: RegeneratePageClientProps) 
                 <DocumentStructure config={structureConfig} onChange={setStructureConfig} />
               </div>
 
+              {/* Significance Analysis Checkbox */}
+              <div className="flex items-center gap-2 rounded-lg border border-white/20 bg-white/5 p-3">
+                <input
+                  type="checkbox"
+                  id="skipSignificanceCheck"
+                  checked={skipSignificanceCheck}
+                  onChange={(e) => setSkipSignificanceCheck(e.target.checked)}
+                  className="h-4 w-4 rounded border-white/30 bg-white/10 text-purple-500 focus:ring-purple-500/50"
+                />
+                <label htmlFor="skipSignificanceCheck" className="text-sm text-white/80 cursor-pointer">
+                  Skip significance analysis (regenerate regardless of change significance)
+                </label>
+              </div>
+
               {/* Error Message */}
               {previewError && (
                 <div className="rounded-lg border border-red-500/50 bg-red-500/10 p-3 text-sm text-red-200">
@@ -497,6 +515,93 @@ export function RegeneratePageClient({ submission }: RegeneratePageClientProps) 
                 </button>
               </div>
 
+              {/* Unavailable Files Warning */}
+              {significanceAnalysis?.unavailableFiles && significanceAnalysis.unavailableFiles.length > 0 && (
+                <div className="rounded-lg border border-orange-500/50 bg-orange-500/10 p-4">
+                  <div className="flex items-start gap-3">
+                    <Info className="h-5 w-5 text-orange-400 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <h3 className="text-sm font-semibold text-orange-200 mb-1">
+                        Some files couldn't be analyzed
+                      </h3>
+                      <p className="text-sm text-orange-200/80 mb-2">
+                        {significanceAnalysis.unavailableFiles.length} file{significanceAnalysis.unavailableFiles.length === 1 ? '' : 's'} {significanceAnalysis.unavailableFiles.length === 1 ? 'was' : 'were'} unavailable during analysis. This may affect the accuracy of the significance assessment.
+                      </p>
+                      <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
+                        {significanceAnalysis.unavailableFiles.map((file, idx) => (
+                          <div key={idx} className="text-xs text-orange-200/70 bg-orange-500/10 rounded px-2 py-1">
+                            <div className="font-mono">{file.path}</div>
+                            <div className="text-orange-200/60 mt-0.5">{file.reason}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Significance Analysis Warning */}
+              {significanceAnalysis && !significanceAnalysis.isSignificant && (
+                <div className="rounded-lg border border-yellow-500/50 bg-yellow-500/10 p-4">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="h-5 w-5 text-yellow-400 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <h3 className="text-sm font-semibold text-yellow-200 mb-1">
+                        Changes may not be significant
+                      </h3>
+                      <p className="text-sm text-yellow-200/80 mb-2">
+                        {significanceAnalysis.reason}
+                      </p>
+                      {significanceAnalysis.summary && (
+                        <p className="text-xs text-yellow-200/70 mb-2">
+                          {significanceAnalysis.summary}
+                        </p>
+                      )}
+                      {significanceAnalysis.technicalChanges && (
+                        <div className="text-xs text-yellow-200/70 mb-2">
+                          <strong>Technical:</strong> {significanceAnalysis.technicalChanges.level} - {significanceAnalysis.technicalChanges.description}
+                        </div>
+                      )}
+                      {significanceAnalysis.businessLogicChanges && (
+                        <div className="text-xs text-yellow-200/70">
+                          <strong>Business Logic:</strong> {significanceAnalysis.businessLogicChanges.level} - {significanceAnalysis.businessLogicChanges.description}
+                        </div>
+                      )}
+                      <p className="text-xs text-yellow-200/60 mt-3 italic">
+                        You can still proceed with regeneration if needed.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Significance Analysis Success */}
+              {significanceAnalysis && significanceAnalysis.isSignificant && (
+                <div className="rounded-lg border border-green-500/50 bg-green-500/10 p-4">
+                  <div className="flex items-start gap-3">
+                    <Check className="h-5 w-5 text-green-400 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <h3 className="text-sm font-semibold text-green-200 mb-1">
+                        Significant changes detected
+                      </h3>
+                      <p className="text-sm text-green-200/80 mb-2">
+                        {significanceAnalysis.reason}
+                      </p>
+                      {significanceAnalysis.summary && (
+                        <p className="text-xs text-green-200/70">
+                          {significanceAnalysis.summary}
+                        </p>
+                      )}
+                      {significanceAnalysis.unavailableFiles && significanceAnalysis.unavailableFiles.length > 0 && (
+                        <p className="text-xs text-green-200/60 mt-2 italic">
+                          Note: {significanceAnalysis.unavailableFiles.length} file{significanceAnalysis.unavailableFiles.length === 1 ? '' : 's'} couldn't be analyzed, but significant changes were still detected in other files.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Enhanced Preview */}
               <RegeneratePreview
                 originalText={submission.markdown}
@@ -511,6 +616,7 @@ export function RegeneratePageClient({ submission }: RegeneratePageClientProps) 
                     onClick={() => {
                       setCurrentStep('config');
                       setPreviewContent('');
+                      setSignificanceAnalysis(null);
                     }}
                   >
                     Back to Settings

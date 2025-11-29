@@ -14,7 +14,7 @@ export default async function EditDetailPage({ params }: { params: Promise<{ id:
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('submissions')
-    .select('id, created_at, title, markdown, status, error_message, input_type, input_content, summary, source_meta, is_outdated, code_snapshot')
+    .select('id, created_at, title, markdown, status, error_message, input_type, input_content, summary, source_meta, is_outdated, code_snapshot, selected_files')
     .eq('id', id)
     .single();
 
@@ -34,7 +34,8 @@ export default async function EditDetailPage({ params }: { params: Promise<{ id:
     summary: (data.summary ?? null) as string | null,
     source_meta: (data.source_meta ?? {}) as any,
     code_snapshot: (data.code_snapshot ?? null) as any,
-    is_outdated: (data.is_outdated ?? false) as boolean
+    is_outdated: (data.is_outdated ?? false) as boolean,
+    selected_files: (data.selected_files ?? null) as string[] | null
   };
 
   return <EditDetailPageClient submission={submission} />;

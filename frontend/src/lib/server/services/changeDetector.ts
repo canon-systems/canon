@@ -21,9 +21,10 @@ type DetectChangesParams = {
 
 type FileChange = {
 	path: string;
+	old_path?: string;
 	old_hash?: string | null;
 	new_hash?: string | null;
-	status: 'modified';
+	status: 'modified' | 'renamed' | 'added' | 'removed';
 };
 
 export async function detectRepositoryChanges({
@@ -39,6 +40,7 @@ export async function detectRepositoryChanges({
 	files_changed: FileChange[];
 	files_added: string[];
 	files_removed: string[];
+	files_renamed: Array<{ old_path: string; new_path: string }>;
 	architecture_changes?: Record<string, unknown> | null;
 	summary: string;
 	current_commit_sha: string;
@@ -91,7 +93,18 @@ export async function detectRepositoryChanges({
 	}
 
 	const resolvedBranch = effectiveBranch || parsed.branch || 'main';
+	const octokit = await getUserOctokit(supabase, userId);
 
+	// Get current commit SHA
+	const { data: branchData } = await octokit.repos.getBranch({
+		owner: parsed.owner,
+		repo: parsed.repo,
+		branch: resolvedBranch,
+	});
+	const currentCommitSha = branchData.commit.sha;
+	const oldCommitSha = oldSnapshot?.commitSha || null;
+
+	// Get new snapshot first (needed for comparison and return value)
 	const analyzeResult = await analyzeRepository({
 		supabase,
 		userId,
@@ -103,14 +116,107 @@ export async function detectRepositoryChanges({
 
 	const newSnapshot = analyzeResult.snapshot;
 
-	const codeComparison = compareCodeSnapshots(oldSnapshot, newSnapshot);
+	// Use GitHub's compareCommits API to detect renames
+	let filesRenamed: Array<{ old_path: string; new_path: string }> = [];
+	let filesChanged: FileChange[] = [];
+	let filesAdded: string[] = [];
+	let filesRemoved: string[] = [];
+
+	if (oldCommitSha && oldCommitSha !== currentCommitSha) {
+		// Use GitHub's compareCommits API which detects renames
+		try {
+			const { data: compareData } = await octokit.repos.compareCommits({
+				owner: parsed.owner,
+				repo: parsed.repo,
+				base: oldCommitSha,
+				head: currentCommitSha,
+			});
+
+			// Process each file change
+			for (const file of compareData.files || []) {
+				if (file.status === 'renamed') {
+					// Detect rename
+					const oldPath = file.previous_filename || file.filename;
+					const newPath = file.filename;
+					filesRenamed.push({
+						old_path: oldPath,
+						new_path: newPath,
+					});
+					
+					filesChanged.push({
+						path: newPath,
+						old_path: oldPath,
+						old_hash: null, // Will be populated below
+						new_hash: null, // Will be populated below
+						status: 'renamed',
+					});
+				} else if (file.status === 'added') {
+					filesAdded.push(file.filename);
+				} else if (file.status === 'removed') {
+					filesRemoved.push(file.filename);
+				} else if (file.status === 'modified') {
+					filesChanged.push({
+						path: file.filename,
+						old_hash: null, // Will be populated below
+						new_hash: null, // Will be populated below
+						status: 'modified',
+					});
+				}
+			}
+		} catch (error) {
+			console.warn('Failed to use compareCommits API, falling back to snapshot comparison:', error);
+			// Fallback to snapshot comparison
+			const codeComparison = compareCodeSnapshots(oldSnapshot, newSnapshot);
+			
+			filesChanged = codeComparison.filesChanged.map((change) => ({
+				path: change.path,
+				old_hash: change.oldHash,
+				new_hash: change.newHash,
+				status: 'modified' as const,
+			}));
+			filesAdded = codeComparison.filesAdded;
+			filesRemoved = codeComparison.filesRemoved;
+		}
+	} else {
+		// No old commit or same commit - use snapshot comparison
+		const codeComparison = compareCodeSnapshots(oldSnapshot, newSnapshot);
+		
+		filesChanged = codeComparison.filesChanged.map((change) => ({
+			path: change.path,
+			old_hash: change.oldHash,
+			new_hash: change.newHash,
+			status: 'modified' as const,
+		}));
+		filesAdded = codeComparison.filesAdded;
+		filesRemoved = codeComparison.filesRemoved;
+	}
+
+	// Populate file hashes for changed files
+	const oldFileShas = oldSnapshot?.fileShas || {};
+	const newFileShas = newSnapshot.fileShas || {};
+
+	filesChanged = filesChanged.map(change => ({
+		...change,
+		old_hash: change.old_path 
+			? oldFileShas[change.old_path] || null
+			: oldFileShas[change.path] || null,
+		new_hash: newFileShas[change.path] || null,
+	}));
+
+	const codeComparison = {
+		hasChanges: filesChanged.length > 0 || filesAdded.length > 0 || filesRemoved.length > 0 || filesRenamed.length > 0,
+		commitChanged: oldCommitSha !== currentCommitSha,
+		filesChanged,
+		filesAdded,
+		filesRemoved,
+	};
 
 	let architectureChanges: Record<string, unknown> | null = null;
 
 	if (diagramId && oldDetectionResult) {
 		const changedPaths = [
-			...codeComparison.filesChanged.map((c) => c.path),
-			...codeComparison.filesAdded,
+			...filesChanged.map((c) => c.path),
+			...filesAdded,
 		];
 
 		const detectionFiles = await fetchFilesContent(
@@ -138,10 +244,12 @@ export async function detectRepositoryChanges({
 	if (codeComparison.commitChanged) summaryPieces.push('Commit changed');
 	if (codeComparison.filesChanged.length)
 		summaryPieces.push(`${codeComparison.filesChanged.length} file(s) modified`);
-	if (codeComparison.filesAdded.length)
-		summaryPieces.push(`${codeComparison.filesAdded.length} file(s) added`);
-	if (codeComparison.filesRemoved.length)
-		summaryPieces.push(`${codeComparison.filesRemoved.length} file(s) removed`);
+	if (filesAdded.length)
+		summaryPieces.push(`${filesAdded.length} file(s) added`);
+	if (filesRemoved.length)
+		summaryPieces.push(`${filesRemoved.length} file(s) removed`);
+	if (filesRenamed.length)
+		summaryPieces.push(`${filesRenamed.length} file(s) renamed`);
 
 	const summary = summaryPieces.length ? summaryPieces.join('. ') : 'No changes detected';
 
@@ -165,14 +273,10 @@ export async function detectRepositoryChanges({
 	return {
 		has_changes: codeComparison.hasChanges,
 		commit_changed: codeComparison.commitChanged,
-		files_changed: codeComparison.filesChanged.map((change) => ({
-			path: change.path,
-			old_hash: change.oldHash,
-			new_hash: change.newHash,
-			status: 'modified',
-		})),
-		files_added: codeComparison.filesAdded,
-		files_removed: codeComparison.filesRemoved,
+		files_changed: filesChanged,
+		files_added: filesAdded,
+		files_removed: filesRemoved,
+		files_renamed: filesRenamed,
 		architecture_changes: architectureChanges,
 		summary,
 		current_commit_sha: newSnapshot.commitSha,

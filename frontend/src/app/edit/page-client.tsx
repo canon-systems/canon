@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   Grid3x3, List, MoreVertical, RefreshCw, Loader2, Clock,
-  CheckCircle2, AlertCircle, X, Search, Send, FileText, Filter
+  CheckCircle2, AlertCircle, X, Search, Send, FileText, Filter, Github, GitBranch
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import type { User } from '@supabase/supabase-js';
@@ -15,6 +15,7 @@ interface DocItem {
   title: string;
   status: 'pending_review' | 'approved' | 'published' | 'rejected';
   repo: string;
+  branch: string;
   path: string;
   commit: string;
   createdAt: string;
@@ -581,8 +582,20 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
                         <td className="px-4 py-3">
                           <div className="font-semibold text-white">{item.title}</div>
                           {item.repo && (
-                            <div className="text-xs text-white/50 font-mono truncate max-w-md">
-                              {item.repo}{item.path !== '/' ? item.path : ''}
+                            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-white/50">
+                              <div className="flex items-center gap-1 font-mono">
+                                <Github className="h-3 w-3" />
+                                <span className="truncate max-w-md">{item.repo.replace('https://github.com/', '')}</span>
+                              </div>
+                              {item.branch && (
+                                <div className="flex items-center gap-1">
+                                  <GitBranch className="h-3 w-3" />
+                                  <span className="font-mono">{item.branch}</span>
+                                </div>
+                              )}
+                              {item.path !== '/' && (
+                                <span className="text-white/40">{item.path}</span>
+                              )}
                             </div>
                           )}
                         </td>
@@ -597,7 +610,18 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
                         </td>
                         <td className="px-4 py-3 text-sm text-white/70">
                           {item.repo ? (
-                            <span className="font-mono text-xs">{item.repo}</span>
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-1 font-mono text-xs">
+                                <Github className="h-3 w-3 text-white/40" />
+                                <span className="truncate max-w-xs">{item.repo.replace('https://github.com/', '')}</span>
+                              </div>
+                              {item.branch && (
+                                <div className="flex items-center gap-1 text-xs text-white/50">
+                                  <GitBranch className="h-3 w-3" />
+                                  <span>{item.branch}</span>
+                                </div>
+                              )}
+                            </div>
                           ) : (
                             <span className="text-white/40">—</span>
                           )}
@@ -714,7 +738,18 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
                     <div className="mb-2 truncate text-lg font-semibold text-white">{item.title}</div>
                     <div className="mb-1 text-sm text-white/60">{fmt(item.createdAt)}</div>
                     {item.repo && (
-                      <div className="truncate font-mono text-xs text-white/50">{item.repo}</div>
+                      <div className="mt-2 space-y-1">
+                        <div className="flex items-center gap-1 truncate font-mono text-xs text-white/50">
+                          <Github className="h-3 w-3 flex-shrink-0" />
+                          <span className="truncate">{item.repo.replace('https://github.com/', '')}</span>
+                        </div>
+                        {item.branch && (
+                          <div className="flex items-center gap-1 text-xs text-white/40">
+                            <GitBranch className="h-3 w-3 flex-shrink-0" />
+                            <span>{item.branch}</span>
+                          </div>
+                        )}
+                      </div>
                     )}
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       {getStatusBadge(item.status)}

@@ -67,6 +67,54 @@ async function listAllFiles(
   return files;
 }
 
+async function handleListRequest(repoUrl: string, branch: string, subdirRaw: string) {
+  if (!repoUrl.includes('github.com')) {
+    return NextResponse.json({ error: 'repoUrl must be a GitHub URL' }, { status: 400 });
+  }
+
+  // Parse owner/repo from full URL like https://github.com/owner/repo
+  const noProto = repoUrl.replace(/^https?:\/\//, '');
+  const parts = noProto.split('/').filter(Boolean);
+  const owner = parts[1];
+  const repo = parts[2];
+
+  if (!owner || !repo) {
+    return NextResponse.json({ error: 'repoUrl missing owner or repo' }, { status: 400 });
+  }
+
+  // Clean subdir (trim leading/trailing slashes)
+  const subdir = subdirRaw.replace(/^\/+|\/+$/g, '');
+
+  // Get user's GitHub connection (or anonymous if not connected)
+  const { user } = await getSession();
+  const supabase = await createClient();
+  const octokit = await getUserOctokit(supabase, user?.id || null);
+
+  // Grab all files (under subdir if given, otherwise repo root)
+  const files = await listAllFiles(octokit, owner, repo, branch, subdir);
+
+  // Return sorted for stable UI (optional)
+  files.sort((a, b) => a.path.localeCompare(b.path));
+
+  return NextResponse.json({ files: files.map(f => f.path) }, { status: 200 });
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const repoUrl = searchParams.get('repoUrl') || '';
+    const branch = searchParams.get('branch') || 'main';
+    const subdir = searchParams.get('subdir') || '';
+
+    return await handleListRequest(repoUrl, branch, subdir);
+  } catch (err) {
+    return NextResponse.json(
+      { error: 'Failed to list repository files', detail: String(err) },
+      { status: 500 }
+    );
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({} as Record<string, unknown>));
@@ -74,35 +122,7 @@ export async function POST(request: NextRequest) {
     const branch = String(body.branch || 'main');
     const subdirRaw = String(body.subdir || '');
 
-    if (!repoUrl.includes('github.com')) {
-      return NextResponse.json({ error: 'repoUrl must be a GitHub URL' }, { status: 400 });
-    }
-
-    // Parse owner/repo from full URL like https://github.com/owner/repo
-    const noProto = repoUrl.replace(/^https?:\/\//, '');
-    const parts = noProto.split('/').filter(Boolean);
-    const owner = parts[1];
-    const repo = parts[2];
-
-    if (!owner || !repo) {
-      return NextResponse.json({ error: 'repoUrl missing owner or repo' }, { status: 400 });
-    }
-
-    // Clean subdir (trim leading/trailing slashes)
-    const subdir = subdirRaw.replace(/^\/+|\/+$/g, '');
-
-    // Get user's GitHub connection (or anonymous if not connected)
-    const { user } = await getSession();
-    const supabase = await createClient();
-    const octokit = await getUserOctokit(supabase, user?.id || null);
-
-    // Grab all files (under subdir if given, otherwise repo root)
-    const files = await listAllFiles(octokit, owner, repo, branch, subdir);
-
-    // Return sorted for stable UI (optional)
-    files.sort((a, b) => a.path.localeCompare(b.path));
-
-    return NextResponse.json({ files }, { status: 200 });
+    return await handleListRequest(repoUrl, branch, subdirRaw);
   } catch (err) {
     return NextResponse.json(
       { error: 'Failed to list repository files', detail: String(err) },

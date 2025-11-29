@@ -62,6 +62,11 @@ interface AutomationRuleForm {
   auto_publish_target_connection_id: string;
   auto_publish_target_resource_id: string;
   auto_publish_custom_resource: string;
+  significance_analysis_enabled: boolean;
+  significance_sensitivity: 'strict' | 'balanced' | 'lenient';
+  significance_require_technical: boolean;
+  significance_require_business: boolean;
+  significance_minimum_confidence: 'high' | 'medium' | 'low';
 }
 
 type AutomationAlert = {
@@ -400,6 +405,11 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
       generate_diagram: overrides.generate_diagram ?? false,
       auto_publish: overrides.auto_publish ?? false,
       auto_publish_new_docs: overrides.auto_publish_new_docs ?? false,
+      significance_analysis_enabled: overrides.significance_analysis?.enabled !== false,
+      significance_sensitivity: overrides.significance_analysis?.sensitivity || 'balanced',
+      significance_require_technical: overrides.significance_analysis?.require_technical_changes || false,
+      significance_require_business: overrides.significance_analysis?.require_business_changes || false,
+      significance_minimum_confidence: overrides.significance_analysis?.minimum_confidence || 'medium',
       auto_publish_max_changes: overrides.auto_publish_max_changes?.toString() ?? '50',
       auto_publish_max_change_percentage: overrides.auto_publish_max_change_percentage?.toString() ?? '5',
       auto_publish_target_provider: overrides.auto_publish_target_provider ?? '',
@@ -494,6 +504,11 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
         generate_diagram: rule.generate_diagram ?? false,
         auto_publish: rule.auto_publish ?? false,
         auto_publish_new_docs: rule.auto_publish_new_docs ?? false,
+        significance_analysis_enabled: rule.significance_analysis?.enabled !== false,
+        significance_sensitivity: rule.significance_analysis?.sensitivity || 'balanced',
+        significance_require_technical: rule.significance_analysis?.require_technical_changes || false,
+        significance_require_business: rule.significance_analysis?.require_business_changes || false,
+        significance_minimum_confidence: rule.significance_analysis?.minimum_confidence || 'medium',
         auto_publish_max_changes: rule.auto_publish_max_changes?.toString() ?? '50',
         auto_publish_max_change_percentage: rule.auto_publish_max_change_percentage?.toString() ?? '5',
         auto_publish_target_provider: rule?.auto_publish_target?.provider ?? '',
@@ -833,6 +848,15 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
         ...(resourceId && { resource_id: resourceId })
       };
     }
+
+    // Add significance analysis configuration
+    rule.significance_analysis = {
+      enabled: form.significance_analysis_enabled,
+      sensitivity: form.significance_sensitivity,
+      require_technical_changes: form.significance_require_technical,
+      require_business_changes: form.significance_require_business,
+      minimum_confidence: form.significance_minimum_confidence,
+    };
 
     return rule;
   }
@@ -2654,6 +2678,127 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                                     </label>
                                     <div />
                                   </div>
+                                  {/* Smart Change Detection Section */}
+                                  {form.auto_publish && form.detect_changes && (
+                                    <div className="space-y-4 rounded-lg border border-blue-500/30 bg-blue-500/10 p-4">
+                                      <div className="flex items-center gap-2">
+                                        <div className="rounded-lg bg-blue-500/20 p-1.5">
+                                          <Sliders className="h-4 w-4 text-blue-300" />
+                                        </div>
+                                        <div>
+                                          <h4 className="text-sm font-semibold text-white">Smart Change Detection</h4>
+                                          <p className="text-xs text-white/60">
+                                            Use AI to determine if changes warrant documentation regeneration
+                                          </p>
+                                        </div>
+                                      </div>
+
+                                      <div className="space-y-3">
+                                        <label className="flex items-center gap-2 text-sm text-white/80">
+                                          <input
+                                            type="checkbox"
+                                            checked={form.significance_analysis_enabled}
+                                            onChange={(event) =>
+                                              updateAutomationRuleField(
+                                                activeAutomationRepo.id,
+                                                form.id,
+                                                'significance_analysis_enabled',
+                                                event.target.checked
+                                              )
+                                            }
+                                            className="h-4 w-4 rounded border-white/30 bg-black/60 text-blue-500 focus:ring-0"
+                                          />
+                                          <span>Enable significance analysis</span>
+                                        </label>
+
+                                        {form.significance_analysis_enabled && (
+                                          <>
+                                            <label className="text-sm text-white/80">
+                                              Sensitivity
+                                              <select
+                                                value={form.significance_sensitivity}
+                                                onChange={(event) =>
+                                                  updateAutomationRuleField(
+                                                    activeAutomationRepo.id,
+                                                    form.id,
+                                                    'significance_sensitivity',
+                                                    event.target.value as 'strict' | 'balanced' | 'lenient'
+                                                  )
+                                                }
+                                                className="mt-1 w-full rounded-lg border border-white/20 bg-black/60 px-3 py-2 text-sm text-white outline-none focus:border-blue-500"
+                                              >
+                                                <option value="strict">Strict - Require both technical and business changes</option>
+                                                <option value="balanced">Balanced - Require technical OR business changes (recommended)</option>
+                                                <option value="lenient">Lenient - Only skip truly trivial changes</option>
+                                              </select>
+                                              <p className="mt-1 text-xs text-white/60">
+                                                Controls how strictly changes are evaluated for significance
+                                              </p>
+                                            </label>
+
+                                            <div className="grid gap-3 md:grid-cols-2">
+                                              <label className="flex items-center gap-2 text-sm text-white/80">
+                                                <input
+                                                  type="checkbox"
+                                                  checked={form.significance_require_technical}
+                                                  onChange={(event) =>
+                                                    updateAutomationRuleField(
+                                                      activeAutomationRepo.id,
+                                                      form.id,
+                                                      'significance_require_technical',
+                                                      event.target.checked
+                                                    )
+                                                  }
+                                                  className="h-4 w-4 rounded border-white/30 bg-black/60 text-blue-500 focus:ring-0"
+                                                />
+                                                <span>Require technical changes</span>
+                                              </label>
+                                              <label className="flex items-center gap-2 text-sm text-white/80">
+                                                <input
+                                                  type="checkbox"
+                                                  checked={form.significance_require_business}
+                                                  onChange={(event) =>
+                                                    updateAutomationRuleField(
+                                                      activeAutomationRepo.id,
+                                                      form.id,
+                                                      'significance_require_business',
+                                                      event.target.checked
+                                                    )
+                                                  }
+                                                  className="h-4 w-4 rounded border-white/30 bg-black/60 text-blue-500 focus:ring-0"
+                                                />
+                                                <span>Require business logic changes</span>
+                                              </label>
+                                            </div>
+
+                                            <label className="text-sm text-white/80">
+                                              Minimum confidence
+                                              <select
+                                                value={form.significance_minimum_confidence}
+                                                onChange={(event) =>
+                                                  updateAutomationRuleField(
+                                                    activeAutomationRepo.id,
+                                                    form.id,
+                                                    'significance_minimum_confidence',
+                                                    event.target.value as 'high' | 'medium' | 'low'
+                                                  )
+                                                }
+                                                className="mt-1 w-full rounded-lg border border-white/20 bg-black/60 px-3 py-2 text-sm text-white outline-none focus:border-blue-500"
+                                              >
+                                                <option value="low">Low - Accept any confidence level</option>
+                                                <option value="medium">Medium - Require medium or high confidence (recommended)</option>
+                                                <option value="high">High - Only skip with high confidence</option>
+                                              </select>
+                                              <p className="mt-1 text-xs text-white/60">
+                                                Minimum confidence level required to skip regeneration
+                                              </p>
+                                            </label>
+                                          </>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+
                                   <div className="grid gap-3 md:grid-cols-2">
                                     <label className="text-sm text-white/80">
                                       Target provider
