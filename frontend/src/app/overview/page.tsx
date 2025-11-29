@@ -30,6 +30,48 @@ export default async function OverviewPage() {
     .select('id, created_at, diagram_id, version_number')
     .order('created_at', { ascending: false });
 
+  // Get automation rules status
+  const { data: repos, error: reposError } = await supabase
+    .from('workspace_repos')
+    .select('id, name, repo_url, settings')
+    .order('created_at', { ascending: false });
+
+  // Extract automation rules and their metadata
+  const automationRules: Array<{
+    repoId: string;
+    repoName: string;
+    repoUrl: string;
+    ruleId: string;
+    ruleName: string;
+    enabled: boolean;
+    lastRunAt?: string;
+    lastRunStatus?: string;
+    lastExecution?: any;
+  }> = [];
+
+  repos?.forEach((repo) => {
+    const settings = repo.settings || {};
+    const rules = Array.isArray(settings.automation_rules) ? settings.automation_rules : [];
+    const metadata = settings.automation_metadata || {};
+
+    rules.forEach((rule: any) => {
+      const ruleId = rule.id || rule.name || 'default';
+      const ruleMetadata = metadata[ruleId] || {};
+      
+      automationRules.push({
+        repoId: repo.id,
+        repoName: repo.name || 'Untitled Repo',
+        repoUrl: repo.repo_url || '',
+        ruleId,
+        ruleName: rule.name || ruleId,
+        enabled: Boolean(rule.enabled),
+        lastRunAt: ruleMetadata.last_run_at,
+        lastRunStatus: ruleMetadata.last_run_status,
+        lastExecution: ruleMetadata.last_execution,
+      });
+    });
+  });
+
   // Calculate statistics
   const totalSubmissions = submissions?.length || 0;
   const completedSubmissions = submissions?.filter(s => s.status === 'completed').length || 0;
@@ -102,7 +144,9 @@ export default async function OverviewPage() {
       submissions: submissionsError?.message,
       diagrams: diagramsError?.message,
       versions: versionsError?.message,
+      repos: reposError?.message,
     },
+    automationRules,
   };
 
   return (

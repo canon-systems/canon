@@ -27,6 +27,9 @@ export async function executeAutomationRule({
 	diagramId?: string | null;
 	skipped?: boolean;
 	skipReason?: string;
+	publishStatus?: string;
+	publishProvider?: string;
+	publishResourceId?: string;
 }> {
 	const result = {
 		success: false,
@@ -36,6 +39,9 @@ export async function executeAutomationRule({
 		diagramId: null as string | null,
 		skipped: false,
 		skipReason: undefined as string | undefined,
+		publishStatus: undefined as string | undefined,
+		publishProvider: undefined as string | undefined,
+		publishResourceId: undefined as string | undefined,
 	};
 
 	try {
@@ -372,6 +378,18 @@ export async function executeAutomationRule({
 		await trackRepoScan(supabase, userId, repo.id, repo.repo_url);
 		if (docId) {
 			await trackDocGenerated(supabase, userId, docId, repo.id);
+
+			// Track publish status if auto_publish is enabled
+			if (rule.auto_publish) {
+				result.publishStatus = 'approved'; // Doc is auto-approved when auto_publish is enabled
+				// Check if there's a target provider configured
+				if (rule.auto_publish_target_provider) {
+					result.publishProvider = rule.auto_publish_target_provider;
+				}
+				if (rule.auto_publish_target_resource_id) {
+					result.publishResourceId = rule.auto_publish_target_resource_id;
+				}
+			}
 		}
 
 		if (rule.generate_diagram) {

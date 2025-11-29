@@ -2,12 +2,12 @@
 
 import { useState, useMemo } from 'react';
 import type { User } from '@supabase/supabase-js';
-import { FileText, Layers3, AlertCircle, RefreshCw, ExternalLink, Calendar, GitBranch, Folder, Code, Clock, Hash } from 'lucide-react';
+import { FileText, Layers3, AlertCircle, RefreshCw, ExternalLink, Calendar, GitBranch, Folder, Code, Clock, Hash, Zap } from 'lucide-react';
 import Link from 'next/link';
 
 interface LogEntry {
   id: string;
-  type: 'document' | 'document_error' | 'document_regenerated' | 'architecture' | 'architecture_version';
+  type: 'document' | 'document_error' | 'document_regenerated' | 'architecture' | 'architecture_version' | 'automation_execution';
   timestamp: string;
   title: string;
   message: string;
@@ -21,6 +21,8 @@ interface LogEntry {
     isOutdated?: boolean;
     versionNumber?: number;
     changeSummary?: string;
+    automationRuleId?: string;
+    isAutomation?: boolean;
   };
 }
 
@@ -35,7 +37,7 @@ interface LogsData {
 
 type TimeFilter = '24h' | '3d' | '7d' | '14d' | '30d' | '90d' | '180d' | '1y' | 'all';
 type StatusFilter = 'all' | 'completed' | 'processing' | 'failed';
-type TypeFilter = 'all' | 'document' | 'document_error' | 'document_regenerated' | 'architecture' | 'architecture_version';
+type TypeFilter = 'all' | 'document' | 'document_error' | 'document_regenerated' | 'architecture' | 'architecture_version' | 'automation_execution';
 
 interface LogsPageClientProps {
   user: User | null;
@@ -138,6 +140,8 @@ export function LogsPageClient({ user, logs }: LogsPageClientProps) {
         return Layers3;
       case 'architecture_version':
         return RefreshCw;
+      case 'automation_execution':
+        return Zap;
       default:
         return FileText;
     }
@@ -147,6 +151,8 @@ export function LogsPageClient({ user, logs }: LogsPageClientProps) {
     switch (type) {
       case 'document':
         return 'bg-blue-500/20 text-blue-400';
+      case 'automation_execution':
+        return 'bg-purple-500/20 text-purple-400';
       case 'document_error':
         return 'bg-red-500/20 text-red-400';
       case 'document_regenerated':
@@ -220,6 +226,7 @@ export function LogsPageClient({ user, logs }: LogsPageClientProps) {
             className="rounded-lg border border-white/20 bg-white/5 px-4 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50"
           >
             <option value="all">All types</option>
+            <option value="automation_execution">Automation Execution</option>
             <option value="document">Document</option>
             <option value="document_error">Document Error</option>
             <option value="document_regenerated">Regenerated</option>
@@ -294,12 +301,18 @@ export function LogsPageClient({ user, logs }: LogsPageClientProps) {
                       </div>
                       
                       {/* Metadata Section */}
-                      {(entry.metadata?.repoUrl || entry.metadata?.inputType || entry.metadata?.branch || entry.metadata?.versionNumber || entry.id) && (
+                      {(entry.metadata?.repoUrl || entry.metadata?.inputType || entry.metadata?.branch || entry.metadata?.versionNumber || entry.metadata?.automationRuleId || entry.id) && (
                         <div className="mt-3 pt-3 border-t border-white/10 flex flex-wrap gap-3 text-xs">
                           <div className="flex items-center gap-1.5 text-white/50 font-mono">
                             <Hash className="h-3 w-3" />
                             <span className="text-xs">{entry.id}</span>
                           </div>
+                          {entry.metadata?.automationRuleId && (
+                            <div className="flex items-center gap-1.5 text-purple-300">
+                              <Zap className="h-3 w-3" />
+                              <span>Rule: {entry.metadata.automationRuleId}</span>
+                            </div>
+                          )}
                           {entry.metadata?.inputType && (
                             <div className="flex items-center gap-1.5 text-white/60">
                               <Code className="h-3 w-3" />

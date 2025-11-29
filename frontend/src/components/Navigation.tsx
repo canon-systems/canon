@@ -41,6 +41,7 @@ const navSections: Array<{ title: string; items: NavItem[] }> = [
     items: [
       { href: '/', label: 'Home', icon: LayoutDashboard },
       { href: '/overview', label: 'Overview', icon: BarChart3 },
+      { href: '/automation', label: 'Automation', icon: Zap },
       { href: '/logs', label: 'Logs', icon: FileText },
       { href: '/documentation', label: 'Generate', icon: Zap, matchPrefix: true },
       { href: '/edit', label: 'Edit', icon: Layers3, matchPrefix: true },

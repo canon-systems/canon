@@ -42,4 +42,43 @@ export async function GET(
   }
 }
 
+/**
+ * DELETE: Delete a repository configuration
+ */
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { user } = await getSession();
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const supabase = await createClient();
+    const { id } = await params;
+
+    const { error } = await supabase
+      .from('workspace_repos')
+      .delete()
+      .eq('id', id)
+      .eq('workspace_id', user.id);
+
+    if (error) {
+      throw error;
+    }
+
+    return NextResponse.json({ success: true }, { status: 200 });
+  } catch (err: any) {
+    console.error('Delete repo error:', err);
+    return NextResponse.json(
+      {
+        error: 'Failed to delete repository',
+        detail: err.message || String(err),
+      },
+      { status: 500 }
+    );
+  }
+}
+
 

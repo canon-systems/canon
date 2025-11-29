@@ -122,7 +122,19 @@ interface OverviewStats {
     submissions?: string;
     diagrams?: string;
     versions?: string;
+    repos?: string;
   };
+  automationRules?: Array<{
+    repoId: string;
+    repoName: string;
+    repoUrl: string;
+    ruleId: string;
+    ruleName: string;
+    enabled: boolean;
+    lastRunAt?: string;
+    lastRunStatus?: string;
+    lastExecution?: any;
+  }>;
 }
 
 type TimeFilter = '24h' | '3d' | '7d' | '14d' | '30d' | '90d' | '180d' | '1y' | 'all';
@@ -576,6 +588,98 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
             )}
           </div>
         </div>
+
+        {/* Automation Status */}
+        {stats.automationRules && stats.automationRules.length > 0 && (
+          <div className="glass-panel p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                <Zap className="h-5 w-5 text-purple-400" />
+                Automation Status
+              </h3>
+              <Link 
+                href="/settings" 
+                className="text-sm text-blue-400 hover:text-blue-300 flex items-center gap-1"
+              >
+                Manage rules
+                <LinkIcon className="h-3 w-3" />
+              </Link>
+            </div>
+            <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2">
+              {stats.automationRules
+                .filter(rule => rule.enabled)
+                .slice(0, 5)
+                .map((rule) => {
+                  const formatDate = (dateString?: string) => {
+                    if (!dateString) return 'Never';
+                    try {
+                      const date = new Date(dateString);
+                      const now = new Date();
+                      const diffMs = now.getTime() - date.getTime();
+                      const diffMins = Math.floor(diffMs / 60000);
+                      const diffHours = Math.floor(diffMs / 3600000);
+                      const diffDays = Math.floor(diffMs / 86400000);
+                      
+                      if (diffMins < 1) return 'Just now';
+                      if (diffMins < 60) return `${diffMins}m ago`;
+                      if (diffHours < 24) return `${diffHours}h ago`;
+                      if (diffDays < 7) return `${diffDays}d ago`;
+                      return date.toLocaleDateString();
+                    } catch {
+                      return dateString;
+                    }
+                  };
+
+                  const getStatusColor = (status?: string) => {
+                    if (status === 'success') return 'bg-green-500/20 text-green-400';
+                    if (status === 'failed') return 'bg-red-500/20 text-red-400';
+                    if (status === 'skipped') return 'bg-yellow-500/20 text-yellow-400';
+                    return 'bg-white/10 text-white/60';
+                  };
+
+                  const getStatusIcon = (status?: string) => {
+                    if (status === 'success') return <CheckCircle2 className="h-4 w-4" />;
+                    if (status === 'failed') return <XCircle className="h-4 w-4" />;
+                    if (status === 'skipped') return <Clock className="h-4 w-4" />;
+                    return <Clock className="h-4 w-4" />;
+                  };
+
+                  return (
+                    <div key={`${rule.repoId}-${rule.ruleId}`} className="flex items-center gap-3 p-3 rounded-lg border border-white/10 bg-white/5">
+                      <div className={`rounded-full p-2 ${getStatusColor(rule.lastRunStatus)}`}>
+                        {getStatusIcon(rule.lastRunStatus)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-white truncate">
+                          {rule.ruleName}
+                        </p>
+                        <p className="text-xs text-white/50 truncate">
+                          {rule.repoName}
+                        </p>
+                        <p className="text-xs text-white/40 mt-1">
+                          Last run: {formatDate(rule.lastRunAt)}
+                        </p>
+                        {rule.lastExecution?.doc_id && (
+                          <Link 
+                            href={`/edit/${rule.lastExecution.doc_id}`}
+                            className="text-xs text-blue-400 hover:text-blue-300 mt-1 inline-block"
+                          >
+                            View generated doc →
+                          </Link>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              {stats.automationRules.filter(rule => rule.enabled).length === 0 && (
+                <div className="text-center py-8 text-white/60">
+                  <Zap className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">No enabled automation rules</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Recent Activity Timeline */}
         <div className="glass-panel p-6">

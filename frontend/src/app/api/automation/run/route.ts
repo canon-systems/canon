@@ -44,9 +44,8 @@ export async function POST(request: NextRequest) {
         ...execution,
       });
 
-      if (execution.success) {
-        await updateRuleLastRun(supabase, ruleInfo.repo_id, ruleInfo.rule_id, workspaceId);
-      }
+      // Update metadata for all execution results (success, failed, or skipped)
+      await updateRuleLastRun(supabase, ruleInfo.repo_id, ruleInfo.rule_id, workspaceId, execution);
     }
 
     return NextResponse.json({

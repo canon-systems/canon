@@ -54,7 +54,7 @@ export default async function LogsPage() {
   // Build activity log entries
   const logEntries: Array<{
     id: string;
-    type: 'document' | 'document_error' | 'document_regenerated' | 'architecture' | 'architecture_version';
+    type: 'document' | 'document_error' | 'document_regenerated' | 'architecture' | 'architecture_version' | 'automation_execution';
     timestamp: string;
     title: string;
     message: string;
@@ -68,6 +68,8 @@ export default async function LogsPage() {
       isOutdated?: boolean;
       versionNumber?: number;
       changeSummary?: string;
+      automationRuleId?: string;
+      isAutomation?: boolean;
     };
   }> = [];
 
@@ -77,6 +79,8 @@ export default async function LogsPage() {
       const sourceMeta = sub.source_meta || {};
       const repoUrl = sourceMeta.repoUrl || null;
       const branch = sourceMeta.branch || null;
+      const automationRuleId = sourceMeta.automation_rule_id || null;
+      const isAutomation = Boolean(automationRuleId);
 
       // Build informative message
       let message = '';
@@ -86,15 +90,28 @@ export default async function LogsPage() {
         const statusText = sub.status === 'completed' ? 'completed' : sub.status;
         if (repoUrl) {
           const repoName = repoUrl.split('/').pop()?.replace('.git', '') || 'repository';
-          message = `Document ${statusText} from ${repoName}${branch ? ` (${branch})` : ''}`;
+          if (isAutomation) {
+            message = `Automation rule "${automationRuleId}" generated documentation for ${repoName}${branch ? ` (${branch})` : ''}`;
+          } else {
+            message = `Document ${statusText} from ${repoName}${branch ? ` (${branch})` : ''}`;
+          }
         } else {
-          message = `Document ${statusText}`;
+          if (isAutomation) {
+            message = `Automation rule "${automationRuleId}" generated documentation`;
+          } else {
+            message = `Document ${statusText}`;
+          }
         }
       }
 
+      // Use automation_execution type for automation-generated docs
+      const entryType = isAutomation 
+        ? (sub.error_message ? 'document_error' : 'automation_execution')
+        : (sub.error_message ? 'document_error' : 'document');
+
       logEntries.push({
         id: sub.id,
-        type: sub.error_message ? 'document_error' : 'document',
+        type: entryType,
         timestamp: sub.created_at,
         title: sub.title || 'Untitled Document',
         message,
@@ -105,6 +122,8 @@ export default async function LogsPage() {
           repoUrl: repoUrl || undefined,
           branch: branch || undefined,
           isOutdated: sub.is_outdated || false,
+          automationRuleId: automationRuleId || undefined,
+          isAutomation,
         },
       });
 

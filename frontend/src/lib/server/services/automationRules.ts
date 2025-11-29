@@ -217,11 +217,25 @@ export async function getDueRules(
 	return dueRules;
 }
 
+export type ExecutionResult = {
+	success: boolean;
+	actions: string[];
+	errors: string[];
+	docId?: string | null;
+	diagramId?: string | null;
+	skipped?: boolean;
+	skipReason?: string;
+	publishStatus?: string;
+	publishProvider?: string;
+	publishResourceId?: string;
+};
+
 export async function updateRuleLastRun(
 	supabase: SupabaseClient,
 	repoId: string,
 	ruleId: string,
-	workspaceId: string
+	workspaceId: string,
+	execution?: ExecutionResult
 ) {
 	const response = await supabase
 		.from('workspace_repos')
@@ -234,11 +248,37 @@ export async function updateRuleLastRun(
 
 	const settings = response.data.settings || {};
 	const metadata = settings.automation_metadata || {};
+	const existingMetadata = metadata[ruleId] || {};
+
+	// Build execution history entry
+	const executionEntry = {
+		timestamp: new Date().toISOString(),
+		success: execution?.success ?? false,
+		skipped: execution?.skipped ?? false,
+		skip_reason: execution?.skipReason,
+		actions: execution?.actions || [],
+		doc_id: execution?.docId || null,
+		diagram_id: execution?.diagramId || null,
+		errors: execution?.errors || [],
+		publish_status: execution?.publishStatus,
+		publish_provider: execution?.publishProvider,
+		publish_resource_id: execution?.publishResourceId,
+	};
+
+	// Maintain execution history (last 10 runs)
+	const existingHistory = existingMetadata.execution_history || [];
+	const executionHistory = [
+		executionEntry,
+		...existingHistory.slice(0, 9), // Keep last 10 executions
+	];
 
 	metadata[ruleId] = {
-		...(metadata[ruleId] || {}),
+		...existingMetadata,
 		last_run_at: new Date().toISOString(),
-		last_run_status: 'success',
+		last_run_status: execution?.success ? (execution.skipped ? 'skipped' : 'success') : 'failed',
+		last_run_error: execution?.errors && execution.errors.length > 0 ? execution.errors.join('; ') : null,
+		last_execution: executionEntry,
+		execution_history: executionHistory,
 	};
 
 	settings.automation_metadata = metadata;
