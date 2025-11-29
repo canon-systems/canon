@@ -115,7 +115,7 @@ async function fetchFileContentsAtCommit(
 ): Promise<{ contents: Map<string, string>; unavailableFiles: Array<{ path: string; reason: string; commitSha: string }> }> {
   const contents = new Map<string, string>();
   const unavailableFiles: Array<{ path: string; reason: string; commitSha: string }> = [];
-  
+
   for (const filePath of filePaths) {
     try {
       const { data } = await octokit.repos.getContent({
@@ -124,7 +124,7 @@ async function fetchFileContentsAtCommit(
         path: filePath,
         ref: commitSha,
       });
-      
+
       if (!Array.isArray(data) && data.type === 'file') {
         const content =
           data.encoding === 'base64' && typeof data.content === 'string'
@@ -150,7 +150,7 @@ async function fetchFileContentsAtCommit(
       }
     }
   }
-  
+
   return { contents, unavailableFiles };
 }
 
@@ -164,22 +164,22 @@ async function analyzeWithLLM(
   model: string = 'gpt-4o-mini'
 ): Promise<ChangeSignificanceResult> {
   const gateway = new LLMGateway();
-  
+
   // Build comprehensive context for analysis
   const fileAnalyses = fileDiffs.map(diff => {
     const oldContent = oldFileContents.get(diff.path) || (diff.old_path ? oldFileContents.get(diff.old_path) || '' : '');
     const newContent = newFileContents.get(diff.path) || '';
     const patch = diff.patch || '';
-    
+
     // For modified files, include both old and new content (truncated if too long)
     const maxContentLength = 3000; // Increased for better context
-    const oldPreview = oldContent.length > maxContentLength 
+    const oldPreview = oldContent.length > maxContentLength
       ? oldContent.slice(0, maxContentLength) + '\n... (truncated)'
       : oldContent;
     const newPreview = newContent.length > maxContentLength
       ? newContent.slice(0, maxContentLength) + '\n... (truncated)'
       : newContent;
-    
+
     return `File: ${diff.path}
 ${diff.old_path ? `Old Path: ${diff.old_path}\n` : ''}Status: ${diff.status}
 Changes: +${diff.additions || 0} / -${diff.deletions || 0} (${diff.changes || 0} total)
@@ -189,7 +189,7 @@ ${diff.status === 'removed' ? `REMOVED FILE (old content):\n${oldPreview}` : ''}
 ${diff.status === 'renamed' ? `RENAMED FROM: ${diff.old_path}\nOLD CONTENT:\n${oldPreview}\n\nNEW CONTENT:\n${newPreview}\n\nDIFF:\n${patch.slice(0, 4000)}` : ''}
 ${diff.status === 'modified' ? `OLD CONTENT:\n${oldPreview}\n\nNEW CONTENT:\n${newPreview}\n\nDIFF:\n${patch.slice(0, 4000)}` : ''}`;
   }).join('\n\n---\n\n');
-  
+
   const systemPrompt = `You are an expert code reviewer, software architect, and business analyst with deep expertise in analyzing code changes for documentation impact.
 
 Your analysis must be EXHAUSTIVE and consider ALL aspects of technical and business logic changes.
@@ -677,15 +677,15 @@ Respond with ONLY valid JSON, no additional text or markdown formatting.`;
       model,
       0.1 // Low temperature for more deterministic results
     );
-    
+
     // Parse JSON response (handle markdown code blocks if present)
     let jsonStr = response.trim();
     if (jsonStr.startsWith('```')) {
       jsonStr = jsonStr.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
     }
-    
+
     const parsed = JSON.parse(jsonStr);
-    
+
     // Validate and structure the response
     return {
       isSignificant: parsed.isSignificant === true,
@@ -722,13 +722,13 @@ Respond with ONLY valid JSON, no additional text or markdown formatting.`;
       reason: 'LLM analysis failed, defaulting to significant',
       confidence: 'low',
       technicalChanges: {
-        level: 'unknown',
+        level: 'major',
         description: 'Analysis failed',
         examples: [],
         categories: [],
       },
       businessLogicChanges: {
-        level: 'unknown',
+        level: 'major',
         description: 'Analysis failed',
         useCaseChanges: [],
         domainLogicChanges: [],
@@ -740,10 +740,10 @@ Respond with ONLY valid JSON, no additional text or markdown formatting.`;
         category: [],
       },
       trivialChanges: [],
-      significantChanges: fileDiffs.map(d => ({ 
-        path: d.path, 
-        reason: 'LLM analysis failed', 
-        category: 'both' as const 
+      significantChanges: fileDiffs.map(d => ({
+        path: d.path,
+        reason: 'LLM analysis failed',
+        category: 'both' as const
       })),
       summary: 'Analysis completed with fallback (LLM failed)',
     };
@@ -792,15 +792,15 @@ export async function analyzeChangeSignificance(
         category: ['other'],
       },
       trivialChanges: [],
-      significantChanges: changedFiles.map(f => ({ 
-        path: f.path, 
-        reason: 'New file', 
-        category: 'both' as const 
+      significantChanges: changedFiles.map(f => ({
+        path: f.path,
+        reason: 'New file',
+        category: 'both' as const
       })),
       summary: 'New submission - all changes are significant',
     };
   }
-  
+
   if (oldCommitSha === newCommitSha) {
     return {
       isSignificant: false,
@@ -829,7 +829,7 @@ export async function analyzeChangeSignificance(
       summary: 'No changes detected',
     };
   }
-  
+
   if (changedFiles.length === 0) {
     return {
       isSignificant: false,
@@ -858,15 +858,15 @@ export async function analyzeChangeSignificance(
       summary: 'No files changed',
     };
   }
-  
+
   const octokit = await getUserOctokit(supabase, userId);
   const parsed = parseRepoUrl(repoUrl);
   if (!parsed) {
     throw new Error(`Invalid GitHub URL: ${repoUrl}`);
   }
-  
+
   const { owner, repo } = parsed;
-  
+
   // Get the diff between commits
   let fileDiffs: FileDiff[] = [];
   try {
@@ -876,17 +876,17 @@ export async function analyzeChangeSignificance(
       base: oldCommitSha,
       head: newCommitSha,
     });
-    
+
     fileDiffs = (compareData.files || []).map(file => ({
       path: file.filename,
       patch: file.patch,
       additions: file.additions,
       deletions: file.deletions,
       changes: file.changes,
-      status: (file.status === 'renamed' ? 'renamed' : 
-               file.status === 'added' ? 'added' : 
-               file.status === 'removed' ? 'removed' : 
-               'modified') as FileDiff['status'],
+      status: (file.status === 'renamed' ? 'renamed' :
+        file.status === 'added' ? 'added' :
+          file.status === 'removed' ? 'removed' :
+            'modified') as FileDiff['status'],
       old_path: file.previous_filename || undefined,
     }));
   } catch (error) {
@@ -898,7 +898,7 @@ export async function analyzeChangeSignificance(
       old_path: file.old_path,
     }));
   }
-  
+
   // Fetch file contents at both commits for comprehensive business logic analysis
   const allFilePaths = Array.from(new Set([
     ...fileDiffs.map(d => d.path),
@@ -906,25 +906,25 @@ export async function analyzeChangeSignificance(
     ...changedFiles.map(f => f.path),
     ...changedFiles.filter(f => f.old_path).map(f => f.old_path!),
   ]));
-  
+
   const [oldFileResult, newFileResult] = await Promise.all([
     fetchFileContentsAtCommit(octokit, owner, repo, oldCommitSha, allFilePaths),
     fetchFileContentsAtCommit(octokit, owner, repo, newCommitSha, allFilePaths),
   ]);
-  
+
   const oldFileContents = oldFileResult.contents;
   const newFileContents = newFileResult.contents;
   const unavailableFiles = [...oldFileResult.unavailableFiles, ...newFileResult.unavailableFiles];
-  
+
   // Use LLM for exhaustive comprehensive analysis
   const model = options?.model || 'gpt-4o-mini';
   const result = await analyzeWithLLM(fileDiffs, oldFileContents, newFileContents, model);
-  
+
   // Add unavailable files information to the result
   if (unavailableFiles.length > 0) {
     result.unavailableFiles = unavailableFiles;
   }
-  
+
   return result;
 }
 

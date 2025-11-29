@@ -78,7 +78,8 @@ export function isRuleDue(rule: RuleConfig, lastRunAt?: string, currentTime = ne
 	if (!lastRunAt) {
 		if (schedule_type === 'daily') {
 			// Allow 1-minute window tolerance since checker runs every minute
-			const minuteDiff = Math.abs(currentTime.getUTCMinutes() - schedule_config.minute);
+			const minute = schedule_config.minute ?? 0;
+			const minuteDiff = Math.abs(currentTime.getUTCMinutes() - minute);
 			return (
 				currentTime.getUTCHours() === schedule_config.hour &&
 				minuteDiff <= 1
@@ -86,7 +87,8 @@ export function isRuleDue(rule: RuleConfig, lastRunAt?: string, currentTime = ne
 		}
 		if (schedule_type === 'weekly') {
 			// Allow 1-minute window tolerance since checker runs every minute
-			const minuteDiff = Math.abs(currentTime.getUTCMinutes() - schedule_config.minute);
+			const minute = schedule_config.minute ?? 0;
+			const minuteDiff = Math.abs(currentTime.getUTCMinutes() - minute);
 			return (
 				currentTime.getUTCDay() === schedule_config.day_of_week &&
 				currentTime.getUTCHours() === schedule_config.hour &&
@@ -108,7 +110,8 @@ export function isRuleDue(rule: RuleConfig, lastRunAt?: string, currentTime = ne
 
 	if (schedule_type === 'daily') {
 		// Allow 1-minute window tolerance since checker runs every minute
-		const minuteDiff = Math.abs(currentTime.getUTCMinutes() - schedule_config.minute);
+		const minute = schedule_config.minute ?? 0;
+		const minuteDiff = Math.abs(currentTime.getUTCMinutes() - minute);
 		return (
 			diffHours >= 23 &&
 			currentTime.getUTCHours() === schedule_config.hour &&
@@ -118,7 +121,8 @@ export function isRuleDue(rule: RuleConfig, lastRunAt?: string, currentTime = ne
 
 	if (schedule_type === 'weekly') {
 		// Allow 1-minute window tolerance since checker runs every minute
-		const minuteDiff = Math.abs(currentTime.getUTCMinutes() - schedule_config.minute);
+		const minute = schedule_config.minute ?? 0;
+		const minuteDiff = Math.abs(currentTime.getUTCMinutes() - minute);
 		const daysSince = diffMs / 1000 / 60 / 60 / 24;
 		return (
 			daysSince >= 6 &&

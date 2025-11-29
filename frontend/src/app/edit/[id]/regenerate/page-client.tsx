@@ -337,11 +337,10 @@ export function RegeneratePageClient({ submission }: RegeneratePageClientProps) 
         {/* Step Indicator */}
         <div className="mb-6 flex items-center gap-4">
           <div className={`flex items-center gap-2 ${currentStep === 'config' ? 'text-white' : 'text-white/40'}`}>
-            <div className={`flex h-10 w-10 items-center justify-center rounded-full border-2 ${
-              currentStep === 'config' 
-                ? 'border-purple-500 bg-purple-500/20 text-purple-300' 
-                : 'border-white/30 bg-white/5 text-white/40'
-            }`}>
+            <div className={`flex h-10 w-10 items-center justify-center rounded-full border-2 ${currentStep === 'config'
+              ? 'border-purple-500 bg-purple-500/20 text-purple-300'
+              : 'border-white/30 bg-white/5 text-white/40'
+              }`}>
               {currentStep === 'config' ? (
                 <Settings className="h-5 w-5" />
               ) : (
@@ -352,11 +351,10 @@ export function RegeneratePageClient({ submission }: RegeneratePageClientProps) 
           </div>
           <div className="h-px flex-1 bg-white/20" />
           <div className={`flex items-center gap-2 ${currentStep === 'preview' ? 'text-white' : 'text-white/40'}`}>
-            <div className={`flex h-10 w-10 items-center justify-center rounded-full border-2 ${
-              currentStep === 'preview' 
-                ? 'border-purple-500 bg-purple-500/20 text-purple-300' 
-                : 'border-white/30 bg-white/5 text-white/40'
-            }`}>
+            <div className={`flex h-10 w-10 items-center justify-center rounded-full border-2 ${currentStep === 'preview'
+              ? 'border-purple-500 bg-purple-500/20 text-purple-300'
+              : 'border-white/30 bg-white/5 text-white/40'
+              }`}>
               <Eye className="h-5 w-5" />
             </div>
             <span className="font-medium">Preview</span>
@@ -405,9 +403,8 @@ export function RegeneratePageClient({ submission }: RegeneratePageClientProps) 
                         <button
                           key={model.value}
                           type="button"
-                          className={`w-full px-4 py-3 text-left transition-colors hover:bg-white/10 focus:bg-white/10 focus:outline-none ${
-                            selectedRegenModel === model.value ? 'bg-white/15' : ''
-                          }`}
+                          className={`w-full px-4 py-3 text-left transition-colors hover:bg-white/10 focus:bg-white/10 focus:outline-none ${selectedRegenModel === model.value ? 'bg-white/15' : ''
+                            }`}
                           onClick={() => {
                             setSelectedRegenModel(model.value);
                             setShowRegenModelDropdown(false);
@@ -528,7 +525,7 @@ export function RegeneratePageClient({ submission }: RegeneratePageClientProps) 
                         {significanceAnalysis.unavailableFiles.length} file{significanceAnalysis.unavailableFiles.length === 1 ? '' : 's'} {significanceAnalysis.unavailableFiles.length === 1 ? 'was' : 'were'} unavailable during analysis. This may affect the accuracy of the significance assessment.
                       </p>
                       <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
-                        {significanceAnalysis.unavailableFiles.map((file, idx) => (
+                        {significanceAnalysis.unavailableFiles.map((file: { path: string; reason: string; commitSha: string }, idx: number) => (
                           <div key={idx} className="text-xs text-orange-200/70 bg-orange-500/10 rounded px-2 py-1">
                             <div className="font-mono">{file.path}</div>
                             <div className="text-orange-200/60 mt-0.5">{file.reason}</div>

@@ -81,6 +81,10 @@ export async function POST(request: NextRequest) {
     const supabase = await createClient();
     const { user } = await getSession();
 
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { data: submission, error: subError } = await supabase
       .from('submissions')
       .select('*')
@@ -113,12 +117,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No files selected for this submission' }, { status: 400 });
     }
 
-    const octokit = await getUserOctokit(supabase, user?.id || null);
+    const octokit = await getUserOctokit(supabase, user.id);
 
     // Perform significance analysis if not skipped
     let significanceAnalysis: any = null;
     let changesDetected = false;
-    
+
     if (!skipSignificanceCheck && submission.code_snapshot?.commitSha) {
       try {
         // Detect changes between stored commit and current branch
@@ -132,7 +136,7 @@ export async function POST(request: NextRequest) {
 
         if (changeDetection.has_changes) {
           changesDetected = true;
-          
+
           // Filter to only tracked files
           const trackedFilesSet = new Set(selectedFiles);
           const relevantRenames = changeDetection.files_renamed.filter(rename =>
@@ -210,7 +214,7 @@ export async function POST(request: NextRequest) {
 
     const effectivePromptConfig = promptConfig || sourceMeta.llm_prompt_config || null;
     const effectiveModel = model || sourceMeta.model;
-    
+
     if (!effectiveModel) {
       return NextResponse.json({ error: 'model is required. Please select a model.' }, { status: 400 });
     }

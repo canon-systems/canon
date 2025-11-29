@@ -388,7 +388,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   }
 
   // Automation form helpers
-  function createAutomationRuleForm(overrides: Partial<AutomationRuleForm> = {}): AutomationRuleForm {
+  function createAutomationRuleForm(overrides: Partial<AutomationRuleForm> & { significance_analysis?: { enabled?: boolean; sensitivity?: 'strict' | 'balanced' | 'lenient'; require_technical_changes?: boolean; require_business_changes?: boolean; minimum_confidence?: 'high' | 'medium' | 'low' } } = {}): AutomationRuleForm {
     return {
       id: overrides.id ?? `rule-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       name: overrides.name ?? '',
