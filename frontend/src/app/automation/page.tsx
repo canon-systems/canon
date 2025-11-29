@@ -21,7 +21,7 @@ export default async function AutomationPage() {
   // Get connections for knowledge base providers
   const { data: connections } = await supabase
     .from('oauth_connections')
-    .select('id, provider, connection_id, status, metadata')
+    .select('id, provider, connection_id, status, metadata, created_at, updated_at')
     .eq('status', 'active')
     .order('created_at', { ascending: false });
 

@@ -812,33 +812,6 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
     return rule;
   }
 
-  function updateAutomationRuleField(repoId: string, ruleId: string, field: keyof AutomationRuleForm, value: AutomationRuleForm[keyof AutomationRuleForm]) {
-    setAutomationRuleForms((prev) => {
-      const existing = prev[repoId] || [];
-      const updated = existing.map((form) => (form.id === ruleId ? { ...form, [field]: value } : form));
-      return { ...prev, [repoId]: updated };
-    });
-  }
-
-  function addAutomationRuleForm(repoId: string) {
-    setAutomationRuleForms((prev) => {
-      const existing = prev[repoId] || [];
-      return { ...prev, [repoId]: [...existing, createAutomationRuleForm()] };
-    });
-  }
-
-  function openRuleConfigurationForNewRule(repoId: string) {
-    setAutomationConfigOpen(true);
-    addAutomationRuleForm(repoId);
-  }
-
-  function removeAutomationRuleForm(repoId: string, ruleId: string) {
-    setAutomationRuleForms((prev) => {
-      const existing = prev[repoId] || [];
-      const updated = existing.filter((form) => form.id !== ruleId);
-      return { ...prev, [repoId]: updated };
-    });
-  }
 
   async function fetchAutomationRules(repoId: string) {
     setAutomationLoading((prev) => ({ ...prev, [repoId]: true }));
@@ -900,35 +873,6 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
     }
   }
 
-  function scrollToAutomationRuleForm(ruleId: string) {
-    const element = ruleFormRefs.current[ruleId];
-    if (element) element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }
-
-  function handleConfiguredRuleToggle(ruleId: string) {
-    if (!activeAutomationRepoId) return;
-    if (!ruleId) return;
-    const repoId = activeAutomationRepoId;
-    const existingForms = automationRuleForms[repoId] ?? mapRulesToForms(automationRules);
-    if (!existingForms.some((form) => form.id === ruleId)) return;
-    const updatedForms = existingForms.map((form) => (form.id === ruleId ? { ...form, enabled: !form.enabled } : form));
-    setAutomationRuleForms((prev) => ({ ...prev, [repoId]: updatedForms }));
-    handleSaveAutomationRules(repoId, updatedForms);
-  }
-
-  async function handleConfiguredRuleDelete(ruleId: string) {
-    if (!activeAutomationRepoId) return;
-    const repoId = activeAutomationRepoId;
-    const existingForms = automationRuleForms[repoId] ?? mapRulesToForms(automationRules);
-    const updatedForms = existingForms.filter((form) => form.id !== ruleId);
-    setAutomationRuleForms((prev) => ({ ...prev, [repoId]: updatedForms }));
-    await handleSaveAutomationRules(repoId, updatedForms);
-  }
-
-  function closeDetailsMenu(event: MouseEvent<HTMLButtonElement>) {
-    const details = event.currentTarget.closest('details');
-    if (details) details.open = false;
-  }
 
   async function openAutomationModal(repoId: string) {
     setActiveAutomationRepoId(repoId);
@@ -951,9 +895,6 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
   }, [activeAutomationRepoId]);
 
   const activeAutomationRepo = reposList.find((repo) => repo.id === activeAutomationRepoId) || null;
-  const currentAutomationEntry = activeAutomationRepoId ? automationCache[activeAutomationRepoId] : undefined;
-  const automationRules = currentAutomationEntry?.automation_rules ?? [];
-  const automationMetadata = currentAutomationEntry?.automation_metadata ?? {};
   const knowledgeBaseConnections = connections.filter((connection) => isKnowledgeBaseProvider(connection.provider));
   
   // Get resource options for single rule form
@@ -2383,7 +2324,7 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
                         <button
                           type="button"
                           onClick={() => activeAutomationRepoId && handleSaveAutomationRules(activeAutomationRepoId)}
-                          disabled={activeAutomationRepoId && automationSaving[activeAutomationRepoId]}
+                          disabled={Boolean(activeAutomationRepoId && automationSaving[activeAutomationRepoId])}
                           className="inline-flex items-center gap-2 rounded-lg border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
                         >
                           {activeAutomationRepoId && automationSaving[activeAutomationRepoId] ? (
