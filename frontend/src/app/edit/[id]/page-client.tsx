@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Loader2, AlertCircle, CheckCircle2, RefreshCw, Clock, FileText, GitCompare, X, Send, ExternalLink, ChevronDown, Github, GitBranch } from 'lucide-react';
+import { Loader2, AlertCircle, CheckCircle2, RefreshCw, Clock, FileText, GitCompare, X, Send, ExternalLink, ChevronDown, Github, GitBranch, Search, Check } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { PromptCustomizer } from '@/components/PromptCustomizer';
 import { RichTextEditor } from '@/components/RichTextEditor';
@@ -74,8 +74,45 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
   const [fileUpdateMsg, setFileUpdateMsg] = useState('');
   const [fileUpdateErr, setFileUpdateErr] = useState('');
   const [showFileBrowser, setShowFileBrowser] = useState(false);
-  const [availableRepoFiles, setAvailableRepoFiles] = useState<string[]>([]);
+  const [availableRepoFiles, setAvailableRepoFiles] = useState<string[]>([]); // Array of file paths (strings)
   const [loadingRepoFiles, setLoadingRepoFiles] = useState(false);
+  const [fileSearchQuery, setFileSearchQuery] = useState('');
+  const [selectedFilesToAdd, setSelectedFilesToAdd] = useState<Set<string>>(new Set());
+
+  // Filter files based on search query
+  const filteredFiles = availableRepoFiles.filter(filePath =>
+    filePath.toLowerCase().includes(fileSearchQuery.toLowerCase())
+  );
+
+  // Multi-select helpers
+  function toggleFileSelection(filePath: string) {
+    const next = new Set(selectedFilesToAdd);
+    if (next.has(filePath)) {
+      next.delete(filePath);
+    } else {
+      next.add(filePath);
+    }
+    setSelectedFilesToAdd(next);
+  }
+
+  function selectAllFiltered() {
+    const next = new Set(selectedFilesToAdd);
+    filteredFiles.forEach(filePath => next.add(filePath));
+    setSelectedFilesToAdd(next);
+  }
+
+  function clearAllFiltered() {
+    const next = new Set(selectedFilesToAdd);
+    filteredFiles.forEach(filePath => next.delete(filePath));
+    setSelectedFilesToAdd(next);
+  }
+
+  function addSelectedFiles() {
+    const newFiles = [...trackedFiles, ...Array.from(selectedFilesToAdd)];
+    handleUpdateTrackedFiles(newFiles);
+    setSelectedFilesToAdd(new Set());
+    setShowFileBrowser(false);
+  }
 
   // Prompt customization state
   const [promptConfig, setPromptConfig] = useState(
@@ -324,8 +361,10 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
 
       const data = await response.json();
       const allFiles = data.files || [];
-      // Filter out already tracked files
-      const untrackedFiles = allFiles.filter((f: string) => !trackedFiles.includes(f));
+      // Filter out already tracked files (files are objects with path property)
+      const untrackedFiles = allFiles
+        .filter((f: { path: string; size: number }) => !trackedFiles.includes(f.path))
+        .map((f: { path: string; size: number }) => f.path);
       setAvailableRepoFiles(untrackedFiles);
     } catch (err: any) {
       console.error('Failed to load repo files:', err);
@@ -1640,6 +1679,8 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                     {/* Add File Button */}
                     <button
                       onClick={async () => {
+                        setFileSearchQuery('');
+                        setSelectedFilesToAdd(new Set());
                         setShowFileBrowser(true);
                         await loadAvailableRepoFiles();
                       }}
@@ -1817,23 +1858,107 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                   <p className="text-white/60">No additional files available</p>
                 </div>
               ) : (
-                <div className="space-y-2">
-                  {availableRepoFiles.map((filePath) => (
-                    <button
-                      key={filePath}
-                      onClick={() => {
-                        const newFiles = [...trackedFiles, filePath];
-                        handleUpdateTrackedFiles(newFiles);
-                        setShowFileBrowser(false);
-                      }}
-                      className="w-full text-left flex items-center gap-3 rounded-lg border border-white/10 bg-white/5 p-3 transition-all hover:border-white/20 hover:bg-white/10"
-                    >
-                      <FileText className="h-4 w-4 text-white/60 flex-shrink-0" />
-                      <span className="flex-1 text-sm font-mono text-white/80 truncate" title={filePath}>
-                        {filePath}
-                      </span>
-                    </button>
-                  ))}
+                <div className="space-y-4">
+                  {/* Search and Multi-select Controls */}
+                  <div className="space-y-3">
+                    {/* Search Input */}
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" />
+                      <input
+                        type="text"
+                        value={fileSearchQuery}
+                        onChange={(e) => setFileSearchQuery(e.target.value)}
+                        placeholder="Search files..."
+                        className="w-full rounded-lg border border-white/10 bg-white/5 px-10 py-2 text-sm text-white placeholder-white/40 outline-none focus:border-white/20 focus:bg-white/10"
+                      />
+                      {fileSearchQuery && (
+                        <button
+                          onClick={() => setFileSearchQuery('')}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/60"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Multi-select Controls */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={selectAllFiltered}
+                          className="text-xs text-white/60 hover:text-white underline"
+                          disabled={filteredFiles.length === 0}
+                        >
+                          Select all{fileSearchQuery ? ` (${filteredFiles.length})` : ''}
+                        </button>
+                        {selectedFilesToAdd.size > 0 && (
+                          <>
+                            <span className="text-white/40">|</span>
+                            <button
+                              onClick={clearAllFiltered}
+                              className="text-xs text-white/60 hover:text-white underline"
+                            >
+                              Clear{fileSearchQuery ? ` (${filteredFiles.length})` : ''}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                      {selectedFilesToAdd.size > 0 && (
+                        <span className="text-xs text-white/60">
+                          {selectedFilesToAdd.size} selected
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* File List */}
+                  <div className="space-y-2 max-h-96 overflow-y-auto">
+                    {filteredFiles.length === 0 ? (
+                      <div className="text-center py-8">
+                        <p className="text-white/60">
+                          {fileSearchQuery ? `No files match "${fileSearchQuery}"` : 'No files available'}
+                        </p>
+                      </div>
+                    ) : (
+                      filteredFiles.map((filePath) => {
+                        const isSelected = selectedFilesToAdd.has(filePath);
+                        return (
+                          <button
+                            key={filePath}
+                            onClick={() => toggleFileSelection(filePath)}
+                            className={`w-full text-left flex items-center gap-3 rounded-lg border p-3 transition-all ${isSelected
+                              ? 'border-white/30 bg-white/10'
+                              : 'border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10'
+                              }`}
+                          >
+                            <div className={`flex-shrink-0 w-4 h-4 rounded border-2 flex items-center justify-center ${isSelected
+                              ? 'border-white bg-white'
+                              : 'border-white/40'
+                              }`}>
+                              {isSelected && <Check className="w-3 h-3 text-black" />}
+                            </div>
+                            <FileText className="h-4 w-4 text-white/60 flex-shrink-0" />
+                            <span className="flex-1 text-sm font-mono text-white/80 truncate" title={filePath}>
+                              {filePath}
+                            </span>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  {/* Add Selected Files Button */}
+                  {selectedFilesToAdd.size > 0 && (
+                    <div className="pt-4 border-t border-white/10">
+                      <button
+                        onClick={addSelectedFiles}
+                        className="w-full flex items-center justify-center gap-2 rounded-lg bg-white text-black px-4 py-2 text-sm font-medium hover:bg-white/90 transition-colors"
+                      >
+                        <Check className="h-4 w-4" />
+                        Add {selectedFilesToAdd.size} file{selectedFilesToAdd.size !== 1 ? 's' : ''}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

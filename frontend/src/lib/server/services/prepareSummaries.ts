@@ -3,6 +3,7 @@ import { createHash } from 'crypto';
 import { getUserOctokit } from '../github/getUserOctokit';
 import { parseRepoUrl } from '../github/github';
 import { generateFileSummary } from './fileSummarizer';
+import { createServiceRoleClient } from '../../supabase/server';
 
 /**
  * Normalize repo URL to repo_id format: "github.com/owner/repo"
@@ -15,6 +16,27 @@ function normalizeRepoId(repoUrl: string): string {
 		throw new Error(`Invalid repo URL: ${repoUrl}`);
 	}
 	return `github.com/${parsed.owner}/${parsed.repo}`;
+}
+
+/**
+ * Normalize file paths so "./foo.ts" and "foo.ts" are treated the same.
+ */
+function normalizeFilePath(filePath?: string | null): string {
+	if (!filePath) return '';
+	let normalized = filePath.trim().replace(/\\/g, '/');
+
+	// Remove duplicated slashes
+	normalized = normalized.replace(/\/+/g, '/');
+
+	// Remove leading ./ or /
+	while (normalized.startsWith('./')) {
+		normalized = normalized.slice(2);
+	}
+	while (normalized.startsWith('/')) {
+		normalized = normalized.slice(1);
+	}
+
+	return normalized;
 }
 
 /**
@@ -274,19 +296,65 @@ export async function generateAndSaveFileSummaries(
 	submissionId?: string | null,
 	branch: string = 'main'
 ): Promise<{ filesProcessed: number; filesUpdated: number; filesSkipped: number }> {
+	console.log(`[generateAndSaveFileSummaries] CALLED: repoUrl="${repoUrl}", branch="${branch}", files=${files?.length || 0}`);
+
 	if (!repoUrl) {
 		throw new Error('repoUrl is required');
 	}
 
 	if (!files || files.length === 0) {
+		console.log(`[generateAndSaveFileSummaries] EARLY RETURN: no files to process`);
 		return { filesProcessed: 0, filesUpdated: 0, filesSkipped: 0 };
 	}
 
 	const repoId = normalizeRepoId(repoUrl);
+	console.log(`[generateAndSaveFileSummaries] Normalized repoId="${repoId}" from repoUrl="${repoUrl}"`);
 	let filesUpdated = 0;
 	let filesSkipped = 0;
+	let filesProcessed = 0;
+
+	// BULK LOAD all existing summaries for this repo/branch at once
+	// Use service role client to bypass RLS policies
+	const serviceClient = createServiceRoleClient();
+	console.log(`[generateAndSaveFileSummaries] DEBUG: Loading summaries for repoId="${repoId}", branch="${branch}"`);
+	let { data: existingSummaries } = await serviceClient
+		.from('repo_file_summaries')
+		.select('file_path, file_hash')
+		.ilike('repo_id', repoId)
+		.eq('branch', branch);
+
+	console.log(`[generateAndSaveFileSummaries] DEBUG: Found ${existingSummaries?.length || 0} existing summaries for branch "${branch}"`);
+
+	// If no summaries found for the current branch, try to find summaries from any branch
+	// This handles cases where repo.default_branch changed or summaries were created with different branches
+	if ((!existingSummaries || existingSummaries.length === 0) && branch !== 'main') {
+		console.log(`[generateAndSaveFileSummaries] DEBUG: No summaries found for branch "${branch}", trying any branch...`);
+		const { data: fallbackSummaries } = await serviceClient
+			.from('repo_file_summaries')
+			.select('file_path, file_hash')
+			.ilike('repo_id', repoId);
+
+		if (fallbackSummaries && fallbackSummaries.length > 0) {
+			console.log(`[generateAndSaveFileSummaries] DEBUG: Found ${fallbackSummaries.length} summaries from any branch, using them`);
+			existingSummaries = fallbackSummaries;
+		}
+	}
+
+	if (existingSummaries && existingSummaries.length > 0) {
+		console.log(`[generateAndSaveFileSummaries] DEBUG: Sample existing paths:`, existingSummaries.slice(0, 3).map(s => s.file_path));
+	}
+
+	// Create a lookup map for fast checking (normalize paths for consistent matching)
+	const existingSummaryMap = new Map<string, string | null>();
+	for (const summary of existingSummaries || []) {
+		const normalizedPath = normalizeFilePath(summary.file_path);
+		existingSummaryMap.set(normalizedPath, summary.file_hash);
+	}
+
+	console.log(`[generateAndSaveFileSummaries] DEBUG: Created lookup map with ${existingSummaryMap.size} entries`);
 
 	// Process files in parallel batches to avoid blocking, but limit concurrency
+	console.log(`[generateAndSaveFileSummaries] Starting to process ${files.length} files...`);
 	const BATCH_SIZE = 5;
 	const batches: Array<Array<{ path: string; content: string; hash?: string | null }>> = [];
 	for (let i = 0; i < files.length; i += BATCH_SIZE) {
@@ -306,23 +374,27 @@ export async function generateAndSaveFileSummaries(
 					return;
 				}
 
-				try {
-					// Check if summary exists and hash matches
-					// Use ilike for case-insensitive repo_id matching
-					if (fileHash) {
-						const { data: existingSummary } = await supabase
-							.from('repo_file_summaries')
-							.select('file_hash')
-							.ilike('repo_id', repoId)
-							.eq('file_path', filePath)
-							.eq('branch', branch)
-							.single();
+				filesProcessed++;
 
-						// Skip if exists and hash matches
-						if (existingSummary && existingSummary.file_hash === fileHash) {
-							filesSkipped++;
-							return;
+				try {
+					// Check if summary exists and hash matches using bulk-loaded map
+					const normalizedFilePath = normalizeFilePath(filePath);
+					const existingHash = existingSummaryMap.get(normalizedFilePath);
+
+					if (filesProcessed <= 5) { // Debug first 5 files
+						console.log(`[generateAndSaveFileSummaries] DEBUG: File "${filePath}" -> normalized "${normalizedFilePath}", currentHash="${fileHash?.substring(0, 8)}...", existingHash="${existingHash?.substring(0, 8)}..."`);
+					}
+
+					if (existingHash !== undefined && existingHash === fileHash) {
+						filesSkipped++;
+						if (filesProcessed <= 5) {
+							console.log(`[generateAndSaveFileSummaries] DEBUG: SKIPPING ${filePath} - hash matches`);
 						}
+						return;
+					}
+
+					if (filesProcessed <= 5) {
+						console.log(`[generateAndSaveFileSummaries] DEBUG: GENERATING ${filePath} - ${existingHash === undefined ? 'no existing summary' : 'hash mismatch'}`);
 					}
 
 					// Generate summary
@@ -332,7 +404,7 @@ export async function generateAndSaveFileSummaries(
 					const finalHash = fileHash || createHash('sha256').update(fileContent).digest('hex');
 
 					// Upsert into repo_file_summaries using RPC function to bypass RLS
-					const { error: upsertError } = await supabase.rpc('upsert_repo_file_summary', {
+					const { error: upsertError } = await serviceClient.rpc('upsert_repo_file_summary', {
 						p_repo_id: repoId,
 						p_file_path: filePath,
 						p_file_hash: finalHash,
@@ -357,6 +429,8 @@ export async function generateAndSaveFileSummaries(
 			})
 		);
 	}
+
+	console.log(`[generateAndSaveFileSummaries] COMPLETED: processed=${files.length}, updated=${filesUpdated}, skipped=${filesSkipped}`);
 
 	return {
 		filesProcessed: files.length,

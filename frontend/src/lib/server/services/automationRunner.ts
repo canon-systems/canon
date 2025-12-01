@@ -381,12 +381,12 @@ export async function executeAutomationRule({
 				console.log(`[automationRunner] Filtered to ${filesToUse.length} tracked files (from ${originalCount} total)`);
 			}
 		} else {
-			// First-time generation - prepare summaries for files upfront (REQUIRED)
-			console.log(`[automationRunner] 📝 First-time generation - preparing summaries for ${filesToUse.length} files...`);
+			// First-time generation - generate summaries directly without database overhead
+			console.log(`[automationRunner] 📝 First-time generation - generating summaries directly for ${filesToUse.length} files...`);
+
 			const summaryStartTime = Date.now();
 
-			// Use generateAndSaveFileSummaries for the specific files we're going to use
-			// This is more efficient than prepareRepoSummaries which scans the whole repo
+			// Generate summaries directly using the files and their hashes from analysis
 			const fileShas = analysis.snapshot?.fileShas || {};
 			const summaryResult = await generateAndSaveFileSummaries(
 				supabase,
@@ -398,14 +398,17 @@ export async function executeAutomationRule({
 				})),
 				userId,
 				'gpt-4o-mini',
-				null,
+				null, // No submission ID needed
 				repo.default_branch
 			);
 
 			const summaryDuration = ((Date.now() - summaryStartTime) / 1000).toFixed(1);
-			console.log(`[automationRunner] ✓ File summaries prepared in ${summaryDuration}s`);
+			console.log(`[automationRunner] ✓ File summaries generated in ${summaryDuration}s`);
 			console.log(`[automationRunner] Summary results: ${summaryResult.filesUpdated} generated, ${summaryResult.filesSkipped} cached`);
 			result.actions.push('prepare_repo_summaries');
+
+			// For first-time generation, submissionIdForSummaries remains undefined
+			// The docGenerator handles this case properly
 		}
 
 		result.actions.push('analyze_repository');
