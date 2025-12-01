@@ -6,7 +6,7 @@ import { trackRepoScan, trackDocGenerated, trackDiagramGenerated } from './usage
 import { detectRepositoryChanges } from './changeDetector';
 import { analyzeChangeSignificance } from './changeSignificanceAnalyzer';
 import { updateTrackedFilesForRenames } from './fileRenameHandler';
-import { prepareFileSummaries } from './prepareSummaries';
+import { prepareFileSummaries, generateAndSaveFileSummaries } from './prepareSummaries';
 import { prepareRepoSummaries } from './prepareRepoSummaries';
 
 type AutomationRuleContext = {
@@ -365,30 +365,67 @@ export async function executeAutomationRule({
 			submissionIdForSummaries = lastSubmission.id;
 
 			// Prepare summaries - REQUIRED for regeneration to avoid token limits
+			console.log(`[automationRunner] 📝 Preparing file summaries for existing submission ${lastSubmission.id}...`);
+			const summaryStartTime = Date.now();
 			await prepareFileSummaries(supabase, lastSubmission.id, false, userId);
+			const summaryDuration = ((Date.now() - summaryStartTime) / 1000).toFixed(1);
+			console.log(`[automationRunner] ✓ File summaries prepared in ${summaryDuration}s`);
 			result.actions.push('prepare_summaries');
 
 			// Filter to tracked files if available (for change detection scenarios)
 			if (rule.auto_publish && rule.detect_changes !== false &&
 				lastSubmission.selected_files && lastSubmission.selected_files.length > 0) {
 				const trackedFilesSet = new Set(lastSubmission.selected_files);
+				const originalCount = filesToUse.length;
 				filesToUse = filesToUse.filter(file => trackedFilesSet.has(file.path));
+				console.log(`[automationRunner] Filtered to ${filesToUse.length} tracked files (from ${originalCount} total)`);
 			}
 		} else {
-			// First-time generation - prepare summaries for all files upfront (REQUIRED)
-			console.log('[automationRunner] First-time generation - preparing summaries for all files');
-			await prepareRepoSummaries(supabase, repo.repo_url, repo.default_branch, userId, { subdir });
+			// First-time generation - prepare summaries for files upfront (REQUIRED)
+			console.log(`[automationRunner] 📝 First-time generation - preparing summaries for ${filesToUse.length} files...`);
+			const summaryStartTime = Date.now();
+
+			// Use generateAndSaveFileSummaries for the specific files we're going to use
+			// This is more efficient than prepareRepoSummaries which scans the whole repo
+			const fileShas = analysis.snapshot?.fileShas || {};
+			const summaryResult = await generateAndSaveFileSummaries(
+				supabase,
+				repo.repo_url,
+				filesToUse.map(f => ({
+					path: f.path,
+					content: f.content,
+					hash: fileShas[f.path] || null
+				})),
+				userId,
+				'gpt-4o-mini',
+				null,
+				repo.default_branch
+			);
+
+			const summaryDuration = ((Date.now() - summaryStartTime) / 1000).toFixed(1);
+			console.log(`[automationRunner] ✓ File summaries prepared in ${summaryDuration}s`);
+			console.log(`[automationRunner] Summary results: ${summaryResult.filesUpdated} generated, ${summaryResult.filesSkipped} cached`);
 			result.actions.push('prepare_repo_summaries');
 		}
 
 		result.actions.push('analyze_repository');
 
 		// ALWAYS use summaries - never fall back to full content to avoid token limits
+		const requestedModel = rule.model || 'gpt-4o';
+		console.log(`\n[automationRunner] ========== GENERATING DOCUMENTATION ==========`);
+		console.log(`[automationRunner] Repository: ${repo.name}`);
+		console.log(`[automationRunner] Branch: ${repo.default_branch}`);
+		console.log(`[automationRunner] Files to process: ${filesToUse.length}`);
+		console.log(`[automationRunner] Requested model: ${requestedModel}`);
+		console.log(`[automationRunner] Using summaries: true`);
+		console.log(`[automationRunner] Submission ID for summaries: ${submissionIdForSummaries || 'none (first-time)'}`);
+		console.log(`[automationRunner] =================================================\n`);
+
 		const docResult = await generateDocumentation({
 			supabase,
 			userId,
 			projectName: repo.name,
-			model: rule.model || 'gpt-4o',
+			model: requestedModel,
 			files: filesToUse,
 			repoUrl: repo.repo_url,
 			branch: repo.default_branch,
@@ -397,6 +434,9 @@ export async function executeAutomationRule({
 			useSummaries: true, // ALWAYS true - summaries are required
 			submissionId: submissionIdForSummaries,
 		});
+
+		console.log(`[automationRunner] ✓ Documentation generated successfully`);
+		console.log(`[automationRunner] Model used: ${docResult.model}`);
 
 		const sourceMeta = {
 			repoUrl: repo.repo_url,
@@ -486,12 +526,13 @@ export async function executeAutomationRule({
 			// Track publish status if auto_publish is enabled
 			if (rule.auto_publish) {
 				result.publishStatus = 'approved'; // Doc is auto-approved when auto_publish is enabled
-				// Check if there's a target provider configured
-				if (rule.auto_publish_target_provider) {
-					result.publishProvider = rule.auto_publish_target_provider;
+				// Check if there's a target provider configured (nested in auto_publish_target object)
+				const publishTarget = rule.auto_publish_target || {};
+				if (publishTarget.provider) {
+					result.publishProvider = publishTarget.provider;
 				}
-				if (rule.auto_publish_target_resource_id) {
-					result.publishResourceId = rule.auto_publish_target_resource_id;
+				if (publishTarget.resource_id) {
+					result.publishResourceId = publishTarget.resource_id;
 				}
 			}
 		}

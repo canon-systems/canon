@@ -3,6 +3,83 @@ const GATEWAY_API_KEY = process.env.VERCEL_AI_GATEWAY_API_KEY || '';
 
 export type Message = { role: 'system' | 'user' | 'assistant'; content: string };
 
+/**
+ * Model context window limits (in tokens)
+ * Note: These are conservative limits leaving room for output tokens
+ */
+export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
+	'gpt-4o': 128000,
+	'gpt-4o-mini': 128000,
+	'gpt-4-turbo': 128000,
+	'gpt-4': 8192,
+	'claude-3-5-sonnet-20241022': 200000,
+	'claude-3-opus-20240229': 200000,
+	// Gemini models - using google/ prefix for Vercel AI Gateway
+	'google/gemini-1.5-pro-latest': 1000000,
+	'google/gemini-1.5-flash-latest': 1000000,
+	// Also support without prefix in case gateway handles it
+	'gemini-1.5-pro': 1000000,
+	'gemini-1.5-flash': 1000000,
+};
+
+/**
+ * Fallback model for when token limits are exceeded
+ * Uses Gemini 1.5 Pro with 1M token context window
+ */
+export const LARGE_CONTEXT_FALLBACK_MODEL = 'google/gemini-1.5-pro-latest';
+
+/**
+ * Estimate token count from text
+ * Uses conservative estimate of ~3.5 chars per token for code
+ */
+export function estimateTokenCount(text: string): number {
+	return Math.ceil(text.length / 3.5);
+}
+
+/**
+ * Estimate total tokens for a set of messages
+ */
+export function estimateMessagesTokenCount(messages: Message[]): number {
+	return messages.reduce((total, msg) => total + estimateTokenCount(msg.content), 0);
+}
+
+/**
+ * Get context limit for a model
+ */
+export function getContextLimit(model: string): number {
+	return MODEL_CONTEXT_LIMITS[model] || 128000;
+}
+
+/**
+ * Select the appropriate model based on token count
+ * Falls back to Gemini 1.5 Pro for large contexts
+ */
+export function selectModelForTokenCount(estimatedTokens: number, preferredModel: string): string {
+	const preferredLimit = getContextLimit(preferredModel);
+	const safetyMargin = 10000; // Reserve for output and overhead
+
+	if (estimatedTokens < preferredLimit - safetyMargin) {
+		return preferredModel;
+	}
+
+	// Check if Gemini can handle it
+	const geminiLimit = getContextLimit(LARGE_CONTEXT_FALLBACK_MODEL);
+	if (estimatedTokens < geminiLimit - safetyMargin) {
+		console.log(
+			`[LLMGateway] Token count (${estimatedTokens}) exceeds ${preferredModel} limit (${preferredLimit}). ` +
+			`Switching to ${LARGE_CONTEXT_FALLBACK_MODEL}.`
+		);
+		return LARGE_CONTEXT_FALLBACK_MODEL;
+	}
+
+	// Even Gemini can't handle it - return preferred and let it fail with a clear error
+	console.warn(
+		`[LLMGateway] Token count (${estimatedTokens}) exceeds even ${LARGE_CONTEXT_FALLBACK_MODEL} limit (${geminiLimit}). ` +
+		`Proceeding with ${preferredModel} - expect failure.`
+	);
+	return preferredModel;
+}
+
 export class LLMGateway {
 	private url: string;
 	private apiKey: string;
@@ -18,6 +95,10 @@ export class LLMGateway {
 	}
 
 	async call(messages: Message[], model: string, temperature?: number): Promise<string> {
+		console.log(`[LLMGateway] Making API call to model: ${model}`);
+		console.log(`[LLMGateway] Temperature: ${temperature ?? this.defaultTemperature}`);
+		console.log(`[LLMGateway] Messages: ${messages.length} (system: ${messages.filter(m => m.role === 'system').length}, user: ${messages.filter(m => m.role === 'user').length})`);
+
 		const response = await fetch(`${this.url}/chat/completions`, {
 			method: 'POST',
 			headers: {
@@ -34,10 +115,14 @@ export class LLMGateway {
 
 		const payload = await response.json().catch(() => ({}));
 		if (!response.ok) {
+			console.error(`[LLMGateway] ❌ API call failed: ${payload?.error?.message || payload?.message || `HTTP ${response.status}`}`);
 			throw new Error(payload?.error?.message || payload?.message || `LLM HTTP ${response.status}`);
 		}
 
 		const content = payload?.choices?.[0]?.message?.content;
+		const outputLength = typeof content === 'string' ? content.length : 0;
+		console.log(`[LLMGateway] ✓ API call successful. Response: ${outputLength.toLocaleString()} characters`);
+
 		return typeof content === 'string' ? content.trim() : '';
 	}
 

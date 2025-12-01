@@ -121,10 +121,18 @@ export async function prepareFileSummaries(
 		}
 	}
 
-	console.log(`[prepareFileSummaries] Skipped ${filesSkipped} files with existing summaries, ${filesToGenerate.length} need generation`);
+	console.log(`[prepareFileSummaries] ========== SUMMARY ANALYSIS ==========`);
+	console.log(`[prepareFileSummaries] Total tracked files: ${filesToProcess.length}`);
+	console.log(`[prepareFileSummaries] Already cached (unchanged): ${filesSkipped}`);
+	console.log(`[prepareFileSummaries] Need generation (new/changed): ${filesToGenerate.length}`);
+	if (filesToGenerate.length > 0) {
+		console.log(`[prepareFileSummaries] Files to generate: ${filesToGenerate.map(f => f.file_path).join(', ')}`);
+	}
+	console.log(`[prepareFileSummaries] ======================================`);
 
 	if (filesToGenerate.length === 0) {
-		console.log(`[prepareFileSummaries] All files already have summaries. Total time: ${Date.now() - startTime}ms`);
+		console.log(`[prepareFileSummaries] ✓ All files already have up-to-date summaries - no generation needed`);
+		console.log(`[prepareFileSummaries] Total time: ${Date.now() - startTime}ms`);
 		return {
 			filesPrepared: filesToProcess.length,
 			filesUpdated: 0,
@@ -165,7 +173,11 @@ export async function prepareFileSummaries(
 
 	console.log(`[prepareFileSummaries] Processing ${filesToGenerate.length} files in ${batches.length} parallel batches...`);
 
+	let batchIndex = 0;
 	for (const batch of batches) {
+		batchIndex++;
+		console.log(`[prepareFileSummaries] Processing batch ${batchIndex}/${batches.length} (${batch.length} files)...`);
+		
 		const batchResults = await Promise.allSettled(
 			batch.map(async (submissionFile) => {
 				const filePath = submissionFile.file_path;
@@ -224,9 +236,11 @@ export async function prepareFileSummaries(
 				const { filePath, success, error } = result.value;
 				if (success) {
 					filesUpdated++;
+					console.log(`[prepareFileSummaries] ✓ Generated summary for ${filePath}`);
 					onFileProgress?.(filePath, 'completed');
 				} else {
 					failedFiles.push({ path: filePath, error: error || 'Unknown error' });
+					console.error(`[prepareFileSummaries] ✗ Failed to generate summary for ${filePath}: ${error}`);
 					onFileProgress?.(filePath, 'failed', error);
 				}
 			} else {

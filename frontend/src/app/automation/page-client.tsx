@@ -586,7 +586,7 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
   }
 
   // All the automation helper functions from settings (extracted)
-  function createAutomationRuleForm(overrides: Partial<AutomationRuleForm> & { significance_analysis?: { enabled?: boolean; sensitivity?: 'strict' | 'balanced' | 'lenient'; require_technical_changes?: boolean; require_business_changes?: boolean; minimum_confidence?: 'high' | 'medium' | 'low' } } = {}): AutomationRuleForm {
+  function createAutomationRuleForm(overrides: Partial<AutomationRuleForm> = {}): AutomationRuleForm {
     return {
       id: overrides.id ?? `rule-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       name: overrides.name ?? '',
@@ -603,13 +603,13 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
       generate_diagram: overrides.generate_diagram ?? false,
       auto_publish: overrides.auto_publish ?? false,
       auto_publish_new_docs: overrides.auto_publish_new_docs ?? false,
-      significance_analysis_enabled: overrides.significance_analysis?.enabled !== false,
-      significance_sensitivity: overrides.significance_analysis?.sensitivity || 'balanced',
-      significance_require_technical: overrides.significance_analysis?.require_technical_changes || false,
-      significance_require_business: overrides.significance_analysis?.require_business_changes || false,
-      significance_minimum_confidence: overrides.significance_analysis?.minimum_confidence || 'medium',
-      auto_publish_max_changes: overrides.auto_publish_max_changes?.toString() ?? '50',
-      auto_publish_max_change_percentage: overrides.auto_publish_max_change_percentage?.toString() ?? '5',
+      significance_analysis_enabled: overrides.significance_analysis_enabled ?? true,
+      significance_sensitivity: overrides.significance_sensitivity ?? 'balanced',
+      significance_require_technical: overrides.significance_require_technical ?? false,
+      significance_require_business: overrides.significance_require_business ?? false,
+      significance_minimum_confidence: overrides.significance_minimum_confidence ?? 'medium',
+      auto_publish_max_changes: overrides.auto_publish_max_changes ?? '50',
+      auto_publish_max_change_percentage: overrides.auto_publish_max_change_percentage ?? '5',
       auto_publish_target_provider: overrides.auto_publish_target_provider ?? '',
       auto_publish_target_connection_id: overrides.auto_publish_target_connection_id ?? '',
       auto_publish_target_resource_id: overrides.auto_publish_target_resource_id ?? '',
@@ -690,7 +690,9 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
         auto_publish_max_changes: rule.auto_publish_max_changes?.toString() ?? '50',
         auto_publish_max_change_percentage: rule.auto_publish_max_change_percentage?.toString() ?? '5',
         auto_publish_target_provider: rule?.auto_publish_target?.provider ?? '',
-        auto_publish_target_resource_id: rule?.auto_publish_target?.resource_id ?? ''
+        auto_publish_target_connection_id: rule?.auto_publish_target?.connection_id ?? '',
+        auto_publish_target_resource_id: rule?.auto_publish_target?.resource_id ?? '',
+        auto_publish_custom_resource: ''
       });
     });
   }
@@ -925,10 +927,15 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
     if (form.customScheduleDescription.trim()) rule.custom_schedule_description = form.customScheduleDescription.trim();
 
     const provider = form.auto_publish_target_provider.trim();
+    const connectionId = form.auto_publish_target_connection_id.trim();
     const resourceId = form.auto_publish_target_resource_id.trim() || form.auto_publish_custom_resource.trim();
 
-    if (provider || resourceId) {
-      rule.auto_publish_target = { ...(provider && { provider }), ...(resourceId && { resource_id: resourceId }) };
+    if (provider || connectionId || resourceId) {
+      rule.auto_publish_target = {
+        ...(provider && { provider }),
+        ...(connectionId && { connection_id: connectionId }),
+        ...(resourceId && { resource_id: resourceId })
+      };
     }
 
     rule.significance_analysis = {
@@ -992,10 +999,10 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
       const nextForms = mapRulesToForms(updated.automation_rules || []);
       setSingleRuleForm(nextForms.length > 0 ? nextForms[0] : createAutomationRuleForm());
       setAutomationAlerts((prev) => ({ ...prev, [repoId]: { type: 'success', message: 'Automation rule saved' } }));
-      setAutomationConfigOpen(false);
       
-      // Refresh stats
-      window.location.reload();
+      // Close the modal after successful save
+      setAutomationConfigOpen(false);
+      setActiveAutomationRepoId(null);
     } catch (error: any) {
       setAutomationAlerts((prev) => ({ ...prev, [repoId]: { type: 'error', message: error?.message || 'Failed to save automation rule' } }));
     } finally {
@@ -1023,6 +1030,14 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
       if (connections.length === 0) loadConnections();
     }
   }, [activeAutomationRepoId]);
+
+  // Load resources when a rule with a saved provider is loaded
+  useEffect(() => {
+    const provider = singleRuleForm?.auto_publish_target_provider;
+    if (provider && isKnowledgeBaseProvider(provider)) {
+      loadResourcesForProvider(provider);
+    }
+  }, [singleRuleForm?.auto_publish_target_provider]);
 
   const activeAutomationRepo = reposList.find((repo) => repo.id === activeAutomationRepoId) || null;
   const knowledgeBaseConnections = connections.filter((connection) => isKnowledgeBaseProvider(connection.provider));
@@ -2349,107 +2364,34 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                         ))}
                       </div>
 
-                      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                        <label className="text-sm text-white/80">
-                          Max changes
-                          <input
-                            type="number"
-                            min="0"
-                            value={singleRuleForm.auto_publish_max_changes}
-                            onChange={(event) => updateSingleRuleField('auto_publish_max_changes', event.target.value)}
-                            className="mt-1 w-full rounded-lg border border-white/20 bg-black/60 px-3 py-2 text-sm text-white outline-none focus:border-blue-500"
-                          />
-                        </label>
-                        <label className="text-sm text-white/80">
-                          Max change %
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.1"
-                            value={singleRuleForm.auto_publish_max_change_percentage}
-                            onChange={(event) => updateSingleRuleField('auto_publish_max_change_percentage', event.target.value)}
-                            className="mt-1 w-full rounded-lg border border-white/20 bg-black/60 px-3 py-2 text-sm text-white outline-none focus:border-blue-500"
-                          />
-                        </label>
-                      </div>
-
-                      {/* Smart Change Detection Section */}
-                      {singleRuleForm.auto_publish && singleRuleForm.detect_changes && (
-                        <div className="space-y-4 rounded-lg border border-blue-500/30 bg-blue-500/10 p-4">
-                          <div className="flex items-center gap-2">
-                            <div className="rounded-lg bg-blue-500/20 p-1.5">
-                              <Sliders className="h-4 w-4 text-blue-300" />
+                      {/* Smart Change Detection - simplified */}
+                      {singleRuleForm.detect_changes && (
+                        <div className="rounded-lg border border-white/10 bg-white/5 p-4">
+                          <label className="flex items-start gap-3">
+                            <input
+                              type="checkbox"
+                              checked={singleRuleForm.significance_analysis_enabled}
+                              onChange={(event) => updateSingleRuleField('significance_analysis_enabled', event.target.checked)}
+                              className="mt-1 h-4 w-4 rounded border-white/30 bg-black/60 text-blue-500 focus:ring-0"
+                            />
+                            <div className="flex-1">
+                              <span className="text-sm font-medium text-white">Smart change detection</span>
+                              <p className="text-xs text-white/60 mt-0.5">
+                                Skip regeneration when changes are trivial (comments, formatting, etc.)
+                              </p>
+                              {singleRuleForm.significance_analysis_enabled && (
+                                <select
+                                  value={singleRuleForm.significance_sensitivity}
+                                  onChange={(event) => updateSingleRuleField('significance_sensitivity', event.target.value as 'strict' | 'balanced' | 'lenient')}
+                                  className="mt-2 w-full rounded-lg border border-white/20 bg-black/60 px-3 py-2 text-sm text-white outline-none focus:border-blue-500"
+                                >
+                                  <option value="lenient">Lenient — Only skip trivial changes (comments, whitespace)</option>
+                                  <option value="balanced">Balanced — Skip minor refactors too (recommended)</option>
+                                  <option value="strict">Strict — Only regenerate for API/behavior changes</option>
+                                </select>
+                              )}
                             </div>
-                            <div>
-                              <h4 className="text-sm font-semibold text-white">Smart Change Detection</h4>
-                              <p className="text-xs text-white/60">Use AI to determine if changes warrant documentation regeneration</p>
-                            </div>
-                          </div>
-
-                          <div className="space-y-3">
-                            <label className="flex items-center gap-2 text-sm text-white/80">
-                              <input
-                                type="checkbox"
-                                checked={singleRuleForm.significance_analysis_enabled}
-                                onChange={(event) => updateSingleRuleField('significance_analysis_enabled', event.target.checked)}
-                                className="h-4 w-4 rounded border-white/30 bg-black/60 text-blue-500 focus:ring-0"
-                              />
-                              <span>Enable significance analysis</span>
-                            </label>
-
-                            {singleRuleForm.significance_analysis_enabled && (
-                              <>
-                                <label className="text-sm text-white/80">
-                                  Sensitivity
-                                  <select
-                                    value={singleRuleForm.significance_sensitivity}
-                                    onChange={(event) => updateSingleRuleField('significance_sensitivity', event.target.value as 'strict' | 'balanced' | 'lenient')}
-                                    className="mt-1 w-full rounded-lg border border-white/20 bg-black/60 px-3 py-2 text-sm text-white outline-none focus:border-blue-500"
-                                  >
-                                    <option value="strict">Strict - Require both technical and business changes</option>
-                                    <option value="balanced">Balanced - Require technical OR business changes (recommended)</option>
-                                    <option value="lenient">Lenient - Only skip truly trivial changes</option>
-                                  </select>
-                                  <p className="mt-1 text-xs text-white/60">Controls how strictly changes are evaluated for significance</p>
-                                </label>
-
-                                <div className="grid gap-3 md:grid-cols-2">
-                                  <label className="flex items-center gap-2 text-sm text-white/80">
-                                    <input
-                                      type="checkbox"
-                                      checked={singleRuleForm.significance_require_technical}
-                                      onChange={(event) => updateSingleRuleField('significance_require_technical', event.target.checked)}
-                                      className="h-4 w-4 rounded border-white/30 bg-black/60 text-blue-500 focus:ring-0"
-                                    />
-                                    <span>Require technical changes</span>
-                                  </label>
-                                  <label className="flex items-center gap-2 text-sm text-white/80">
-                                    <input
-                                      type="checkbox"
-                                      checked={singleRuleForm.significance_require_business}
-                                      onChange={(event) => updateSingleRuleField('significance_require_business', event.target.checked)}
-                                      className="h-4 w-4 rounded border-white/30 bg-black/60 text-blue-500 focus:ring-0"
-                                    />
-                                    <span>Require business logic changes</span>
-                                  </label>
-                                </div>
-
-                                <label className="text-sm text-white/80">
-                                  Minimum confidence
-                                  <select
-                                    value={singleRuleForm.significance_minimum_confidence}
-                                    onChange={(event) => updateSingleRuleField('significance_minimum_confidence', event.target.value as 'high' | 'medium' | 'low')}
-                                    className="mt-1 w-full rounded-lg border border-white/20 bg-black/60 px-3 py-2 text-sm text-white outline-none focus:border-blue-500"
-                                  >
-                                    <option value="low">Low - Accept any confidence level</option>
-                                    <option value="medium">Medium - Require medium or high confidence (recommended)</option>
-                                    <option value="high">High - Only skip with high confidence</option>
-                                  </select>
-                                  <p className="mt-1 text-xs text-white/60">Minimum confidence level required to skip regeneration</p>
-                                </label>
-                              </>
-                            )}
-                          </div>
+                          </label>
                         </div>
                       )}
 
@@ -2497,6 +2439,13 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                             className="mt-1 w-full rounded-lg border border-white/20 bg-black/60 px-3 py-2 text-sm text-white outline-none focus:border-blue-500"
                           >
                             <option value="">{defaultOptionLabel}</option>
+                            {/* Show saved resource_id as option if not in list */}
+                            {singleRuleForm.auto_publish_target_resource_id && 
+                              !resourceOptions.some(r => r.id === singleRuleForm.auto_publish_target_resource_id) && (
+                              <option value={singleRuleForm.auto_publish_target_resource_id}>
+                                {singleRuleForm.auto_publish_target_resource_id} (saved)
+                              </option>
+                            )}
                             {resourceOptions.map((resource) => (
                               <option key={resource.id} value={resource.id}>
                                 {resource.name}
@@ -2507,19 +2456,6 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                         </label>
                       </div>
 
-                      <label className="text-sm text-white/80">
-                        Manual resource ID (optional)
-                        <input
-                          type="text"
-                          value={singleRuleForm.auto_publish_custom_resource}
-                          onChange={(event) => updateSingleRuleField('auto_publish_custom_resource', event.target.value)}
-                          className="mt-1 w-full rounded-lg border border-white/20 bg-black/60 px-3 py-2 text-sm text-white outline-none focus:border-blue-500"
-                          placeholder="Enter an ID if none of the options match"
-                        />
-                      </label>
-                      <p className="text-xs text-white/50">
-                        Choose a provider resource or paste an ID so automation knows where to publish.
-                      </p>
                       <div className="flex justify-end">
                         <button
                           type="button"

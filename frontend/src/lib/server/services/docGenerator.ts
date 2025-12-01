@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { buildSystemPrompt, PromptConfig as PromptConfigType } from '../prompts/buildSystemPrompt';
 import { analyzeRepository } from './analyzeRepository';
-import { LLMGateway } from './llmGateway';
+import { LLMGateway, estimateTokenCount, selectModelForTokenCount } from './llmGateway';
 import { parseRepoUrl } from '../github/github';
 import { prepareFileSummaries, generateAndSaveFileSummaries } from './prepareSummaries';
 
@@ -46,9 +46,9 @@ function normalizeFilePath(filePath?: string | null): string {
 function pathsMatch(path1: string, path2: string): boolean {
 	const normalized1 = normalizeFilePath(path1);
 	const normalized2 = normalizeFilePath(path2);
-	
+
 	if (!normalized1 || !normalized2) return false;
-	
+
 	return (
 		normalized1 === normalized2 ||
 		normalized1.endsWith('/' + normalized2) ||
@@ -163,7 +163,7 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 		// Build map using fuzzy path matching to handle path prefix differences
 		// (e.g., "frontend/src/..." vs "src/...")
 		const matchedTrackedFiles = new Set<string>();
-		
+
 		for (const summary of allSummaries || []) {
 			// Find which tracked file this summary matches
 			for (const trackedPath of trackedFiles) {
@@ -236,7 +236,7 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 		if (useSummaries && submissionId) {
 			// Get summary - try exact match first, then fuzzy match
 			let summary = summariesMap.get(file.path);
-			
+
 			// If not found by exact path, try finding via fuzzy matching in the map
 			if (!summary) {
 				for (const [key, value] of summariesMap.entries()) {
@@ -246,7 +246,7 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 					}
 				}
 			}
-			
+
 			if (!summary) {
 				// Summary is missing - generate it now
 				console.log(`Summary missing for ${file.path}, generating now...`);
@@ -403,17 +403,46 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 	const fileContent = fileContentParts.join('\n\n');
 	const userPrompt = `Project: ${projectName}\n\nFiles (${fileEntries.length}):\n${fileContent}`;
 
+	// Estimate token count and select appropriate model
+	const systemTokens = estimateTokenCount(systemPrompt);
+	const userTokens = estimateTokenCount(userPrompt);
+	const estimatedTokens = systemTokens + userTokens;
+
+	console.log(`\n[docGenerator] ========== TOKEN ANALYSIS ==========`);
+	console.log(`[docGenerator] Project: ${projectName}`);
+	console.log(`[docGenerator] Files: ${fileEntries.length}`);
+	console.log(`[docGenerator] System prompt tokens: ~${systemTokens.toLocaleString()}`);
+	console.log(`[docGenerator] User prompt tokens: ~${userTokens.toLocaleString()}`);
+	console.log(`[docGenerator] Total estimated tokens: ~${estimatedTokens.toLocaleString()}`);
+	console.log(`[docGenerator] Requested model: ${model}`);
+
+	const selectedModel = selectModelForTokenCount(estimatedTokens, model);
+
+	if (selectedModel !== model) {
+		console.log(`[docGenerator] ⚠️  MODEL SWITCH: ${model} → ${selectedModel} (context limit exceeded)`);
+	} else {
+		console.log(`[docGenerator] ✓ Using model: ${selectedModel}`);
+	}
+	console.log(`[docGenerator] ==========================================\n`);
+
 	const gateway = new LLMGateway();
 
 	// Generate documentation (this is the main blocking operation)
+	console.log(`[docGenerator] 🚀 Starting LLM call to ${selectedModel}...`);
+	const startTime = Date.now();
+
 	const markdown = await gateway.call(
 		[
 			{ role: 'system', content: systemPrompt },
 			{ role: 'user', content: userPrompt },
 		],
-		model,
+		selectedModel,
 		promptConfig?.temperature
 	);
+
+	const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+	console.log(`[docGenerator] ✓ LLM call completed in ${duration}s`);
+	console.log(`[docGenerator] Generated ${markdown.length.toLocaleString()} characters of documentation`);
 
 	// Generate and save file summaries asynchronously (don't block the response)
 	// This ensures all files used in documentation have summaries in repo_file_summaries
@@ -456,7 +485,7 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 
 	return {
 		markdown,
-		model,
+		model: selectedModel, // Return the model that was actually used
 		promptConfig,
 	};
 }

@@ -50,7 +50,25 @@ export async function prepareRepoSummaries(
 	let filesSkipped = 0;
 	const failedFiles: Array<{ path: string; error: string }> = [];
 
-	// Process each file - ENSURE ALL FILES HAVE SUMMARIES
+	// OPTIMIZATION: Bulk load ALL existing summaries in ONE query (instead of one-by-one)
+	console.log(`[prepareRepoSummaries] Bulk loading existing summaries for ${analysis.rawFiles.length} files...`);
+	const { data: existingSummaries } = await supabase
+		.from('repo_file_summaries')
+		.select('file_path, file_hash')
+		.ilike('repo_id', repoId)
+		.eq('branch', branch)
+		.in('file_path', analysis.rawFiles.map(f => f.path));
+
+	const existingSummaryMap = new Map<string, string | null>();
+	for (const s of existingSummaries || []) {
+		existingSummaryMap.set(s.file_path, s.file_hash);
+	}
+	console.log(`[prepareRepoSummaries] Found ${existingSummaryMap.size} existing summaries in database`);
+
+	// Determine which files need processing based on hash comparison
+	const filesToGenerate: Array<{ path: string; content: string; hash: string }> = [];
+	const skippedFiles: string[] = [];
+
 	for (const file of analysis.rawFiles) {
 		const filePath = file.path;
 		const currentHash = fileShas[filePath] || null;
@@ -59,55 +77,91 @@ export async function prepareRepoSummaries(
 			const errorMsg = `No hash found for file ${filePath}`;
 			console.error(errorMsg);
 			failedFiles.push({ path: filePath, error: errorMsg });
-			continue; // Continue processing other files, but track failure
+			continue;
 		}
 
-		try {
-			// Check if summary exists
-			// Use ilike for case-insensitive repo_id matching since GitHub URLs are case-insensitive
-			const { data: existingSummary } = await supabase
-				.from('repo_file_summaries')
-				.select('file_hash')
-				.ilike('repo_id', repoId)
-				.eq('file_path', filePath)
-				.eq('branch', branch)
-				.single();
-
-			// Skip if exists and hash matches (unless fullScan is true)
-			if (existingSummary && existingSummary.file_hash === currentHash && !fullScan) {
-				filesSkipped++;
-				continue;
-			}
-
-			// Generate summary (file content already available from analyzeRepository) - REQUIRED
-			const summary = await generateFileSummary(file.content, filePath, 'gpt-4o-mini');
-
-			// Upsert into repo_file_summaries using RPC function to bypass RLS
-			const { error: upsertError } = await supabase.rpc('upsert_repo_file_summary', {
-				p_repo_id: repoId,
-				p_file_path: filePath,
-				p_file_hash: currentHash,
-				p_summary_text: summary.summary_text,
-				p_summary_json: summary.summary_json,
-				p_summary_model: 'gpt-4o-mini',
-				p_user_id: userId,
-				p_branch: branch,
-			});
-
-			if (upsertError) {
-				const errorMsg = `Failed to upsert summary for ${filePath}: ${upsertError.message}`;
-				console.error(errorMsg);
-				failedFiles.push({ path: filePath, error: errorMsg });
-				continue; // Continue processing other files, but track failure
-			}
-
-			filesUpdated++;
-		} catch (error: any) {
-			const errorMsg = `Error processing file ${filePath}: ${error?.message || error}`;
-			console.error(errorMsg);
-			failedFiles.push({ path: filePath, error: errorMsg });
-			// Continue processing other files, but track failure
+		const existingHash = existingSummaryMap.get(filePath);
+		
+		// Skip if exists and hash matches (unless fullScan is true)
+		if (!fullScan && existingHash !== undefined && existingHash === currentHash) {
+			filesSkipped++;
+			skippedFiles.push(filePath);
+		} else {
+			filesToGenerate.push({ path: filePath, content: file.content, hash: currentHash });
 		}
+	}
+
+	console.log(`[prepareRepoSummaries] ========== SUMMARY ANALYSIS ==========`);
+	console.log(`[prepareRepoSummaries] Total files: ${analysis.rawFiles.length}`);
+	console.log(`[prepareRepoSummaries] Already cached (unchanged): ${filesSkipped}`);
+	console.log(`[prepareRepoSummaries] Need generation (new/changed): ${filesToGenerate.length}`);
+	if (filesToGenerate.length > 0) {
+		console.log(`[prepareRepoSummaries] Files to generate: ${filesToGenerate.map(f => f.path).join(', ')}`);
+	}
+	console.log(`[prepareRepoSummaries] ======================================`);
+
+	// Process files that need generation in parallel batches
+	if (filesToGenerate.length > 0) {
+		const PARALLEL_BATCH_SIZE = 5;
+		const batches: Array<Array<{ path: string; content: string; hash: string }>> = [];
+		
+		for (let i = 0; i < filesToGenerate.length; i += PARALLEL_BATCH_SIZE) {
+			batches.push(filesToGenerate.slice(i, i + PARALLEL_BATCH_SIZE));
+		}
+
+		console.log(`[prepareRepoSummaries] Processing ${filesToGenerate.length} files in ${batches.length} parallel batches...`);
+
+		for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+			const batch = batches[batchIndex];
+			console.log(`[prepareRepoSummaries] Processing batch ${batchIndex + 1}/${batches.length} (${batch.length} files)...`);
+			
+			const batchResults = await Promise.allSettled(
+				batch.map(async (file) => {
+					try {
+						// Generate summary
+						const summary = await generateFileSummary(file.content, file.path, 'gpt-4o-mini');
+
+						// Upsert into repo_file_summaries using RPC function to bypass RLS
+						const { error: upsertError } = await supabase.rpc('upsert_repo_file_summary', {
+							p_repo_id: repoId,
+							p_file_path: file.path,
+							p_file_hash: file.hash,
+							p_summary_text: summary.summary_text,
+							p_summary_json: summary.summary_json,
+							p_summary_model: 'gpt-4o-mini',
+							p_user_id: userId,
+							p_branch: branch,
+						});
+
+						if (upsertError) {
+							throw new Error(`Failed to upsert: ${upsertError.message}`);
+						}
+
+						return { path: file.path, success: true };
+					} catch (error: any) {
+						return { path: file.path, success: false, error: error?.message || String(error) };
+					}
+				})
+			);
+
+			// Process batch results
+			for (const result of batchResults) {
+				if (result.status === 'fulfilled') {
+					const { path, success, error } = result.value;
+					if (success) {
+						filesUpdated++;
+						console.log(`[prepareRepoSummaries] ✓ Generated summary for ${path}`);
+					} else {
+						failedFiles.push({ path, error: error || 'Unknown error' });
+						console.error(`[prepareRepoSummaries] ✗ Failed to generate summary for ${path}: ${error}`);
+					}
+				} else {
+					console.error('[prepareRepoSummaries] Batch item rejected:', result.reason);
+				}
+			}
+		}
+	} else {
+		console.log(`[prepareRepoSummaries] ✓ All files already have up-to-date summaries - no generation needed`);
 	}
 
 	// Verify ALL files have summaries - if any are missing, generate them now
