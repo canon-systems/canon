@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
     const supabase = await createClient();
     const { searchParams } = new URL(request.url);
     const status = searchParams.get('status');
-    const repo = searchParams.get('repo');
+    const repoFilter = searchParams.get('repo');
     const search = searchParams.get('search');
     const page = Number(searchParams.get('page') || '1');
     const pageSize = Number(searchParams.get('pageSize') || '20');
@@ -74,7 +74,7 @@ export async function GET(request: NextRequest) {
     // Get repo details for filtering
     const { data: reposData } = await supabase
       .from('workspace_repos')
-      .select('id, repo_url, name')
+      .select('id, repo_url, name, default_branch')
       .in('id', repoIds);
 
     const repoMap = new Map(reposData?.map(r => [r.id, r]) || []);
@@ -89,8 +89,8 @@ export async function GET(request: NextRequest) {
         if (status !== 'pending_review') return false;
       }
 
-      if (repo) {
-        if (!repoUrl.toLowerCase().includes(repo.toLowerCase())) return false;
+      if (repoFilter) {
+        if (!repoUrl.toLowerCase().includes(repoFilter.toLowerCase())) return false;
       }
 
       if (search) {
