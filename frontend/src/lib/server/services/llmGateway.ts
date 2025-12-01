@@ -14,19 +14,24 @@ export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
 	'gpt-4': 8192,
 	'claude-3-5-sonnet-20241022': 200000,
 	'claude-3-opus-20240229': 200000,
-	// Gemini models - using google/ prefix for Vercel AI Gateway
+	// Gemini 2.0 models - using google/ prefix for Vercel AI Gateway
+	'google/gemini-2.0-flash': 1000000,
+	'google/gemini-2.0-flash-lite': 1000000,
+	// Legacy Gemini 1.5 models (deprecated, kept for backward compatibility)
 	'google/gemini-1.5-pro-latest': 1000000,
 	'google/gemini-1.5-flash-latest': 1000000,
 	// Also support without prefix in case gateway handles it
 	'gemini-1.5-pro': 1000000,
 	'gemini-1.5-flash': 1000000,
+	'gemini-2.0-flash': 1000000,
+	'gemini-2.0-flash-lite': 1000000,
 };
 
 /**
  * Fallback model for when token limits are exceeded
- * Uses Gemini 1.5 Pro with 1M token context window
+ * Uses Gemini 2.0 Flash with 1M token context window
  */
-export const LARGE_CONTEXT_FALLBACK_MODEL = 'google/gemini-1.5-pro-latest';
+export const LARGE_CONTEXT_FALLBACK_MODEL = 'google/gemini-2.0-flash';
 
 /**
  * Estimate token count from text
@@ -97,8 +102,9 @@ export class LLMGateway {
 		}
 	}
 
-	async call(messages: Message[], model: string, temperature?: number): Promise<string> {
-		console.log(`[LLMGateway] Making API call to model: ${model}`);
+	async call(messages: Message[], model: string, temperature?: number, context?: string): Promise<string> {
+		const contextInfo = context ? ` [${context}]` : '';
+		console.log(`[LLMGateway] Making API call to model: ${model}${contextInfo}`);
 		console.log(`[LLMGateway] Temperature: ${temperature ?? this.defaultTemperature}`);
 		console.log(`[LLMGateway] Messages: ${messages.length} (system: ${messages.filter(m => m.role === 'system').length}, user: ${messages.filter(m => m.role === 'user').length})`);
 		console.log(`[LLMGateway] Gateway URL: ${this.url}`);

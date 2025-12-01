@@ -139,11 +139,13 @@ export async function generateFileSummary(
 		fileContent = fileContent.slice(0, MAX_FILE_CHARS) + '\n\n// ... [FILE TRUNCATED - TOO LARGE FOR FULL ANALYSIS] ...';
 	}
 
+	console.log(`[fileSummarizer] Generating summary for: ${filePath}`);
+	
 	let gateway: LLMGateway;
 	try {
 		gateway = new LLMGateway();
 	} catch (error: any) {
-		console.error(`[fileSummarizer] ❌ LLM gateway initialization failed: ${error.message}`);
+		console.error(`[fileSummarizer] ❌ LLM gateway initialization failed for ${filePath}: ${error.message}`);
 		throw new Error(`AI service unavailable: ${error.message}`);
 	}
 
@@ -293,7 +295,8 @@ Return the comprehensive JSON object as specified in the system prompt. Be thoro
 			{ role: 'user', content: userPrompt },
 		],
 		model,
-		0.2 // Lower temperature for more consistent structured output
+		0.2, // Lower temperature for more consistent structured output
+		filePath // Pass file path as context for logging
 	);
 
 	// Parse the JSON response

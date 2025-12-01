@@ -117,6 +117,52 @@ async function fetchAllBlocks(pageId: string, connectionId: string): Promise<any
 	return allBlocks;
 }
 
+/**
+ * Split blocks into chunks of max 100 (Notion API limit)
+ */
+function chunkBlocks(blocks: NotionBlock[], chunkSize: number = 100): NotionBlock[][] {
+	const chunks: NotionBlock[][] = [];
+	for (let i = 0; i < blocks.length; i += chunkSize) {
+		chunks.push(blocks.slice(i, i + chunkSize));
+	}
+	return chunks;
+}
+
+/**
+ * Append blocks to a Notion page in chunks
+ */
+async function appendBlocksInChunks(
+	pageId: string,
+	blocks: NotionBlock[],
+	connectionId: string
+): Promise<boolean> {
+	const chunks = chunkBlocks(blocks, 100);
+	
+	for (const chunk of chunks) {
+		const appendUrl = new URL(`/proxy/v1/blocks/${pageId}/children`, NANGO_CONFIG.host);
+		const appendResponse = await fetch(appendUrl.toString(), {
+			method: 'PATCH',
+			headers: {
+				'Authorization': `Bearer ${NANGO_CONFIG.secretKey}`,
+				'Content-Type': 'application/json',
+				'Provider-Config-Key': 'notion',
+				'Connection-Id': connectionId
+			},
+			body: JSON.stringify({
+				children: chunk
+			})
+		});
+
+		if (!appendResponse.ok) {
+			const errorText = await appendResponse.text().catch(() => '');
+			console.error(`Notion append blocks error: ${errorText}`);
+			return false;
+		}
+	}
+	
+	return true;
+}
+
 export class NotionProvider implements WorkspaceProvider {
 	name = 'notion';
 
@@ -251,6 +297,11 @@ export class NotionProvider implements WorkspaceProvider {
 
 				const createUrl = new URL('/proxy/v1/pages', NANGO_CONFIG.host);
 
+				// Split blocks into chunks - Notion allows max 100 children in create request
+				const blockChunks = chunkBlocks(blocks, 100);
+				const firstChunk = blockChunks[0] || [];
+				const remainingChunks = blockChunks.slice(1);
+
 				const createResponse = await fetch(createUrl.toString(), {
 					method: 'POST',
 					headers: {
@@ -262,19 +313,31 @@ export class NotionProvider implements WorkspaceProvider {
 					body: JSON.stringify({
 						parent: parentPayload,
 						properties: titleProperty,
-						children: blocks
+						children: firstChunk
 					})
 				});
 
 				if (!createResponse.ok) {
-					console.error('Notion create response error:', await createResponse.text().catch(() => ''));
+					const errorText = await createResponse.text().catch(() => '');
+					console.error('Notion create response error:', errorText);
 					return null;
 				}
 
 				const createData = await createResponse.json();
+				const pageId = createData.id;
+
+				// Append remaining chunks if any
+				if (remainingChunks.length > 0) {
+					const allRemainingBlocks = remainingChunks.flat();
+					const appendSuccess = await appendBlocksInChunks(pageId, allRemainingBlocks, connectionId);
+					if (!appendSuccess) {
+						console.warn(`[Notion] Failed to append some blocks to page ${pageId}, but page was created`);
+					}
+				}
+
 				return {
 					provider: 'notion',
-					resourceId: createData.id,
+					resourceId: pageId,
 					metadata: workspaceInfo.metadata
 				};
 			} else {
@@ -373,23 +436,10 @@ export class NotionProvider implements WorkspaceProvider {
 				})
 			});
 
-			// Add new blocks
+			// Add new blocks in chunks (Notion allows max 100 children per request)
 			if (blocks.length > 0) {
-				const appendUrl = new URL(`/proxy/v1/blocks/${pageId}/children`, NANGO_CONFIG.host);
-				const appendResponse = await fetch(appendUrl.toString(), {
-					method: 'PATCH',
-					headers: {
-						'Authorization': `Bearer ${NANGO_CONFIG.secretKey}`,
-						'Content-Type': 'application/json',
-						'Provider-Config-Key': 'notion',
-						'Connection-Id': connectionId
-					},
-					body: JSON.stringify({
-						children: blocks
-					})
-				});
-
-				return appendResponse.ok;
+				const success = await appendBlocksInChunks(pageId, blocks, connectionId);
+				return success;
 			}
 
 			return true;

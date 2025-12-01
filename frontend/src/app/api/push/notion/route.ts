@@ -144,11 +144,19 @@ export async function POST(request: NextRequest) {
 
     await trackPushToKb(supabase, user.id, 'notion', docId || null, pushResult.resourceId);
 
+    // Construct Notion URL if not provided in metadata
+    // Notion page URLs format: https://notion.so/{pageIdWithoutDashes}
+    let notionUrl = pushResult.metadata?.url;
+    if (!notionUrl && pushResult.resourceId) {
+      const pageIdWithoutDashes = pushResult.resourceId.replace(/-/g, '');
+      notionUrl = `https://notion.so/${pageIdWithoutDashes}`;
+    }
+
     return NextResponse.json(
       {
         success: true,
         resource_id: pushResult.resourceId,
-        url: pushResult.metadata?.url,
+        url: notionUrl,
         workspace_info: pushResult,
         updated: attemptedUpdate && !createNew, // True only if we successfully updated existing page
         recreated: attemptedUpdate && createNew, // True if we fell back to creating new after update failed

@@ -98,10 +98,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Document not found' }, { status: 404 });
     }
 
-    // Get repo details
+    // Get repo details and settings
     const { data: repo, error: repoError } = await supabase
       .from('workspace_repos')
-      .select('repo_url, default_branch, workspace_id')
+      .select('repo_url, default_branch, workspace_id, settings')
       .eq('id', document.repo_id)
       .single();
 
@@ -113,6 +113,22 @@ export async function POST(request: NextRequest) {
     if (repo.workspace_id !== user.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
+
+    // Get document title
+    const { data: fullDocument } = await supabase
+      .from('documents')
+      .select('title')
+      .eq('id', documentId)
+      .single();
+
+    const documentTitle = fullDocument?.title || 'Documentation';
+
+    // Extract settings from repo
+    const repoSettings = (repo.settings || {}) as {
+      llm_prompt_config?: any;
+      model?: string;
+      document_structure?: any;
+    };
 
     const repoUrl = repo.repo_url;
     const branch = repo.default_branch || 'main';
@@ -231,7 +247,7 @@ export async function POST(request: NextRequest) {
     let changesDetected = false;
 
     const significancePromise = (async () => {
-      if (skipSignificanceCheck || !submission.code_snapshot?.commitSha) {
+      if (skipSignificanceCheck) {
         return { significanceAnalysis: null, changesDetected: false };
       }
 
@@ -241,7 +257,6 @@ export async function POST(request: NextRequest) {
           userId: user.id,
           repoUrl,
           branch,
-          submissionId: submission.id,
         });
 
         if (changeDetection.has_changes) {
@@ -293,8 +308,8 @@ export async function POST(request: NextRequest) {
       return { significanceAnalysis: null, changesDetected: false };
     })();
 
-    const effectivePromptConfig = promptConfig || sourceMeta.llm_prompt_config || null;
-    const effectiveModel = model || sourceMeta.model;
+    const effectivePromptConfig = promptConfig || repoSettings.llm_prompt_config || null;
+    const effectiveModel = model || repoSettings.model;
 
     if (!effectiveModel) {
       return NextResponse.json({ error: 'model is required. Please select a model.' }, { status: 400 });
@@ -303,7 +318,7 @@ export async function POST(request: NextRequest) {
     const system = buildSystemPrompt(effectivePromptConfig, true);
 
     // Build user prompt - indicate which files have summaries vs full content
-    const userPrompt = `Project: ${submission.title || 'Documentation'}\n\n` +
+    const userPrompt = `Project: ${documentTitle}\n\n` +
       `The following files are being tracked (${docsContent.filter(d => d.hasSummary).length} with summaries, ${docsContent.filter(d => !d.hasSummary).length} with full content):\n\n` +
       docsContent.map(f => `--- FILE: ${f.path} ${f.hasSummary ? '(summary)' : '(full content)'} ---\n${f.content}`).join('\n\n') +
       `\n\nPlease generate comprehensive documentation based on these files.`;

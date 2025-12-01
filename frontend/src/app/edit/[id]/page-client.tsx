@@ -47,7 +47,17 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
   // Convert markdown to HTML for RichTextEditor
   const [html, setHtml] = useState<string>(() => {
     if (!initialSubmission.markdown) return '<p></p>';
-    const parsed = marked.parse(initialSubmission.markdown);
+    // Clean up markdown - remove any wrapping code blocks that might have been added
+    let cleanMarkdown = initialSubmission.markdown.trim();
+    // If the entire content is wrapped in a code block, unwrap it
+    if (cleanMarkdown.startsWith('```') && cleanMarkdown.endsWith('```')) {
+      const lines = cleanMarkdown.split('\n');
+      if (lines.length > 2 && lines[0].startsWith('```')) {
+        // Remove first and last lines (code block markers)
+        cleanMarkdown = lines.slice(1, -1).join('\n');
+      }
+    }
+    const parsed = marked.parse(cleanMarkdown);
     return typeof parsed === 'string' ? parsed : '<p></p>';
   });
   const [saving, setSaving] = useState(false);
@@ -557,15 +567,22 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
 
       if (updateError) throw updateError;
 
+      // Extract URL from response - API should now always provide it
+      const resourceUrl = result.url || result.workspace_info?.metadata?.url;
+
       setPushSuccess({
         provider: selectedProvider,
-        url: result.url || result.workspace_info?.metadata?.url
+        url: resourceUrl || undefined
       });
 
+      // If we have a URL, keep the modal open longer so user can click the link
+      // Otherwise close after 2 seconds
       setTimeout(() => {
-        closePushModal();
+        if (!resourceUrl) {
+          closePushModal();
+        }
         router.refresh();
-      }, 2000);
+      }, resourceUrl ? 5000 : 2000);
     } catch (err: any) {
       setPushError(err.message || 'Failed to push to knowledge base');
     } finally {
@@ -1918,22 +1935,31 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
             <div className="flex-1 overflow-y-auto p-6">
               {pushSuccess && (
                 <div className="mb-4 rounded-lg border border-green-500/50 bg-green-500/10 p-4 text-green-200">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 mb-3">
                     <CheckCircle2 className="h-5 w-5" />
                     <p className="font-medium">
                       Successfully pushed to {getProviderDisplayName(pushSuccess.provider)}!
                     </p>
                   </div>
-                  {pushSuccess.url && (
-                    <a
-                      href={pushSuccess.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="mt-2 inline-flex items-center gap-2 text-sm text-green-300 hover:text-green-200 underline"
-                    >
-                      <ExternalLink className="h-4 w-4" />
-                      Open in {getProviderDisplayName(pushSuccess.provider)}
-                    </a>
+                  {pushSuccess.url ? (
+                    <div className="space-y-2">
+                      <p className="text-sm text-green-300/80">
+                        Your documentation is ready. Click the link below to view it:
+                      </p>
+                      <a
+                        href={pushSuccess.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 rounded-lg bg-green-500/20 border border-green-500/50 px-4 py-2.5 text-sm font-medium text-green-100 hover:bg-green-500/30 hover:border-green-500/70 transition-all"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                        Open in {getProviderDisplayName(pushSuccess.provider)}
+                      </a>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-green-300/80">
+                      Resource created successfully. The link will be available shortly.
+                    </p>
                   )}
                 </div>
               )}

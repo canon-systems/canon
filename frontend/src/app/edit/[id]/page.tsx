@@ -13,18 +13,18 @@ export default async function EditDetailPage({ params }: { params: Promise<{ id:
 
   const { id } = await params;
   const supabase = await createClient();
-  
+
   // Get document
   const document = await getDocument(supabase, id);
-  
+
   if (!document) {
     notFound();
   }
 
-  // Verify user has access
+  // Verify user has access and get repo settings
   const { data: repo } = await supabase
     .from('workspace_repos')
-    .select('workspace_id')
+    .select('workspace_id, settings')
     .eq('id', document.repo_id)
     .single();
 
@@ -34,6 +34,13 @@ export default async function EditDetailPage({ params }: { params: Promise<{ id:
 
   // Get file paths
   const filePaths = await getDocumentFiles(supabase, id);
+
+  // Extract prompt config from repo settings
+  const repoSettings = (repo.settings || {}) as {
+    llm_prompt_config?: any;
+    model?: string;
+    document_structure?: any;
+  };
 
   // Format as submission for backward compatibility with client component
   const submission = {
@@ -46,7 +53,12 @@ export default async function EditDetailPage({ params }: { params: Promise<{ id:
     input_type: 'github_repo' as const,
     input_content: '',
     summary: document.content.replace(/\s+/g, ' ').slice(0, 200),
-    source_meta: { repoId: document.repo_id },
+    source_meta: {
+      repoId: document.repo_id,
+      llm_prompt_config: repoSettings.llm_prompt_config || null,
+      model: repoSettings.model || null,
+      document_structure: repoSettings.document_structure || null,
+    },
     code_snapshot: null as any,
     is_outdated: false,
     selected_files: filePaths
