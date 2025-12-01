@@ -198,12 +198,23 @@ export async function executeAutomationRule({
 
 							if (shouldSkip) {
 								// Store skip reason for user visibility
-								await supabase.from('submissions').insert({
-									created_by: userId,
+								// Check if a skipped entry already exists for this repo+rule
+								const skipRuleId = rule.id || rule.name;
+								const { data: existingSkipped } = await supabase
+									.from('submissions')
+									.select('id')
+									.eq('created_by', userId)
+									.eq('source_meta->>repoId', repo.id)
+									.eq('source_meta->>automation_rule_id', skipRuleId)
+									.eq('status', 'skipped')
+									.order('created_at', { ascending: false })
+									.limit(1)
+									.single();
+
+								const skipData = {
 									title: `${repo.name} - Skipped (${new Date().toLocaleDateString()})`,
 									markdown: `## Automation Rule Skipped\n\n**Reason:** ${significance.reason}\n\n**Technical Changes:** ${significance.technicalChanges.level} - ${significance.technicalChanges.description}\n\n**Business Logic Changes:** ${significance.businessLogicChanges.level} - ${significance.businessLogicChanges.description}\n\n**Summary:** ${significance.summary}`,
 									status: 'skipped',
-									input_type: 'github_repo',
 									source_meta: {
 										repoUrl: repo.repo_url,
 										branch: repo.default_branch,
@@ -212,7 +223,24 @@ export async function executeAutomationRule({
 										skip_reason: significance.reason,
 										significance_analysis: significance,
 									},
-								});
+									updated_at: new Date().toISOString(),
+								};
+
+								if (existingSkipped?.id) {
+									// Update existing skipped entry
+									await supabase
+										.from('submissions')
+										.update(skipData)
+										.eq('id', existingSkipped.id);
+								} else {
+									// Create new skipped entry
+									await supabase.from('submissions').insert({
+										...skipData,
+										created_by: userId,
+										input_type: 'github_repo',
+										created_at: new Date().toISOString(),
+									});
+								}
 
 								result.skipped = true;
 								result.skipReason = `${significance.reason}. ${significance.summary}`;
@@ -376,27 +404,76 @@ export async function executeAutomationRule({
 			automation_rule_id: rule.id || rule.name,
 		};
 
-		const { data: submission } = await supabase
+		// Check if an existing submission exists for this repo + rule combination
+		// This ensures we UPDATE the existing doc instead of creating duplicates
+		const ruleId = rule.id || rule.name;
+		const { data: existingSubmission } = await supabase
 			.from('submissions')
-			.insert({
-				created_by: userId,
-				title: repo.name,
-				markdown: docResult.markdown,
-				status: 'completed',
-				input_type: 'github_repo',
-				source_meta: sourceMeta,
-				code_snapshot: analysis.snapshot,
-				selected_files: filesToUse.map(f => f.path),
-				summary: docResult.markdown.replace(/\s+/g, ' ').slice(0, 200),
-				created_at: new Date().toISOString(),
-				updated_at: new Date().toISOString(),
-			})
-			.select()
+			.select('id, source_meta')
+			.eq('created_by', userId)
+			.eq('source_meta->>repoId', repo.id)
+			.eq('source_meta->>automation_rule_id', ruleId)
+			.neq('status', 'skipped') // Don't update skipped entries
+			.order('created_at', { ascending: false })
+			.limit(1)
 			.single();
 
-		const docId = submission?.id;
+		let docId: string | null = null;
+
+		if (existingSubmission?.id) {
+			// UPDATE existing submission instead of creating a new one
+			console.log(`[automationRunner] Updating existing submission ${existingSubmission.id} for repo ${repo.name}`);
+
+			const { data: updatedSubmission, error: updateError } = await supabase
+				.from('submissions')
+				.update({
+					title: repo.name,
+					markdown: docResult.markdown,
+					status: 'completed',
+					source_meta: sourceMeta,
+					code_snapshot: analysis.snapshot,
+					selected_files: filesToUse.map(f => f.path),
+					summary: docResult.markdown.replace(/\s+/g, ' ').slice(0, 200),
+					updated_at: new Date().toISOString(),
+					is_outdated: false, // Clear outdated flag since we just regenerated
+				})
+				.eq('id', existingSubmission.id)
+				.select()
+				.single();
+
+			if (updateError) {
+				console.error(`[automationRunner] Failed to update submission:`, updateError);
+				throw new Error(`Failed to update existing submission: ${updateError.message}`);
+			}
+
+			docId = updatedSubmission?.id || existingSubmission.id;
+			result.actions.push('update_doc');
+		} else {
+			// CREATE new submission (first time for this repo + rule)
+			console.log(`[automationRunner] Creating new submission for repo ${repo.name}`);
+
+			const { data: newSubmission } = await supabase
+				.from('submissions')
+				.insert({
+					created_by: userId,
+					title: repo.name,
+					markdown: docResult.markdown,
+					status: 'completed',
+					input_type: 'github_repo',
+					source_meta: sourceMeta,
+					code_snapshot: analysis.snapshot,
+					selected_files: filesToUse.map(f => f.path),
+					summary: docResult.markdown.replace(/\s+/g, ' ').slice(0, 200),
+					created_at: new Date().toISOString(),
+					updated_at: new Date().toISOString(),
+				})
+				.select()
+				.single();
+
+			docId = newSubmission?.id || null;
+			result.actions.push('generate_doc');
+		}
 		result.docId = docId || null;
-		result.actions.push('generate_doc');
 		await trackRepoScan(supabase, userId, repo.id, repo.repo_url);
 		if (docId) {
 			await trackDocGenerated(supabase, userId, docId, repo.id);

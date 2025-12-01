@@ -8,6 +8,9 @@ import {
 } from '../architecture/detectChanges';
 import { detectTools } from '../architecture/detectTools';
 import type { DetectionResult } from '../architecture/detectTools';
+import { getCachedBranch, getCachedCompareCommits } from '../github/cachedOctokit';
+import { fetchFilesSmart } from '../github/batchFetch';
+import { getRateLimitStatus } from '../github/rateLimiter';
 
 type DetectChangesParams = {
 	supabase: SupabaseClient;
@@ -95,16 +98,12 @@ export async function detectRepositoryChanges({
 	const resolvedBranch = effectiveBranch || parsed.branch || 'main';
 	const octokit = await getUserOctokit(supabase, userId);
 
-	// Get current commit SHA
-	const { data: branchData } = await octokit.repos.getBranch({
-		owner: parsed.owner,
-		repo: parsed.repo,
-		branch: resolvedBranch,
-	});
+	// Get current commit SHA using cached method
+	const branchData = await getCachedBranch(octokit, parsed.owner, parsed.repo, resolvedBranch);
 	const currentCommitSha = branchData.commit.sha;
 	const oldCommitSha = oldSnapshot?.commitSha || null;
 
-	// Get new snapshot first (needed for comparison and return value)
+	// Get new snapshot (analyzeRepository now uses optimized methods internally)
 	const analyzeResult = await analyzeRepository({
 		supabase,
 		userId,
@@ -116,21 +115,22 @@ export async function detectRepositoryChanges({
 
 	const newSnapshot = analyzeResult.snapshot;
 
-	// Use GitHub's compareCommits API to detect renames
+	// Use GitHub's compareCommits API to detect renames (with caching)
 	let filesRenamed: Array<{ old_path: string; new_path: string }> = [];
 	let filesChanged: FileChange[] = [];
 	let filesAdded: string[] = [];
 	let filesRemoved: string[] = [];
 
 	if (oldCommitSha && oldCommitSha !== currentCommitSha) {
-		// Use GitHub's compareCommits API which detects renames
+		// Use cached compareCommits which is more efficient
 		try {
-			const { data: compareData } = await octokit.repos.compareCommits({
-				owner: parsed.owner,
-				repo: parsed.repo,
-				base: oldCommitSha,
-				head: currentCommitSha,
-			});
+			const compareData = await getCachedCompareCommits(
+				octokit,
+				parsed.owner,
+				parsed.repo,
+				oldCommitSha,
+				currentCommitSha
+			);
 
 			// Process each file change
 			for (const file of compareData.files || []) {
@@ -219,10 +219,11 @@ export async function detectRepositoryChanges({
 			...filesAdded,
 		];
 
+		// Use smart batch fetch for file content
 		const detectionFiles = await fetchFilesContent(
-			supabase,
-			userId,
-			effectiveRepoUrl,
+			octokit,
+			parsed.owner,
+			parsed.repo,
 			resolvedBranch,
 			Array.from(new Set(changedPaths))
 		);
@@ -252,6 +253,10 @@ export async function detectRepositoryChanges({
 		summaryPieces.push(`${filesRenamed.length} file(s) renamed`);
 
 	const summary = summaryPieces.length ? summaryPieces.join('. ') : 'No changes detected';
+
+	// Log rate limit status
+	const rateLimitStatus = getRateLimitStatus();
+	console.log(`[detectRepositoryChanges] Rate limit: ${rateLimitStatus.remaining}/${rateLimitStatus.limit}`);
 
 	if (submissionId) {
 		await supabase
@@ -284,45 +289,29 @@ export async function detectRepositoryChanges({
 	};
 }
 
+/**
+ * Fetch file contents using optimized batch methods
+ */
 async function fetchFilesContent(
-	supabase: SupabaseClient,
-	userId: string,
-	repoUrl: string,
+	octokit: Awaited<ReturnType<typeof getUserOctokit>>,
+	owner: string,
+	repo: string,
 	branch: string,
 	paths: string[]
-) {
-	const octokit = await getUserOctokit(supabase, userId);
-	const parsed = parseRepoUrl(repoUrl);
-	if (!parsed) {
+): Promise<Array<{ path: string; content: string }>> {
+	if (paths.length === 0) {
 		return [];
 	}
 
-	const owner = parsed.owner;
-	const repo = parsed.repo;
+	// Use smart fetch which automatically chooses between individual calls and ZIP
+	const files = await fetchFilesSmart(
+		octokit,
+		owner,
+		repo,
+		branch,
+		paths,
+		{ maxFileSize: 512 * 1024 }
+	);
 
-	const contents: Array<{ path: string; content: string }> = [];
-	for (const filePath of paths) {
-		try {
-			const { data } = await octokit.repos.getContent({
-				owner,
-				repo,
-				path: filePath,
-				ref: branch,
-			});
-
-			if (!Array.isArray(data) && data.type === 'file') {
-				const content =
-					data.encoding === 'base64' && typeof data.content === 'string'
-						? Buffer.from(data.content, 'base64').toString('utf-8')
-						: (data.content as string);
-
-				contents.push({ path: filePath, content });
-			}
-		} catch (error) {
-			console.warn(`Failed to fetch ${filePath} for change detection`, error);
-		}
-	}
-
-	return contents;
+	return files.map(f => ({ path: f.path, content: f.content }));
 }
-

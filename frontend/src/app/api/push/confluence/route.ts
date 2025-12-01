@@ -14,11 +14,13 @@ type PushRequestBody = {
     metadata?: Record<string, unknown> | null;
   };
   createNew?: boolean;
+  forceNew?: boolean; // Explicitly force creating a new page even if one exists
 };
 
 /**
  * POST: Push documentation to Confluence
- * Proxies to FastAPI backend /api/push/confluence
+ * Automatically updates existing page if the doc was previously pushed to Confluence
+ * Falls back to creating a new page if the existing page was deleted
  */
 export async function POST(request: NextRequest) {
   try {
@@ -29,7 +31,8 @@ export async function POST(request: NextRequest) {
 
     const supabase = await createClient();
     const body = (await request.json()) as PushRequestBody;
-    const { docId, title, markdown, workspaceInfo, createNew = true } = body;
+    const { docId, title, markdown, workspaceInfo, forceNew = false } = body;
+    let { createNew = true } = body;
 
     if (!title || !markdown) {
       return NextResponse.json({ error: 'title and markdown are required' }, { status: 400 });
@@ -52,29 +55,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Confluence provider unavailable' }, { status: 500 });
     }
 
-    const workspace: WorkspaceInfo = {
-      provider: 'confluence',
-      resourceId: workspaceInfo?.resourceId || '',
-      metadata: workspaceInfo?.metadata ?? undefined,
-    };
+    // Check if this doc was previously pushed to Confluence
+    // If so, try to update the existing page instead of creating a new one
+    let existingResourceId: string | null = null;
+    let existingUrl: string | null = null;
+    let existingMetadata: Record<string, unknown> | undefined;
+    let attemptedUpdate = false;
 
-    const content: WorkspaceContent = {
-      title,
-      markdown,
-    };
-
-    const pushResult = await provider.pushContent(
-      workspace,
-      content,
-      connection.connection_id,
-      createNew !== false
-    );
-
-    if (!pushResult) {
-      return NextResponse.json({ error: 'Failed to push to Confluence' }, { status: 500 });
-    }
-
-    if (docId) {
+    if (docId && !forceNew) {
       const { data: existingSubmission } = await supabase
         .from('submissions')
         .select('source_meta')
@@ -82,11 +70,84 @@ export async function POST(request: NextRequest) {
         .single();
 
       const existingMeta = existingSubmission?.source_meta || {};
+      const pushMeta = existingMeta.push_metadata;
+
+      // Check if this doc was previously pushed to Confluence
+      if (pushMeta?.provider === 'confluence' && pushMeta?.resource_id) {
+        existingResourceId = pushMeta.resource_id;
+        existingUrl = pushMeta.url || null;
+        existingMetadata = pushMeta.metadata || undefined;
+        createNew = false; // Try to update instead of create
+        attemptedUpdate = true;
+        console.log(`[Confluence Push] Attempting to update existing page ${existingResourceId} for doc ${docId}`);
+      }
+    }
+
+    const content: WorkspaceContent = {
+      title,
+      markdown,
+    };
+
+    let pushResult = null;
+
+    // Try to update existing page first if we have a resource ID
+    if (!createNew && existingResourceId) {
+      const updateWorkspace: WorkspaceInfo = {
+        provider: 'confluence',
+        resourceId: existingResourceId,
+        metadata: existingMetadata || (workspaceInfo?.metadata ?? undefined),
+      };
+
+      pushResult = await provider.pushContent(
+        updateWorkspace,
+        content,
+        connection.connection_id,
+        false // createNew = false (update)
+      );
+
+      // If update failed (page might have been deleted), fall back to creating new
+      if (!pushResult) {
+        console.log(`[Confluence Push] Update failed for page ${existingResourceId}, falling back to create new`);
+        createNew = true;
+        existingResourceId = null;
+      }
+    }
+
+    // Create new page if needed
+    if (createNew || !pushResult) {
+      const createWorkspace: WorkspaceInfo = {
+        provider: 'confluence',
+        resourceId: workspaceInfo?.resourceId || '',
+        metadata: workspaceInfo?.metadata ?? undefined,
+      };
+
+      pushResult = await provider.pushContent(
+        createWorkspace,
+        content,
+        connection.connection_id,
+        true // createNew = true
+      );
+    }
+
+    if (!pushResult) {
+      return NextResponse.json({ error: 'Failed to push to Confluence' }, { status: 500 });
+    }
+
+    // Update submission with push metadata
+    if (docId) {
+      const { data: currentSubmission } = await supabase
+        .from('submissions')
+        .select('source_meta')
+        .eq('id', docId)
+        .single();
+
+      const existingMeta = currentSubmission?.source_meta || {};
       existingMeta.push_metadata = {
         provider: 'confluence',
         pushed_at: new Date().toISOString(),
         resource_id: pushResult.resourceId,
         url: pushResult.metadata?.url || null,
+        metadata: pushResult.metadata,
       };
 
       await supabase
@@ -106,6 +167,8 @@ export async function POST(request: NextRequest) {
         resource_id: pushResult.resourceId,
         url: pushResult.metadata?.url,
         workspace_info: pushResult,
+        updated: attemptedUpdate && !createNew, // True only if we successfully updated existing page
+        recreated: attemptedUpdate && createNew, // True if we fell back to creating new after update failed
       },
       { status: 200 }
     );
@@ -120,4 +183,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

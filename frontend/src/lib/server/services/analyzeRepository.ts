@@ -2,6 +2,9 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { getUserOctokit } from '../github/getUserOctokit';
 import { parseRepoUrl } from '../github/github';
 import { detectTools } from '../architecture/detectTools';
+import { getCachedBranch, getCachedTree, getCachedFileShas } from '../github/cachedOctokit';
+import { fetchFilesViaZip, fetchFilesSmart } from '../github/batchFetch';
+import { getRateLimitStatus, hasQuotaFor } from '../github/rateLimiter';
 
 const RELEVANT_EXTENSIONS = new Set([
 	'.py',
@@ -64,6 +67,9 @@ type AnalyzeRepositoryParams = {
 	branch?: string;
 	subdir?: string | null;
 	filters?: Record<string, unknown> | null;
+	// New options for optimization
+	useZipFetch?: boolean; // Force ZIP fetch (default: auto-decide based on file count)
+	maxFiles?: number; // Maximum files to fetch (default: 500)
 };
 
 type FileEntry = {
@@ -92,6 +98,8 @@ export async function analyzeRepository({
 	repoUrl,
 	branch,
 	subdir,
+	useZipFetch,
+	maxFiles = 500,
 }: AnalyzeRepositoryParams): Promise<AnalyzeRepositoryResult> {
 	if (!repoUrl) {
 		throw new Error('repoUrl is required for repository analysis');
@@ -108,29 +116,27 @@ export async function analyzeRepository({
 
 	const octokit = await getUserOctokit(supabase, userId);
 
-	const { data: branchData } = await octokit.repos.getBranch({
-		owner,
-		repo,
-		branch: overrideBranch,
-	});
-
+	// Use cached branch lookup (saves API calls on repeated requests)
+	const branchData = await getCachedBranch(octokit, owner, repo, overrideBranch);
 	const commitSha = branchData.commit.sha;
 
-	const treeResponse = await octokit.git.getTree({
-		owner,
-		repo,
-		tree_sha: commitSha,
-		recursive: '1',
-	});
+	// Use cached tree lookup (returns all file SHAs in one call)
+	const treeData = await getCachedTree(octokit, owner, repo, commitSha);
+	const treeItems = (treeData.tree || []).filter((item) => item.type === 'blob');
 
-	const treeItems = (treeResponse.data.tree || []).filter((item) => item.type === 'blob');
-	const treeMap = new Map<string, { path: string; sha: string; size?: number }>();
+	// Build tree map from tree data (no additional API calls needed)
+	const treeMap = new Map<string, { path: string; sha: string; size: number }>();
 	treeItems.forEach((item) => {
-		if (item.path) {
-			treeMap.set(item.path, { path: item.path, sha: item.sha, size: Number(item.size ?? 0) });
+		if (item.path && item.sha) {
+			treeMap.set(item.path, {
+				path: item.path,
+				sha: item.sha,
+				size: Number(item.size ?? 0)
+			});
 		}
 	});
 
+	// Filter to relevant files
 	const relevantFiles = Array.from(treeMap.values()).filter((item) => {
 		if (!item.path) return false;
 		const lowerPath = item.path.toLowerCase();
@@ -140,41 +146,69 @@ export async function analyzeRepository({
 		return matched;
 	});
 
+	// Apply subdir filter
 	const bySubdir = subdir ? subdir.replace(/^\/+|\/+$/g, '') : '';
 	const finalFiles = bySubdir
 		? relevantFiles.filter((item) => item.path === bySubdir || item.path.startsWith(`${bySubdir}/`))
 		: relevantFiles;
 
-	const limitedFiles = finalFiles.slice(0, 500);
+	const limitedFiles = finalFiles.slice(0, maxFiles);
+	const filePaths = limitedFiles.map(f => f.path);
 
-	const files: FileEntry[] = [];
-	for (const file of limitedFiles) {
-		try {
-			const { data: fileData } = await octokit.repos.getContent({
-				owner,
-				repo,
-				path: file.path,
-				ref: commitSha,
-			});
+	// Decide whether to use ZIP or individual fetches
+	// ZIP is more efficient for large numbers of files (1 API call vs N)
+	// But for small numbers of files, individual calls may be faster
+	const shouldUseZip = useZipFetch ?? (
+		filePaths.length >= 10 || // More than 10 files
+		!hasQuotaFor(filePaths.length + 5) // Not enough quota for individual calls
+	);
 
-			if (!Array.isArray(fileData) && fileData.type === 'file') {
-				let content = '';
-				if (fileData.encoding === 'base64' && fileData.content) {
-					content = Buffer.from(fileData.content, 'base64').toString('utf-8');
-				} else if (typeof fileData.content === 'string') {
-					content = fileData.content;
-				}
+	let files: FileEntry[] = [];
 
-				files.push({
-					path: file.path,
-					content,
-					size: Number(fileData.size ?? file.size ?? content.length),
-				});
-			}
-		} catch (error) {
-			console.warn(`Failed to fetch file ${file.path}:`, error);
-		}
+	if (shouldUseZip) {
+		// Use ZIP download (1 API call regardless of file count)
+		console.log(`[analyzeRepository] Using ZIP fetch for ${filePaths.length} files`);
+
+		const zipFiles = await fetchFilesViaZip(
+			octokit,
+			owner,
+			repo,
+			commitSha,
+			filePaths,
+			{ maxFileSize: 1024 * 1024, maxFiles }
+		);
+
+		files = zipFiles.map(f => ({
+			path: f.path,
+			content: f.content,
+			size: f.size,
+		}));
+	} else {
+		// Use smart fetch (individual calls with caching for small batches)
+		console.log(`[analyzeRepository] Using smart fetch for ${filePaths.length} files`);
+
+		const fetchedFiles = await fetchFilesSmart(
+			octokit,
+			owner,
+			repo,
+			commitSha,
+			filePaths,
+			{ maxFileSize: 1024 * 1024 }
+		);
+
+		files = fetchedFiles.map(f => ({
+			path: f.path,
+			content: f.content,
+			size: f.size,
+		}));
 	}
+
+	// Log rate limit status for monitoring
+	const rateLimitStatus = getRateLimitStatus();
+	console.log(
+		`[analyzeRepository] Completed. Rate limit: ${rateLimitStatus.remaining}/${rateLimitStatus.limit} ` +
+		`(${rateLimitStatus.percentUsed}% used)`
+	);
 
 	if (files.length === 0) {
 		throw new Error('No files found in repository for analysis');
@@ -182,6 +216,7 @@ export async function analyzeRepository({
 
 	const detectionResult = detectTools(files);
 
+	// Build snapshot from tree data (no additional API calls needed)
 	const snapshot = {
 		commitSha,
 		fileShas: Object.fromEntries(
@@ -273,4 +308,3 @@ function detectLanguageFromPath(path: string): string | null {
 
 	return map[ext] || ext.toUpperCase();
 }
-

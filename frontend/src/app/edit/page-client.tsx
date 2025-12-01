@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   Grid3x3, List, MoreVertical, RefreshCw, Loader2, Clock,
-  CheckCircle2, AlertCircle, X, Search, Send, FileText, Filter, Github, GitBranch
+  CheckCircle2, AlertCircle, X, Search, Send, FileText, Filter, Github, GitBranch, ExternalLink
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import type { User } from '@supabase/supabase-js';
@@ -22,6 +22,7 @@ interface DocItem {
   updatedAt: string;
   lastPushedProvider?: string;
   lastPushedAt?: string;
+  lastPushedUrl?: string | null;
   processingStatus: 'processing' | 'completed' | 'failed';
   isOutdated: boolean;
 }
@@ -632,10 +633,24 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
                         <td className="px-4 py-3 text-sm text-white/70">
                           {item.lastPushedProvider ? (
                             <div>
-                              <div className="flex items-center gap-1">
-                                <Send className="h-3 w-3" />
-                                <span className="capitalize">{item.lastPushedProvider}</span>
-                              </div>
+                              {item.lastPushedUrl ? (
+                                <a
+                                  href={item.lastPushedUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex items-center gap-1 text-blue-300 hover:text-blue-200 hover:underline"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <Send className="h-3 w-3" />
+                                  <span className="capitalize">{item.lastPushedProvider}</span>
+                                  <ExternalLink className="h-3 w-3" />
+                                </a>
+                              ) : (
+                                <div className="flex items-center gap-1">
+                                  <Send className="h-3 w-3" />
+                                  <span className="capitalize">{item.lastPushedProvider}</span>
+                                </div>
+                              )}
                               {item.lastPushedAt ? (
                                 <div className="text-xs text-white/50 mt-1">
                                   {fmtRelative(item.lastPushedAt)}
@@ -760,10 +775,24 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
                         </span>
                       )}
                       {item.lastPushedProvider && (
-                        <span className="inline-flex items-center gap-1 rounded border border-blue-400/30 bg-blue-500/20 px-2 py-0.5 text-xs text-blue-200">
-                          <Send className="h-3 w-3" />
-                          {item.lastPushedProvider}
-                        </span>
+                        item.lastPushedUrl ? (
+                          <a
+                            href={item.lastPushedUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 rounded border border-blue-400/30 bg-blue-500/20 px-2 py-0.5 text-xs text-blue-200 hover:bg-blue-500/30 hover:border-blue-400/50 transition-colors"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <Send className="h-3 w-3" />
+                            {item.lastPushedProvider}
+                            <ExternalLink className="h-3 w-3" />
+                          </a>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded border border-blue-400/30 bg-blue-500/20 px-2 py-0.5 text-xs text-blue-200">
+                            <Send className="h-3 w-3" />
+                            {item.lastPushedProvider}
+                          </span>
+                        )
                       )}
                     </div>
                   </div>
