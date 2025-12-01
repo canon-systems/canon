@@ -164,18 +164,12 @@ export async function prepareFileSummaries(
 		throw new Error(`Invalid repo URL: ${repoUrl}`);
 	}
 
-	const { owner, repo } = parsed;
+	const { owner, repo: repoName } = parsed;
 
-	// Get commit SHA
+	// Get commit SHA from branch
 	let currentCommitSha: string;
-	const codeSnapshot = submission.code_snapshot || {};
-
-	if (codeSnapshot.commitSha) {
-		currentCommitSha = codeSnapshot.commitSha;
-	} else {
-		const { data: branchData } = await octokit.repos.getBranch({ owner, repo, branch });
-		currentCommitSha = branchData.commit.sha;
-	}
+	const { data: branchData } = await octokit.repos.getBranch({ owner, repo: repoName, branch });
+	currentCommitSha = branchData.commit.sha;
 
 	let filesUpdated = 0;
 	const failedFiles: Array<{ path: string; error: string }> = [];
@@ -201,7 +195,7 @@ export async function prepareFileSummaries(
 					// Fetch file content from GitHub
 					const { data: fileData } = await octokit.repos.getContent({
 						owner,
-						repo,
+						repo: repoName,
 						path: filePath,
 						ref: currentCommitSha,
 					});

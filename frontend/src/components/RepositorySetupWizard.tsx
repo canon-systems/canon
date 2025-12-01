@@ -304,7 +304,7 @@ export function RepositorySetupWizard({ repoId, onComplete }: RepositorySetupWiz
           // Setup completed successfully
           progress = 100;
           step = '✅ Setup Complete!';
-          message = `Successfully processed ${totalFiles} files with ${summarizedFiles} AI-generated summaries. Redirecting to documentation...`;
+          message = `Successfully processed ${totalFiles} files with ${summarizedFiles} AI-generated summaries. Redirecting to repositories...`;
           phase = 'complete';
 
           setSetupProgress(prev => prev ? {
@@ -321,9 +321,9 @@ export function RepositorySetupWizard({ repoId, onComplete }: RepositorySetupWiz
           } : null);
           clearInterval(pollInterval);
 
-          // Redirect to documentation route after showing success message
+          // Redirect to repositories route after showing success message
           setTimeout(() => {
-            router.push(`/documentation?repoId=${repoId}`);
+            router.push(`/repos`);
           }, 3000);
 
           setTimeout(() => setSetupProgress(null), 5000);

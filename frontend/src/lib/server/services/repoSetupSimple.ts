@@ -276,7 +276,7 @@ export async function setupRepositorySimple(
 		console.log(`[repoSetupSimple] Phase 2: Processing files...`);
 
 		const fileShas = analysis.snapshot?.fileShas || {};
-		const BATCH_SIZE = 3; // Process 3 files at a time for better rate limiting
+		const BATCH_SIZE = 10; // Process 10 files at a time for better rate limiting
 
 		// Process files in batches
 		for (let i = 0; i < analysis.rawFiles.length; i += BATCH_SIZE) {

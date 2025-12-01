@@ -11,7 +11,11 @@ interface Repository {
   name: string;
   repo_url: string;
   default_branch: string;
-  setup_status?: string;
+  setup_status?: string | null;
+  setup_branch?: string;
+  file_summary_status?: 'complete' | 'partial' | 'none';
+  file_summary_count?: number;
+  total_files?: number;
   created_at: string;
   updated_at: string;
 }
@@ -24,9 +28,6 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
   const router = useRouter();
   const [showConnectionWizard, setShowConnectionWizard] = useState(false);
   const [deletingRepoId, setDeletingRepoId] = useState<string | null>(null);
-  const [branchDropdownOpen, setBranchDropdownOpen] = useState<string | null>(null);
-  const [availableBranches, setAvailableBranches] = useState<Record<string, string[]>>({});
-  const [loadingBranches, setLoadingBranches] = useState<Record<string, boolean>>({});
 
   // Check for ongoing setup processes and redirect if found
   useEffect(() => {
@@ -65,73 +66,6 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
     router.push(`/repos/setup?repoId=${repoId}`);
   };
 
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (branchDropdownOpen && !(event.target as Element).closest('.branch-dropdown')) {
-        setBranchDropdownOpen(null);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [branchDropdownOpen]);
-
-  const loadBranches = async (repo: Repository) => {
-    if (availableBranches[repo.id]) return; // Already loaded
-
-    setLoadingBranches(prev => ({ ...prev, [repo.id]: true }));
-
-    try {
-      const response = await fetch('/api/github/branches', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ repoUrl: repo.repo_url })
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setAvailableBranches(prev => ({
-          ...prev,
-          [repo.id]: data.branches || []
-        }));
-      } else {
-        console.error('Failed to load branches for', repo.repo_url);
-        // Set empty array to prevent retrying
-        setAvailableBranches(prev => ({ ...prev, [repo.id]: [] }));
-      }
-    } catch (error) {
-      console.error('Error loading branches:', error);
-      setAvailableBranches(prev => ({ ...prev, [repo.id]: [] }));
-    } finally {
-      setLoadingBranches(prev => ({ ...prev, [repo.id]: false }));
-    }
-  };
-
-  const handleBranchChange = async (repoId: string, newBranch: string) => {
-    try {
-      const response = await fetch(`/api/repos/${repoId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ default_branch: newBranch })
-      });
-
-      if (response.ok) {
-        // Update local state to reflect the change immediately
-        setAvailableBranches(prev => ({ ...prev, [repoId]: [] })); // Clear to force reload if needed
-        // In a real app, you'd update the repositories array
-        alert(`Branch changed to ${newBranch}. Refresh the page to see the update.`);
-      } else {
-        const error = await response.json();
-        alert(`Failed to change branch: ${error.error || 'Unknown error'}`);
-      }
-    } catch (error) {
-      console.error('Error changing branch:', error);
-      alert('Failed to change branch. Please try again.');
-    } finally {
-      setBranchDropdownOpen(null);
-    }
-  };
 
   const handleDeleteRepository = async (repoId: string, repoName: string) => {
     if (!confirm(`Are you sure you want to disconnect ${repoName}? This will remove all associated data and documents.`)) {
@@ -216,58 +150,48 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
 
               <div className="flex items-center gap-2 text-sm text-white/60 mb-4">
                 <span>Branch:</span>
-                <div className="relative">
-                  <button
-                    onClick={() => {
-                      if (branchDropdownOpen === repo.id) {
-                        setBranchDropdownOpen(null);
-                      } else {
-                        setBranchDropdownOpen(repo.id);
-                        loadBranches(repo);
-                      }
-                    }}
-                    className={`px-3 py-1 rounded text-xs flex items-center gap-2 transition-all branch-dropdown ${
-                      branchDropdownOpen === repo.id
-                        ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
-                        : 'bg-white/10 hover:bg-white/20 text-white/80'
-                    }`}
-                    disabled={loadingBranches[repo.id]}
-                    title="Click to select a different branch"
-                  >
-                    <code>{repo.default_branch}</code>
-                    {loadingBranches[repo.id] ? (
-                      <div className="animate-spin rounded-full h-3 w-3 border border-white/40 border-t-white ml-1"></div>
-                    ) : (
-                      <ChevronDown className={`h-3 w-3 transition-transform ml-1 ${branchDropdownOpen === repo.id ? 'rotate-180 text-blue-300' : ''}`} />
-                    )}
-                  </button>
+                <code className="px-2 py-1 rounded bg-white/10 text-white/80 text-xs">
+                  {repo.setup_branch || repo.default_branch || 'main'}
+                </code>
+              </div>
 
-                  {branchDropdownOpen === repo.id && (
-                    <div className="absolute top-full left-0 mt-1 w-56 bg-black/98 border border-white/30 rounded-lg shadow-2xl z-50 max-h-48 overflow-y-auto branch-dropdown">
-                      <div className="px-3 py-2 border-b border-white/20">
-                        <p className="text-xs text-white/60">Select Branch</p>
-                      </div>
-                      {availableBranches[repo.id]?.length > 0 ? (
-                        availableBranches[repo.id].map((branch) => (
-                          <button
-                            key={branch}
-                            onClick={() => handleBranchChange(repo.id, branch)}
-                            className={`w-full text-left px-3 py-2 text-sm hover:bg-white/10 flex items-center justify-between transition-colors ${
-                              branch === repo.default_branch ? 'text-blue-400 bg-blue-500/10' : 'text-white/80'
-                            }`}
-                          >
-                            <span className="font-mono">{branch}</span>
-                            {branch === repo.default_branch && <Check className="h-4 w-4" />}
-                          </button>
-                        ))
-                      ) : (
-                        <div className="px-3 py-2 text-sm text-white/50">
-                          {loadingBranches[repo.id] ? 'Loading branches...' : 'No branches available'}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
+              {/* Status Badges */}
+              <div className="flex flex-wrap gap-2 mb-4">
+                {/* Connection Status Badge */}
+                <span className={`px-2 py-1 rounded text-xs font-medium ${
+                  repo.setup_status === 'ready'
+                    ? 'bg-green-500/20 text-green-300'
+                    : repo.setup_status === 'analyzing'
+                    ? 'bg-blue-500/20 text-blue-300'
+                    : repo.setup_status === 'failed'
+                    ? 'bg-red-500/20 text-red-300'
+                    : 'bg-gray-500/20 text-gray-300'
+                }`}>
+                  {repo.setup_status === 'ready'
+                    ? '✓ Connected'
+                    : repo.setup_status === 'analyzing'
+                    ? '⏳ Processing'
+                    : repo.setup_status === 'failed'
+                    ? '✗ Failed'
+                    : '○ Not Started'}
+                </span>
+
+                {/* File Summary Status Badge */}
+                {repo.setup_status === 'ready' && (
+                  <span className={`px-2 py-1 rounded text-xs font-medium ${
+                    repo.file_summary_status === 'complete'
+                      ? 'bg-green-500/20 text-green-300'
+                      : repo.file_summary_status === 'partial'
+                      ? 'bg-yellow-500/20 text-yellow-300'
+                      : 'bg-gray-500/20 text-gray-300'
+                  }`}>
+                    {repo.file_summary_status === 'complete'
+                      ? `✓ Summaries: ${repo.file_summary_count || 0}/${repo.total_files || 0}`
+                      : repo.file_summary_status === 'partial'
+                      ? `⚠ Summaries: ${repo.file_summary_count || 0}/${repo.total_files || 0}`
+                      : '○ No Summaries'}
+                  </span>
+                )}
               </div>
 
               <div className="flex gap-2">
@@ -310,20 +234,6 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
                 </button>
               </div>
 
-              {/* Show setup status if not ready */}
-              {repo.setup_status && repo.setup_status !== 'ready' && (
-                <div className="mt-3 text-xs text-center">
-                  <span className={`px-2 py-1 rounded ${
-                    repo.setup_status === 'analyzing'
-                      ? 'bg-blue-500/20 text-blue-300'
-                      : repo.setup_status === 'failed'
-                      ? 'bg-red-500/20 text-red-300'
-                      : 'bg-gray-500/20 text-gray-300'
-                  }`}>
-                    Setup: {repo.setup_status.replace('_', ' ').toUpperCase()}
-                  </span>
-                </div>
-              )}
             </div>
           ))}
         </div>

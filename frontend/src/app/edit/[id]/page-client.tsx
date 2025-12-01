@@ -157,13 +157,6 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
 
   const isGitRepo = initialSubmission.input_type === 'github_repo' || initialSubmission.input_type === 'github_repo_directory';
 
-  // Auto-regenerate state
-  const [autoRegenerate, setAutoRegenerate] = useState(
-    initialSubmission.source_meta?.auto_regenerate !== false && isGitRepo
-  );
-  const [savingAutoRegenerate, setSavingAutoRegenerate] = useState(false);
-  const [autoRegenerateMsg, setAutoRegenerateMsg] = useState('');
-
   const statusNotice =
     initialSubmission.status === 'processing'
       ? 'Note: This submission is still processing.'
@@ -225,38 +218,17 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
       if (error) throw new Error(error.message);
       setPromptConfigMsg('Prompt settings saved. These will be used for future regenerations.');
       setTimeout(() => setPromptConfigMsg(''), 3000);
+      return; // Return success
     } catch (e) {
-      setPromptConfigErr(String(e));
+      const errorMsg = String(e);
+      setPromptConfigErr(errorMsg);
       setTimeout(() => setPromptConfigErr(''), 5000);
+      throw e; // Re-throw so PromptCustomizer can handle it
     } finally {
       setSavingPromptConfig(false);
     }
   }
 
-  async function saveAutoRegenerate() {
-    setAutoRegenerateMsg('');
-    setSavingAutoRegenerate(true);
-    try {
-      // Note: In the new schema, auto_regenerate should be stored in workspace_repos.settings
-      // For now, we'll skip this update as it requires getting the repo_id first
-      // This functionality may need to be reimplemented differently
-      const { error } = await supabase
-        .from('documents')
-        .update({
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', initialSubmission.id);
-
-      if (error) throw new Error(error.message);
-      setAutoRegenerateMsg('Auto-regenerate setting saved.');
-      setTimeout(() => setAutoRegenerateMsg(''), 3000);
-    } catch (e) {
-      setAutoRegenerateMsg('Failed to save setting');
-      setTimeout(() => setAutoRegenerateMsg(''), 5000);
-    } finally {
-      setSavingAutoRegenerate(false);
-    }
-  }
 
   async function checkForUpdates() {
     if (!isGitRepo) return;
@@ -1427,6 +1399,17 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
           )}
         </header>
 
+        {/* LLM Prompt Customization - Moved above title for better UX */}
+        <div className="mb-4">
+          <PromptCustomizer
+            promptConfig={promptConfig}
+            onChange={setPromptConfig}
+            onSave={savePromptConfig}
+            saving={savingPromptConfig}
+            saveMessage={promptConfigMsg}
+            saveError={promptConfigErr}
+          />
+        </div>
 
         {/* Title input */}
         <label className="block">
@@ -1703,66 +1686,6 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
             </div>
           </div>
         </div>
-
-        {/* LLM Prompt Customization */}
-        <div className="mb-4">
-          <PromptCustomizer promptConfig={promptConfig} onChange={setPromptConfig} />
-          <div className="mt-2 flex items-center gap-2">
-            <button
-              className="inline-flex items-center gap-2 rounded-lg bg-purple-500/20 px-3 py-1.5 text-xs font-medium text-purple-200 hover:bg-purple-500/30 disabled:opacity-60 disabled:cursor-not-allowed"
-              onClick={savePromptConfig}
-              disabled={savingPromptConfig}
-            >
-              {savingPromptConfig ? (
-                <>
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  <span>Saving...</span>
-                </>
-              ) : (
-                <span>Save Prompt Settings</span>
-              )}
-            </button>
-            {promptConfigMsg && <span className="text-xs text-green-300">{promptConfigMsg}</span>}
-            {promptConfigErr && <span className="text-xs text-red-300">{promptConfigErr}</span>}
-          </div>
-        </div>
-
-        {/* Auto-regenerate toggle (only for repo-based submissions) */}
-        {isGitRepo && (
-          <div className="mb-4 rounded-lg border border-white/10 bg-white/5 p-4">
-            <div className="flex items-center justify-between">
-              <div className="flex-1">
-                <label htmlFor="auto-regenerate" className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    id="auto-regenerate"
-                    checked={autoRegenerate}
-                    onChange={(e) => {
-                      setAutoRegenerate(e.target.checked);
-                      // Auto-save on change
-                      setTimeout(() => saveAutoRegenerate(), 100);
-                    }}
-                    className="h-4 w-4 rounded border-white/30 bg-white/10 text-purple-500 focus:ring-purple-500/50"
-                  />
-                  <div>
-                    <span className="text-sm font-medium text-white">Auto-regenerate when files change</span>
-                    <p className="text-xs text-white/60 mt-0.5">
-                      Automatically update documentation when tracked files are modified in the repository
-                    </p>
-                  </div>
-                </label>
-              </div>
-              {savingAutoRegenerate && (
-                <Loader2 className="h-4 w-4 animate-spin text-white/50" />
-              )}
-            </div>
-            {autoRegenerateMsg && (
-              <p className={`text-xs mt-2 ${autoRegenerateMsg.includes('Failed') ? 'text-red-300' : 'text-green-300'}`}>
-                {autoRegenerateMsg}
-              </p>
-            )}
-          </div>
-        )}
 
         {/* Save controls */}
         <div className="flex items-center gap-3">

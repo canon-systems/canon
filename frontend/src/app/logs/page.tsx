@@ -63,7 +63,7 @@ export default async function LogsPage() {
   // Build activity log entries
   const logEntries: Array<{
     id: string;
-    type: 'document' | 'document_error' | 'document_regenerated' | 'architecture' | 'architecture_version' | 'automation_execution';
+    type: 'document' | 'document_error' | 'document_regenerated' | 'architecture' | 'architecture_version' | 'automation_execution' | 'repo_connection';
     timestamp: string;
     title: string;
     message: string;
@@ -82,15 +82,38 @@ export default async function LogsPage() {
     };
   }> = [];
 
-  // Get repo details for documents
+  // Get repo details for documents and activity logging
   const repoMap = new Map();
-  if (documents && repoIds.length > 0) {
-    const { data: reposData } = await supabase
-      .from('workspace_repos')
-      .select('id, repo_url, default_branch')
-      .in('id', repoIds);
-    
-    reposData?.forEach(r => repoMap.set(r.id, r));
+  const { data: allReposData } = await supabase
+    .from('workspace_repos')
+    .select('id, repo_url, default_branch, name, created_at')
+    .eq('workspace_id', user.id)
+    .order('created_at', { ascending: false });
+  
+  if (allReposData) {
+    allReposData.forEach(r => repoMap.set(r.id, r));
+  }
+
+  // Add repo connection entries
+  if (allReposData) {
+    allReposData.forEach((repo) => {
+      const repoName = repo.repo_url ? repo.repo_url.split('/').pop()?.replace('.git', '') || 'repository' : repo.name || 'Repository';
+      const branchInfo = repo.default_branch ? ` (${repo.default_branch})` : '';
+
+      logEntries.push({
+        id: `repo-${repo.id}`,
+        type: 'repo_connection',
+        timestamp: repo.created_at,
+        title: `Repository Connected: ${repoName}`,
+        message: `Connected repository ${repoName}${branchInfo}`,
+        status: 'completed',
+        link: `/repos`,
+        metadata: {
+          repoUrl: repo.repo_url || undefined,
+          branch: repo.default_branch || undefined,
+        },
+      });
+    });
   }
 
   // Add document entries

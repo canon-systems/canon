@@ -2,12 +2,12 @@
 
 import { useState, useMemo } from 'react';
 import type { User } from '@supabase/supabase-js';
-import { FileText, Layers3, AlertCircle, RefreshCw, ExternalLink, Calendar, GitBranch, Folder, Code, Clock, Hash, Zap } from 'lucide-react';
+import { FileText, Layers3, AlertCircle, RefreshCw, ExternalLink, Calendar, GitBranch, Folder, Code, Clock, Hash, Zap, Github } from 'lucide-react';
 import Link from 'next/link';
 
 interface LogEntry {
   id: string;
-  type: 'document' | 'document_error' | 'document_regenerated' | 'architecture' | 'architecture_version' | 'automation_execution';
+  type: 'document' | 'document_error' | 'document_regenerated' | 'architecture' | 'architecture_version' | 'automation_execution' | 'repo_connection';
   timestamp: string;
   title: string;
   message: string;
@@ -37,7 +37,7 @@ interface LogsData {
 
 type TimeFilter = '24h' | '3d' | '7d' | '14d' | '30d' | '90d' | '180d' | '1y' | 'all';
 type StatusFilter = 'all' | 'completed' | 'processing' | 'failed';
-type TypeFilter = 'all' | 'document' | 'document_error' | 'document_regenerated' | 'architecture' | 'architecture_version' | 'automation_execution';
+type TypeFilter = 'all' | 'document' | 'document_error' | 'document_regenerated' | 'architecture' | 'architecture_version' | 'automation_execution' | 'repo_connection';
 
 interface LogsPageClientProps {
   user: User | null;
@@ -142,6 +142,8 @@ export function LogsPageClient({ user, logs }: LogsPageClientProps) {
         return RefreshCw;
       case 'automation_execution':
         return Zap;
+      case 'repo_connection':
+        return Github;
       default:
         return FileText;
     }
@@ -161,6 +163,8 @@ export function LogsPageClient({ user, logs }: LogsPageClientProps) {
         return 'bg-purple-500/20 text-purple-400';
       case 'architecture_version':
         return 'bg-green-500/20 text-green-400';
+      case 'repo_connection':
+        return 'bg-indigo-500/20 text-indigo-400';
       default:
         return 'bg-gray-500/20 text-gray-400';
     }
@@ -232,6 +236,7 @@ export function LogsPageClient({ user, logs }: LogsPageClientProps) {
             <option value="document_regenerated">Regenerated</option>
             <option value="architecture">Architecture</option>
             <option value="architecture_version">Architecture Version</option>
+            <option value="repo_connection">Repository Connection</option>
           </select>
         </div>
       </div>

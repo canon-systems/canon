@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { Github, FolderOpen, Loader2, AlertTriangle, Info, ChevronDown, Check, Search, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { PromptCustomizer } from '@/components/PromptCustomizer';
@@ -177,18 +178,24 @@ function getMethodIcon(m: InputType) {
       return Github;
     case 'github_repo_directory':
       return FolderOpen;
-    case 'zipped_folder':
-      return Upload;
-    case 'pasted_code':
-      return Code;
   }
+}
+
+interface RepoWithSetup {
+  id: string;
+  name: string;
+  repo_url: string;
+  default_branch: string;
+  setup_branch: string;
+  setup_status: string;
 }
 
 interface DocumentationPageClientProps {
   repoId?: string;
+  repos?: RepoWithSetup[];
 }
 
-export function DocumentationPageClient({ repoId }: DocumentationPageClientProps = {}) {
+export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: DocumentationPageClientProps = {}) {
   const router = useRouter();
   const supabase = createClient();
   const modelDropdownRef = useRef<HTMLDivElement>(null);
@@ -202,15 +209,11 @@ export function DocumentationPageClient({ repoId }: DocumentationPageClientProps
   const [repoUrl, setRepoUrl] = useState('');
   const [branch, setBranch] = useState('main');
   const [subdir, setSubdir] = useState('');
-  const [ownerInput, setOwnerInput] = useState('');
-  const [baseOwner, setBaseOwner] = useState('');
-  const [showRepoSelector, setShowRepoSelector] = useState(false);
+  const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
 
   // Dropdown options
-  const [branches, setBranches] = useState<string[]>([]);
   const [directories, setDirectories] = useState<string[]>([]);
-  const [repos, setRepos] = useState<Array<{ name: string; full_name: string; url: string; private: boolean }>>([]);
-  const [loadingBranches, setLoadingBranches] = useState(false);
+  const [availableRepos, setAvailableRepos] = useState<RepoWithSetup[]>(initialRepos);
   const [loadingDirectories, setLoadingDirectories] = useState(false);
   const [loadingRepos, setLoadingRepos] = useState(false);
 
@@ -315,44 +318,6 @@ export function DocumentationPageClient({ repoId }: DocumentationPageClientProps
     }
   }, [method, repoUrl, branch, subdir, isGit]);
 
-  // Function to search for repos (matches SvelteKit behavior)
-  function searchRepos() {
-    if (ownerInput.trim()) {
-      setShowRepoSelector(true);
-      const trimmed = ownerInput.trim();
-      // Remove github.com/ prefix if present
-      const cleanOwner = trimmed
-        .replace(/^https?:\/\/github\.com\//, '')
-        .replace(/\/$/, '')
-        .split('/')[0];
-      if (cleanOwner && cleanOwner !== baseOwner) {
-        setBaseOwner(cleanOwner);
-        fetchRepos(cleanOwner);
-      }
-    } else {
-      setShowRepoSelector(false);
-      setBaseOwner('');
-      setRepos([]);
-    }
-  }
-
-  // React to repo URL changes
-  useEffect(() => {
-    if (repoUrl && repoUrl.includes('github.com')) {
-      const noProto = repoUrl.replace(/^https?:\/\//, '');
-      const parts = noProto.split('/').filter(Boolean);
-      if (parts.length >= 3) {
-        fetchBranches();
-      }
-    } else {
-      setBranches([]);
-      setDirectories([]);
-      setBranch('main');
-      setSubdir('');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [repoUrl]);
-
   // React to branch changes
   useEffect(() => {
     if (branch && repoUrl && repoUrl.includes('github.com') && method === 'github_repo_directory') {
@@ -363,80 +328,6 @@ export function DocumentationPageClient({ repoId }: DocumentationPageClientProps
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [branch, repoUrl, method]);
-
-  // Fetch functions
-  async function fetchRepos(owner: string) {
-    if (!owner || loadingRepos) return;
-
-    setLoadingRepos(true);
-    try {
-      const response = await fetch('/api/github/repos', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ owner })
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setRepos((data.repos || [])
-          .filter((r: any) => r && r.name && r.full_name && r.url)
-          .map((r: { name: string; full_name: string; url: string; private: boolean }) => ({
-            name: r.name,
-            full_name: r.full_name,
-            url: r.url,
-            private: r.private || false
-          })));
-      } else {
-        setRepos([]);
-      }
-    } catch (err) {
-      console.error('Failed to fetch repos:', err);
-      setRepos([]);
-    } finally {
-      setLoadingRepos(false);
-    }
-  }
-
-  async function fetchBranches() {
-    if (!repoUrl.trim() || !repoUrl.includes('github.com')) {
-      setBranches([]);
-      return;
-    }
-
-    setLoadingBranches(true);
-    setErrorMsg('');
-    try {
-      const response = await fetch('/api/github/branches', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ repoUrl })
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const branchList = data.branches || [];
-        setBranches(branchList);
-        if (branchList.length > 0 && !branchList.includes(branch)) {
-          setBranch(branchList[0]);
-        }
-      } else {
-        setBranches([]);
-        const errorData = await response.json().catch(() => ({}));
-        if (response.status === 404 && !hasGitHubConnection) {
-          setErrorMsg('Repository not found or is private. Connect your GitHub account in Settings to access private repositories.');
-        } else if (response.status === 403 && !hasGitHubConnection) {
-          setErrorMsg('Rate limit exceeded. Connect your GitHub account in Settings for higher rate limits (5,000/hr vs 60/hr).');
-        } else if (response.status !== 404) {
-          setErrorMsg(errorData?.error || errorData?.detail || `Failed to load branches (${response.status})`);
-        }
-      }
-    } catch (err) {
-      console.error('Failed to fetch branches:', err);
-      setBranches([]);
-    } finally {
-      setLoadingBranches(false);
-    }
-  }
 
   async function fetchDirectories() {
     if (!repoUrl.trim() || !repoUrl.includes('github.com') || !branch) {
@@ -466,38 +357,31 @@ export function DocumentationPageClient({ repoId }: DocumentationPageClientProps
     }
   }
 
-  // Load repository data if repoId is provided
+  // Initialize repos from props and handle repoId selection
   useEffect(() => {
-    async function loadRepositoryData() {
-      if (!repoId) return;
-      
-      try {
-        const response = await fetch(`/api/repos/${repoId}`);
-        if (response.ok) {
-          const data = await response.json();
-          if (data.repo_url) {
-            setRepoUrl(data.repo_url);
-            setBranch(data.default_branch || 'main');
-            // Extract owner from repo URL
-            const urlParts = data.repo_url.replace(/^https?:\/\//, '').split('/');
-            if (urlParts.length >= 2) {
-              const owner = urlParts[1];
-              setOwnerInput(owner);
-              setBaseOwner(owner);
-              // Trigger branch loading
-              if (data.repo_url.includes('github.com')) {
-                fetchBranches();
-              }
-            }
-          }
-        }
-      } catch (err) {
-        console.error('Failed to load repository:', err);
+    setAvailableRepos(initialRepos);
+
+    // If repoId is provided, select that repo
+    if (repoId && initialRepos.length > 0) {
+      const repo = initialRepos.find((r) => r.id === repoId);
+      if (repo) {
+        setSelectedRepoId(repo.id);
+        setRepoUrl(repo.repo_url);
+        setBranch(repo.setup_branch || 'main');
       }
     }
-    loadRepositoryData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [repoId]);
+  }, [repoId, initialRepos]);
+
+  // Update branch when repo is selected
+  useEffect(() => {
+    if (selectedRepoId) {
+      const repo = availableRepos.find(r => r.id === selectedRepoId);
+      if (repo) {
+        setRepoUrl(repo.repo_url);
+        setBranch(repo.setup_branch || 'main');
+      }
+    }
+  }, [selectedRepoId, availableRepos]);
 
   async function listGitFiles() {
     if (!isGit) return;
@@ -606,12 +490,7 @@ export function DocumentationPageClient({ repoId }: DocumentationPageClientProps
     setStatusMsg('');
     setRunning(true);
 
-    if (!ownerInput.trim()) {
-      setErrorMsg('Please enter a GitHub owner/organization.');
-      setRunning(false);
-      return;
-    }
-    if (!repoUrl || !repoUrl.includes('github.com')) {
+    if (!selectedRepoId || !repoUrl || !repoUrl.includes('github.com')) {
       setErrorMsg('Please select a repository from the dropdown.');
       setRunning(false);
       return;
@@ -1005,84 +884,48 @@ export function DocumentationPageClient({ repoId }: DocumentationPageClientProps
 
             <div className="field-group">
               <span className="field-label">
-                GitHub owner/organization <span className="text-red-400">*</span>
+                Repository <span className="text-red-400">*</span>
               </span>
-              <div className="flex gap-2">
-                <input
-                  className="field-input"
-                  value={ownerInput}
-                  onChange={(e) => setOwnerInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      searchRepos();
-                    }
-                  }}
-                  placeholder="Enter owner/org (e.g., 'facebook' or 'github.com/facebook')"
-                  required
-                />
-                <button
-                  type="button"
-                  className="secondary-action"
-                  onClick={searchRepos}
-                  disabled={!ownerInput.trim() || loadingRepos}
-                >
-                  Search
-                </button>
-              </div>
-              <p className="field-note">Enter a GitHub username or organization to search for repositories.</p>
+              <SearchableSelect
+                options={availableRepos.map((r) => ({
+                  value: r.id,
+                  label: r.name,
+                }))}
+                value={selectedRepoId || ''}
+                placeholder={loadingRepos ? 'Loading repositories...' : availableRepos.length === 0 ? 'No repositories available' : 'Select a repository...'}
+                searchPlaceholder="Search repositories..."
+                disabled={loadingRepos || availableRepos.length === 0}
+                onChange={(value) => setSelectedRepoId(value)}
+                triggerClassName="field-select"
+              />
+              {loadingRepos ? (
+                <p className="field-note">Loading repositories…</p>
+              ) : availableRepos.length === 0 ? (
+                <div className="field-note flex items-center justify-between">
+                  <span>No repositories with file summaries found. Complete repository setup first.</span>
+                  <Link
+                    href="/repos"
+                    className="text-sm text-blue-400 hover:text-blue-300 underline"
+                  >
+                    Go to Repositories →
+                  </Link>
+                </div>
+              ) : (
+                <p className="field-note">Select a repository that has been set up with file summaries.</p>
+              )}
             </div>
-
-            {showRepoSelector && baseOwner && (
-              <div className="field-group">
-                <span className="field-label">
-                  Repository <span className="text-red-400">*</span>
-                </span>
-                <SearchableSelect
-                  options={repos
-                    .filter((r) => r && r.url && r.full_name)
-                    .map((r) => ({
-                      value: r.url || '',
-                      label: `${r.full_name || ''}${r.private ? ' (private)' : ''}`,
-                    }))}
-                  value={repoUrl}
-                  placeholder={loadingRepos ? 'Loading repositories...' : 'Search repositories...'}
-                  searchPlaceholder="Search repositories..."
-                  disabled={loadingRepos}
-                  onChange={(value) => setRepoUrl(value)}
-                  triggerClassName="field-select"
-                />
-                {loadingRepos ? (
-                  <p className="field-note">Loading repositories…</p>
-                ) : (
-                  repos.length === 0 &&
-                  baseOwner && (
-                    <div className="field-note flex items-center justify-between">
-                      <span>No repositories found for {baseOwner}</span>
-                      <button
-                        onClick={() => setShowConnectionWizard(true)}
-                        className="text-sm text-blue-400 hover:text-blue-300 underline"
-                      >
-                        Connect a repository →
-                      </button>
-                    </div>
-                  )
-                )}
-              </div>
-            )}
 
             <div className="grid gap-4 md:grid-cols-2">
               <div className="field-group">
                 <span className="field-label">Branch</span>
-                <SearchableSelect
-                  options={branches.map((b) => ({ value: b, label: b }))}
+                <input
+                  className="field-input"
                   value={branch}
-                  placeholder={loadingBranches ? 'Loading...' : branches.length === 0 ? 'Enter repo URL first' : 'Select branch...'}
-                  searchPlaceholder="Search branches..."
-                  disabled={loadingBranches || branches.length === 0}
-                  onChange={(value) => setBranch(value)}
-                  triggerClassName="field-select"
+                  readOnly
+                  disabled
+                  placeholder="Branch from repository setup"
                 />
+                <p className="field-note">Branch is set from the initial repository setup and cannot be changed.</p>
               </div>
 
               {method === 'github_repo_directory' && (
