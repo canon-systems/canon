@@ -72,8 +72,11 @@ export async function POST(
       userId: user.id,
     });
 
-    // Update the rule's last run metadata
-    await updateRuleLastRun(supabase, repoId, ruleId, user.id, execution);
+    // Update the rule's last run metadata (mark as manual trigger)
+    await updateRuleLastRun(supabase, repoId, ruleId, user.id, {
+      ...execution,
+      trigger: 'manual',
+    });
 
     console.log(`[Manual Run] Completed: success=${execution.success}, skipped=${execution.skipped}, actions=${execution.actions.join(', ')}`);
 

@@ -45,7 +45,10 @@ export async function POST(request: NextRequest) {
       });
 
       // Update metadata for all execution results (success, failed, or skipped)
-      await updateRuleLastRun(supabase, ruleInfo.repo_id, ruleInfo.rule_id, workspaceId, execution);
+      await updateRuleLastRun(supabase, ruleInfo.repo_id, ruleInfo.rule_id, workspaceId, {
+        ...execution,
+        trigger: 'scheduled',
+      });
     }
 
     return NextResponse.json({

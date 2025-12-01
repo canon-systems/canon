@@ -60,6 +60,31 @@ const RELEVANT_EXTENSIONS = new Set([
 	'.yml',
 ]);
 
+// Files to exclude (auto-generated, lock files, or too large for LLM processing)
+const EXCLUDED_FILES = new Set([
+	'package-lock.json',
+	'yarn.lock',
+	'pnpm-lock.yaml',
+	'composer.lock',
+	'Gemfile.lock',
+	'Cargo.lock',
+	'poetry.lock',
+	'Pipfile.lock',
+	'shrinkwrap.json',
+	'npm-shrinkwrap.json',
+	'bun.lockb',
+]);
+
+// Patterns for files to exclude (will be checked against the full path)
+const EXCLUDED_PATTERNS = [
+	/node_modules\//i,
+	/vendor\//i,
+	/\.min\.(js|css)$/i,
+	/\.bundle\.(js|css)$/i,
+	/dist\/.*\.(js|css)$/i,
+	/build\/.*\.(js|css)$/i,
+];
+
 type AnalyzeRepositoryParams = {
 	supabase: SupabaseClient;
 	userId: string;
@@ -136,10 +161,22 @@ export async function analyzeRepository({
 		}
 	});
 
-	// Filter to relevant files
+	// Filter to relevant files (exclude lock files and auto-generated files)
 	const relevantFiles = Array.from(treeMap.values()).filter((item) => {
 		if (!item.path) return false;
 		const lowerPath = item.path.toLowerCase();
+		const fileName = item.path.split('/').pop() || '';
+		
+		// Check if file is in exclusion list
+		if (EXCLUDED_FILES.has(fileName)) {
+			return false;
+		}
+		
+		// Check if file matches any exclusion pattern
+		if (EXCLUDED_PATTERNS.some(pattern => pattern.test(item.path))) {
+			return false;
+		}
+		
 		const matched = Array.from(RELEVANT_EXTENSIONS).some((ext) =>
 			lowerPath.endsWith(ext) || lowerPath === ext
 		);

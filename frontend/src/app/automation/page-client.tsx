@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Zap, Plus, CheckCircle2, XCircle, Clock, Loader2, Sliders, GitBranch, ExternalLink, Link as LinkIcon, TrendingUp, Search, ChevronDown, FileText, Github, Trash2, PlayCircle } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Zap, Plus, CheckCircle2, XCircle, Clock, Loader2, Sliders, GitBranch, ExternalLink, Link as LinkIcon, TrendingUp, Search, ChevronDown, FileText, Github, Trash2, PlayCircle, StopCircle } from 'lucide-react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
@@ -164,12 +164,91 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
   // Manual rule execution state
   const [runningRules, setRunningRules] = useState<Record<string, boolean>>({});
   const [runResults, setRunResults] = useState<Record<string, { success: boolean; message: string; docId?: string | null } | null>>({});
+  
+  // Abort controllers for cancelling running rules
+  const abortControllersRef = useRef<Record<string, AbortController>>({});
 
   // Load repos on mount
   useEffect(() => {
     loadRepos();
     loadConnections();
   }, []);
+
+  // Recalculate allRules and stats from repos data
+  function recalculateRulesAndStats(repos: Repo[]) {
+    const newAllRules: Array<{
+      repoId: string;
+      repoName: string;
+      repoUrl: string;
+      ruleId: string;
+      ruleName: string;
+      enabled: boolean;
+      lastRunAt?: string;
+      lastRunStatus?: string;
+      lastExecution?: any;
+    }> = [];
+
+    let totalRules = 0;
+    let activeRules = 0;
+    let totalExecutions24h = 0;
+    let successfulExecutions = 0;
+
+    repos.forEach((repo) => {
+      const settings = repo.settings || {};
+      const rules = Array.isArray(settings.automation_rules) ? settings.automation_rules : [];
+      const metadata = settings.automation_metadata || {};
+
+      rules.forEach((rule: any) => {
+        const ruleId = rule.id || rule.name || 'default';
+        const ruleMetadata = metadata[ruleId] || {};
+        const enabled = Boolean(rule.enabled);
+        
+        totalRules++;
+        if (enabled) activeRules++;
+
+        // Count executions in last 24h
+        const executionHistory = ruleMetadata.execution_history || [];
+        const now = new Date();
+        const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        
+        const recentExecutions = executionHistory.filter((exec: any) => {
+          try {
+            const execTime = new Date(exec.timestamp);
+            return execTime >= last24h;
+          } catch {
+            return false;
+          }
+        });
+
+        totalExecutions24h += recentExecutions.length;
+        successfulExecutions += recentExecutions.filter((e: any) => e.success && !e.skipped).length;
+
+        newAllRules.push({
+          repoId: repo.id,
+          repoName: repo.name || 'Untitled Repo',
+          repoUrl: repo.repo_url || '',
+          ruleId,
+          ruleName: rule.name || ruleId,
+          enabled,
+          lastRunAt: ruleMetadata.last_run_at,
+          lastRunStatus: ruleMetadata.last_run_status,
+          lastExecution: ruleMetadata.last_execution,
+        });
+      });
+    });
+
+    const successRate = totalExecutions24h > 0 
+      ? Math.round((successfulExecutions / totalExecutions24h) * 100) 
+      : 0;
+
+    setAllRules(newAllRules);
+    setStats({
+      totalRules,
+      activeRules,
+      executions24h: totalExecutions24h,
+      successRate,
+    });
+  }
 
   async function loadRepos() {
     setLoadingRepos(true);
@@ -178,6 +257,8 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
       if (!response.ok) throw new Error('Failed to load repositories');
       const data = await response.json();
       setReposList(data || []);
+      // Recalculate rules and stats from the fetched repos data
+      recalculateRulesAndStats(data || []);
     } catch (err: any) {
       setRepoError(err.message || 'Failed to load repositories');
       setTimeout(() => setRepoError(''), 5000);
@@ -389,6 +470,11 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
 
   async function handleRunRule(repoId: string, ruleId: string) {
     const key = `${repoId}-${ruleId}`;
+    
+    // Create abort controller for this run
+    const abortController = new AbortController();
+    abortControllersRef.current[key] = abortController;
+    
     setRunningRules((prev) => ({ ...prev, [key]: true }));
     setRunResults((prev) => ({ ...prev, [key]: null }));
     
@@ -398,6 +484,7 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ruleId }),
+        signal: abortController.signal,
       });
       
       const data = await response.json();
@@ -434,13 +521,24 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
       // Refresh to update stats
       await loadRepos();
     } catch (err: any) {
-      setRunResults((prev) => ({
-        ...prev,
-        [key]: {
-          success: false,
-          message: err.message || 'Failed to run rule',
-        },
-      }));
+      // Check if this was a cancellation
+      if (err.name === 'AbortError') {
+        setRunResults((prev) => ({
+          ...prev,
+          [key]: {
+            success: false,
+            message: 'Run cancelled by user',
+          },
+        }));
+      } else {
+        setRunResults((prev) => ({
+          ...prev,
+          [key]: {
+            success: false,
+            message: err.message || 'Failed to run rule',
+          },
+        }));
+      }
       
       // Auto-clear error after 10 seconds
       setTimeout(() => {
@@ -448,6 +546,31 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
       }, 10000);
     } finally {
       setRunningRules((prev) => ({ ...prev, [key]: false }));
+      // Clean up abort controller
+      delete abortControllersRef.current[key];
+    }
+  }
+
+  async function handleCancelRule(repoId: string, ruleId: string) {
+    const key = `${repoId}-${ruleId}`;
+    const controller = abortControllersRef.current[key];
+    if (controller) {
+      controller.abort();
+      
+      // Record the cancellation in execution history
+      try {
+        await fetch(`/api/repos/${repoId}/automation/cancel`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ruleId }),
+        });
+        
+        // Refresh to show the cancelled run in the logs
+        await loadRepos();
+      } catch (err) {
+        console.error('Failed to record cancellation:', err);
+      }
     }
   }
 
@@ -1523,30 +1646,49 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                                   const errorKey = `${repo.id}-${rule.ruleId}-${idx}`;
                                   const showErrors = expandedErrors[errorKey] || false;
                                   
+                                  // Check if this was a cancelled run
+                                  const isCancelled = !execution.success && !execution.skipped && 
+                                    execution.errors?.some((e: string) => e.toLowerCase().includes('cancelled'));
+                                  
                                   return (
                                     <div
                                       key={idx}
                                       className="rounded-lg border border-white/10 bg-black/40 p-3"
                                     >
                                       <div className="flex items-start gap-3">
-                                        <div className={`mt-0.5 ${execution.success ? 'text-green-400' : execution.skipped ? 'text-yellow-400' : 'text-red-400'}`}>
+                                        <div className={`mt-0.5 ${
+                                          execution.success ? 'text-green-400' : 
+                                          execution.skipped ? 'text-yellow-400' : 
+                                          isCancelled ? 'text-orange-400' :
+                                          'text-red-400'
+                                        }`}>
                                           {execution.success ? (
                                             <CheckCircle2 className="h-4 w-4" />
                                           ) : execution.skipped ? (
                                             <Clock className="h-4 w-4" />
+                                          ) : isCancelled ? (
+                                            <StopCircle className="h-4 w-4" />
                                           ) : (
                                             <XCircle className="h-4 w-4" />
                                           )}
                                         </div>
                                         <div className="flex-1 min-w-0">
-                                          <div className="flex items-center gap-2 mb-1">
+                                          <div className="flex items-center gap-2 mb-1 flex-wrap">
                                             <span className="text-xs text-white/60">{formatDate(execution.timestamp)}</span>
                                             <span className={`text-xs px-2 py-0.5 rounded ${
                                               execution.success ? 'bg-green-500/20 text-green-300' : 
                                               execution.skipped ? 'bg-yellow-500/20 text-yellow-300' : 
+                                              isCancelled ? 'bg-orange-500/20 text-orange-300' :
                                               'bg-red-500/20 text-red-300'
                                             }`}>
-                                              {execution.success ? 'Success' : execution.skipped ? 'Skipped' : 'Failed'}
+                                              {execution.success ? 'Success' : execution.skipped ? 'Skipped' : isCancelled ? 'Cancelled' : 'Failed'}
+                                            </span>
+                                            <span className={`text-xs px-2 py-0.5 rounded ${
+                                              execution.trigger === 'manual' 
+                                                ? 'bg-purple-500/20 text-purple-300' 
+                                                : 'bg-blue-500/20 text-blue-300'
+                                            }`}>
+                                              {execution.trigger === 'manual' ? 'Manual' : 'Scheduled'}
                                             </span>
                                           </div>
                                           {execution.actions && execution.actions.length > 0 && (
@@ -1777,27 +1919,37 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                                 )}
 
                                 <div className="flex items-center gap-2 mt-3">
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleRunRule(repoId, rule.ruleId);
-                                    }}
-                                    disabled={runningRules[`${repoId}-${rule.ruleId}`]}
-                                    className="flex items-center gap-1 text-xs text-purple-400 hover:text-purple-300 px-2 py-1 rounded border border-purple-500/30 bg-purple-500/10 hover:bg-purple-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                                    title="Run rule now"
-                                  >
-                                    {runningRules[`${repoId}-${rule.ruleId}`] ? (
-                                      <>
-                                        <Loader2 className="h-3 w-3 animate-spin" />
-                                        Running...
-                                      </>
-                                    ) : (
-                                      <>
-                                        <PlayCircle className="h-3 w-3" />
-                                        Run Now
-                                      </>
-                                    )}
-                                  </button>
+                                  {runningRules[`${repoId}-${rule.ruleId}`] ? (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleCancelRule(repoId, rule.ruleId);
+                                      }}
+                                      className="flex items-center gap-1 text-xs text-red-400 hover:text-red-300 px-2 py-1 rounded border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 transition-colors"
+                                      title="Cancel running rule"
+                                    >
+                                      <StopCircle className="h-3 w-3" />
+                                      Cancel
+                                    </button>
+                                  ) : (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleRunRule(repoId, rule.ruleId);
+                                      }}
+                                      className="flex items-center gap-1 text-xs text-purple-400 hover:text-purple-300 px-2 py-1 rounded border border-purple-500/30 bg-purple-500/10 hover:bg-purple-500/20 transition-colors"
+                                      title="Run rule now"
+                                    >
+                                      <PlayCircle className="h-3 w-3" />
+                                      Run Now
+                                    </button>
+                                  )}
+                                  {runningRules[`${repoId}-${rule.ruleId}`] && (
+                                    <span className="flex items-center gap-1 text-xs text-white/60">
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                      Running...
+                                    </span>
+                                  )}
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();

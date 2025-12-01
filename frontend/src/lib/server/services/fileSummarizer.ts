@@ -76,6 +76,24 @@ export type RepoContext = {
 	allFileSummaries: Map<string, FileSummary>; // file_path -> summary
 };
 
+// Maximum characters to process (roughly 100k tokens = ~400k chars, using conservative estimate)
+const MAX_FILE_CHARS = 300000;
+
+// Files that should be skipped entirely (lock files, auto-generated, etc.)
+const SKIP_FILE_PATTERNS = [
+	/package-lock\.json$/i,
+	/yarn\.lock$/i,
+	/pnpm-lock\.yaml$/i,
+	/composer\.lock$/i,
+	/Gemfile\.lock$/i,
+	/Cargo\.lock$/i,
+	/poetry\.lock$/i,
+	/Pipfile\.lock$/i,
+	/shrinkwrap\.json$/i,
+	/\.min\.(js|css)$/i,
+	/\.bundle\.(js|css)$/i,
+];
+
 /**
  * Generate a detailed file summary with structured information
  */
@@ -85,6 +103,42 @@ export async function generateFileSummary(
 	model: string = 'gpt-4o-mini',
 	repoContext?: RepoContext
 ): Promise<FileSummary> {
+	// Skip files that match exclusion patterns
+	if (SKIP_FILE_PATTERNS.some(pattern => pattern.test(filePath))) {
+		console.log(`[fileSummarizer] Skipping excluded file: ${filePath}`);
+		return {
+			summary_text: `File ${filePath} is an auto-generated or lock file and was skipped from detailed analysis.`,
+			summary_json: {
+				problem_solved: 'Auto-generated file (lock file or minified)',
+				functions: [],
+				apis: [],
+				imports: [],
+				logic: {
+					main_flow: 'This file is auto-generated and not meant for manual editing.',
+					algorithms: [],
+					business_rules: [],
+					entry_points: [],
+					data_structures: [],
+					error_handling: '',
+					edge_cases: [],
+					state_management: '',
+				},
+				downstream_usage: [],
+				upstream_dependencies: [],
+				code_uses: [],
+				design_patterns: [],
+				key_decisions: [],
+			},
+		};
+	}
+
+	// Check if file is too large
+	if (fileContent.length > MAX_FILE_CHARS) {
+		console.log(`[fileSummarizer] File too large (${fileContent.length} chars), truncating: ${filePath}`);
+		// Truncate and add a note
+		fileContent = fileContent.slice(0, MAX_FILE_CHARS) + '\n\n// ... [FILE TRUNCATED - TOO LARGE FOR FULL ANALYSIS] ...';
+	}
+
 	const gateway = new LLMGateway();
 
 	// Build context about other files if available

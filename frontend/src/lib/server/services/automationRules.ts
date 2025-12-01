@@ -228,6 +228,7 @@ export type ExecutionResult = {
 	publishStatus?: string;
 	publishProvider?: string;
 	publishResourceId?: string;
+	trigger?: 'manual' | 'scheduled';
 };
 
 export async function updateRuleLastRun(
@@ -263,6 +264,7 @@ export async function updateRuleLastRun(
 		publish_status: execution?.publishStatus,
 		publish_provider: execution?.publishProvider,
 		publish_resource_id: execution?.publishResourceId,
+		trigger: execution?.trigger || 'scheduled',
 	};
 
 	// Maintain execution history (last 10 runs)
