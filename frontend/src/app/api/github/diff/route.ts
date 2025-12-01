@@ -58,22 +58,6 @@ export async function POST(request: NextRequest) {
       // Otherwise, get diff for the latest commit
       if (oldCommitSha && oldCommitSha !== latestCommitSha) {
         try {
-          // Get file content at old commit
-          const { data: oldFile } = await octokit.repos.getContent({
-            owner: repoInfo.owner,
-            repo: repoInfo.repo,
-            path: filePath,
-            ref: oldCommitSha
-          });
-
-          // Get file content at new commit
-          const { data: newFile } = await octokit.repos.getContent({
-            owner: repoInfo.owner,
-            repo: repoInfo.repo,
-            path: filePath,
-            ref: latestCommitSha
-          });
-
           // Get the actual diff using compare API
           const { data: compareData } = await octokit.repos.compareCommits({
             owner: repoInfo.owner,

@@ -19,7 +19,7 @@ type AIFixResult = {
 };
 
 export async function applyAIFixToDoc(params: AIFixParams): Promise<AIFixResult> {
-	const { supabase, userId, model, docId, markdownContent, section, issue, instruction } = params;
+	const { supabase, model, docId, markdownContent, section, issue, instruction } = params;
 
 	if (!model) {
 		throw new Error('model is required for AI fix');
@@ -49,7 +49,7 @@ export async function applyAIFixToDoc(params: AIFixParams): Promise<AIFixResult>
 }
 
 export async function* streamAIFixToDoc(params: AIFixParams) {
-	const { supabase, userId, model, docId, markdownContent, section, issue, instruction } = params;
+	const { supabase, model, docId, markdownContent, section, issue, instruction } = params;
 
 	if (!model) {
 		throw new Error('model is required for AI fix');

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, GitBranch, TrendingUp } from 'lucide-react';
+import { ArrowLeft, GitBranch } from 'lucide-react';
 import type { ArchitectureDiagram, ArchitectureDiagramVersion } from '@/lib/server/architecture/types';
 
 interface ArchitectureHistoryClientProps {

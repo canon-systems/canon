@@ -92,7 +92,6 @@ export async function analyzeRepository({
 	repoUrl,
 	branch,
 	subdir,
-	filters,
 }: AnalyzeRepositoryParams): Promise<AnalyzeRepositoryResult> {
 	if (!repoUrl) {
 		throw new Error('repoUrl is required for repository analysis');

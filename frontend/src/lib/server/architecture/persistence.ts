@@ -1,7 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type {
   ArchitectureDiagram,
-  ArchitectureDiagramVersion,
   ArchitectureDiagramFile,
   CreateDiagramInput,
   UpdateDiagramInput,
@@ -247,7 +246,7 @@ export async function trackDiagramFiles(
       if (fileData && !Array.isArray(fileData) && fileData.type === 'file' && 'size' in fileData) {
         sizeBytes = fileData.size || null;
       }
-    } catch (e) {
+    } catch {
       // Fallback: try blob API
       try {
         const { data: blobData } = await octokit.git.getBlob({
@@ -258,7 +257,7 @@ export async function trackDiagramFiles(
         if (blobData && 'size' in blobData) {
           sizeBytes = blobData.size || null;
         }
-      } catch (blobError) {
+      } catch {
         // Skip if both fail
       }
     }

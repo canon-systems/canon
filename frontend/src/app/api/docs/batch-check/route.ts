@@ -5,7 +5,7 @@ import { getSession } from '@/lib/auth';
 export async function POST(_request: NextRequest) {
   try {
     const supabase = await createClient();
-    const { user } = await getSession();
+    await getSession();
 
     // Get completed repository-based submissions
     const { data: submissions, error: subError } = await supabase

@@ -1,11 +1,8 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import type { MouseEvent } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Settings, User, Link2, Sliders, Mail, Check, X, Loader2, Github, ExternalLink, CheckCircle2, Wrench, RefreshCw } from 'lucide-react';
-import Link from 'next/link';
-import { createClient } from '@/lib/supabase/client';
+import { Settings, User, Link2, Sliders, Mail, Check, X, Loader2, Github, CheckCircle2, Wrench, RefreshCw } from 'lucide-react';
 import { IntegrationLogos } from '@/components/IntegrationLogos';
 import Nango from '@nangohq/frontend';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
@@ -34,20 +31,6 @@ const tabs: Array<{ id: TabId; name: string; icon: any }> = [
   { id: 'preferences', name: 'Preferences', icon: Sliders },
   { id: 'tools', name: 'Tools', icon: Wrench }
 ];
-
-const KNOWLEDGE_BASE_PROVIDERS = new Set<string>(['notion', 'confluence', 'coda']);
-
-function normalizeProviderName(provider?: string | null) {
-  if (!provider) {
-    return '';
-  }
-  return provider.trim().toLowerCase();
-}
-
-function isKnowledgeBaseProvider(provider?: string | null) {
-  const normalizedProvider = normalizeProviderName(provider);
-  return normalizedProvider ? KNOWLEDGE_BASE_PROVIDERS.has(normalizedProvider) : false;
-}
 
 function BackfillSummariesUI() {
   const [checking, setChecking] = useState(false);
@@ -528,7 +511,7 @@ function BackfillSummariesUI() {
               <div className="mt-6">
                 <h4 className="text-sm font-semibold text-white/80 mb-3">Recent Files</h4>
                 <div className="max-h-64 overflow-y-auto space-y-2">
-                  {recentFiles.slice(0, 10).map((file, idx) => (
+                  {recentFiles.slice(0, 10).map((file) => (
                     <div
                       key={`${file.filePath}-${file.timestamp}`}
                       className="flex items-start gap-2 text-xs p-2 rounded border border-white/5 bg-white/5"
@@ -686,7 +669,6 @@ function BackfillSummariesUI() {
 export function SettingsPageClient({ user: initialUser }: SettingsPageClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const supabase = createClient();
 
   const [activeTab, setActiveTab] = useState<TabId>('profile');
   const [connections, setConnections] = useState<Connection[]>([]);
@@ -696,9 +678,6 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   const [success, setSuccess] = useState('');
   const [disconnectModalOpen, setDisconnectModalOpen] = useState(false);
   const [connectionToDisconnect, setConnectionToDisconnect] = useState<{ connectionId: string; provider: string } | null>(null);
-  const [providerResources, setProviderResources] = useState<Record<string, Array<{ id: string; name: string }>>>({});
-  const [providerResourceLoading, setProviderResourceLoading] = useState<Record<string, boolean>>({});
-  const [providerResourceErrors, setProviderResourceErrors] = useState<Record<string, string>>({});
 
   // Repository management moved to /automation page
 
@@ -897,18 +876,6 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   }
 
   // Automation functionality moved to /automation page
-
-  function parseRepoUrl(url: string): { owner: string; repo: string } | null {
-    try {
-      const match = url.match(/github\.com\/([^/]+)\/([^/]+)/);
-      if (match) {
-        return { owner: match[1], repo: match[2].replace('.git', '') };
-      }
-    } catch {
-      // Invalid URL
-    }
-    return null;
-  }
 
   // Repository management moved to /automation page
 

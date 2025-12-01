@@ -22,7 +22,6 @@ interface ReviewPanelProps {
 }
 
 export function ReviewPanel({
-  docId,
   currentView,
   onViewChange,
   onApprove,

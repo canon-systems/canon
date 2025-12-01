@@ -71,9 +71,6 @@ export function buildSystemPrompt(
 	// Add document structure requirements
 	const structureConfig = config?.document_structure;
 	if (structureConfig && structureConfig.sections && structureConfig.sections.length > 0) {
-		const requiredSections = structureConfig.sections.filter(s => s.required);
-		const optionalSections = structureConfig.sections.filter(s => !s.required);
-		
 		let structureInstruction = 'Structure the documentation with the following sections:\n';
 		
 		structureConfig.sections.forEach((section, index) => {

@@ -13,7 +13,7 @@ export default async function AutomationPage() {
   const supabase = await createClient();
 
   // Get all repos (not just ones with automation rules)
-  const { data: repos, error: reposError } = await supabase
+  const { data: repos } = await supabase
     .from('workspace_repos')
     .select('id, name, repo_url, default_branch, provider, auth_type, settings, created_at, updated_at')
     .order('created_at', { ascending: false });

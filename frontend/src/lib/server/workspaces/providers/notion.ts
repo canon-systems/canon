@@ -4,7 +4,7 @@
 
 import type { WorkspaceProvider, WorkspaceInfo, WorkspaceContent } from '../base';
 import { NANGO_CONFIG } from '../../nango/config';
-import { htmlToNotionBlocks } from '../../notion/htmlToBlocks';
+import { htmlToNotionBlocks, NotionBlock } from '../../notion/htmlToBlocks';
 import { markdownToNotionBlocks } from '../../notion/markdownToBlocks';
 import { marked } from 'marked';
 
@@ -175,7 +175,7 @@ export class NotionProvider implements WorkspaceProvider {
 	): Promise<WorkspaceInfo | null> {
 		try {
 			// Try HTML conversion first, fall back to markdown if it produces poor results
-			let blocks = [];
+			let blocks: NotionBlock[] = [];
 			
 			if (content.html) {
 				blocks = htmlToNotionBlocks(content.html);
@@ -297,7 +297,7 @@ export class NotionProvider implements WorkspaceProvider {
 			const pageId = workspaceInfo.resourceId;
 			
 			// Try HTML conversion first, fall back to markdown if it produces poor results
-			let blocks = [];
+			let blocks: NotionBlock[] = [];
 			
 			if (content.html) {
 				blocks = htmlToNotionBlocks(content.html);

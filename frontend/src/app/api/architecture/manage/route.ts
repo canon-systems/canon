@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
 import { listUserDiagrams } from '@/lib/server/architecture/persistence';
 
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   try {
     const { user } = await getSession();
     

@@ -5,7 +5,7 @@ import { getSession } from '@/lib/auth';
 export async function POST(_request: NextRequest) {
   try {
     const supabase = await createClient();
-    const { user } = await getSession();
+    await getSession();
 
     // Find all outdated submissions
     const { data: outdatedSubmissions, error } = await supabase

@@ -1,9 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { getUserOctokit } from '../github/getUserOctokit';
 import { parseRepoUrl } from '../github/github';
 import { analyzeRepository } from './analyzeRepository';
 import { generateFileSummary } from './fileSummarizer';
-import type { RepoContext } from './fileSummarizer';
 
 /**
  * Normalize repo URL to repo_id format: "github.com/owner/repo"

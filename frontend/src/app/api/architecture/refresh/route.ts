@@ -10,7 +10,6 @@ import { getUserOctokit } from '@/lib/server/github/getUserOctokit';
 import { detectTools } from '@/lib/server/architecture/detectTools';
 import { generateMarkdownDoc } from '@/lib/server/architecture/generateDiagram';
 import { createDiagramVersion, getDiagramVersions } from '@/lib/server/architecture/versions';
-import { compareCodeSnapshots } from '@/lib/server/architecture/detectChanges';
 
 /**
  * Fetch file content from GitHub

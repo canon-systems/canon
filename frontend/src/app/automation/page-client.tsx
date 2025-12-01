@@ -1,8 +1,7 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import type { MouseEvent } from 'react';
-import { Zap, Plus, CheckCircle2, XCircle, Clock, Loader2, Sliders, GitBranch, ExternalLink, Link as LinkIcon, TrendingUp, Search, ChevronDown, FileText, Github, Trash2, PlayCircle, AlertCircle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Zap, Plus, CheckCircle2, XCircle, Clock, Loader2, Sliders, GitBranch, ExternalLink, Link as LinkIcon, TrendingUp, Search, ChevronDown, FileText, Github, Trash2, PlayCircle } from 'lucide-react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
@@ -111,25 +110,24 @@ function getProviderDisplayName(provider: string) {
   return provider.charAt(0).toUpperCase() + provider.slice(1);
 }
 
-export function AutomationPageClient({ user, repos, connections: initialConnections, allRules: initialAllRules, stats: initialStats }: AutomationPageClientProps) {
+export function AutomationPageClient({ repos, connections: initialConnections, allRules: initialAllRules, stats: initialStats }: AutomationPageClientProps) {
   const supabase = createClient();
   
   const [reposList, setReposList] = useState<Repo[]>(repos);
   const [connections, setConnections] = useState<Connection[]>(initialConnections);
   const [allRules, setAllRules] = useState(initialAllRules);
   const [stats, setStats] = useState(initialStats);
-  const [loading, setLoading] = useState(false);
   const [activeAutomationRepoId, setActiveAutomationRepoId] = useState<string | null>(null);
   const [automationLoading, setAutomationLoading] = useState<Record<string, boolean>>({});
   const [automationSaving, setAutomationSaving] = useState<Record<string, boolean>>({});
-  const [automationCache, setAutomationCache] = useState<Record<string, AutomationRulesResponse>>({});
+  const [, setAutomationCache] = useState<Record<string, AutomationRulesResponse>>({});
   // Single rule form state (one rule per repo)
   const [singleRuleForm, setSingleRuleForm] = useState<AutomationRuleForm | null>(null);
   const [automationAlerts, setAutomationAlerts] = useState<Record<string, AutomationAlert>>({});
   const [providerResources, setProviderResources] = useState<Record<string, Array<{ id: string; name: string }>>>({});
   const [providerResourceLoading, setProviderResourceLoading] = useState<Record<string, boolean>>({});
   const [providerResourceErrors, setProviderResourceErrors] = useState<Record<string, string>>({});
-  const [automationConfigOpen, setAutomationConfigOpen] = useState(false);
+  const [, setAutomationConfigOpen] = useState(false);
 
   // Repository management state
   const [loadingRepos, setLoadingRepos] = useState(false);
@@ -246,65 +244,6 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
       setAvailableRepos([]);
     } finally {
       setLoadingRepoSearch(false);
-    }
-  }
-
-  async function fetchBranches() {
-    if (!formRepoUrl.trim() || !formRepoUrl.includes('github.com')) {
-      setBranches([]);
-      return;
-    }
-    const noProto = formRepoUrl.replace(/^https?:\/\//, '');
-    const parts = noProto.split('/').filter(Boolean);
-    if (parts.length < 3) return;
-    setLoadingBranches(true);
-    try {
-      const response = await fetch('/api/github/branches', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ repoUrl: formRepoUrl })
-      });
-      if (response.ok) {
-        const data = await response.json();
-        const branchList = data.branches || [];
-        setBranches(branchList);
-        if (branchList.length > 0 && !branchList.includes(formBranch)) {
-          setFormBranch(branchList[0]);
-        }
-      } else {
-        setBranches([]);
-      }
-    } catch (err) {
-      console.error('Failed to fetch branches:', err);
-      setBranches([]);
-    } finally {
-      setLoadingBranches(false);
-    }
-  }
-
-  async function fetchDirectories() {
-    if (!formRepoUrl.trim() || !formRepoUrl.includes('github.com') || !formBranch) {
-      setDirectories([]);
-      return;
-    }
-    setLoadingDirectories(true);
-    try {
-      const response = await fetch('/api/github/directories', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ repoUrl: formRepoUrl, branch: formBranch })
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setDirectories(data.directories || []);
-      } else {
-        setDirectories([]);
-      }
-    } catch (err) {
-      console.error('Failed to fetch directories:', err);
-      setDirectories([]);
-    } finally {
-      setLoadingDirectories(false);
     }
   }
 

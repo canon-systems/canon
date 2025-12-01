@@ -88,7 +88,7 @@ export async function POST(request: NextRequest) {
         } else {
           fileShas[filePath] = existingFileShas[filePath] || null;
         }
-      } catch (e) {
+      } catch {
         fileShas[filePath] = existingFileShas[filePath] || null;
       }
     }

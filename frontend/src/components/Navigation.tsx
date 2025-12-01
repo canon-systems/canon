@@ -18,7 +18,6 @@ import {
   LogOut,
   ChevronDown,
   Zap,
-  Github,
 } from 'lucide-react';
 import type { Session, User } from '@supabase/supabase-js';
 
