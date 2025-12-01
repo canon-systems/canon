@@ -44,8 +44,6 @@ export function RootLayoutClient({
     }
   }
 
-  const currentYear = new Date().getFullYear();
-
   return (
     <div className="app-shell">
       <div className="app-shell__backdrop" aria-hidden="true">
@@ -57,11 +55,6 @@ export function RootLayoutClient({
 
         <div className="app-layout__main">
           <main className="app-main">{children}</main>
-          <footer className="app-footer">
-            <div className="page-shell app-footer__content">
-              <span>&copy; {currentYear} CodeSense. Built for teams who value clarity and signal.</span>
-            </div>
-          </footer>
         </div>
       </div>
     </div>

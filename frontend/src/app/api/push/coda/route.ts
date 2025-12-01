@@ -63,20 +63,15 @@ export async function POST(request: NextRequest) {
     let attemptedUpdate = false;
 
     if (docId && !forceNew) {
-      const { data: existingSubmission } = await supabase
-        .from('submissions')
-        .select('source_meta')
+      const { data: existingDocument } = await supabase
+        .from('documents')
+        .select('kb_id, kb_provider')
         .eq('id', docId)
         .single();
 
-      const existingMeta = existingSubmission?.source_meta || {};
-      const pushMeta = existingMeta.push_metadata;
-
       // Check if this doc was previously pushed to Coda
-      if (pushMeta?.provider === 'coda' && pushMeta?.resource_id) {
-        existingResourceId = pushMeta.resource_id;
-        existingUrl = pushMeta.url || null;
-        existingMetadata = pushMeta.metadata || undefined;
+      if (existingDocument?.kb_provider === 'coda' && existingDocument?.kb_id) {
+        existingResourceId = existingDocument.kb_id;
         createNew = false; // Try to update instead of create
         attemptedUpdate = true;
         console.log(`[Coda Push] Attempting to update existing page ${existingResourceId} for doc ${docId}`);
@@ -133,27 +128,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to push to Coda' }, { status: 500 });
     }
 
-    // Update submission with push metadata
+    // Update document with push metadata
     if (docId) {
-      const { data: currentSubmission } = await supabase
-        .from('submissions')
-        .select('source_meta')
-        .eq('id', docId)
-        .single();
-
-      const existingMeta = currentSubmission?.source_meta || {};
-      existingMeta.push_metadata = {
-        provider: 'coda',
-        pushed_at: new Date().toISOString(),
-        resource_id: pushResult.resourceId,
-        url: pushResult.metadata?.url || null,
-        metadata: pushResult.metadata,
-      };
-
       await supabase
-        .from('submissions')
+        .from('documents')
         .update({
-          source_meta: existingMeta,
+          kb_provider: 'coda',
+          kb_id: pushResult.resourceId,
           updated_at: new Date().toISOString(),
         })
         .eq('id', docId);

@@ -21,42 +21,84 @@ function parseRepoUrl(repoUrl: string): { owner: string; repo: string } | null {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}));
-    const submissionId = body.submissionId;
+    // Support both documentId and submissionId for backward compatibility
+    const documentId = body.documentId || body.submissionId;
 
-    if (!submissionId) {
-      return NextResponse.json({ error: 'submissionId required' }, { status: 400 });
+    if (!documentId) {
+      return NextResponse.json({ error: 'documentId required' }, { status: 400 });
     }
 
     const supabase = await createClient();
     const { user } = await getSession();
 
-    // Load the submission
-    const { data: submission, error: subErr } = await supabase
-      .from('submissions')
-      .select('*')
-      .eq('id', submissionId)
+    // Load the document
+    const { data: document, error: docErr } = await supabase
+      .from('documents')
+      .select('id, repo_id')
+      .eq('id', documentId)
       .single();
 
-    if (subErr || !submission) {
+    if (docErr || !document) {
       return NextResponse.json(
-        { error: 'Submission not found', details: subErr?.message },
+        { error: 'Document not found', details: docErr?.message },
         { status: 404 }
       );
     }
 
-    if (!submission.source_meta?.repoUrl) {
+    // Get repo details
+    const { data: repo, error: repoErr } = await supabase
+      .from('workspace_repos')
+      .select('repo_url, default_branch, workspace_id')
+      .eq('id', document.repo_id)
+      .single();
+
+    if (repoErr || !repo) {
       return NextResponse.json(
-        { error: 'Submission has no repoUrl (not a repository-based submission)' },
-        { status: 400 }
+        { error: 'Repository not found', details: repoErr?.message },
+        { status: 404 }
       );
     }
 
-    const repoUrl = submission.source_meta.repoUrl;
-    const branch = submission.source_meta.branch || 'main';
-    const trackedFiles = submission.selected_files || [];
-    const codeSnapshot = submission.code_snapshot || {};
-    const storedFileShas = codeSnapshot.fileShas || {};
-    const storedCommitSha = codeSnapshot.commitSha;
+    // Verify user has access
+    if (repo.workspace_id !== user?.id) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 403 }
+      );
+    }
+
+    const repoUrl = repo.repo_url;
+    const branch = repo.default_branch || 'main';
+
+    // Get tracked files from document_files
+    const { data: documentFiles } = await supabase
+      .from('document_files')
+      .select('file_path')
+      .eq('document_id', documentId);
+
+    const trackedFiles = (documentFiles || []).map(df => df.file_path);
+
+    // Normalize repo URL for repo_file_summaries lookup
+    function normalizeRepoId(url: string): string {
+      const parsed = parseRepoUrl(url);
+      if (!parsed) return '';
+      return `github.com/${parsed.owner}/${parsed.repo}`;
+    }
+
+    const normalizedRepoId = normalizeRepoId(repoUrl);
+
+    // Get stored file hashes from repo_file_summaries
+    const { data: summaries } = await supabase
+      .from('repo_file_summaries')
+      .select('file_path, file_hash')
+      .ilike('repo_id', normalizedRepoId)
+      .eq('branch', branch)
+      .in('file_path', trackedFiles);
+
+    const storedFileShas: Record<string, string | null> = {};
+    summaries?.forEach(s => {
+      storedFileShas[s.file_path] = s.file_hash;
+    });
 
     // If no tracked files, can't determine outdated status
     if (trackedFiles.length === 0) {
@@ -96,14 +138,38 @@ export async function POST(request: NextRequest) {
     });
     const latestCommitSha = branchData.commit.sha;
 
+    // Get latest document version to find stored commit SHA if available
+    const { data: latestVersion } = await supabase
+      .from('document_versions')
+      .select('created_at')
+      .eq('document_id', documentId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
     // Detect renames using GitHub's compareCommits API
+    // Note: We don't store commit SHA in the new schema, so we'll compare against a reasonable time window
     let renamedFiles: Array<{ old_path: string; new_path: string }> = [];
-    if (storedCommitSha && storedCommitSha !== latestCommitSha) {
-      try {
+    
+    // Try to detect renames by comparing current state
+    // This is a simplified approach - in production you might want to store commit SHA in document_versions
+    try {
+      // Get recent commits to find a base commit
+      const { data: recentCommits } = await octokit.repos.listCommits({
+        owner: repoInfo.owner,
+        repo: repoInfo.repo,
+        sha: branch,
+        per_page: 10,
+      });
+
+      if (recentCommits && recentCommits.length > 0) {
+        const baseCommitSha = recentCommits[recentCommits.length - 1].sha;
+        
+        if (baseCommitSha !== latestCommitSha) {
         const { data: compareData } = await octokit.repos.compareCommits({
           owner: repoInfo.owner,
           repo: repoInfo.repo,
-          base: storedCommitSha,
+            base: baseCommitSha,
           head: latestCommitSha,
         });
 
@@ -128,26 +194,40 @@ export async function POST(request: NextRequest) {
         if (renamedFiles.length > 0) {
           await updateTrackedFilesForRenames(
             supabase,
-            submissionId,
+              documentId,
             renamedFiles
           );
+          }
+        }
         }
       } catch (e) {
         console.error('Error detecting renames:', e);
         // Continue with file hash comparison even if rename detection fails
       }
-    }
 
-    // Reload submission to get updated tracked files after rename handling
-    const { data: updatedSubmission } = await supabase
-      .from('submissions')
-      .select('selected_files, code_snapshot')
-      .eq('id', submissionId)
-      .single();
+    // Reload document files to get updated tracked files after rename handling
+    const { data: updatedDocumentFiles } = await supabase
+      .from('document_files')
+      .select('file_path')
+      .eq('document_id', documentId);
     
     // Use updated files if renames occurred, otherwise use original
-    const filesToCheck = updatedSubmission?.selected_files || trackedFiles;
-    const fileShasToCheck = updatedSubmission?.code_snapshot?.fileShas || storedFileShas;
+    const filesToCheck = (updatedDocumentFiles || []).map(df => df.file_path);
+    
+    // Reload file hashes for updated files
+    const { data: updatedSummaries } = filesToCheck.length > 0
+      ? await supabase
+          .from('repo_file_summaries')
+          .select('file_path, file_hash')
+          .ilike('repo_id', normalizedRepoId)
+          .eq('branch', branch)
+          .in('file_path', filesToCheck)
+      : { data: null };
+    
+    const fileShasToCheck: Record<string, string | null> = {};
+    updatedSummaries?.forEach(s => {
+      fileShasToCheck[s.file_path] = s.file_hash;
+    });
 
     // File-level check: Compare hashes of tracked files only
     const changedFiles: Array<{ file_path: string; old_hash: string; new_hash: string }> = [];
@@ -201,14 +281,9 @@ export async function POST(request: NextRequest) {
     // Outdated = any tracked file's hash changed
     const isOutdated = changedFiles.length > 0;
 
-    // Update is_outdated based on file-level comparison
-    await supabase
-      .from('submissions')
-      .update({
-        is_outdated: isOutdated,
-        last_checked_at: new Date().toISOString()
-      })
-      .eq('id', submissionId);
+    // Note: Documents table doesn't have is_outdated field in the new schema
+    // This information would need to be stored elsewhere or calculated on-demand
+    // For now, we just return the status without storing it
 
     return NextResponse.json({
       outdated: isOutdated,

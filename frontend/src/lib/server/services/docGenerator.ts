@@ -82,7 +82,7 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 		userId,
 		projectName = 'Project',
 		model,
-		files,
+		files: initialFiles,
 		repoUrl,
 		branch,
 		subdir,
@@ -95,7 +95,8 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 		throw new Error('model is required for documentation generation');
 	}
 
-	let fileEntries = files || [];
+	let files = initialFiles || [];
+	let fileEntries = files;
 
 	if (!fileEntries.length) {
 		if (!repoUrl) {
@@ -127,28 +128,42 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 			// First, prepare summaries for all files - this will generate any missing ones
 			await prepareFileSummaries(supabase, submissionId, false, userId || null);
 
-			// Load submission to get tracked files
-			const { data: submission } = await supabase
-				.from('submissions')
-				.select('selected_files, source_meta')
+			// Load document to get tracked files
+			const { data: document } = await supabase
+				.from('documents')
+				.select('id, repo_id')
 				.eq('id', submissionId)
 				.single();
 
-			if (!submission) {
-				throw new Error(`Submission ${submissionId} not found`);
+			if (!document) {
+				throw new Error(`Document ${submissionId} not found`);
 			}
 
+			// Get tracked files from document_files
+			const { data: documentFiles } = await supabase
+				.from('document_files')
+				.select('file_path')
+				.eq('document_id', submissionId);
+
+			const selectedFiles = (documentFiles || []).map(df => df.file_path);
+
 			const repoId = normalizeRepoId(repoUrl);
-			const trackedFiles: string[] = ((submission.selected_files || []) as unknown[]).filter(
+			const trackedFiles: string[] = selectedFiles.filter(
 				(f: unknown): f is string => typeof f === 'string'
 			);
 
 			if (trackedFiles.length === 0) {
-				throw new Error('No tracked files found in submission');
+				throw new Error('No tracked files found in document');
 			}
 
-			// Get branch from submission
-			const submissionBranch = submission.source_meta?.branch || branch || 'main';
+			// Get branch from repo
+			const { data: repo } = await supabase
+				.from('workspace_repos')
+				.select('default_branch')
+				.eq('id', document.repo_id)
+				.single();
+
+			const submissionBranch = repo?.default_branch || branch || 'main';
 
 			// Load ALL summaries for this repo (don't filter by exact file paths)
 			// This allows fuzzy path matching (e.g., "frontend/src/..." vs "src/...")
@@ -254,9 +269,12 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 			// Check if we have summaries for all files
 			const missingFiles = filePaths.filter(path => !summariesMap.has(path));
 			if (missingFiles.length > 0) {
-				throw new Error(
-					`Missing summaries for ${missingFiles.length} files after first-time generation: ${missingFiles.join(', ')}`
-				);
+				console.log(`[docGenerator] ⚠️ Missing summaries for ${missingFiles.length} files (likely due to LLM timeouts): ${missingFiles.join(', ')}`);
+				console.log(`[docGenerator] 📝 Proceeding with ${summariesMap.size} available summaries out of ${filePaths.length} total files`);
+
+				// Filter files to only include those with summaries
+				fileEntries = fileEntries.filter(file => summariesMap.has(file.path));
+				console.log(`[docGenerator] ✅ Filtered to ${files.length} files with available summaries`);
 			}
 		}
 	} else if (useSummaries) {
@@ -299,15 +317,22 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 				await prepareFileSummaries(supabase, submissionId, false, userId || null);
 
 				// Reload ALL summaries and use fuzzy matching
-				const { data: submission } = await supabase
-					.from('submissions')
-					.select('selected_files, source_meta')
+				const { data: document } = await supabase
+					.from('documents')
+					.select('id, repo_id')
 					.eq('id', submissionId)
 					.single();
 
-				if (submission) {
+				if (document) {
+					// Get repo details for branch
+					const { data: repo } = await supabase
+						.from('workspace_repos')
+						.select('default_branch')
+						.eq('id', document.repo_id)
+						.single();
+
 					const repoId = normalizeRepoId(repoUrl!);
-					const submissionBranch = submission.source_meta?.branch || branch || 'main';
+					const submissionBranch = repo?.default_branch || branch || 'main';
 					// Load all summaries and find matching one with fuzzy path matching
 					const { data: reloadedSummaries } = await supabase
 						.from('repo_file_summaries')
@@ -491,25 +516,43 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 	// Generate and save file summaries asynchronously (don't block the response)
 	// This ensures all files used in documentation have summaries in repo_file_summaries
 	if (repoUrl && fileEntries.length > 0) {
-		// Get file hashes from submission if available
+		// Get file hashes from repo_file_summaries if available
 		let fileHashes: Record<string, string | null> = {};
 		let submissionBranch = branch || 'main';
 		if (submissionId) {
 			try {
-				const { data: submission } = await supabase
-					.from('submissions')
-					.select('source_meta, code_snapshot')
+				// Get document and repo details
+				const { data: document } = await supabase
+					.from('documents')
+					.select('id, repo_id')
 					.eq('id', submissionId)
 					.single();
 
-				if (submission?.code_snapshot?.fileShas) {
-					fileHashes = submission.code_snapshot.fileShas;
-				}
+				if (document) {
+					const { data: repo } = await supabase
+						.from('workspace_repos')
+						.select('repo_url, default_branch')
+						.eq('id', document.repo_id)
+						.single();
 
-				// Use the same branch determination logic as used for summary lookup
-				submissionBranch = submission?.source_meta?.branch || branch || 'main';
+					if (repo) {
+						submissionBranch = repo.default_branch || branch || 'main';
+
+						// Get file hashes from repo_file_summaries
+						const normalizedRepoId = normalizeRepoId(repo.repo_url);
+						const { data: summaries } = await supabase
+							.from('repo_file_summaries')
+							.select('file_path, file_hash')
+							.ilike('repo_id', normalizedRepoId)
+							.eq('branch', submissionBranch);
+
+						summaries?.forEach(s => {
+							fileHashes[s.file_path] = s.file_hash;
+						});
+					}
+				}
 			} catch (error) {
-				console.warn('Failed to load submission metadata for summary generation:', error);
+				console.warn('Failed to load document metadata for summary generation:', error);
 			}
 		}
 

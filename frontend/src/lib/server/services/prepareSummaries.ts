@@ -40,76 +40,79 @@ function normalizeFilePath(filePath?: string | null): string {
 }
 
 /**
- * Prepare file summaries for a submission
+ * Prepare file summaries for a document
  * Returns counts of files prepared, updated, and skipped
  * 
  * OPTIMIZED: Uses bulk queries and parallel processing for speed
  */
 export async function prepareFileSummaries(
 	supabase: SupabaseClient,
-	submissionId: string,
+	documentId: string,
 	regenerateAll: boolean = false,
 	userId?: string | null,
 	onFileProgress?: (filePath: string, status: 'processing' | 'completed' | 'skipped' | 'failed', error?: string) => void
 ): Promise<{ filesPrepared: number; filesUpdated: number; filesSkipped: number }> {
 	const startTime = Date.now();
-	
-	// Load submission
-	const { data: submission, error: subError } = await supabase
-		.from('submissions')
-		.select('*')
-		.eq('id', submissionId)
+
+	// Load document
+	const { data: document, error: docError } = await supabase
+		.from('documents')
+		.select('id, repo_id')
+		.eq('id', documentId)
 		.single();
 
-	if (subError || !submission) {
-		throw new Error(`Submission not found: ${submissionId}`);
+	if (docError || !document) {
+		throw new Error(`Document not found: ${documentId}`);
 	}
 
-	const sourceMeta = submission.source_meta || {};
-	const repoUrl = sourceMeta.repoUrl;
+	// Get repo details to get repo_url and branch
+	const { data: repo, error: repoError } = await supabase
+		.from('workspace_repos')
+		.select('repo_url, default_branch')
+		.eq('id', document.repo_id)
+		.single();
 
-	if (!repoUrl) {
-		throw new Error('Submission must have a repoUrl in source_meta');
+	if (repoError || !repo) {
+		throw new Error(`Repository not found for document: ${documentId}`);
 	}
 
+	const repoUrl = repo.repo_url;
+	const branch = repo.default_branch || 'main';
 	const repoId = normalizeRepoId(repoUrl);
-	const branch = sourceMeta.branch || 'main';
 
-	// Load tracked files from submission_files
-	const { data: submissionFiles, error: filesError } = await supabase
-		.from('submission_files')
-		.select('file_path, file_hash')
-		.eq('submission_id', submissionId);
+	// Load tracked files from document_files
+	const { data: documentFiles, error: filesError } = await supabase
+		.from('document_files')
+		.select('file_path')
+		.eq('document_id', documentId);
 
 	if (filesError) {
-		throw new Error(`Failed to load submission files: ${filesError.message}`);
+		throw new Error(`Failed to load document files: ${filesError.message}`);
 	}
 
-	// If submission_files is empty, fallback to selected_files from submissions table
+	// Get file hashes from repo_file_summaries
 	let filesToProcess: Array<{ file_path: string; file_hash: string | null }> = [];
 
-	if (!submissionFiles || submissionFiles.length === 0) {
-		// Fallback: use selected_files from submissions table and code_snapshot for hashes
-		const selectedFiles = submission.selected_files || [];
-		const codeSnapshot = submission.code_snapshot || {};
-		const fileShas = codeSnapshot.fileShas || {};
-
-		if (selectedFiles.length === 0) {
+	if (!documentFiles || documentFiles.length === 0) {
 			return { filesPrepared: 0, filesUpdated: 0, filesSkipped: 0 };
 		}
 
-		// Convert selected_files to the same format as submission_files
-		filesToProcess = selectedFiles.map((filePath: string) => ({
-			file_path: filePath,
-			file_hash: fileShas[filePath] || null,
-		}));
+	// Get hashes for these files from repo_file_summaries
+	const filePaths = documentFiles.map(df => df.file_path);
+	const { data: summaries } = await supabase
+		.from('repo_file_summaries')
+		.select('file_path, file_hash')
+		.ilike('repo_id', repoId)
+		.eq('branch', branch)
+		.in('file_path', filePaths);
 
-		console.log(
-			`[prepareFileSummaries] Using ${filesToProcess.length} files from selected_files`
-		);
-	} else {
-		filesToProcess = submissionFiles;
-	}
+	const hashMap = new Map<string, string | null>();
+	summaries?.forEach(s => hashMap.set(s.file_path, s.file_hash));
+
+	filesToProcess = documentFiles.map(df => ({
+		file_path: df.file_path,
+		file_hash: hashMap.get(df.file_path) || null,
+	}));
 
 	// OPTIMIZATION: Bulk load ALL existing summaries in ONE query
 	console.log(`[prepareFileSummaries] Bulk loading existing summaries for ${filesToProcess.length} files...`);
@@ -131,7 +134,7 @@ export async function prepareFileSummaries(
 
 	for (const submissionFile of filesToProcess) {
 		const existingHash = existingSummaryMap.get(submissionFile.file_path);
-		
+
 		if (!regenerateAll && existingHash !== undefined && existingHash === submissionFile.file_hash) {
 			// Summary exists with matching hash - skip
 			filesSkipped++;
@@ -143,18 +146,10 @@ export async function prepareFileSummaries(
 		}
 	}
 
-	console.log(`[prepareFileSummaries] ========== SUMMARY ANALYSIS ==========`);
-	console.log(`[prepareFileSummaries] Total tracked files: ${filesToProcess.length}`);
-	console.log(`[prepareFileSummaries] Already cached (unchanged): ${filesSkipped}`);
-	console.log(`[prepareFileSummaries] Need generation (new/changed): ${filesToGenerate.length}`);
-	if (filesToGenerate.length > 0) {
-		console.log(`[prepareFileSummaries] Files to generate: ${filesToGenerate.map(f => f.file_path).join(', ')}`);
-	}
-	console.log(`[prepareFileSummaries] ======================================`);
+	console.log(`[prepareFileSummaries] 📊 Summary: ${filesToProcess.length} tracked files, ${filesSkipped} cached, ${filesToGenerate.length} need generation`);
 
 	if (filesToGenerate.length === 0) {
-		console.log(`[prepareFileSummaries] ✓ All files already have up-to-date summaries - no generation needed`);
-		console.log(`[prepareFileSummaries] Total time: ${Date.now() - startTime}ms`);
+		console.log(`[prepareFileSummaries] ✅ All files already have up-to-date summaries`);
 		return {
 			filesPrepared: filesToProcess.length,
 			filesUpdated: 0,
@@ -188,18 +183,15 @@ export async function prepareFileSummaries(
 	// OPTIMIZATION: Process files in parallel batches
 	const PARALLEL_BATCH_SIZE = 5; // Process 5 files at a time
 	const batches: Array<Array<{ file_path: string; file_hash: string | null }>> = [];
-	
+
 	for (let i = 0; i < filesToGenerate.length; i += PARALLEL_BATCH_SIZE) {
 		batches.push(filesToGenerate.slice(i, i + PARALLEL_BATCH_SIZE));
 	}
 
-	console.log(`[prepareFileSummaries] Processing ${filesToGenerate.length} files in ${batches.length} parallel batches...`);
+	console.log(`[prepareFileSummaries] 🔄 Processing ${filesToGenerate.length} files in ${batches.length} batches...`);
 
-	let batchIndex = 0;
 	for (const batch of batches) {
-		batchIndex++;
-		console.log(`[prepareFileSummaries] Processing batch ${batchIndex}/${batches.length} (${batch.length} files)...`);
-		
+
 		const batchResults = await Promise.allSettled(
 			batch.map(async (submissionFile) => {
 				const filePath = submissionFile.file_path;
@@ -237,7 +229,7 @@ export async function prepareFileSummaries(
 						p_summary_json: summary.summary_json,
 						p_summary_model: 'gpt-4o-mini',
 						p_user_id: userId || null,
-						p_submission_id: submissionId || null,
+						// p_submission_id omitted - submissions table no longer exists
 						p_branch: branch,
 					});
 
@@ -247,7 +239,20 @@ export async function prepareFileSummaries(
 
 					return { filePath, success: true };
 				} catch (error: any) {
-					return { filePath, success: false, error: error?.message || String(error) };
+					let errorMessage = error?.message || String(error);
+
+					// Provide more user-friendly error messages
+					if (errorMessage.includes('rate limit')) {
+						errorMessage = 'GitHub API rate limit exceeded';
+					} else if (errorMessage.includes('timeout')) {
+						errorMessage = 'Request timed out';
+					} else if (errorMessage.includes('authentication') || errorMessage.includes('token')) {
+						errorMessage = 'Authentication failed';
+					} else if (errorMessage.includes('LLM') || errorMessage.includes('model')) {
+						errorMessage = 'AI model error - check API configuration';
+					}
+
+					return { filePath, success: false, error: errorMessage };
 				}
 			})
 		);
@@ -258,11 +263,10 @@ export async function prepareFileSummaries(
 				const { filePath, success, error } = result.value;
 				if (success) {
 					filesUpdated++;
-					console.log(`[prepareFileSummaries] ✓ Generated summary for ${filePath}`);
 					onFileProgress?.(filePath, 'completed');
 				} else {
 					failedFiles.push({ path: filePath, error: error || 'Unknown error' });
-					console.error(`[prepareFileSummaries] ✗ Failed to generate summary for ${filePath}: ${error}`);
+					console.error(`[prepareFileSummaries] ❌ Failed: ${filePath} - ${error}`);
 					onFileProgress?.(filePath, 'failed', error);
 				}
 			} else {
@@ -272,7 +276,14 @@ export async function prepareFileSummaries(
 		}
 	}
 
-	console.log(`[prepareFileSummaries] Completed. Updated: ${filesUpdated}, Skipped: ${filesSkipped}, Failed: ${failedFiles.length}. Total time: ${Date.now() - startTime}ms`);
+	console.log(`[prepareFileSummaries] ✅ Completed: ${filesUpdated} updated, ${filesSkipped} skipped${failedFiles.length > 0 ? `, ${failedFiles.length} failed` : ''}`);
+
+	if (failedFiles.length > 0) {
+		console.log(`[prepareFileSummaries] ❌ Failed files:`);
+		failedFiles.forEach(failure => {
+			console.log(`   • ${failure.path}: ${failure.error}`);
+		});
+	}
 
 	return {
 		filesPrepared: filesToProcess.length,
@@ -294,54 +305,43 @@ export async function generateAndSaveFileSummaries(
 	userId?: string | null,
 	model: string = 'gpt-4o-mini',
 	submissionId?: string | null,
-	branch: string = 'main'
+	branch: string = 'main',
+	onProgress?: (processed: number, total: number, currentFile?: string, status?: string, progressPercent?: number, processingRate?: number, estimatedTimeRemaining?: number, recentFiles?: any[]) => Promise<void>
 ): Promise<{ filesProcessed: number; filesUpdated: number; filesSkipped: number }> {
-	console.log(`[generateAndSaveFileSummaries] CALLED: repoUrl="${repoUrl}", branch="${branch}", files=${files?.length || 0}`);
-
 	if (!repoUrl) {
 		throw new Error('repoUrl is required');
 	}
 
 	if (!files || files.length === 0) {
-		console.log(`[generateAndSaveFileSummaries] EARLY RETURN: no files to process`);
+		console.log(`[generateAndSaveFileSummaries] No files to process`);
 		return { filesProcessed: 0, filesUpdated: 0, filesSkipped: 0 };
 	}
 
 	const repoId = normalizeRepoId(repoUrl);
-	console.log(`[generateAndSaveFileSummaries] Normalized repoId="${repoId}" from repoUrl="${repoUrl}"`);
+	console.log(`[generateAndSaveFileSummaries] Processing ${files.length} files for ${repoId} (${branch})`);
+
 	let filesUpdated = 0;
 	let filesSkipped = 0;
 	let filesProcessed = 0;
 
-	// BULK LOAD all existing summaries for this repo/branch at once
-	// Use service role client to bypass RLS policies
+	// Load existing summaries for this repo/branch
 	const serviceClient = createServiceRoleClient();
-	console.log(`[generateAndSaveFileSummaries] DEBUG: Loading summaries for repoId="${repoId}", branch="${branch}"`);
 	let { data: existingSummaries } = await serviceClient
 		.from('repo_file_summaries')
 		.select('file_path, file_hash')
 		.ilike('repo_id', repoId)
 		.eq('branch', branch);
 
-	console.log(`[generateAndSaveFileSummaries] DEBUG: Found ${existingSummaries?.length || 0} existing summaries for branch "${branch}"`);
-
 	// If no summaries found for the current branch, try to find summaries from any branch
-	// This handles cases where repo.default_branch changed or summaries were created with different branches
 	if ((!existingSummaries || existingSummaries.length === 0) && branch !== 'main') {
-		console.log(`[generateAndSaveFileSummaries] DEBUG: No summaries found for branch "${branch}", trying any branch...`);
 		const { data: fallbackSummaries } = await serviceClient
 			.from('repo_file_summaries')
 			.select('file_path, file_hash')
 			.ilike('repo_id', repoId);
 
 		if (fallbackSummaries && fallbackSummaries.length > 0) {
-			console.log(`[generateAndSaveFileSummaries] DEBUG: Found ${fallbackSummaries.length} summaries from any branch, using them`);
 			existingSummaries = fallbackSummaries;
 		}
-	}
-
-	if (existingSummaries && existingSummaries.length > 0) {
-		console.log(`[generateAndSaveFileSummaries] DEBUG: Sample existing paths:`, existingSummaries.slice(0, 3).map(s => s.file_path));
 	}
 
 	// Create a lookup map for fast checking (normalize paths for consistent matching)
@@ -351,10 +351,18 @@ export async function generateAndSaveFileSummaries(
 		existingSummaryMap.set(normalizedPath, summary.file_hash);
 	}
 
-	console.log(`[generateAndSaveFileSummaries] DEBUG: Created lookup map with ${existingSummaryMap.size} entries`);
+	console.log(`[generateAndSaveFileSummaries] Found ${existingSummaryMap.size} cached summaries, processing ${files.length} files...`);
 
-	// Process files in parallel batches to avoid blocking, but limit concurrency
-	console.log(`[generateAndSaveFileSummaries] Starting to process ${files.length} files...`);
+	// Track recent files for progress updates
+	const recentFiles: Array<{ path: string; status: 'completed' | 'skipped' | 'processing'; timestamp: number }> = [];
+	let processingStartTime = Date.now();
+	let filesProcessedSinceStart = 0;
+
+	// Initial progress update
+	if (onProgress) {
+		await onProgress(0, files.length, undefined, 'starting', 0, 0, undefined, []);
+	}
+
 	const BATCH_SIZE = 5;
 	const batches: Array<Array<{ path: string; content: string; hash?: string | null }>> = [];
 	for (let i = 0; i < files.length; i += BATCH_SIZE) {
@@ -363,6 +371,16 @@ export async function generateAndSaveFileSummaries(
 
 	// Process batches sequentially, but files within each batch in parallel
 	for (const batch of batches) {
+		// Update progress before starting batch
+		const progressPercent = Math.min(95, 20 + ((filesProcessed + filesSkipped) / files.length) * 75);
+		const processingRate = filesProcessedSinceStart > 0 ? (filesProcessedSinceStart / ((Date.now() - processingStartTime) / 1000 / 60)) : 0;
+		const remainingFiles = files.length - (filesProcessed + filesSkipped);
+		const estimatedTimeRemaining = processingRate > 0 ? (remainingFiles / processingRate) * 60 : undefined;
+
+		if (onProgress) {
+			await onProgress(filesProcessed + filesSkipped, files.length, batch[0]?.path, 'processing_batch', progressPercent, processingRate, estimatedTimeRemaining, [...recentFiles]);
+		}
+
 		await Promise.all(
 			batch.map(async (file) => {
 				const filePath = file.path;
@@ -375,26 +393,55 @@ export async function generateAndSaveFileSummaries(
 				}
 
 				filesProcessed++;
+				filesProcessedSinceStart++;
+
+				// Update recent files
+				const existingIndex = recentFiles.findIndex(f => f.path === filePath);
+				if (existingIndex >= 0) {
+					recentFiles.splice(existingIndex, 1);
+				}
+				recentFiles.unshift({
+					path: filePath,
+					status: 'processing' as const,
+					timestamp: Date.now()
+				});
+				if (recentFiles.length > 10) {
+					recentFiles.splice(10);
+				}
+
+				// Update progress for current file
+				const currentProgressPercent = Math.min(95, 20 + ((filesProcessed + filesSkipped) / files.length) * 75);
+				const currentProcessingRate = filesProcessedSinceStart > 0 ? (filesProcessedSinceStart / ((Date.now() - processingStartTime) / 1000 / 60)) : 0;
+				const currentRemainingFiles = files.length - (filesProcessed + filesSkipped);
+				const currentEstimatedTimeRemaining = currentProcessingRate > 0 ? (currentRemainingFiles / currentProcessingRate) * 60 : undefined;
+
+				if (onProgress) {
+					await onProgress(filesProcessed + filesSkipped, files.length, filePath, 'processing_file', currentProgressPercent, currentProcessingRate, currentEstimatedTimeRemaining, [...recentFiles]);
+				}
 
 				try {
 					// Check if summary exists and hash matches using bulk-loaded map
 					const normalizedFilePath = normalizeFilePath(filePath);
 					const existingHash = existingSummaryMap.get(normalizedFilePath);
 
-					if (filesProcessed <= 5) { // Debug first 5 files
-						console.log(`[generateAndSaveFileSummaries] DEBUG: File "${filePath}" -> normalized "${normalizedFilePath}", currentHash="${fileHash?.substring(0, 8)}...", existingHash="${existingHash?.substring(0, 8)}..."`);
-					}
-
 					if (existingHash !== undefined && existingHash === fileHash) {
 						filesSkipped++;
-						if (filesProcessed <= 5) {
-							console.log(`[generateAndSaveFileSummaries] DEBUG: SKIPPING ${filePath} - hash matches`);
+						// Update recent files status
+						const fileIndex = recentFiles.findIndex(f => f.path === filePath);
+						if (fileIndex >= 0) {
+							recentFiles[fileIndex].status = 'skipped';
+						}
+
+						// Update progress for skipped file
+						const skippedProgressPercent = Math.min(95, 20 + ((filesProcessed + filesSkipped) / files.length) * 75);
+						const skippedProcessingRate = filesProcessedSinceStart > 0 ? (filesProcessedSinceStart / ((Date.now() - processingStartTime) / 1000 / 60)) : 0;
+						const skippedRemainingFiles = files.length - (filesProcessed + filesSkipped);
+						const skippedEstimatedTimeRemaining = skippedProcessingRate > 0 ? (skippedRemainingFiles / skippedProcessingRate) * 60 : undefined;
+
+						if (onProgress) {
+							await onProgress(filesProcessed + filesSkipped, files.length, filePath, 'file_skipped', skippedProgressPercent, skippedProcessingRate, skippedEstimatedTimeRemaining, [...recentFiles]);
 						}
 						return;
-					}
-
-					if (filesProcessed <= 5) {
-						console.log(`[generateAndSaveFileSummaries] DEBUG: GENERATING ${filePath} - ${existingHash === undefined ? 'no existing summary' : 'hash mismatch'}`);
 					}
 
 					// Generate summary
@@ -412,7 +459,7 @@ export async function generateAndSaveFileSummaries(
 						p_summary_json: summary.summary_json,
 						p_summary_model: model,
 						p_user_id: userId || null,
-						p_submission_id: submissionId || null,
+						// p_submission_id omitted - submissions table no longer exists
 						p_branch: branch,
 					});
 
@@ -422,6 +469,22 @@ export async function generateAndSaveFileSummaries(
 					}
 
 					filesUpdated++;
+
+					// Update recent files status
+					const fileIndex = recentFiles.findIndex(f => f.path === filePath);
+					if (fileIndex >= 0) {
+						recentFiles[fileIndex].status = 'completed';
+					}
+
+					// Update progress for completed file
+					const completedProgressPercent = Math.min(95, 20 + ((filesProcessed + filesSkipped) / files.length) * 75);
+					const completedProcessingRate = filesProcessedSinceStart > 0 ? (filesProcessedSinceStart / ((Date.now() - processingStartTime) / 1000 / 60)) : 0;
+					const completedRemainingFiles = files.length - (filesProcessed + filesSkipped);
+					const completedEstimatedTimeRemaining = completedProcessingRate > 0 ? (completedRemainingFiles / completedProcessingRate) * 60 : undefined;
+
+					if (onProgress) {
+						await onProgress(filesProcessed + filesSkipped, files.length, filePath, 'file_completed', completedProgressPercent, completedProcessingRate, completedEstimatedTimeRemaining, [...recentFiles]);
+					}
 				} catch (error: any) {
 					console.error(`Error generating summary for ${filePath}:`, error);
 					// Continue processing other files
@@ -430,7 +493,7 @@ export async function generateAndSaveFileSummaries(
 		);
 	}
 
-	console.log(`[generateAndSaveFileSummaries] COMPLETED: processed=${files.length}, updated=${filesUpdated}, skipped=${filesSkipped}`);
+	console.log(`[generateAndSaveFileSummaries] ✅ Completed: ${filesUpdated} generated, ${filesSkipped} cached, ${files.length} total files`);
 
 	return {
 		filesProcessed: files.length,

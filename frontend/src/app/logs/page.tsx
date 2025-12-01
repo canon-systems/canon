@@ -12,12 +12,21 @@ export default async function LogsPage() {
 
   const supabase = await createClient();
 
-  // Get all submissions with their status history
-  const { data: submissions, error: submissionsError } = await supabase
-    .from('submissions')
-    .select('id, created_at, status, error_message, title, input_type, last_checked_at, is_outdated, source_meta')
+  // Get all documents (replaced submissions)
+  const { data: userRepos } = await supabase
+    .from('workspace_repos')
+    .select('id')
+    .eq('workspace_id', user.id);
+
+  const repoIds = userRepos?.map(r => r.id) || [];
+  const { data: documents, error: documentsError } = repoIds.length > 0
+    ? await supabase
+      .from('documents')
+      .select('id, created_at, updated_at, title, repo_id')
+      .in('repo_id', repoIds)
     .order('created_at', { ascending: false })
-    .limit(100);
+      .limit(100)
+    : { data: null, error: null };
 
   // Get architecture diagram updates for current user
   const { data: diagrams, error: diagramsError } = await supabase
@@ -73,77 +82,56 @@ export default async function LogsPage() {
     };
   }> = [];
 
-  // Add submission entries
-  if (submissions) {
-    submissions.forEach((sub) => {
-      const sourceMeta = sub.source_meta || {};
-      const repoUrl = sourceMeta.repoUrl || null;
-      const branch = sourceMeta.branch || null;
-      const automationRuleId = sourceMeta.automation_rule_id || null;
-      const isAutomation = Boolean(automationRuleId);
+  // Get repo details for documents
+  const repoMap = new Map();
+  if (documents && repoIds.length > 0) {
+    const { data: reposData } = await supabase
+      .from('workspace_repos')
+      .select('id, repo_url, default_branch')
+      .in('id', repoIds);
+    
+    reposData?.forEach(r => repoMap.set(r.id, r));
+  }
+
+  // Add document entries
+  if (documents) {
+    documents.forEach((doc) => {
+      const repo = repoMap.get(doc.repo_id);
+      const repoUrl = repo?.repo_url || null;
+      const branch = repo?.default_branch || null;
 
       // Build informative message
-      let message = '';
-      if (sub.error_message) {
-        message = sub.error_message;
-      } else {
-        const statusText = sub.status === 'completed' ? 'completed' : sub.status;
-        if (repoUrl) {
-          const repoName = repoUrl.split('/').pop()?.replace('.git', '') || 'repository';
-          if (isAutomation) {
-            message = `Automation rule "${automationRuleId}" generated documentation for ${repoName}${branch ? ` (${branch})` : ''}`;
-          } else {
-            message = `Document ${statusText} from ${repoName}${branch ? ` (${branch})` : ''}`;
-          }
-        } else {
-          if (isAutomation) {
-            message = `Automation rule "${automationRuleId}" generated documentation`;
-          } else {
-            message = `Document ${statusText}`;
-          }
-        }
-      }
-
-      // Use automation_execution type for automation-generated docs
-      const entryType = isAutomation 
-        ? (sub.error_message ? 'document_error' : 'automation_execution')
-        : (sub.error_message ? 'document_error' : 'document');
+      const message = repoUrl
+        ? `Document created from ${repoUrl.split('/').pop()?.replace('.git', '') || 'repository'}${branch ? ` (${branch})` : ''}`
+        : 'Document created';
 
       logEntries.push({
-        id: sub.id,
-        type: entryType,
-        timestamp: sub.created_at,
-        title: sub.title || 'Untitled Document',
+        id: doc.id,
+        type: 'document',
+        timestamp: doc.created_at,
+        title: doc.title || 'Untitled Document',
         message,
-        status: sub.status,
-        link: `/edit/${sub.id}`,
+        status: 'completed',
+        link: `/edit/${doc.id}`,
         metadata: {
-          inputType: sub.input_type || undefined,
           repoUrl: repoUrl || undefined,
           branch: branch || undefined,
-          isOutdated: sub.is_outdated || false,
-          automationRuleId: automationRuleId || undefined,
-          isAutomation,
         },
       });
 
       // Add regeneration entry if updated
-      if (sub.last_checked_at && sub.last_checked_at !== sub.created_at) {
+      if (doc.updated_at && doc.updated_at !== doc.created_at) {
         logEntries.push({
-          id: `${sub.id}-regenerated`,
+          id: `${doc.id}-regenerated`,
           type: 'document_regenerated',
-          timestamp: sub.last_checked_at,
-          title: sub.title || 'Untitled Document',
-          message: sub.is_outdated
-            ? 'Document regenerated (outdated due to code changes)'
-            : 'Document regenerated with updated content',
-          status: sub.status,
-          link: `/edit/${sub.id}`,
+          timestamp: doc.updated_at,
+          title: doc.title || 'Untitled Document',
+          message: 'Document regenerated with updated content',
+          status: 'completed',
+          link: `/edit/${doc.id}`,
           metadata: {
-            inputType: sub.input_type || undefined,
             repoUrl: repoUrl || undefined,
             branch: branch || undefined,
-            isOutdated: sub.is_outdated || false,
           },
         });
       }
@@ -234,8 +222,8 @@ export default async function LogsPage() {
   };
 
   // Log errors for debugging (except table not found errors)
-  if (submissionsError && !isTableNotFoundError(submissionsError)) {
-    console.error('Logs page - submissions error:', submissionsError);
+  if (documentsError && !isTableNotFoundError(documentsError)) {
+    console.error('Logs page - documents error:', documentsError);
   }
   if (diagramsError && !isTableNotFoundError(diagramsError)) {
     console.error('Logs page - diagrams error:', diagramsError);
@@ -248,8 +236,8 @@ export default async function LogsPage() {
     entries: logEntries.slice(0, 100), // Limit to 100 most recent
     errors: {
       // Only report errors that aren't "table not found" (migration not run)
-      submissions: submissionsError && !isTableNotFoundError(submissionsError)
-        ? (submissionsError.message || submissionsError.code)
+      documents: documentsError && !isTableNotFoundError(documentsError)
+        ? (documentsError.message || documentsError.code)
         : undefined,
       diagrams: diagramsError && !isTableNotFoundError(diagramsError)
         ? (diagramsError.message || diagramsError.code)

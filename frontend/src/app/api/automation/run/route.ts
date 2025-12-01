@@ -5,8 +5,7 @@ import { executeAutomationRule } from '@/lib/server/services/automationRunner';
 
 /**
  * Manual trigger endpoint for automation rules.
- * Note: The primary scheduler is the Trigger.dev task (check-due-rules) which runs every 1 minute.
- * This endpoint is provided for manual triggering/testing purposes only.
+ * This endpoint can be called manually or scheduled via cron.
  */
 export async function POST(request: NextRequest) {
   try {

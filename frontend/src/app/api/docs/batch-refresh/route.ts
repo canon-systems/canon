@@ -7,37 +7,52 @@ export async function POST(_request: NextRequest) {
     const supabase = await createClient();
     await getSession();
 
-    // Find all outdated submissions
-    const { data: outdatedSubmissions, error } = await supabase
-      .from('submissions')
-      .select('id')
-      .eq('is_outdated', true)
-      .eq('status', 'completed');
-
-    if (error) {
-      return NextResponse.json({ error: 'Failed to fetch outdated submissions', details: error.message }, { status: 500 });
+    // Note: Documents table doesn't have is_outdated field in the new schema
+    // This would need to be calculated on-demand by checking file hashes
+    const { user } = await getSession();
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    if (!outdatedSubmissions || outdatedSubmissions.length === 0) {
+    // Get user's repos
+    const { data: userRepos } = await supabase
+      .from('workspace_repos')
+      .select('id')
+      .eq('workspace_id', user.id);
+
+    const repoIds = userRepos?.map(r => r.id) || [];
+    
+    const { data: documents, error } = repoIds.length > 0
+      ? await supabase
+          .from('documents')
+          .select('id')
+          .in('repo_id', repoIds)
+      : { data: null, error: null };
+
+    if (error) {
+      return NextResponse.json({ error: 'Failed to fetch documents', details: error.message }, { status: 500 });
+    }
+
+    if (!documents || documents.length === 0) {
       return NextResponse.json({
         refreshed: 0,
         failed: 0,
         results: [],
-        message: 'No outdated submissions found'
+        message: 'No documents found'
       });
     }
 
     // For now, return a placeholder response
-    // Full implementation would call the update endpoint for each submission
+    // Full implementation would check file hashes and refresh documents that have changed
     return NextResponse.json({
       refreshed: 0,
-      failed: outdatedSubmissions.length,
-      results: outdatedSubmissions.map(s => ({
-        submissionId: s.id,
+      failed: documents.length,
+      results: documents.map(d => ({
+        documentId: d.id,
         success: false,
         error: 'Batch refresh not fully implemented yet'
       })),
-      message: `Found ${outdatedSubmissions.length} outdated submissions (batch refresh not fully implemented yet)`
+      message: `Found ${documents.length} documents (batch refresh not fully implemented yet - is_outdated field removed in new schema)`
     });
   } catch (err: unknown) {
     console.error('Error in /api/docs/batch-refresh', err);

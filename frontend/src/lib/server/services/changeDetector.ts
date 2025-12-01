@@ -55,19 +55,41 @@ export async function detectRepositoryChanges({
 	let oldDetectionResult: DetectionResult | null = null;
 
 	if (submissionId) {
-		const submission = await supabase
-			.from('submissions')
-			.select('*')
+		// Support both documentId and submissionId for backward compatibility
+		const document = await supabase
+			.from('documents')
+			.select('id, repo_id')
 			.eq('id', submissionId)
 			.single();
 
-		if (submission && submission.data) {
-			const data = submission.data;
-			effectiveRepoUrl =
-				data.source_meta?.repoUrl || effectiveRepoUrl || null;
-			effectiveBranch =
-				data.source_meta?.branch || effectiveBranch || 'main';
-			oldSnapshot = data.code_snapshot || null;
+		if (document && document.data) {
+			// Get repo details
+			const { data: repo } = await supabase
+				.from('workspace_repos')
+				.select('repo_url, default_branch')
+				.eq('id', document.data.repo_id)
+				.single();
+
+			if (repo) {
+				effectiveRepoUrl = repo.repo_url || effectiveRepoUrl || null;
+				effectiveBranch = repo.default_branch || effectiveBranch || 'main';
+				
+				// Get file hashes from repo_file_summaries for old snapshot
+				const normalizedRepoId = `github.com/${parseRepoUrl(repo.repo_url || '')?.owner}/${parseRepoUrl(repo.repo_url || '')?.repo}`;
+				const { data: summaries } = await supabase
+					.from('repo_file_summaries')
+					.select('file_path, file_hash')
+					.ilike('repo_id', normalizedRepoId)
+					.eq('branch', effectiveBranch);
+
+				if (summaries) {
+					const fileShas: Record<string, string | null> = {};
+					summaries.forEach(s => {
+						fileShas[s.file_path] = s.file_hash;
+					});
+					oldSnapshot = { fileShas } as any;
+				}
+			}
 		}
 	} else if (diagramId) {
 		const diagram = await supabase
@@ -259,11 +281,13 @@ export async function detectRepositoryChanges({
 	console.log(`[detectRepositoryChanges] Rate limit: ${rateLimitStatus.remaining}/${rateLimitStatus.limit}`);
 
 	if (submissionId) {
+		// Note: Documents table doesn't have is_outdated field in the new schema
+		// This information would need to be stored elsewhere or calculated on-demand
+		// For now, we just update the document's updated_at timestamp
 		await supabase
-			.from('submissions')
+			.from('documents')
 			.update({
-				is_outdated: codeComparison.hasChanges,
-				last_checked_at: new Date().toISOString(),
+				updated_at: new Date().toISOString(),
 			})
 			.eq('id', submissionId);
 	} else if (diagramId) {

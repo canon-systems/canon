@@ -5,6 +5,7 @@ import { analyzeRepository } from '@/lib/server/services/analyzeRepository';
 import { generateDocumentation } from '@/lib/server/services/docGenerator';
 import { generateArchitectureDiagram } from '@/lib/server/services/diagramGenerator';
 import { trackRepoScan, trackDocGenerated, trackDiagramGenerated } from '@/lib/server/services/usageTracking';
+import { createOrUpdateDocument } from '@/lib/server/services/documentService';
 
 type AnalyzeRepoRequestBody = {
   generate_diagram?: boolean;
@@ -86,89 +87,32 @@ export async function POST(
       promptConfig,
     });
 
-    const sourceMeta = {
-      repoUrl: repo.repo_url,
-      branch: repo.default_branch,
-      subdir,
-      repoId: repo.id,
-      workspaceRepoName: repo.name,
-      approval_status: 'pending_review',
-      snapshot: analysis.snapshot,
-    };
+    // Get file paths from analysis
+    const filePaths = (analysis.rawFiles || []).map(f => f.path);
 
-    // Check if an existing submission exists for this repo (without automation_rule_id)
-    // This ensures we UPDATE the existing doc instead of creating duplicates
-    const { data: existingSubmission } = await supabase
-      .from('submissions')
-      .select('id')
-      .eq('created_by', user.id)
-      .eq('source_meta->>repoId', repo.id)
-      .is('source_meta->>automation_rule_id', null) // Only match manual submissions (no automation rule)
-      .neq('status', 'skipped')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
+    // Use the new documents system
+    const { documentId } = await createOrUpdateDocument(
+      supabase,
+      repo.id, // workspace_repos.id
+      repo.name,
+      docResult.markdown,
+      filePaths
+    );
 
-    let docId: string | null = null;
-
-    if (existingSubmission?.id) {
-      // UPDATE existing submission
-      const { data: updatedSubmission, error: updateError } = await supabase
-        .from('submissions')
-        .update({
-          title: repo.name,
-          markdown: docResult.markdown,
-          status: 'completed',
-          source_meta: sourceMeta,
-          code_snapshot: analysis.snapshot,
-          summary: docResult.markdown.replace(/\s+/g, ' ').slice(0, 200),
-          updated_at: new Date().toISOString(),
-          is_outdated: false,
-        })
-        .eq('id', existingSubmission.id)
-        .select()
-        .single();
-
-      if (updateError) {
-        console.error('Failed to update submission:', updateError);
-        throw new Error(`Failed to update existing submission: ${updateError.message}`);
-      }
-
-      docId = updatedSubmission?.id || existingSubmission.id;
-    } else {
-      // CREATE new submission
-      const { data: newSubmission } = await supabase
-        .from('submissions')
-        .insert({
-          created_by: user.id,
-          title: repo.name,
-          markdown: docResult.markdown,
-          status: 'completed',
-          input_type: 'github_repo',
-          source_meta: sourceMeta,
-          code_snapshot: analysis.snapshot,
-          summary: docResult.markdown.replace(/\s+/g, ' ').slice(0, 200),
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .select()
-        .single();
-
-      docId = newSubmission?.id || null;
-    }
+    const docId = documentId;
     await trackDocGenerated(supabase, user.id, docId || '', repo.id);
 
     let diagramId: string | null = null;
 
     if (generate_diagram && docId) {
-		const diagramResult = await generateArchitectureDiagram({
+      const diagramResult = await generateArchitectureDiagram({
         supabase,
         userId: user.id,
         method: 'github',
         repoUrl: repo.repo_url,
         branch: repo.default_branch,
         subdir,
-			files: analysis.rawFiles || [],
+        files: analysis.rawFiles || [],
         saveDiagram: true,
         title: `${repo.name} Architecture`,
       });

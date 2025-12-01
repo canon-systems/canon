@@ -87,17 +87,17 @@ async function resolveMarkdown(
 		throw new Error('Either docId or markdownContent must be provided');
 	}
 
-	const submission = await supabase
-		.from('submissions')
-		.select('markdown')
+	const { data: document, error } = await supabase
+		.from('documents')
+		.select('content')
 		.eq('id', docId)
 		.single();
 
-	if (!submission || !submission.data?.markdown) {
+	if (error || !document || !document.content) {
 		throw new Error('Document not found');
 	}
 
-	return submission.data.markdown;
+	return document.content;
 }
 
 function buildAIFixPrompt(

@@ -2,13 +2,14 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Github, FolderOpen, Upload, Code, Loader2, AlertTriangle, Info, ChevronDown, Check, Search, X } from 'lucide-react';
+import { Github, FolderOpen, Loader2, AlertTriangle, Info, ChevronDown, Check, Search, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { PromptCustomizer } from '@/components/PromptCustomizer';
 import { DocumentStructure, type DocumentStructureConfig } from '@/components/DocumentStructure';
 import { SearchableSelect } from '@/components/SearchableSelect';
+import { RepositoryConnectionWizard } from '@/components/RepositoryConnectionWizard';
 
-type InputType = 'github_repo' | 'github_repo_directory' | 'zipped_folder' | 'pasted_code';
+type InputType = 'github_repo' | 'github_repo_directory';
 type Status = 'completed' | 'failed' | 'processing';
 
 interface Model {
@@ -183,12 +184,16 @@ function getMethodIcon(m: InputType) {
   }
 }
 
-export function DocumentationPageClient() {
+interface DocumentationPageClientProps {
+  repoId?: string;
+}
+
+export function DocumentationPageClient({ repoId }: DocumentationPageClientProps = {}) {
   const router = useRouter();
   const supabase = createClient();
   const modelDropdownRef = useRef<HTMLDivElement>(null);
 
-  const [method, setMethod] = useState<InputType>('github_repo_directory');
+  const [method, setMethod] = useState<InputType>('github_repo');
   const [docTitle, setDocTitle] = useState('Documentation Draft');
   const [selectedModel, setSelectedModel] = useState('gpt-4o');
   const [showModelDropdown, setShowModelDropdown] = useState(false);
@@ -209,10 +214,6 @@ export function DocumentationPageClient() {
   const [loadingDirectories, setLoadingDirectories] = useState(false);
   const [loadingRepos, setLoadingRepos] = useState(false);
 
-  // Zip & Paste inputs
-  const [zipFile, setZipFile] = useState<File | null>(null);
-  const [pasteFilename, setPasteFilename] = useState('snippet.txt');
-  const [pasteCode, setPasteCode] = useState('');
 
   // LLM Prompt customization
   const [promptConfig, setPromptConfig] = useState({
@@ -238,6 +239,9 @@ export function DocumentationPageClient() {
   // GitHub connection status
   const [hasGitHubConnection, setHasGitHubConnection] = useState(false);
   const [checkingGitHub, setCheckingGitHub] = useState(true);
+
+  // Repository connection modal
+  const [showConnectionWizard, setShowConnectionWizard] = useState(false);
 
   // Git file picker data
   const [pickerFiles, setPickerFiles] = useState<Array<{ path: string; size: number }>>([]);
@@ -287,6 +291,12 @@ export function DocumentationPageClient() {
       document.removeEventListener('click', handleClickOutside);
     };
   }, [showModelDropdown]);
+
+  const handleRepositoryConnected = async (repoId: string) => {
+    setShowConnectionWizard(false);
+    // Refresh the page to load the new repository
+    window.location.reload();
+  };
 
   // Reset file lists when Git inputs change
   useEffect(() => {
@@ -456,6 +466,39 @@ export function DocumentationPageClient() {
     }
   }
 
+  // Load repository data if repoId is provided
+  useEffect(() => {
+    async function loadRepositoryData() {
+      if (!repoId) return;
+      
+      try {
+        const response = await fetch(`/api/repos/${repoId}`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.repo_url) {
+            setRepoUrl(data.repo_url);
+            setBranch(data.default_branch || 'main');
+            // Extract owner from repo URL
+            const urlParts = data.repo_url.replace(/^https?:\/\//, '').split('/');
+            if (urlParts.length >= 2) {
+              const owner = urlParts[1];
+              setOwnerInput(owner);
+              setBaseOwner(owner);
+              // Trigger branch loading
+              if (data.repo_url.includes('github.com')) {
+                fetchBranches();
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load repository:', err);
+      }
+    }
+    loadRepositoryData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repoId]);
+
   async function listGitFiles() {
     if (!isGit) return;
 
@@ -549,9 +592,6 @@ export function DocumentationPageClient() {
   }
 
   function buildInputContent(): string {
-    if (method === 'pasted_code') return `${pasteFilename} (pasted)`;
-    if (method === 'zipped_folder') return zipFile ? zipFile.name : '(no zip selected)';
-
     const files = selectedArray();
     return [
       repoUrl || '',
@@ -566,145 +606,136 @@ export function DocumentationPageClient() {
     setStatusMsg('');
     setRunning(true);
 
-    if (isGit) {
-      if (!ownerInput.trim()) {
-        setErrorMsg('Please enter a GitHub owner/organization.');
-        setRunning(false);
-        return;
-      }
-      if (!repoUrl || !repoUrl.includes('github.com')) {
-        setErrorMsg('Please select a repository from the dropdown.');
-        setRunning(false);
-        return;
-      }
+    if (!ownerInput.trim()) {
+      setErrorMsg('Please enter a GitHub owner/organization.');
+      setRunning(false);
+      return;
+    }
+    if (!repoUrl || !repoUrl.includes('github.com')) {
+      setErrorMsg('Please select a repository from the dropdown.');
+      setRunning(false);
+      return;
     }
 
-    let submissionId: string | null = null;
+    let documentId: string | null = null;
 
     try {
       setStatusMsg('Queuing…');
-      const filesForLog =
-        method === 'pasted_code'
-          ? [pasteFilename]
-          : method === 'zipped_folder'
-            ? []
-            : selectedArray();
+      const filesForLog = selectedArray();
 
-      const source_meta =
-        method === 'pasted_code'
-          ? {
-            filename: pasteFilename,
-            model: selectedModel,
-            llm_prompt_config: promptConfig,
-            document_structure: structureConfig
-          }
-          : method === 'zipped_folder'
-            ? {
-              zip_name: zipFile?.name ?? null,
-              model: selectedModel,
-              llm_prompt_config: promptConfig,
-              document_structure: structureConfig
-            }
-            : {
-              repoUrl,
-              branch,
+      // Get or create workspace_repos entry
+      let repoId: string;
+      const { data: existingRepo } = await supabase
+        .from('workspace_repos')
+        .select('id')
+        .eq('repo_url', repoUrl)
+        .single();
+
+      if (existingRepo) {
+        repoId = existingRepo.id;
+      } else {
+        // Create new repo entry
+        const { data: newRepo, error: repoError } = await supabase
+          .from('workspace_repos')
+          .insert({
+            workspace_id: (await supabase.auth.getUser()).data.user?.id || '',
+            name: repoUrl.split('/').pop()?.replace('.git', '') || 'Repository',
+            repo_url: repoUrl,
+            default_branch: branch || 'main',
+            provider: 'github',
+            auth_type: 'github_pat',
+            settings: {
               model: selectedModel,
               llm_prompt_config: promptConfig,
               document_structure: structureConfig,
               ...(method === 'github_repo_directory' ? { subdir } : {})
-            };
+            }
+          })
+          .select('id')
+          .single();
 
-      const repoProvider = isGit && repoUrl ? detectRepoProvider(repoUrl) : null;
-
-      const insertData: any = {
-        input_type: method,
-        input_content: buildInputContent(),
-        status: 'processing' as Status,
-        selected_files: filesForLog,
-        source_meta
-      };
-
-      if (repoProvider) {
-        insertData.repo_provider = repoProvider;
+        if (repoError || !newRepo) {
+          throw new Error(`Failed to create repository entry: ${repoError?.message || 'Unknown error'}`);
+        }
+        repoId = newRepo.id;
       }
 
-      const { data, error } = await supabase
-        .from('submissions')
-        .insert(insertData)
+      // Create document
+      const { data: docData, error: docError } = await supabase
+        .from('documents')
+        .insert({
+          repo_id: repoId,
+          title: docTitle || 'Untitled',
+          content: '' // Will be updated after generation
+        })
         .select('id')
         .single();
 
-      if (error) throw new Error(error.message);
-      submissionId = (data as { id: string }).id ?? null;
+      if (docError) throw new Error(docError.message);
+      documentId = docData?.id ?? null;
 
-      if (!submissionId) throw new Error('Insert did not return a submission id.');
+      if (!documentId) throw new Error('Insert did not return a document id.');
+
+      // Save file mappings
+      const fileMappings = filesForLog.map(filePath => ({
+        document_id: documentId,
+        file_path: filePath
+      }));
+
+      await supabase
+        .from('document_files')
+        .insert(fileMappings);
 
       // Gather files/content for LLM
       setStatusMsg('Collecting source files…');
       let filesForDoc: Array<{ path: string; content: string }> = [];
 
-      if (isGit) {
-        const chosen = selectedArray();
-        if (!chosen.length) throw new Error('Pick at least one file.');
-        const r = await fetch('/api/github/batchRaw', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            repoUrl,
-            branch,
-            subdir: method === 'github_repo_directory' ? subdir : '',
-            selectedFiles: chosen,
-            includeContent: true,
-            previewChars: 0,
-            maxBytes: 200_000
-          })
-        });
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok) {
-          if (r.status === 404) {
-            if (!hasGitHubConnection) {
-              throw new Error('Repository not found or is private. Connect your GitHub account in Settings to access private repositories.');
-            } else {
-              throw new Error("Repository not found or you don't have access to it.");
-            }
-          } else if (r.status === 403) {
-            if (!hasGitHubConnection) {
-              throw new Error('Rate limit exceeded or access denied. Connect your GitHub account in Settings for higher rate limits (5,000/hr vs 60/hr).');
-            } else {
-              throw new Error('Access denied. Please check your GitHub connection in Settings.');
-            }
+      const chosen = selectedArray();
+      if (!chosen.length) throw new Error('Pick at least one file.');
+      const r = await fetch('/api/github/batchRaw', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          repoUrl,
+          branch,
+          subdir: method === 'github_repo_directory' ? subdir : '',
+          selectedFiles: chosen,
+          includeContent: true,
+          previewChars: 0,
+          maxBytes: 200_000
+        })
+      });
+      const githubData = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        if (r.status === 404) {
+          if (!hasGitHubConnection) {
+            throw new Error('Repository not found or is private. Connect your GitHub account in Settings to access private repositories.');
+          } else {
+            throw new Error("Repository not found or you don't have access to it.");
           }
-          throw new Error(data?.error || data?.detail || `Git fetch failed (${r.status})`);
+        } else if (r.status === 403) {
+          if (!hasGitHubConnection) {
+            throw new Error('Rate limit exceeded or access denied. Connect your GitHub account in Settings for higher rate limits (5,000/hr vs 60/hr).');
+          } else {
+            throw new Error('Access denied. Please check your GitHub connection in Settings.');
+          }
         }
-        const got = Array.isArray(data.files) ? data.files : [];
-        filesForDoc = got.map((f: any) => ({ path: f.path, content: String(f.content || '') }));
-      } else if (method === 'zipped_folder') {
-        if (!zipFile) throw new Error('Please choose a .zip file first.');
-        const fd = new FormData();
-        fd.append('zip', zipFile);
-        fd.append('includeContent', 'true');
-        fd.append('previewChars', '0');
-        fd.append('maxBytes', '200000');
-        const r = await fetch('/api/files/zip', { method: 'POST', body: fd });
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(data?.error || `Zip read failed (${r.status})`);
-        const got = Array.isArray(data.files) ? data.files : [];
-        filesForDoc = got.map((f: any) => ({ path: f.path, content: String(f.content || '') }));
-      } else {
-        filesForDoc = [{ path: pasteFilename || 'snippet.txt', content: pasteCode || '' }];
+        throw new Error(githubData?.error || githubData?.detail || `Git fetch failed (${r.status})`);
       }
+      const got = Array.isArray(githubData.files) ? githubData.files : [];
+      filesForDoc = got.map((f: any) => ({ path: f.path, content: String(f.content || '') }));
 
       if (!filesForDoc.length) throw new Error('No content gathered for summarization.');
 
-      // Prepare summaries first for Git submissions
-      if (isGit && submissionId) {
+      // Prepare summaries first for Git documents
+      if (documentId) {
         setStatusMsg('Preparing file summaries…');
         try {
           const prepareRes = await fetch('/api/docs/prepare', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({
-              submissionId,
+              documentId, // Use documentId instead of submissionId
               regenerateAll: false
             })
           });
@@ -736,12 +767,12 @@ export function DocumentationPageClient() {
             ...promptConfig,
             document_structure: structureConfig
           },
-          repoUrl: isGit && repoUrl ? repoUrl : undefined,
-          branch: isGit && branch ? branch : undefined,
-          subdir: isGit && method === 'github_repo_directory' && subdir ? subdir : undefined,
-          prepareFirst: isGit && submissionId ? true : false,
-          submissionId: isGit && submissionId ? submissionId : undefined,
-          useSummaries: isGit && submissionId ? true : false
+          repoUrl,
+          branch,
+          subdir: method === 'github_repo_directory' && subdir ? subdir : undefined,
+          prepareFirst: documentId ? true : false,
+          documentId: documentId ? documentId : undefined,
+          useSummaries: documentId ? true : false
         })
       });
       const text = await rGen.text();
@@ -757,7 +788,7 @@ export function DocumentationPageClient() {
       // Save final result with code snapshot
       setStatusMsg('Saving…');
       let codeSnapshot: any = null;
-      if (isGit && repoUrl && branch) {
+      if (repoUrl && branch) {
         try {
           const selectedFiles = selectedArray();
           if (selectedFiles.length > 0) {
@@ -791,60 +822,41 @@ export function DocumentationPageClient() {
         }
       }
 
+      // Update document with generated content
       const { error: uerr } = await supabase
-        .from('submissions')
+        .from('documents')
         .update({
           title: docTitle || 'Untitled',
-          markdown,
-          status: 'completed' as Status,
-          summary: markdown.replace(/\s+/g, ' ').slice(0, 200),
-          ...(codeSnapshot ? { code_snapshot: codeSnapshot } : {})
+          content: markdown,
+          updated_at: new Date().toISOString()
         })
-        .eq('id', submissionId);
+        .eq('id', documentId);
 
       if (uerr) throw new Error(uerr.message);
 
-      // Post-process for Git submissions - track files in submission_files table
-      // Wait a brief moment to ensure the database update has committed
-      if (submissionId && isGit) {
-        try {
-          // Small delay to ensure database transaction has committed
-          await new Promise(resolve => setTimeout(resolve, 100));
-          
-          setStatusMsg('Tracking files…');
-          const postProcessRes = await fetch('/api/docs/post-process', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ submissionId })
-          });
+      // Create initial version
+      const { data: versionData } = await supabase.rpc('get_next_document_version', {
+        doc_id: documentId
+      });
+      const versionNumber = versionData || 1;
 
-          if (!postProcessRes.ok) {
-            const errorData = await postProcessRes.json().catch(() => ({}));
-            console.error('[post-process] Failed:', errorData);
-            // Don't throw - file tracking failure shouldn't block the user
-            // The documentation is already saved successfully
-          } else {
-            const result = await postProcessRes.json().catch(() => ({}));
-            const filesTracked = result?.filesTracked || 0;
-            console.log(`[post-process] Success: tracked ${filesTracked} files`);
-          }
-        } catch (e) {
-          console.error('[post-process] Exception:', e);
-          // Don't throw - file tracking failure shouldn't block the user
-        }
-      }
+      await supabase.from('document_versions').insert({
+        document_id: documentId,
+        version_number: versionNumber,
+        content: markdown,
+        change_summary: 'Initial version'
+      });
+
+      // Note: Files are already tracked in document_files when document was created
+      // No need for separate post-process step
 
       setStatusMsg('Done. Redirecting…');
-      router.push(`/edit/${submissionId}`);
+      router.push(`/edit/${documentId}`);
     } catch (e) {
       setErrorMsg(String(e));
       setStatusMsg('');
-      if (submissionId) {
-        await supabase
-          .from('submissions')
-          .update({ status: 'failed' as Status, error_message: String(e).slice(0, 500) })
-          .eq('id', submissionId);
-      }
+      // Note: Documents don't have status field, so we can't mark as failed
+      // Error is already shown to user via setErrorMsg
     } finally {
       setRunning(false);
     }
@@ -858,22 +870,20 @@ export function DocumentationPageClient() {
         <div>
           <h1 className="mb-2 text-3xl font-bold text-white">Generate Documentation</h1>
           <p className="text-white/70">
-            Pick a method, provide inputs, select files (for Git), then Analyze & Save.
+            Connect to a GitHub repository and generate comprehensive documentation automatically.
           </p>
         </div>
 
         <section className="form-panel space-y-6 relative z-10">
           <div>
-            <p className="section-label">Input Method</p>
-            <p className="section-helper">Select how you want to provide your source material.</p>
+            <p className="section-label">Repository Scope</p>
+            <p className="section-helper">Choose whether to analyze the entire repository or focus on a specific directory.</p>
           </div>
 
           <div className="method-grid">
             {[
-              { id: 'github_repo', label: 'Git Repo' },
-              { id: 'github_repo_directory', label: 'Git Directory' },
-              { id: 'zipped_folder', label: 'ZIP Upload' },
-              { id: 'pasted_code', label: 'Paste Code' }
+              { id: 'github_repo', label: 'Full Repository' },
+              { id: 'github_repo_directory', label: 'Specific Directory' },
             ].map((opt) => {
               const Icon = getMethodIcon(opt.id as InputType);
               return (
@@ -1046,7 +1056,17 @@ export function DocumentationPageClient() {
                   <p className="field-note">Loading repositories…</p>
                 ) : (
                   repos.length === 0 &&
-                  baseOwner && <p className="field-note">No repositories found for {baseOwner}</p>
+                  baseOwner && (
+                    <div className="field-note flex items-center justify-between">
+                      <span>No repositories found for {baseOwner}</span>
+                      <button
+                        onClick={() => setShowConnectionWizard(true)}
+                        className="text-sm text-blue-400 hover:text-blue-300 underline"
+                      >
+                        Connect a repository →
+                      </button>
+                    </div>
+                  )
                 )}
               </div>
             )}
@@ -1174,45 +1194,7 @@ export function DocumentationPageClient() {
           </section>
         )}
 
-        {method === 'zipped_folder' && (
-          <section className="form-panel space-y-4 mt-6">
-            <label className="field-group">
-              <span className="field-label">Upload a .zip file</span>
-              <input
-                type="file"
-                accept=".zip"
-                className="field-input file:mr-3 file:rounded file:border-0 file:bg-white/10 file:px-3 file:py-1 file:text-white"
-                onChange={(e) => setZipFile(e.target.files?.[0] || null)}
-              />
-              {zipFile && <span className="field-note">Selected: {zipFile.name}</span>}
-            </label>
-          </section>
-        )}
 
-        {method === 'pasted_code' && (
-          <section className="form-panel space-y-4 mt-6">
-            <label className="field-group">
-              <span className="field-label">Filename</span>
-              <input
-                className="field-input"
-                value={pasteFilename}
-                onChange={(e) => setPasteFilename(e.target.value)}
-                placeholder="snippet.txt"
-              />
-            </label>
-            <div className="form-divider" />
-            <label className="field-group">
-              <span className="field-label">Paste your code</span>
-              <textarea
-                className="field-input"
-                style={{ minHeight: 180 }}
-                value={pasteCode}
-                onChange={(e) => setPasteCode(e.target.value)}
-                placeholder="// paste here…"
-              />
-            </label>
-          </section>
-        )}
 
         {/* LLM Prompt Customization */}
         <section className="form-panel space-y-4 mt-6">
@@ -1267,6 +1249,26 @@ export function DocumentationPageClient() {
           </a>
         </div>
       </div>
+
+      {/* Repository Connection Modal */}
+      {showConnectionWizard && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="relative">
+              <button
+                onClick={() => setShowConnectionWizard(false)}
+                className="absolute top-4 right-4 z-10 w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white/60 hover:text-white transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+              <RepositoryConnectionWizard
+                onComplete={handleRepositoryConnected}
+                onCancel={() => setShowConnectionWizard(false)}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

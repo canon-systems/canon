@@ -139,7 +139,13 @@ export async function generateFileSummary(
 		fileContent = fileContent.slice(0, MAX_FILE_CHARS) + '\n\n// ... [FILE TRUNCATED - TOO LARGE FOR FULL ANALYSIS] ...';
 	}
 
-	const gateway = new LLMGateway();
+	let gateway: LLMGateway;
+	try {
+		gateway = new LLMGateway();
+	} catch (error: any) {
+		console.error(`[fileSummarizer] ❌ LLM gateway initialization failed: ${error.message}`);
+		throw new Error(`AI service unavailable: ${error.message}`);
+	}
 
 	// Build context about other files if available
 	let contextSection = '';

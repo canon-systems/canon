@@ -6,9 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
-    "trigger:dev": "npx trigger.dev dev",
-    "trigger:deploy": "npx trigger.dev deploy"
+    "lint": "eslint"
   },
   "dependencies": {
     "@nangohq/frontend": "^0.69.13",
@@ -23,8 +21,6 @@
     "@tiptap/extension-underline": "^3.6.6",
     "@tiptap/react": "^3.6.6",
     "@tiptap/starter-kit": "^3.6.6",
-    "@trigger.dev/build": "^4.1.2",
-    "@trigger.dev/sdk": "^4.1.2",
     "dagre": "^0.8.5",
     "diff": "^5.1.0",
     "jszip": "^3.10.1",
@@ -52,7 +48,6 @@
     "eslint": "^9",
     "eslint-config-next": "16.0.3",
     "tailwindcss": "^4",
-    "trigger.dev": "^4.1.2",
     "typescript": "^5"
   }
 }

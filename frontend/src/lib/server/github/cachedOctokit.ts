@@ -52,19 +52,61 @@ export async function getCachedBranch(
 	await waitIfRateLimited();
 
 	// Fetch from API
-	const { data, headers } = await octokit.repos.getBranch({
-		owner,
-		repo,
-		branch,
-	});
+	try {
+		const { data, headers } = await octokit.repos.getBranch({
+			owner,
+			repo,
+			branch,
+		});
 
-	// Update rate limit state
-	updateRateLimitFromHeaders(headers as Record<string, string>);
+		// Update rate limit state
+		updateRateLimitFromHeaders(headers as Record<string, string>);
 
-	// Cache the result
-	setCache(key, data, TTL.BRANCH);
+		// Cache the result
+		setCache(key, data, TTL.BRANCH);
 
-	return data;
+		return data;
+	} catch (error: any) {
+		// If branch not found, try to get the repository's default branch
+		if (error.status === 404) {
+			console.log(`[getCachedBranch] Branch '${branch}' not found, trying to get default branch for ${owner}/${repo}`);
+
+			try {
+				const { data: repoData, headers: repoHeaders } = await octokit.repos.get({
+					owner,
+					repo,
+				});
+
+				const defaultBranch = repoData.default_branch;
+				console.log(`[getCachedBranch] Repository default branch is '${defaultBranch}'`);
+
+				// Update rate limit state
+				updateRateLimitFromHeaders(repoHeaders as Record<string, string>);
+
+				// Try to get the default branch
+				const { data: defaultBranchData, headers: defaultHeaders } = await octokit.repos.getBranch({
+					owner,
+					repo,
+					branch: defaultBranch,
+				});
+
+				// Update rate limit state
+				updateRateLimitFromHeaders(defaultHeaders as Record<string, string>);
+
+				// Cache the result with the default branch key
+				const defaultKey = cacheKey.branch(owner, repo, defaultBranch);
+				setCache(defaultKey, defaultBranchData, TTL.BRANCH);
+
+				return defaultBranchData;
+			} catch (repoError: any) {
+				console.error(`[getCachedBranch] Failed to get default branch for ${owner}/${repo}:`, repoError);
+				throw new Error(`Branch '${branch}' not found and unable to determine default branch for repository ${owner}/${repo}`);
+			}
+		}
+
+		// Re-throw other errors
+		throw error;
+	}
 }
 
 /**

@@ -2,9 +2,10 @@ import { redirect, notFound } from 'next/navigation';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
 import { RegeneratePageClient } from './page-client';
+import { getDocument } from '@/lib/server/services/documentService';
 
 export default async function RegeneratePage({ params }: { params: Promise<{ id: string }> }) {
-  const { session } = await getSession();
+  const { session, user } = await getSession();
 
   if (!session) {
     redirect('/login');
@@ -12,28 +13,38 @@ export default async function RegeneratePage({ params }: { params: Promise<{ id:
 
   const { id } = await params;
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from('submissions')
-    .select('id, created_at, title, markdown, status, error_message, input_type, input_content, summary, source_meta, is_outdated')
-    .eq('id', id)
-    .single();
-
-  if (error || !data) {
+  
+  // Get document
+  const document = await getDocument(supabase, id);
+  
+  if (!document) {
     notFound();
   }
 
+  // Verify user has access
+  const { data: repo } = await supabase
+    .from('workspace_repos')
+    .select('workspace_id')
+    .eq('id', document.repo_id)
+    .single();
+
+  if (!repo || repo.workspace_id !== user.id) {
+    notFound();
+  }
+
+  // Format as submission for backward compatibility with client component
   const submission = {
-    id: String(data.id),
-    created_date: data.created_at as string,
-    title: (data.title ?? 'Untitled') as string,
-    markdown: (data.markdown ?? '') as string,
-    status: data.status as 'processing' | 'completed' | 'failed',
-    error_message: (data.error_message ?? null) as string | null,
-    input_type: data.input_type as 'github_repo' | 'github_repo_directory' | 'zipped_folder' | 'pasted_code',
-    input_content: (data.input_content ?? '') as string,
-    summary: (data.summary ?? null) as string | null,
-    source_meta: (data.source_meta ?? {}) as any,
-    is_outdated: (data.is_outdated ?? false) as boolean
+    id: String(document.id),
+    created_date: document.created_at as string,
+    title: document.title ?? 'Untitled',
+    markdown: document.content ?? '',
+    status: 'completed' as const,
+    error_message: null as string | null,
+    input_type: 'github_repo' as const,
+    input_content: '',
+    summary: document.content.replace(/\s+/g, ' ').slice(0, 200),
+    source_meta: { repoId: document.repo_id },
+    is_outdated: false
   };
 
   return <RegeneratePageClient submission={submission} />;

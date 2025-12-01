@@ -85,26 +85,40 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { data: submission, error: subError } = await supabase
-      .from('submissions')
-      .select('*')
-      .eq('id', submissionId)
+    // Support both documentId and submissionId for backward compatibility
+    const documentId = submissionId;
+    
+    const { data: document, error: docError } = await supabase
+      .from('documents')
+      .select('id, repo_id')
+      .eq('id', documentId)
       .single();
 
-    if (subError || !submission) {
-      return NextResponse.json({ error: 'Submission not found' }, { status: 404 });
+    if (docError || !document) {
+      return NextResponse.json({ error: 'Document not found' }, { status: 404 });
     }
 
-    const sourceMeta = submission.source_meta || {};
-    const inputType = submission.input_type;
+    // Get repo details
+    const { data: repo, error: repoError } = await supabase
+      .from('workspace_repos')
+      .select('repo_url, default_branch, workspace_id')
+      .eq('id', document.repo_id)
+      .single();
 
-    if (inputType !== 'github_repo' && inputType !== 'github_repo_directory') {
-      return NextResponse.json({ error: 'Preview generation only supported for repository-based submissions' }, { status: 400 });
+    if (repoError || !repo) {
+      return NextResponse.json({ error: 'Repository not found' }, { status: 404 });
     }
 
-    const { repoUrl, branch } = sourceMeta;
-    if (!repoUrl || !branch) {
-      return NextResponse.json({ error: 'Missing repoUrl or branch in source_meta' }, { status: 400 });
+    // Verify user has access
+    if (repo.workspace_id !== user.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+    }
+
+    const repoUrl = repo.repo_url;
+    const branch = repo.default_branch || 'main';
+
+    if (!repoUrl) {
+      return NextResponse.json({ error: 'Repository URL not found' }, { status: 400 });
     }
 
     const repoInfo = parseRepoUrl(repoUrl);
@@ -112,9 +126,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `Failed to parse repository URL: ${repoUrl}` }, { status: 400 });
     }
 
-    const selectedFiles: string[] = submission.selected_files || [];
+    // Get tracked files from document_files
+    const { data: documentFiles } = await supabase
+      .from('document_files')
+      .select('file_path')
+      .eq('document_id', documentId);
+
+    const selectedFiles: string[] = (documentFiles || []).map(df => df.file_path);
     if (selectedFiles.length === 0) {
-      return NextResponse.json({ error: 'No files selected for this submission' }, { status: 400 });
+      return NextResponse.json({ error: 'No files tracked for this document' }, { status: 400 });
     }
 
     const repoId = normalizeRepoId(repoUrl);

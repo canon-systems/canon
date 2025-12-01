@@ -5,8 +5,8 @@ import { getUserOctokit } from '@/lib/server/github/getUserOctokit';
 import { parseRepoUrl } from '@/lib/server/github/github';
 import { analyzeRepository } from '@/lib/server/services/analyzeRepository';
 import { generateDocumentation } from '@/lib/server/services/docGenerator';
-import { trackSubmissionFiles } from '@/lib/server/trackSubmissionFiles';
 import { prepareFileSummaries } from '@/lib/server/services/prepareSummaries';
+import { createOrUpdateDocument } from '@/lib/server/services/documentService';
 
 export async function POST(request: NextRequest) {
   try {
@@ -17,40 +17,56 @@ export async function POST(request: NextRequest) {
 
     const supabase = await createClient();
     const body = await request.json();
-    const { submissionId, selected_files, regenerate = false } = body;
+    // Support both documentId and submissionId for backward compatibility
+    const documentId = body.documentId || body.submissionId;
+    const selected_files = body.selected_files;
+    const regenerate = body.regenerate || false;
 
-    if (!submissionId || !Array.isArray(selected_files)) {
+    if (!documentId || !Array.isArray(selected_files)) {
       return NextResponse.json(
-        { error: 'submissionId and selected_files array are required' },
+        { error: 'documentId and selected_files array are required' },
         { status: 400 }
       );
     }
 
-    // Get existing submission
-    const { data: submission, error: subError } = await supabase
-      .from('submissions')
-      .select('*')
-      .eq('id', submissionId)
-      .eq('created_by', user.id)
+    // Get existing document
+    const { data: document, error: docError } = await supabase
+      .from('documents')
+      .select('id, repo_id, title')
+      .eq('id', documentId)
       .single();
 
-    if (subError || !submission) {
+    if (docError || !document) {
       return NextResponse.json(
-        { error: 'Submission not found or unauthorized' },
+        { error: 'Document not found' },
         { status: 404 }
       );
     }
 
-    const sourceMeta = submission.source_meta || {};
-    const repoUrl = sourceMeta.repoUrl;
-    const branch = sourceMeta.branch || 'main';
+    // Get repo details
+    const { data: repo, error: repoError } = await supabase
+      .from('workspace_repos')
+      .select('repo_url, default_branch, workspace_id')
+      .eq('id', document.repo_id)
+      .single();
 
-    if (!repoUrl) {
+    if (repoError || !repo) {
       return NextResponse.json(
-        { error: 'Submission must have a repoUrl' },
-        { status: 400 }
+        { error: 'Repository not found' },
+        { status: 404 }
       );
     }
+
+    // Verify user has access
+    if (repo.workspace_id !== user.id) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 403 }
+      );
+    }
+
+    const repoUrl = repo.repo_url;
+    const branch = repo.default_branch || 'main';
 
     const parsed = parseRepoUrl(repoUrl);
     if (!parsed) {
@@ -70,107 +86,76 @@ export async function POST(request: NextRequest) {
     });
     const currentCommitSha = branchData.commit.sha;
 
-    // Get file SHAs for selected files
-    const fileShas: Record<string, string | null> = {};
-    const existingFileShas = submission.code_snapshot?.fileShas || {};
+    // Get existing tracked files
+    const { data: existingFiles } = await supabase
+      .from('document_files')
+      .select('file_path')
+      .eq('document_id', documentId);
 
-    for (const filePath of selected_files) {
-      try {
-        const { data: fileData } = await octokit.repos.getContent({
-          owner: parsed.owner,
-          repo: parsed.repo,
-          path: filePath,
-          ref: currentCommitSha,
-        });
-
-        if (!Array.isArray(fileData) && fileData.type === 'file' && 'sha' in fileData) {
-          fileShas[filePath] = fileData.sha;
-        } else {
-          fileShas[filePath] = existingFileShas[filePath] || null;
-        }
-      } catch {
-        fileShas[filePath] = existingFileShas[filePath] || null;
-      }
-    }
-
-    // Check if files actually changed
-    const oldFilesSet = new Set(submission.selected_files || []);
+    const oldFilesSet = new Set((existingFiles || []).map(f => f.file_path));
     const newFilesSet = new Set(selected_files);
     const filesChanged =
       oldFilesSet.size !== newFilesSet.size ||
       [...oldFilesSet].some(f => !newFilesSet.has(f)) ||
       [...newFilesSet].some(f => !oldFilesSet.has(f));
 
-    // Update submission with new file list
-    const { error: updateError } = await supabase
-      .from('submissions')
-      .update({
-        selected_files: selected_files,
-        code_snapshot: {
-          ...submission.code_snapshot,
-          commitSha: currentCommitSha,
-          fileShas,
-          updatedAt: new Date().toISOString(),
-        },
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', submissionId);
-
-    if (updateError) {
-      return NextResponse.json(
-        { error: 'Failed to update tracked files', details: updateError.message },
-        { status: 500 }
-      );
-    }
-
-    // Update submission_files table
+    // Update document_files table
     // First, delete files that are no longer in selected_files
     const filesToRemove = [...oldFilesSet].filter(f => !newFilesSet.has(f));
 
     if (filesToRemove.length > 0) {
       const { error: deleteError } = await supabase
-        .from('submission_files')
+        .from('document_files')
         .delete()
-        .eq('submission_id', submissionId)
+        .eq('document_id', documentId)
         .in('file_path', filesToRemove);
 
       if (deleteError) {
-        console.warn('Failed to remove old files from submission_files:', deleteError);
+        console.warn('Failed to remove old files from document_files:', deleteError);
       }
     }
 
-    // Then upsert the new/updated files
-    const updatedSubmission = {
-      ...submission,
-      selected_files: selected_files,
-      code_snapshot: {
-        ...submission.code_snapshot,
-        commitSha: currentCommitSha,
-        fileShas,
-      },
-    };
+    // Then insert the new files
+    const filesToAdd = [...newFilesSet].filter(f => !oldFilesSet.has(f));
+    if (filesToAdd.length > 0) {
+      const fileMappings = filesToAdd.map(filePath => ({
+        document_id: documentId,
+        file_path: filePath
+      }));
 
-    await trackSubmissionFiles({
-      supabase,
-      submission: updatedSubmission,
-      userId: user.id,
-    });
+      const { error: insertError } = await supabase
+        .from('document_files')
+        .insert(fileMappings);
+
+      if (insertError) {
+        console.warn('Failed to add new files to document_files:', insertError);
+      }
+    }
+
+    // Update document timestamp
+    await supabase
+      .from('documents')
+      .update({
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', documentId);
 
     // Regenerate if files changed and regenerate flag is true
     if (filesChanged && regenerate) {
       try {
         // Prepare summaries first to ensure all files have summaries
         try {
-          await prepareFileSummaries(supabase, submissionId, false, user.id);
+          await prepareFileSummaries(supabase, documentId, false, user.id);
         } catch (prepareError) {
           console.error('Failed to prepare summaries before regeneration:', prepareError);
           // Continue anyway - will fallback to full content
         }
 
-        const settings = sourceMeta.settings || {};
-        const subdir = settings.subdir || sourceMeta.subdir || null;
-        const filters = settings.filters || null;
-        const promptConfig = settings.prompt_config || sourceMeta.llm_prompt_config || null;
+        // Get repo settings if available
+        const repoSettings = repo.settings || {};
+        const subdir = repoSettings.subdir || null;
+        const filters = repoSettings.filters || null;
+        const promptConfig = repoSettings.prompt_config || null;
 
         // Analyze repository with new file set
         const analysis = await analyzeRepository({
@@ -200,38 +185,43 @@ export async function POST(request: NextRequest) {
         const docResult = await generateDocumentation({
           supabase,
           userId: user.id,
-          projectName: submission.title || 'Project',
-          model: sourceMeta.model || 'gpt-4o',
+          projectName: document.title || 'Project',
+          model: 'gpt-4o',
           files: selectedFileEntries,
           repoUrl,
           branch,
           subdir,
           promptConfig,
           useSummaries: true,
-          submissionId,
+          submissionId: documentId, // Pass documentId for backward compatibility
         });
 
-        // Update submission with new documentation
+        // Update document with new content
         const { error: docUpdateError } = await supabase
-          .from('submissions')
+          .from('documents')
           .update({
-            markdown: docResult.markdown,
-            summary: docResult.markdown.replace(/\s+/g, ' ').slice(0, 200),
+            content: docResult.markdown,
             updated_at: new Date().toISOString(),
-            // Mark as needing review if it was previously approved
-            source_meta: {
-              ...sourceMeta,
-              approval_status: submission.source_meta?.approval_status === 'approved'
-                ? 'pending_review'
-                : submission.source_meta?.approval_status,
-            },
           })
-          .eq('id', submissionId);
+          .eq('id', documentId);
 
         if (docUpdateError) {
           console.error('Failed to update documentation:', docUpdateError);
           // Don't fail the request, files were updated successfully
         }
+
+        // Create new version
+        const { data: versionData } = await supabase.rpc('get_next_document_version', {
+          doc_id: documentId
+        });
+        const versionNumber = versionData || 1;
+
+        await supabase.from('document_versions').insert({
+          document_id: documentId,
+          version_number: versionNumber,
+          content: docResult.markdown,
+          change_summary: 'Regenerated with updated tracked files'
+        });
 
         return NextResponse.json({
           success: true,
@@ -258,7 +248,7 @@ export async function POST(request: NextRequest) {
       message: filesChanged
         ? 'Tracked files updated (regeneration skipped)'
         : 'Tracked files unchanged',
-      selected_files: selected_files,
+      selected_files: Array.from(newFilesSet),
       regenerated: false,
       files_changed: filesChanged,
     });

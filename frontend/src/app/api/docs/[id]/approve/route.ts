@@ -25,30 +25,34 @@ export async function POST(
     const supabase = await createClient();
     const { id } = await params;
 
-    const { data: submissionData, error } = await supabase
-      .from('submissions')
-      .select('*')
+    const { data: document, error } = await supabase
+      .from('documents')
+      .select('id, repo_id')
       .eq('id', id)
       .single();
-    const submission = submissionData as SubmissionRow | null;
 
-    if (error || !submission) {
+    if (error || !document) {
       return NextResponse.json({ error: 'Document not found' }, { status: 404 });
     }
 
-    if (submission.created_by !== user.id) {
+    // Verify user has access to the repo
+    const { data: repo, error: repoError } = await supabase
+      .from('workspace_repos')
+      .select('workspace_id')
+      .eq('id', document.repo_id)
+      .eq('workspace_id', user.id)
+      .single();
+
+    if (repoError || !repo) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const sourceMeta = submission.source_meta || {};
-    sourceMeta.approval_status = 'approved';
-    sourceMeta.approved_at = new Date().toISOString();
-    sourceMeta.approved_by = user.id;
-
+    // Note: Approval status is not stored in documents table in the new schema
+    // This would need to be handled via a separate approvals table or metadata field
+    // For now, we'll just update the document's updated_at timestamp
     await supabase
-      .from('submissions')
+      .from('documents')
       .update({
-        source_meta: sourceMeta,
         updated_at: new Date().toISOString(),
       })
       .eq('id', id);

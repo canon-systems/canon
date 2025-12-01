@@ -63,14 +63,20 @@ export async function POST(request: NextRequest) {
     let attemptedUpdate = false;
 
     if (docId && !forceNew) {
-      const { data: existingSubmission } = await supabase
-        .from('submissions')
-        .select('source_meta')
+      // Note: In the new schema, push metadata would need to be stored differently
+      // For now, we'll check if there's a kb_id and kb_provider in documents table
+      const { data: existingDocument } = await supabase
+        .from('documents')
+        .select('kb_id, kb_provider')
         .eq('id', docId)
         .single();
 
-      const existingMeta = existingSubmission?.source_meta || {};
-      const pushMeta = existingMeta.push_metadata;
+      // Check if this doc was previously pushed to Notion
+      if (existingDocument?.kb_provider === 'notion' && existingDocument?.kb_id) {
+        existingResourceId = existingDocument.kb_id;
+        createNew = false; // Try to update instead of create
+        attemptedUpdate = true;
+      }
 
       // Check if this doc was previously pushed to Notion
       if (pushMeta?.provider === 'notion' && pushMeta?.resource_id) {
@@ -133,26 +139,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to push to Notion' }, { status: 500 });
     }
 
-    // Update submission with push metadata
+    // Update document with push metadata
     if (docId) {
-      const { data: currentSubmission } = await supabase
-        .from('submissions')
-        .select('source_meta')
-        .eq('id', docId)
-        .single();
-
-      const existingMeta = currentSubmission?.source_meta || {};
-      existingMeta.push_metadata = {
-        provider: 'notion',
-        pushed_at: new Date().toISOString(),
-        url: pushResult.metadata?.url || null,
-        resource_id: pushResult.resourceId,
-      };
-
       await supabase
-        .from('submissions')
+        .from('documents')
         .update({
-          source_meta: existingMeta,
+          kb_provider: 'notion',
+          kb_id: pushResult.resourceId,
           updated_at: new Date().toISOString(),
         })
         .eq('id', docId);

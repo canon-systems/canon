@@ -46,7 +46,7 @@ function normalizeFilePath(filePath?: string | null): string {
 }
 
 /**
- * Find all submissions with missing summaries
+ * Find all documents with missing summaries
  */
 export async function findSubmissionsWithMissingSummaries(
 	supabase: SupabaseClient,
@@ -64,48 +64,80 @@ export async function findSubmissionsWithMissingSummaries(
 }>> {
 	const { limit = 100, userId, repoUrl } = options || {};
 
-	// Query for repository-based submissions
-	let query = supabase
-		.from('submissions')
-		.select('id, source_meta, selected_files, created_by')
-		.in('input_type', ['github_repo', 'github_repo_directory'])
-		.eq('status', 'completed')
-		.not('selected_files', 'is', null);
-
+	// Get user's repos if userId provided
+	let repoIds: string[] = [];
 	if (userId) {
-		query = query.eq('created_by', userId);
+		const { data: userRepos } = await supabase
+			.from('workspace_repos')
+			.select('id, repo_url')
+			.eq('workspace_id', userId);
+		
+		repoIds = userRepos?.map(r => r.id) || [];
+		
+		if (repoUrl) {
+			// Filter to specific repo if provided
+			repoIds = userRepos?.filter(r => r.repo_url === repoUrl).map(r => r.id) || [];
+		}
+	}
+
+	if (repoIds.length === 0 && userId) {
+		return [];
+	}
+
+	// Query for documents
+	let query = supabase
+		.from('documents')
+		.select('id, repo_id');
+
+	if (userId && repoIds.length > 0) {
+		query = query.in('repo_id', repoIds);
 	}
 
 	if (limit) {
 		query = query.limit(limit);
 	}
 
-	const { data: submissions, error } = await query;
+	const { data: documents, error } = await query;
 
-	if (error || !submissions) {
-		throw new Error(`Failed to fetch submissions: ${error?.message || 'Unknown error'}`);
+	if (error || !documents) {
+		throw new Error(`Failed to fetch documents: ${error?.message || 'Unknown error'}`);
 	}
 
-	// Load actual files tracked for each submission from submission_files to avoid stale selected_files
-	const submissionIds = submissions.map((s) => s.id);
-	const submissionFilesMap = new Map<string, string[]>();
+	// Load actual files tracked for each document from document_files
+	const documentIds = documents.map((d) => d.id);
+	const documentFilesMap = new Map<string, string[]>();
 
-	if (submissionIds.length > 0) {
-		const { data: submissionFiles, error: submissionFilesError } = await supabase
-			.from('submission_files')
-			.select('submission_id, file_path')
-			.in('submission_id', submissionIds);
+	if (documentIds.length > 0) {
+		const { data: documentFiles, error: documentFilesError } = await supabase
+			.from('document_files')
+			.select('document_id, file_path')
+			.in('document_id', documentIds);
 
-		if (submissionFilesError) {
-			throw new Error(`Failed to load submission files: ${submissionFilesError.message}`);
+		if (documentFilesError) {
+			throw new Error(`Failed to load document files: ${documentFilesError.message}`);
 		}
 
-		(submissionFiles || []).forEach((row) => {
-			const list = submissionFilesMap.get(row.submission_id) || [];
+		(documentFiles || []).forEach((row) => {
+			const list = documentFilesMap.get(row.document_id) || [];
 			if (row.file_path) {
 				list.push(row.file_path);
 			}
-			submissionFilesMap.set(row.submission_id, list);
+			documentFilesMap.set(row.document_id, list);
+		});
+	}
+
+	// Get repo details for documents
+	const repoDetailsMap = new Map<string, { repo_url: string; default_branch: string }>();
+	const uniqueRepoIds = [...new Set(documents.map(d => d.repo_id))];
+	
+	if (uniqueRepoIds.length > 0) {
+		const { data: repos } = await supabase
+			.from('workspace_repos')
+			.select('id, repo_url, default_branch')
+			.in('id', uniqueRepoIds);
+		
+		repos?.forEach(r => {
+			repoDetailsMap.set(r.id, { repo_url: r.repo_url, default_branch: r.default_branch || 'main' });
 		});
 	}
 
@@ -117,22 +149,20 @@ export async function findSubmissionsWithMissingSummaries(
 		totalFiles: number;
 	}> = [];
 
-	for (const submission of submissions) {
-		const sourceMeta = submission.source_meta || {};
-		const submissionRepoUrl = sourceMeta.repoUrl?.trim();
+	for (const document of documents) {
+		const repoDetails = repoDetailsMap.get(document.repo_id);
+		if (!repoDetails) continue;
 
-		if (!submissionRepoUrl) continue;
-		if (repoUrl && submissionRepoUrl !== repoUrl) continue;
+		const documentRepoUrl = repoDetails.repo_url?.trim();
+		if (!documentRepoUrl) continue;
+		if (repoUrl && documentRepoUrl !== repoUrl) continue;
 
 		try {
-			const repoId = normalizeRepoId(submissionRepoUrl);
-			const branch = (sourceMeta.branch || 'main').trim();
+			const repoId = normalizeRepoId(documentRepoUrl);
+			const branch = (repoDetails.default_branch || 'main').trim();
 			const normalizedBranch = normalizeBranchName(branch);
-			const submissionFilePaths = submissionFilesMap.get(submission.id) || [];
-			const trackedFilesRaw =
-				submissionFilePaths.length > 0
-					? Array.from(new Set(submissionFilePaths.filter(Boolean)))
-					: Array.from(new Set((submission.selected_files || []).filter(Boolean)));
+			const documentFilePaths = documentFilesMap.get(document.id) || [];
+			const trackedFilesRaw = Array.from(new Set(documentFilePaths.filter(Boolean)));
 
 			if (trackedFilesRaw.length === 0) continue;
 
@@ -212,16 +242,16 @@ export async function findSubmissionsWithMissingSummaries(
 
 			if (missingFiles.length > 0) {
 				results.push({
-					submissionId: submission.id,
+					submissionId: document.id, // Keep submissionId name for backward compatibility
 					repoId,
-					repoUrl: submissionRepoUrl,
+					repoUrl: documentRepoUrl,
 					missingFiles,
 					totalFiles,
 				});
 			}
 		} catch (error) {
-			// Skip submissions with invalid repo URLs
-			console.warn(`Skipping submission ${submission.id}: Invalid repo URL`, error);
+			// Skip documents with invalid repo URLs
+			console.warn(`Skipping document ${document.id}: Invalid repo URL`, error);
 			continue;
 		}
 	}
@@ -347,17 +377,23 @@ export async function backfillSummariesBatch(
 			await new Promise(resolve => setTimeout(resolve, delay));
 		}
 
-		// Get user IDs for each submission in the batch
-		const { data: submissionsData } = await supabase
-			.from('submissions')
-			.select('id, created_by')
-			.in(
-				'id',
-				batch.map((s) => s.submissionId)
-			);
+		// Get user IDs for each document in the batch
+		// Note: In the new schema, we need to get user IDs through workspace_repos
+		const documentIds = batch.map((s) => s.submissionId);
+		const { data: documents } = await supabase
+			.from('documents')
+			.select('id, repo_id')
+			.in('id', documentIds);
 
+		const repoIds = [...new Set((documents || []).map(d => d.repo_id))];
+		const { data: repos } = await supabase
+			.from('workspace_repos')
+			.select('id, workspace_id')
+			.in('id', repoIds);
+
+		const repoToUserId = new Map(repos?.map(r => [r.id, r.workspace_id]) || []);
 		const userIdMap = new Map(
-			(submissionsData || []).map((s) => [s.id, s.created_by])
+			(documents || []).map((d) => [d.id, repoToUserId.get(d.repo_id)])
 		);
 
 		await Promise.allSettled(

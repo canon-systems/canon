@@ -89,8 +89,11 @@ export class LLMGateway {
 		this.url = GATEWAY_URL.replace(/\/+$/, '');
 		this.apiKey = GATEWAY_API_KEY;
 
+		console.log(`[LLMGateway] Initializing with URL: ${!!this.url} (set: ${!!GATEWAY_URL})`);
+		console.log(`[LLMGateway] Initializing with API key: ${!!this.apiKey} (set: ${!!GATEWAY_API_KEY})`);
+
 		if (!this.url || !this.apiKey) {
-			throw new Error('LLM gateway configuration is missing');
+			throw new Error('LLM gateway configuration is missing. Please check VERCEL_AI_GATEWAY_URL and VERCEL_AI_GATEWAY_API_KEY environment variables.');
 		}
 	}
 
@@ -98,32 +101,51 @@ export class LLMGateway {
 		console.log(`[LLMGateway] Making API call to model: ${model}`);
 		console.log(`[LLMGateway] Temperature: ${temperature ?? this.defaultTemperature}`);
 		console.log(`[LLMGateway] Messages: ${messages.length} (system: ${messages.filter(m => m.role === 'system').length}, user: ${messages.filter(m => m.role === 'user').length})`);
+		console.log(`[LLMGateway] Gateway URL: ${this.url}`);
 
-		const response = await fetch(`${this.url}/chat/completions`, {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-				authorization: `Bearer ${this.apiKey}`,
-				'x-vercel-ai-key': this.apiKey,
-			},
-			body: JSON.stringify({
-				model,
-				temperature: temperature ?? this.defaultTemperature,
-				messages,
-			}),
-		});
+		try {
+			// Add timeout to prevent indefinite hangs (60 seconds for LLM calls)
+			const controller = new AbortController();
+			const timeoutId = setTimeout(() => controller.abort(), 60000);
 
-		const payload = await response.json().catch(() => ({}));
-		if (!response.ok) {
-			console.error(`[LLMGateway] ❌ API call failed: ${payload?.error?.message || payload?.message || `HTTP ${response.status}`}`);
-			throw new Error(payload?.error?.message || payload?.message || `LLM HTTP ${response.status}`);
+			const response = await fetch(`${this.url}/chat/completions`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					authorization: `Bearer ${this.apiKey}`,
+					'x-vercel-ai-key': this.apiKey,
+				},
+				body: JSON.stringify({
+					model,
+					temperature: temperature ?? this.defaultTemperature,
+					messages,
+				}),
+				signal: controller.signal,
+			});
+
+			clearTimeout(timeoutId);
+
+			const payload = await response.json().catch(() => ({}));
+			if (!response.ok) {
+				console.error(`[LLMGateway] ❌ API call failed: ${payload?.error?.message || payload?.message || `HTTP ${response.status}`}`);
+				throw new Error(payload?.error?.message || payload?.message || `LLM HTTP ${response.status}`);
+			}
+
+			const content = payload?.choices?.[0]?.message?.content;
+			const outputLength = typeof content === 'string' ? content.length : 0;
+			console.log(`[LLMGateway] ✓ API call successful. Response: ${outputLength.toLocaleString()} characters`);
+
+			return typeof content === 'string' ? content.trim() : '';
+		} catch (error: any) {
+			// Handle specific error types
+			if (error.name === 'AbortError') {
+				console.error(`[LLMGateway] ⏰ Request timed out after 60 seconds`);
+				throw new Error('LLM API call timed out after 60 seconds');
+			}
+
+			console.error(`[LLMGateway] 💥 Network or parsing error:`, error);
+			throw new Error(`LLM API call failed: ${error.message || 'Unknown network error'}`);
 		}
-
-		const content = payload?.choices?.[0]?.message?.content;
-		const outputLength = typeof content === 'string' ? content.length : 0;
-		console.log(`[LLMGateway] ✓ API call successful. Response: ${outputLength.toLocaleString()} characters`);
-
-		return typeof content === 'string' ? content.trim() : '';
 	}
 
 	async *stream(messages: Message[], model: string, temperature?: number) {

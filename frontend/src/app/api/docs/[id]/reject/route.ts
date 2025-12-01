@@ -26,33 +26,53 @@ export async function POST(
     const body = await request.json().catch(() => ({}));
     const { reason } = body as { reason?: string };
 
-    const { data: submissionData, error } = await supabase
-      .from('submissions')
-      .select('*')
+    const { data: document, error } = await supabase
+      .from('documents')
+      .select('id, repo_id')
       .eq('id', id)
       .single();
-    const submission = submissionData as SubmissionRow | null;
 
-    if (error || !submission) {
+    if (error || !document) {
       return NextResponse.json({ error: 'Document not found' }, { status: 404 });
     }
 
-    if (submission.created_by !== user.id) {
+    // Verify user has access to the repo
+    const { data: repo, error: repoError } = await supabase
+      .from('workspace_repos')
+      .select('workspace_id')
+      .eq('id', document.repo_id)
+      .eq('workspace_id', user.id)
+      .single();
+
+    if (repoError || !repo) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const sourceMeta = submission.source_meta || {};
-    sourceMeta.approval_status = 'rejected';
-    sourceMeta.rejected_at = new Date().toISOString();
-    sourceMeta.rejected_by = user.id;
-    if (reason) {
-      sourceMeta.rejection_reason = reason;
-    }
+    // Update document exports with rejection status
+    const { data: currentDocument } = await supabase
+      .from('documents')
+      .select('exports')
+      .eq('id', id)
+      .single();
+
+    const existingExports = (currentDocument?.exports || []) as Array<Record<string, unknown>>;
+    const updatedExports = existingExports.map(exp => {
+      if (exp.status === 'pending_review' || exp.status === 'approved') {
+        return {
+          ...exp,
+          status: 'rejected',
+          rejected_at: new Date().toISOString(),
+          rejected_by: user.id,
+          rejection_reason: reason || exp.rejection_reason,
+        };
+      }
+      return exp;
+    });
 
     await supabase
-      .from('submissions')
+      .from('documents')
       .update({
-        source_meta: sourceMeta,
+        exports: updatedExports,
         updated_at: new Date().toISOString(),
       })
       .eq('id', id);
@@ -62,7 +82,7 @@ export async function POST(
         success: true,
         doc_id: id,
         approval_status: 'rejected',
-        rejected_at: sourceMeta.rejected_at,
+        rejected_at: new Date().toISOString(),
         rejected_by: user.id,
         reason,
       },

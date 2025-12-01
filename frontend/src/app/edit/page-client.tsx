@@ -196,7 +196,7 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
     setDeleteError(null);
 
     try {
-      const { error } = await supabase.from('submissions').delete().eq('id', idToDelete);
+      const { error } = await supabase.from('documents').delete().eq('id', idToDelete);
 
       if (error) throw error;
 
