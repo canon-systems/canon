@@ -13,7 +13,7 @@ import type { User } from '@supabase/supabase-js';
 interface DocItem {
   id: string;
   title: string;
-  status: 'pending_review' | 'approved' | 'published' | 'rejected';
+  status: 'pending_review' | 'published';
   repo: string;
   branch: string;
   path: string;
@@ -32,7 +32,7 @@ interface EditListPageClientProps {
 }
 
 type ViewMode = 'tile' | 'row';
-type ApprovalStatusFilter = 'all' | 'pending_review' | 'approved' | 'published' | 'rejected';
+type StatusFilter = 'all' | 'pending_review' | 'published';
 
 export function EditListPageClient({ user }: EditListPageClientProps) {
   const router = useRouter();
@@ -43,7 +43,7 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('row');
-  const [statusFilter, setStatusFilter] = useState<ApprovalStatusFilter>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -288,21 +288,10 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
           Pending Review
         </span>
       ),
-      approved: (
-        <span className="inline-flex items-center gap-1 rounded border border-green-400/30 bg-green-500/20 px-2 py-1 text-xs text-green-200">
-          <CheckCircle2 className="h-3 w-3" />
-          Approved
-        </span>
-      ),
       published: (
         <span className="inline-flex items-center gap-1 rounded border border-blue-400/30 bg-blue-500/20 px-2 py-1 text-xs text-blue-200">
           <Send className="h-3 w-3" />
           Published
-        </span>
-      ),
-      rejected: (
-        <span className="inline-flex items-center gap-1 rounded border border-red-400/30 bg-red-500/20 px-2 py-1 text-xs text-red-200">
-          Rejected
         </span>
       ),
     };
@@ -449,18 +438,6 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
                 </button>
                 <button
                   onClick={() => {
-                    setStatusFilter('approved');
-                    setPage(1);
-                  }}
-                  className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-all ${statusFilter === 'approved'
-                    ? 'bg-green-500/30 text-green-200 border border-green-500/50 shadow-lg shadow-green-500/20'
-                    : 'bg-white/10 text-white/70 border border-white/20 hover:bg-white/20 hover:border-white/30 hover:shadow-md'
-                    }`}
-                >
-                  Approved
-                </button>
-                <button
-                  onClick={() => {
                     setStatusFilter('published');
                     setPage(1);
                   }}
@@ -470,18 +447,6 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
                     }`}
                 >
                   Published
-                </button>
-                <button
-                  onClick={() => {
-                    setStatusFilter('rejected');
-                    setPage(1);
-                  }}
-                  className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-all ${statusFilter === 'rejected'
-                    ? 'bg-red-500/30 text-red-200 border border-red-500/50 shadow-lg shadow-red-500/20'
-                    : 'bg-white/10 text-white/70 border border-white/20 hover:bg-white/20 hover:border-white/30 hover:shadow-md'
-                    }`}
-                >
-                  Rejected
                 </button>
               </div>
 

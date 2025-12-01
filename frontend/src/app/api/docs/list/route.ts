@@ -10,7 +10,6 @@ type SourceMeta = {
   repo?: string;
   path?: string;
   commit?: string;
-  approval_status?: string;
   push_metadata?: {
     provider?: string;
     pushed_at?: string;

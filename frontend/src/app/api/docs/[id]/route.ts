@@ -55,7 +55,6 @@ export async function GET(
         title: document.title,
         markdown: document.content,
         status: 'completed',
-        approval_status: 'pending_review',
         created_at: document.created_at,
         updated_at: document.updated_at,
         input_type: 'github_repo',

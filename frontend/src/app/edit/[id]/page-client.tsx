@@ -145,9 +145,6 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
 
   // Review panel state
   const [viewMode, setViewMode] = useState<ViewMode>('editor');
-  const [approvalStatus, setApprovalStatus] = useState<'pending' | 'approved' | 'rejected' | 'published'>(
-    initialSubmission.source_meta?.approval_status || 'pending'
-  );
   const [isProcessing, setIsProcessing] = useState(false);
   const [showDiff, setShowDiff] = useState(false);
   const [diffData, setDiffData] = useState<any>(null);
@@ -574,55 +571,8 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
     return names[provider] || provider.charAt(0).toUpperCase() + provider.slice(1);
   }
 
-  // Review panel handlers
-  async function handleApprove() {
-    setIsProcessing(true);
-    try {
-      const response = await fetch(`/api/docs/${initialSubmission.id}/approve`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || error.detail || 'Failed to approve');
-      }
-
-      setApprovalStatus('approved');
-      router.refresh();
-    } catch (error: any) {
-      console.error('Failed to approve:', error);
-      alert(`Failed to approve document: ${error.message}`);
-    } finally {
-      setIsProcessing(false);
-    }
-  }
-
-  async function handleReject(reason?: string) {
-    setIsProcessing(true);
-    try {
-      const response = await fetch(`/api/docs/${initialSubmission.id}/reject`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason })
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || error.detail || 'Failed to reject');
-      }
-
-      setApprovalStatus('rejected');
-      router.refresh();
-    } catch (error: any) {
-      console.error('Failed to reject:', error);
-      alert(`Failed to reject document: ${error.message}`);
-    } finally {
-      setIsProcessing(false);
-    }
-  }
-
-  async function handleApproveAndPublish(provider: string, workspaceInfo?: any) {
+  // Publish handler
+  async function handlePublish(provider: string, workspaceInfo?: any) {
     setIsProcessing(true);
     try {
       const { data: sessionData } = await supabase.auth.getSession();
@@ -632,21 +582,7 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
         throw new Error('Not authenticated');
       }
 
-      // First approve - call Next.js API route
-      const approveResponse = await fetch(`/api/docs/${initialSubmission.id}/approve`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        }
-      });
-
-      if (!approveResponse.ok) {
-        const errorData = await approveResponse.json().catch(() => ({}));
-        throw new Error(errorData.error || errorData.detail || `Failed to approve document`);
-      }
-
-      // Then push to knowledge base
+      // Push to knowledge base
       const workspaceInfoForPush = workspaceInfo || (selectedParent ? {
         provider: provider,
         resourceId: selectedParent.id,
@@ -676,9 +612,7 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
         throw new Error(errorData.error || errorData.detail || 'Failed to push');
       }
 
-      // Note: In the new schema, approval_status is not stored in documents table
-      // This would need to be handled via a separate approvals table or metadata field
-      // For now, we'll just update the document timestamp
+      // Update document timestamp
       const { error: updateError } = await supabase
         .from('documents')
         .update({
@@ -688,20 +622,19 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
 
       if (updateError) throw updateError;
 
-      setApprovalStatus('published');
       const result = await pushResponse.json();
 
       if (result.url) {
-        alert(`Document approved and published successfully! Opening in ${getProviderDisplayName(provider)}...`);
+        alert(`Document published successfully! Opening in ${getProviderDisplayName(provider)}...`);
         window.open(result.url, '_blank');
       } else {
-        alert('Document approved and published successfully!');
+        alert('Document published successfully!');
       }
 
       router.refresh();
     } catch (error: any) {
-      console.error('Failed to approve and publish:', error);
-      alert(`Failed to approve and publish: ${error.message}`);
+      console.error('Failed to publish:', error);
+      alert(`Failed to publish: ${error.message}`);
     } finally {
       setIsProcessing(false);
     }
@@ -1553,10 +1486,7 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                   docId={initialSubmission.id}
                   currentView={viewMode}
                   onViewChange={setViewMode}
-                  onApprove={handleApprove}
-                  onReject={handleReject}
-                  onApproveAndPublish={handleApproveAndPublish}
-                  approvalStatus={approvalStatus}
+                  onPublish={handlePublish}
                   isProcessing={isProcessing}
                   availableProviders={availableProviders}
                   onApplyTemplate={handleApplyTemplate}
