@@ -143,11 +143,19 @@ export async function POST(request: NextRequest) {
     // Regenerate if files changed and regenerate flag is true
     if (filesChanged && regenerate) {
       try {
+        const timestamp = new Date().toISOString();
+        const filesAdded = filesToAdd.length > 0 ? `Added: ${filesToAdd.slice(0, 3).join(', ')}${filesToAdd.length > 3 ? ` ... and ${filesToAdd.length - 3} more` : ''}` : '';
+        const filesRemoved = filesToRemove.length > 0 ? `Removed: ${filesToRemove.slice(0, 3).join(', ')}${filesToRemove.length > 3 ? ` ... and ${filesToRemove.length - 3} more` : ''}` : '';
+        const reason = [filesAdded, filesRemoved].filter(Boolean).join('; ') || 'Tracked files changed';
+        console.log(`[${timestamp}] [update-tracked-files] Regenerating document: ${document.title} (${documentId})`);
+        console.log(`[${timestamp}] [update-tracked-files] Reason: ${reason}`);
+        console.log(`[${timestamp}] [update-tracked-files] Files to regenerate: ${selected_files.length} file(s) - ${selected_files.slice(0, 5).join(', ')}${selected_files.length > 5 ? ` ... and ${selected_files.length - 5} more` : ''}`);
+
         // Prepare summaries first to ensure all files have summaries
         try {
           await prepareFileSummaries(supabase, documentId, false, user.id);
         } catch (prepareError) {
-          console.error('Failed to prepare summaries before regeneration:', prepareError);
+          console.error(`[${timestamp}] Failed to prepare summaries before regeneration:`, prepareError);
           // Continue anyway - will fallback to full content
         }
 
@@ -223,6 +231,9 @@ export async function POST(request: NextRequest) {
           change_summary: 'Regenerated with updated tracked files'
         });
 
+        const timestamp2 = new Date().toISOString();
+        console.log(`[${timestamp2}] [update-tracked-files] ✅ Successfully regenerated document: ${document.title}`);
+
         return NextResponse.json({
           success: true,
           message: 'Tracked files updated and documentation regenerated',
@@ -231,7 +242,8 @@ export async function POST(request: NextRequest) {
           files_changed: filesChanged,
         });
       } catch (regenerateError: any) {
-        console.error('Regeneration error:', regenerateError);
+        const timestamp3 = new Date().toISOString();
+        console.error(`[${timestamp3}] [update-tracked-files] Regeneration error:`, regenerateError);
         // Files were updated, but regeneration failed
         return NextResponse.json({
           success: true,

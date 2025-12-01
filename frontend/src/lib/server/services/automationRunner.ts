@@ -207,6 +207,11 @@ export async function executeAutomationRule({
 			// Regenerate summaries for changed files
 			for (const changedFile of changes.files_changed) {
 				try {
+					const timestamp = new Date().toISOString();
+					const reason = `File changed (hash: ${changedFile.old_hash?.substring(0, 8)} → ${changedFile.new_hash?.substring(0, 8)})`;
+					console.log(`[${timestamp}] Regenerating summary for file: ${changedFile.path}`);
+					console.log(`[${timestamp}]   Reason: ${reason}`);
+
 					const { data: fileData } = await octokit.repos.getContent({
 						owner,
 						repo: repoName,
@@ -239,11 +244,14 @@ export async function executeAutomationRule({
 						});
 
 						if (upsertError) {
-							console.error(`Failed to update summary for ${changedFile.path}:`, upsertError);
+							console.error(`[${timestamp}] Failed to update summary for ${changedFile.path}:`, upsertError);
+						} else {
+							console.log(`[${timestamp}] ✅ Successfully regenerated summary for ${changedFile.path}`);
 						}
 					}
 				} catch (error) {
-					console.error(`Failed to regenerate summary for ${changedFile.path}:`, error);
+					const timestamp = new Date().toISOString();
+					console.error(`[${timestamp}] Failed to regenerate summary for ${changedFile.path}:`, error);
 				}
 			}
 
@@ -261,7 +269,11 @@ export async function executeAutomationRule({
 
 		for (const [docId, docInfo] of affectedDocs) {
 			try {
-				console.log(`  ↳ Regenerating: ${docInfo.title}`);
+				const timestamp = new Date().toISOString();
+				const affectedFilePaths = docInfo.affectedFiles.map((f: { path: string; relationship: string }) => f.path).join(', ');
+				const reason = `${docInfo.affectedFiles.length} tracked file(s) changed: ${affectedFilePaths}`;
+				console.log(`[${timestamp}]  ↳ Regenerating: ${docInfo.title}`);
+				console.log(`[${timestamp}]    Reason: ${reason}`);
 
 				// Get all files related to this document
 				const { data: allDocFiles, error: allFilesError } = await supabase
@@ -270,12 +282,13 @@ export async function executeAutomationRule({
 					.eq('document_id', docId);
 
 				if (allFilesError || !allDocFiles) {
-					console.error(`Failed to get files for doc ${docId}:`, allFilesError);
+					console.error(`[${timestamp}] Failed to get files for doc ${docId}:`, allFilesError);
 					docsFailed++;
 					continue;
 				}
 
 				const relatedFiles = allDocFiles.map(f => f.file_path);
+				console.log(`[${timestamp}]    Files to regenerate: ${relatedFiles.length} file(s) - ${relatedFiles.slice(0, 5).join(', ')}${relatedFiles.length > 5 ? ` ... and ${relatedFiles.length - 5} more` : ''}`);
 
 				// Get current content for all related files (use summaries where available)
 				const analysis = await analyzeRepository({
@@ -339,7 +352,8 @@ export async function executeAutomationRule({
 					});
 
 					docsUpdated++;
-					console.log(`  ✅ Updated: ${docInfo.title}`);
+					const timestamp = new Date().toISOString();
+					console.log(`[${timestamp}]  ✅ Updated: ${docInfo.title}`);
 				}
 
 			} catch (error) {

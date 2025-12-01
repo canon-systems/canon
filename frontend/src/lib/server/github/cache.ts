@@ -128,12 +128,17 @@ export const cacheKey = {
 		`zip:${owner}/${repo}/${ref}`,
 };
 
+// Helper function to format timestamp for logs
+function getTimestamp(): string {
+	return new Date().toISOString();
+}
+
 // Run garbage collection periodically (every 5 minutes)
 if (typeof setInterval !== 'undefined') {
 	setInterval(() => {
 		const cleared = clearExpired();
 		if (cleared > 0) {
-			console.log(`[GitHub Cache] Cleared ${cleared} expired entries`);
+			console.log(`[${getTimestamp()}] [GitHub Cache] Cleared ${cleared} expired entries`);
 		}
 	}, 300_000);
 }

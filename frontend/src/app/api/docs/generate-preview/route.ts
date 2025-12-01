@@ -157,7 +157,11 @@ export async function POST(request: NextRequest) {
 
     // OPTIMIZATION: Load existing summaries from database in ONE bulk query
     // This replaces the slow prepareFileSummaries which was fetching files one-by-one
-    console.log(`[generate-preview] Loading summaries for ${selectedFiles.length} files...`);
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] [generate-preview] Regenerating preview for document: ${documentTitle} (${documentId})`);
+    console.log(`[${timestamp}] [generate-preview] Reason: User requested preview regeneration`);
+    console.log(`[${timestamp}] [generate-preview] Files tracked: ${selectedFiles.length} file(s) - ${selectedFiles.slice(0, 5).join(', ')}${selectedFiles.length > 5 ? ` ... and ${selectedFiles.length - 5} more` : ''}`);
+    console.log(`[${timestamp}] [generate-preview] Loading summaries for ${selectedFiles.length} files...`);
     const summaryStart = Date.now();
 
     const { data: existingSummaries, error: summaryError } = await supabase
@@ -175,7 +179,8 @@ export async function POST(request: NextRequest) {
     for (const s of existingSummaries || []) {
       summariesMap.set(s.file_path, { summary_text: s.summary_text, summary_json: s.summary_json });
     }
-    console.log(`[generate-preview] Loaded ${summariesMap.size} summaries in ${Date.now() - summaryStart}ms`);
+    const timestamp2 = new Date().toISOString();
+    console.log(`[${timestamp2}] [generate-preview] Loaded ${summariesMap.size} summaries in ${Date.now() - summaryStart}ms`);
 
     // Check which files are missing summaries
     const filesWithSummaries = selectedFiles.filter(f => summariesMap.has(f));
@@ -185,7 +190,9 @@ export async function POST(request: NextRequest) {
     let filesForDoc: Array<{ path: string; content: string }> = [];
 
     if (filesMissingSummaries.length > 0) {
-      console.log(`[generate-preview] Fetching ${filesMissingSummaries.length} files missing summaries in parallel...`);
+      const timestamp3 = new Date().toISOString();
+      console.log(`[${timestamp3}] [generate-preview] Fetching ${filesMissingSummaries.length} files missing summaries in parallel...`);
+      console.log(`[${timestamp3}] [generate-preview] Files without summaries: ${filesMissingSummaries.slice(0, 5).join(', ')}${filesMissingSummaries.length > 5 ? ` ... and ${filesMissingSummaries.length - 5} more` : ''}`);
       const fetchStart = Date.now();
       const octokit = await getUserOctokit(supabase, user.id);
       const MAX_PER_FILE = 200_000;
@@ -213,7 +220,8 @@ export async function POST(request: NextRequest) {
 
       const fetchedFiles = (await Promise.all(fetchPromises)).filter((f): f is { path: string; content: string } => f !== null);
       filesForDoc = fetchedFiles;
-      console.log(`[generate-preview] Fetched ${filesForDoc.length} files in ${Date.now() - fetchStart}ms`);
+      const timestamp4 = new Date().toISOString();
+      console.log(`[${timestamp4}] [generate-preview] Fetched ${filesForDoc.length} files in ${Date.now() - fetchStart}ms`);
     }
 
     // Build content for documentation using summaries for files that have them
@@ -323,7 +331,8 @@ export async function POST(request: NextRequest) {
       docsContent.map(f => `--- FILE: ${f.path} ${f.hasSummary ? '(summary)' : '(full content)'} ---\n${f.content}`).join('\n\n') +
       `\n\nPlease generate comprehensive documentation based on these files.`;
 
-    console.log(`[generate-preview] Calling LLM with ${docsContent.length} files...`);
+    const timestamp5 = new Date().toISOString();
+    console.log(`[${timestamp5}] [generate-preview] Calling LLM with ${docsContent.length} files...`);
     const llmStart = Date.now();
 
     // Run LLM call and significance analysis in parallel
@@ -339,8 +348,9 @@ export async function POST(request: NextRequest) {
     significanceAnalysis = sigResult.significanceAnalysis;
     changesDetected = sigResult.changesDetected;
 
-    console.log(`[generate-preview] LLM completed in ${Date.now() - llmStart}ms`);
-    console.log(`[generate-preview] Total time: ${Date.now() - startTime}ms`);
+    const timestamp6 = new Date().toISOString();
+    console.log(`[${timestamp6}] [generate-preview] LLM completed in ${Date.now() - llmStart}ms`);
+    console.log(`[${timestamp6}] [generate-preview] Total time: ${Date.now() - startTime}ms`);
 
     return NextResponse.json({
       markdown,

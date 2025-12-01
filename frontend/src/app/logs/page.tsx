@@ -12,10 +12,10 @@ export default async function LogsPage() {
 
   const supabase = await createClient();
 
-  // Get all documents (replaced submissions)
+  // Get all repos for automation data
   const { data: userRepos } = await supabase
     .from('workspace_repos')
-    .select('id')
+    .select('id, repo_url, name, default_branch, settings')
     .eq('workspace_id', user.id);
 
   const repoIds = userRepos?.map(r => r.id) || [];
@@ -275,6 +275,7 @@ export default async function LogsPage() {
     <LogsPageClient
       user={user}
       logs={logs}
+      repos={userRepos || []}
     />
   );
 }

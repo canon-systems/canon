@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Zap, Plus, CheckCircle2, XCircle, Clock, Loader2, Sliders, GitBranch, ExternalLink, Link as LinkIcon, TrendingUp, Search, ChevronDown, FileText, Github, Trash2, PlayCircle, StopCircle } from 'lucide-react';
+import { Zap, Plus, CheckCircle2, XCircle, Clock, Loader2, Sliders, GitBranch, ExternalLink, TrendingUp, Search, ChevronDown, FileText, Github, Trash2, PlayCircle, StopCircle } from 'lucide-react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
@@ -150,7 +150,7 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
   const [repoError, setRepoError] = useState('');
 
   // Tab management
-  type AutomationTab = 'repos' | 'rules' | 'runs';
+  type AutomationTab = 'repos' | 'rules';
   const [activeTab, setActiveTab] = useState<AutomationTab>('repos');
   
   // Track expanded error states for runs
@@ -1010,6 +1010,55 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
     }
   }
 
+  async function toggleRuleEnabled(repoId: string, ruleId: string) {
+    try {
+      // Find the current rule settings
+      const repo = reposList.find(r => r.id === repoId);
+      if (!repo) return;
+
+      const currentRules = repo.settings?.automation_rules || [];
+      const ruleIndex = currentRules.findIndex((r: any) => (r.id || r.name) === ruleId);
+      if (ruleIndex === -1) return;
+
+      // Toggle the enabled state
+      const updatedRules = [...currentRules];
+      updatedRules[ruleIndex] = {
+        ...updatedRules[ruleIndex],
+        enabled: !updatedRules[ruleIndex].enabled
+      };
+
+      // Send the update to the server
+      const response = await fetch(`/api/repos/${repoId}/automation`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ automation_rules: updatedRules })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update rule status');
+      }
+
+      // Update local state
+      const updated = await response.json();
+      setReposList(prev => prev.map(r =>
+        r.id === repoId
+          ? { ...r, settings: { ...r.settings, automation_rules: updated.automation_rules } }
+          : r
+      ));
+
+      // Update allRules state
+      recalculateRulesAndStats(reposList.map(r =>
+        r.id === repoId
+          ? { ...r, settings: { ...r.settings, automation_rules: updated.automation_rules } }
+          : r
+      ));
+
+    } catch (error: any) {
+      console.error('Failed to toggle rule enabled state:', error);
+      // Could add error handling UI here
+    }
+  }
 
   async function openAutomationModal(repoId: string) {
     setActiveAutomationRepoId(repoId);
@@ -1180,17 +1229,6 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
           >
             <Github className="h-4 w-4" />
             Repositories
-          </button>
-          <button
-            onClick={() => setActiveTab('runs')}
-            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors border-b-2 ${
-              activeTab === 'runs'
-                ? 'border-purple-500 text-white'
-                : 'border-transparent text-white/60 hover:text-white hover:border-white/20'
-            }`}
-          >
-            <PlayCircle className="h-4 w-4" />
-            Runs
           </button>
           <button
             onClick={() => setActiveTab('rules')}
@@ -1595,179 +1633,6 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
         </>
       )}
 
-      {activeTab === 'runs' && (
-        <div className="space-y-6">
-          <div className="glass-panel p-6">
-            <h2 className="text-2xl font-semibold text-white mb-4">Automation Runs</h2>
-            <p className="text-white/70 mb-6">View all automation rule executions across your repositories</p>
-            
-            {reposList.length === 0 ? (
-              <div className="text-center py-12">
-                <PlayCircle className="h-16 w-16 text-white/30 mx-auto mb-4" />
-                <p className="text-white/60 mb-2">No repositories configured yet</p>
-                <button
-                  onClick={() => setActiveTab('repos')}
-                  className="inline-block rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
-                >
-                  Add a repository
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {reposList.map((repo) => {
-                  const repoMetadata = repo.settings?.automation_metadata || {};
-                  const repoRules = allRules.filter((r) => r.repoId === repo.id);
-                  
-                  if (repoRules.length === 0) return null;
-
-                  return (
-                    <div key={repo.id} className="rounded-lg border border-white/10 bg-white/5 p-4">
-                      <div className="flex items-center gap-2 mb-4">
-                        <Github className="h-4 w-4 text-white/60" />
-                        <div>
-                          <h3 className="text-lg font-semibold text-white">{repo.name}</h3>
-                          <p className="text-xs text-white/50 flex items-center gap-1">
-                            <GitBranch className="h-3 w-3" />
-                            {repo.default_branch}
-                          </p>
-                        </div>
-                      </div>
-                      
-                      <div className="space-y-3">
-                        {repoRules.map((rule) => {
-                          const ruleMetadata = repoMetadata[rule.ruleId] || {};
-                          const executionHistory = ruleMetadata.execution_history || [];
-                          
-                          if (executionHistory.length === 0) {
-                            return (
-                              <div key={rule.ruleId} className="rounded-lg border border-white/10 bg-black/40 p-3">
-                                <div className="flex items-center justify-between">
-                                  <div>
-                                    <p className="text-sm font-medium text-white">{rule.ruleName}</p>
-                                    <p className="text-xs text-white/50">No runs yet</p>
-                                  </div>
-                                  <Clock className="h-4 w-4 text-white/40" />
-                                </div>
-                              </div>
-                            );
-                          }
-
-                          return (
-                            <div key={rule.ruleId} className="space-y-2">
-                              <p className="text-sm font-medium text-white/90">{rule.ruleName}</p>
-                              <div className="space-y-2 max-h-60 overflow-y-auto">
-                                {executionHistory.map((execution: any, idx: number) => {
-                                  const hasErrors = execution.errors && execution.errors.length > 0;
-                                  const errorKey = `${repo.id}-${rule.ruleId}-${idx}`;
-                                  const showErrors = expandedErrors[errorKey] || false;
-                                  
-                                  // Check if this was a cancelled run
-                                  const isCancelled = !execution.success && !execution.skipped && 
-                                    execution.errors?.some((e: string) => e.toLowerCase().includes('cancelled'));
-                                  
-                                  return (
-                                    <div
-                                      key={idx}
-                                      className="rounded-lg border border-white/10 bg-black/40 p-3"
-                                    >
-                                      <div className="flex items-start gap-3">
-                                        <div className={`mt-0.5 ${
-                                          execution.success ? 'text-green-400' : 
-                                          execution.skipped ? 'text-yellow-400' : 
-                                          isCancelled ? 'text-orange-400' :
-                                          'text-red-400'
-                                        }`}>
-                                          {execution.success ? (
-                                            <CheckCircle2 className="h-4 w-4" />
-                                          ) : execution.skipped ? (
-                                            <Clock className="h-4 w-4" />
-                                          ) : isCancelled ? (
-                                            <StopCircle className="h-4 w-4" />
-                                          ) : (
-                                            <XCircle className="h-4 w-4" />
-                                          )}
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                          <div className="flex items-center gap-2 mb-1 flex-wrap">
-                                            <span className="text-xs text-white/60">{formatDate(execution.timestamp)}</span>
-                                            <span className={`text-xs px-2 py-0.5 rounded ${
-                                              execution.success ? 'bg-green-500/20 text-green-300' : 
-                                              execution.skipped ? 'bg-yellow-500/20 text-yellow-300' : 
-                                              isCancelled ? 'bg-orange-500/20 text-orange-300' :
-                                              'bg-red-500/20 text-red-300'
-                                            }`}>
-                                              {execution.success ? 'Success' : execution.skipped ? 'Skipped' : isCancelled ? 'Cancelled' : 'Failed'}
-                                            </span>
-                                            <span className={`text-xs px-2 py-0.5 rounded ${
-                                              execution.trigger === 'manual' 
-                                                ? 'bg-purple-500/20 text-purple-300' 
-                                                : 'bg-blue-500/20 text-blue-300'
-                                            }`}>
-                                              {execution.trigger === 'manual' ? 'Manual' : 'Scheduled'}
-                                            </span>
-                                          </div>
-                                          {execution.actions && execution.actions.length > 0 && (
-                                            <p className="text-xs text-white/50 mb-1">Actions: {execution.actions.join(', ')}</p>
-                                          )}
-                                          {execution.skip_reason && (
-                                            <p className="text-xs text-yellow-300 mb-1">Reason: {execution.skip_reason}</p>
-                                          )}
-                                          {hasErrors && (
-                                            <button
-                                              onClick={() => setExpandedErrors(prev => ({ ...prev, [errorKey]: !showErrors }))}
-                                              className="flex items-center gap-1 text-xs text-red-300 hover:text-red-200 mt-1"
-                                            >
-                                              <ChevronDown className={`h-3 w-3 transition-transform ${showErrors ? 'rotate-180' : ''}`} />
-                                              {showErrors ? 'Hide' : 'Show'} Errors ({execution.errors.length})
-                                            </button>
-                                          )}
-                                          {hasErrors && showErrors && (
-                                            <div className="mt-2 pl-4 border-l-2 border-red-500/30">
-                                              <ul className="list-disc list-inside text-xs text-red-200 space-y-1">
-                                                {execution.errors.map((error: string, errorIdx: number) => (
-                                                  <li key={errorIdx}>{error}</li>
-                                                ))}
-                                              </ul>
-                                            </div>
-                                          )}
-                                          <div className="flex items-center gap-3 mt-2">
-                                            {execution.doc_id && (
-                                              <Link
-                                                href={`/edit/${execution.doc_id}`}
-                                                className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
-                                              >
-                                                <FileText className="h-3 w-3" />
-                                                View Document
-                                              </Link>
-                                            )}
-                                            {execution.diagram_id && (
-                                              <Link
-                                                href={`/architecture/${execution.diagram_id}`}
-                                                className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
-                                              >
-                                                <LinkIcon className="h-3 w-3" />
-                                                View Diagram
-                                              </Link>
-                                            )}
-                                          </div>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       {activeTab === 'rules' && (
         <div className="space-y-6">
@@ -1934,6 +1799,22 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                                 )}
 
                                 <div className="flex items-center gap-2 mt-3">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleRuleEnabled(repoId, rule.ruleId);
+                                    }}
+                                    className={`relative inline-flex h-6 w-10 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                                      rule.enabled ? 'bg-emerald-500' : 'bg-gray-600'
+                                    }`}
+                                    title={rule.enabled ? 'Disable rule' : 'Enable rule'}
+                                  >
+                                    <span
+                                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                        rule.enabled ? 'translate-x-5' : 'translate-x-1'
+                                      }`}
+                                    />
+                                  </button>
                                   {runningRules[`${repoId}-${rule.ruleId}`] ? (
                                     <button
                                       onClick={(e) => {

@@ -13,7 +13,7 @@ import type { User } from '@supabase/supabase-js';
 interface DocItem {
   id: string;
   title: string;
-  status: 'pending_review' | 'published';
+  status: 'published';
   repo: string;
   branch: string;
   path: string;
@@ -32,7 +32,7 @@ interface EditListPageClientProps {
 }
 
 type ViewMode = 'tile' | 'row';
-type StatusFilter = 'all' | 'pending_review' | 'published';
+type StatusFilter = 'all' | 'published';
 
 export function EditListPageClient({ user }: EditListPageClientProps) {
   const router = useRouter();
@@ -48,7 +48,6 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
-  const [pendingCount, setPendingCount] = useState(0);
   const [repoFilter, setRepoFilter] = useState<string>('');
   const [repos, setRepos] = useState<Array<{ id: string; name: string; repo_url: string }>>([]);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
@@ -149,9 +148,6 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
         console.log('Sample item:', data.items[0]);
         console.log('Last pushed:', data.items[0].lastPushedProvider, data.items[0].lastPushedAt);
       }
-
-      // Load pending count separately
-      loadPendingCount();
     } catch (err: any) {
       setError(err.message || 'Failed to load documents');
     } finally {
@@ -159,17 +155,6 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
     }
   }
 
-  async function loadPendingCount() {
-    try {
-      const response = await fetch('/api/docs/list?status=pending_review&pageSize=1');
-      if (response.ok) {
-        const data = await response.json();
-        setPendingCount(data.pagination.total);
-      }
-    } catch (err) {
-      // Ignore errors for pending count
-    }
-  }
 
   function setViewModeAndSave(mode: ViewMode) {
     setViewMode(mode);
@@ -282,20 +267,12 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
 
   // Status badge component
   function getStatusBadge(status: DocItem['status']) {
-    const badges = {
-      pending_review: (
-        <span className="inline-flex items-center gap-1 rounded border border-yellow-400/30 bg-yellow-500/20 px-2 py-1 text-xs text-yellow-200">
-          Pending Review
-        </span>
-      ),
-      published: (
-        <span className="inline-flex items-center gap-1 rounded border border-blue-400/30 bg-blue-500/20 px-2 py-1 text-xs text-blue-200">
-          <Send className="h-3 w-3" />
-          Published
-        </span>
-      ),
-    };
-    return badges[status] || badges.pending_review;
+    return (
+      <span className="inline-flex items-center gap-1 rounded border border-blue-400/30 bg-blue-500/20 px-2 py-1 text-xs text-blue-200">
+        <Send className="h-3 w-3" />
+        Published
+      </span>
+    );
   }
 
   // Format functions
@@ -348,14 +325,9 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
           <header className="space-y-4">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="flex-1">
-                <h1 className="text-3xl font-bold text-white">Documentation Dashboard</h1>
+                <h1 className="text-3xl font-bold text-white">Documentation</h1>
                 <p className="text-white/70">
-                  Manage and review your documentation.{' '}
-                  {pendingCount > 0 && (
-                    <span className="font-semibold text-yellow-300">
-                      {pendingCount} pending review
-                    </span>
-                  )}
+                  Manage and review your documentation.
                 </p>
               </div>
               {items.length > 0 && (
@@ -423,18 +395,6 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
                     }`}
                 >
                   All
-                </button>
-                <button
-                  onClick={() => {
-                    setStatusFilter('pending_review');
-                    setPage(1);
-                  }}
-                  className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-all ${statusFilter === 'pending_review'
-                    ? 'bg-yellow-500/30 text-yellow-200 border border-yellow-500/50 shadow-lg shadow-yellow-500/20'
-                    : 'bg-white/10 text-white/70 border border-white/20 hover:bg-white/20 hover:border-white/30 hover:shadow-md'
-                    }`}
-                >
-                  Pending Review {pendingCount > 0 && `(${pendingCount})`}
                 </button>
                 <button
                   onClick={() => {
