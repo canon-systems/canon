@@ -18,6 +18,44 @@ function normalizeRepoId(repoUrl: string): string {
 	return `github.com/${parsed.owner}/${parsed.repo}`;
 }
 
+/**
+ * Normalize file paths so "./foo.ts" and "foo.ts" are treated the same.
+ */
+function normalizeFilePath(filePath?: string | null): string {
+	if (!filePath) return '';
+	let normalized = filePath.trim().replace(/\\/g, '/');
+
+	// Remove duplicated slashes
+	normalized = normalized.replace(/\/+/g, '/');
+
+	// Remove leading ./ or /
+	while (normalized.startsWith('./')) {
+		normalized = normalized.slice(2);
+	}
+	while (normalized.startsWith('/')) {
+		normalized = normalized.slice(1);
+	}
+
+	return normalized;
+}
+
+/**
+ * Check if two file paths match, handling cases where one path
+ * has additional directory prefixes (e.g., "frontend/src/..." vs "src/...")
+ */
+function pathsMatch(path1: string, path2: string): boolean {
+	const normalized1 = normalizeFilePath(path1);
+	const normalized2 = normalizeFilePath(path2);
+	
+	if (!normalized1 || !normalized2) return false;
+	
+	return (
+		normalized1 === normalized2 ||
+		normalized1.endsWith('/' + normalized2) ||
+		normalized2.endsWith('/' + normalized1)
+	);
+}
+
 export type GenerateDocParams = {
 	supabase: SupabaseClient;
 	userId?: string | null;
@@ -110,22 +148,36 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 		// Get branch from submission
 		const submissionBranch = submission.source_meta?.branch || branch || 'main';
 
-		// Load summaries for tracked files
-		// Use ilike for case-insensitive repo_id matching since GitHub URLs are case-insensitive
-		const { data: summaries, error: summariesError } = await supabase
+		// Load ALL summaries for this repo (don't filter by exact file paths)
+		// This allows fuzzy path matching (e.g., "frontend/src/..." vs "src/...")
+		const { data: allSummaries, error: summariesError } = await supabase
 			.from('repo_file_summaries')
 			.select('file_path, summary_text, summary_json')
 			.ilike('repo_id', repoId)
-			.eq('branch', submissionBranch)
-			.in('file_path', trackedFiles);
+			.eq('branch', submissionBranch);
 
 		if (summariesError) {
 			throw new Error(`Failed to load summaries: ${summariesError.message}`);
 		}
 
-		// Check for any missing summaries and generate them
-		const filesWithSummaries = new Set((summaries || []).map((s) => s.file_path));
-		const missingFiles = trackedFiles.filter((path) => !filesWithSummaries.has(path));
+		// Build map using fuzzy path matching to handle path prefix differences
+		// (e.g., "frontend/src/..." vs "src/...")
+		const matchedTrackedFiles = new Set<string>();
+		
+		for (const summary of allSummaries || []) {
+			// Find which tracked file this summary matches
+			for (const trackedPath of trackedFiles) {
+				if (pathsMatch(summary.file_path, trackedPath)) {
+					// Store with the tracked file path as key (for lookup during generation)
+					summariesMap.set(trackedPath, summary);
+					matchedTrackedFiles.add(trackedPath);
+					break;
+				}
+			}
+		}
+
+		// Check for any missing summaries
+		const missingFiles = trackedFiles.filter((path) => !matchedTrackedFiles.has(path));
 
 		if (missingFiles.length > 0) {
 			// Generate summaries for missing files
@@ -134,44 +186,45 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 			// Re-run prepare to generate missing summaries
 			await prepareFileSummaries(supabase, submissionId, false, userId || null);
 
-			// Reload summaries after generation
-			// Use ilike for case-insensitive repo_id matching
+			// Reload ALL summaries after generation
 			const { data: updatedSummaries, error: reloadError } = await supabase
 				.from('repo_file_summaries')
 				.select('file_path, summary_text, summary_json')
 				.ilike('repo_id', repoId)
-				.eq('branch', submissionBranch)
-				.in('file_path', trackedFiles);
+				.eq('branch', submissionBranch);
 
 			if (reloadError) {
 				throw new Error(`Failed to reload summaries: ${reloadError.message}`);
 			}
 
+			// Re-match with fuzzy path matching
+			for (const summary of updatedSummaries || []) {
+				for (const trackedPath of trackedFiles) {
+					if (pathsMatch(summary.file_path, trackedPath)) {
+						summariesMap.set(trackedPath, summary);
+						matchedTrackedFiles.add(trackedPath);
+						break;
+					}
+				}
+			}
+
 			// Verify all files now have summaries
-			const finalFilesWithSummaries = new Set((updatedSummaries || []).map((s) => s.file_path));
-			const stillMissing = trackedFiles.filter((path) => !finalFilesWithSummaries.has(path));
+			const stillMissing = trackedFiles.filter((path) => !matchedTrackedFiles.has(path));
 
 			if (stillMissing.length > 0) {
 				throw new Error(
-					`Unable to generate summaries for ${stillMissing.length} file(s) after retry: ${stillMissing.join(', ')}`
+					`Unable to generate summaries for ${stillMissing.length} file(s) after retry: ${stillMissing.join(', ')}. ` +
+					`Available summaries: ${(updatedSummaries || []).map(s => s.file_path).join(', ')}`
 				);
 			}
-
-			// Build map from updated summaries
-			(updatedSummaries || []).forEach((summary) => {
-				summariesMap.set(summary.file_path, summary);
-			});
-		} else {
-			// All files have summaries - build map
-			(summaries || []).forEach((summary) => {
-				summariesMap.set(summary.file_path, summary);
-			});
 		}
 	} else if (useSummaries) {
 		// useSummaries was requested but we don't have the required params
-		// This can happen if prepareFirst was used but submissionId/repoUrl aren't available yet
-		// Just log a warning and continue without summaries
-		console.warn('useSummaries was true but missing submissionId or repoUrl, falling back to full content');
+		// This is an error - summaries are required to avoid token limits
+		throw new Error(
+			'useSummaries was true but missing submissionId or repoUrl. ' +
+			'Cannot proceed without summaries to avoid token limits.'
+		);
 	}
 
 	const systemPrompt = buildSystemPrompt(promptConfig ?? null, false);
@@ -181,8 +234,19 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 
 	for (const file of fileEntries) {
 		if (useSummaries && submissionId) {
-			// Get summary - if missing, generate it
+			// Get summary - try exact match first, then fuzzy match
 			let summary = summariesMap.get(file.path);
+			
+			// If not found by exact path, try finding via fuzzy matching in the map
+			if (!summary) {
+				for (const [key, value] of summariesMap.entries()) {
+					if (pathsMatch(key, file.path)) {
+						summary = value;
+						break;
+					}
+				}
+			}
+			
 			if (!summary) {
 				// Summary is missing - generate it now
 				console.log(`Summary missing for ${file.path}, generating now...`);
@@ -190,7 +254,7 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 				// Re-run prepare to generate the missing summary
 				await prepareFileSummaries(supabase, submissionId, false, userId || null);
 
-				// Reload summaries
+				// Reload ALL summaries and use fuzzy matching
 				const { data: submission } = await supabase
 					.from('submissions')
 					.select('selected_files, source_meta')
@@ -200,26 +264,26 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 				if (submission) {
 					const repoId = normalizeRepoId(repoUrl!);
 					const submissionBranch = submission.source_meta?.branch || branch || 'main';
-					// Use ilike for case-insensitive repo_id matching
+					// Load all summaries and find matching one with fuzzy path matching
 					const { data: reloadedSummaries } = await supabase
 						.from('repo_file_summaries')
 						.select('file_path, summary_text, summary_json')
 						.ilike('repo_id', repoId)
-						.eq('branch', submissionBranch)
-						.eq('file_path', file.path)
-						.single();
+						.eq('branch', submissionBranch);
 
-					if (reloadedSummaries) {
-						summary = reloadedSummaries;
-						summariesMap.set(file.path, summary);
+					// Find matching summary using fuzzy path matching
+					for (const reloaded of reloadedSummaries || []) {
+						if (pathsMatch(reloaded.file_path, file.path)) {
+							summary = reloaded;
+							summariesMap.set(file.path, summary);
+							break;
+						}
 					}
 				}
 
-				// If still missing after retry, use file content as last resort (shouldn't happen)
+				// If still missing after retry, FAIL instead of using full content to avoid token limits
 				if (!summary) {
-					console.warn(`Unable to generate summary for ${file.path} after retry, using file content`);
-					fileContentParts.push(`--- FILE: ${file.path} ---\n${file.content}`);
-					continue;
+					throw new Error(`Summary generation failed for ${file.path}. Cannot proceed without summaries to avoid token limits.`);
 				}
 			}
 
