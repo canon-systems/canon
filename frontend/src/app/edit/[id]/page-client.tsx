@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Loader2, AlertCircle, CheckCircle2, RefreshCw, Clock, FileText, GitCompare, X, Send, ExternalLink, ChevronDown, Github, GitBranch, Search, Check } from 'lucide-react';
@@ -547,6 +547,16 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
         throw new Error(errorMsg);
       }
 
+      // Update document timestamp
+      const { error: updateError } = await supabase
+        .from('documents')
+        .update({
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', initialSubmission.id);
+
+      if (updateError) throw updateError;
+
       setPushSuccess({
         provider: selectedProvider,
         url: result.url || result.workspace_info?.metadata?.url
@@ -554,6 +564,7 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
 
       setTimeout(() => {
         closePushModal();
+        router.refresh();
       }, 2000);
     } catch (err: any) {
       setPushError(err.message || 'Failed to push to knowledge base');
@@ -571,74 +582,6 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
     return names[provider] || provider.charAt(0).toUpperCase() + provider.slice(1);
   }
 
-  // Publish handler
-  async function handlePublish(provider: string, workspaceInfo?: any) {
-    setIsProcessing(true);
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token;
-
-      if (!token) {
-        throw new Error('Not authenticated');
-      }
-
-      // Push to knowledge base
-      const workspaceInfoForPush = workspaceInfo || (selectedParent ? {
-        provider: provider,
-        resourceId: selectedParent.id,
-        metadata: {
-          type: selectedParent.type,
-          ...(selectedParent.type === 'database' ? { database_id: selectedParent.id } : {})
-        }
-      } : null);
-
-      const pushResponse = await fetch(`/api/push/${provider}`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          docId: initialSubmission.id,
-          title: pushTitle,
-          markdown: markdown,
-          workspaceInfo: workspaceInfoForPush,
-          createNew: true
-        })
-      });
-
-      if (!pushResponse.ok) {
-        const errorData = await pushResponse.json();
-        throw new Error(errorData.error || errorData.detail || 'Failed to push');
-      }
-
-      // Update document timestamp
-      const { error: updateError } = await supabase
-        .from('documents')
-        .update({
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', initialSubmission.id);
-
-      if (updateError) throw updateError;
-
-      const result = await pushResponse.json();
-
-      if (result.url) {
-        alert(`Document published successfully! Opening in ${getProviderDisplayName(provider)}...`);
-        window.open(result.url, '_blank');
-      } else {
-        alert('Document published successfully!');
-      }
-
-      router.refresh();
-    } catch (error: any) {
-      console.error('Failed to publish:', error);
-      alert(`Failed to publish: ${error.message}`);
-    } finally {
-      setIsProcessing(false);
-    }
-  }
 
   const [aiFixState, setAiFixState] = useState<{
     isStreaming: boolean;
@@ -1067,15 +1010,6 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
     }
   }
 
-  // Get available providers for approve & publish
-  const availableProviders = useMemo(() => {
-    return connections
-      .filter(c => ['notion', 'confluence', 'coda'].includes(c.provider))
-      .map(c => ({
-        provider: c.provider,
-        name: getProviderDisplayName(c.provider)
-      }));
-  }, [connections]);
 
   // Load connections on mount
   useEffect(() => {
@@ -1486,9 +1420,8 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                   docId={initialSubmission.id}
                   currentView={viewMode}
                   onViewChange={setViewMode}
-                  onPublish={handlePublish}
+                  onOpenPublishModal={openPushModal}
                   isProcessing={isProcessing}
-                  availableProviders={availableProviders}
                   onApplyTemplate={handleApplyTemplate}
                   onViewDiff={loadDiff}
                   onViewDiagramDiff={loadDiagramDiff}
@@ -1632,15 +1565,6 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
             ) : (
               <span>Save</span>
             )}
-          </button>
-
-          <button
-            className="inline-flex items-center gap-2 rounded-xl border border-blue-500/50 bg-blue-500/20 px-5 py-2.5 text-blue-200 shadow-lg shadow-blue-500/10 transition-all hover:bg-blue-500/30 hover:border-blue-500/70 hover:shadow-xl hover:shadow-blue-500/20 hover:-translate-y-0.5 disabled:opacity-60 disabled:hover:translate-y-0 disabled:hover:shadow-lg"
-            onClick={openPushModal}
-            disabled={saving || !markdown}
-          >
-            <Send className="h-4 w-4" />
-            <span>Push to Knowledge Base</span>
           </button>
 
           <Link

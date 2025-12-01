@@ -59,7 +59,6 @@ export async function POST(request: NextRequest) {
     // Check if this doc was previously pushed to Notion
     // If so, try to update the existing page instead of creating a new one
     let existingResourceId: string | null = null;
-    let existingUrl: string | null = null;
     let attemptedUpdate = false;
 
     if (docId && !forceNew) {
@@ -74,14 +73,6 @@ export async function POST(request: NextRequest) {
       // Check if this doc was previously pushed to Notion
       if (existingDocument?.kb_provider === 'notion' && existingDocument?.kb_id) {
         existingResourceId = existingDocument.kb_id;
-        createNew = false; // Try to update instead of create
-        attemptedUpdate = true;
-      }
-
-      // Check if this doc was previously pushed to Notion
-      if (pushMeta?.provider === 'notion' && pushMeta?.resource_id) {
-        existingResourceId = pushMeta.resource_id;
-        existingUrl = pushMeta.url || null;
         createNew = false; // Try to update instead of create
         attemptedUpdate = true;
         console.log(`[Notion Push] Attempting to update existing page ${existingResourceId} for doc ${docId}`);

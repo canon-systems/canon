@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import { Send, FileText, Code, Edit, Loader2, GitCompare } from 'lucide-react';
 import { TemplateSelector } from '@/components/TemplateSelector';
 
@@ -10,9 +9,8 @@ interface ReviewPanelProps {
   docId: string;
   currentView: ViewMode;
   onViewChange: (view: ViewMode) => void;
-  onPublish: (provider: string, workspaceInfo?: any) => Promise<void>;
+  onOpenPublishModal: () => void;
   isProcessing?: boolean;
-  availableProviders?: Array<{ provider: string; name: string }>;
   onApplyTemplate?: (templateId: string) => Promise<void>;
   onViewDiff?: () => void;
   onViewDiagramDiff?: () => void;
@@ -21,23 +19,12 @@ interface ReviewPanelProps {
 export function ReviewPanel({
   currentView,
   onViewChange,
-  onPublish,
+  onOpenPublishModal,
   isProcessing = false,
-  availableProviders = [],
   onApplyTemplate,
   onViewDiff,
   onViewDiagramDiff
 }: ReviewPanelProps) {
-  const [showPublishDialog, setShowPublishDialog] = useState(false);
-  const [selectedProvider, setSelectedProvider] = useState<string>('');
-
-  const handlePublish = async () => {
-    if (!selectedProvider && availableProviders.length > 0) {
-      setSelectedProvider(availableProviders[0].provider);
-    }
-    await onPublish(selectedProvider || 'notion');
-    setShowPublishDialog(false);
-  };
 
   return (
     <div className="space-y-4">
@@ -134,70 +121,14 @@ export function ReviewPanel({
       {/* Publish Button */}
       <div className="flex flex-col gap-3 pt-4 border-t border-white/10">
         <button
-          onClick={() => setShowPublishDialog(true)}
+          onClick={onOpenPublishModal}
           disabled={isProcessing}
           className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-purple-500 to-pink-500 px-4 py-2.5 text-sm font-semibold text-white transition-all hover:from-purple-600 hover:to-pink-600 hover:shadow-lg hover:shadow-purple-500/30 hover:-translate-y-0.5 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-none shadow-lg shadow-purple-500/20"
         >
-          {isProcessing ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Publishing...
-            </>
-          ) : (
-            <>
-              <Send className="h-4 w-4" />
-              Publish
-            </>
-          )}
+          <Send className="h-4 w-4" />
+          Publish
         </button>
       </div>
-
-      {/* Publish Dialog */}
-      {showPublishDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-          <div className="glass-panel w-full max-w-md p-6 space-y-4">
-            <h3 className="text-lg font-semibold text-white">Publish to Knowledge Base</h3>
-            <p className="text-sm text-white/70">Select a knowledge base provider to publish to:</p>
-            {availableProviders.length > 0 ? (
-              <select
-                value={selectedProvider}
-                onChange={(e) => setSelectedProvider(e.target.value)}
-                className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white outline-none focus:border-white/40"
-              >
-                {availableProviders.map((p) => (
-                  <option key={p.provider} value={p.provider}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <p className="text-sm text-yellow-300">No knowledge base connections available. Please connect one first.</p>
-            )}
-            <div className="flex items-center gap-3 justify-end">
-              <button
-                onClick={() => setShowPublishDialog(false)}
-                className="rounded-lg border border-white/20 px-4 py-2 text-sm font-medium text-white/80 transition-all hover:bg-white/10 hover:border-white/30 hover:shadow-md"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handlePublish}
-                disabled={isProcessing || availableProviders.length === 0}
-                className="rounded-lg bg-gradient-to-r from-purple-500 to-pink-500 px-4 py-2 text-sm font-semibold text-white transition-all hover:from-purple-600 hover:to-pink-600 hover:shadow-lg hover:shadow-purple-500/30 hover:-translate-y-0.5 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-none"
-              >
-                {isProcessing ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
-                    Publishing...
-                  </>
-                ) : (
-                  'Publish'
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
