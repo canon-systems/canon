@@ -98,7 +98,9 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 		}
 
 		const repoId = normalizeRepoId(repoUrl);
-		const trackedFiles = submission.selected_files || [];
+		const trackedFiles: string[] = ((submission.selected_files || []) as unknown[]).filter(
+			(f: unknown): f is string => typeof f === 'string'
+		);
 
 		if (trackedFiles.length === 0) {
 			throw new Error('No tracked files found in submission');

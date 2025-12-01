@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { prepareFileSummaries } from './prepareSummaries';
 import { parseRepoUrl } from '../github/github';
-import { createServiceRoleClient } from '@/lib/supabase/server';
+import { createServiceRoleClient } from '../../supabase/server';
 
 /**
  * Normalize repo URL to repo_id format: "github.com/owner/repo" (lowercase)
@@ -138,6 +138,7 @@ export async function findSubmissionsWithMissingSummaries(
 			// Normalize file paths for comparison while keeping original value for display
 			const trackedFileDisplayMap = new Map<string, string>();
 			for (const filePath of trackedFilesRaw) {
+				if (typeof filePath !== 'string') continue;
 				const normalizedPath = normalizeFilePath(filePath);
 				if (!normalizedPath) continue;
 				if (!trackedFileDisplayMap.has(normalizedPath)) {
@@ -152,17 +153,17 @@ export async function findSubmissionsWithMissingSummaries(
 			// Check which files have summaries
 			// IMPORTANT: Do NOT filter by file_path here, because paths in repo_file_summaries
 			// may differ by leading segments (e.g. \"frontend/src/...\" vs \"src/...\").
-			
+
 			// Use service role client to bypass RLS for reading summaries
 			const serviceClient = createServiceRoleClient();
-			
+
 			// Query for summaries with case-insensitive repo_id matching
 			// First try exact lowercase match, then try with original case patterns
 			const { data: existingSummaries, error: summariesError } = await serviceClient
 				.from('repo_file_summaries')
 				.select('file_path, branch, repo_id')
 				.ilike('repo_id', `%${repoId.split('/').pop()}`); // Match by repo name suffix
-			
+
 			// Filter to only include summaries that match our repo (case-insensitive)
 			const repoSummaries = (existingSummaries || []).filter(
 				(s) => s.repo_id?.toLowerCase() === repoId.toLowerCase()
@@ -265,16 +266,16 @@ export async function backfillSubmissionSummaries(
 	} catch (error: any) {
 		const errorMessage = error?.message || String(error);
 		const errorStatus = error?.status || error?.response?.status;
-		const fullError = errorStatus 
+		const fullError = errorStatus
 			? `${errorMessage} (Status: ${errorStatus})`
 			: errorMessage;
-		
+
 		console.error(`backfillSubmissionSummaries failed for ${submissionId}:`, {
 			error: fullError,
 			status: errorStatus,
 			stack: error?.stack,
 		});
-		
+
 		errors.push(fullError);
 		return {
 			success: false,
@@ -337,7 +338,7 @@ export async function backfillSummariesBatch(
 	// Process in batches to avoid overwhelming the system and hitting rate limits
 	for (let i = 0; i < submissionsToBackfill.length; i += batchSize) {
 		const batch = submissionsToBackfill.slice(i, i + batchSize);
-		
+
 		// Add delay between batches to avoid rate limits (except first batch)
 		if (i > 0) {
 			const delay = 2000; // 2 second delay between batches

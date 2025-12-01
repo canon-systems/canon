@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
 
     // Only use summaries if explicitly requested AND we have both submissionId and repoUrl
     // prepareFirst just prepares summaries for future use, it doesn't mean we should use them now
-    const shouldUseSummaries = useSummaries && submissionId && repoUrl;
+    const shouldUseSummaries = Boolean(useSummaries && submissionId && repoUrl);
 
     const result = await generateDocumentation({
       supabase,

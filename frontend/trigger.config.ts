@@ -1,5 +1,4 @@
 import { defineConfig } from "@trigger.dev/sdk";
-import { syncEnvVars } from "@trigger.dev/build/extensions/core";
 
 export default defineConfig({
   // Your project ref (you can see it on the Project settings page in the dashboard)
@@ -20,7 +19,3 @@ export default defineConfig({
     },
   },
 });
-
-// Export tasks for auto-discovery
-export { pollDocsTask } from './trigger/poll-docs';
-export { backfillSummariesTask } from './trigger/backfill-summaries';
