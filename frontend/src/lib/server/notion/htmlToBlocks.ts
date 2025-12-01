@@ -38,19 +38,26 @@ export interface NotionRichText {
 export function htmlToNotionBlocks(html: string): NotionBlock[] {
 	// Parse HTML using node-html-parser
 	const root = parse(html);
+	
+	// Try to find body, or use root directly
 	const body = root.querySelector('body') || root;
 
 	const blocks: NotionBlock[] = [];
 	
-	// Process each top-level child element
+	// Get all child nodes - handle both root element and body element cases
 	const children = body.childNodes || [];
+	
 	for (const node of children) {
-		if (node instanceof HTMLElement) {
-			const tagName = node.tagName.toLowerCase();
+		// Check if it's an HTMLElement (node-html-parser uses different structure)
+		const isElement = node && typeof node === 'object' && 'tagName' in node && node.tagName;
+		
+		if (isElement) {
+			const element = node as HTMLElement;
+			const tagName = element.tagName.toLowerCase();
 			
 			// Handle lists specially - create blocks for each list item
 			if (tagName === 'ul' || tagName === 'ol') {
-				const listItems = node.querySelectorAll('li');
+				const listItems = element.querySelectorAll('li');
 				for (const li of listItems) {
 					const block = createListItemBlock(li as HTMLElement, tagName === 'ul' ? 'bulleted' : 'numbered');
 					if (block) {
@@ -59,28 +66,53 @@ export function htmlToNotionBlocks(html: string): NotionBlock[] {
 				}
 			} else if (tagName === 'p') {
 				// Handle paragraphs - check for images inside
-				const images = node.querySelectorAll('img');
+				const images = element.querySelectorAll('img');
 				if (images.length > 0) {
 					// Process paragraph content, splitting text and images
-					const paragraphContent = processParagraphWithImages(node as HTMLElement);
+					const paragraphContent = processParagraphWithImages(element);
 					blocks.push(...paragraphContent);
 				} else {
-					const block = elementToNotionBlock(node);
+					const block = elementToNotionBlock(element);
 					if (block) {
 						blocks.push(block);
 					}
 				}
 			} else {
-				const block = elementToNotionBlock(node);
+				const block = elementToNotionBlock(element);
 				if (block) {
 					blocks.push(block);
 				}
 			}
-		} else if (node.nodeType === 3) {
+		} else if (node && node.nodeType === 3) {
 			// Text node
-			const text = node.text?.trim();
+			const text = (node as any).text?.trim() || (node as any).textContent?.trim();
 			if (text) {
 				blocks.push(createParagraphBlock([{ type: 'text', text: { content: text } }]));
+			}
+		}
+	}
+
+	// If no blocks were created, try alternative parsing approach
+	// This handles cases where marked output doesn't have proper structure
+	if (blocks.length === 0) {
+		// Try to find elements directly using querySelectorAll
+		const allElements = root.querySelectorAll('h1, h2, h3, h4, h5, h6, p, ul, ol, pre, blockquote, hr');
+		for (const element of allElements) {
+			const tagName = element.tagName.toLowerCase();
+			
+			if (tagName === 'ul' || tagName === 'ol') {
+				const listItems = element.querySelectorAll('li');
+				for (const li of listItems) {
+					const block = createListItemBlock(li as HTMLElement, tagName === 'ul' ? 'bulleted' : 'numbered');
+					if (block) {
+						blocks.push(block);
+					}
+				}
+			} else {
+				const block = elementToNotionBlock(element as HTMLElement);
+				if (block) {
+					blocks.push(block);
+				}
 			}
 		}
 	}
@@ -195,11 +227,13 @@ function elementToNotionBlock(element: HTMLElement): NotionBlock | null {
 			const codeText = codeElement?.text || element.text || '';
 			const classNames = (codeElement?.classNames as string) || '';
 			const language = classNames.match(/language-(\w+)/)?.[1] || 'plain text';
+			// Notion has a 2000 character limit per rich_text item - split into chunks
+			const codeRichText = splitIntoRichTextChunks(codeText, 2000);
 			return {
 				object: 'block',
 				type: 'code',
 				code: {
-					rich_text: [{ type: 'text', text: { content: codeText } }],
+					rich_text: codeRichText,
 					language: language
 				}
 			};
@@ -324,6 +358,47 @@ function createParagraphBlock(richText: NotionRichText[]): NotionBlock {
 			rich_text: richText.length > 0 ? richText : []
 		}
 	};
+}
+
+/**
+ * Splits text into chunks that fit within Notion's character limit.
+ * Notion API has a 2000 character limit per rich_text item.
+ */
+function splitIntoRichTextChunks(text: string, maxLength: number = 2000): NotionRichText[] {
+	if (!text || text.length === 0) {
+		return [];
+	}
+
+	if (text.length <= maxLength) {
+		return [{ type: 'text', text: { content: text } }];
+	}
+
+	const chunks: NotionRichText[] = [];
+	let remaining = text;
+
+	while (remaining.length > 0) {
+		if (remaining.length <= maxLength) {
+			chunks.push({ type: 'text', text: { content: remaining } });
+			break;
+		}
+
+		// Try to split at a newline within the limit for cleaner breaks
+		let splitIndex = remaining.lastIndexOf('\n', maxLength);
+		if (splitIndex === -1 || splitIndex === 0) {
+			// No newline found, split at maxLength
+			splitIndex = maxLength;
+		}
+
+		chunks.push({ type: 'text', text: { content: remaining.slice(0, splitIndex) } });
+		remaining = remaining.slice(splitIndex);
+		
+		// Remove leading newline if we split on one
+		if (remaining.startsWith('\n')) {
+			remaining = remaining.slice(1);
+		}
+	}
+
+	return chunks;
 }
 
 function sanitizeLinkHref(href: string): string | undefined {

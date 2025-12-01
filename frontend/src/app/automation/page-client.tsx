@@ -163,6 +163,10 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
   const [deleteRuleModal, setDeleteRuleModal] = useState<{ open: boolean; repoId: string | null; ruleId: string | null; ruleName: string }>({ open: false, repoId: null, ruleId: null, ruleName: '' });
   const [deleting, setDeleting] = useState(false);
 
+  // Manual rule execution state
+  const [runningRules, setRunningRules] = useState<Record<string, boolean>>({});
+  const [runResults, setRunResults] = useState<Record<string, { success: boolean; message: string; docId?: string | null } | null>>({});
+
   // Load repos on mount
   useEffect(() => {
     loadRepos();
@@ -441,6 +445,70 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
       setTimeout(() => setRepoError(''), 5000);
     } finally {
       setDeleting(false);
+    }
+  }
+
+  async function handleRunRule(repoId: string, ruleId: string) {
+    const key = `${repoId}-${ruleId}`;
+    setRunningRules((prev) => ({ ...prev, [key]: true }));
+    setRunResults((prev) => ({ ...prev, [key]: null }));
+    
+    try {
+      const response = await fetch(`/api/repos/${repoId}/automation/run`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ruleId }),
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || data.detail || 'Failed to run automation rule');
+      }
+      
+      // Build result message
+      let message = '';
+      if (data.skipped) {
+        message = `Skipped: ${data.skipReason || 'No changes detected'}`;
+      } else if (data.success) {
+        const actions = data.actions?.length > 0 ? data.actions.join(', ') : 'completed';
+        message = `Success: ${actions}`;
+      } else {
+        message = `Failed: ${data.errors?.join(', ') || 'Unknown error'}`;
+      }
+      
+      setRunResults((prev) => ({
+        ...prev,
+        [key]: {
+          success: data.success && !data.skipped,
+          message,
+          docId: data.docId,
+        },
+      }));
+      
+      // Auto-clear result after 10 seconds
+      setTimeout(() => {
+        setRunResults((prev) => ({ ...prev, [key]: null }));
+      }, 10000);
+      
+      // Refresh to update stats
+      await loadRepos();
+    } catch (err: any) {
+      setRunResults((prev) => ({
+        ...prev,
+        [key]: {
+          success: false,
+          message: err.message || 'Failed to run rule',
+        },
+      }));
+      
+      // Auto-clear error after 10 seconds
+      setTimeout(() => {
+        setRunResults((prev) => ({ ...prev, [key]: null }));
+      }, 10000);
+    } finally {
+      setRunningRules((prev) => ({ ...prev, [key]: false }));
     }
   }
 
@@ -1749,7 +1817,48 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
                                   </div>
                                 )}
 
+                                {/* Run result feedback */}
+                                {runResults[`${repoId}-${rule.ruleId}`] && (
+                                  <div className={`mt-2 p-2 rounded text-xs ${
+                                    runResults[`${repoId}-${rule.ruleId}`]?.success 
+                                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' 
+                                      : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                  }`}>
+                                    {runResults[`${repoId}-${rule.ruleId}`]?.message}
+                                    {runResults[`${repoId}-${rule.ruleId}`]?.docId && (
+                                      <Link
+                                        href={`/edit/${runResults[`${repoId}-${rule.ruleId}`]?.docId}`}
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="ml-2 underline hover:no-underline"
+                                      >
+                                        View Doc →
+                                      </Link>
+                                    )}
+                                  </div>
+                                )}
+
                                 <div className="flex items-center gap-2 mt-3">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleRunRule(repoId, rule.ruleId);
+                                    }}
+                                    disabled={runningRules[`${repoId}-${rule.ruleId}`]}
+                                    className="flex items-center gap-1 text-xs text-purple-400 hover:text-purple-300 px-2 py-1 rounded border border-purple-500/30 bg-purple-500/10 hover:bg-purple-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                    title="Run rule now"
+                                  >
+                                    {runningRules[`${repoId}-${rule.ruleId}`] ? (
+                                      <>
+                                        <Loader2 className="h-3 w-3 animate-spin" />
+                                        Running...
+                                      </>
+                                    ) : (
+                                      <>
+                                        <PlayCircle className="h-3 w-3" />
+                                        Run Now
+                                      </>
+                                    )}
+                                  </button>
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();

@@ -6,6 +6,7 @@ import { trackRepoScan, trackDocGenerated, trackDiagramGenerated } from './usage
 import { detectRepositoryChanges } from './changeDetector';
 import { analyzeChangeSignificance } from './changeSignificanceAnalyzer';
 import { updateTrackedFilesForRenames } from './fileRenameHandler';
+import { prepareFileSummaries } from './prepareSummaries';
 
 type AutomationRuleContext = {
 	supabase: SupabaseClient;
@@ -316,16 +317,31 @@ export async function executeAutomationRule({
 
 		// Filter to only tracked files if we have a previous submission
 		let filesToUse = analysis.rawFiles || [];
+		let submissionIdForSummaries: string | undefined;
+
 		if (rule.auto_publish && rule.detect_changes !== false) {
 			const ruleId = rule.id || rule.name;
 			const { data: lastSubmission } = await supabase
 				.from('submissions')
-				.select('selected_files')
+				.select('id, selected_files')
 				.eq('source_meta->>repoId', repo.id)
 				.eq('source_meta->>automation_rule_id', ruleId)
 				.order('created_at', { ascending: false })
 				.limit(1)
 				.single();
+
+			if (lastSubmission?.id) {
+				submissionIdForSummaries = lastSubmission.id;
+
+				// Prepare summaries before generating docs to avoid token limit issues
+				try {
+					await prepareFileSummaries(supabase, lastSubmission.id, false, userId);
+					result.actions.push('prepare_summaries');
+				} catch (summaryError) {
+					console.warn('Failed to prepare summaries, will use full content:', summaryError);
+					submissionIdForSummaries = undefined;
+				}
+			}
 
 			if (lastSubmission?.selected_files && lastSubmission.selected_files.length > 0) {
 				const trackedFilesSet = new Set(lastSubmission.selected_files);
@@ -345,6 +361,8 @@ export async function executeAutomationRule({
 			branch: repo.default_branch,
 			subdir,
 			promptConfig,
+			useSummaries: !!submissionIdForSummaries,
+			submissionId: submissionIdForSummaries,
 		});
 
 		const sourceMeta = {

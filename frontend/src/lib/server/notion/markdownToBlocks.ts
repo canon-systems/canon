@@ -31,18 +31,12 @@ export function markdownToNotionBlocks(markdown: string): NotionBlock[] {
 			if (inCodeBlock) {
 				// End of code block
 				if (codeBlockContent.length > 0) {
+					const codeText = codeBlockContent.join('\n');
 					blocks.push({
 						object: 'block',
 						type: 'code',
 						code: {
-							rich_text: [
-								{
-									type: 'text',
-									text: {
-										content: codeBlockContent.join('\n')
-									}
-								}
-							],
+							rich_text: splitIntoRichTextChunks(codeText, 2000),
 							language: codeBlockLanguage || 'plain text'
 						}
 					});
@@ -162,18 +156,12 @@ export function markdownToNotionBlocks(markdown: string): NotionBlock[] {
 	
 	// Flush any remaining paragraph or code block
 	if (inCodeBlock && codeBlockContent.length > 0) {
+		const codeText = codeBlockContent.join('\n');
 		blocks.push({
 			object: 'block',
 			type: 'code',
 			code: {
-				rich_text: [
-					{
-						type: 'text',
-						text: {
-							content: codeBlockContent.join('\n')
-						}
-					}
-				],
+				rich_text: splitIntoRichTextChunks(codeText, 2000),
 				language: codeBlockLanguage || 'plain text'
 			}
 		});
@@ -214,5 +202,46 @@ function createParagraphBlock(text: string): NotionBlock {
 				: []
 		}
 	};
+}
+
+/**
+ * Splits text into chunks that fit within Notion's character limit.
+ * Notion API has a 2000 character limit per rich_text item.
+ */
+function splitIntoRichTextChunks(text: string, maxLength: number = 2000): Array<{ type: 'text'; text: { content: string } }> {
+	if (!text || text.length === 0) {
+		return [];
+	}
+
+	if (text.length <= maxLength) {
+		return [{ type: 'text', text: { content: text } }];
+	}
+
+	const chunks: Array<{ type: 'text'; text: { content: string } }> = [];
+	let remaining = text;
+
+	while (remaining.length > 0) {
+		if (remaining.length <= maxLength) {
+			chunks.push({ type: 'text', text: { content: remaining } });
+			break;
+		}
+
+		// Try to split at a newline within the limit for cleaner breaks
+		let splitIndex = remaining.lastIndexOf('\n', maxLength);
+		if (splitIndex === -1 || splitIndex === 0) {
+			// No newline found, split at maxLength
+			splitIndex = maxLength;
+		}
+
+		chunks.push({ type: 'text', text: { content: remaining.slice(0, splitIndex) } });
+		remaining = remaining.slice(splitIndex);
+		
+		// Remove leading newline if we split on one
+		if (remaining.startsWith('\n')) {
+			remaining = remaining.slice(1);
+		}
+	}
+
+	return chunks;
 }
 

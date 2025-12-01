@@ -4,15 +4,16 @@ import { parseRepoUrl } from '../github/github';
 import { createServiceRoleClient } from '../../supabase/server';
 
 /**
- * Normalize repo URL to repo_id format: "github.com/owner/repo" (lowercase)
- * GitHub URLs are case-insensitive, so we normalize to lowercase for consistent matching
+ * Normalize repo URL to repo_id format: "github.com/owner/repo"
+ * Preserves original case to match existing records in the database.
+ * Queries use ilike for case-insensitive matching.
  */
 function normalizeRepoId(repoUrl: string): string {
 	const parsed = parseRepoUrl(repoUrl);
 	if (!parsed) {
 		throw new Error(`Invalid repo URL: ${repoUrl}`);
 	}
-	return `github.com/${parsed.owner}/${parsed.repo}`.toLowerCase();
+	return `github.com/${parsed.owner}/${parsed.repo}`;
 }
 
 /**

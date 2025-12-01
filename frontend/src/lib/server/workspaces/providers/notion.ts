@@ -5,6 +5,7 @@
 import type { WorkspaceProvider, WorkspaceInfo, WorkspaceContent } from '../base';
 import { NANGO_CONFIG } from '../../nango/config';
 import { htmlToNotionBlocks } from '../../notion/htmlToBlocks';
+import { markdownToNotionBlocks } from '../../notion/markdownToBlocks';
 import { marked } from 'marked';
 
 /**
@@ -173,8 +174,35 @@ export class NotionProvider implements WorkspaceProvider {
 		createNew = true
 	): Promise<WorkspaceInfo | null> {
 		try {
-			const html = content.html || (marked.parse(content.markdown) as string);
-			const blocks = htmlToNotionBlocks(html);
+			// Try HTML conversion first, fall back to markdown if it produces poor results
+			let blocks = [];
+			
+			if (content.html) {
+				blocks = htmlToNotionBlocks(content.html);
+			} else if (content.markdown) {
+				// Try HTML conversion via marked first
+				const html = marked.parse(content.markdown) as string;
+				blocks = htmlToNotionBlocks(html);
+				
+				// If HTML conversion produced too few meaningful blocks, use direct markdown conversion
+				const hasContent = blocks.some(b => {
+					if (b.type === 'paragraph') {
+						const richText = (b as any).paragraph?.rich_text || [];
+						return richText.some((rt: any) => rt.text?.content?.trim());
+					}
+					return b.type !== 'paragraph'; // Non-paragraph blocks are considered content
+				});
+				
+				if (!hasContent || blocks.length <= 1) {
+					console.log('[Notion] HTML conversion produced few blocks, falling back to markdown conversion');
+					blocks = markdownToNotionBlocks(content.markdown);
+				}
+			}
+			
+			// Ensure we have at least one block
+			if (blocks.length === 0) {
+				blocks = [{ object: 'block', type: 'paragraph', paragraph: { rich_text: [] } }];
+			}
 
 			if (createNew) {
 				// Create new page or database entry
@@ -267,8 +295,30 @@ export class NotionProvider implements WorkspaceProvider {
 	): Promise<boolean> {
 		try {
 			const pageId = workspaceInfo.resourceId;
-			const html = content.html || marked.parse(content.markdown) as string;
-			const blocks = htmlToNotionBlocks(html);
+			
+			// Try HTML conversion first, fall back to markdown if it produces poor results
+			let blocks = [];
+			
+			if (content.html) {
+				blocks = htmlToNotionBlocks(content.html);
+			} else if (content.markdown) {
+				const html = marked.parse(content.markdown) as string;
+				blocks = htmlToNotionBlocks(html);
+				
+				// If HTML conversion produced too few meaningful blocks, use direct markdown conversion
+				const hasContent = blocks.some(b => {
+					if (b.type === 'paragraph') {
+						const richText = (b as any).paragraph?.rich_text || [];
+						return richText.some((rt: any) => rt.text?.content?.trim());
+					}
+					return b.type !== 'paragraph';
+				});
+				
+				if (!hasContent || blocks.length <= 1) {
+					console.log('[Notion] HTML conversion produced few blocks in update, falling back to markdown conversion');
+					blocks = markdownToNotionBlocks(content.markdown);
+				}
+			}
 
 			// Delete existing blocks
 			const blocksUrl = new URL(`/proxy/v1/blocks/${pageId}/children`, NANGO_CONFIG.host);
