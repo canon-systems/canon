@@ -155,87 +155,106 @@ export async function trackSubmissionFiles(params: {
     file_type: string | null;
   }[] = [];
 
-  for (const file_path of selectedFiles) {
-    const file_hash = fileShas[file_path] ?? null;
+  // Process files in parallel batches to improve performance for large file sets
+  // Batch size of 10 to avoid overwhelming GitHub API and hitting rate limits
+  const BATCH_SIZE = 10;
+  const batches: string[][] = [];
+  for (let i = 0; i < selectedFiles.length; i += BATCH_SIZE) {
+    batches.push(selectedFiles.slice(i, i + BATCH_SIZE));
+  }
 
-    if (!file_hash) {
-      console.warn(
-        `trackSubmissionFiles: no file_hash for ${file_path} (submission ${submission.id}), will try to get size via path only`
-      );
-    }
+  console.log(
+    `trackSubmissionFiles: Processing ${selectedFiles.length} files in ${batches.length} batches for submission ${submission.id}`
+  );
 
-    let size_bytes: number | null = null;
-    let file_type: string | null = null;
+  // Process batches sequentially, but files within each batch in parallel
+  for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+    const batch = batches[batchIndex];
+    console.log(
+      `trackSubmissionFiles: Processing batch ${batchIndex + 1}/${batches.length} (${batch.length} files) for submission ${submission.id}`
+    );
 
-    try {
-      const { data } = await octokit.repos.getContent({
-        owner,
-        repo,
-        path: file_path,
-        ref: refToUse
-      });
+    await Promise.all(
+      batch.map(async (file_path) => {
+        const file_hash = fileShas[file_path] ?? null;
 
-      if (!Array.isArray(data) && data.type === 'file') {
-        if (typeof data.size === 'number' && data.size >= 0) {
-          size_bytes = data.size;
-        }
-        file_type = guessFileTypeFromPath(file_path);
-      } else {
-        file_type = guessFileTypeFromPath(file_path);
-      }
-    } catch (e: any) {
-      const errorMsg = e?.message || String(e);
-      const errorStatus = e?.status || e?.response?.status;
-      console.warn(
-        `trackSubmissionFiles: getContent FAILED for ${file_path} in submission ${submission.id}`,
-        { error: errorMsg, status: errorStatus }
-      );
-
-      file_type = guessFileTypeFromPath(file_path);
-    }
-
-    if (size_bytes === null && file_hash) {
-      try {
-        const { data: blobData } = await octokit.git.getBlob({
-          owner,
-          repo,
-          file_sha: file_hash
-        });
-
-        if (blobData && typeof blobData.size === 'number' && blobData.size >= 0) {
-          size_bytes = blobData.size;
-          console.log(
-            `trackSubmissionFiles: got size ${size_bytes} bytes for ${file_path} via blob API`
-          );
-        } else {
+        if (!file_hash) {
           console.warn(
-            `trackSubmissionFiles: blob API returned invalid size for ${file_path}`,
-            { size: blobData?.size, type: typeof blobData?.size }
+            `trackSubmissionFiles: no file_hash for ${file_path} (submission ${submission.id}), will try to get size via path only`
           );
         }
-      } catch (e: any) {
-        const errorMsg = e?.message || String(e);
-        const errorStatus = e?.status || e?.response?.status;
-        console.warn(
-          `trackSubmissionFiles: blob fallback FAILED for ${file_path} in submission ${submission.id}`,
-          { error: errorMsg, status: errorStatus, file_hash }
-        );
-      }
-    }
 
-    if (size_bytes === null) {
-      console.warn(
-        `trackSubmissionFiles: WARNING - could not determine size for ${file_path} in submission ${submission.id}. Both getContent and blob API failed or returned no size.`
-      );
-    }
+        let size_bytes: number | null = null;
+        let file_type: string | null = null;
 
-    rowsToUpsert.push({
-      submission_id: submission.id,
-      file_path,
-      file_hash,
-      size_bytes,
-      file_type
-    });
+        try {
+          const { data } = await octokit.repos.getContent({
+            owner,
+            repo,
+            path: file_path,
+            ref: refToUse
+          });
+
+          if (!Array.isArray(data) && data.type === 'file') {
+            if (typeof data.size === 'number' && data.size >= 0) {
+              size_bytes = data.size;
+            }
+            file_type = guessFileTypeFromPath(file_path);
+          } else {
+            file_type = guessFileTypeFromPath(file_path);
+          }
+        } catch (e: any) {
+          const errorMsg = e?.message || String(e);
+          const errorStatus = e?.status || e?.response?.status;
+          console.warn(
+            `trackSubmissionFiles: getContent FAILED for ${file_path} in submission ${submission.id}`,
+            { error: errorMsg, status: errorStatus }
+          );
+
+          file_type = guessFileTypeFromPath(file_path);
+        }
+
+        if (size_bytes === null && file_hash) {
+          try {
+            const { data: blobData } = await octokit.git.getBlob({
+              owner,
+              repo,
+              file_sha: file_hash
+            });
+
+            if (blobData && typeof blobData.size === 'number' && blobData.size >= 0) {
+              size_bytes = blobData.size;
+            } else {
+              console.warn(
+                `trackSubmissionFiles: blob API returned invalid size for ${file_path}`,
+                { size: blobData?.size, type: typeof blobData?.size }
+              );
+            }
+          } catch (e: any) {
+            const errorMsg = e?.message || String(e);
+            const errorStatus = e?.status || e?.response?.status;
+            console.warn(
+              `trackSubmissionFiles: blob fallback FAILED for ${file_path} in submission ${submission.id}`,
+              { error: errorMsg, status: errorStatus, file_hash }
+            );
+          }
+        }
+
+        if (size_bytes === null) {
+          console.warn(
+            `trackSubmissionFiles: WARNING - could not determine size for ${file_path} in submission ${submission.id}. Both getContent and blob API failed or returned no size.`
+          );
+        }
+
+        rowsToUpsert.push({
+          submission_id: submission.id,
+          file_path,
+          file_hash,
+          size_bytes,
+          file_type
+        });
+      })
+    );
   }
 
   if (rowsToUpsert.length === 0) {
@@ -245,24 +264,37 @@ export async function trackSubmissionFiles(params: {
     return;
   }
 
-  // Use upsert to handle existing files gracefully
-  const { error: upsertError } = await supabase
-    .from('submission_files')
-    .upsert(rowsToUpsert, {
-      onConflict: 'submission_id,file_path',
-      ignoreDuplicates: false
-    } as any);
+  // Upsert in batches to avoid issues with very large inserts
+  // Supabase/PostgreSQL can handle large inserts, but batching is safer
+  const UPSERT_BATCH_SIZE = 50;
+  let totalInserted = 0;
 
-  if (upsertError) {
-    console.error(
-      `trackSubmissionFiles: UPSERT FAILED for submission ${submission.id}`,
-      upsertError
+  for (let i = 0; i < rowsToUpsert.length; i += UPSERT_BATCH_SIZE) {
+    const batch = rowsToUpsert.slice(i, i + UPSERT_BATCH_SIZE);
+    console.log(
+      `trackSubmissionFiles: Upserting batch ${Math.floor(i / UPSERT_BATCH_SIZE) + 1} (${batch.length} rows) for submission ${submission.id}`
     );
-    throw upsertError;
+
+    const { error: upsertError } = await supabase
+      .from('submission_files')
+      .upsert(batch, {
+        onConflict: 'submission_id,file_path',
+        ignoreDuplicates: false
+      } as any);
+
+    if (upsertError) {
+      console.error(
+        `trackSubmissionFiles: UPSERT FAILED for batch starting at index ${i} in submission ${submission.id}`,
+        upsertError
+      );
+      throw upsertError;
+    }
+
+    totalInserted += batch.length;
   }
 
   console.log(
-    `trackSubmissionFiles: Successfully inserted ${rowsToUpsert.length} rows for submission ${submission.id}`
+    `trackSubmissionFiles: Successfully inserted ${totalInserted} rows for submission ${submission.id}`
   );
 }
 

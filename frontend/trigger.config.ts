@@ -20,3 +20,7 @@ export default defineConfig({
     },
   },
 });
+
+// Export tasks for auto-discovery
+export { pollDocsTask } from './trigger/poll-docs';
+export { backfillSummariesTask } from './trigger/backfill-summaries';

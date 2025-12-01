@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Github, FolderOpen, Upload, Code, Loader2, AlertTriangle, Info, ChevronDown, Check } from 'lucide-react';
+import { Github, FolderOpen, Upload, Code, Loader2, AlertTriangle, Info, ChevronDown, Check, Search, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { PromptCustomizer } from '@/components/PromptCustomizer';
 import { DocumentStructure, type DocumentStructureConfig } from '@/components/DocumentStructure';
@@ -31,6 +31,14 @@ const availableModels: Model[] = [
     description: 'Our most advanced, multimodal flagship model that\'s faster and 50% cheaper than GPT-4 Turbo. GPT-4o ("o" for "omni") is trained across text, vision, and audio.'
   },
   {
+    value: 'gpt-4o-2024-11-20',
+    label: 'GPT-4o (Nov 2024)',
+    provider: 'OpenAI',
+    cost: '$$$$',
+    context: '128K tokens',
+    description: 'GPT-4o with November 2024 improvements. Enhanced performance and reliability.'
+  },
+  {
     value: 'gpt-4o-mini',
     label: 'GPT-4o Mini',
     provider: 'OpenAI',
@@ -39,28 +47,12 @@ const availableModels: Model[] = [
     description: 'A smaller, more affordable variant of GPT-4o. Fast, intelligent, and cost-effective for most tasks.'
   },
   {
-    value: 'gpt-4-turbo',
-    label: 'GPT-4 Turbo',
-    provider: 'OpenAI',
-    cost: '$$$$$',
-    context: '128K tokens',
-    description: 'A large multimodal model (accepting text or image inputs and outputting text) that can solve complex tasks with greater accuracy than any of our previous models.'
-  },
-  {
-    value: 'gpt-4',
-    label: 'GPT-4',
-    provider: 'OpenAI',
-    cost: '$$$$$',
-    context: '8K tokens',
-    description: 'A large multimodal model (accepting text or image inputs and outputting text) that can solve difficult problems with greater accuracy than any of our previous models.'
-  },
-  {
-    value: 'gpt-3.5-turbo',
-    label: 'GPT-3.5 Turbo',
+    value: 'gpt-4o-mini-2024-07-18',
+    label: 'GPT-4o Mini (Jul 2024)',
     provider: 'OpenAI',
     cost: '$',
-    context: '16K tokens',
-    description: 'A high-performance, cost-effective model optimized for chat and text completion tasks. Fast and efficient for most use cases.'
+    context: '128K tokens',
+    description: 'GPT-4o Mini with July 2024 improvements. Optimized for speed and efficiency.'
   },
   {
     value: 'o1-preview',
@@ -71,6 +63,14 @@ const availableModels: Model[] = [
     description: 'Advanced reasoning model optimized for complex problem-solving and deep analysis. Uses a different architecture focused on reasoning capabilities.'
   },
   {
+    value: 'o1-2024-08-06',
+    label: 'O1 (Aug 2024)',
+    provider: 'OpenAI',
+    cost: '$$$$$',
+    context: '128K tokens',
+    description: 'O1 model with August 2024 improvements. Enhanced reasoning capabilities for complex tasks.'
+  },
+  {
     value: 'o1-mini',
     label: 'O1 Mini',
     provider: 'OpenAI',
@@ -78,7 +78,39 @@ const availableModels: Model[] = [
     context: '128K tokens',
     description: 'A smaller, more affordable version of O1. Optimized for reasoning tasks with improved cost efficiency.'
   },
+  {
+    value: 'o1-mini-2024-09-12',
+    label: 'O1 Mini (Sep 2024)',
+    provider: 'OpenAI',
+    cost: '$$$',
+    context: '128K tokens',
+    description: 'O1 Mini with September 2024 improvements. Better reasoning at a lower cost.'
+  },
+  {
+    value: 'gpt-4-turbo',
+    label: 'GPT-4 Turbo',
+    provider: 'OpenAI',
+    cost: '$$$$$',
+    context: '128K tokens',
+    description: 'A large multimodal model (accepting text or image inputs and outputting text) that can solve complex tasks with greater accuracy than any of our previous models.'
+  },
+  {
+    value: 'gpt-3.5-turbo',
+    label: 'GPT-3.5 Turbo',
+    provider: 'OpenAI',
+    cost: '$',
+    context: '16K tokens',
+    description: 'A high-performance, cost-effective model optimized for chat and text completion tasks. Fast and efficient for most use cases.'
+  },
   // Anthropic Models
+  {
+    value: 'claude-3-7-sonnet-20250219',
+    label: 'Claude 3.7 Sonnet',
+    provider: 'Anthropic',
+    cost: '$$$$$',
+    context: '200K tokens',
+    description: 'Anthropic\'s most advanced model with superior performance on complex reasoning, coding, and analysis tasks. Released February 2025.'
+  },
   {
     value: 'claude-3-5-sonnet-20241022',
     label: 'Claude 3.5 Sonnet',
@@ -86,6 +118,14 @@ const availableModels: Model[] = [
     cost: '$$$$',
     context: '200K tokens',
     description: 'Our most intelligent model, with improved performance on coding tasks, math, and following complex, multi-step instructions. Excels at nuanced content creation and sophisticated Q&A.'
+  },
+  {
+    value: 'claude-3-5-haiku-20241022',
+    label: 'Claude 3.5 Haiku',
+    provider: 'Anthropic',
+    cost: '$$',
+    context: '200K tokens',
+    description: 'An improved version of Haiku with better performance while maintaining speed and cost efficiency. Great for general-purpose tasks.'
   },
   {
     value: 'claude-3-opus-20240229',
@@ -111,46 +151,22 @@ const availableModels: Model[] = [
     context: '200K tokens',
     description: 'Our fastest and most compact model for near-instant responsiveness. Perfect for simple queries, lightweight tasks, and high-volume use cases.'
   },
-  {
-    value: 'claude-3-5-haiku-20241022',
-    label: 'Claude 3.5 Haiku',
-    provider: 'Anthropic',
-    cost: '$$',
-    context: '200K tokens',
-    description: 'An improved version of Haiku with better performance while maintaining speed and cost efficiency. Great for general-purpose tasks.'
-  },
   // Google Models
   {
-    value: 'gemini-2.0-flash-exp',
-    label: 'Gemini 2.0 Flash (Experimental)',
+    value: 'google/gemini-2.0-flash',
+    label: 'Gemini 2.0 Flash',
     provider: 'Google',
     cost: '$$',
     context: '1M tokens',
-    description: 'Experimental model with massive 1M token context window. Supports text, vision, audio, and function calling. Optimized for speed and efficiency.'
+    description: 'Google\'s latest 2.0 Flash model with massive 1M token context window. Supports text, vision, audio, and function calling. Optimized for speed and efficiency.'
   },
   {
-    value: 'gemini-1.5-pro',
-    label: 'Gemini 1.5 Pro',
-    provider: 'Google',
-    cost: '$$$$',
-    context: '2M tokens',
-    description: 'Google\'s most capable model with an enormous 2M token context window. Excellent for complex reasoning, code generation, and multimodal tasks.'
-  },
-  {
-    value: 'gemini-1.5-flash',
-    label: 'Gemini 1.5 Flash',
-    provider: 'Google',
-    cost: '$$',
-    context: '1M tokens',
-    description: 'Fast and efficient model with 1M token context window. Great balance of speed, cost, and capability for most use cases.'
-  },
-  {
-    value: 'gemini-1.5-flash-8b',
-    label: 'Gemini 1.5 Flash 8B',
+    value: 'google/gemini-2.0-flash-lite',
+    label: 'Gemini 2.0 Flash Lite',
     provider: 'Google',
     cost: '$',
     context: '1M tokens',
-    description: 'Lightweight 8B parameter model with 1M token context. Ultra-fast and cost-effective for simple tasks.'
+    description: 'A lighter, more cost-effective version of Gemini 2.0 Flash. Fast and efficient for most use cases with reduced cost.'
   }
 ];
 
@@ -226,6 +242,7 @@ export function DocumentationPageClient() {
   // Git file picker data
   const [pickerFiles, setPickerFiles] = useState<Array<{ path: string; size: number }>>([]);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
+  const [fileSearchQuery, setFileSearchQuery] = useState('');
 
   const selectedModelObj = availableModels.find(m => m.value === selectedModel) || availableModels[0];
   const isGit = method === 'github_repo' || method === 'github_repo_directory';
@@ -276,6 +293,7 @@ export function DocumentationPageClient() {
     if (!isGit) {
       setPickerFiles([]);
       setSelectedPaths(new Set());
+      setFileSearchQuery('');
     }
   }, [isGit]);
 
@@ -283,6 +301,7 @@ export function DocumentationPageClient() {
     if (isGit) {
       setPickerFiles([]);
       setSelectedPaths(new Set());
+      setFileSearchQuery('');
     }
   }, [method, repoUrl, branch, subdir, isGit]);
 
@@ -444,6 +463,7 @@ export function DocumentationPageClient() {
     setListing(true);
     setPickerFiles([]);
     setSelectedPaths(new Set());
+    setFileSearchQuery('');
 
     try {
       const r = await fetch('/api/github/list', {
@@ -481,13 +501,24 @@ export function DocumentationPageClient() {
     }
   }
 
+  // Filter files based on search query
+  const filteredFiles = pickerFiles.filter(f =>
+    f.path.toLowerCase().includes(fileSearchQuery.toLowerCase())
+  );
+
   // File selection helpers
   function selectAll() {
-    setSelectedPaths(new Set(pickerFiles.map(f => f.path)));
+    const filesToSelect = filteredFiles.map(f => f.path);
+    const next = new Set(selectedPaths);
+    filesToSelect.forEach(path => next.add(path));
+    setSelectedPaths(next);
   }
 
   function clearAll() {
-    setSelectedPaths(new Set());
+    const filesToClear = filteredFiles.map(f => f.path);
+    const next = new Set(selectedPaths);
+    filesToClear.forEach(path => next.delete(path));
+    setSelectedPaths(next);
   }
 
   function togglePick(path: string) {
@@ -561,12 +592,12 @@ export function DocumentationPageClient() {
 
       const source_meta =
         method === 'pasted_code'
-          ? { 
-              filename: pasteFilename, 
-              model: selectedModel, 
-              llm_prompt_config: promptConfig,
-              document_structure: structureConfig
-            }
+          ? {
+            filename: pasteFilename,
+            model: selectedModel,
+            llm_prompt_config: promptConfig,
+            document_structure: structureConfig
+          }
           : method === 'zipped_folder'
             ? {
               zip_name: zipFile?.name ?? null,
@@ -665,8 +696,35 @@ export function DocumentationPageClient() {
 
       if (!filesForDoc.length) throw new Error('No content gathered for summarization.');
 
+      // Prepare summaries first for Git submissions
+      if (isGit && submissionId) {
+        setStatusMsg('Preparing file summaries…');
+        try {
+          const prepareRes = await fetch('/api/docs/prepare', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              submissionId,
+              regenerateAll: false
+            })
+          });
+
+          if (prepareRes.ok) {
+            const prepareData = await prepareRes.json().catch(() => ({}));
+            const filesUpdated = prepareData.filesUpdated || 0;
+            const filesSkipped = prepareData.filesSkipped || 0;
+            setStatusMsg(`Prepared summaries (${filesUpdated} updated, ${filesSkipped} skipped)…`);
+          } else {
+            console.warn('Failed to prepare summaries, continuing with full content');
+          }
+        } catch (prepareError) {
+          console.error('Error preparing summaries:', prepareError);
+          // Continue anyway - will fallback to full content
+        }
+      }
+
       // Generate documentation
-      setStatusMsg('Summarizing with AI…');
+      setStatusMsg('Generating documentation…');
       const rGen = await fetch('/api/docs/generate', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -677,7 +735,13 @@ export function DocumentationPageClient() {
           promptConfig: {
             ...promptConfig,
             document_structure: structureConfig
-          }
+          },
+          repoUrl: isGit && repoUrl ? repoUrl : undefined,
+          branch: isGit && branch ? branch : undefined,
+          subdir: isGit && method === 'github_repo_directory' && subdir ? subdir : undefined,
+          prepareFirst: isGit && submissionId ? true : false,
+          submissionId: isGit && submissionId ? submissionId : undefined,
+          useSummaries: isGit && submissionId ? true : false
         })
       });
       const text = await rGen.text();
@@ -740,16 +804,33 @@ export function DocumentationPageClient() {
 
       if (uerr) throw new Error(uerr.message);
 
-      // Post-process for Git submissions
+      // Post-process for Git submissions - track files in submission_files table
+      // Wait a brief moment to ensure the database update has committed
       if (submissionId && isGit) {
         try {
-          await fetch('/api/docs/post-process', {
+          // Small delay to ensure database transaction has committed
+          await new Promise(resolve => setTimeout(resolve, 100));
+          
+          setStatusMsg('Tracking files…');
+          const postProcessRes = await fetch('/api/docs/post-process', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ submissionId })
           });
+
+          if (!postProcessRes.ok) {
+            const errorData = await postProcessRes.json().catch(() => ({}));
+            console.error('[post-process] Failed:', errorData);
+            // Don't throw - file tracking failure shouldn't block the user
+            // The documentation is already saved successfully
+          } else {
+            const result = await postProcessRes.json().catch(() => ({}));
+            const filesTracked = result?.filesTracked || 0;
+            console.log(`[post-process] Success: tracked ${filesTracked} files`);
+          }
         } catch (e) {
           console.error('[post-process] Exception:', e);
+          // Don't throw - file tracking failure shouldn't block the user
         }
       }
 
@@ -781,7 +862,7 @@ export function DocumentationPageClient() {
           </p>
         </div>
 
-        <section className="form-panel space-y-6">
+        <section className="form-panel space-y-6 relative z-10">
           <div>
             <p className="section-label">Input Method</p>
             <p className="section-helper">Select how you want to provide your source material.</p>
@@ -825,7 +906,7 @@ export function DocumentationPageClient() {
 
             <label className="field-group">
               <span className="field-label">AI model</span>
-              <div className="relative" ref={modelDropdownRef}>
+              <div className="relative z-[100]" ref={modelDropdownRef}>
                 <button
                   type="button"
                   className={`field-input flex items-center justify-between text-left disabled:cursor-not-allowed disabled:opacity-50 ${running ? 'opacity-70' : ''
@@ -849,7 +930,7 @@ export function DocumentationPageClient() {
                 </button>
 
                 {showModelDropdown && (
-                  <div className="absolute z-50 mt-1 max-h-96 w-full overflow-auto rounded-lg border border-white/15 bg-[#0f0f12] shadow-xl">
+                  <div className="absolute z-[100] mt-1 max-h-96 w-full overflow-auto rounded-lg border border-white/15 bg-[#0f0f12] shadow-xl">
                     {availableModels
                       .filter((m) => m && m.value && m.label)
                       .map((model) => (
@@ -1029,28 +1110,63 @@ export function DocumentationPageClient() {
                   {pickerFiles.length > 0 && (
                     <>
                       <button className="secondary-action px-3 py-1 text-xs" onClick={selectAll}>
-                        Select all
+                        Select all{fileSearchQuery ? ` (${filteredFiles.length})` : ''}
                       </button>
                       <button className="secondary-action px-3 py-1 text-xs" onClick={clearAll}>
-                        Clear
+                        Clear{fileSearchQuery ? ` (${filteredFiles.length})` : ''}
                       </button>
                     </>
                   )}
                 </div>
               </div>
 
-              {pickerFiles.length > 0 ? (
-                <div className="max-h-64 overflow-auto rounded-xl border border-white/10">
-                  <ul className="divide-y divide-white/10">
-                    {pickerFiles.map((f) => (
-                      <li key={f.path} className="flex items-center gap-3 px-3 py-2 text-sm">
-                        <input type="checkbox" checked={selectedPaths.has(f.path)} onChange={() => togglePick(f.path)} />
-                        <span className="font-mono text-white/90">{f.path}</span>
-                        <span className="ml-auto text-xs text-white/50">{f.size} bytes</span>
-                      </li>
-                    ))}
-                  </ul>
+              {pickerFiles.length > 0 && (
+                <div className="mb-3">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" />
+                    <input
+                      type="text"
+                      className="field-input pl-9 pr-9"
+                      placeholder="Search files..."
+                      value={fileSearchQuery}
+                      onChange={(e) => setFileSearchQuery(e.target.value)}
+                    />
+                    {fileSearchQuery && (
+                      <button
+                        onClick={() => setFileSearchQuery('')}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/60"
+                        aria-label="Clear search"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                  {fileSearchQuery && (
+                    <p className="mt-1 text-xs text-white/50">
+                      Showing {filteredFiles.length} of {pickerFiles.length} files
+                    </p>
+                  )}
                 </div>
+              )}
+
+              {pickerFiles.length > 0 ? (
+                filteredFiles.length > 0 ? (
+                  <div className="max-h-64 overflow-auto rounded-xl border border-white/10">
+                    <ul className="divide-y divide-white/10">
+                      {filteredFiles.map((f) => (
+                        <li key={f.path} className="flex items-center gap-3 px-3 py-2 text-sm">
+                          <input type="checkbox" checked={selectedPaths.has(f.path)} onChange={() => togglePick(f.path)} />
+                          <span className="font-mono text-white/90">{f.path}</span>
+                          <span className="ml-auto text-xs text-white/50">{f.size ? `${f.size} bytes` : '—'}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-white/10 p-4 text-center text-sm text-white/60">
+                    No files match "{fileSearchQuery}"
+                  </div>
+                )
               ) : (
                 <p className="text-sm text-white/60">No files loaded yet.</p>
               )}
@@ -1100,8 +1216,8 @@ export function DocumentationPageClient() {
 
         {/* LLM Prompt Customization */}
         <section className="form-panel space-y-4 mt-6">
-          <PromptCustomizer 
-            promptConfig={promptConfig} 
+          <PromptCustomizer
+            promptConfig={promptConfig}
             onChange={(config) => {
               setPromptConfig({
                 personality: config.personality ?? 'default',
@@ -1110,15 +1226,15 @@ export function DocumentationPageClient() {
                 customInstructions: config.customInstructions ?? '',
                 temperature: config.temperature ?? 0.3
               });
-            }} 
+            }}
           />
         </section>
 
         {/* Document Structure */}
         <section className="form-panel space-y-4 mt-6">
-          <DocumentStructure 
-            config={structureConfig} 
-            onChange={setStructureConfig} 
+          <DocumentStructure
+            config={structureConfig}
+            onChange={setStructureConfig}
           />
         </section>
 

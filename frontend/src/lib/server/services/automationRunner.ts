@@ -52,11 +52,13 @@ export async function executeAutomationRule({
 
 		// Check if we should detect changes first (if auto_publish is enabled)
 		if (rule.auto_publish && rule.detect_changes !== false) {
-			// Get the last submission for this repo to compare against
+			// Get the last submission for this repo and rule to compare against
+			const ruleId = rule.id || rule.name;
 			const { data: lastSubmission } = await supabase
 				.from('submissions')
 				.select('id, selected_files, code_snapshot, source_meta')
 				.eq('source_meta->>repoId', repo.id)
+				.eq('source_meta->>automation_rule_id', ruleId)
 				.order('created_at', { ascending: false })
 				.limit(1)
 				.single();
@@ -315,10 +317,12 @@ export async function executeAutomationRule({
 		// Filter to only tracked files if we have a previous submission
 		let filesToUse = analysis.rawFiles || [];
 		if (rule.auto_publish && rule.detect_changes !== false) {
+			const ruleId = rule.id || rule.name;
 			const { data: lastSubmission } = await supabase
 				.from('submissions')
 				.select('selected_files')
 				.eq('source_meta->>repoId', repo.id)
+				.eq('source_meta->>automation_rule_id', ruleId)
 				.order('created_at', { ascending: false })
 				.limit(1)
 				.single();

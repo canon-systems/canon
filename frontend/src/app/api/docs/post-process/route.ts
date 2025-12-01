@@ -35,24 +35,57 @@ export async function POST(request: NextRequest) {
     try {
       const userId = submission.created_by || null;
 
+      // Verify code_snapshot exists before processing
+      if (!submission.code_snapshot) {
+        console.warn(
+          `post-process: submission ${submissionId} has no code_snapshot, but proceeding anyway`
+        );
+      }
+
+      // Verify selected_files exists
+      if (!submission.selected_files || submission.selected_files.length === 0) {
+        console.warn(
+          `post-process: submission ${submissionId} has no selected_files, nothing to track`
+        );
+        return NextResponse.json(
+          {
+            ok: true,
+            message: 'Post-processing skipped (no selected_files)',
+            filesTracked: 0
+          },
+          { status: 200 }
+        );
+      }
+
+      console.log(
+        `post-process: Starting to track ${submission.selected_files.length} files for submission ${submissionId}`
+      );
+
       await trackSubmissionFiles({
         supabase,
         submission,
         userId
       });
 
+      console.log(
+        `post-process: Successfully completed tracking files for submission ${submissionId}`
+      );
+
       return NextResponse.json(
         {
           ok: true,
-          message: 'Post-processing completed (submission_files updated)'
+          message: 'Post-processing completed (submission_files updated)',
+          filesTracked: submission.selected_files.length
         },
         { status: 200 }
       );
     } catch (e: any) {
+      console.error(`post-process: Failed to post-process submission ${submissionId}:`, e);
       return NextResponse.json(
         {
           error: 'Failed to post-process submission',
-          details: e?.message ?? String(e)
+          details: e?.message ?? String(e),
+          submissionId
         },
         { status: 500 }
       );

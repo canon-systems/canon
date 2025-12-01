@@ -6,6 +6,7 @@ import { parseRepoUrl } from '@/lib/server/github/github';
 import { analyzeRepository } from '@/lib/server/services/analyzeRepository';
 import { generateDocumentation } from '@/lib/server/services/docGenerator';
 import { trackSubmissionFiles } from '@/lib/server/trackSubmissionFiles';
+import { prepareFileSummaries } from '@/lib/server/services/prepareSummaries';
 
 export async function POST(request: NextRequest) {
   try {
@@ -60,7 +61,7 @@ export async function POST(request: NextRequest) {
     }
 
     const octokit = await getUserOctokit(supabase, user.id);
-    
+
     // Get current commit SHA
     const { data: branchData } = await octokit.repos.getBranch({
       owner: parsed.owner,
@@ -95,7 +96,7 @@ export async function POST(request: NextRequest) {
     // Check if files actually changed
     const oldFilesSet = new Set(submission.selected_files || []);
     const newFilesSet = new Set(selected_files);
-    const filesChanged = 
+    const filesChanged =
       oldFilesSet.size !== newFilesSet.size ||
       [...oldFilesSet].some(f => !newFilesSet.has(f)) ||
       [...newFilesSet].some(f => !oldFilesSet.has(f));
@@ -125,19 +126,19 @@ export async function POST(request: NextRequest) {
     // Update submission_files table
     // First, delete files that are no longer in selected_files
     const filesToRemove = [...oldFilesSet].filter(f => !newFilesSet.has(f));
-    
+
     if (filesToRemove.length > 0) {
       const { error: deleteError } = await supabase
         .from('submission_files')
         .delete()
         .eq('submission_id', submissionId)
         .in('file_path', filesToRemove);
-      
+
       if (deleteError) {
         console.warn('Failed to remove old files from submission_files:', deleteError);
       }
     }
-    
+
     // Then upsert the new/updated files
     const updatedSubmission = {
       ...submission,
@@ -148,7 +149,7 @@ export async function POST(request: NextRequest) {
         fileShas,
       },
     };
-    
+
     await trackSubmissionFiles({
       supabase,
       submission: updatedSubmission,
@@ -158,6 +159,14 @@ export async function POST(request: NextRequest) {
     // Regenerate if files changed and regenerate flag is true
     if (filesChanged && regenerate) {
       try {
+        // Prepare summaries first to ensure all files have summaries
+        try {
+          await prepareFileSummaries(supabase, submissionId, false, user.id);
+        } catch (prepareError) {
+          console.error('Failed to prepare summaries before regeneration:', prepareError);
+          // Continue anyway - will fallback to full content
+        }
+
         const settings = sourceMeta.settings || {};
         const subdir = settings.subdir || sourceMeta.subdir || null;
         const filters = settings.filters || null;
@@ -187,7 +196,7 @@ export async function POST(request: NextRequest) {
           });
         }
 
-        // Generate new documentation with updated file set
+        // Generate new documentation with updated file set, using summaries
         const docResult = await generateDocumentation({
           supabase,
           userId: user.id,
@@ -198,6 +207,8 @@ export async function POST(request: NextRequest) {
           branch,
           subdir,
           promptConfig,
+          useSummaries: true,
+          submissionId,
         });
 
         // Update submission with new documentation
@@ -210,8 +221,8 @@ export async function POST(request: NextRequest) {
             // Mark as needing review if it was previously approved
             source_meta: {
               ...sourceMeta,
-              approval_status: submission.source_meta?.approval_status === 'approved' 
-                ? 'pending_review' 
+              approval_status: submission.source_meta?.approval_status === 'approved'
+                ? 'pending_review'
                 : submission.source_meta?.approval_status,
             },
           })
@@ -244,8 +255,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: filesChanged 
-        ? 'Tracked files updated (regeneration skipped)' 
+      message: filesChanged
+        ? 'Tracked files updated (regeneration skipped)'
         : 'Tracked files unchanged',
       selected_files: selected_files,
       regenerated: false,

@@ -41,6 +41,22 @@ const availableModels: Model[] = [
     description: 'A smaller, more affordable variant of GPT-4o. Fast, intelligent, and cost-effective for most tasks.'
   },
   {
+    value: 'o1-preview',
+    label: 'O1 Preview',
+    provider: 'OpenAI',
+    cost: '$$$$$',
+    context: '128K tokens',
+    description: 'Advanced reasoning model optimized for complex problem-solving and deep analysis.'
+  },
+  {
+    value: 'o1-mini',
+    label: 'O1 Mini',
+    provider: 'OpenAI',
+    cost: '$$$',
+    context: '128K tokens',
+    description: 'A smaller, more affordable version of O1. Optimized for reasoning tasks.'
+  },
+  {
     value: 'gpt-4-turbo',
     label: 'GPT-4 Turbo',
     provider: 'OpenAI',
@@ -57,6 +73,14 @@ const availableModels: Model[] = [
     description: 'A high-performance, cost-effective model optimized for chat and text completion tasks.'
   },
   {
+    value: 'claude-3-7-sonnet-20250219',
+    label: 'Claude 3.7 Sonnet',
+    provider: 'Anthropic',
+    cost: '$$$$$',
+    context: '200K tokens',
+    description: 'Anthropic\'s most advanced model with superior performance on complex reasoning, coding, and analysis tasks.'
+  },
+  {
     value: 'claude-3-5-sonnet-20241022',
     label: 'Claude 3.5 Sonnet',
     provider: 'Anthropic',
@@ -65,12 +89,36 @@ const availableModels: Model[] = [
     description: 'Our most intelligent model, with improved performance on coding tasks, math, and following complex instructions.'
   },
   {
+    value: 'claude-3-5-haiku-20241022',
+    label: 'Claude 3.5 Haiku',
+    provider: 'Anthropic',
+    cost: '$$',
+    context: '200K tokens',
+    description: 'An improved version of Haiku with better performance while maintaining speed and cost efficiency.'
+  },
+  {
     value: 'claude-3-haiku-20240307',
     label: 'Claude 3 Haiku',
     provider: 'Anthropic',
     cost: '$',
     context: '200K tokens',
     description: 'Our fastest and most compact model for near-instant responsiveness.'
+  },
+  {
+    value: 'google/gemini-2.0-flash',
+    label: 'Gemini 2.0 Flash',
+    provider: 'Google',
+    cost: '$$',
+    context: '1M tokens',
+    description: 'Google\'s latest 2.0 Flash model with massive 1M token context window. Optimized for speed and efficiency.'
+  },
+  {
+    value: 'google/gemini-2.0-flash-lite',
+    label: 'Gemini 2.0 Flash Lite',
+    provider: 'Google',
+    cost: '$',
+    context: '1M tokens',
+    description: 'A lighter, more cost-effective version of Gemini 2.0 Flash. Fast and efficient for most use cases.'
   }
 ];
 

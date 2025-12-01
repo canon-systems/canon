@@ -5,6 +5,8 @@ import { getUserOctokit } from '@/lib/server/github/getUserOctokit';
 import { buildSystemPrompt } from '@/lib/server/prompts/buildSystemPrompt';
 import { detectRepositoryChanges } from '@/lib/server/services/changeDetector';
 import { analyzeChangeSignificance } from '@/lib/server/services/changeSignificanceAnalyzer';
+import { prepareFileSummaries } from '@/lib/server/services/prepareSummaries';
+import { parseRepoUrl } from '@/lib/server/github/github';
 
 const VERCEL_AI_GATEWAY_URL = process.env.VERCEL_AI_GATEWAY_URL;
 const VERCEL_AI_GATEWAY_API_KEY = process.env.VERCEL_AI_GATEWAY_API_KEY;
@@ -46,19 +48,6 @@ async function callGateway(
   return String(j?.choices?.[0]?.message?.content ?? '');
 }
 
-function parseRepoUrl(repoUrl: string): { owner: string; repo: string } | null {
-  try {
-    const u = new URL(repoUrl);
-    if (u.hostname !== 'github.com' && !u.hostname.includes('github.com')) {
-      return null;
-    }
-    const parts = u.pathname.split('/').filter(Boolean);
-    if (parts.length < 2) return null;
-    return { owner: parts[0], repo: parts[1].replace(/\.git$/, '') };
-  } catch {
-    return null;
-  }
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -115,6 +104,14 @@ export async function POST(request: NextRequest) {
     const selectedFiles = submission.selected_files || [];
     if (selectedFiles.length === 0) {
       return NextResponse.json({ error: 'No files selected for this submission' }, { status: 400 });
+    }
+
+    // Prepare summaries first to ensure all files have summaries
+    try {
+      await prepareFileSummaries(supabase, submissionId, false, user.id);
+    } catch (prepareError) {
+      console.error('Failed to prepare summaries before preview generation:', prepareError);
+      // Continue anyway - will fallback to full content
     }
 
     const octokit = await getUserOctokit(supabase, user.id);

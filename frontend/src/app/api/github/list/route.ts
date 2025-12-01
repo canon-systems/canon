@@ -96,7 +96,7 @@ async function handleListRequest(repoUrl: string, branch: string, subdirRaw: str
   // Return sorted for stable UI (optional)
   files.sort((a, b) => a.path.localeCompare(b.path));
 
-  return NextResponse.json({ files: files.map(f => f.path) }, { status: 200 });
+  return NextResponse.json({ files }, { status: 200 });
 }
 
 export async function GET(request: NextRequest) {
