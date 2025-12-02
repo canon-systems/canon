@@ -1,36 +1,39 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Github, Upload, Loader2, Download, Copy, Check, Save, ExternalLink, Layers3 } from 'lucide-react';
+import { Github, Loader2, Download, Copy, Check, Save, ExternalLink, Layers3 } from 'lucide-react';
 import { ArchitectureFlow } from '@/components/ArchitectureFlow';
 import { SearchableSelect } from '@/components/SearchableSelect';
 import type { DetectionResult } from '@/lib/server/architecture/detectTools';
 import Link from 'next/link';
 
-type InputType = 'github_repo_directory' | 'zipped_folder';
 type Status = 'idle' | 'processing' | 'completed' | 'error';
 
-export function ArchitecturePageClient() {
-  const [method, setMethod] = useState<InputType>('github_repo_directory');
+interface RepoWithSetup {
+  id: string;
+  name: string;
+  repo_url: string;
+  default_branch: string;
+  setup_branch: string;
+  setup_status: string;
+}
+
+interface ArchitecturePageClientProps {
+  repos?: RepoWithSetup[];
+}
+
+export function ArchitecturePageClient({ repos: initialRepos = [] }: ArchitecturePageClientProps) {
   const [status, setStatus] = useState<Status>('idle');
   const [errorMessage, setErrorMessage] = useState('');
   
   const [repoUrl, setRepoUrl] = useState('');
   const [branch, setBranch] = useState('main');
   const [subdir, setSubdir] = useState('');
+  const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
   
-  const [ownerInput, setOwnerInput] = useState('');
-  const [baseOwner, setBaseOwner] = useState('');
-  const [showRepoSelector, setShowRepoSelector] = useState(false);
-  const [repos, setRepos] = useState<Array<{ name: string; full_name: string; url: string; private: boolean }>>([]);
-  const [loadingRepos, setLoadingRepos] = useState(false);
-  
-  const [branches, setBranches] = useState<string[]>([]);
+  const [availableRepos, setAvailableRepos] = useState<RepoWithSetup[]>(initialRepos);
   const [directories, setDirectories] = useState<string[]>([]);
-  const [loadingBranches, setLoadingBranches] = useState(false);
   const [loadingDirectories, setLoadingDirectories] = useState(false);
-  
-  const [zipFile, setZipFile] = useState<File | null>(null);
   
   const [detectionResult, setDetectionResult] = useState<DetectionResult | null>(null);
   const [diagramMarkdown, setDiagramMarkdown] = useState('');
@@ -43,108 +46,21 @@ export function ArchitecturePageClient() {
   const [saveDescription, setSaveDescription] = useState('');
   const [saveError, setSaveError] = useState('');
 
-  // Function to search for repos (matches SvelteKit behavior)
-  function searchRepos() {
-    if (ownerInput.trim()) {
-      setShowRepoSelector(true);
-      const trimmed = ownerInput.trim();
-      // Remove github.com/ prefix if present
-      const cleanOwner = trimmed
-        .replace(/^https?:\/\/github\.com\//, '')
-        .replace(/\/$/, '')
-        .split('/')[0];
-      if (cleanOwner && cleanOwner !== baseOwner) {
-        setBaseOwner(cleanOwner);
-        fetchRepos(cleanOwner);
+  // Initialize repos from props
+  useEffect(() => {
+    setAvailableRepos(initialRepos);
+  }, [initialRepos]);
+
+  // Update branch and repo URL when repo is selected
+  useEffect(() => {
+    if (selectedRepoId) {
+      const repo = availableRepos.find(r => r.id === selectedRepoId);
+      if (repo) {
+        setRepoUrl(repo.repo_url);
+        setBranch(repo.setup_branch || 'main');
       }
-    } else {
-      setShowRepoSelector(false);
-      setBaseOwner('');
-      setRepos([]);
     }
-  }
-
-  // Fetch repos for an owner
-  async function fetchRepos(owner: string) {
-    if (!owner || loadingRepos) return;
-
-    setLoadingRepos(true);
-    try {
-      const response = await fetch('/api/github/repos', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ owner })
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setRepos((data.repos || [])
-          .filter((r: any) => r && r.name && r.full_name && r.url)
-          .map((r: { name: string; full_name: string; url: string; private: boolean }) => ({
-            name: r.name,
-            full_name: r.full_name,
-            url: r.url,
-            private: r.private || false
-          })));
-      } else {
-        setRepos([]);
-        const errorData = await response.json().catch(() => ({}));
-        if (response.status !== 404) {
-          console.error('Failed to fetch repos:', errorData);
-        }
-      }
-    } catch (err) {
-      console.error('Failed to fetch repos:', err);
-      setRepos([]);
-    } finally {
-      setLoadingRepos(false);
-    }
-  }
-
-  // Fetch branches when repo URL changes
-  async function fetchBranches() {
-    if (!repoUrl.trim() || !repoUrl.includes('github.com')) {
-      setBranches([]);
-      return;
-    }
-
-    // Only fetch if we have a full repo URL (owner/repo)
-    const noProto = repoUrl.replace(/^https?:\/\//, '');
-    const parts = noProto.split('/').filter(Boolean);
-    if (parts.length < 3) {
-      return;
-    }
-
-    setLoadingBranches(true);
-    setErrorMessage('');
-    try {
-      const response = await fetch('/api/github/branches', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ repoUrl })
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setBranches(data.branches || []);
-        // Auto-select first branch if available and current branch not in list
-        if (data.branches && data.branches.length > 0 && !data.branches.includes(branch)) {
-          setBranch(data.branches[0]);
-        }
-      } else {
-        setBranches([]);
-        const errorData = await response.json().catch(() => ({}));
-        if (response.status !== 404) {
-          setErrorMessage(errorData?.error || errorData?.detail || `Failed to load branches (${response.status})`);
-        }
-      }
-    } catch (err) {
-      console.error('Failed to fetch branches:', err);
-      setBranches([]);
-    } finally {
-      setLoadingBranches(false);
-    }
-  }
+  }, [selectedRepoId, availableRepos]);
 
   // Fetch directories when repo URL or branch changes
   async function fetchDirectories() {
@@ -176,40 +92,29 @@ export function ArchitecturePageClient() {
     }
   }
 
-  // Note: Removed auto-trigger on ownerInput changes to match submit page behavior
-  // User must explicitly click "Search" button or press Enter to search for repos
-
-  // React to repo URL changes
-  useEffect(() => {
-    if (repoUrl && repoUrl.includes('github.com')) {
-      // Only fetch branches if we have a full repo URL (owner/repo)
-      const noProto = repoUrl.replace(/^https?:\/\//, '');
-      const parts = noProto.split('/').filter(Boolean);
-      if (parts.length >= 3) {
-        fetchBranches();
-      }
-    } else {
-      setBranches([]);
-      setDirectories([]);
-      setBranch('main');
-      setSubdir('');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [repoUrl]);
-
   // React to branch changes
   useEffect(() => {
-    if (branch && repoUrl && repoUrl.includes('github.com') && method === 'github_repo_directory') {
+    if (branch && repoUrl && repoUrl.includes('github.com')) {
       fetchDirectories();
     } else {
       setDirectories([]);
       setSubdir('');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [branch, repoUrl, method]);
+  }, [branch, repoUrl]);
 
   async function handleSubmit() {
     if (status === 'processing') return;
+
+    if (!selectedRepoId || !repoUrl || !repoUrl.includes('github.com')) {
+      setErrorMessage('Please select a repository from the dropdown.');
+      return;
+    }
+
+    if (!branch) {
+      setErrorMessage('Please select a branch');
+      return;
+    }
 
     setStatus('processing');
     setErrorMessage('');
@@ -218,26 +123,11 @@ export function ArchitecturePageClient() {
 
     try {
       const formData = new FormData();
-
-      if (method === 'github_repo_directory') {
-        if (!repoUrl.trim()) {
-          throw new Error('Please enter a GitHub repository URL');
-        }
-        if (!branch) {
-          throw new Error('Please select a branch');
-        }
-        formData.append('method', 'github');
-        formData.append('repoUrl', repoUrl.trim());
-        formData.append('branch', branch.trim());
-        if (subdir.trim()) {
-          formData.append('subdir', subdir.trim());
-        }
-      } else if (method === 'zipped_folder') {
-        if (!zipFile) {
-          throw new Error('Please select a ZIP file');
-        }
-        formData.append('method', 'zip');
-        formData.append('zipFile', zipFile);
+      formData.append('method', 'github');
+      formData.append('repoUrl', repoUrl.trim());
+      formData.append('branch', branch.trim());
+      if (subdir.trim()) {
+        formData.append('subdir', subdir.trim());
       }
 
       const response = await fetch('/api/architecture/generate', {
@@ -259,7 +149,7 @@ export function ArchitecturePageClient() {
       if (result.saved && result.diagramId) {
         setSavedDiagramId(result.diagramId);
         // Extract repo name for default title
-        if (method === 'github_repo_directory' && repoUrl) {
+        if (repoUrl) {
           const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
           if (match) {
             setSaveTitle(`${match[2]} - ${branch}${subdir ? ` (${subdir})` : ''}`);
@@ -269,12 +159,6 @@ export function ArchitecturePageClient() {
     } catch (err: any) {
       setErrorMessage(err.message || 'Failed to generate architecture diagram');
       setStatus('error');
-    }
-  }
-
-  function handleFileSelect(event: React.ChangeEvent<HTMLInputElement>) {
-    if (event.target.files && event.target.files[0]) {
-      setZipFile(event.target.files[0]);
     }
   }
 
@@ -301,9 +185,8 @@ export function ArchitecturePageClient() {
   async function handleSave() {
     if (saving || !diagramMarkdown || !detectionResult) return;
     
-    // Only allow saving GitHub repos (not ZIP files)
-    if (method !== 'github_repo_directory' || !repoUrl) {
-      setSaveError('Can only save diagrams from GitHub repositories');
+    if (!repoUrl) {
+      setSaveError('Please select a repository');
       return;
     }
 
@@ -373,144 +256,73 @@ export function ArchitecturePageClient() {
 
       {/* Input Form */}
       <section className="form-panel space-y-6 mb-8">
-        <div>
-          <p className="section-label">Input Method</p>
-          <p className="section-helper">Choose how you’d like us to inspect your architecture.</p>
-        </div>
-
-        <div className="flex flex-wrap gap-3">
-          <button
-            className="method-pill"
-            data-active={method === 'github_repo_directory'}
-            onClick={() => setMethod('github_repo_directory')}
-          >
-            <Github className="h-4 w-4" />
-            GitHub Repository
-          </button>
-          <button
-            className="method-pill"
-            data-active={method === 'zipped_folder'}
-            onClick={() => setMethod('zipped_folder')}
-          >
-            <Upload className="h-4 w-4" />
-            ZIP File
-          </button>
-        </div>
-
-        <div className="form-divider" />
-
-        {method === 'github_repo_directory' ? (
-          <div className="space-y-6">
-            <div className="field-group">
-              <span className="field-label">
-                GitHub owner/organization <span className="text-red-400">*</span>
-              </span>
-              <div className="flex gap-2">
-                <input
-                  id="ownerInput"
-                  type="text"
-                  value={ownerInput}
-                  onChange={(e) => setOwnerInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      searchRepos();
-                    }
-                  }}
-                  placeholder="Enter owner/org (e.g., 'facebook' or 'github.com/facebook')"
-                  className="field-input"
-                  required
-                />
-                <button
-                  type="button"
-                  className="secondary-action whitespace-nowrap"
-                  onClick={searchRepos}
-                  disabled={!ownerInput.trim() || loadingRepos}
-                >
-                  Search
-                </button>
-              </div>
-              <p className="field-note">Enter a GitHub username or organization to search for repositories.</p>
-            </div>
-
-            {showRepoSelector && baseOwner && (
-              <div className="field-group">
-                <span className="field-label">
-                  Repository <span className="text-red-400">*</span>
-                </span>
-                <SearchableSelect
-                  options={repos
-                    .filter((r) => r && r.url && r.full_name)
-                    .map((r) => ({
-                      value: r.url || '',
-                      label: `${r.full_name || ''}${r.private ? ' (private)' : ''}`,
-                    }))}
-                  value={repoUrl}
-                  placeholder={loadingRepos ? 'Loading repositories...' : 'Search repositories...'}
-                  searchPlaceholder="Search repositories..."
-                  disabled={loadingRepos}
-                  onChange={(value) => setRepoUrl(value)}
-                  triggerClassName="field-select"
-                />
-                {loadingRepos ? (
-                  <p className="field-note">Loading repositories…</p>
-                ) : (
-                  Array.isArray(repos) &&
-                  repos.length === 0 &&
-                  baseOwner && <p className="field-note">No repositories found for {baseOwner}</p>
-                )}
-              </div>
-            )}
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="field-group">
-                <span className="field-label">Branch</span>
-                <SearchableSelect
-                  options={branches.map((b) => ({ value: b, label: b }))}
-                  value={branch}
-                  placeholder={loadingBranches ? 'Loading...' : branches.length === 0 ? 'Enter repo URL first' : 'Select branch...'}
-                  searchPlaceholder="Search branches..."
-                  disabled={loadingBranches || branches.length === 0}
-                  onChange={(value) => setBranch(value)}
-                  triggerClassName="field-select"
-                />
-              </div>
-              <div className="field-group">
-                <span className="field-label">Subdirectory (optional)</span>
-                <SearchableSelect
-                  options={[
-                    { value: '', label: 'Root (all files)' },
-                    ...directories.map((d) => ({ value: d, label: d })),
-                  ]}
-                  value={subdir}
-                  placeholder={
-                    loadingDirectories
-                      ? 'Loading...'
-                      : directories.length === 0 && branch
-                      ? 'No subdirectories found'
-                      : 'Select subfolder...'
-                  }
-                  searchPlaceholder="Search directories..."
-                  disabled={loadingDirectories || !branch || branches.length === 0}
-                  onChange={(value) => setSubdir(value)}
-                  triggerClassName="field-select"
-                />
-              </div>
-            </div>
-          </div>
-        ) : (
+        <div className="space-y-6">
           <div className="field-group">
-            <span className="field-label">ZIP file</span>
-            <input
-              id="zipFile"
-              type="file"
-              accept=".zip"
-              onChange={handleFileSelect}
-              className="field-input file:mr-4 file:rounded file:border-0 file:bg-white/10 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white"
+            <span className="field-label">
+              Repository <span className="text-red-400">*</span>
+            </span>
+            <SearchableSelect
+              options={availableRepos.map((r) => ({
+                value: r.id,
+                label: r.name,
+              }))}
+              value={selectedRepoId || ''}
+              placeholder={availableRepos.length === 0 ? 'No repositories available' : 'Select a repository...'}
+              searchPlaceholder="Search repositories..."
+              disabled={availableRepos.length === 0}
+              onChange={(value) => setSelectedRepoId(value)}
+              triggerClassName="field-select"
             />
-            {zipFile && <span className="field-note">Selected: {zipFile.name}</span>}
+            {availableRepos.length === 0 ? (
+              <div className="field-note flex items-center justify-between">
+                <span>No repositories with file summaries found. Complete repository setup first.</span>
+                <Link
+                  href="/repos"
+                  className="text-sm text-blue-400 hover:text-blue-300 underline"
+                >
+                  Go to Repositories
+                </Link>
+              </div>
+            ) : (
+              <p className="field-note">Select a repository that you have connected and set up.</p>
+            )}
           </div>
-        )}
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="field-group">
+              <span className="field-label">Branch</span>
+              <input
+                className="field-input"
+                value={branch}
+                readOnly
+                disabled
+                placeholder="Branch from repository setup"
+              />
+              <p className="field-note">Branch is set from the initial repository setup and cannot be changed.</p>
+            </div>
+            <div className="field-group">
+              <span className="field-label">Subdirectory (optional)</span>
+              <SearchableSelect
+                options={[
+                  { value: '', label: 'Root (all files)' },
+                  ...directories.map((d) => ({ value: d, label: d })),
+                ]}
+                value={subdir}
+                placeholder={
+                  loadingDirectories
+                    ? 'Loading...'
+                    : directories.length === 0 && branch
+                    ? 'No subdirectories found'
+                    : 'Select subfolder...'
+                }
+                searchPlaceholder="Search directories..."
+                disabled={loadingDirectories || !branch}
+                onChange={(value) => setSubdir(value)}
+                triggerClassName="field-select"
+              />
+            </div>
+          </div>
+        </div>
 
         <button onClick={handleSubmit} disabled={status === 'processing'} className="primary-action w-full">
           {status === 'processing' ? (
@@ -535,8 +347,8 @@ export function ArchitecturePageClient() {
       {/* Results */}
       {status === 'completed' && detectionResult && (
         <div className="space-y-6">
-          {/* Save Form - Only show for GitHub repos if not already saved */}
-          {method === 'github_repo_directory' && repoUrl && !savedDiagramId && (
+          {/* Save Form - Only show if not already saved */}
+          {repoUrl && !savedDiagramId && (
             <section className="form-panel space-y-6 mb-8">
               <div>
                 <p className="section-label">Save Diagram</p>

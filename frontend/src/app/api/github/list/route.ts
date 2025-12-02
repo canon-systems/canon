@@ -68,7 +68,7 @@ async function listAllFiles(
 }
 
 async function handleListRequest(repoUrl: string, branch: string, subdirRaw: string) {
-  if (!repoUrl.includes('github.com')) {
+  if (!repoUrl || !repoUrl.includes('github.com')) {
     return NextResponse.json({ error: 'repoUrl must be a GitHub URL' }, { status: 400 });
   }
 
@@ -82,13 +82,33 @@ async function handleListRequest(repoUrl: string, branch: string, subdirRaw: str
     return NextResponse.json({ error: 'repoUrl missing owner or repo' }, { status: 400 });
   }
 
+  // Get user's GitHub connection
+  const { user } = await getSession();
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const supabase = await createClient();
+
+  // Verify user has access to this repository
+  const { data: userRepo, error: repoError } = await supabase
+    .from('workspace_repos')
+    .select('id, workspace_id, repo_url')
+    .eq('workspace_id', user.id)
+    .eq('repo_url', repoUrl)
+    .single();
+
+  if (repoError || !userRepo) {
+    return NextResponse.json(
+      { error: 'Repository not found or you do not have access to it' },
+      { status: 403 }
+    );
+  }
+
   // Clean subdir (trim leading/trailing slashes)
   const subdir = subdirRaw.replace(/^\/+|\/+$/g, '');
 
-  // Get user's GitHub connection (or anonymous if not connected)
-  const { user } = await getSession();
-  const supabase = await createClient();
-  const octokit = await getUserOctokit(supabase, user?.id || null);
+  const octokit = await getUserOctokit(supabase, user.id);
 
   // Grab all files (under subdir if given, otherwise repo root)
   const files = await listAllFiles(octokit, owner, repo, branch, subdir);

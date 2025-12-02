@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import JSZip from 'jszip';
 import { detectTools } from '@/lib/server/architecture/detectTools';
 import { generateMarkdownDoc } from '@/lib/server/architecture/generateDiagram';
 import { getUserOctokit } from '@/lib/server/github/getUserOctokit';
@@ -144,44 +143,6 @@ async function fetchFilesFromGitHub(
 	return filesWithContent;
 }
 
-/**
- * Extract files from ZIP
- */
-async function extractFilesFromZip(zipFile: File): Promise<Array<{ path: string; content: string }>> {
-	const buffer = Buffer.from(await zipFile.arrayBuffer());
-	const zip = await JSZip.loadAsync(buffer);
-
-	const files: Array<{ path: string; content: string }> = [];
-
-	// Only include code/config files
-	const ALLOWED_PATTERNS = [
-		/package\.json$/i,
-		/package-lock\.json$/i,
-		/yarn\.lock$/i,
-		/requirements\.txt$/i,
-		/docker-compose\.yml$/i,
-		/Dockerfile$/i,
-		/vercel\.json$/i,
-		/\.env$/i,
-		/\.(ts|js|tsx|jsx|py|java|go|rs|svelte|json|yaml|yml)$/i
-	];
-
-	for (const entry of Object.values(zip.files)) {
-		if (entry.dir) continue;
-		if (entry.name.startsWith('__MACOSX/') || entry.name.endsWith('.DS_Store')) continue;
-
-		if (ALLOWED_PATTERNS.some((pattern) => pattern.test(entry.name))) {
-			try {
-				const content = await entry.async('string');
-				files.push({ path: entry.name, content });
-			} catch {
-				// Skip files that can't be read as text
-			}
-		}
-	}
-
-	return files;
-}
 
 /**
  * GET: Retrieve existing diagrams for a repo
@@ -235,10 +196,29 @@ export async function POST(request: NextRequest) {
 		const title = formData.get('title')?.toString() || 'Untitled Diagram';
 		const description = formData.get('description')?.toString() || null;
 
-		let files: Array<{ path: string; content: string }> = [];
-		let repoUrl: string | null = null;
-		let branch: string = 'main';
-		let subdir: string | null = null;
+		if (method !== 'github') {
+			return NextResponse.json({ error: 'Invalid method. Only "github" is supported' }, { status: 400 });
+		}
+
+		const repoUrl = formData.get('repoUrl')?.toString() || null;
+		const branch = formData.get('branch')?.toString() || 'main';
+		const subdir = formData.get('subdir')?.toString() || null;
+
+		if (!repoUrl) {
+			return NextResponse.json({ error: 'Missing repoUrl' }, { status: 400 });
+		}
+
+		const { user } = await getSession();
+		if (!user && saveDiagram) {
+			return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+		}
+
+		const supabase = await createClient();
+		const octokit = await getUserOctokit(supabase, user?.id || null);
+
+		const files = await fetchFilesFromGitHub(octokit, repoUrl, branch, subdir || undefined);
+
+		// Get code snapshot for GitHub repos
 		let codeSnapshot: {
 			commitSha?: string;
 			fileShas?: Record<string, string | null>;
@@ -246,83 +226,53 @@ export async function POST(request: NextRequest) {
 		} | null = null;
 		let lastCommitSha: string | null = null;
 
-		if (method === 'github') {
-			repoUrl = formData.get('repoUrl')?.toString() || null;
-			branch = formData.get('branch')?.toString() || 'main';
-			subdir = formData.get('subdir')?.toString() || null;
+		if (saveDiagram && repoUrl) {
+			try {
+				const parsed = repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+)(?:\.git|$|\/)/);
+				if (parsed) {
+					const owner = parsed[1];
+					const repo = parsed[2].replace(/\.git$/, '');
 
-			if (!repoUrl) {
-				return NextResponse.json({ error: 'Missing repoUrl' }, { status: 400 });
-			}
+					// Get commit SHA
+					const { data: branchData } = await octokit.repos.getBranch({
+						owner,
+						repo,
+						branch,
+					});
+					lastCommitSha = branchData.commit.sha;
 
-			const { user } = await getSession();
-			if (!user && saveDiagram) {
-				return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-			}
-
-			const supabase = await createClient();
-			const octokit = await getUserOctokit(supabase, user?.id || null);
-
-			files = await fetchFilesFromGitHub(octokit, repoUrl, branch, subdir || undefined);
-
-			// Get code snapshot for GitHub repos
-			if (saveDiagram && repoUrl) {
-				try {
-					const parsed = repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+)(?:\.git|$|\/)/);
-					if (parsed) {
-						const owner = parsed[1];
-						const repo = parsed[2].replace(/\.git$/, '');
-
-						// Get commit SHA
-						const { data: branchData } = await octokit.repos.getBranch({
-							owner,
-							repo,
-							branch,
-						});
-						lastCommitSha = branchData.commit.sha;
-
-						// Get file SHAs for relevant files
-						const fileShas: Record<string, string | null> = {};
-						for (const file of files) {
-							try {
-								const { data: fileData } = await octokit.repos.getContent({
-									owner,
-									repo,
-									path: file.path,
-									ref: lastCommitSha,
-								});
-								if (
-									fileData &&
-									!Array.isArray(fileData) &&
-									fileData.type === 'file' &&
-									'sha' in fileData
-								) {
-									fileShas[file.path] = fileData.sha;
-								}
-							} catch {
-								fileShas[file.path] = null;
+					// Get file SHAs for relevant files
+					const fileShas: Record<string, string | null> = {};
+					for (const file of files) {
+						try {
+							const { data: fileData } = await octokit.repos.getContent({
+								owner,
+								repo,
+								path: file.path,
+								ref: lastCommitSha,
+							});
+							if (
+								fileData &&
+								!Array.isArray(fileData) &&
+								fileData.type === 'file' &&
+								'sha' in fileData
+							) {
+								fileShas[file.path] = fileData.sha;
 							}
+						} catch {
+							fileShas[file.path] = null;
 						}
-
-						codeSnapshot = {
-							commitSha: lastCommitSha,
-							fileShas,
-							createdAt: new Date().toISOString(),
-						};
 					}
-				} catch (snapshotError) {
-					console.warn('Failed to get code snapshot:', snapshotError);
-				}
-			}
-		} else if (method === 'zip') {
-			const zipFile = formData.get('zipFile');
-			if (!(zipFile instanceof File)) {
-				return NextResponse.json({ error: 'Missing zipFile' }, { status: 400 });
-			}
 
-			files = await extractFilesFromZip(zipFile);
-		} else {
-			return NextResponse.json({ error: 'Invalid method. Use "github" or "zip"' }, { status: 400 });
+					codeSnapshot = {
+						commitSha: lastCommitSha,
+						fileShas,
+						createdAt: new Date().toISOString(),
+					};
+				}
+			} catch (snapshotError) {
+				console.warn('Failed to get code snapshot:', snapshotError);
+			}
 		}
 
 		if (files.length === 0) {
@@ -340,12 +290,11 @@ export async function POST(request: NextRequest) {
 
 		// Save diagram if requested
 		if (saveDiagram && repoUrl) {
-			const { user } = await getSession();
 			if (!user) {
 				return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 			}
 
-			const supabase = await createClient();
+			const supabaseForSave = await createClient();
 			const repoProvider = detectRepoProvider(repoUrl);
 
 			const diagram = await saveArchitectureDiagram(supabase, {

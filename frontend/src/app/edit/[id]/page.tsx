@@ -24,13 +24,20 @@ export default async function EditDetailPage({ params }: { params: Promise<{ id:
   // Verify user has access and get repo settings
   const { data: repo } = await supabase
     .from('workspace_repos')
-    .select('workspace_id, settings')
+    .select('workspace_id, settings, repo_url, default_branch')
     .eq('id', document.repo_id)
     .single();
 
   if (!repo || repo.workspace_id !== user.id) {
     notFound();
   }
+
+  // Get repository setup to get the branch used for setup
+  const { data: setup } = await supabase
+    .from('repository_setup')
+    .select('branch')
+    .eq('repo_id', document.repo_id)
+    .single();
 
   // Get file paths
   const filePaths = await getDocumentFiles(supabase, id);
@@ -55,6 +62,8 @@ export default async function EditDetailPage({ params }: { params: Promise<{ id:
     summary: document.content.replace(/\s+/g, ' ').slice(0, 200),
     source_meta: {
       repoId: document.repo_id,
+      repoUrl: repo.repo_url,
+      branch: setup?.branch || repo.default_branch || 'main',
       llm_prompt_config: repoSettings.llm_prompt_config || null,
       model: repoSettings.model || null,
       document_structure: repoSettings.document_structure || null,

@@ -146,6 +146,10 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
   const [pushError, setPushError] = useState('');
   const [pushSuccess, setPushSuccess] = useState<{ provider: string; url?: string } | null>(null);
 
+  // Regenerate modal state
+  const [showRegenerateModal, setShowRegenerateModal] = useState(false);
+  const [filesChanged, setFilesChanged] = useState<{ added: string[]; removed: string[] } | null>(null);
+
   // Push configuration state
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const [pushTitle, setPushTitle] = useState(title || 'Untitled');
@@ -313,14 +317,20 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
 
   async function loadAvailableRepoFiles() {
     if (!isGitRepo) return;
+
+    const repoUrl = initialSubmission.source_meta?.repoUrl;
+    const branch = initialSubmission.source_meta?.branch || 'main';
+
+    if (!repoUrl) {
+      setFileUpdateErr('Repository URL not found. Please ensure this document is associated with a connected repository.');
+      return;
+    }
+
     setLoadingRepoFiles(true);
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData?.session?.access_token;
       if (!token) throw new Error('Not authenticated');
-
-      const repoUrl = initialSubmission.source_meta?.repoUrl;
-      const branch = initialSubmission.source_meta?.branch || 'main';
 
       const response = await fetch(`/api/github/list?repoUrl=${encodeURIComponent(repoUrl)}&branch=${encodeURIComponent(branch)}`, {
         method: 'GET',
@@ -378,16 +388,16 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
       setTrackedFiles(newFiles);
       setFileUpdateMsg('Tracked files updated. Documentation will need to be regenerated to reflect changes.');
 
-      // Show prompt to regenerate
+      // Show modal to regenerate if files changed
       if (result.files_changed) {
-        const shouldRegenerate = confirm(
-          'The tracked files have changed. Would you like to regenerate the documentation now?'
-        );
+        // Calculate added and removed files
+        const oldFilesSet = new Set(trackedFiles);
+        const newFilesSet = new Set(newFiles);
+        const added = newFiles.filter(f => !oldFilesSet.has(f));
+        const removed = trackedFiles.filter(f => !newFilesSet.has(f));
 
-        if (shouldRegenerate) {
-          // Navigate to regenerate page
-          router.push(`/edit/${initialSubmission.id}/regenerate`);
-        }
+        setFilesChanged({ added, removed });
+        setShowRegenerateModal(true);
       }
     } catch (err: any) {
       setFileUpdateErr(err.message || 'Failed to update tracked files');
@@ -434,6 +444,16 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
     setPushTitle(title || 'Untitled');
     setSelectedParent(null);
     setAvailableResources([]);
+  }
+
+  function closeRegenerateModal() {
+    setShowRegenerateModal(false);
+    setFilesChanged(null);
+  }
+
+  function handleRegenerate() {
+    closeRegenerateModal();
+    router.push(`/edit/${initialSubmission.id}/regenerate`);
   }
 
   async function loadResourcesForProvider(provider: string) {
@@ -2137,6 +2157,130 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                 onClick={closePushModal}
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Regenerate Documentation Modal */}
+      {showRegenerateModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+          onClick={closeRegenerateModal}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') closeRegenerateModal();
+          }}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="regenerate-modal-title"
+        >
+          <div
+            className="glass-panel w-full max-w-2xl shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-white/10 p-6">
+              <div className="flex items-center gap-3">
+                <div className="rounded-lg bg-purple-500/20 p-2">
+                  <RefreshCw className="h-5 w-5 text-purple-400" />
+                </div>
+                <div>
+                  <h2 id="regenerate-modal-title" className="text-xl font-semibold text-white">
+                    Regenerate Documentation?
+                  </h2>
+                  <p className="text-sm text-white/60 mt-0.5">
+                    Tracked files have been updated
+                  </p>
+                </div>
+              </div>
+              <button
+                className="rounded-lg p-1.5 text-white/60 hover:bg-white/10 hover:text-white transition-colors"
+                onClick={closeRegenerateModal}
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 space-y-4">
+              <p className="text-white/80">
+                You've updated the tracked files for this documentation. To reflect these changes,
+                the documentation needs to be regenerated.
+              </p>
+
+              {filesChanged && (
+                <div className="space-y-3">
+                  {filesChanged.added.length > 0 && (
+                    <div className="rounded-lg border border-green-500/30 bg-green-500/10 p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <CheckCircle2 className="h-4 w-4 text-green-400" />
+                        <span className="text-sm font-medium text-green-300">
+                          Added {filesChanged.added.length} file{filesChanged.added.length !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+                      <ul className="text-xs text-green-200/80 space-y-1 ml-6 max-h-32 overflow-y-auto">
+                        {filesChanged.added.slice(0, 10).map((file, idx) => (
+                          <li key={idx} className="font-mono truncate">{file}</li>
+                        ))}
+                        {filesChanged.added.length > 10 && (
+                          <li className="text-green-300/60">... and {filesChanged.added.length - 10} more</li>
+                        )}
+                      </ul>
+                    </div>
+                  )}
+
+                  {filesChanged.removed.length > 0 && (
+                    <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <AlertCircle className="h-4 w-4 text-red-400" />
+                        <span className="text-sm font-medium text-red-300">
+                          Removed {filesChanged.removed.length} file{filesChanged.removed.length !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+                      <ul className="text-xs text-red-200/80 space-y-1 ml-6 max-h-32 overflow-y-auto">
+                        {filesChanged.removed.slice(0, 10).map((file, idx) => (
+                          <li key={idx} className="font-mono truncate">{file}</li>
+                        ))}
+                        {filesChanged.removed.length > 10 && (
+                          <li className="text-red-300/60">... and {filesChanged.removed.length - 10} more</li>
+                        )}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-4">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="h-5 w-5 text-blue-400 mt-0.5 flex-shrink-0" />
+                  <div className="text-sm text-blue-200">
+                    <p className="font-medium mb-1">What happens when you regenerate?</p>
+                    <ul className="list-disc list-inside space-y-1 text-blue-200/80">
+                      <li>The documentation will be updated to include the new files</li>
+                      <li>Content from removed files will be excluded</li>
+                      <li>You can review changes before saving</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="border-t border-white/10 p-4 flex items-center justify-end gap-3">
+              <button
+                className="rounded-lg border border-white/20 px-4 py-2 text-sm font-medium text-white/80 hover:bg-white/10 transition-colors"
+                onClick={closeRegenerateModal}
+              >
+                Later
+              </button>
+              <button
+                className="rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-purple-700 flex items-center gap-2"
+                onClick={handleRegenerate}
+              >
+                <RefreshCw className="h-4 w-4" />
+                Regenerate Now
               </button>
             </div>
           </div>
