@@ -136,6 +136,10 @@ dist/
 .netlify
 .wrangler
 
+# Next.js
+.next/
+out/
+
 # Vite temp files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
@@ -155,3 +159,12 @@ Thumbs.db
 # Cursor
 .cursorignore
 .cursorindexingignore
+
+# Trigger.dev
+trigger/
+.trigger
+# Note: trigger.config.ts is needed for deployment, so don't ignore it
+
+# TypeScript build info
+*.tsbuildinfo
+tsconfig.tsbuildinfo

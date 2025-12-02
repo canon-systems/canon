@@ -32,7 +32,7 @@ const defaultSections: DocumentSection[] = [
 
 export function DocumentStructure({ config, onChange }: DocumentStructureProps) {
   const [expanded, setExpanded] = useState(false);
-  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [, setDraggedIndex] = useState<number | null>(null);
   const [activePreset, setActivePreset] = useState<'minimal' | 'default' | 'comprehensive' | null>(null);
 
   const hasCustomStructure = config.sections.length > 0 || config.customStructure;
@@ -66,16 +66,6 @@ export function DocumentStructure({ config, onChange }: DocumentStructureProps) 
 
   function toggleRequired(id: string) {
     updateSection(id, { required: !config.sections.find(s => s.id === id)?.required });
-  }
-
-  function moveSection(fromIndex: number, toIndex: number) {
-    const newSections = [...config.sections];
-    const [moved] = newSections.splice(fromIndex, 1);
-    newSections.splice(toIndex, 0, moved);
-    onChange({
-      ...config,
-      sections: newSections,
-    });
   }
 
   function usePreset(preset: 'default' | 'minimal' | 'comprehensive') {

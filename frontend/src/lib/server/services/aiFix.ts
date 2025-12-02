@@ -19,7 +19,7 @@ type AIFixResult = {
 };
 
 export async function applyAIFixToDoc(params: AIFixParams): Promise<AIFixResult> {
-	const { supabase, userId, model, docId, markdownContent, section, issue, instruction } = params;
+	const { supabase, model, docId, markdownContent, section, issue, instruction } = params;
 
 	if (!model) {
 		throw new Error('model is required for AI fix');
@@ -49,7 +49,7 @@ export async function applyAIFixToDoc(params: AIFixParams): Promise<AIFixResult>
 }
 
 export async function* streamAIFixToDoc(params: AIFixParams) {
-	const { supabase, userId, model, docId, markdownContent, section, issue, instruction } = params;
+	const { supabase, model, docId, markdownContent, section, issue, instruction } = params;
 
 	if (!model) {
 		throw new Error('model is required for AI fix');
@@ -87,17 +87,17 @@ async function resolveMarkdown(
 		throw new Error('Either docId or markdownContent must be provided');
 	}
 
-	const submission = await supabase
-		.from('submissions')
-		.select('markdown')
+	const { data: document, error } = await supabase
+		.from('documents')
+		.select('content')
 		.eq('id', docId)
 		.single();
 
-	if (!submission || !submission.data?.markdown) {
+	if (error || !document || !document.content) {
 		throw new Error('Document not found');
 	}
 
-	return submission.data.markdown;
+	return document.content;
 }
 
 function buildAIFixPrompt(

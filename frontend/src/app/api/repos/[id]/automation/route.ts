@@ -2,11 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createClient as createSupabaseClient } from '@/lib/supabase/server';
 
-interface AutomationRulesResponse {
-  automation_rules: Array<Record<string, any>>;
-  automation_metadata: Record<string, any>;
-}
-
 interface RepoRow {
   settings: Record<string, any> | null;
 }

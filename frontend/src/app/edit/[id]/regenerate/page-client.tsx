@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Loader2, X, ArrowLeft, ChevronDown, Check, RefreshCw, Settings, Eye, Sparkles } from 'lucide-react';
+import { Loader2, X, ArrowLeft, ChevronDown, Check, RefreshCw, Settings, Eye, Sparkles, AlertCircle, Info } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { PromptCustomizer } from '@/components/PromptCustomizer';
 import { RegeneratePreview } from '@/components/RegeneratePreview';
@@ -40,6 +40,14 @@ const availableModels: Model[] = [
     description: 'Our most advanced, multimodal flagship model that\'s faster and 50% cheaper than GPT-4 Turbo. GPT-4o ("o" for "omni") is trained across text, vision, and audio.'
   },
   {
+    value: 'gpt-4o-2024-11-20',
+    label: 'GPT-4o (Nov 2024)',
+    provider: 'OpenAI',
+    cost: '$$$$',
+    context: '128K tokens',
+    description: 'GPT-4o with November 2024 improvements. Enhanced performance and reliability.'
+  },
+  {
     value: 'gpt-4o-mini',
     label: 'GPT-4o Mini',
     provider: 'OpenAI',
@@ -48,28 +56,12 @@ const availableModels: Model[] = [
     description: 'A smaller, more affordable variant of GPT-4o. Fast, intelligent, and cost-effective for most tasks.'
   },
   {
-    value: 'gpt-4-turbo',
-    label: 'GPT-4 Turbo',
-    provider: 'OpenAI',
-    cost: '$$$$$',
-    context: '128K tokens',
-    description: 'A large multimodal model (accepting text or image inputs and outputting text) that can solve complex tasks with greater accuracy than any of our previous models.'
-  },
-  {
-    value: 'gpt-4',
-    label: 'GPT-4',
-    provider: 'OpenAI',
-    cost: '$$$$$',
-    context: '8K tokens',
-    description: 'A large multimodal model (accepting text or image inputs and outputting text) that can solve difficult problems with greater accuracy than any of our previous models.'
-  },
-  {
-    value: 'gpt-3.5-turbo',
-    label: 'GPT-3.5 Turbo',
+    value: 'gpt-4o-mini-2024-07-18',
+    label: 'GPT-4o Mini (Jul 2024)',
     provider: 'OpenAI',
     cost: '$',
-    context: '16K tokens',
-    description: 'A high-performance, cost-effective model optimized for chat and text completion tasks. Fast and efficient for most use cases.'
+    context: '128K tokens',
+    description: 'GPT-4o Mini with July 2024 improvements. Optimized for speed and efficiency.'
   },
   {
     value: 'o1-preview',
@@ -80,6 +72,14 @@ const availableModels: Model[] = [
     description: 'Advanced reasoning model optimized for complex problem-solving and deep analysis. Uses a different architecture focused on reasoning capabilities.'
   },
   {
+    value: 'o1-2024-08-06',
+    label: 'O1 (Aug 2024)',
+    provider: 'OpenAI',
+    cost: '$$$$$',
+    context: '128K tokens',
+    description: 'O1 model with August 2024 improvements. Enhanced reasoning capabilities for complex tasks.'
+  },
+  {
     value: 'o1-mini',
     label: 'O1 Mini',
     provider: 'OpenAI',
@@ -87,7 +87,39 @@ const availableModels: Model[] = [
     context: '128K tokens',
     description: 'A smaller, more affordable version of O1. Optimized for reasoning tasks with improved cost efficiency.'
   },
+  {
+    value: 'o1-mini-2024-09-12',
+    label: 'O1 Mini (Sep 2024)',
+    provider: 'OpenAI',
+    cost: '$$$',
+    context: '128K tokens',
+    description: 'O1 Mini with September 2024 improvements. Better reasoning at a lower cost.'
+  },
+  {
+    value: 'gpt-4-turbo',
+    label: 'GPT-4 Turbo',
+    provider: 'OpenAI',
+    cost: '$$$$$',
+    context: '128K tokens',
+    description: 'A large multimodal model (accepting text or image inputs and outputting text) that can solve complex tasks with greater accuracy than any of our previous models.'
+  },
+  {
+    value: 'gpt-3.5-turbo',
+    label: 'GPT-3.5 Turbo',
+    provider: 'OpenAI',
+    cost: '$',
+    context: '16K tokens',
+    description: 'A high-performance, cost-effective model optimized for chat and text completion tasks. Fast and efficient for most use cases.'
+  },
   // Anthropic Models
+  {
+    value: 'claude-3-7-sonnet-20250219',
+    label: 'Claude 3.7 Sonnet',
+    provider: 'Anthropic',
+    cost: '$$$$$',
+    context: '200K tokens',
+    description: 'Anthropic\'s most advanced model with superior performance on complex reasoning, coding, and analysis tasks. Released February 2025.'
+  },
   {
     value: 'claude-3-5-sonnet-20241022',
     label: 'Claude 3.5 Sonnet',
@@ -95,6 +127,14 @@ const availableModels: Model[] = [
     cost: '$$$$',
     context: '200K tokens',
     description: 'Our most intelligent model, with improved performance on coding tasks, math, and following complex, multi-step instructions. Excels at nuanced content creation and sophisticated Q&A.'
+  },
+  {
+    value: 'claude-3-5-haiku-20241022',
+    label: 'Claude 3.5 Haiku',
+    provider: 'Anthropic',
+    cost: '$$',
+    context: '200K tokens',
+    description: 'An improved version of Haiku with better performance while maintaining speed and cost efficiency. Great for general-purpose tasks.'
   },
   {
     value: 'claude-3-opus-20240229',
@@ -120,46 +160,22 @@ const availableModels: Model[] = [
     context: '200K tokens',
     description: 'Our fastest and most compact model for near-instant responsiveness. Perfect for simple queries, lightweight tasks, and high-volume use cases.'
   },
-  {
-    value: 'claude-3-5-haiku-20241022',
-    label: 'Claude 3.5 Haiku',
-    provider: 'Anthropic',
-    cost: '$$',
-    context: '200K tokens',
-    description: 'An improved version of Haiku with better performance while maintaining speed and cost efficiency. Great for general-purpose tasks.'
-  },
   // Google Models
   {
-    value: 'gemini-2.0-flash-exp',
-    label: 'Gemini 2.0 Flash (Experimental)',
+    value: 'google/gemini-2.0-flash',
+    label: 'Gemini 2.0 Flash',
     provider: 'Google',
     cost: '$$',
     context: '1M tokens',
-    description: 'Experimental model with massive 1M token context window. Supports text, vision, audio, and function calling. Optimized for speed and efficiency.'
+    description: 'Google\'s latest 2.0 Flash model with massive 1M token context window. Supports text, vision, audio, and function calling. Optimized for speed and efficiency.'
   },
   {
-    value: 'gemini-1.5-pro',
-    label: 'Gemini 1.5 Pro',
-    provider: 'Google',
-    cost: '$$$$',
-    context: '2M tokens',
-    description: 'Google\'s most capable model with an enormous 2M token context window. Excellent for complex reasoning, code generation, and multimodal tasks.'
-  },
-  {
-    value: 'gemini-1.5-flash',
-    label: 'Gemini 1.5 Flash',
-    provider: 'Google',
-    cost: '$$',
-    context: '1M tokens',
-    description: 'Fast and efficient model with 1M token context window. Great balance of speed, cost, and capability for most use cases.'
-  },
-  {
-    value: 'gemini-1.5-flash-8b',
-    label: 'Gemini 1.5 Flash 8B',
+    value: 'google/gemini-2.0-flash-lite',
+    label: 'Gemini 2.0 Flash Lite',
     provider: 'Google',
     cost: '$',
     context: '1M tokens',
-    description: 'Lightweight 8B parameter model with 1M token context. Ultra-fast and cost-effective for simple tasks.'
+    description: 'A lighter, more cost-effective version of Gemini 2.0 Flash. Fast and efficient for most use cases with reduced cost.'
   }
 ];
 
@@ -174,6 +190,8 @@ export function RegeneratePageClient({ submission }: RegeneratePageClientProps) 
   const [previewModel, setPreviewModel] = useState('');
   const [previewPromptConfig, setPreviewPromptConfig] = useState<any>({});
   const [previewError, setPreviewError] = useState('');
+  const [significanceAnalysis, setSignificanceAnalysis] = useState<any>(null);
+  const [skipSignificanceCheck, setSkipSignificanceCheck] = useState(false);
   const [selectedRegenModel, setSelectedRegenModel] = useState(submission.source_meta?.model || 'gpt-4o');
   const [regenPromptConfig, setRegenPromptConfig] = useState(
     submission.source_meta?.llm_prompt_config || {
@@ -243,7 +261,8 @@ export function RegeneratePageClient({ submission }: RegeneratePageClientProps) 
           promptConfig: {
             ...regenPromptConfig,
             document_structure: structureConfig
-          }
+          },
+          skipSignificanceCheck: skipSignificanceCheck
         })
       });
 
@@ -255,6 +274,7 @@ export function RegeneratePageClient({ submission }: RegeneratePageClientProps) 
       setPreviewContent(result.markdown || '');
       setPreviewModel(result.model || selectedRegenModel);
       setPreviewPromptConfig(result.promptConfig || regenPromptConfig);
+      setSignificanceAnalysis(result.significanceAnalysis || null);
       setCurrentStep('preview');
     } catch (e) {
       setPreviewError(String(e));
@@ -333,11 +353,10 @@ export function RegeneratePageClient({ submission }: RegeneratePageClientProps) 
         {/* Step Indicator */}
         <div className="mb-6 flex items-center gap-4">
           <div className={`flex items-center gap-2 ${currentStep === 'config' ? 'text-white' : 'text-white/40'}`}>
-            <div className={`flex h-10 w-10 items-center justify-center rounded-full border-2 ${
-              currentStep === 'config' 
-                ? 'border-purple-500 bg-purple-500/20 text-purple-300' 
-                : 'border-white/30 bg-white/5 text-white/40'
-            }`}>
+            <div className={`flex h-10 w-10 items-center justify-center rounded-full border-2 ${currentStep === 'config'
+              ? 'border-purple-500 bg-purple-500/20 text-purple-300'
+              : 'border-white/30 bg-white/5 text-white/40'
+              }`}>
               {currentStep === 'config' ? (
                 <Settings className="h-5 w-5" />
               ) : (
@@ -348,11 +367,10 @@ export function RegeneratePageClient({ submission }: RegeneratePageClientProps) 
           </div>
           <div className="h-px flex-1 bg-white/20" />
           <div className={`flex items-center gap-2 ${currentStep === 'preview' ? 'text-white' : 'text-white/40'}`}>
-            <div className={`flex h-10 w-10 items-center justify-center rounded-full border-2 ${
-              currentStep === 'preview' 
-                ? 'border-purple-500 bg-purple-500/20 text-purple-300' 
-                : 'border-white/30 bg-white/5 text-white/40'
-            }`}>
+            <div className={`flex h-10 w-10 items-center justify-center rounded-full border-2 ${currentStep === 'preview'
+              ? 'border-purple-500 bg-purple-500/20 text-purple-300'
+              : 'border-white/30 bg-white/5 text-white/40'
+              }`}>
               <Eye className="h-5 w-5" />
             </div>
             <span className="font-medium">Preview</span>
@@ -401,9 +419,8 @@ export function RegeneratePageClient({ submission }: RegeneratePageClientProps) 
                         <button
                           key={model.value}
                           type="button"
-                          className={`w-full px-4 py-3 text-left transition-colors hover:bg-white/10 focus:bg-white/10 focus:outline-none ${
-                            selectedRegenModel === model.value ? 'bg-white/15' : ''
-                          }`}
+                          className={`w-full px-4 py-3 text-left transition-colors hover:bg-white/10 focus:bg-white/10 focus:outline-none ${selectedRegenModel === model.value ? 'bg-white/15' : ''
+                            }`}
                           onClick={() => {
                             setSelectedRegenModel(model.value);
                             setShowRegenModelDropdown(false);
@@ -436,6 +453,20 @@ export function RegeneratePageClient({ submission }: RegeneratePageClientProps) 
               <div className="space-y-4">
                 <PromptCustomizer promptConfig={regenPromptConfig} onChange={setRegenPromptConfig} />
                 <DocumentStructure config={structureConfig} onChange={setStructureConfig} />
+              </div>
+
+              {/* Significance Analysis Checkbox */}
+              <div className="flex items-center gap-2 rounded-lg border border-white/20 bg-white/5 p-3">
+                <input
+                  type="checkbox"
+                  id="skipSignificanceCheck"
+                  checked={skipSignificanceCheck}
+                  onChange={(e) => setSkipSignificanceCheck(e.target.checked)}
+                  className="h-4 w-4 rounded border-white/30 bg-white/10 text-purple-500 focus:ring-purple-500/50"
+                />
+                <label htmlFor="skipSignificanceCheck" className="text-sm text-white/80 cursor-pointer">
+                  Skip significance analysis (regenerate regardless of change significance)
+                </label>
               </div>
 
               {/* Error Message */}
@@ -497,6 +528,93 @@ export function RegeneratePageClient({ submission }: RegeneratePageClientProps) 
                 </button>
               </div>
 
+              {/* Unavailable Files Warning */}
+              {significanceAnalysis?.unavailableFiles && significanceAnalysis.unavailableFiles.length > 0 && (
+                <div className="rounded-lg border border-orange-500/50 bg-orange-500/10 p-4">
+                  <div className="flex items-start gap-3">
+                    <Info className="h-5 w-5 text-orange-400 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <h3 className="text-sm font-semibold text-orange-200 mb-1">
+                        Some files couldn't be analyzed
+                      </h3>
+                      <p className="text-sm text-orange-200/80 mb-2">
+                        {significanceAnalysis.unavailableFiles.length} file{significanceAnalysis.unavailableFiles.length === 1 ? '' : 's'} {significanceAnalysis.unavailableFiles.length === 1 ? 'was' : 'were'} unavailable during analysis. This may affect the accuracy of the significance assessment.
+                      </p>
+                      <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
+                        {significanceAnalysis.unavailableFiles.map((file: { path: string; reason: string; commitSha: string }, idx: number) => (
+                          <div key={idx} className="text-xs text-orange-200/70 bg-orange-500/10 rounded px-2 py-1">
+                            <div className="font-mono">{file.path}</div>
+                            <div className="text-orange-200/60 mt-0.5">{file.reason}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Significance Analysis Warning */}
+              {significanceAnalysis && !significanceAnalysis.isSignificant && (
+                <div className="rounded-lg border border-yellow-500/50 bg-yellow-500/10 p-4">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="h-5 w-5 text-yellow-400 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <h3 className="text-sm font-semibold text-yellow-200 mb-1">
+                        Changes may not be significant
+                      </h3>
+                      <p className="text-sm text-yellow-200/80 mb-2">
+                        {significanceAnalysis.reason}
+                      </p>
+                      {significanceAnalysis.summary && (
+                        <p className="text-xs text-yellow-200/70 mb-2">
+                          {significanceAnalysis.summary}
+                        </p>
+                      )}
+                      {significanceAnalysis.technicalChanges && (
+                        <div className="text-xs text-yellow-200/70 mb-2">
+                          <strong>Technical:</strong> {significanceAnalysis.technicalChanges.level} - {significanceAnalysis.technicalChanges.description}
+                        </div>
+                      )}
+                      {significanceAnalysis.businessLogicChanges && (
+                        <div className="text-xs text-yellow-200/70">
+                          <strong>Business Logic:</strong> {significanceAnalysis.businessLogicChanges.level} - {significanceAnalysis.businessLogicChanges.description}
+                        </div>
+                      )}
+                      <p className="text-xs text-yellow-200/60 mt-3 italic">
+                        You can still proceed with regeneration if needed.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Significance Analysis Success */}
+              {significanceAnalysis && significanceAnalysis.isSignificant && (
+                <div className="rounded-lg border border-green-500/50 bg-green-500/10 p-4">
+                  <div className="flex items-start gap-3">
+                    <Check className="h-5 w-5 text-green-400 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <h3 className="text-sm font-semibold text-green-200 mb-1">
+                        Significant changes detected
+                      </h3>
+                      <p className="text-sm text-green-200/80 mb-2">
+                        {significanceAnalysis.reason}
+                      </p>
+                      {significanceAnalysis.summary && (
+                        <p className="text-xs text-green-200/70">
+                          {significanceAnalysis.summary}
+                        </p>
+                      )}
+                      {significanceAnalysis.unavailableFiles && significanceAnalysis.unavailableFiles.length > 0 && (
+                        <p className="text-xs text-green-200/60 mt-2 italic">
+                          Note: {significanceAnalysis.unavailableFiles.length} file{significanceAnalysis.unavailableFiles.length === 1 ? '' : 's'} couldn't be analyzed, but significant changes were still detected in other files.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Enhanced Preview */}
               <RegeneratePreview
                 originalText={submission.markdown}
@@ -511,6 +629,7 @@ export function RegeneratePageClient({ submission }: RegeneratePageClientProps) 
                     onClick={() => {
                       setCurrentStep('config');
                       setPreviewContent('');
+                      setSignificanceAnalysis(null);
                     }}
                   >
                     Back to Settings

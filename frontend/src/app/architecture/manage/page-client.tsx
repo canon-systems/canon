@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Trash2, RefreshCw, ExternalLink, Plus } from 'lucide-react';
+import { Trash2, RefreshCw, Plus } from 'lucide-react';
 import type { ArchitectureDiagram } from '@/lib/server/architecture/types';
 
 interface ArchitectureManageClientProps {

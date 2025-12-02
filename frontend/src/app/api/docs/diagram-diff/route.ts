@@ -46,22 +46,29 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'docId is required' }, { status: 400 });
     }
 
-    const submissionResponse = await supabase
-      .from('submissions')
-      .select('source_meta, created_by')
+    const { data: document, error: docError } = await supabase
+      .from('documents')
+      .select('id, repo_id')
       .eq('id', docId)
       .single();
 
-    if (!submissionResponse || !submissionResponse.data) {
+    if (docError || !document) {
       return NextResponse.json({ error: 'Document not found' }, { status: 404 });
     }
-    const submission = submissionResponse.data as SubmissionRow;
 
-    if (submission.created_by !== user.id) {
+    // Verify user has access
+    const { data: repo, error: repoError } = await supabase
+      .from('workspace_repos')
+      .select('repo_url, workspace_id')
+      .eq('id', document.repo_id)
+      .eq('workspace_id', user.id)
+      .single();
+
+    if (repoError || !repo) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const repoUrl = submission.source_meta?.repoUrl;
+    const repoUrl = repo.repo_url;
     if (!repoUrl) {
       return NextResponse.json({
         doc_id: docId,

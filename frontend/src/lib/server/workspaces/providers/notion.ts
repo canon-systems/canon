@@ -3,8 +3,9 @@
  */
 
 import type { WorkspaceProvider, WorkspaceInfo, WorkspaceContent } from '../base';
-import { NANGO_CONFIG } from '@/lib/server/nango/config';
-import { htmlToNotionBlocks } from '@/lib/server/notion/htmlToBlocks';
+import { NANGO_CONFIG } from '../../nango/config';
+import { htmlToNotionBlocks, NotionBlock } from '../../notion/htmlToBlocks';
+import { markdownToNotionBlocks } from '../../notion/markdownToBlocks';
 import { marked } from 'marked';
 
 /**
@@ -116,6 +117,52 @@ async function fetchAllBlocks(pageId: string, connectionId: string): Promise<any
 	return allBlocks;
 }
 
+/**
+ * Split blocks into chunks of max 100 (Notion API limit)
+ */
+function chunkBlocks(blocks: NotionBlock[], chunkSize: number = 100): NotionBlock[][] {
+	const chunks: NotionBlock[][] = [];
+	for (let i = 0; i < blocks.length; i += chunkSize) {
+		chunks.push(blocks.slice(i, i + chunkSize));
+	}
+	return chunks;
+}
+
+/**
+ * Append blocks to a Notion page in chunks
+ */
+async function appendBlocksInChunks(
+	pageId: string,
+	blocks: NotionBlock[],
+	connectionId: string
+): Promise<boolean> {
+	const chunks = chunkBlocks(blocks, 100);
+	
+	for (const chunk of chunks) {
+		const appendUrl = new URL(`/proxy/v1/blocks/${pageId}/children`, NANGO_CONFIG.host);
+		const appendResponse = await fetch(appendUrl.toString(), {
+			method: 'PATCH',
+			headers: {
+				'Authorization': `Bearer ${NANGO_CONFIG.secretKey}`,
+				'Content-Type': 'application/json',
+				'Provider-Config-Key': 'notion',
+				'Connection-Id': connectionId
+			},
+			body: JSON.stringify({
+				children: chunk
+			})
+		});
+
+		if (!appendResponse.ok) {
+			const errorText = await appendResponse.text().catch(() => '');
+			console.error(`Notion append blocks error: ${errorText}`);
+			return false;
+		}
+	}
+	
+	return true;
+}
+
 export class NotionProvider implements WorkspaceProvider {
 	name = 'notion';
 
@@ -173,8 +220,35 @@ export class NotionProvider implements WorkspaceProvider {
 		createNew = true
 	): Promise<WorkspaceInfo | null> {
 		try {
-			const html = content.html || (marked.parse(content.markdown) as string);
-			const blocks = htmlToNotionBlocks(html);
+			// Try HTML conversion first, fall back to markdown if it produces poor results
+			let blocks: NotionBlock[] = [];
+			
+			if (content.html) {
+				blocks = htmlToNotionBlocks(content.html);
+			} else if (content.markdown) {
+				// Try HTML conversion via marked first
+				const html = marked.parse(content.markdown) as string;
+				blocks = htmlToNotionBlocks(html);
+				
+				// If HTML conversion produced too few meaningful blocks, use direct markdown conversion
+				const hasContent = blocks.some(b => {
+					if (b.type === 'paragraph') {
+						const richText = (b as any).paragraph?.rich_text || [];
+						return richText.some((rt: any) => rt.text?.content?.trim());
+					}
+					return b.type !== 'paragraph'; // Non-paragraph blocks are considered content
+				});
+				
+				if (!hasContent || blocks.length <= 1) {
+					console.log('[Notion] HTML conversion produced few blocks, falling back to markdown conversion');
+					blocks = markdownToNotionBlocks(content.markdown);
+				}
+			}
+			
+			// Ensure we have at least one block
+			if (blocks.length === 0) {
+				blocks = [{ object: 'block', type: 'paragraph', paragraph: { rich_text: [] } }];
+			}
 
 			if (createNew) {
 				// Create new page or database entry
@@ -223,6 +297,11 @@ export class NotionProvider implements WorkspaceProvider {
 
 				const createUrl = new URL('/proxy/v1/pages', NANGO_CONFIG.host);
 
+				// Split blocks into chunks - Notion allows max 100 children in create request
+				const blockChunks = chunkBlocks(blocks, 100);
+				const firstChunk = blockChunks[0] || [];
+				const remainingChunks = blockChunks.slice(1);
+
 				const createResponse = await fetch(createUrl.toString(), {
 					method: 'POST',
 					headers: {
@@ -234,19 +313,31 @@ export class NotionProvider implements WorkspaceProvider {
 					body: JSON.stringify({
 						parent: parentPayload,
 						properties: titleProperty,
-						children: blocks
+						children: firstChunk
 					})
 				});
 
 				if (!createResponse.ok) {
-					console.error('Notion create response error:', await createResponse.text().catch(() => ''));
+					const errorText = await createResponse.text().catch(() => '');
+					console.error('Notion create response error:', errorText);
 					return null;
 				}
 
 				const createData = await createResponse.json();
+				const pageId = createData.id;
+
+				// Append remaining chunks if any
+				if (remainingChunks.length > 0) {
+					const allRemainingBlocks = remainingChunks.flat();
+					const appendSuccess = await appendBlocksInChunks(pageId, allRemainingBlocks, connectionId);
+					if (!appendSuccess) {
+						console.warn(`[Notion] Failed to append some blocks to page ${pageId}, but page was created`);
+					}
+				}
+
 				return {
 					provider: 'notion',
-					resourceId: createData.id,
+					resourceId: pageId,
 					metadata: workspaceInfo.metadata
 				};
 			} else {
@@ -267,8 +358,30 @@ export class NotionProvider implements WorkspaceProvider {
 	): Promise<boolean> {
 		try {
 			const pageId = workspaceInfo.resourceId;
-			const html = content.html || marked.parse(content.markdown) as string;
-			const blocks = htmlToNotionBlocks(html);
+			
+			// Try HTML conversion first, fall back to markdown if it produces poor results
+			let blocks: NotionBlock[] = [];
+			
+			if (content.html) {
+				blocks = htmlToNotionBlocks(content.html);
+			} else if (content.markdown) {
+				const html = marked.parse(content.markdown) as string;
+				blocks = htmlToNotionBlocks(html);
+				
+				// If HTML conversion produced too few meaningful blocks, use direct markdown conversion
+				const hasContent = blocks.some(b => {
+					if (b.type === 'paragraph') {
+						const richText = (b as any).paragraph?.rich_text || [];
+						return richText.some((rt: any) => rt.text?.content?.trim());
+					}
+					return b.type !== 'paragraph';
+				});
+				
+				if (!hasContent || blocks.length <= 1) {
+					console.log('[Notion] HTML conversion produced few blocks in update, falling back to markdown conversion');
+					blocks = markdownToNotionBlocks(content.markdown);
+				}
+			}
 
 			// Delete existing blocks
 			const blocksUrl = new URL(`/proxy/v1/blocks/${pageId}/children`, NANGO_CONFIG.host);
@@ -323,23 +436,10 @@ export class NotionProvider implements WorkspaceProvider {
 				})
 			});
 
-			// Add new blocks
+			// Add new blocks in chunks (Notion allows max 100 children per request)
 			if (blocks.length > 0) {
-				const appendUrl = new URL(`/proxy/v1/blocks/${pageId}/children`, NANGO_CONFIG.host);
-				const appendResponse = await fetch(appendUrl.toString(), {
-					method: 'PATCH',
-					headers: {
-						'Authorization': `Bearer ${NANGO_CONFIG.secretKey}`,
-						'Content-Type': 'application/json',
-						'Provider-Config-Key': 'notion',
-						'Connection-Id': connectionId
-					},
-					body: JSON.stringify({
-						children: blocks
-					})
-				});
-
-				return appendResponse.ok;
+				const success = await appendBlocksInChunks(pageId, blocks, connectionId);
+				return success;
 			}
 
 			return true;

@@ -17,15 +17,17 @@ function parseRepoUrl(repoUrl: string): { owner: string; repo: string } | null {
   }
 }
 
+import { getDocument, getDocumentFiles } from '@/lib/server/services/documentService';
+
 export async function POST(request: NextRequest) {
-  let submissionId: string | undefined;
+  let documentId: string | undefined;
   try {
     const body = await request.json().catch(() => ({}));
-    submissionId = body.submissionId;
+    documentId = body.submissionId || body.documentId; // Support both for backward compatibility
     const previewContent = body.previewContent;
 
-    if (!submissionId) {
-      return NextResponse.json({ error: 'submissionId is required' }, { status: 400 });
+    if (!documentId) {
+      return NextResponse.json({ error: 'documentId is required' }, { status: 400 });
     }
 
     if (!previewContent || typeof previewContent !== 'string') {
@@ -35,109 +37,65 @@ export async function POST(request: NextRequest) {
     const supabase = await createClient();
     const { user } = await getSession();
 
-    const { data: submission, error: subError } = await supabase
-      .from('submissions')
-      .select('*')
-      .eq('id', submissionId)
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Get document
+    const document = await getDocument(supabase, documentId);
+    if (!document) {
+      return NextResponse.json({ error: 'Document not found' }, { status: 404 });
+    }
+
+    // Verify user has access
+    const { data: repo } = await supabase
+      .from('workspace_repos')
+      .select('workspace_id, repo_url, default_branch')
+      .eq('id', document.repo_id)
       .single();
 
-    if (subError || !submission) {
-      return NextResponse.json({ error: 'Submission not found' }, { status: 404 });
+    if (!repo || repo.workspace_id !== user.id) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const sourceMeta = submission.source_meta || {};
-    const { repoUrl, branch } = sourceMeta;
-    const now = new Date().toISOString();
+    // Get next version number
+    const { data: versionData } = await supabase.rpc('get_next_document_version', {
+      doc_id: documentId
+    });
 
-    // Prepare update data - always set last_checked_at for regeneration tracking
-    const updateData: any = {
-      markdown: previewContent.trim(),
-      status: 'completed',
-      summary: previewContent.replace(/\s+/g, ' ').slice(0, 200),
-      is_outdated: false,
-      last_checked_at: now // Always update this for regeneration tracking
-    };
+    const versionNumber = versionData || 1;
 
-    // If GitHub repo, update code snapshot
-    if (repoUrl && branch) {
-      const repoInfo = parseRepoUrl(repoUrl);
-      if (repoInfo) {
-        try {
-          // Get latest commit SHA and file SHAs for snapshot
-          const octokit = await getUserOctokit(supabase, user?.id || null);
-          const { data: branchData } = await octokit.repos.getBranch({
-            owner: repoInfo.owner,
-            repo: repoInfo.repo,
-            branch
-          });
-          const latestCommitSha = branchData.commit.sha;
-
-          const selectedFiles = submission.selected_files || [];
-          const fileShas: Record<string, string | null> = {};
-
-          for (const filePath of selectedFiles) {
-            try {
-              const { data: fileData } = await octokit.repos.getContent({
-                owner: repoInfo.owner,
-                repo: repoInfo.repo,
-                path: filePath,
-                ref: latestCommitSha
-              });
-
-              if (fileData && !Array.isArray(fileData) && fileData.type === 'file' && 'sha' in fileData) {
-                fileShas[filePath] = fileData.sha;
-              }
-            } catch (e) {
-              console.error(`Failed to get SHA for ${filePath}:`, e);
-              fileShas[filePath] = null;
-            }
-          }
-
-          updateData.code_snapshot = {
-            commitSha: latestCommitSha,
-            fileShas,
-            updatedAt: now
-          };
-        } catch (e) {
-          console.error('Failed to update code snapshot:', e);
-          // Continue with update even if snapshot fails
-        }
-      }
-    }
-
-    // Update submission with preview content
+    // Update document
     const { error: updateError } = await supabase
-      .from('submissions')
-      .update(updateData)
-      .eq('id', submissionId);
+      .from('documents')
+      .update({
+        content: previewContent.trim(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', documentId);
 
     if (updateError) {
       throw new Error(updateError.message);
     }
 
+    // Create new version
+    await supabase.from('document_versions').insert({
+      document_id: documentId,
+      version_number: versionNumber,
+      content: previewContent.trim(),
+      change_summary: 'Document updated'
+    });
+
     return NextResponse.json({
       success: true,
-      submissionId,
+      submissionId: documentId, // Keep for backward compatibility
+      documentId,
       message: 'Documentation updated successfully',
       workspaceUpdated: false,
       workspaceProvider: null
     });
   } catch (err: any) {
-    if (submissionId) {
-      try {
-        const supabase = await createClient();
-        await supabase
-          .from('submissions')
-          .update({
-            status: 'failed',
-            error_message: String(err).slice(0, 500)
-          })
-          .eq('id', submissionId);
-      } catch {
-        // Ignore errors in error handler
-      }
-    }
-
+    console.error('Update document error:', err);
     return NextResponse.json({ error: 'Update failed', detail: String(err) }, { status: 500 });
   }
 }

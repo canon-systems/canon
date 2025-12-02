@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ChevronDown, Sparkles } from 'lucide-react';
+import { ChevronDown, Sparkles, Loader2 } from 'lucide-react';
 
 interface PromptConfig {
   personality?: string;
@@ -14,6 +14,10 @@ interface PromptConfig {
 interface PromptCustomizerProps {
   promptConfig: PromptConfig;
   onChange: (config: PromptConfig) => void;
+  onSave?: () => Promise<void>;
+  saving?: boolean;
+  saveMessage?: string;
+  saveError?: string;
 }
 
 const personalityOptions = [
@@ -50,7 +54,7 @@ const temperaturePresets = [
   { value: 1.0, label: 'Very Creative (1.0)', description: 'Maximum creativity and variation' }
 ];
 
-export function PromptCustomizer({ promptConfig, onChange }: PromptCustomizerProps) {
+export function PromptCustomizer({ promptConfig, onChange, onSave, saving = false, saveMessage, saveError }: PromptCustomizerProps) {
   const [expanded, setExpanded] = useState(false);
   const [useCustomPersonality, setUseCustomPersonality] = useState(false);
   const [useCustomStyle, setUseCustomStyle] = useState(false);
@@ -350,6 +354,32 @@ export function PromptCustomizer({ promptConfig, onChange }: PromptCustomizerPro
             >
               Reset to Default
             </button>
+          )}
+
+          {/* Save button and messages */}
+          {onSave && (
+            <div className="pt-2 border-t border-white/10">
+              <button
+                className="inline-flex items-center gap-2 rounded-lg bg-purple-500/20 px-3 py-1.5 text-xs font-medium text-purple-200 hover:bg-purple-500/30 disabled:opacity-60 disabled:cursor-not-allowed w-full justify-center"
+                onClick={onSave}
+                disabled={saving}
+              >
+                {saving ? (
+                  <>
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    <span>Saving...</span>
+                  </>
+                ) : (
+                  <span>Save Prompt Settings</span>
+                )}
+              </button>
+              {saveMessage && (
+                <p className="mt-2 text-xs text-green-300 text-center">{saveMessage}</p>
+              )}
+              {saveError && (
+                <p className="mt-2 text-xs text-red-300 text-center">{saveError}</p>
+              )}
+            </div>
           )}
         </div>
       )}

@@ -51,15 +51,26 @@ export async function POST(request: NextRequest) {
   try {
     const { user } = await getSession();
     if (!user) {
+      console.log('No user session found');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    console.log('User authenticated:', { userId: user.id, email: user.email });
 
     const supabase = await createClient();
     const body = (await request.json()) as CreateRepoBody;
     const { name, provider, repo_url, default_branch, auth_type, credentials_ref, settings } = body;
 
+    console.log('Received repository data:', { name, repo_url, provider, default_branch, userId: user.id });
+    console.log('Full body:', JSON.stringify(body, null, 2));
+
     if (!name || !repo_url) {
-      return NextResponse.json({ error: 'name and repo_url are required' }, { status: 400 });
+      console.log('Validation failed - missing fields:', { hasName: !!name, hasRepoUrl: !!repo_url, name, repo_url });
+      return NextResponse.json({
+        error: 'name and repo_url are required',
+        received: { name, repo_url },
+        validation: { hasName: !!name, hasRepoUrl: !!repo_url }
+      }, { status: 400 });
     }
 
     const insert = {
@@ -78,9 +89,11 @@ export async function POST(request: NextRequest) {
     const { data, error } = await supabase.from('workspace_repos').insert(insert).select().single();
 
     if (error || !data) {
+      console.error('Failed to create repository:', error);
       throw error || new Error('Failed to create repository');
     }
 
+    console.log('Repository created successfully:', data.id);
     return NextResponse.json(data, { status: 200 });
   } catch (err: any) {
     console.error('Create repo error:', err);

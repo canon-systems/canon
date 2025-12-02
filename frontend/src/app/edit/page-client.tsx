@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   Grid3x3, List, MoreVertical, RefreshCw, Loader2, Clock,
-  CheckCircle2, AlertCircle, X, Search, Send, FileText, Filter
+  CheckCircle2, AlertCircle, X, Search, Send, FileText, Filter, Github, GitBranch, ExternalLink
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import type { User } from '@supabase/supabase-js';
@@ -13,14 +13,16 @@ import type { User } from '@supabase/supabase-js';
 interface DocItem {
   id: string;
   title: string;
-  status: 'pending_review' | 'approved' | 'published' | 'rejected';
+  status: 'published';
   repo: string;
+  branch: string;
   path: string;
   commit: string;
   createdAt: string;
   updatedAt: string;
   lastPushedProvider?: string;
   lastPushedAt?: string;
+  lastPushedUrl?: string | null;
   processingStatus: 'processing' | 'completed' | 'failed';
   isOutdated: boolean;
 }
@@ -30,7 +32,7 @@ interface EditListPageClientProps {
 }
 
 type ViewMode = 'tile' | 'row';
-type ApprovalStatusFilter = 'all' | 'pending_review' | 'approved' | 'published' | 'rejected';
+type StatusFilter = 'all' | 'published';
 
 export function EditListPageClient({ user }: EditListPageClientProps) {
   const router = useRouter();
@@ -41,12 +43,11 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('row');
-  const [statusFilter, setStatusFilter] = useState<ApprovalStatusFilter>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
-  const [pendingCount, setPendingCount] = useState(0);
   const [repoFilter, setRepoFilter] = useState<string>('');
   const [repos, setRepos] = useState<Array<{ id: string; name: string; repo_url: string }>>([]);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
@@ -147,9 +148,6 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
         console.log('Sample item:', data.items[0]);
         console.log('Last pushed:', data.items[0].lastPushedProvider, data.items[0].lastPushedAt);
       }
-
-      // Load pending count separately
-      loadPendingCount();
     } catch (err: any) {
       setError(err.message || 'Failed to load documents');
     } finally {
@@ -157,17 +155,6 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
     }
   }
 
-  async function loadPendingCount() {
-    try {
-      const response = await fetch('/api/docs/list?status=pending_review&pageSize=1');
-      if (response.ok) {
-        const data = await response.json();
-        setPendingCount(data.pagination.total);
-      }
-    } catch (err) {
-      // Ignore errors for pending count
-    }
-  }
 
   function setViewModeAndSave(mode: ViewMode) {
     setViewMode(mode);
@@ -194,7 +181,7 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
     setDeleteError(null);
 
     try {
-      const { error } = await supabase.from('submissions').delete().eq('id', idToDelete);
+      const { error } = await supabase.from('documents').delete().eq('id', idToDelete);
 
       if (error) throw error;
 
@@ -280,31 +267,12 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
 
   // Status badge component
   function getStatusBadge(status: DocItem['status']) {
-    const badges = {
-      pending_review: (
-        <span className="inline-flex items-center gap-1 rounded border border-yellow-400/30 bg-yellow-500/20 px-2 py-1 text-xs text-yellow-200">
-          Pending Review
-        </span>
-      ),
-      approved: (
-        <span className="inline-flex items-center gap-1 rounded border border-green-400/30 bg-green-500/20 px-2 py-1 text-xs text-green-200">
-          <CheckCircle2 className="h-3 w-3" />
-          Approved
-        </span>
-      ),
-      published: (
-        <span className="inline-flex items-center gap-1 rounded border border-blue-400/30 bg-blue-500/20 px-2 py-1 text-xs text-blue-200">
-          <Send className="h-3 w-3" />
-          Published
-        </span>
-      ),
-      rejected: (
-        <span className="inline-flex items-center gap-1 rounded border border-red-400/30 bg-red-500/20 px-2 py-1 text-xs text-red-200">
-          Rejected
-        </span>
-      ),
-    };
-    return badges[status] || badges.pending_review;
+    return (
+      <span className="inline-flex items-center gap-1 rounded border border-blue-400/30 bg-blue-500/20 px-2 py-1 text-xs text-blue-200">
+        <Send className="h-3 w-3" />
+        Published
+      </span>
+    );
   }
 
   // Format functions
@@ -357,14 +325,9 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
           <header className="space-y-4">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="flex-1">
-                <h1 className="text-3xl font-bold text-white">Documentation Dashboard</h1>
+                <h1 className="text-3xl font-bold text-white">Documentation</h1>
                 <p className="text-white/70">
-                  Manage and review your documentation.{' '}
-                  {pendingCount > 0 && (
-                    <span className="font-semibold text-yellow-300">
-                      {pendingCount} pending review
-                    </span>
-                  )}
+                  Manage and review your documentation.
                 </p>
               </div>
               {items.length > 0 && (
@@ -435,30 +398,6 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
                 </button>
                 <button
                   onClick={() => {
-                    setStatusFilter('pending_review');
-                    setPage(1);
-                  }}
-                  className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-all ${statusFilter === 'pending_review'
-                    ? 'bg-yellow-500/30 text-yellow-200 border border-yellow-500/50 shadow-lg shadow-yellow-500/20'
-                    : 'bg-white/10 text-white/70 border border-white/20 hover:bg-white/20 hover:border-white/30 hover:shadow-md'
-                    }`}
-                >
-                  Pending Review {pendingCount > 0 && `(${pendingCount})`}
-                </button>
-                <button
-                  onClick={() => {
-                    setStatusFilter('approved');
-                    setPage(1);
-                  }}
-                  className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-all ${statusFilter === 'approved'
-                    ? 'bg-green-500/30 text-green-200 border border-green-500/50 shadow-lg shadow-green-500/20'
-                    : 'bg-white/10 text-white/70 border border-white/20 hover:bg-white/20 hover:border-white/30 hover:shadow-md'
-                    }`}
-                >
-                  Approved
-                </button>
-                <button
-                  onClick={() => {
                     setStatusFilter('published');
                     setPage(1);
                   }}
@@ -468,18 +407,6 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
                     }`}
                 >
                   Published
-                </button>
-                <button
-                  onClick={() => {
-                    setStatusFilter('rejected');
-                    setPage(1);
-                  }}
-                  className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-all ${statusFilter === 'rejected'
-                    ? 'bg-red-500/30 text-red-200 border border-red-500/50 shadow-lg shadow-red-500/20'
-                    : 'bg-white/10 text-white/70 border border-white/20 hover:bg-white/20 hover:border-white/30 hover:shadow-md'
-                    }`}
-                >
-                  Rejected
                 </button>
               </div>
 
@@ -581,8 +508,20 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
                         <td className="px-4 py-3">
                           <div className="font-semibold text-white">{item.title}</div>
                           {item.repo && (
-                            <div className="text-xs text-white/50 font-mono truncate max-w-md">
-                              {item.repo}{item.path !== '/' ? item.path : ''}
+                            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-white/50">
+                              <div className="flex items-center gap-1 font-mono">
+                                <Github className="h-3 w-3" />
+                                <span className="truncate max-w-md">{item.repo.replace('https://github.com/', '')}</span>
+                              </div>
+                              {item.branch && (
+                                <div className="flex items-center gap-1">
+                                  <GitBranch className="h-3 w-3" />
+                                  <span className="font-mono">{item.branch}</span>
+                                </div>
+                              )}
+                              {item.path !== '/' && (
+                                <span className="text-white/40">{item.path}</span>
+                              )}
                             </div>
                           )}
                         </td>
@@ -597,7 +536,18 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
                         </td>
                         <td className="px-4 py-3 text-sm text-white/70">
                           {item.repo ? (
-                            <span className="font-mono text-xs">{item.repo}</span>
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-1 font-mono text-xs">
+                                <Github className="h-3 w-3 text-white/40" />
+                                <span className="truncate max-w-xs">{item.repo.replace('https://github.com/', '')}</span>
+                              </div>
+                              {item.branch && (
+                                <div className="flex items-center gap-1 text-xs text-white/50">
+                                  <GitBranch className="h-3 w-3" />
+                                  <span>{item.branch}</span>
+                                </div>
+                              )}
+                            </div>
                           ) : (
                             <span className="text-white/40">—</span>
                           )}
@@ -608,10 +558,24 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
                         <td className="px-4 py-3 text-sm text-white/70">
                           {item.lastPushedProvider ? (
                             <div>
-                              <div className="flex items-center gap-1">
-                                <Send className="h-3 w-3" />
-                                <span className="capitalize">{item.lastPushedProvider}</span>
-                              </div>
+                              {item.lastPushedUrl ? (
+                                <a
+                                  href={item.lastPushedUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex items-center gap-1 text-blue-300 hover:text-blue-200 hover:underline"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <Send className="h-3 w-3" />
+                                  <span className="capitalize">{item.lastPushedProvider}</span>
+                                  <ExternalLink className="h-3 w-3" />
+                                </a>
+                              ) : (
+                                <div className="flex items-center gap-1">
+                                  <Send className="h-3 w-3" />
+                                  <span className="capitalize">{item.lastPushedProvider}</span>
+                                </div>
+                              )}
                               {item.lastPushedAt ? (
                                 <div className="text-xs text-white/50 mt-1">
                                   {fmtRelative(item.lastPushedAt)}
@@ -714,7 +678,18 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
                     <div className="mb-2 truncate text-lg font-semibold text-white">{item.title}</div>
                     <div className="mb-1 text-sm text-white/60">{fmt(item.createdAt)}</div>
                     {item.repo && (
-                      <div className="truncate font-mono text-xs text-white/50">{item.repo}</div>
+                      <div className="mt-2 space-y-1">
+                        <div className="flex items-center gap-1 truncate font-mono text-xs text-white/50">
+                          <Github className="h-3 w-3 flex-shrink-0" />
+                          <span className="truncate">{item.repo.replace('https://github.com/', '')}</span>
+                        </div>
+                        {item.branch && (
+                          <div className="flex items-center gap-1 text-xs text-white/40">
+                            <GitBranch className="h-3 w-3 flex-shrink-0" />
+                            <span>{item.branch}</span>
+                          </div>
+                        )}
+                      </div>
                     )}
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       {getStatusBadge(item.status)}
@@ -725,10 +700,24 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
                         </span>
                       )}
                       {item.lastPushedProvider && (
-                        <span className="inline-flex items-center gap-1 rounded border border-blue-400/30 bg-blue-500/20 px-2 py-0.5 text-xs text-blue-200">
-                          <Send className="h-3 w-3" />
-                          {item.lastPushedProvider}
-                        </span>
+                        item.lastPushedUrl ? (
+                          <a
+                            href={item.lastPushedUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 rounded border border-blue-400/30 bg-blue-500/20 px-2 py-0.5 text-xs text-blue-200 hover:bg-blue-500/30 hover:border-blue-400/50 transition-colors"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <Send className="h-3 w-3" />
+                            {item.lastPushedProvider}
+                            <ExternalLink className="h-3 w-3" />
+                          </a>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded border border-blue-400/30 bg-blue-500/20 px-2 py-0.5 text-xs text-blue-200">
+                            <Send className="h-3 w-3" />
+                            {item.lastPushedProvider}
+                          </span>
+                        )
                       )}
                     </div>
                   </div>

@@ -15,11 +15,13 @@ type PushRequestBody = {
     html?: string | null;
   };
   createNew?: boolean;
+  forceNew?: boolean; // Explicitly force creating a new page even if one exists
 };
 
 /**
  * POST: Push documentation to Notion
- * Proxies to FastAPI backend /api/push/notion
+ * Automatically updates existing page if the doc was previously pushed to Notion
+ * Falls back to creating a new page if the existing page was deleted
  */
 export async function POST(request: NextRequest) {
   try {
@@ -30,7 +32,8 @@ export async function POST(request: NextRequest) {
 
     const supabase = await createClient();
     const body = (await request.json()) as PushRequestBody;
-    const { docId, title, markdown, workspaceInfo, createNew = true } = body;
+    const { docId, title, markdown, workspaceInfo, forceNew = false } = body;
+    let { createNew = true } = body;
 
     if (!title || !markdown) {
       return NextResponse.json({ error: 'title and markdown are required' }, { status: 400 });
@@ -53,11 +56,28 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Notion provider unavailable' }, { status: 500 });
     }
 
-    const workspace: WorkspaceInfo = {
-      provider: 'notion',
-      resourceId: workspaceInfo?.resourceId || '',
-      metadata: workspaceInfo?.metadata ?? undefined,
-    };
+    // Check if this doc was previously pushed to Notion
+    // If so, try to update the existing page instead of creating a new one
+    let existingResourceId: string | null = null;
+    let attemptedUpdate = false;
+
+    if (docId && !forceNew) {
+      // Note: In the new schema, push metadata would need to be stored differently
+      // For now, we'll check if there's a kb_id and kb_provider in documents table
+      const { data: existingDocument } = await supabase
+        .from('documents')
+        .select('kb_id, kb_provider')
+        .eq('id', docId)
+        .single();
+
+      // Check if this doc was previously pushed to Notion
+      if (existingDocument?.kb_provider === 'notion' && existingDocument?.kb_id) {
+        existingResourceId = existingDocument.kb_id;
+        createNew = false; // Try to update instead of create
+        attemptedUpdate = true;
+        console.log(`[Notion Push] Attempting to update existing page ${existingResourceId} for doc ${docId}`);
+      }
+    }
 
     const content: WorkspaceContent = {
       title,
@@ -65,36 +85,58 @@ export async function POST(request: NextRequest) {
       html: workspaceInfo?.html || undefined,
     };
 
-    const pushResult = await provider.pushContent(
-      workspace,
-      content,
-      connection.connection_id,
-      createNew !== false
-    );
+    let pushResult = null;
+
+    // Try to update existing page first if we have a resource ID
+    if (!createNew && existingResourceId) {
+      const updateWorkspace: WorkspaceInfo = {
+        provider: 'notion',
+        resourceId: existingResourceId,
+        metadata: workspaceInfo?.metadata ?? undefined,
+      };
+
+      pushResult = await provider.pushContent(
+        updateWorkspace,
+        content,
+        connection.connection_id,
+        false // createNew = false (update)
+      );
+
+      // If update failed (page might have been deleted), fall back to creating new
+      if (!pushResult) {
+        console.log(`[Notion Push] Update failed for page ${existingResourceId}, falling back to create new`);
+        createNew = true;
+        existingResourceId = null;
+      }
+    }
+
+    // Create new page if needed
+    if (createNew || !pushResult) {
+      const createWorkspace: WorkspaceInfo = {
+        provider: 'notion',
+        resourceId: workspaceInfo?.resourceId || '',
+        metadata: workspaceInfo?.metadata ?? undefined,
+      };
+
+      pushResult = await provider.pushContent(
+        createWorkspace,
+        content,
+        connection.connection_id,
+        true // createNew = true
+      );
+    }
 
     if (!pushResult) {
       return NextResponse.json({ error: 'Failed to push to Notion' }, { status: 500 });
     }
 
+    // Update document with push metadata
     if (docId) {
-      const { data: existingSubmission } = await supabase
-        .from('submissions')
-        .select('source_meta')
-        .eq('id', docId)
-        .single();
-
-      const existingMeta = existingSubmission?.source_meta || {};
-      existingMeta.push_metadata = {
-        provider: 'notion',
-        pushed_at: new Date().toISOString(),
-        url: pushResult.metadata?.url || null,
-        resource_id: pushResult.resourceId,
-      };
-
       await supabase
-        .from('submissions')
+        .from('documents')
         .update({
-          source_meta: existingMeta,
+          kb_provider: 'notion',
+          kb_id: pushResult.resourceId,
           updated_at: new Date().toISOString(),
         })
         .eq('id', docId);
@@ -102,12 +144,22 @@ export async function POST(request: NextRequest) {
 
     await trackPushToKb(supabase, user.id, 'notion', docId || null, pushResult.resourceId);
 
+    // Construct Notion URL if not provided in metadata
+    // Notion page URLs format: https://notion.so/{pageIdWithoutDashes}
+    let notionUrl = pushResult.metadata?.url;
+    if (!notionUrl && pushResult.resourceId) {
+      const pageIdWithoutDashes = pushResult.resourceId.replace(/-/g, '');
+      notionUrl = `https://notion.so/${pageIdWithoutDashes}`;
+    }
+
     return NextResponse.json(
       {
         success: true,
         resource_id: pushResult.resourceId,
-        url: pushResult.metadata?.url,
+        url: notionUrl,
         workspace_info: pushResult,
+        updated: attemptedUpdate && !createNew, // True only if we successfully updated existing page
+        recreated: attemptedUpdate && createNew, // True if we fell back to creating new after update failed
       },
       { status: 200 }
     );
@@ -122,4 +174,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

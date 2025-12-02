@@ -57,53 +57,60 @@ export async function POST(request: NextRequest) {
 
     const { repoUrl, branch, changedFiles: webhookChangedFiles, latestCommitSha } = webhookResult;
 
-    // Find affected submissions for this repo/branch
+    // Find affected documents for this repo/branch
     const supabase = await createClient();
-    const { data: submissions } = await supabase
-      .from('submissions')
-      .select('id, source_meta, selected_files, code_snapshot')
-      .in('input_type', ['github_repo', 'github_repo_directory'])
-      .eq('status', 'completed');
+    
+    // Get repos matching this URL
+    const { data: repos } = await supabase
+      .from('workspace_repos')
+      .select('id, repo_url, default_branch')
+      .eq('repo_url', repoUrl)
+      .eq('default_branch', branch);
 
-    if (!submissions || submissions.length === 0) {
-      return NextResponse.json({ message: 'No submissions to check' });
+    if (!repos || repos.length === 0) {
+      return NextResponse.json({ message: 'No repositories found for this webhook' });
     }
 
-    // Filter submissions for this repo/branch
-    const affected = submissions.filter((sub: any) => {
-      const meta = sub.source_meta;
-      return meta?.repoUrl === repoUrl && meta?.branch === branch;
+    const repoIds = repos.map(r => r.id);
+
+    // Get documents for these repos
+    const { data: documents } = await supabase
+      .from('documents')
+      .select('id, repo_id')
+      .in('repo_id', repoIds);
+
+    if (!documents || documents.length === 0) {
+      return NextResponse.json({ message: 'No documents found for this repository' });
+    }
+
+    // Get tracked files for these documents
+    const documentIds = documents.map(d => d.id);
+    const { data: documentFiles } = await supabase
+      .from('document_files')
+      .select('document_id, file_path')
+      .in('document_id', documentIds);
+
+    // Group files by document
+    const filesByDocument = new Map<string, string[]>();
+    documentFiles?.forEach(df => {
+      const files = filesByDocument.get(df.document_id) || [];
+      files.push(df.file_path);
+      filesByDocument.set(df.document_id, files);
     });
 
-    if (affected.length === 0) {
-      return NextResponse.json({ message: 'No affected documents found' });
-    }
-
-    // Mark submissions as outdated if their tracked files changed
+    // Mark documents as needing update if their tracked files changed
     const changedFilesSet = new Set(webhookChangedFiles);
-    const markedOutdated: string[] = [];
+    const markedForUpdate: string[] = [];
 
-    for (const sub of affected) {
-      const selectedFiles = sub.selected_files || [];
-      const hasChangedFile = selectedFiles.some((file: string) => changedFilesSet.has(file));
+    for (const doc of documents) {
+      const trackedFiles = filesByDocument.get(doc.id) || [];
+      const hasChangedFile = trackedFiles.some((file: string) => changedFilesSet.has(file));
 
-      // Also check if branch commit changed
-      const codeSnapshot = sub.code_snapshot || {};
-      const storedCommitSha = codeSnapshot.commitSha;
-
-      // Mark as outdated if:
-      // 1. Any tracked file was changed, OR
-      // 2. Commit SHA changed (even if we don't know which files)
-      if (hasChangedFile || (storedCommitSha && storedCommitSha !== latestCommitSha)) {
-        await supabase
-          .from('submissions')
-          .update({
-            is_outdated: true,
-            last_checked_at: new Date().toISOString()
-          })
-          .eq('id', sub.id);
-
-        markedOutdated.push(sub.id);
+      // Note: In the new schema, documents don't have is_outdated field
+      // This would need to be handled differently (e.g., via a separate tracking table)
+      // For now, we'll just track which documents need updating
+      if (hasChangedFile) {
+        markedForUpdate.push(doc.id);
       }
     }
 
@@ -111,9 +118,9 @@ export async function POST(request: NextRequest) {
       message: 'Webhook processed',
       repoUrl,
       branch,
-      affectedCount: affected.length,
-      markedOutdatedCount: markedOutdated.length,
-      markedOutdated
+      affectedCount: documents.length,
+      markedForUpdateCount: markedForUpdate.length,
+      markedForUpdate
     });
   } catch (err: any) {
     console.error('Webhook error:', err);

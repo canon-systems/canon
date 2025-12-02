@@ -3,9 +3,9 @@
  */
 
 import type { WorkspaceProvider, WorkspaceInfo, WorkspaceContent } from '../base';
-import { NANGO_CONFIG } from '@/lib/server/nango/config';
+import { NANGO_CONFIG } from '../../nango/config';
 import { marked } from 'marked';
-import { parse, HTMLElement } from 'node-html-parser';
+import { parse } from 'node-html-parser';
 
 function convertHtmlToGoogleDocsRequests(html: string, title: string): any[] {
 	const root = parse(html);
@@ -61,7 +61,7 @@ function convertHtmlToGoogleDocsRequests(html: string, title: string): any[] {
 export class GoogleDocsProvider implements WorkspaceProvider {
 	name = 'googledocs';
 
-	async pullContent(workspaceInfo: WorkspaceInfo, connectionId: string): Promise<WorkspaceContent | null> {
+	async pullContent(_workspaceInfo: WorkspaceInfo, _connectionId: string): Promise<WorkspaceContent | null> {
 		// TODO: Implement Google Docs pull
 		// For now, return null - Google Docs pull can be added later
 		console.warn('Google Docs pull not yet implemented');

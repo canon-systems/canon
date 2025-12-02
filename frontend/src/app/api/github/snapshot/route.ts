@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
         } else {
           fileShas[filePath] = null;
         }
-      } catch (e) {
+      } catch {
         fileShas[filePath] = null;
       }
     }

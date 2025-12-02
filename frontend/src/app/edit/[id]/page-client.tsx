@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Loader2, AlertCircle, CheckCircle2, RefreshCw, Clock, FileText, GitCompare, X, Send, ExternalLink, ChevronDown } from 'lucide-react';
+import { Loader2, AlertCircle, CheckCircle2, RefreshCw, Clock, FileText, GitCompare, X, Send, ExternalLink, ChevronDown, Github, GitBranch, Search, Check } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { PromptCustomizer } from '@/components/PromptCustomizer';
 import { RichTextEditor } from '@/components/RichTextEditor';
@@ -29,6 +29,7 @@ interface Submission {
   source_meta?: any;
   code_snapshot?: any;
   is_outdated: boolean;
+  selected_files?: string[] | null;
 }
 
 interface EditDetailPageClientProps {
@@ -46,7 +47,17 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
   // Convert markdown to HTML for RichTextEditor
   const [html, setHtml] = useState<string>(() => {
     if (!initialSubmission.markdown) return '<p></p>';
-    const parsed = marked.parse(initialSubmission.markdown);
+    // Clean up markdown - remove any wrapping code blocks that might have been added
+    let cleanMarkdown = initialSubmission.markdown.trim();
+    // If the entire content is wrapped in a code block, unwrap it
+    if (cleanMarkdown.startsWith('```') && cleanMarkdown.endsWith('```')) {
+      const lines = cleanMarkdown.split('\n');
+      if (lines.length > 2 && lines[0].startsWith('```')) {
+        // Remove first and last lines (code block markers)
+        cleanMarkdown = lines.slice(1, -1).join('\n');
+      }
+    }
+    const parsed = marked.parse(cleanMarkdown);
     return typeof parsed === 'string' ? parsed : '<p></p>';
   });
   const [saving, setSaving] = useState(false);
@@ -56,10 +67,62 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
   // Outdated files check state
   const [checkingUpdates, setCheckingUpdates] = useState(false);
   const [outdatedFiles, setOutdatedFiles] = useState<Array<{ file_path: string; old_hash: string; new_hash: string }>>([]);
+  const [renamedFiles, setRenamedFiles] = useState<Array<{ old_path: string; new_path: string }>>([]);
   const [isOutdated, setIsOutdated] = useState(initialSubmission.is_outdated || false);
   const [lastCheckedAt, setLastCheckedAt] = useState<Date | null>(null);
   const [showChangedFiles, setShowChangedFiles] = useState(false);
   const [dismissedBanner, setDismissedBanner] = useState(false);
+  const [dismissedRenameBanner, setDismissedRenameBanner] = useState(false);
+
+  // Tracked files management state
+  const [trackedFiles, setTrackedFiles] = useState<string[]>(
+    initialSubmission.selected_files ||
+    initialSubmission.source_meta?.selected_files ||
+    []
+  );
+  const [updatingFiles, setUpdatingFiles] = useState(false);
+  const [fileUpdateMsg, setFileUpdateMsg] = useState('');
+  const [fileUpdateErr, setFileUpdateErr] = useState('');
+  const [showFileBrowser, setShowFileBrowser] = useState(false);
+  const [availableRepoFiles, setAvailableRepoFiles] = useState<string[]>([]); // Array of file paths (strings)
+  const [loadingRepoFiles, setLoadingRepoFiles] = useState(false);
+  const [fileSearchQuery, setFileSearchQuery] = useState('');
+  const [selectedFilesToAdd, setSelectedFilesToAdd] = useState<Set<string>>(new Set());
+
+  // Filter files based on search query
+  const filteredFiles = availableRepoFiles.filter(filePath =>
+    filePath.toLowerCase().includes(fileSearchQuery.toLowerCase())
+  );
+
+  // Multi-select helpers
+  function toggleFileSelection(filePath: string) {
+    const next = new Set(selectedFilesToAdd);
+    if (next.has(filePath)) {
+      next.delete(filePath);
+    } else {
+      next.add(filePath);
+    }
+    setSelectedFilesToAdd(next);
+  }
+
+  function selectAllFiltered() {
+    const next = new Set(selectedFilesToAdd);
+    filteredFiles.forEach(filePath => next.add(filePath));
+    setSelectedFilesToAdd(next);
+  }
+
+  function clearAllFiltered() {
+    const next = new Set(selectedFilesToAdd);
+    filteredFiles.forEach(filePath => next.delete(filePath));
+    setSelectedFilesToAdd(next);
+  }
+
+  function addSelectedFiles() {
+    const newFiles = [...trackedFiles, ...Array.from(selectedFilesToAdd)];
+    handleUpdateTrackedFiles(newFiles);
+    setSelectedFilesToAdd(new Set());
+    setShowFileBrowser(false);
+  }
 
   // Prompt customization state
   const [promptConfig, setPromptConfig] = useState(
@@ -92,9 +155,6 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
 
   // Review panel state
   const [viewMode, setViewMode] = useState<ViewMode>('editor');
-  const [approvalStatus, setApprovalStatus] = useState<'pending' | 'approved' | 'rejected' | 'published'>(
-    initialSubmission.source_meta?.approval_status || 'pending'
-  );
   const [isProcessing, setIsProcessing] = useState(false);
   const [showDiff, setShowDiff] = useState(false);
   const [diffData, setDiffData] = useState<any>(null);
@@ -129,11 +189,11 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
     setSaving(true);
     try {
       const { error } = await supabase
-        .from('submissions')
+        .from('documents')
         .update({
           title: title || 'Untitled',
-          markdown, // Store markdown as before
-          summary: (markdown || '').replace(/\s+/g, ' ').slice(0, 200)
+          content: markdown, // Store markdown as content
+          updated_at: new Date().toISOString()
         })
         .eq('id', initialSubmission.id);
 
@@ -152,29 +212,30 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
     setPromptConfigMsg('');
     setSavingPromptConfig(true);
     try {
-      const currentSourceMeta = initialSubmission.source_meta || {};
-      const updatedSourceMeta = {
-        ...currentSourceMeta,
-        llm_prompt_config: promptConfig
-      };
-
+      // Note: In the new schema, prompt config should be stored in workspace_repos.settings
+      // For now, we'll skip this update as it requires getting the repo_id first
+      // This functionality may need to be reimplemented differently
       const { error } = await supabase
-        .from('submissions')
+        .from('documents')
         .update({
-          source_meta: updatedSourceMeta
+          updated_at: new Date().toISOString()
         })
         .eq('id', initialSubmission.id);
 
       if (error) throw new Error(error.message);
       setPromptConfigMsg('Prompt settings saved. These will be used for future regenerations.');
       setTimeout(() => setPromptConfigMsg(''), 3000);
+      return; // Return success
     } catch (e) {
-      setPromptConfigErr(String(e));
+      const errorMsg = String(e);
+      setPromptConfigErr(errorMsg);
       setTimeout(() => setPromptConfigErr(''), 5000);
+      throw e; // Re-throw so PromptCustomizer can handle it
     } finally {
       setSavingPromptConfig(false);
     }
   }
+
 
   async function checkForUpdates() {
     if (!isGitRepo) return;
@@ -219,6 +280,26 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
           setIsOutdated(false);
           setOutdatedFiles([]);
         }
+
+        // Handle renamed files
+        if (result.renamedFiles && result.renamedFiles.length > 0) {
+          setRenamedFiles(result.renamedFiles);
+          setDismissedRenameBanner(false); // Reset dismissal when new renames detected
+
+          // Refresh tracked files list to show updated paths
+          const { data: updatedDocumentFiles } = await supabase
+            .from('document_files')
+            .select('file_path')
+            .eq('document_id', initialSubmission.id);
+
+          if (updatedDocumentFiles && updatedDocumentFiles.length > 0) {
+            const updatedFiles = updatedDocumentFiles.map(df => df.file_path);
+            setTrackedFiles(updatedFiles);
+          }
+        } else {
+          setRenamedFiles([]);
+        }
+
         router.refresh();
       } else {
         console.error('Check updates failed:', result);
@@ -227,6 +308,91 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
       console.error('Failed to check for updates:', e);
     } finally {
       setCheckingUpdates(false);
+    }
+  }
+
+  async function loadAvailableRepoFiles() {
+    if (!isGitRepo) return;
+    setLoadingRepoFiles(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      if (!token) throw new Error('Not authenticated');
+
+      const repoUrl = initialSubmission.source_meta?.repoUrl;
+      const branch = initialSubmission.source_meta?.branch || 'main';
+
+      const response = await fetch(`/api/github/list?repoUrl=${encodeURIComponent(repoUrl)}&branch=${encodeURIComponent(branch)}`, {
+        method: 'GET',
+        headers: { authorization: `Bearer ${token}` }
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to load repository files');
+      }
+
+      const data = await response.json();
+      const allFiles = data.files || [];
+      // Filter out already tracked files (files are objects with path property)
+      const untrackedFiles = allFiles
+        .filter((f: { path: string; size: number }) => !trackedFiles.includes(f.path))
+        .map((f: { path: string; size: number }) => f.path);
+      setAvailableRepoFiles(untrackedFiles);
+    } catch (err: any) {
+      console.error('Failed to load repo files:', err);
+      setFileUpdateErr(err.message || 'Failed to load repository files');
+    } finally {
+      setLoadingRepoFiles(false);
+    }
+  }
+
+  async function handleUpdateTrackedFiles(newFiles: string[]) {
+    setUpdatingFiles(true);
+    setFileUpdateMsg('');
+    setFileUpdateErr('');
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      if (!token) throw new Error('Not authenticated');
+
+      const response = await fetch('/api/docs/update-tracked-files', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          submissionId: initialSubmission.id,
+          selected_files: newFiles,
+          regenerate: false
+        })
+      });
+
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to update tracked files');
+      }
+
+      setTrackedFiles(newFiles);
+      setFileUpdateMsg('Tracked files updated. Documentation will need to be regenerated to reflect changes.');
+
+      // Show prompt to regenerate
+      if (result.files_changed) {
+        const shouldRegenerate = confirm(
+          'The tracked files have changed. Would you like to regenerate the documentation now?'
+        );
+
+        if (shouldRegenerate) {
+          // Navigate to regenerate page
+          router.push(`/edit/${initialSubmission.id}/regenerate`);
+        }
+      }
+    } catch (err: any) {
+      setFileUpdateErr(err.message || 'Failed to update tracked files');
+    } finally {
+      setUpdatingFiles(false);
     }
   }
 
@@ -390,14 +556,32 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
         throw new Error(errorMsg);
       }
 
+      // Update document timestamp
+      const { error: updateError } = await supabase
+        .from('documents')
+        .update({
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', initialSubmission.id);
+
+      if (updateError) throw updateError;
+
+      // Extract URL from response - API should now always provide it
+      const resourceUrl = result.url || result.workspace_info?.metadata?.url;
+
       setPushSuccess({
         provider: selectedProvider,
-        url: result.url || result.workspace_info?.metadata?.url
+        url: resourceUrl || undefined
       });
 
+      // If we have a URL, keep the modal open longer so user can click the link
+      // Otherwise close after 2 seconds
       setTimeout(() => {
-        closePushModal();
-      }, 2000);
+        if (!resourceUrl) {
+          closePushModal();
+        }
+        router.refresh();
+      }, resourceUrl ? 5000 : 2000);
     } catch (err: any) {
       setPushError(err.message || 'Failed to push to knowledge base');
     } finally {
@@ -414,139 +598,6 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
     return names[provider] || provider.charAt(0).toUpperCase() + provider.slice(1);
   }
 
-  // Review panel handlers
-  async function handleApprove() {
-    setIsProcessing(true);
-    try {
-      const response = await fetch(`/api/docs/${initialSubmission.id}/approve`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || error.detail || 'Failed to approve');
-      }
-
-      setApprovalStatus('approved');
-      router.refresh();
-    } catch (error: any) {
-      console.error('Failed to approve:', error);
-      alert(`Failed to approve document: ${error.message}`);
-    } finally {
-      setIsProcessing(false);
-    }
-  }
-
-  async function handleReject(reason?: string) {
-    setIsProcessing(true);
-    try {
-      const response = await fetch(`/api/docs/${initialSubmission.id}/reject`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason })
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || error.detail || 'Failed to reject');
-      }
-
-      setApprovalStatus('rejected');
-      router.refresh();
-    } catch (error: any) {
-      console.error('Failed to reject:', error);
-      alert(`Failed to reject document: ${error.message}`);
-    } finally {
-      setIsProcessing(false);
-    }
-  }
-
-  async function handleApproveAndPublish(provider: string, workspaceInfo?: any) {
-    setIsProcessing(true);
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token;
-
-      if (!token) {
-        throw new Error('Not authenticated');
-      }
-
-      // First approve - call Next.js API route
-      const approveResponse = await fetch(`/api/docs/${initialSubmission.id}/approve`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        }
-      });
-
-      if (!approveResponse.ok) {
-        const errorData = await approveResponse.json().catch(() => ({}));
-        throw new Error(errorData.error || errorData.detail || `Failed to approve document`);
-      }
-
-      // Then push to knowledge base
-      const workspaceInfoForPush = workspaceInfo || (selectedParent ? {
-        provider: provider,
-        resourceId: selectedParent.id,
-        metadata: {
-          type: selectedParent.type,
-          ...(selectedParent.type === 'database' ? { database_id: selectedParent.id } : {})
-        }
-      } : null);
-
-      const pushResponse = await fetch(`/api/push/${provider}`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          docId: initialSubmission.id,
-          title: pushTitle,
-          markdown: markdown,
-          workspaceInfo: workspaceInfoForPush,
-          createNew: true
-        })
-      });
-
-      if (!pushResponse.ok) {
-        const errorData = await pushResponse.json();
-        throw new Error(errorData.error || errorData.detail || 'Failed to push');
-      }
-
-      // Update status to published
-      const { error: updateError } = await supabase
-        .from('submissions')
-        .update({
-          source_meta: {
-            ...initialSubmission.source_meta,
-            approval_status: 'published'
-          }
-        })
-        .eq('id', initialSubmission.id);
-
-      if (updateError) throw updateError;
-
-      setApprovalStatus('published');
-      const result = await pushResponse.json();
-
-      if (result.url) {
-        alert(`Document approved and published successfully! Opening in ${getProviderDisplayName(provider)}...`);
-        window.open(result.url, '_blank');
-      } else {
-        alert('Document approved and published successfully!');
-      }
-
-      router.refresh();
-    } catch (error: any) {
-      console.error('Failed to approve and publish:', error);
-      alert(`Failed to approve and publish: ${error.message}`);
-    } finally {
-      setIsProcessing(false);
-    }
-  }
 
   const [aiFixState, setAiFixState] = useState<{
     isStreaming: boolean;
@@ -975,15 +1026,6 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
     }
   }
 
-  // Get available providers for approve & publish
-  const availableProviders = useMemo(() => {
-    return connections
-      .filter(c => ['notion', 'confluence', 'coda'].includes(c.provider))
-      .map(c => ({
-        provider: c.provider,
-        name: getProviderDisplayName(c.provider)
-      }));
-  }, [connections]);
 
   // Load connections on mount
   useEffect(() => {
@@ -1014,7 +1056,44 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
               <p className="text-white/60 mt-1">
                 Submission ID: <span className="font-mono">{initialSubmission.id}</span>
               </p>
-              <p className="text-white/60">
+              {isGitRepo && initialSubmission.source_meta?.repoUrl && (
+                <div className="mt-2 flex flex-wrap items-center gap-4 text-sm">
+                  <div className="flex items-center gap-2">
+                    <Github className="h-4 w-4 text-white/40" />
+                    <span className="text-white/60">Repository:</span>
+                    <a
+                      href={initialSubmission.source_meta.repoUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-mono text-blue-300 hover:text-blue-200 hover:underline"
+                    >
+                      {initialSubmission.source_meta.repoUrl.replace('https://github.com/', '')}
+                    </a>
+                  </div>
+                  {initialSubmission.source_meta.branch && (
+                    <div className="flex items-center gap-2">
+                      <GitBranch className="h-4 w-4 text-white/40" />
+                      <span className="text-white/60">Branch:</span>
+                      <span className="font-mono text-white/80">{initialSubmission.source_meta.branch}</span>
+                    </div>
+                  )}
+                  {initialSubmission.code_snapshot?.commitSha && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-white/60">Commit:</span>
+                      <a
+                        href={`${initialSubmission.source_meta.repoUrl}/commit/${initialSubmission.code_snapshot.commitSha}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-mono text-blue-300 hover:text-blue-200 hover:underline"
+                        title={initialSubmission.code_snapshot.commitSha}
+                      >
+                        {initialSubmission.code_snapshot.commitSha.substring(0, 7)}
+                      </a>
+                    </div>
+                  )}
+                </div>
+              )}
+              <p className="text-white/60 mt-2">
                 Created: {new Date(initialSubmission.created_date).toLocaleString()}
               </p>
             </div>
@@ -1031,6 +1110,61 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
           {statusNotice && (
             <div className="mt-2 rounded-xl border border-yellow-300/30 bg-yellow-500/10 px-3 py-2 text-yellow-200">
               {statusNotice}
+            </div>
+          )}
+
+          {/* Rename notification banner - at top of page */}
+          {renamedFiles.length > 0 && !dismissedRenameBanner && (
+            <div className="glass-panel mt-4 border-blue-500/30 bg-gradient-to-br from-blue-500/10 to-blue-600/5 p-6 relative overflow-hidden">
+              {/* Decorative background pattern */}
+              <div className="absolute inset-0 opacity-5">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-blue-400 rounded-full blur-3xl"></div>
+                <div className="absolute bottom-0 left-0 w-24 h-24 bg-blue-500 rounded-full blur-2xl"></div>
+              </div>
+
+              <div className="relative">
+                <div className="mb-4 flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-4 flex-1">
+                    <div className="rounded-xl bg-blue-500/20 p-3 border border-blue-500/30 flex-shrink-0">
+                      <GitCompare className="h-6 w-6 text-blue-400" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-lg font-semibold text-blue-100 mb-1">
+                        Files automatically updated
+                      </h3>
+                      <p className="text-sm text-blue-200/90 mb-3">
+                        {renamedFiles.length} file{renamedFiles.length === 1 ? ' was' : 's were'} renamed in the repository. The tracked file paths have been automatically updated.
+                      </p>
+                      <div className="mb-3 space-y-2">
+                        {renamedFiles.slice(0, 3).map((rename, idx) => (
+                          <div key={idx} className="rounded-lg border border-blue-500/20 bg-blue-500/10 px-3 py-2">
+                            <div className="flex items-center gap-2 text-xs font-mono">
+                              <span className="text-blue-300/70 line-through">{rename.old_path}</span>
+                              <span className="text-blue-200">→</span>
+                              <span className="text-blue-200">{rename.new_path}</span>
+                            </div>
+                          </div>
+                        ))}
+                        {renamedFiles.length > 3 && (
+                          <p className="text-xs text-blue-200/70">
+                            + {renamedFiles.length - 3} more file{renamedFiles.length - 3 === 1 ? '' : 's'} renamed
+                          </p>
+                        )}
+                      </div>
+                      <p className="text-xs text-blue-200/70 mb-4">
+                        The tracked files list has been updated automatically. No action needed.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    className="rounded-lg p-1.5 text-blue-200/60 hover:bg-blue-500/20 hover:text-blue-100 transition-colors flex-shrink-0"
+                    onClick={() => setDismissedRenameBanner(true)}
+                    aria-label="Dismiss"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 
@@ -1148,6 +1282,17 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
           )}
         </header>
 
+        {/* LLM Prompt Customization - Moved above title for better UX */}
+        <div className="mb-4">
+          <PromptCustomizer
+            promptConfig={promptConfig}
+            onChange={setPromptConfig}
+            onSave={savePromptConfig}
+            saving={savingPromptConfig}
+            saveMessage={promptConfigMsg}
+            saveError={promptConfigErr}
+          />
+        </div>
 
         {/* Title input */}
         <label className="block">
@@ -1285,45 +1430,139 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
 
           {/* Right Column - Review Panel */}
           <div className="lg:col-span-1">
-            <div className="glass-panel p-6 sticky top-6">
-              <ReviewPanel
-                docId={initialSubmission.id}
-                currentView={viewMode}
-                onViewChange={setViewMode}
-                onApprove={handleApprove}
-                onReject={handleReject}
-                onApproveAndPublish={handleApproveAndPublish}
-                approvalStatus={approvalStatus}
-                isProcessing={isProcessing}
-                availableProviders={availableProviders}
-                onApplyTemplate={handleApplyTemplate}
-                onViewDiff={loadDiff}
-                onViewDiagramDiff={loadDiagramDiff}
-              />
-            </div>
-          </div>
-        </div>
+            <div className="sticky top-6 space-y-4">
+              <div className="glass-panel p-6">
+                <ReviewPanel
+                  docId={initialSubmission.id}
+                  currentView={viewMode}
+                  onViewChange={setViewMode}
+                  onOpenPublishModal={openPushModal}
+                  isProcessing={isProcessing}
+                  onApplyTemplate={handleApplyTemplate}
+                  onViewDiff={loadDiff}
+                  onViewDiagramDiff={loadDiagramDiff}
+                />
+              </div>
 
-        {/* LLM Prompt Customization */}
-        <div className="mb-4">
-          <PromptCustomizer promptConfig={promptConfig} onChange={setPromptConfig} />
-          <div className="mt-2 flex items-center gap-2">
-            <button
-              className="inline-flex items-center gap-2 rounded-lg bg-purple-500/20 px-3 py-1.5 text-xs font-medium text-purple-200 hover:bg-purple-500/30 disabled:opacity-60 disabled:cursor-not-allowed"
-              onClick={savePromptConfig}
-              disabled={savingPromptConfig}
-            >
-              {savingPromptConfig ? (
-                <>
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  <span>Saving...</span>
-                </>
-              ) : (
-                <span>Save Prompt Settings</span>
+              {/* Tracked Files Management */}
+              {isGitRepo && (
+                <div className="glass-panel p-6">
+                  <div className="mb-4 flex items-center justify-between">
+                    <div>
+                      <h3 className="text-lg font-semibold text-white mb-1">Tracked Files</h3>
+                      <p className="text-xs text-white/60">
+                        Files used to generate this documentation
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    {/* File List */}
+                    <div className="max-h-64 overflow-y-auto space-y-2">
+                      {trackedFiles.length === 0 ? (
+                        <p className="text-sm text-white/50 italic">No files tracked</p>
+                      ) : (
+                        trackedFiles.map((filePath, idx) => {
+                          const isOutdatedFile = outdatedFiles.some(f => f.file_path === filePath);
+                          const renamedFileInfo = renamedFiles.find(f => f.new_path === filePath);
+                          const isRenamedFile = !!renamedFileInfo;
+                          return (
+                            <div
+                              key={idx}
+                              className={`flex items-center gap-2 rounded-lg border p-2 ${isRenamedFile
+                                ? 'border-blue-500/30 bg-blue-500/10'
+                                : isOutdatedFile
+                                  ? 'border-orange-500/30 bg-orange-500/10'
+                                  : 'border-white/10 bg-white/5'
+                                }`}
+                            >
+                              <FileText className={`h-4 w-4 flex-shrink-0 ${isRenamedFile ? 'text-blue-400' :
+                                isOutdatedFile ? 'text-orange-400' :
+                                  'text-white/60'
+                                }`} />
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span
+                                    className={`text-xs font-mono truncate ${isRenamedFile ? 'text-blue-200' :
+                                      isOutdatedFile ? 'text-orange-200' :
+                                        'text-white/80'
+                                      }`}
+                                    title={filePath}
+                                  >
+                                    {filePath}
+                                  </span>
+                                  {isRenamedFile && (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-blue-500/20 text-blue-300 border border-blue-500/30 flex-shrink-0">
+                                      <GitCompare className="h-3 w-3" />
+                                      Renamed
+                                    </span>
+                                  )}
+                                </div>
+                                {isRenamedFile && renamedFileInfo.old_path !== renamedFileInfo.new_path && (
+                                  <div className="mt-1 flex items-center gap-2 text-xs">
+                                    <span className="text-white/50">Previously:</span>
+                                    <span className="text-blue-300/70 font-mono line-through truncate" title={renamedFileInfo.old_path}>
+                                      {renamedFileInfo.old_path}
+                                    </span>
+                                    <span className="text-blue-200">→</span>
+                                    <span className="text-blue-200 font-mono truncate" title={renamedFileInfo.new_path}>
+                                      {renamedFileInfo.new_path}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                              {isOutdatedFile && !isRenamedFile && (
+                                <span className="text-xs text-orange-400" title="File has been modified">
+                                  ⚠
+                                </span>
+                              )}
+                              <button
+                                onClick={() => {
+                                  const newFiles = trackedFiles.filter((_, i) => i !== idx);
+                                  handleUpdateTrackedFiles(newFiles);
+                                }}
+                                className="rounded p-1 text-white/40 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                                title="Remove file"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+
+                    {/* Add File Button */}
+                    <button
+                      onClick={async () => {
+                        setFileSearchQuery('');
+                        setSelectedFilesToAdd(new Set());
+                        setShowFileBrowser(true);
+                        await loadAvailableRepoFiles();
+                      }}
+                      className="w-full rounded-lg border border-blue-500/40 bg-blue-500/20 px-3 py-2 text-sm font-medium text-blue-200 transition-all hover:bg-blue-500/30 hover:border-blue-500/60 disabled:opacity-60 disabled:cursor-not-allowed"
+                      disabled={updatingFiles || loadingRepoFiles}
+                    >
+                      {loadingRepoFiles ? (
+                        <>
+                          <Loader2 className="h-3.5 w-3.5 inline mr-2 animate-spin" />
+                          Loading files...
+                        </>
+                      ) : (
+                        <>+ Add File</>
+                      )}
+                    </button>
+
+                    {fileUpdateMsg && (
+                      <p className="text-xs text-green-300">{fileUpdateMsg}</p>
+                    )}
+                    {fileUpdateErr && (
+                      <p className="text-xs text-red-300">{fileUpdateErr}</p>
+                    )}
+                  </div>
+                </div>
               )}
-            </button>
-            {promptConfigMsg && <span className="text-xs text-green-300">{promptConfigMsg}</span>}
-            {promptConfigErr && <span className="text-xs text-red-300">{promptConfigErr}</span>}
+            </div>
           </div>
         </div>
 
@@ -1342,15 +1581,6 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
             ) : (
               <span>Save</span>
             )}
-          </button>
-
-          <button
-            className="inline-flex items-center gap-2 rounded-xl border border-blue-500/50 bg-blue-500/20 px-5 py-2.5 text-blue-200 shadow-lg shadow-blue-500/10 transition-all hover:bg-blue-500/30 hover:border-blue-500/70 hover:shadow-xl hover:shadow-blue-500/20 hover:-translate-y-0.5 disabled:opacity-60 disabled:hover:translate-y-0 disabled:hover:shadow-lg"
-            onClick={openPushModal}
-            disabled={saving || !markdown}
-          >
-            <Send className="h-4 w-4" />
-            <span>Push to Knowledge Base</span>
           </button>
 
           <Link
@@ -1373,6 +1603,155 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
           </div>
         )}
       </div>
+
+      {/* File Browser Modal */}
+      {showFileBrowser && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+          onClick={() => setShowFileBrowser(false)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setShowFileBrowser(false);
+          }}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="glass-panel w-full max-w-2xl max-h-[80vh] flex flex-col shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-white/10 p-6">
+              <div>
+                <h2 className="text-xl font-semibold text-white">Add Files to Track</h2>
+                <p className="text-sm text-white/60 mt-0.5">
+                  Select files from the repository to include in documentation generation
+                </p>
+              </div>
+              <button
+                className="rounded-lg p-1.5 text-white/60 hover:bg-white/10 hover:text-white transition-colors"
+                onClick={() => setShowFileBrowser(false)}
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6">
+              {loadingRepoFiles ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-6 w-6 animate-spin text-white/50" />
+                  <span className="ml-3 text-white/60">Loading files...</span>
+                </div>
+              ) : availableRepoFiles.length === 0 ? (
+                <div className="text-center py-12">
+                  <p className="text-white/60">No additional files available</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* Search and Multi-select Controls */}
+                  <div className="space-y-3">
+                    {/* Search Input */}
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" />
+                      <input
+                        type="text"
+                        value={fileSearchQuery}
+                        onChange={(e) => setFileSearchQuery(e.target.value)}
+                        placeholder="Search files..."
+                        className="w-full rounded-lg border border-white/10 bg-white/5 px-10 py-2 text-sm text-white placeholder-white/40 outline-none focus:border-white/20 focus:bg-white/10"
+                      />
+                      {fileSearchQuery && (
+                        <button
+                          onClick={() => setFileSearchQuery('')}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/60"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Multi-select Controls */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={selectAllFiltered}
+                          className="text-xs text-white/60 hover:text-white underline"
+                          disabled={filteredFiles.length === 0}
+                        >
+                          Select all{fileSearchQuery ? ` (${filteredFiles.length})` : ''}
+                        </button>
+                        {selectedFilesToAdd.size > 0 && (
+                          <>
+                            <span className="text-white/40">|</span>
+                            <button
+                              onClick={clearAllFiltered}
+                              className="text-xs text-white/60 hover:text-white underline"
+                            >
+                              Clear{fileSearchQuery ? ` (${filteredFiles.length})` : ''}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                      {selectedFilesToAdd.size > 0 && (
+                        <span className="text-xs text-white/60">
+                          {selectedFilesToAdd.size} selected
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* File List */}
+                  <div className="space-y-2 max-h-96 overflow-y-auto">
+                    {filteredFiles.length === 0 ? (
+                      <div className="text-center py-8">
+                        <p className="text-white/60">
+                          {fileSearchQuery ? `No files match "${fileSearchQuery}"` : 'No files available'}
+                        </p>
+                      </div>
+                    ) : (
+                      filteredFiles.map((filePath) => {
+                        const isSelected = selectedFilesToAdd.has(filePath);
+                        return (
+                          <button
+                            key={filePath}
+                            onClick={() => toggleFileSelection(filePath)}
+                            className={`w-full text-left flex items-center gap-3 rounded-lg border p-3 transition-all ${isSelected
+                              ? 'border-white/30 bg-white/10'
+                              : 'border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10'
+                              }`}
+                          >
+                            <div className={`flex-shrink-0 w-4 h-4 rounded border-2 flex items-center justify-center ${isSelected
+                              ? 'border-white bg-white'
+                              : 'border-white/40'
+                              }`}>
+                              {isSelected && <Check className="w-3 h-3 text-black" />}
+                            </div>
+                            <FileText className="h-4 w-4 text-white/60 flex-shrink-0" />
+                            <span className="flex-1 text-sm font-mono text-white/80 truncate" title={filePath}>
+                              {filePath}
+                            </span>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  {/* Add Selected Files Button */}
+                  {selectedFilesToAdd.size > 0 && (
+                    <div className="pt-4 border-t border-white/10">
+                      <button
+                        onClick={addSelectedFiles}
+                        className="w-full flex items-center justify-center gap-2 rounded-lg bg-white text-black px-4 py-2 text-sm font-medium hover:bg-white/90 transition-colors"
+                      >
+                        <Check className="h-4 w-4" />
+                        Add {selectedFilesToAdd.size} file{selectedFilesToAdd.size !== 1 ? 's' : ''}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Changed Files Modal */}
       {showChangedFiles && (
@@ -1555,22 +1934,31 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
             <div className="flex-1 overflow-y-auto p-6">
               {pushSuccess && (
                 <div className="mb-4 rounded-lg border border-green-500/50 bg-green-500/10 p-4 text-green-200">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 mb-3">
                     <CheckCircle2 className="h-5 w-5" />
                     <p className="font-medium">
                       Successfully pushed to {getProviderDisplayName(pushSuccess.provider)}!
                     </p>
                   </div>
-                  {pushSuccess.url && (
-                    <a
-                      href={pushSuccess.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="mt-2 inline-flex items-center gap-2 text-sm text-green-300 hover:text-green-200 underline"
-                    >
-                      <ExternalLink className="h-4 w-4" />
-                      Open in {getProviderDisplayName(pushSuccess.provider)}
-                    </a>
+                  {pushSuccess.url ? (
+                    <div className="space-y-2">
+                      <p className="text-sm text-green-300/80">
+                        Your documentation is ready. Click the link below to view it:
+                      </p>
+                      <a
+                        href={pushSuccess.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 rounded-lg bg-green-500/20 border border-green-500/50 px-4 py-2.5 text-sm font-medium text-green-100 hover:bg-green-500/30 hover:border-green-500/70 transition-all"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                        Open in {getProviderDisplayName(pushSuccess.provider)}
+                      </a>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-green-300/80">
+                      Resource created successfully. The link will be available shortly.
+                    </p>
                   )}
                 </div>
               )}

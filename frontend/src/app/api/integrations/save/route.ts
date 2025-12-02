@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const connectionData = await nangoResponse.json();
+    await nangoResponse.json();
 
     // Map Nango provider names to our internal provider names
     const internalProvider = (provider === 'google' || provider === 'google-docs' || provider === 'googledocs')

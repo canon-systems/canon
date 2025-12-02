@@ -29,8 +29,6 @@ const nextConfig: NextConfig = {
     'dagre',
     'simple-icons',
   ],
-  // Note: webpack config removed - middleware uses esbuild, not webpack
-  // Middleware runs on Edge Runtime (default) - all dependencies must be Edge-compatible
 };
 
 export default nextConfig;

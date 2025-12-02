@@ -11,7 +11,6 @@ import {
   Settings,
   Layers3,
   Sparkles,
-  Send,
   ChevronsLeft,
   BarChart3,
   FileText,
@@ -19,6 +18,7 @@ import {
   ChevronDown,
   Zap,
   Github,
+  Activity,
 } from 'lucide-react';
 import type { Session, User } from '@supabase/supabase-js';
 
@@ -37,21 +37,37 @@ type NavItem = {
 
 const navSections: Array<{ title: string; items: NavItem[] }> = [
   {
-    title: 'Workspace',
+    title: 'Get Started',
     items: [
-      { href: '/', label: 'Home', icon: LayoutDashboard },
-      { href: '/overview', label: 'Overview', icon: BarChart3 },
-      { href: '/logs', label: 'Logs', icon: FileText },
-      { href: '/documentation', label: 'Generate', icon: Zap, matchPrefix: true },
-      { href: '/edit', label: 'Edit', icon: Layers3, matchPrefix: true },
+      { href: '/repos', label: 'Connect Repos', icon: Github },
     ],
   },
   {
-    title: 'Resources',
+    title: 'Create',
     items: [
-      { href: '/docs', label: 'Docs', icon: BookOpen },
-      { href: '/help', label: 'Help center', icon: HelpCircle },
-      { href: '/settings', label: 'Settings', icon: Settings, matchPrefix: true },
+      { href: '/documentation', label: 'Generate Docs', icon: FileText },
+      { href: '/architecture', label: 'Architecture', icon: Layers3 },
+    ],
+  },
+  {
+    title: 'Manage',
+    items: [
+      { href: '/edit', label: 'Edit Documents', icon: BookOpen, matchPrefix: true },
+      { href: '/automation', label: 'Automation', icon: Zap },
+    ],
+  },
+  {
+    title: 'Overview',
+    items: [
+      { href: '/overview', label: 'Dashboard', icon: BarChart3 },
+      { href: '/logs', label: 'Activity', icon: Activity },
+    ],
+  },
+  {
+    title: 'Settings',
+    items: [
+      { href: '/settings', label: 'Preferences', icon: Settings, matchPrefix: true },
+      { href: '/help', label: 'Help', icon: HelpCircle },
     ],
   },
 ];
@@ -60,22 +76,10 @@ export function Navigation({ user, session, onLogout }: NavigationProps) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [generateMenuOpen, setGenerateMenuOpen] = useState(false);
-  const [editMenuOpen, setEditMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
-  const generateMenuRef = useRef<HTMLDivElement>(null);
-  const editMenuRef = useRef<HTMLDivElement>(null);
 
   function isActive(item: NavItem) {
     if (item.matchPrefix) {
-      // Special handling for Generate: active on /documentation or /architecture (including /architecture/manage)
-      if (item.href === '/documentation') {
-        return pathname.startsWith('/documentation') || pathname.startsWith('/architecture');
-      }
-      // Special handling for Edit: active on /edit or /architecture/manage
-      if (item.href === '/edit') {
-        return pathname.startsWith('/edit') || pathname.startsWith('/architecture/manage');
-      }
       return pathname.startsWith(item.href);
     }
     return pathname === item.href;
@@ -100,49 +104,6 @@ export function Navigation({ user, session, onLogout }: NavigationProps) {
     };
   }, [userMenuOpen]);
 
-  // Close menu when navigation is collapsed (except user menu which should remain accessible)
-  useEffect(() => {
-    if (collapsed && generateMenuOpen) {
-      setGenerateMenuOpen(false);
-    }
-    if (collapsed && editMenuOpen) {
-      setEditMenuOpen(false);
-    }
-  }, [collapsed, generateMenuOpen, editMenuOpen]);
-
-  // Close generate menu when clicking outside
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (generateMenuOpen && generateMenuRef.current && !generateMenuRef.current.contains(event.target as Node)) {
-        setGenerateMenuOpen(false);
-      }
-    }
-
-    if (generateMenuOpen) {
-      document.addEventListener('click', handleClickOutside);
-    }
-
-    return () => {
-      document.removeEventListener('click', handleClickOutside);
-    };
-  }, [generateMenuOpen]);
-
-  // Close edit menu when clicking outside
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (editMenuOpen && editMenuRef.current && !editMenuRef.current.contains(event.target as Node)) {
-        setEditMenuOpen(false);
-      }
-    }
-
-    if (editMenuOpen) {
-      document.addEventListener('click', handleClickOutside);
-    }
-
-    return () => {
-      document.removeEventListener('click', handleClickOutside);
-    };
-  }, [editMenuOpen]);
 
   return (
     <aside className="nav-rail" data-collapsed={collapsed}>
@@ -162,127 +123,7 @@ export function Navigation({ user, session, onLogout }: NavigationProps) {
             <span className="nav-rail__section-title">{section.title}</span>
             {section.items.map((item) => {
               const Icon = item.icon;
-              
-              // Special handling for Generate menu
-              if (item.href === '/documentation' && item.label === 'Generate') {
-                const isGenerateActive = pathname.startsWith('/documentation') || pathname.startsWith('/architecture');
-                return (
-                  <div key={item.href} className="relative" ref={generateMenuRef}>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setGenerateMenuOpen(!generateMenuOpen);
-                      }}
-                      className="nav-item w-full cursor-pointer text-left"
-                      data-active={isGenerateActive}
-                      aria-expanded={generateMenuOpen}
-                      aria-haspopup="true"
-                      title={collapsed ? item.label : undefined}
-                      aria-label={collapsed ? item.label : undefined}
-                    >
-                      <Icon aria-hidden="true" />
-                      {!collapsed && (
-                        <>
-                          <span className="flex-1">{item.label}</span>
-                          <ChevronDown
-                            className={`h-4 w-4 text-white/60 transition-transform flex-shrink-0 ${generateMenuOpen ? 'rotate-180' : ''}`}
-                            aria-hidden="true"
-                          />
-                        </>
-                      )}
-                    </button>
-                    {generateMenuOpen && !collapsed && (
-                      <div className="mt-1 space-y-0.5">
-                        <Link
-                          href="/documentation"
-                          className="nav-item ml-8 text-sm"
-                          onClick={() => setGenerateMenuOpen(false)}
-                          data-active={pathname.startsWith('/documentation')}
-                        >
-                          <Send className="h-4 w-4" />
-                          <span>Documentation</span>
-                        </Link>
-                        <Link
-                          href="/architecture"
-                          className="nav-item ml-8 text-sm"
-                          onClick={() => setGenerateMenuOpen(false)}
-                          data-active={pathname.startsWith('/architecture') && !pathname.startsWith('/architecture/manage')}
-                        >
-                          <Sparkles className="h-4 w-4" />
-                          <span>Architecture</span>
-                        </Link>
-                        <Link
-                          href="/architecture/manage"
-                          className="nav-item ml-8 text-sm"
-                          onClick={() => setGenerateMenuOpen(false)}
-                          data-active={pathname.startsWith('/architecture/manage')}
-                        >
-                          <Layers3 className="h-4 w-4" />
-                          <span>Manage</span>
-                        </Link>
-                      </div>
-                    )}
-                  </div>
-                );
-              }
 
-              // Special handling for Edit menu
-              if (item.href === '/edit' && item.label === 'Edit') {
-                const isEditActive = pathname.startsWith('/edit') || pathname.startsWith('/architecture/manage');
-                return (
-                  <div key={item.href} className="relative" ref={editMenuRef}>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setEditMenuOpen(!editMenuOpen);
-                      }}
-                      className="nav-item w-full cursor-pointer text-left"
-                      data-active={isEditActive}
-                      aria-expanded={editMenuOpen}
-                      aria-haspopup="true"
-                      title={collapsed ? item.label : undefined}
-                      aria-label={collapsed ? item.label : undefined}
-                    >
-                      <Icon aria-hidden="true" />
-                      {!collapsed && (
-                        <>
-                          <span className="flex-1">{item.label}</span>
-                          <ChevronDown
-                            className={`h-4 w-4 text-white/60 transition-transform flex-shrink-0 ${editMenuOpen ? 'rotate-180' : ''}`}
-                            aria-hidden="true"
-                          />
-                        </>
-                      )}
-                    </button>
-                    {editMenuOpen && !collapsed && (
-                      <div className="mt-1 space-y-0.5">
-                        <Link
-                          href="/edit"
-                          className="nav-item ml-8 text-sm"
-                          onClick={() => setEditMenuOpen(false)}
-                          data-active={pathname.startsWith('/edit')}
-                        >
-                          <FileText className="h-4 w-4" />
-                          <span>Documentation</span>
-                        </Link>
-                        <Link
-                          href="/architecture/manage"
-                          className="nav-item ml-8 text-sm"
-                          onClick={() => setEditMenuOpen(false)}
-                          data-active={pathname.startsWith('/architecture/manage')}
-                        >
-                          <Layers3 className="h-4 w-4" />
-                          <span>Architecture</span>
-                        </Link>
-                      </div>
-                    )}
-                  </div>
-                );
-              }
-              
-              // Regular navigation items
               return (
                 <Link
                   key={item.href}
@@ -292,7 +133,7 @@ export function Navigation({ user, session, onLogout }: NavigationProps) {
                   aria-current={isActive(item) ? 'page' : undefined}
                   title={collapsed ? item.label : undefined}
                   aria-label={collapsed ? item.label : undefined}
-                  >
+                >
                   <Icon aria-hidden="true" />
                   <span>{item.label}</span>
                 </Link>

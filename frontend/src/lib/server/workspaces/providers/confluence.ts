@@ -3,7 +3,7 @@
  */
 
 import type { WorkspaceProvider, WorkspaceInfo, WorkspaceContent } from '../base';
-import { NANGO_CONFIG } from '@/lib/server/nango/config';
+import { NANGO_CONFIG } from '../../nango/config';
 import { marked } from 'marked';
 
 function convertHtmlToConfluenceStorage(html: string): string {
@@ -51,7 +51,7 @@ async function getCloudId(connectionId: string): Promise<string | null> {
 export class ConfluenceProvider implements WorkspaceProvider {
 	name = 'confluence';
 
-	async pullContent(workspaceInfo: WorkspaceInfo, connectionId: string): Promise<WorkspaceContent | null> {
+	async pullContent(_workspaceInfo: WorkspaceInfo, _connectionId: string): Promise<WorkspaceContent | null> {
 		// TODO: Implement Confluence pull
 		// For now, return null - Confluence pull can be added later
 		console.warn('Confluence pull not yet implemented');
@@ -62,7 +62,7 @@ export class ConfluenceProvider implements WorkspaceProvider {
 		workspaceInfo: WorkspaceInfo,
 		content: WorkspaceContent,
 		connectionId: string,
-		createNew = true
+		_createNew = true
 	): Promise<WorkspaceInfo | null> {
 		try {
 			const cloudId = await getCloudId(connectionId);
@@ -122,9 +122,9 @@ export class ConfluenceProvider implements WorkspaceProvider {
 	}
 
 	async updateContent(
-		workspaceInfo: WorkspaceInfo,
-		content: WorkspaceContent,
-		connectionId: string
+		_workspaceInfo: WorkspaceInfo,
+		_content: WorkspaceContent,
+		_connectionId: string
 	): Promise<boolean> {
 		// TODO: Implement Confluence update
 		console.warn('Confluence update not yet implemented');

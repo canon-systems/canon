@@ -12,12 +12,21 @@ export default async function LogsPage() {
 
   const supabase = await createClient();
 
-  // Get all submissions with their status history
-  const { data: submissions, error: submissionsError } = await supabase
-    .from('submissions')
-    .select('id, created_at, status, error_message, title, input_type, last_checked_at, is_outdated, source_meta')
+  // Get all repos for automation data
+  const { data: userRepos } = await supabase
+    .from('workspace_repos')
+    .select('id, repo_url, name, default_branch, settings')
+    .eq('workspace_id', user.id);
+
+  const repoIds = userRepos?.map(r => r.id) || [];
+  const { data: documents, error: documentsError } = repoIds.length > 0
+    ? await supabase
+      .from('documents')
+      .select('id, created_at, updated_at, title, repo_id')
+      .in('repo_id', repoIds)
     .order('created_at', { ascending: false })
-    .limit(100);
+      .limit(100)
+    : { data: null, error: null };
 
   // Get architecture diagram updates for current user
   const { data: diagrams, error: diagramsError } = await supabase
@@ -54,7 +63,7 @@ export default async function LogsPage() {
   // Build activity log entries
   const logEntries: Array<{
     id: string;
-    type: 'document' | 'document_error' | 'document_regenerated' | 'architecture' | 'architecture_version';
+    type: 'document' | 'document_error' | 'document_regenerated' | 'architecture' | 'architecture_version' | 'automation_execution' | 'repo_connection';
     timestamp: string;
     title: string;
     message: string;
@@ -68,63 +77,84 @@ export default async function LogsPage() {
       isOutdated?: boolean;
       versionNumber?: number;
       changeSummary?: string;
+      automationRuleId?: string;
+      isAutomation?: boolean;
     };
   }> = [];
 
-  // Add submission entries
-  if (submissions) {
-    submissions.forEach((sub) => {
-      const sourceMeta = sub.source_meta || {};
-      const repoUrl = sourceMeta.repoUrl || null;
-      const branch = sourceMeta.branch || null;
+  // Get repo details for documents and activity logging
+  const repoMap = new Map();
+  const { data: allReposData } = await supabase
+    .from('workspace_repos')
+    .select('id, repo_url, default_branch, name, created_at')
+    .eq('workspace_id', user.id)
+    .order('created_at', { ascending: false });
+  
+  if (allReposData) {
+    allReposData.forEach(r => repoMap.set(r.id, r));
+  }
 
-      // Build informative message
-      let message = '';
-      if (sub.error_message) {
-        message = sub.error_message;
-      } else {
-        const statusText = sub.status === 'completed' ? 'completed' : sub.status;
-        if (repoUrl) {
-          const repoName = repoUrl.split('/').pop()?.replace('.git', '') || 'repository';
-          message = `Document ${statusText} from ${repoName}${branch ? ` (${branch})` : ''}`;
-        } else {
-          message = `Document ${statusText}`;
-        }
-      }
+  // Add repo connection entries
+  if (allReposData) {
+    allReposData.forEach((repo) => {
+      const repoName = repo.repo_url ? repo.repo_url.split('/').pop()?.replace('.git', '') || 'repository' : repo.name || 'Repository';
+      const branchInfo = repo.default_branch ? ` (${repo.default_branch})` : '';
 
       logEntries.push({
-        id: sub.id,
-        type: sub.error_message ? 'document_error' : 'document',
-        timestamp: sub.created_at,
-        title: sub.title || 'Untitled Document',
-        message,
-        status: sub.status,
-        link: `/edit/${sub.id}`,
+        id: `repo-${repo.id}`,
+        type: 'repo_connection',
+        timestamp: repo.created_at,
+        title: `Repository Connected: ${repoName}`,
+        message: `Connected repository ${repoName}${branchInfo}`,
+        status: 'completed',
+        link: `/repos`,
         metadata: {
-          inputType: sub.input_type || undefined,
+          repoUrl: repo.repo_url || undefined,
+          branch: repo.default_branch || undefined,
+        },
+      });
+    });
+  }
+
+  // Add document entries
+  if (documents) {
+    documents.forEach((doc) => {
+      const repo = repoMap.get(doc.repo_id);
+      const repoUrl = repo?.repo_url || null;
+      const branch = repo?.default_branch || null;
+
+      // Build informative message
+      const message = repoUrl
+        ? `Document created from ${repoUrl.split('/').pop()?.replace('.git', '') || 'repository'}${branch ? ` (${branch})` : ''}`
+        : 'Document created';
+
+      logEntries.push({
+        id: doc.id,
+        type: 'document',
+        timestamp: doc.created_at,
+        title: doc.title || 'Untitled Document',
+        message,
+        status: 'completed',
+        link: `/edit/${doc.id}`,
+        metadata: {
           repoUrl: repoUrl || undefined,
           branch: branch || undefined,
-          isOutdated: sub.is_outdated || false,
         },
       });
 
       // Add regeneration entry if updated
-      if (sub.last_checked_at && sub.last_checked_at !== sub.created_at) {
+      if (doc.updated_at && doc.updated_at !== doc.created_at) {
         logEntries.push({
-          id: `${sub.id}-regenerated`,
+          id: `${doc.id}-regenerated`,
           type: 'document_regenerated',
-          timestamp: sub.last_checked_at,
-          title: sub.title || 'Untitled Document',
-          message: sub.is_outdated
-            ? 'Document regenerated (outdated due to code changes)'
-            : 'Document regenerated with updated content',
-          status: sub.status,
-          link: `/edit/${sub.id}`,
+          timestamp: doc.updated_at,
+          title: doc.title || 'Untitled Document',
+          message: 'Document regenerated with updated content',
+          status: 'completed',
+          link: `/edit/${doc.id}`,
           metadata: {
-            inputType: sub.input_type || undefined,
             repoUrl: repoUrl || undefined,
             branch: branch || undefined,
-            isOutdated: sub.is_outdated || false,
           },
         });
       }
@@ -215,8 +245,8 @@ export default async function LogsPage() {
   };
 
   // Log errors for debugging (except table not found errors)
-  if (submissionsError && !isTableNotFoundError(submissionsError)) {
-    console.error('Logs page - submissions error:', submissionsError);
+  if (documentsError && !isTableNotFoundError(documentsError)) {
+    console.error('Logs page - documents error:', documentsError);
   }
   if (diagramsError && !isTableNotFoundError(diagramsError)) {
     console.error('Logs page - diagrams error:', diagramsError);
@@ -229,8 +259,8 @@ export default async function LogsPage() {
     entries: logEntries.slice(0, 100), // Limit to 100 most recent
     errors: {
       // Only report errors that aren't "table not found" (migration not run)
-      submissions: submissionsError && !isTableNotFoundError(submissionsError)
-        ? (submissionsError.message || submissionsError.code)
+      documents: documentsError && !isTableNotFoundError(documentsError)
+        ? (documentsError.message || documentsError.code)
         : undefined,
       diagrams: diagramsError && !isTableNotFoundError(diagramsError)
         ? (diagramsError.message || diagramsError.code)
@@ -245,6 +275,7 @@ export default async function LogsPage() {
     <LogsPageClient
       user={user}
       logs={logs}
+      repos={userRepos || []}
     />
   );
 }

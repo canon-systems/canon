@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
+import { getUserOctokit } from '@/lib/server/github/getUserOctokit';
+import { getCachedBranch, getCachedFileShas } from '@/lib/server/github/cachedOctokit';
+import { getRateLimitStatus } from '@/lib/server/github/rateLimiter';
 
 type SourceMeta = {
   repoUrl?: string;
   repo?: string;
   path?: string;
   commit?: string;
-  approval_status?: string;
   push_metadata?: {
     provider?: string;
     pushed_at?: string;
@@ -45,70 +47,89 @@ export async function GET(request: NextRequest) {
     const supabase = await createClient();
     const { searchParams } = new URL(request.url);
     const status = searchParams.get('status');
-    const repo = searchParams.get('repo');
+    const repoFilter = searchParams.get('repo');
     const search = searchParams.get('search');
     const page = Number(searchParams.get('page') || '1');
     const pageSize = Number(searchParams.get('pageSize') || '20');
 
+    // Get documents from workspace_repos that belong to the user
+    const { data: userRepos } = await supabase
+      .from('workspace_repos')
+      .select('id')
+      .eq('workspace_id', user.id);
+
+    const repoIds = userRepos?.map(r => r.id) || [];
+
     const { data, error } = await supabase
-      .from('submissions')
-      .select('*')
-      .eq('created_by', user.id)
+      .from('documents')
+      .select('id, title, content, repo_id, created_at, updated_at')
+      .in('repo_id', repoIds.length > 0 ? repoIds : ['00000000-0000-0000-0000-000000000000']) // Empty array workaround
       .order('created_at', { ascending: false });
 
     if (error) {
       throw error;
     }
 
-    const submissions = data as SubmissionRow[] | null;
+    // Get repo details for filtering
+    const { data: reposData } = await supabase
+      .from('workspace_repos')
+      .select('id, repo_url, name, default_branch')
+      .in('id', repoIds);
 
-    const filtered =
-      submissions?.filter((doc: any) => {
-        const sourceMeta = doc.source_meta || {};
-        const approvalStatus = sourceMeta?.approval_status || 'pending_review';
+    const repoMap = new Map(reposData?.map(r => [r.id, r]) || []);
 
-        if (status && approvalStatus !== status) return false;
+    const documents = data || [];
+    const filtered = documents.filter((doc: any) => {
+      const repo = repoMap.get(doc.repo_id);
+      const repoUrl = repo?.repo_url || '';
 
-        if (repo) {
-          const repoUrl = (sourceMeta?.repoUrl || '').toLowerCase();
-          if (!repoUrl.includes(repo.toLowerCase())) return false;
-        }
+      if (status) {
+        // For now, all documents are 'pending_review' - can be enhanced later
+        if (status !== 'pending_review') return false;
+      }
 
-        if (search) {
-          const term = search.toLowerCase();
-          const titleMatch = (doc.title || '').toLowerCase().includes(term);
-          const repoMatch = (sourceMeta?.repoUrl || '').toLowerCase().includes(term);
-          const pathMatch = (sourceMeta?.path || '').toLowerCase().includes(term);
-          if (!titleMatch && !repoMatch && !pathMatch) return false;
-        }
+      if (repoFilter) {
+        if (!repoUrl.toLowerCase().includes(repoFilter.toLowerCase())) return false;
+      }
 
-        return true;
-      }) || [];
+      if (search) {
+        const term = search.toLowerCase();
+        const titleMatch = (doc.title || '').toLowerCase().includes(term);
+        const repoMatch = repoUrl.toLowerCase().includes(term);
+        if (!titleMatch && !repoMatch) return false;
+      }
+
+      return true;
+    });
 
     const total = filtered.length;
     const start = (page - 1) * pageSize;
     const paginated = filtered.slice(start, start + pageSize);
 
+    // Return list immediately with stored values
     const items = paginated.map((doc: any) => {
-      const sourceMeta = doc.source_meta || {};
-      const approvalStatus = sourceMeta?.approval_status || 'pending_review';
-      const pushMeta = sourceMeta?.push_metadata || {};
+      const repo = repoMap.get(doc.repo_id);
 
       return {
         id: doc.id,
         title: doc.title || 'Untitled',
-        status: approvalStatus,
-        repo: sourceMeta?.repoUrl || '',
-        path: sourceMeta?.path || '/',
-        commit: sourceMeta?.commit || '',
+        status: 'pending_review', // Default status for new documents system
+        repo: repo?.repo_url || '',
+        branch: repo?.default_branch || 'main',
+        path: '/',
+        commit: '',
         createdAt: doc.created_at,
-        updatedAt: doc.updated_at || doc.last_checked_at || doc.created_at,
-        lastPushedProvider: pushMeta?.provider,
-        lastPushedAt: pushMeta?.pushed_at,
-        processingStatus: doc.status,
-        isOutdated: doc.is_outdated || false,
+        updatedAt: doc.updated_at || doc.created_at,
+        lastPushedProvider: null,
+        lastPushedAt: null,
+        lastPushedUrl: null,
+        processingStatus: 'completed',
+        isOutdated: false,
       };
     });
+
+    // TODO: Implement outdated checking for documents system
+    // This would check document_files against repo_file_summaries to detect changes
 
     return NextResponse.json(
       {
@@ -132,4 +153,3 @@ export async function GET(request: NextRequest) {
     );
   }
 }
-

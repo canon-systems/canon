@@ -236,7 +236,7 @@ function convertToNodesAndEdges(
 
     // Add child nodes if expanded
     if (isExpanded) {
-      groupTools.forEach((tool, index) => {
+      groupTools.forEach((tool) => {
         const category = tool.category === 'internal'
           ? (tool.name === 'sveltekit' || tool.name === 'react' || tool.name === 'nextjs' ? 'frontend' : 'internal')
           : tool.category;

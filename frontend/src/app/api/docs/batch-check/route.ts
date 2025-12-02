@@ -5,39 +5,53 @@ import { getSession } from '@/lib/auth';
 export async function POST(_request: NextRequest) {
   try {
     const supabase = await createClient();
+    await getSession();
+
+    // Get all documents (replaced submissions)
     const { user } = await getSession();
-
-    // Get completed repository-based submissions
-    const { data: submissions, error: subError } = await supabase
-      .from('submissions')
-      .select('id, source_meta, code_snapshot, input_type, last_checked_at')
-      .in('input_type', ['github_repo', 'github_repo_directory'])
-      .eq('status', 'completed');
-
-    if (subError) {
-      return NextResponse.json({ error: 'Failed to fetch submissions', details: subError.message }, { status: 500 });
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    if (!submissions || submissions.length === 0) {
+    // Get user's repos
+    const { data: userRepos } = await supabase
+      .from('workspace_repos')
+      .select('id')
+      .eq('workspace_id', user.id);
+
+    const repoIds = userRepos?.map(r => r.id) || [];
+    
+    const { data: documents, error: docError } = repoIds.length > 0
+      ? await supabase
+          .from('documents')
+          .select('id, repo_id, updated_at')
+          .in('repo_id', repoIds)
+      : { data: null, error: null };
+
+    if (docError) {
+      return NextResponse.json({ error: 'Failed to fetch documents', details: docError.message }, { status: 500 });
+    }
+
+    if (!documents || documents.length === 0) {
       return NextResponse.json({
         checked: 0,
         outdated: 0,
         results: [],
-        message: 'No repository-based submissions found'
+        message: 'No documents found'
       });
     }
 
     // For now, return a simple response indicating we'd need to check each one
     // This is a placeholder - full implementation would batch check efficiently
     return NextResponse.json({
-      checked: submissions.length,
-      outdated: 0, // Placeholder
-      results: submissions.map(s => ({
-        submissionId: s.id,
+      checked: documents.length,
+      outdated: 0, // Placeholder - documents don't have is_outdated field in new schema
+      results: documents.map(d => ({
+        documentId: d.id,
         outdated: false,
         changedFiles: []
       })),
-      message: `Found ${submissions.length} submissions (batch checking not fully implemented yet)`
+      message: `Found ${documents.length} documents (batch checking not fully implemented yet)`
     });
   } catch (err: unknown) {
     console.error('Error in /api/docs/batch-check', err);

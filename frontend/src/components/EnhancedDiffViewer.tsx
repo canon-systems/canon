@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { computeTextDiff, DiffSegment } from '@/lib/utils/textDiff';
+import { computeTextDiff } from '@/lib/utils/textDiff';
 
 interface EnhancedDiffViewerProps {
     originalText: string;

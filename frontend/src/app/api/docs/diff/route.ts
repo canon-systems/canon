@@ -35,23 +35,38 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'docId is required' }, { status: 400 });
     }
 
-    const { data: submissionData, error } = await supabase
-      .from('submissions')
-      .select('*')
+    const { data: document, error } = await supabase
+      .from('documents')
+      .select('id, repo_id, content')
       .eq('id', docId)
       .single();
-    const submission = submissionData as SubmissionRow | null;
 
-    if (error || !submission) {
+    if (error || !document) {
       return NextResponse.json({ error: 'Document not found' }, { status: 404 });
     }
 
-    if (submission.created_by !== user.id) {
+    // Verify user has access to the repo
+    const { data: repo, error: repoError } = await supabase
+      .from('workspace_repos')
+      .select('workspace_id')
+      .eq('id', document.repo_id)
+      .eq('workspace_id', user.id)
+      .single();
+
+    if (repoError || !repo) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const currentText = submission.markdown || '';
-    const previousText = submission.previous_markdown || '';
+    // Get current and previous versions
+    const { data: versions } = await supabase
+      .from('document_versions')
+      .select('version_number, content')
+      .eq('document_id', docId)
+      .order('version_number', { ascending: false })
+      .limit(2);
+
+    const currentText = document.content || '';
+    const previousText = versions && versions.length > 1 ? versions[1].content : '';
 
     const diffPatch = createTwoFilesPatch('previous', 'current', previousText, currentText);
 

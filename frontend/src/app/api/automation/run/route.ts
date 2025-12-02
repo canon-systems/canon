@@ -3,6 +3,10 @@ import { createClient } from '@/lib/supabase/server';
 import { getDueRules, updateRuleLastRun, AutomationRuleEntry } from '@/lib/server/services/automationRules';
 import { executeAutomationRule } from '@/lib/server/services/automationRunner';
 
+/**
+ * Manual trigger endpoint for automation rules.
+ * This endpoint can be called manually or scheduled via cron.
+ */
 export async function POST(request: NextRequest) {
   try {
     const cronSecret = process.env.CRON_SECRET;
@@ -39,9 +43,11 @@ export async function POST(request: NextRequest) {
         ...execution,
       });
 
-      if (execution.success) {
-        await updateRuleLastRun(supabase, ruleInfo.repo_id, ruleInfo.rule_id, workspaceId);
-      }
+      // Update metadata for all execution results (success, failed, or skipped)
+      await updateRuleLastRun(supabase, ruleInfo.repo_id, ruleInfo.rule_id, workspaceId, {
+        ...execution,
+        trigger: 'scheduled',
+      });
     }
 
     return NextResponse.json({

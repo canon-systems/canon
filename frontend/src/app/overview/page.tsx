@@ -12,11 +12,20 @@ export default async function OverviewPage() {
 
   const supabase = await createClient();
 
-  // Get all submissions with more details
-  const { data: submissions, error: submissionsError } = await supabase
-    .from('submissions')
-    .select('id, created_at, status, last_checked_at, is_outdated, input_type')
-    .order('created_at', { ascending: false });
+  // Get all documents (replaced submissions)
+  const { data: userRepos } = await supabase
+    .from('workspace_repos')
+    .select('id')
+    .eq('workspace_id', user.id);
+
+  const repoIds = userRepos?.map(r => r.id) || [];
+  const { data: documents, error: documentsError } = repoIds.length > 0
+    ? await supabase
+      .from('documents')
+      .select('id, created_at, updated_at')
+      .in('repo_id', repoIds)
+      .order('created_at', { ascending: false })
+    : { data: null, error: null };
 
   // Get total architecture diagrams with more details
   const { data: diagrams, error: diagramsError } = await supabase
@@ -30,49 +39,82 @@ export default async function OverviewPage() {
     .select('id, created_at, diagram_id, version_number')
     .order('created_at', { ascending: false });
 
-  // Calculate statistics
-  const totalSubmissions = submissions?.length || 0;
-  const completedSubmissions = submissions?.filter(s => s.status === 'completed').length || 0;
-  const processingSubmissions = submissions?.filter(s => s.status === 'processing').length || 0;
-  const failedSubmissions = submissions?.filter(s => s.status === 'failed').length || 0;
-  const outdatedSubmissions = submissions?.filter(s => s.is_outdated).length || 0;
-  
-  const regeneratedCount = submissions?.filter((sub) => {
-    if (!sub.last_checked_at || sub.status !== 'completed') return false;
-    const created = new Date(sub.created_at);
-    const checked = new Date(sub.last_checked_at);
-    return checked.getTime() - created.getTime() > 60000; // More than 1 minute difference
-  }).length || 0;
+  // Get automation rules status
+  const { data: repos, error: reposError } = await supabase
+    .from('workspace_repos')
+    .select('id, name, repo_url, settings')
+    .order('created_at', { ascending: false });
 
-  // Calculate input type breakdown
-  const inputTypeBreakdown: Record<string, number> = {};
-  submissions?.forEach(sub => {
-    const type = sub.input_type || 'unknown';
-    inputTypeBreakdown[type] = (inputTypeBreakdown[type] || 0) + 1;
+  // Extract automation rules and their metadata
+  const automationRules: Array<{
+    repoId: string;
+    repoName: string;
+    repoUrl: string;
+    ruleId: string;
+    ruleName: string;
+    enabled: boolean;
+    lastRunAt?: string;
+    lastRunStatus?: string;
+    lastExecution?: any;
+  }> = [];
+
+  repos?.forEach((repo) => {
+    const settings = repo.settings || {};
+    const rules = Array.isArray(settings.automation_rules) ? settings.automation_rules : [];
+    const metadata = settings.automation_metadata || {};
+
+    rules.forEach((rule: any) => {
+      const ruleId = rule.id || rule.name || 'default';
+      const ruleMetadata = metadata[ruleId] || {};
+      
+      automationRules.push({
+        repoId: repo.id,
+        repoName: repo.name || 'Untitled Repo',
+        repoUrl: repo.repo_url || '',
+        ruleId,
+        ruleName: rule.name || ruleId,
+        enabled: Boolean(rule.enabled),
+        lastRunAt: ruleMetadata.last_run_at,
+        lastRunStatus: ruleMetadata.last_run_status,
+        lastExecution: ruleMetadata.last_execution,
+      });
+    });
   });
 
+  // Calculate statistics
+  const totalDocuments = documents?.length || 0;
+  
+  // Count regenerated documents (updated_at is significantly different from created_at)
+  const regeneratedCount = documents?.filter((doc) => {
+    if (!doc.updated_at) return false;
+    const created = new Date(doc.created_at);
+    const updated = new Date(doc.updated_at);
+    // More than 1 minute difference indicates regeneration
+    return updated.getTime() - created.getTime() > 60000;
+  }).length || 0;
+
   // Get recent activity (last 10 items)
-  const recentSubmissions = submissions?.slice(0, 10) || [];
+  const recentDocuments = documents?.slice(0, 10) || [];
   const recentDiagrams = diagrams?.slice(0, 5) || [];
 
   const stats = {
-    totalDocuments: completedSubmissions,
-    totalSubmissions: totalSubmissions,
-    processingDocuments: processingSubmissions,
-    failedDocuments: failedSubmissions,
-    outdatedDocuments: outdatedSubmissions,
+    totalDocuments: totalDocuments,
+    totalSubmissions: totalDocuments, // Keep for backward compatibility with client
+    processingDocuments: 0, // Documents don't have processing state
+    failedDocuments: 0, // Documents don't have failed state
+    outdatedDocuments: 0, // Documents don't have outdated state
     totalRegenerated: regeneratedCount,
     totalArchitectureDiagrams: diagrams?.length || 0,
     totalArchitectureVersions: versions?.length || 0,
     autoUpdateEnabled: diagrams?.filter(d => d.auto_update_enabled).length || 0,
-    inputTypeBreakdown,
+    inputTypeBreakdown: {}, // Documents don't have input_type
     rawData: {
-      submissions: submissions?.map((sub) => ({
-        created_at: sub.created_at,
-        last_checked_at: sub.last_checked_at,
-        status: sub.status,
-        is_outdated: sub.is_outdated,
-        input_type: sub.input_type,
+      submissions: documents?.map((doc) => ({
+        created_at: doc.created_at,
+        last_checked_at: doc.updated_at, // Use updated_at as proxy
+        status: 'completed', // All documents are considered completed
+        is_outdated: false, // Documents don't track outdated status
+        input_type: null, // Documents don't have input_type
       })) || [],
       diagrams: diagrams?.map((diag) => ({
         created_at: diag.created_at,
@@ -86,11 +128,11 @@ export default async function OverviewPage() {
       })) || [],
     },
     recentActivity: {
-      submissions: recentSubmissions.map(sub => ({
-        id: sub.id,
-        created_at: sub.created_at,
-        status: sub.status,
-        is_outdated: sub.is_outdated,
+      submissions: recentDocuments.map(doc => ({
+        id: doc.id,
+        created_at: doc.created_at,
+        status: 'completed', // All documents are considered completed
+        is_outdated: false, // Documents don't track outdated status
       })),
       diagrams: recentDiagrams.map(diag => ({
         id: diag.id,
@@ -99,10 +141,12 @@ export default async function OverviewPage() {
       })),
     },
     errors: {
-      submissions: submissionsError?.message,
+      submissions: documentsError?.message,
       diagrams: diagramsError?.message,
       versions: versionsError?.message,
+      repos: reposError?.message,
     },
+    automationRules,
   };
 
   return (

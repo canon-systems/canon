@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { getSession } from '@/lib/auth';
 import { generateDocumentation } from '@/lib/server/services/docGenerator';
 import type { PromptConfig } from '@/lib/server/prompts/buildSystemPrompt';
+import { prepareFileSummaries } from '@/lib/server/services/prepareSummaries';
 
 type GenerateDocRequestBody = {
   projectName?: string | null;
@@ -11,6 +13,9 @@ type GenerateDocRequestBody = {
   repoUrl?: string | null;
   branch?: string | null;
   subdir?: string | null;
+  prepareFirst?: boolean;
+  submissionId?: string;
+  useSummaries?: boolean;
 };
 
 /**
@@ -20,6 +25,7 @@ type GenerateDocRequestBody = {
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient();
+    const { user } = await getSession();
     const body = (await request.json().catch(() => ({}))) as GenerateDocRequestBody;
     const projectName = String(body.projectName || 'Project');
     const files = Array.isArray(body.files) ? body.files : [];
@@ -28,6 +34,9 @@ export async function POST(request: NextRequest) {
     const repoUrl = body.repoUrl || null;
     const branch = body.branch || null;
     const subdir = body.subdir || null;
+    const prepareFirst = body.prepareFirst || false;
+    const submissionId = body.submissionId || null;
+    const useSummaries = body.useSummaries || false;
 
     if (!model) {
       return NextResponse.json({ error: 'model is required' }, { status: 400 });
@@ -37,9 +46,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Provide files or repoUrl' }, { status: 400 });
     }
 
+    // If prepareFirst is true and we have a submissionId, prepare summaries first
+    if (prepareFirst && submissionId) {
+      try {
+        await prepareFileSummaries(supabase, submissionId, false, user?.id || null);
+      } catch (prepareError) {
+        console.error('Failed to prepare summaries:', prepareError);
+        // Continue anyway - will fallback to full content
+      }
+    }
+
+    // Only use summaries if explicitly requested AND we have both submissionId and repoUrl
+    // prepareFirst just prepares summaries for future use, it doesn't mean we should use them now
+    const shouldUseSummaries = Boolean(useSummaries && submissionId && repoUrl);
+
     const result = await generateDocumentation({
       supabase,
-      userId: null,
+      userId: user?.id || null,
       projectName,
       model,
       files: files.map((file: any) => ({
@@ -50,6 +73,8 @@ export async function POST(request: NextRequest) {
       branch,
       subdir,
       promptConfig,
+      useSummaries: shouldUseSummaries,
+      submissionId: submissionId || undefined,
     });
 
     return NextResponse.json({ markdown: result.markdown }, { status: 200 });

@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
     // Fetch repositories for the owner
     // For authenticated users, this includes private repos they have access to
     // For anonymous, this only returns public repos
-    const repos: Array<{ name: string; full_name: string; private: boolean; url: string }> = [];
+    const repos: any[] = [];
 
     try {
       // Try to get repos for the owner (user or org)
@@ -57,13 +57,7 @@ export async function POST(request: NextRequest) {
               .filter((r) => {
                 const repoOwner = r.owner?.login?.toLowerCase();
                 return repoOwner === ownerLower;
-              })
-              .map((r) => ({
-                name: r.name,
-                full_name: r.full_name,
-                private: r.private,
-                url: r.html_url
-              })));
+              }));
           }
         } else {
           // For other users, list their public repos only
@@ -80,13 +74,7 @@ export async function POST(request: NextRequest) {
               .filter((r) => {
                 const repoOwner = r.owner?.login?.toLowerCase();
                 return repoOwner === ownerLower;
-              })
-              .map((r) => ({
-                name: r.name,
-                full_name: r.full_name,
-                private: r.private,
-                url: r.html_url
-              })));
+              }));
           }
         }
       } else if (userOrOrg.type === 'Organization') {
@@ -105,13 +93,7 @@ export async function POST(request: NextRequest) {
             .filter((r) => {
               const repoOwner = r.owner?.login?.toLowerCase();
               return repoOwner === ownerLower;
-            })
-            .map((r) => ({
-              name: r.name,
-              full_name: r.full_name,
-              private: r.private,
-              url: r.html_url
-            })));
+            }));
         }
       }
     } catch (error: any) {
@@ -139,10 +121,15 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       repos: filteredRepos.map((r) => ({
+        id: r.id,
         name: r.name,
         full_name: r.full_name,
-        url: r.url,
-        private: r.private
+        html_url: r.html_url,
+        description: r.description,
+        private: r.private,
+        default_branch: r.default_branch,
+        language: r.language,
+        updated_at: r.updated_at
       }))
     });
   } catch (err: any) {

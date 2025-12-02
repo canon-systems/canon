@@ -36,15 +36,15 @@ export function RootLayoutClient({
   async function handleLogout() {
     try {
       await supabase.auth.signOut();
+      // Wait a moment for cookies to sync, then redirect with full page reload
+      await new Promise(resolve => setTimeout(resolve, 100));
+      window.location.href = '/login';
     } catch (e) {
       console.error('Logout failed', e);
-    } finally {
-      router.replace('/login');
-      router.refresh();
+      // Even if logout fails, redirect to login page
+      window.location.href = '/login';
     }
   }
-
-  const currentYear = new Date().getFullYear();
 
   return (
     <div className="app-shell">
@@ -57,11 +57,6 @@ export function RootLayoutClient({
 
         <div className="app-layout__main">
           <main className="app-main">{children}</main>
-          <footer className="app-footer">
-            <div className="page-shell app-footer__content">
-              <span>&copy; {currentYear} CodeSense. Built for teams who value clarity and signal.</span>
-            </div>
-          </footer>
         </div>
       </div>
     </div>
