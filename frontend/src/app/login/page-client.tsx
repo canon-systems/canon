@@ -1,11 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
 export function LoginPageClient() {
-  const router = useRouter();
   const supabase = createClient();
   
   const [mode, setMode] = useState<'login' | 'signup'>('login');
@@ -36,19 +34,21 @@ export function LoginPageClient() {
 
       if (error) {
         setErrorMsg(error.message);
+        setLoading(false);
         return;
       }
 
       if (signupData.session) {
-        router.push('/overview');
-        router.refresh();
+        // Wait a moment for cookies to sync, then redirect with full page reload
+        await new Promise(resolve => setTimeout(resolve, 100));
+        window.location.href = '/overview';
         return;
       }
 
       setInfoMsg('Check your email and click the confirmation link to finish sign up.');
+      setLoading(false);
     } catch (e: any) {
       setErrorMsg(e?.message ?? 'Something went wrong during sign up.');
-    } finally {
       setLoading(false);
     }
   }
@@ -58,21 +58,29 @@ export function LoginPageClient() {
     setInfoMsg(null);
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password
       });
 
       if (error) {
         setErrorMsg(error.message);
+        setLoading(false);
         return;
       }
 
-      router.push('/overview');
-      router.refresh();
+      // Verify session exists before redirecting
+      if (data.session) {
+        // Wait a moment for cookies to sync, then redirect with full page reload
+        await new Promise(resolve => setTimeout(resolve, 100));
+        window.location.href = '/overview';
+        return;
+      }
+
+      setErrorMsg('Login failed - no session created');
+      setLoading(false);
     } catch (e: any) {
       setErrorMsg(e?.message ?? 'Something went wrong during login.');
-    } finally {
       setLoading(false);
     }
   }

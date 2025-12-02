@@ -36,11 +36,13 @@ export function RootLayoutClient({
   async function handleLogout() {
     try {
       await supabase.auth.signOut();
+      // Wait a moment for cookies to sync, then redirect with full page reload
+      await new Promise(resolve => setTimeout(resolve, 100));
+      window.location.href = '/login';
     } catch (e) {
       console.error('Logout failed', e);
-    } finally {
-      router.replace('/login');
-      router.refresh();
+      // Even if logout fails, redirect to login page
+      window.location.href = '/login';
     }
   }
 
