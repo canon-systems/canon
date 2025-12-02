@@ -1120,24 +1120,24 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                       >
                         Disconnect
                       </button>
-                    ) : (
-                      <button
-                        onClick={() => connectToProvider('confluence')}
-                        disabled={connecting}
-                        className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {connecting ? (
-                          <span className="flex items-center justify-center gap-2">
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            Connecting...
-                          </span>
-                        ) : (
-                          <span className="flex items-center justify-center gap-2">
-                            <Link2 className="h-4 w-4" />
-                            Connect Confluence
-                          </span>
-                        )}
-                      </button>
+                    ) : (<p>Connect Confluence (Coming Soon)</p>
+                      // <button
+                      //   onClick={() => connectToProvider('confluence')}
+                      //   disabled={connecting}
+                      //   className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      // >
+                      //   {connecting ? (
+                      //     <span className="flex items-center justify-center gap-2">
+                      //       <Loader2 className="h-4 w-4 animate-spin" />
+                      //       Connecting...
+                      //     </span>
+                      //   ) : (
+                      //     <span className="flex items-center justify-center gap-2">
+                      //       <Link2 className="h-4 w-4" />
+                      //       Connect Confluence (Coming Soon)
+                      //     </span>
+                      //   )}
+                      // </button>
                     )}
                   </div>
 
@@ -1170,24 +1170,24 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                       >
                         Disconnect
                       </button>
-                    ) : (
-                      <button
-                        onClick={() => connectToProvider('google-docs')}
-                        disabled={connecting}
-                        className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {connecting ? (
-                          <span className="flex items-center justify-center gap-2">
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            Connecting...
-                          </span>
-                        ) : (
-                          <span className="flex items-center justify-center gap-2">
-                            <Link2 className="h-4 w-4" />
-                            Connect Google Docs
-                          </span>
-                        )}
-                      </button>
+                    ) : (<p>Connect Google Docs (Coming Soon)</p>
+                      // <button
+                      //   onClick={() => connectToProvider('google-docs')}
+                      //   disabled={connecting}
+                      //   className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      // >
+                      //   {connecting ? (
+                      //     <span className="flex items-center justify-center gap-2">
+                      //       <Loader2 className="h-4 w-4 animate-spin" />
+                      //       Connecting...
+                      //     </span>
+                      //   ) : (
+                      //     <span className="flex items-center justify-center gap-2">
+                      //       {/* <Link2 className="h-4 w-4" /> */}
+                      //       Connect Google Docs (Coming Soon)
+                      //     </span>
+                      //   )}
+                      // </button>
                     )}
                   </div>
                 </div>
