@@ -118,18 +118,19 @@ async function fetchRepoFiles(
 	// Filter to relevant files
 	const relevantFiles = treeItems.filter((item) => {
 		if (!item.path) return false;
-		const fileName = item.path.split('/').pop() || '';
+		const filePath = item.path; // Type narrowing helper
+		const fileName = filePath.split('/').pop() || '';
 		
 		if (EXCLUDED_FILES.has(fileName)) return false;
-		if (EXCLUDED_PATTERNS.some(pattern => pattern.test(item.path))) return false;
+		if (EXCLUDED_PATTERNS.some(pattern => pattern.test(filePath))) return false;
 		
-		const lowerPath = item.path.toLowerCase();
+		const lowerPath = filePath.toLowerCase();
 		return Array.from(RELEVANT_EXTENSIONS).some((ext) =>
 			lowerPath.endsWith(ext) || lowerPath === ext
 		);
 	});
 
-	const filePaths = relevantFiles.map(f => f.path).slice(0, 500); // Limit to 500 files
+	const filePaths = relevantFiles.map(f => f.path).filter((path): path is string => path !== undefined).slice(0, 500); // Limit to 500 files
 
 	// Fetch files via ZIP (most efficient)
 	const zipFiles = await fetchFilesViaZip(

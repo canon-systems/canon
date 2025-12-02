@@ -103,20 +103,20 @@ export async function POST(request: NextRequest) {
     // If no tracked files, can't determine outdated status
     if (trackedFiles.length === 0) {
       return NextResponse.json({
-        outdated: submission.is_outdated || false,
+        outdated: false,
         changedFiles: [],
         renamedFiles: [],
-        message: 'No tracked files for this submission'
+        message: 'No tracked files for this document'
       });
     }
 
     // If no stored file hashes, can't compare
     if (Object.keys(storedFileShas).length === 0) {
       return NextResponse.json({
-        outdated: submission.is_outdated || false,
+        outdated: false,
         changedFiles: [],
         renamedFiles: [],
-        message: 'No file hashes stored for this submission'
+        message: 'No file hashes stored for this document'
       });
     }
 
@@ -150,7 +150,7 @@ export async function POST(request: NextRequest) {
     // Detect renames using GitHub's compareCommits API
     // Note: We don't store commit SHA in the new schema, so we'll compare against a reasonable time window
     let renamedFiles: Array<{ old_path: string; new_path: string }> = [];
-    
+
     // Try to detect renames by comparing current state
     // This is a simplified approach - in production you might want to store commit SHA in document_versions
     try {
@@ -164,66 +164,66 @@ export async function POST(request: NextRequest) {
 
       if (recentCommits && recentCommits.length > 0) {
         const baseCommitSha = recentCommits[recentCommits.length - 1].sha;
-        
-        if (baseCommitSha !== latestCommitSha) {
-        const { data: compareData } = await octokit.repos.compareCommits({
-          owner: repoInfo.owner,
-          repo: repoInfo.repo,
-            base: baseCommitSha,
-          head: latestCommitSha,
-        });
 
-        // Find renames that affect tracked files
-        const trackedFilesSet = new Set(trackedFiles);
-        for (const file of compareData.files || []) {
-          if (file.status === 'renamed') {
-            const oldPath = file.previous_filename || file.filename;
-            const newPath = file.filename;
-            
-            // Only track renames if the old path was in our tracked files
-            if (trackedFilesSet.has(oldPath)) {
-              renamedFiles.push({
-                old_path: oldPath,
-                new_path: newPath,
-              });
+        if (baseCommitSha !== latestCommitSha) {
+          const { data: compareData } = await octokit.repos.compareCommits({
+            owner: repoInfo.owner,
+            repo: repoInfo.repo,
+            base: baseCommitSha,
+            head: latestCommitSha,
+          });
+
+          // Find renames that affect tracked files
+          const trackedFilesSet = new Set(trackedFiles);
+          for (const file of compareData.files || []) {
+            if (file.status === 'renamed') {
+              const oldPath = file.previous_filename || file.filename;
+              const newPath = file.filename;
+
+              // Only track renames if the old path was in our tracked files
+              if (trackedFilesSet.has(oldPath)) {
+                renamedFiles.push({
+                  old_path: oldPath,
+                  new_path: newPath,
+                });
+              }
             }
           }
-        }
 
-        // Auto-update tracked files if renames detected
-        if (renamedFiles.length > 0) {
-          await updateTrackedFilesForRenames(
-            supabase,
+          // Auto-update tracked files if renames detected
+          if (renamedFiles.length > 0) {
+            await updateTrackedFilesForRenames(
+              supabase,
               documentId,
-            renamedFiles
-          );
+              renamedFiles
+            );
           }
         }
-        }
-      } catch (e) {
-        console.error('Error detecting renames:', e);
-        // Continue with file hash comparison even if rename detection fails
       }
+    } catch (e) {
+      console.error('Error detecting renames:', e);
+      // Continue with file hash comparison even if rename detection fails
+    }
 
     // Reload document files to get updated tracked files after rename handling
     const { data: updatedDocumentFiles } = await supabase
       .from('document_files')
       .select('file_path')
       .eq('document_id', documentId);
-    
+
     // Use updated files if renames occurred, otherwise use original
     const filesToCheck = (updatedDocumentFiles || []).map(df => df.file_path);
-    
+
     // Reload file hashes for updated files
     const { data: updatedSummaries } = filesToCheck.length > 0
       ? await supabase
-          .from('repo_file_summaries')
-          .select('file_path, file_hash')
-          .ilike('repo_id', normalizedRepoId)
-          .eq('branch', branch)
-          .in('file_path', filesToCheck)
+        .from('repo_file_summaries')
+        .select('file_path, file_hash')
+        .ilike('repo_id', normalizedRepoId)
+        .eq('branch', branch)
+        .in('file_path', filesToCheck)
       : { data: null };
-    
+
     const fileShasToCheck: Record<string, string | null> = {};
     updatedSummaries?.forEach(s => {
       fileShasToCheck[s.file_path] = s.file_hash;
@@ -234,7 +234,7 @@ export async function POST(request: NextRequest) {
 
     for (const filePath of filesToCheck) {
       const storedHash = fileShasToCheck[filePath];
-      
+
       // Skip if we don't have a stored hash for this file
       if (!storedHash) {
         continue;
@@ -251,7 +251,7 @@ export async function POST(request: NextRequest) {
 
         if (fileData && !Array.isArray(fileData) && fileData.type === 'file' && 'sha' in fileData) {
           const currentHash = fileData.sha;
-          
+
           // Compare: if hash changed, file changed
           if (currentHash !== storedHash) {
             changedFiles.push({

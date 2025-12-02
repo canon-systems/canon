@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
     // Get repo details
     const { data: repo, error: repoError } = await supabase
       .from('workspace_repos')
-      .select('repo_url, default_branch, workspace_id')
+      .select('repo_url, default_branch, workspace_id, settings')
       .eq('id', document.repo_id)
       .single();
 

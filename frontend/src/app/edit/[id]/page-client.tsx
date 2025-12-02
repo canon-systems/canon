@@ -295,7 +295,6 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
           if (updatedDocumentFiles && updatedDocumentFiles.length > 0) {
             const updatedFiles = updatedDocumentFiles.map(df => df.file_path);
             setTrackedFiles(updatedFiles);
-            setTrackedFiles(updatedSubmission.selected_files);
           }
         } else {
           setRenamedFiles([]);

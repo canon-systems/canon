@@ -49,12 +49,13 @@ export async function GET(request: NextRequest) {
     console.log(`[change-detection] Checking for changes in ${repo.repo_url} since ${sinceDate.toISOString()}`);
 
     // Detect repository changes
+    // Note: since parameter is not currently supported by detectRepositoryChanges
+    // The function uses snapshot comparison based on file hashes
     const changes = await detectRepositoryChanges({
       supabase,
       userId: repo.workspace_id,
       repoUrl: repo.repo_url,
       branch: repo.default_branch,
-      since: sinceDate,
     });
 
     console.log(`[change-detection] Found ${changes.files_changed.length} changed files, ${changes.files_added.length} added, ${changes.files_removed.length} removed`);
@@ -62,7 +63,7 @@ export async function GET(request: NextRequest) {
     // Get affected documents (docs that depend on changed files)
     const changedFilePaths = [
       ...changes.files_changed.map(f => f.path),
-      ...changes.files_added.map(f => f.path),
+      ...changes.files_added,
     ];
 
     if (changedFilePaths.length > 0) {
@@ -81,19 +82,24 @@ export async function GET(request: NextRequest) {
       }
 
       // Filter to only documents for this repo
+      // Note: Supabase returns documents as an object (not array) when using !inner join
       const repoDocuments = (affectedDocumentFiles || [])
-        .filter(df => df.documents?.repo_id === repoId);
+        .filter(df => {
+          const doc = df.documents as any;
+          return doc && doc.repo_id === repoId;
+        });
 
       // Group by document
       const affectedDocs = new Map();
       repoDocuments.forEach(df => {
         const docId = df.document_id;
+        const doc = df.documents as any;
         if (!affectedDocs.has(docId)) {
           affectedDocs.set(docId, {
             docId,
-            title: df.documents?.title || 'Untitled',
+            title: doc?.title || 'Untitled',
             status: 'completed', // Documents don't have status, all are considered completed
-            lastUpdated: df.documents?.updated_at || df.documents?.created_at,
+            lastUpdated: doc?.updated_at || doc?.created_at,
             affectedFiles: [],
           });
         }
