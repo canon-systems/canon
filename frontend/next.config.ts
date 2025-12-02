@@ -29,8 +29,20 @@ const nextConfig: NextConfig = {
     'dagre',
     'simple-icons',
   ],
-  // Note: webpack config removed - middleware uses esbuild, not webpack
-  // Middleware runs on Edge Runtime (default) - all dependencies must be Edge-compatible
+  // Webpack config for API routes (server-side) to handle __dirname polyfill
+  // Note: middleware uses esbuild, not webpack, so this only affects API routes
+  webpack: (config, { isServer, webpack }) => {
+    if (isServer) {
+      // Provide Node.js globals for server-side bundles
+      // This ensures __dirname and __filename are available for dependencies
+      config.node = {
+        ...config.node,
+        __dirname: true,
+        __filename: true,
+      };
+    }
+    return config;
+  },
 };
 
 export default nextConfig;
