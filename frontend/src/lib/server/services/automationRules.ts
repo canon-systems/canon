@@ -5,7 +5,41 @@ type RuleConfig = {
 	name?: string;
 	schedule?: string;
 	enabled?: boolean;
-	detect_changes?: boolean;
+
+	// WHEN: Trigger conditions (simplified)
+	detect_changes?: boolean; // Always true for smart automation
+
+	// WHAT: Actions (simplified to presets)
+	action_preset: 'docs_only' | 'diagrams_only' | 'docs_and_diagrams' | 'full_auto_publish';
+
+	// SIGNIFICANCE: Always required for smart automation
+	significance_analysis: {
+		sensitivity: 'strict' | 'balanced' | 'lenient';
+		minimum_confidence: 'high' | 'medium' | 'low';
+		require_technical_changes?: boolean;
+		require_business_changes?: boolean;
+	};
+
+	// SCOPE: What to process (empty = all)
+	target_documents?: string[]; // Document IDs to process (empty = all)
+	target_diagrams?: string[];  // Diagram IDs to process (empty = all)
+
+	// NOTIFICATIONS: Always enabled for smart automation
+	notifications: {
+		email_enabled: boolean;
+		include_preview_links: boolean;
+	};
+
+	// PUBLISHING: Where to publish approved content
+	publish_targets?: {
+		knowledge_bases?: Array<{
+			provider: 'notion' | 'confluence' | 'coda';
+			id: string;
+			name: string;
+		}>;
+	};
+
+	// LEGACY: Keep for backward compatibility
 	generate_doc?: boolean;
 	generate_diagram?: boolean;
 	auto_publish?: boolean;
@@ -13,13 +47,6 @@ type RuleConfig = {
 	auto_publish_max_changes?: number;
 	auto_publish_max_change_percentage?: number;
 	auto_publish_target?: Record<string, unknown>;
-	significance_analysis?: {
-		enabled?: boolean; // Default: true
-		sensitivity?: 'strict' | 'balanced' | 'lenient'; // Default: 'balanced'
-		require_technical_changes?: boolean; // Default: false
-		require_business_changes?: boolean; // Default: false
-		minimum_confidence?: 'high' | 'medium' | 'low'; // Default: 'medium'
-	};
 };
 
 export function parseSchedule(schedule: string) {

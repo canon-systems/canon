@@ -17,6 +17,14 @@ function parseRepoUrl(repoUrl: string): { owner: string; repo: string } | null {
   }
 }
 
+function normalizeRepoId(repoUrl: string): string {
+  const parsed = parseRepoUrl(repoUrl);
+  if (!parsed) {
+    throw new Error(`Invalid repo URL: ${repoUrl}`);
+  }
+  return `github.com/${parsed.owner}/${parsed.repo}`;
+}
+
 import { getDocument, getDocumentFiles } from '@/lib/server/services/documentService';
 
 export async function POST(request: NextRequest) {
@@ -85,6 +93,80 @@ export async function POST(request: NextRequest) {
       content: previewContent.trim(),
       change_summary: 'Document updated'
     });
+
+    // TRUE FIX: Update file hashes synchronously after regeneration
+    // This ensures check-updates sees current hashes, not stale ones
+    try {
+      const repoInfo = parseRepoUrl(repo.repo_url);
+      if (repoInfo) {
+        const octokit = await getUserOctokit(supabase, user.id);
+        const branch = repo.default_branch || 'main';
+
+        // Get current tracked files
+        const { data: documentFiles } = await supabase
+          .from('document_files')
+          .select('file_path')
+          .eq('document_id', documentId);
+
+        const trackedFiles = (documentFiles || []).map(df => df.file_path);
+
+        if (trackedFiles.length > 0) {
+          // Get latest commit to ensure we get current file versions
+          const { data: branchData } = await octokit.repos.getBranch({
+            owner: repoInfo.owner,
+            repo: repoInfo.repo,
+            branch
+          });
+          const latestCommitSha = branchData.commit.sha;
+
+          // Update hashes for all tracked files (synchronously)
+          for (const filePath of trackedFiles) {
+            try {
+              const { data: fileData } = await octokit.repos.getContent({
+                owner: repoInfo.owner,
+                repo: repoInfo.repo,
+                path: filePath,
+                ref: latestCommitSha
+              });
+
+              if (fileData && !Array.isArray(fileData) && fileData.type === 'file' && 'sha' in fileData) {
+                const currentHash = fileData.sha;
+
+                // Look up existing summary data to preserve it while updating hash
+                const { data: existingSummary } = await supabase
+                  .from('repo_file_summaries')
+                  .select('summary_text, summary_json, summary_model')
+                  .ilike('repo_id', normalizeRepoId(repo.repo_url))
+                  .eq('branch', branch)
+                  .eq('file_path', filePath)
+                  .single();
+
+                // Update hash in repo_file_summaries (preserve existing summaries)
+                const { error: hashUpdateError } = await supabase.rpc('upsert_repo_file_summary', {
+                  p_repo_id: normalizeRepoId(repo.repo_url),
+                  p_file_path: filePath,
+                  p_file_hash: currentHash,
+                  p_summary_text: existingSummary?.summary_text || '', // Preserve existing or use empty string
+                  p_summary_json: existingSummary?.summary_json || {}, // Preserve existing or use empty object
+                  p_summary_model: existingSummary?.summary_model || 'unknown', // Preserve existing or use default
+                  p_user_id: user.id,
+                  p_branch: branch,
+                });
+
+                if (hashUpdateError) {
+                  console.warn(`Failed to update hash for ${filePath}:`, hashUpdateError);
+                }
+              }
+            } catch (fileError) {
+              console.warn(`Could not update hash for ${filePath}:`, fileError);
+            }
+          }
+        }
+      }
+    } catch (hashUpdateError) {
+      console.error('[update] Failed to update file hashes:', hashUpdateError);
+      // Don't fail the entire operation if hash updates fail
+    }
 
     return NextResponse.json({
       success: true,

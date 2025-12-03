@@ -62,7 +62,7 @@ export async function POST(
       );
     }
 
-    console.log(`[Manual Run] Executing automation rule '${ruleId}' for repo ${repo.name} (${repoId})`);
+    console.log(`[Manual Run] Triggering automation rule '${ruleId}' for ${repo.name}`);
 
     // Execute the automation rule
     const execution = await executeAutomationRule({
@@ -78,7 +78,8 @@ export async function POST(
       trigger: 'manual',
     });
 
-    console.log(`[Manual Run] Completed: success=${execution.success}, skipped=${execution.skipped}, actions=${execution.actions.join(', ')}`);
+    const status = execution.success ? 'SUCCESS' : (execution.skipped ? 'SKIPPED' : 'FAILED');
+    console.log(`[Manual Run] ${status}: ${execution.actions.join(', ')}`);
 
     return NextResponse.json({
       success: execution.success,
@@ -91,6 +92,14 @@ export async function POST(
       publishStatus: execution.publishStatus,
       publishProvider: execution.publishProvider,
       publishResourceId: execution.publishResourceId,
+      // Add more detailed stats for better UX
+      stats: {
+        filesProcessed: execution.filesProcessed || 0,
+        documentsUpdated: execution.documentsUpdated || 0,
+        documentsCreated: execution.documentsCreated || 0,
+        timeElapsed: execution.timeElapsed || 0,
+      },
+      executionLog: execution.executionLog || [], // Array of step-by-step log messages
     });
   } catch (err: any) {
     console.error('[Manual Run] Error:', err);

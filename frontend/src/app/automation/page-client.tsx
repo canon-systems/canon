@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Zap, Plus, CheckCircle2, XCircle, Clock, Loader2, Sliders, GitBranch, ExternalLink, TrendingUp, Search, ChevronDown, FileText, Github, Trash2, PlayCircle, StopCircle } from 'lucide-react';
+import { Zap, Plus, CheckCircle2, XCircle, Clock, Loader2, Sliders, GitBranch, ExternalLink, TrendingUp, Search, ChevronDown, FileText, Github, Trash2, PlayCircle, StopCircle, X } from 'lucide-react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
@@ -46,22 +46,40 @@ interface AutomationRuleForm {
   scheduleIntervalValue: string;
   scheduleMonthDay: string;
   customScheduleDescription: string;
-  detect_changes: boolean;
-  generate_doc: boolean;
-  generate_diagram: boolean;
-  auto_publish: boolean;
-  auto_publish_new_docs: boolean;
-  auto_publish_max_changes: string;
-  auto_publish_max_change_percentage: string;
-  auto_publish_target_provider: string;
-  auto_publish_target_connection_id: string;
-  auto_publish_target_resource_id: string;
-  auto_publish_custom_resource: string;
-  significance_analysis_enabled: boolean;
+
+  // NEW: Smart automation with presets
+  action_preset: 'docs_only' | 'diagrams_only' | 'docs_and_diagrams' | 'full_auto_publish';
+
+  // NEW: Significance analysis (always enabled)
   significance_sensitivity: 'strict' | 'balanced' | 'lenient';
   significance_require_technical: boolean;
   significance_require_business: boolean;
   significance_minimum_confidence: 'high' | 'medium' | 'low';
+  significance_analysis_enabled?: boolean;
+
+  // NEW: Scope targeting
+  target_documents: string[]; // Empty = all documents
+  target_diagrams: string[];  // Empty = all diagrams
+
+  // NEW: Notifications
+  notifications_email_enabled: boolean;
+  notifications_include_preview_links: boolean;
+
+  // NEW: Auto-publish configuration
+  auto_publish_max_changes?: string;
+  auto_publish_max_change_percentage?: string;
+  auto_publish_target_provider?: string;
+  auto_publish_target_connection_id?: string;
+  auto_publish_target_resource_id?: string;
+  auto_publish_custom_resource?: string;
+  publish_targets?: Record<string, any>;
+
+  // LEGACY: Keep for backward compatibility
+  detect_changes?: boolean;
+  generate_doc?: boolean;
+  generate_diagram?: boolean;
+  auto_publish?: boolean;
+  auto_publish_new_docs?: boolean;
 }
 
 type AutomationAlert = {
@@ -112,7 +130,7 @@ function getProviderDisplayName(provider: string) {
 
 export function AutomationPageClient({ repos, connections: initialConnections, allRules: initialAllRules, stats: initialStats }: AutomationPageClientProps) {
   const supabase = createClient();
-  
+
   const [reposList, setReposList] = useState<Repo[]>(repos);
   const [connections, setConnections] = useState<Connection[]>(initialConnections);
   const [allRules, setAllRules] = useState(initialAllRules);
@@ -131,31 +149,16 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
 
   // Repository management state
   const [loadingRepos, setLoadingRepos] = useState(false);
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [formName, setFormName] = useState('');
-  const [formRepoUrl, setFormRepoUrl] = useState('');
-  const [formBranch, setFormBranch] = useState('main');
-  const [formSubdir, setFormSubdir] = useState('');
-  const [formSubmitting, setFormSubmitting] = useState(false);
-  const [ownerInput, setOwnerInput] = useState('');
-  const [baseOwner, setBaseOwner] = useState('');
-  const [showRepoSelector, setShowRepoSelector] = useState(false);
-  const [availableRepos, setAvailableRepos] = useState<Array<{ name: string; full_name: string; url: string; private: boolean }>>([]);
-  const [loadingRepoSearch, setLoadingRepoSearch] = useState(false);
-  const [branches, setBranches] = useState<string[]>([]);
-  const [directories, setDirectories] = useState<string[]>([]);
-  const [loadingBranches, setLoadingBranches] = useState(false);
-  const [loadingDirectories, setLoadingDirectories] = useState(false);
-  const [repoSuccess, setRepoSuccess] = useState('');
   const [repoError, setRepoError] = useState('');
+  const [repoSuccess, setRepoSuccess] = useState('');
 
   // Tab management
   type AutomationTab = 'repos' | 'rules';
   const [activeTab, setActiveTab] = useState<AutomationTab>('repos');
-  
+
   // Track expanded error states for runs
   const [expandedErrors, setExpandedErrors] = useState<Record<string, boolean>>({});
-  
+
   // Delete confirmation modals
   const [deleteRepoModal, setDeleteRepoModal] = useState<{ open: boolean; repoId: string | null; repoName: string }>({ open: false, repoId: null, repoName: '' });
   const [deleteRuleModal, setDeleteRuleModal] = useState<{ open: boolean; repoId: string | null; ruleId: string | null; ruleName: string }>({ open: false, repoId: null, ruleId: null, ruleName: '' });
@@ -163,8 +166,22 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
 
   // Manual rule execution state
   const [runningRules, setRunningRules] = useState<Record<string, boolean>>({});
-  const [runResults, setRunResults] = useState<Record<string, { success: boolean; message: string; docId?: string | null } | null>>({});
-  
+  const [runResults, setRunResults] = useState<Record<string, {
+    success: boolean;
+    message: string;
+    docId?: string | null;
+    diagramId?: string | null;
+    actions?: string[];
+    errors?: string[];
+    stats?: {
+      filesProcessed: number;
+      documentsUpdated: number;
+      documentsCreated: number;
+      timeElapsed: number;
+    };
+    timestamp?: number;
+  } | null>>({});
+
   // Abort controllers for cancelling running rules
   const abortControllersRef = useRef<Record<string, AbortController>>({});
 
@@ -202,7 +219,7 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
         const ruleId = rule.id || rule.name || 'default';
         const ruleMetadata = metadata[ruleId] || {};
         const enabled = Boolean(rule.enabled);
-        
+
         totalRules++;
         if (enabled) activeRules++;
 
@@ -210,7 +227,7 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
         const executionHistory = ruleMetadata.execution_history || [];
         const now = new Date();
         const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-        
+
         const recentExecutions = executionHistory.filter((exec: any) => {
           try {
             const execTime = new Date(exec.timestamp);
@@ -237,8 +254,8 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
       });
     });
 
-    const successRate = totalExecutions24h > 0 
-      ? Math.round((successfulExecutions / totalExecutions24h) * 100) 
+    const successRate = totalExecutions24h > 0
+      ? Math.round((successfulExecutions / totalExecutions24h) * 100)
       : 0;
 
     setAllRules(newAllRules);
@@ -279,118 +296,6 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
     return null;
   }
 
-  function searchRepos() {
-    if (ownerInput.trim()) {
-      setShowRepoSelector(true);
-      const trimmed = ownerInput.trim();
-      const cleanOwner = trimmed
-        .replace(/^https?:\/\/github\.com\//, '')
-        .replace(/\/$/, '')
-        .split('/')[0];
-      if (cleanOwner && cleanOwner !== baseOwner) {
-        setBaseOwner(cleanOwner);
-        fetchRepos(cleanOwner);
-      }
-    } else {
-      setShowRepoSelector(false);
-      setBaseOwner('');
-      setAvailableRepos([]);
-    }
-  }
-
-  async function fetchRepos(owner: string) {
-    if (!owner || loadingRepoSearch) return;
-    setLoadingRepoSearch(true);
-    try {
-      const response = await fetch('/api/github/repos', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ owner })
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setAvailableRepos((data.repos || [])
-          .filter((r: any) => r && r.name && r.full_name && r.url)
-          .map((r: { name: string; full_name: string; url: string; private: boolean }) => ({
-            name: r.name,
-            full_name: r.full_name,
-            url: r.url,
-            private: r.private || false
-          })));
-      } else {
-        setAvailableRepos([]);
-      }
-    } catch (err) {
-      console.error('Failed to fetch repos:', err);
-      setAvailableRepos([]);
-    } finally {
-      setLoadingRepoSearch(false);
-    }
-  }
-
-  function handleRepoSelect(repo: { name: string; full_name: string; url: string }) {
-    setFormRepoUrl(repo.url);
-    setFormName(repo.name);
-    setShowRepoSelector(false);
-    setOwnerInput('');
-    setBaseOwner('');
-    setAvailableRepos([]);
-  }
-
-  async function handleAddRepo() {
-    if (!formName || !formRepoUrl) {
-      setRepoError('Name and repository URL are required');
-      setTimeout(() => setRepoError(''), 5000);
-      return;
-    }
-    setFormSubmitting(true);
-    setRepoError('');
-    setRepoSuccess('');
-    try {
-      const settings: any = {};
-      if (formSubdir) {
-        settings.subdir = formSubdir;
-      }
-      const response = await fetch('/api/repos', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: formName,
-          provider: 'github',
-          repo_url: formRepoUrl,
-          default_branch: formBranch,
-          auth_type: 'github_pat',
-          settings,
-        }),
-      });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || errorData.detail || 'Failed to create repository');
-      }
-      // Reset form and reload
-      setFormName('');
-      setFormRepoUrl('');
-      setFormBranch('main');
-      setFormSubdir('');
-      setOwnerInput('');
-      setBaseOwner('');
-      setShowRepoSelector(false);
-      setAvailableRepos([]);
-      setBranches([]);
-      setDirectories([]);
-      setShowAddForm(false);
-      setRepoSuccess('Repository added successfully!');
-      setTimeout(() => setRepoSuccess(''), 5000);
-      await loadRepos();
-      // Refresh the page to update stats
-      window.location.reload();
-    } catch (err: any) {
-      setRepoError(err.message || 'Failed to add repository');
-      setTimeout(() => setRepoError(''), 5000);
-    } finally {
-      setFormSubmitting(false);
-    }
-  }
 
   async function handleDeleteRepo(repoId: string) {
     setDeleting(true);
@@ -432,10 +337,10 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
       }
       const data = await response.json();
       const currentRules = data.automation_rules || [];
-      
+
       // Remove the rule
       const updatedRules = currentRules.filter((r: any) => (r.id || r.name) !== ruleId);
-      
+
       // Update rules
       const updateResponse = await fetch(`/api/repos/${repoId}/automation`, {
         method: 'PATCH',
@@ -443,21 +348,21 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ automation_rules: updatedRules }),
       });
-      
+
       if (!updateResponse.ok) {
         const errorData = await updateResponse.json();
         throw new Error(errorData.error || errorData.detail || 'Failed to delete rule');
       }
-      
+
       setDeleteRuleModal({ open: false, repoId: null, ruleId: null, ruleName: '' });
       setRepoSuccess('Rule deleted successfully!');
       setTimeout(() => setRepoSuccess(''), 5000);
-      
+
       // Refresh automation rules
       if (activeAutomationRepoId === repoId) {
         await fetchAutomationRules(repoId);
       }
-      
+
       // Refresh the page to update stats
       window.location.reload();
     } catch (err: any) {
@@ -470,14 +375,14 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
 
   async function handleRunRule(repoId: string, ruleId: string) {
     const key = `${repoId}-${ruleId}`;
-    
+
     // Create abort controller for this run
     const abortController = new AbortController();
     abortControllersRef.current[key] = abortController;
-    
+
     setRunningRules((prev) => ({ ...prev, [key]: true }));
     setRunResults((prev) => ({ ...prev, [key]: null }));
-    
+
     try {
       const response = await fetch(`/api/repos/${repoId}/automation/run`, {
         method: 'POST',
@@ -486,13 +391,13 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
         body: JSON.stringify({ ruleId }),
         signal: abortController.signal,
       });
-      
+
       const data = await response.json();
-      
+
       if (!response.ok) {
         throw new Error(data.error || data.detail || 'Failed to run automation rule');
       }
-      
+
       // Build result message
       let message = '';
       if (data.skipped) {
@@ -503,21 +408,26 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
       } else {
         message = `Failed: ${data.errors?.join(', ') || 'Unknown error'}`;
       }
-      
+
       setRunResults((prev) => ({
         ...prev,
         [key]: {
           success: data.success && !data.skipped,
           message,
           docId: data.docId,
+          diagramId: data.diagramId,
+          actions: data.actions,
+          errors: data.errors,
+          stats: data.stats,
+          timestamp: Date.now(),
         },
       }));
-      
+
       // Auto-clear result after 10 seconds
       setTimeout(() => {
         setRunResults((prev) => ({ ...prev, [key]: null }));
       }, 10000);
-      
+
       // Refresh to update stats
       await loadRepos();
     } catch (err: any) {
@@ -539,7 +449,7 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
           },
         }));
       }
-      
+
       // Auto-clear error after 10 seconds
       setTimeout(() => {
         setRunResults((prev) => ({ ...prev, [key]: null }));
@@ -556,7 +466,7 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
     const controller = abortControllersRef.current[key];
     if (controller) {
       controller.abort();
-      
+
       // Record the cancellation in execution history
       try {
         await fetch(`/api/repos/${repoId}/automation/cancel`, {
@@ -565,7 +475,7 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ruleId }),
         });
-        
+
         // Refresh to show the cancelled run in the logs
         await loadRepos();
       } catch (err) {
@@ -598,16 +508,24 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
       scheduleIntervalValue: overrides.scheduleIntervalValue ?? '1',
       scheduleMonthDay: overrides.scheduleMonthDay ?? '1',
       customScheduleDescription: overrides.customScheduleDescription ?? '',
-      detect_changes: overrides.detect_changes ?? true,
-      generate_doc: overrides.generate_doc ?? true,
-      generate_diagram: overrides.generate_diagram ?? false,
-      auto_publish: overrides.auto_publish ?? false,
-      auto_publish_new_docs: overrides.auto_publish_new_docs ?? false,
-      significance_analysis_enabled: overrides.significance_analysis_enabled ?? true,
+      // NEW: Smart automation defaults
+      action_preset: overrides.action_preset ?? 'docs_and_diagrams',
       significance_sensitivity: overrides.significance_sensitivity ?? 'balanced',
       significance_require_technical: overrides.significance_require_technical ?? false,
       significance_require_business: overrides.significance_require_business ?? false,
       significance_minimum_confidence: overrides.significance_minimum_confidence ?? 'medium',
+      target_documents: overrides.target_documents ?? [],
+      target_diagrams: overrides.target_diagrams ?? [],
+      notifications_email_enabled: overrides.notifications_email_enabled ?? true,
+      notifications_include_preview_links: overrides.notifications_include_preview_links ?? true,
+
+      // LEGACY: Keep for backward compatibility (not displayed in UI)
+      detect_changes: true, // Always true for smart automation
+      generate_doc: overrides.generate_doc ?? true,
+      generate_diagram: overrides.generate_diagram ?? false,
+      auto_publish: overrides.auto_publish ?? false,
+      auto_publish_new_docs: overrides.auto_publish_new_docs ?? false,
+      significance_analysis_enabled: true, // Always true for smart automation
       auto_publish_max_changes: overrides.auto_publish_max_changes ?? '50',
       auto_publish_max_change_percentage: overrides.auto_publish_max_change_percentage ?? '5',
       auto_publish_target_provider: overrides.auto_publish_target_provider ?? '',
@@ -666,6 +584,22 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
     if (!Array.isArray(rules)) return [];
     return rules.map((rule, index) => {
       const schedule = parseSchedule(rule);
+
+      // NEW: Smart automation - determine preset from legacy fields or use new format
+      let action_preset = rule.action_preset;
+      if (!action_preset) {
+        // Infer preset from legacy fields
+        if (rule.generate_doc && rule.generate_diagram && rule.auto_publish) {
+          action_preset = 'full_auto_publish';
+        } else if (rule.generate_doc && rule.generate_diagram) {
+          action_preset = 'docs_and_diagrams';
+        } else if (rule.generate_diagram) {
+          action_preset = 'diagrams_only';
+        } else {
+          action_preset = 'docs_only';
+        }
+      }
+
       return createAutomationRuleForm({
         id: rule.id || `rule-${index}-${Date.now()}`,
         name: rule.name ?? '',
@@ -677,16 +611,25 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
         scheduleIntervalValue: schedule.scheduleIntervalValue,
         scheduleMonthDay: schedule.scheduleMonthDay,
         customScheduleDescription: schedule.customScheduleDescription,
-        detect_changes: rule.detect_changes ?? true,
-        generate_doc: rule.generate_doc ?? true,
-        generate_diagram: rule.generate_diagram ?? false,
-        auto_publish: rule.auto_publish ?? false,
-        auto_publish_new_docs: rule.auto_publish_new_docs ?? false,
-        significance_analysis_enabled: rule.significance_analysis?.enabled !== false,
+
+        // NEW: Smart automation fields
+        action_preset,
         significance_sensitivity: rule.significance_analysis?.sensitivity || 'balanced',
         significance_require_technical: rule.significance_analysis?.require_technical_changes || false,
         significance_require_business: rule.significance_analysis?.require_business_changes || false,
         significance_minimum_confidence: rule.significance_analysis?.minimum_confidence || 'medium',
+        target_documents: rule.target_documents || [],
+        target_diagrams: rule.target_diagrams || [],
+        notifications_email_enabled: rule.notifications?.email_enabled ?? true,
+        notifications_include_preview_links: rule.notifications?.include_preview_links ?? true,
+
+        // LEGACY: Keep for backward compatibility (not displayed in UI)
+        detect_changes: true, // Always true for smart automation
+        generate_doc: rule.generate_doc ?? true,
+        generate_diagram: rule.generate_diagram ?? false,
+        auto_publish: rule.auto_publish ?? false,
+        auto_publish_new_docs: rule.auto_publish_new_docs ?? false,
+        significance_analysis_enabled: true, // Always true for smart automation
         auto_publish_max_changes: rule.auto_publish_max_changes?.toString() ?? '50',
         auto_publish_max_change_percentage: rule.auto_publish_max_change_percentage?.toString() ?? '5',
         auto_publish_target_provider: rule?.auto_publish_target?.provider ?? '',
@@ -910,41 +853,40 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
   }
 
   function formToRule(form: AutomationRuleForm) {
+    // NEW: Smart automation rule structure
     const rule: Record<string, any> = {
       id: form.id,
+      name: form.name?.trim() || 'Smart Automation',
       enabled: form.enabled,
       schedule: buildScheduleValue(form),
-      detect_changes: form.detect_changes,
-      generate_doc: form.generate_doc,
-      generate_diagram: form.generate_diagram,
-      auto_publish: form.auto_publish,
-      auto_publish_new_docs: form.auto_publish_new_docs,
-      auto_publish_max_changes: Number(form.auto_publish_max_changes) || 0,
-      auto_publish_max_change_percentage: Number(form.auto_publish_max_change_percentage) || 0
+
+      // Smart automation fields
+      action_preset: form.action_preset,
+      significance_analysis: {
+        sensitivity: form.significance_sensitivity,
+        minimum_confidence: form.significance_minimum_confidence,
+        require_technical_changes: form.significance_require_technical,
+        require_business_changes: form.significance_require_business,
+      },
+      target_documents: form.target_documents || [],
+      target_diagrams: form.target_diagrams || [],
+      notifications: {
+        email_enabled: form.notifications_email_enabled,
+        include_preview_links: form.notifications_include_preview_links,
+      },
+      publish_targets: form.publish_targets || {},
     };
 
-    if (form.name.trim()) rule.name = form.name.trim();
-    if (form.customScheduleDescription.trim()) rule.custom_schedule_description = form.customScheduleDescription.trim();
-
-    const provider = form.auto_publish_target_provider.trim();
-    const connectionId = form.auto_publish_target_connection_id.trim();
-    const resourceId = form.auto_publish_target_resource_id.trim() || form.auto_publish_custom_resource.trim();
-
-    if (provider || connectionId || resourceId) {
-      rule.auto_publish_target = {
-        ...(provider && { provider }),
-        ...(connectionId && { connection_id: connectionId }),
-        ...(resourceId && { resource_id: resourceId })
-      };
+    if (form.customScheduleDescription?.trim()) {
+      rule.custom_schedule_description = form.customScheduleDescription.trim();
     }
 
-    rule.significance_analysis = {
-      enabled: form.significance_analysis_enabled,
-      sensitivity: form.significance_sensitivity,
-      require_technical_changes: form.significance_require_technical,
-      require_business_changes: form.significance_require_business,
-      minimum_confidence: form.significance_minimum_confidence
-    };
+    // LEGACY: Keep for backward compatibility during migration
+    rule.detect_changes = true; // Always true for smart automation
+    rule.generate_doc = ['docs_only', 'docs_and_diagrams', 'full_auto_publish'].includes(form.action_preset);
+    rule.generate_diagram = ['diagrams_only', 'docs_and_diagrams', 'full_auto_publish'].includes(form.action_preset);
+    rule.auto_publish = form.action_preset === 'full_auto_publish';
+    rule.auto_publish_new_docs = false; // Never auto-publish new docs in smart automation
 
     return rule;
   }
@@ -975,7 +917,7 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
 
   async function handleSaveAutomationRules(repoId: string) {
     if (!singleRuleForm) return;
-    
+
     const parsed = [formToRule(singleRuleForm)];
 
     setAutomationSaving((prev) => ({ ...prev, [repoId]: true }));
@@ -998,8 +940,37 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
       setAutomationCache((prev) => ({ ...prev, [repoId]: updated }));
       const nextForms = mapRulesToForms(updated.automation_rules || []);
       setSingleRuleForm(nextForms.length > 0 ? nextForms[0] : createAutomationRuleForm());
+
+      // Update reposList with the saved automation rules
+      setReposList(prev => prev.map(r =>
+        r.id === repoId
+          ? {
+            ...r,
+            settings: {
+              ...r.settings,
+              automation_rules: updated.automation_rules,
+              automation_metadata: updated.automation_metadata
+            }
+          }
+          : r
+      ));
+
+      // Recalculate allRules and stats to reflect the changes in the UI
+      recalculateRulesAndStats(reposList.map(r =>
+        r.id === repoId
+          ? {
+            ...r,
+            settings: {
+              ...r.settings,
+              automation_rules: updated.automation_rules,
+              automation_metadata: updated.automation_metadata
+            }
+          }
+          : r
+      ));
+
       setAutomationAlerts((prev) => ({ ...prev, [repoId]: { type: 'success', message: 'Automation rule saved' } }));
-      
+
       // Close the modal after successful save
       setAutomationConfigOpen(false);
       setActiveAutomationRepoId(null);
@@ -1041,18 +1012,16 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
 
       // Update local state
       const updated = await response.json();
-      setReposList(prev => prev.map(r =>
+      const updatedReposList = reposList.map(r =>
         r.id === repoId
           ? { ...r, settings: { ...r.settings, automation_rules: updated.automation_rules } }
           : r
-      ));
+      );
 
-      // Update allRules state
-      recalculateRulesAndStats(reposList.map(r =>
-        r.id === repoId
-          ? { ...r, settings: { ...r.settings, automation_rules: updated.automation_rules } }
-          : r
-      ));
+      setReposList(updatedReposList);
+
+      // Update allRules state - use updatedReposList instead of reposList
+      recalculateRulesAndStats(updatedReposList);
 
     } catch (error: any) {
       console.error('Failed to toggle rule enabled state:', error);
@@ -1090,7 +1059,7 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
 
   const activeAutomationRepo = reposList.find((repo) => repo.id === activeAutomationRepoId) || null;
   const knowledgeBaseConnections = connections.filter((connection) => isKnowledgeBaseProvider(connection.provider));
-  
+
   // Get resource options for single rule form
   const connectionId = singleRuleForm?.auto_publish_target_connection_id;
   const selectedConnection = connectionId ? connections.find((c) => c.connection_id === connectionId || c.id === connectionId) : null;
@@ -1105,14 +1074,14 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
   const helperText = !connectionId && !selectedProvider
     ? 'Resource list updates after you connect a provider.'
     : !providerSupportsResources
-    ? 'Resource listing is only available for Notion, Confluence, and Coda connections.'
-    : resourceLoading
-    ? `Loading ${providerDisplayName || 'resources'}...`
-    : resourceError
-    ? resourceError
-    : resourceOptions.length === 0
-    ? `No resources found for ${providerDisplayName || 'this provider'} yet.`
-    : `Choose a resource to publish to ${providerDisplayName || 'this provider'}.`;
+      ? 'Resource listing is only available for Notion, Confluence, and Coda connections.'
+      : resourceLoading
+        ? `Loading ${providerDisplayName || 'resources'}...`
+        : resourceError
+          ? resourceError
+          : resourceOptions.length === 0
+            ? `No resources found for ${providerDisplayName || 'this provider'} yet.`
+            : `Choose a resource to publish to ${providerDisplayName || 'this provider'}.`;
   const defaultOptionLabel = resourceLoading ? `Loading ${providerDisplayName || 'resources'}...` : 'Select a resource';
 
   // Helper functions for UI
@@ -1221,22 +1190,20 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
         <nav className="flex gap-1" aria-label="Automation tabs">
           <button
             onClick={() => setActiveTab('repos')}
-            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors border-b-2 ${
-              activeTab === 'repos'
-                ? 'border-purple-500 text-white'
-                : 'border-transparent text-white/60 hover:text-white hover:border-white/20'
-            }`}
+            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors border-b-2 ${activeTab === 'repos'
+              ? 'border-purple-500 text-white'
+              : 'border-transparent text-white/60 hover:text-white hover:border-white/20'
+              }`}
           >
             <Github className="h-4 w-4" />
             Repositories
           </button>
           <button
             onClick={() => setActiveTab('rules')}
-            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors border-b-2 ${
-              activeTab === 'rules'
-                ? 'border-purple-500 text-white'
-                : 'border-transparent text-white/60 hover:text-white hover:border-white/20'
-            }`}
+            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors border-b-2 ${activeTab === 'rules'
+              ? 'border-purple-500 text-white'
+              : 'border-transparent text-white/60 hover:text-white hover:border-white/20'
+              }`}
           >
             <Zap className="h-4 w-4" />
             Rules
@@ -1244,392 +1211,141 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
         </nav>
       </div>
 
-      {/* Success/Error Messages */}
-      {repoSuccess && (
-        <div className="mb-6 rounded-lg border border-green-500/50 bg-green-500/10 p-4 text-green-200">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="h-5 w-5" />
-              <p>{repoSuccess}</p>
-            </div>
-            <button
-              onClick={() => setRepoSuccess('')}
-              className="text-green-200/60 hover:text-green-200"
-            >
-              <XCircle className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-      )}
-
-      {repoError && (
-        <div className="mb-6 rounded-lg border border-red-500/50 bg-red-500/10 p-4 text-red-200">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <XCircle className="h-5 w-5" />
-              <p>{repoError}</p>
-            </div>
-            <button
-              onClick={() => setRepoError('')}
-              className="text-red-200/60 hover:text-red-200"
-            >
-              <XCircle className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Tab Content */}
       {activeTab === 'repos' && (
         <>
           {/* Repository Management Section */}
           <div className="glass-panel p-6 mb-8">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-2xl font-semibold text-white mb-2">Repositories</h2>
-            <p className="text-white/70">Manage your repositories and configure automation rules</p>
-          </div>
-          <button
-            onClick={() => {
-              if (showAddForm) {
-                setFormName('');
-                setFormRepoUrl('');
-                setFormBranch('main');
-                setFormSubdir('');
-                setOwnerInput('');
-                setBaseOwner('');
-                setShowRepoSelector(false);
-                setAvailableRepos([]);
-                setBranches([]);
-                setDirectories([]);
-                setRepoError('');
-                setRepoSuccess('');
-              }
-              setShowAddForm(!showAddForm);
-            }}
-            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
-          >
-            <Plus className="h-4 w-4" />
-            {showAddForm ? 'Cancel' : 'Add Repository'}
-          </button>
-        </div>
-
-        {/* Add Repository Form */}
-        {showAddForm && (
-          <div className="mb-6 rounded-xl border border-white/10 bg-white/5 p-6">
-            <h3 className="text-lg font-semibold text-white mb-4">Add New Repository</h3>
-            
-            {/* Repository Search */}
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-white/90 mb-2">
-                Search by GitHub Username or Organization
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={ownerInput}
-                  onChange={(e) => setOwnerInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      searchRepos();
-                    }
-                  }}
-                  placeholder="Enter GitHub username or org (e.g., 'vercel' or 'github.com/vercel')"
-                  className="flex-1 rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white placeholder-white/60 outline-none focus:border-white/40"
-                />
-                <button
-                  type="button"
-                  onClick={searchRepos}
-                  disabled={loadingRepoSearch || !ownerInput.trim()}
-                  className="inline-flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white/90 transition-all hover:bg-white/20 hover:border-white/30 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {loadingRepoSearch ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Search className="h-4 w-4" />
-                  )}
-                  Search
-                </button>
-              </div>
-              {showRepoSelector && availableRepos.length > 0 && (
-                <div className="mt-2 rounded-lg border border-white/20 bg-black/95 max-h-60 overflow-y-auto">
-                  {availableRepos.map((repo) => (
-                    <button
-                      key={repo.url}
-                      type="button"
-                      onClick={() => handleRepoSelect(repo)}
-                      className="w-full text-left px-3 py-2 hover:bg-white/10 transition-colors border-b border-white/10 last:border-b-0"
-                    >
-                      <div className="flex items-center gap-2">
-                        <Github className="h-4 w-4 text-white/60" />
-                        <div className="flex-1">
-                          <div className="text-sm font-medium text-white">{repo.name}</div>
-                          <div className="text-xs text-white/50">{repo.full_name}</div>
-                        </div>
-                        {repo.private && (
-                          <span className="text-xs text-white/40 bg-white/10 px-2 py-0.5 rounded">Private</span>
-                        )}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Display Name */}
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-white/90 mb-1">
-                Display Name
-              </label>
-              <input
-                type="text"
-                value={formName}
-                onChange={(e) => setFormName(e.target.value)}
-                placeholder="My Project"
-                className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white placeholder-white/60 outline-none focus:border-white/40"
-              />
-            </div>
-
-            {/* Repository URL */}
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-white/90 mb-1">
-                Repository URL
-              </label>
-              <input
-                type="text"
-                value={formRepoUrl}
-                onChange={(e) => setFormRepoUrl(e.target.value)}
-                placeholder="https://github.com/owner/repo"
-                className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white placeholder-white/60 outline-none focus:border-white/40"
-              />
-            </div>
-
-            {/* Branch and Subdirectory */}
-            <div className="grid grid-cols-2 gap-4 mb-4">
+            <div className="flex items-center justify-between mb-6">
               <div>
-                <label className="block text-sm font-medium text-white/90 mb-1">
-                  Default Branch
-                </label>
-                {branches.length > 0 ? (
-                  <div className="relative">
-                    <select
-                      value={formBranch}
-                      onChange={(e) => setFormBranch(e.target.value)}
-                      disabled={loadingBranches}
-                      className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white outline-none focus:border-white/40 disabled:opacity-50 appearance-none pr-8"
-                    >
-                      {branches.map((b) => (
-                        <option key={b} value={b} className="bg-black text-white">
-                          {b}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-white/60 pointer-events-none" />
-                  </div>
-                ) : (
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={formBranch}
-                      onChange={(e) => setFormBranch(e.target.value)}
-                      placeholder="main"
-                      disabled={loadingBranches}
-                      className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white placeholder-white/60 outline-none focus:border-white/40 disabled:opacity-50"
-                    />
-                    {loadingBranches && (
-                      <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-white/60" />
-                    )}
-                  </div>
-                )}
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-white/90 mb-1">
-                  Subdirectory (optional)
-                </label>
-                {directories.length > 0 ? (
-                  <div className="relative">
-                    <select
-                      value={formSubdir}
-                      onChange={(e) => setFormSubdir(e.target.value)}
-                      disabled={loadingDirectories}
-                      className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white outline-none focus:border-white/40 disabled:opacity-50 appearance-none pr-8"
-                    >
-                      <option value="" className="bg-black text-white">None (root)</option>
-                      {directories.map((d) => (
-                        <option key={d} value={d} className="bg-black text-white">
-                          {d}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-white/60 pointer-events-none" />
-                  </div>
-                ) : (
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={formSubdir}
-                      onChange={(e) => setFormSubdir(e.target.value)}
-                      placeholder="/src (optional)"
-                      disabled={loadingDirectories}
-                      className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white placeholder-white/60 outline-none focus:border-white/40 disabled:opacity-50"
-                    />
-                    {loadingDirectories && (
-                      <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-white/60" />
-                    )}
-                  </div>
-                )}
+                <h2 className="text-2xl font-semibold text-white mb-2">Repositories</h2>
+                <p className="text-white/70">Manage your repositories and configure automation rules</p>
               </div>
             </div>
 
-            <div className="flex items-center gap-3 pt-2">
-              <button
-                onClick={handleAddRepo}
-                disabled={formSubmitting || !formName || !formRepoUrl}
-                className="inline-flex items-center gap-2 rounded-lg bg-green-500/20 border border-green-500/40 px-4 py-2 text-sm font-medium text-green-200 transition-all hover:bg-green-500/30 hover:border-green-500/60 disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                {formSubmitting ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Adding...
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="h-4 w-4" />
-                    Add Repository
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        )}
 
-        {/* Repositories List */}
-        {loadingRepos ? (
-          <div className="rounded-xl border border-white/10 bg-white/5 p-8 text-center">
-            <Loader2 className="h-8 w-8 animate-spin text-white/50 mx-auto mb-2" />
-            <p className="text-white/60">Loading repositories...</p>
-          </div>
-        ) : reposList.length === 0 ? (
-          <div className="rounded-xl border border-white/10 bg-white/5 p-8 text-center">
-            <Github className="h-12 w-12 text-white/30 mx-auto mb-4" />
-            <p className="text-white/60 mb-2">No repositories registered yet.</p>
-            <button
-              onClick={() => setShowAddForm(true)}
-              className="inline-block rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
-            >
-              Add your first repository
-            </button>
-          </div>
-        ) : (
-          <div className="rounded-xl border border-white/10 bg-white/5 overflow-hidden">
-            <table className="w-full">
-              <thead className="border-b border-white/10 bg-white/5">
-                <tr>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-white/90">Repository</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-white/90">Branch</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-white/90">Automation</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-white/90">Added</th>
-                  <th className="px-4 py-3 text-right text-sm font-semibold text-white/90">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/10">
-                {reposList.map((repo) => {
-                  const repoInfo = parseRepoUrl(repo.repo_url);
-                  const repoRules = allRules.filter((r) => r.repoId === repo.id);
-                  const hasRules = repoRules.length > 0;
-                  const activeRules = repoRules.filter((r) => r.enabled).length;
-                  return (
-                    <tr key={repo.id} className="hover:bg-white/5 transition-colors">
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <Github className="h-4 w-4 text-white/60" />
-                          <div>
-                            <div className="font-semibold text-white">{repo.name}</div>
-                            <div className="text-xs text-white/50 font-mono">
-                              {repo.repo_url}
-                            </div>
-                            {repo.settings?.subdir && (
-                              <div className="text-xs text-white/40 mt-0.5">
-                                Path: {repo.settings.subdir}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1 text-sm text-white/70">
-                          <GitBranch className="h-3 w-3" />
-                          {repo.default_branch}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        {hasRules ? (
-                          <div className="flex items-center gap-2">
-                            <span className="inline-flex items-center gap-1 rounded-full bg-purple-500/20 px-2 py-1 text-xs text-purple-300">
-                              <Zap className="h-3 w-3" />
-                              {activeRules} active
-                            </span>
-                            <span className="text-xs text-white/50">
-                              ({repoRules.length} total)
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="text-xs text-white/40">No rules</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-white/70">
-                        {new Date(repo.created_at).toLocaleDateString()}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center justify-end gap-2">
-                          <Link
-                            href={`/edit`}
-                            onClick={(e) => {
-                              sessionStorage.setItem('edit-repo-filter', repo.repo_url);
-                            }}
-                            className="inline-flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-sm font-medium text-white/90 transition-all hover:bg-white/20 hover:border-white/30"
-                            title="View docs for this repository"
-                          >
-                            <FileText className="h-3 w-3" />
-                            View Docs
-                          </Link>
-                            <button
-                              onClick={() => openAutomationModal(repo.id)}
-                              className="inline-flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-sm font-medium text-white/80 transition-all hover:bg-white/20 hover:border-white/30"
-                              title="Configure automation rules"
-                            >
-                              <Zap className="h-3 w-3" />
-                              {hasRules ? 'Manage' : 'Setup'}
-                            </button>
-                            <button
-                              onClick={() => setDeleteRepoModal({ open: true, repoId: repo.id, repoName: repo.name })}
-                              className="inline-flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-sm font-medium text-red-300 transition-all hover:bg-red-500/20 hover:border-red-500/40"
-                              title="Delete repository"
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </button>
-                          {repoInfo && (
-                            <a
-                              href={repo.repo_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-sm font-medium text-white/90 transition-all hover:bg-white/20 hover:border-white/30"
-                              title="Open repository on GitHub"
-                            >
-                              <ExternalLink className="h-3 w-3" />
-                            </a>
-                          )}
-                        </div>
-                      </td>
+            {/* Repositories List */}
+            {loadingRepos ? (
+              <div className="rounded-xl border border-white/10 bg-white/5 p-8 text-center">
+                <Loader2 className="h-8 w-8 animate-spin text-white/50 mx-auto mb-2" />
+                <p className="text-white/60">Loading repositories...</p>
+              </div>
+            ) : reposList.length === 0 ? (
+              <div className="rounded-xl border border-white/10 bg-white/5 p-8 text-center">
+                <Github className="h-12 w-12 text-white/30 mx-auto mb-4" />
+                <p className="text-white/60 mb-2">No repositories registered yet.</p>
+                <p className="text-white/50 text-sm">Connect repositories through the repository setup process to enable automation.</p>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-white/10 bg-white/5 overflow-hidden">
+                <table className="w-full">
+                  <thead className="border-b border-white/10 bg-white/5">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-white/90">Repository</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-white/90">Branch</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-white/90">Automation</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-white/90">Added</th>
+                      <th className="px-4 py-3 text-right text-sm font-semibold text-white/90">Actions</th>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  </thead>
+                  <tbody className="divide-y divide-white/10">
+                    {reposList.map((repo) => {
+                      const repoInfo = parseRepoUrl(repo.repo_url);
+                      const repoRules = allRules.filter((r) => r.repoId === repo.id);
+                      const hasRules = repoRules.length > 0;
+                      const activeRules = repoRules.filter((r) => r.enabled).length;
+                      return (
+                        <tr key={repo.id} className="hover:bg-white/5 transition-colors">
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              <Github className="h-4 w-4 text-white/60" />
+                              <div>
+                                <div className="font-semibold text-white">{repo.name}</div>
+                                <div className="text-xs text-white/50 font-mono">
+                                  {repo.repo_url}
+                                </div>
+                                {repo.settings?.subdir && (
+                                  <div className="text-xs text-white/40 mt-0.5">
+                                    Path: {repo.settings.subdir}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-1 text-sm text-white/70">
+                              <GitBranch className="h-3 w-3" />
+                              {repo.default_branch}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3">
+                            {hasRules ? (
+                              <div className="flex items-center gap-2">
+                                <span className="inline-flex items-center gap-1 rounded-full bg-purple-500/20 px-2 py-1 text-xs text-purple-300">
+                                  <Zap className="h-3 w-3" />
+                                  {activeRules} active
+                                </span>
+                                <span className="text-xs text-white/50">
+                                  ({repoRules.length} total)
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-xs text-white/40">No rules</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-white/70">
+                            {new Date(repo.created_at).toLocaleDateString()}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center justify-end gap-2">
+                              <Link
+                                href={`/edit`}
+                                onClick={(e) => {
+                                  sessionStorage.setItem('edit-repo-filter', repo.repo_url);
+                                }}
+                                className="inline-flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-sm font-medium text-white/90 transition-all hover:bg-white/20 hover:border-white/30"
+                                title="View docs for this repository"
+                              >
+                                <FileText className="h-3 w-3" />
+                                View Docs
+                              </Link>
+                              <button
+                                onClick={() => openAutomationModal(repo.id)}
+                                className="inline-flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-sm font-medium text-white/80 transition-all hover:bg-white/20 hover:border-white/30"
+                                title="Configure automation rules"
+                              >
+                                <Zap className="h-3 w-3" />
+                                {hasRules ? 'Manage' : 'Setup'}
+                              </button>
+                              <button
+                                onClick={() => setDeleteRepoModal({ open: true, repoId: repo.id, repoName: repo.name })}
+                                className="inline-flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-sm font-medium text-red-300 transition-all hover:bg-red-500/20 hover:border-red-500/40"
+                                title="Delete repository"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                              {repoInfo && (
+                                <a
+                                  href={repo.repo_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-sm font-medium text-white/90 transition-all hover:bg-white/20 hover:border-white/30"
+                                  title="Open repository on GitHub"
+                                >
+                                  <ExternalLink className="h-3 w-3" />
+                                </a>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
-        )}
-      </div>
         </>
       )}
 
@@ -1639,7 +1355,7 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
           <div className="glass-panel p-6">
             <h2 className="text-2xl font-semibold text-white mb-4">Automation Rules</h2>
             <p className="text-white/70 mb-6">View and manage automation rules configured for your repositories</p>
-            
+
             {reposList.length === 0 ? (
               <div className="text-center py-12">
                 <Zap className="h-16 w-16 text-white/30 mx-auto mb-4" />
@@ -1709,7 +1425,7 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                           const ruleConfig = (settings.automation_rules || []).find((r: any) => (r.id || r.name) === rule.ruleId);
 
                           return (
-                            <div 
+                            <div
                               onClick={() => openAutomationModal(repoId)}
                               className="rounded-lg border border-white/10 bg-black/40 p-4 cursor-pointer hover:bg-black/60 transition-colors"
                             >
@@ -1778,23 +1494,110 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                                   </div>
                                 )}
 
-                                {/* Run result feedback */}
+                                {/* Enhanced run result feedback */}
                                 {runResults[`${repoId}-${rule.ruleId}`] && (
-                                  <div className={`mt-2 p-2 rounded text-xs ${
-                                    runResults[`${repoId}-${rule.ruleId}`]?.success 
-                                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' 
-                                      : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                                  }`}>
-                                    {runResults[`${repoId}-${rule.ruleId}`]?.message}
-                                    {runResults[`${repoId}-${rule.ruleId}`]?.docId && (
-                                      <Link
-                                        href={`/edit/${runResults[`${repoId}-${rule.ruleId}`]?.docId}`}
-                                        onClick={(e) => e.stopPropagation()}
-                                        className="ml-2 underline hover:no-underline"
+                                  <div className={`mt-2 p-3 rounded border ${runResults[`${repoId}-${rule.ruleId}`]?.success
+                                    ? 'bg-emerald-500/10 border-emerald-500/30'
+                                    : 'bg-red-500/10 border-red-500/30'
+                                    }`}>
+                                    <div className="flex items-start gap-2 mb-2">
+                                      {runResults[`${repoId}-${rule.ruleId}`]?.success ? (
+                                        <CheckCircle2 className="h-4 w-4 text-emerald-400 mt-0.5 flex-shrink-0" />
+                                      ) : (
+                                        <XCircle className="h-4 w-4 text-red-400 mt-0.5 flex-shrink-0" />
+                                      )}
+                                      <div className="flex-1">
+                                        <div className={`text-sm font-medium ${runResults[`${repoId}-${rule.ruleId}`]?.success ? 'text-emerald-300' : 'text-red-300'
+                                          }`}>
+                                          {runResults[`${repoId}-${rule.ruleId}`]?.success ? 'Automation completed successfully' : 'Automation failed'}
+                                        </div>
+                                        <div className={`text-xs mt-1 ${runResults[`${repoId}-${rule.ruleId}`]?.success ? 'text-emerald-200' : 'text-red-200'
+                                          }`}>
+                                          {runResults[`${repoId}-${rule.ruleId}`]?.message}
+                                        </div>
+                                      </div>
+                                      <button
+                                        onClick={() => {
+                                          setRunResults(prev => ({ ...prev, [`${repoId}-${rule.ruleId}`]: null }));
+                                        }}
+                                        className="text-white/40 hover:text-white/60 text-xs"
+                                        title="Dismiss"
                                       >
-                                        View Doc →
-                                      </Link>
-                                    )}
+                                        <X className="h-3 w-3" />
+                                      </button>
+                                    </div>
+
+                                    {/* Show actions taken */}
+                                    {(() => {
+                                      const result = runResults[`${repoId}-${rule.ruleId}`];
+                                      return result?.actions && result.actions.length > 0 && (
+                                        <div className="mt-2 text-xs text-white/70">
+                                          <div className="font-medium mb-1">Actions performed:</div>
+                                          <ul className="list-disc list-inside space-y-0.5">
+                                            {result.actions.map((action, idx) => (
+                                              <li key={idx}>{action}</li>
+                                            ))}
+                                          </ul>
+                                        </div>
+                                      );
+                                    })()}
+
+                                    {/* Show errors if any */}
+                                    {(() => {
+                                      const result = runResults[`${repoId}-${rule.ruleId}`];
+                                      return result?.errors && result.errors.length > 0 && (
+                                        <div className="mt-2 text-xs text-red-200">
+                                          <div className="font-medium mb-1">Errors encountered:</div>
+                                          <ul className="list-disc list-inside space-y-0.5">
+                                            {result.errors.map((error, idx) => (
+                                              <li key={idx}>{error}</li>
+                                            ))}
+                                          </ul>
+                                        </div>
+                                      );
+                                    })()}
+
+                                    {/* Show stats if available */}
+                                    {(() => {
+                                      const result = runResults[`${repoId}-${rule.ruleId}`];
+                                      return result?.stats && (
+                                        <div className="mt-2 text-xs text-white/60">
+                                          <div className="grid grid-cols-2 gap-2">
+                                            {result.stats.filesProcessed > 0 && (
+                                              <div>Files processed: {result.stats.filesProcessed}</div>
+                                            )}
+                                            {result.stats.documentsUpdated > 0 && (
+                                              <div>Docs updated: {result.stats.documentsUpdated}</div>
+                                            )}
+                                            {result.stats.timeElapsed > 0 && (
+                                              <div>Time: {result.stats.timeElapsed}s</div>
+                                            )}
+                                          </div>
+                                        </div>
+                                      );
+                                    })()}
+
+                                    {/* Action buttons */}
+                                    <div className="flex gap-2 mt-3">
+                                      {runResults[`${repoId}-${rule.ruleId}`]?.docId && (
+                                        <Link
+                                          href={`/edit/${runResults[`${repoId}-${rule.ruleId}`]?.docId}`}
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="px-2 py-1 text-xs bg-emerald-500/20 text-emerald-300 rounded hover:bg-emerald-500/30 transition-colors"
+                                        >
+                                          View Document
+                                        </Link>
+                                      )}
+                                      {runResults[`${repoId}-${rule.ruleId}`]?.diagramId && (
+                                        <Link
+                                          href={`/architecture/${runResults[`${repoId}-${rule.ruleId}`]?.diagramId}/history`}
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="px-2 py-1 text-xs bg-blue-500/20 text-blue-300 rounded hover:bg-blue-500/30 transition-colors"
+                                        >
+                                          View Diagram
+                                        </Link>
+                                      )}
+                                    </div>
                                   </div>
                                 )}
 
@@ -1804,15 +1607,13 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                                       e.stopPropagation();
                                       toggleRuleEnabled(repoId, rule.ruleId);
                                     }}
-                                    className={`relative inline-flex h-6 w-10 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-                                      rule.enabled ? 'bg-emerald-500' : 'bg-gray-600'
-                                    }`}
+                                    className={`relative inline-flex h-6 w-10 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${rule.enabled ? 'bg-emerald-500' : 'bg-gray-600'
+                                      }`}
                                     title={rule.enabled ? 'Disable rule' : 'Enable rule'}
                                   >
                                     <span
-                                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                                        rule.enabled ? 'translate-x-5' : 'translate-x-1'
-                                      }`}
+                                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${rule.enabled ? 'translate-x-5' : 'translate-x-1'
+                                        }`}
                                     />
                                   </button>
                                   {runningRules[`${repoId}-${rule.ruleId}`] ? (
@@ -1841,10 +1642,13 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                                     </button>
                                   )}
                                   {runningRules[`${repoId}-${rule.ruleId}`] && (
-                                    <span className="flex items-center gap-1 text-xs text-white/60">
+                                    <div className="flex items-center gap-2 text-xs text-blue-400">
                                       <Loader2 className="h-3 w-3 animate-spin" />
-                                      Running...
-                                    </span>
+                                      <div>
+                                        <div className="font-medium">Running automation...</div>
+                                        <div className="text-white/60 text-xs">Detecting changes</div>
+                                      </div>
+                                    </div>
                                   )}
                                   <button
                                     onClick={(e) => {
@@ -1863,7 +1667,7 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                           );
                         })()
                       ) : (
-                        <div 
+                        <div
                           onClick={() => openAutomationModal(repoId)}
                           className="rounded-lg border-2 border-dashed border-white/20 bg-white/5 p-8 text-center cursor-pointer hover:bg-white/10 transition-colors"
                         >
@@ -2028,11 +1832,10 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                           <button
                             type="button"
                             onClick={() => updateSingleRuleField('enabled', !singleRuleForm.enabled)}
-                            className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold transition ${
-                              singleRuleForm.enabled
-                                ? 'border-emerald-500 bg-emerald-500/20 text-emerald-200 hover:bg-emerald-500/30'
-                                : 'border-white/30 text-white/60 hover:border-white/50 hover:text-white'
-                            }`}
+                            className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold transition ${singleRuleForm.enabled
+                              ? 'border-emerald-500 bg-emerald-500/20 text-emerald-200 hover:bg-emerald-500/30'
+                              : 'border-white/30 text-white/60 hover:border-white/50 hover:text-white'
+                              }`}
                           >
                             {singleRuleForm.enabled ? 'Enabled' : 'Disabled'}
                           </button>
@@ -2200,81 +2003,147 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                         </div>
                       )}
 
-                      <div className="grid gap-3 lg:grid-cols-3">
-                        {[
-                          { field: 'detect_changes', label: 'Detect changes', helper: 'Only run when the repo has new commits.' },
-                          { field: 'generate_doc', label: 'Generate documentation', helper: 'Produce a doc if changes are found.' }
-                        ].map(({ field, label, helper }) => (
-                          <label key={field} className="flex flex-col gap-1 text-sm text-white/80">
-                            <span className="flex items-center gap-2">
-                              <input
-                                type="checkbox"
-                                checked={singleRuleForm[field as keyof AutomationRuleForm] as boolean}
-                                onChange={(event) => updateSingleRuleField(field as keyof AutomationRuleForm, event.target.checked)}
-                                className="h-4 w-4 rounded border-white/30 bg-black/60 text-blue-500 focus:ring-0"
-                              />
-                              {label}
-                            </span>
-                            <span className="text-xs text-white/60">{helper}</span>
-                          </label>
-                        ))}
-                      </div>
+                      {/* Action Presets - Simplified UI */}
+                      <div className="space-y-4">
+                        <div>
+                          <div className="flex items-center justify-between mb-3">
+                            <label className="block text-sm font-medium text-white/90">
+                              What should this automation do?
+                            </label>
+                            {singleRuleForm.action_preset && (
+                              <div className="text-xs text-green-400 font-medium flex items-center gap-1">
+                                <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                                Active: {
+                                  singleRuleForm.action_preset === 'docs_only' ? '📄 Docs Only' :
+                                    singleRuleForm.action_preset === 'diagrams_only' ? '🎨 Diagrams Only' :
+                                      singleRuleForm.action_preset === 'docs_and_diagrams' ? '📊 Everything' :
+                                        singleRuleForm.action_preset === 'full_auto_publish' ? '🚀 Auto-Publish' :
+                                          'Not selected'
+                                }
+                              </div>
+                            )}
+                          </div>
+                          <div className="grid gap-3 md:grid-cols-2">
+                            {[
+                              {
+                                value: 'docs_only',
+                                label: '📄 Update Documentation Only',
+                                description: 'Regenerate documentation when files change significantly'
+                              },
+                              {
+                                value: 'diagrams_only',
+                                label: '🎨 Update Diagrams Only',
+                                description: 'Generate architecture diagrams when changes are detected'
+                              },
+                              {
+                                value: 'docs_and_diagrams',
+                                label: '📊 Update Everything',
+                                description: 'Regenerate both documentation and diagrams'
+                              },
+                              {
+                                value: 'full_auto_publish',
+                                label: '🚀 Full Auto-Publish',
+                                description: 'Update content and publish to configured knowledge bases'
+                              }
+                            ].map((preset) => {
+                              const isSelected = singleRuleForm.action_preset === preset.value;
+                              return (
+                                <button
+                                  key={preset.value}
+                                  type="button"
+                                  onClick={() => updateSingleRuleField('action_preset', preset.value)}
+                                  className={`relative p-4 rounded-lg border-2 text-left transition-all ${isSelected
+                                    ? 'border-green-500 bg-green-500/15 text-green-100 shadow-lg shadow-green-500/20'
+                                    : 'border-white/20 bg-white/5 hover:bg-white/10 hover:border-white/30 text-white/80'
+                                    }`}
+                                >
+                                  {isSelected && (
+                                    <div className="absolute top-2 right-2">
+                                      <div className="w-5 h-5 bg-green-500 rounded-full flex items-center justify-center">
+                                        <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                        </svg>
+                                      </div>
+                                    </div>
+                                  )}
+                                  <div className={`font-semibold text-sm mb-1 ${isSelected ? 'text-green-100' : ''}`}>
+                                    {preset.label}
+                                  </div>
+                                  <div className={`text-xs ${isSelected ? 'text-green-200/80' : 'text-white/60'}`}>
+                                    {preset.description}
+                                  </div>
+                                  {isSelected && (
+                                    <div className="mt-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-500/20 text-green-200">
+                                      Selected
+                                    </div>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
 
-                      <div className="grid gap-3 lg:grid-cols-3">
-                        {[
-                          { field: 'generate_diagram', label: 'Generate diagram', helper: 'Include architecture diagrams.' },
-                          { field: 'auto_publish', label: 'Auto-publish', helper: 'Approve docs automatically when thresholds pass.' },
-                          {
-                            field: 'auto_publish_new_docs',
-                            label: 'Auto-publish new docs',
-                            helper: 'Publish brand-new documents immediately.'
-                          }
-                        ].map(({ field, label, helper }) => (
-                          <label key={field} className="flex flex-col gap-1 text-sm text-white/80">
-                            <span className="flex items-center gap-2">
-                              <input
-                                type="checkbox"
-                                checked={singleRuleForm[field as keyof AutomationRuleForm] as boolean}
-                                onChange={(event) => updateSingleRuleField(field as keyof AutomationRuleForm, event.target.checked)}
-                                className="h-4 w-4 rounded border-white/30 bg-black/60 text-blue-500 focus:ring-0"
-                              />
-                              {label}
-                            </span>
-                            <span className="text-xs text-white/60">{helper}</span>
-                          </label>
-                        ))}
-                      </div>
+                        {/* Smart Analysis Settings */}
+                        <div className="rounded-lg border border-white/20 bg-white/5 p-4">
+                          <h4 className="text-sm font-semibold text-white/90 mb-3">🎯 Smart Analysis</h4>
+                          <p className="text-xs text-white/60 mb-3">
+                            Automation only runs when changes are significant enough to warrant documentation updates.
+                          </p>
+                          <div className="space-y-3">
+                            <div>
+                              <label className="block text-xs font-medium text-white/70 mb-1">Change Sensitivity</label>
+                              <select
+                                value={singleRuleForm.significance_sensitivity}
+                                onChange={(e) => updateSingleRuleField('significance_sensitivity', e.target.value)}
+                                className="w-full rounded border border-white/20 bg-white/10 px-3 py-2 text-sm text-white"
+                              >
+                                <option value="strict">Strict - Only major changes</option>
+                                <option value="balanced">Balanced - Recommended</option>
+                                <option value="lenient">Lenient - Catch more changes</option>
+                              </select>
+                            </div>
+                            <div className="space-y-2">
+                              <label className="block text-xs font-medium text-white/70">Require Specific Change Types</label>
+                              <label className="flex items-center gap-2 text-sm">
+                                <input
+                                  type="checkbox"
+                                  checked={singleRuleForm.significance_require_technical}
+                                  onChange={(e) => updateSingleRuleField('significance_require_technical', (e.target as HTMLInputElement).checked)}
+                                  className="h-4 w-4 rounded border-white/30 bg-black/60 text-blue-500"
+                                />
+                                Technical changes (code, architecture, APIs)
+                              </label>
+                              <label className="flex items-center gap-2 text-sm">
+                                <input
+                                  type="checkbox"
+                                  checked={singleRuleForm.significance_require_business}
+                                  onChange={(e) => updateSingleRuleField('significance_require_business', (e.target as HTMLInputElement).checked)}
+                                  className="h-4 w-4 rounded border-white/30 bg-black/60 text-blue-500"
+                                />
+                                Business logic changes
+                              </label>
+                              <p className="text-xs text-white/50 mt-2">
+                                If checked, automation requires these specific types of changes to trigger.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
 
-                      {/* Smart Change Detection - simplified */}
-                      {singleRuleForm.detect_changes && (
-                        <div className="rounded-lg border border-white/10 bg-white/5 p-4">
-                          <label className="flex items-start gap-3">
+                        {/* Notifications */}
+                        <div className="rounded-lg border border-white/20 bg-white/5 p-4">
+                          <h4 className="text-sm font-semibold text-white/90 mb-3">📧 Notifications</h4>
+                          <label className="flex items-center gap-2 text-sm">
                             <input
                               type="checkbox"
-                              checked={singleRuleForm.significance_analysis_enabled}
-                              onChange={(event) => updateSingleRuleField('significance_analysis_enabled', event.target.checked)}
-                              className="mt-1 h-4 w-4 rounded border-white/30 bg-black/60 text-blue-500 focus:ring-0"
+                              checked={singleRuleForm.notifications_email_enabled}
+                              onChange={(e) => updateSingleRuleField('notifications_email_enabled', (e.target as HTMLInputElement).checked)}
+                              className="h-4 w-4 rounded border-white/30 bg-black/60 text-blue-500"
                             />
-                            <div className="flex-1">
-                              <span className="text-sm font-medium text-white">Smart change detection</span>
-                              <p className="text-xs text-white/60 mt-0.5">
-                                Skip regeneration when changes are trivial (comments, formatting, etc.)
-                              </p>
-                              {singleRuleForm.significance_analysis_enabled && (
-                                <select
-                                  value={singleRuleForm.significance_sensitivity}
-                                  onChange={(event) => updateSingleRuleField('significance_sensitivity', event.target.value as 'strict' | 'balanced' | 'lenient')}
-                                  className="mt-2 w-full rounded-lg border border-white/20 bg-black/60 px-3 py-2 text-sm text-white outline-none focus:border-blue-500"
-                                >
-                                  <option value="lenient">Lenient — Only skip trivial changes (comments, whitespace)</option>
-                                  <option value="balanced">Balanced — Skip minor refactors too (recommended)</option>
-                                  <option value="strict">Strict — Only regenerate for API/behavior changes</option>
-                                </select>
-                              )}
-                            </div>
+                            Send email notifications when automation completes
                           </label>
                         </div>
-                      )}
+                      </div>
+
 
                       <div className="grid gap-3 md:grid-cols-2">
                         <label className="text-sm text-white/80">
@@ -2321,12 +2190,12 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                           >
                             <option value="">{defaultOptionLabel}</option>
                             {/* Show saved resource_id as option if not in list */}
-                            {singleRuleForm.auto_publish_target_resource_id && 
+                            {singleRuleForm.auto_publish_target_resource_id &&
                               !resourceOptions.some(r => r.id === singleRuleForm.auto_publish_target_resource_id) && (
-                              <option value={singleRuleForm.auto_publish_target_resource_id}>
-                                {singleRuleForm.auto_publish_target_resource_id} (saved)
-                              </option>
-                            )}
+                                <option value={singleRuleForm.auto_publish_target_resource_id}>
+                                  {singleRuleForm.auto_publish_target_resource_id} (saved)
+                                </option>
+                              )}
                             {resourceOptions.map((resource) => (
                               <option key={resource.id} value={resource.id}>
                                 {resource.name}
@@ -2358,9 +2227,8 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
 
                     {activeAutomationRepoId && automationAlerts[activeAutomationRepoId] && (
                       <p
-                        className={`mt-2 text-sm ${
-                          automationAlerts[activeAutomationRepoId]?.type === 'error' ? 'text-red-300' : 'text-emerald-300'
-                        }`}
+                        className={`mt-2 text-sm ${automationAlerts[activeAutomationRepoId]?.type === 'error' ? 'text-red-300' : 'text-emerald-300'
+                          }`}
                       >
                         {automationAlerts[activeAutomationRepoId]?.message}
                       </p>

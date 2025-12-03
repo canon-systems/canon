@@ -492,7 +492,7 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
         <div className="glass-panel p-6">
           <h3 className="text-lg font-semibold text-white mb-4">Activity Over Time</h3>
           <div className="relative h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
               <AreaChart data={filteredStats.activityData}>
                 <defs>
                   <linearGradient id="colorDocuments" x1="0" y1="0" x2="0" y2="1">
@@ -573,7 +573,7 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
         <div className="glass-panel p-6">
           <h3 className="text-lg font-semibold text-white mb-4">Document Status</h3>
           <div className="relative h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
               <PieChart>
                 <Pie
                   data={filteredStats.statusData}
@@ -609,7 +609,7 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
         <div className="glass-panel p-6">
           <h3 className="text-lg font-semibold text-white mb-4">Input Type Distribution</h3>
           <div className="relative h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
               <BarChart data={filteredStats.inputTypeData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
                 <XAxis

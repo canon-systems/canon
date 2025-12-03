@@ -3,7 +3,8 @@ import { buildSystemPrompt, PromptConfig as PromptConfigType } from '../prompts/
 import { analyzeRepository } from './analyzeRepository';
 import { LLMGateway, estimateTokenCount, selectModelForTokenCount } from './llmGateway';
 import { parseRepoUrl } from '../github/github';
-import { prepareFileSummaries, generateAndSaveFileSummaries } from './prepareSummaries';
+import { prepareFileSummaries } from './prepareSummaries';
+import { FileSummaryManager } from './fileSummaryManager';
 
 /**
  * Normalize repo URL to repo_id format: "github.com/owner/repo"
@@ -119,163 +120,30 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 		throw new Error('No files available to generate documentation');
 	}
 
-	// If useSummaries is enabled, load summaries (either from submission or directly from repo)
+	// If useSummaries is enabled, load summaries using centralized manager
 	let summariesMap = new Map<string, any>();
 
 	if (useSummaries && repoUrl) {
-		// For first-time generation, submissionId is undefined but summaries should exist
-		if (submissionId) {
-			// First, prepare summaries for all files - this will generate any missing ones
-			await prepareFileSummaries(supabase, submissionId, false, userId || null);
+		// Use centralized FileSummaryManager to load existing summaries
+		const repoId = normalizeRepoId(repoUrl);
+		const summaryBranch = branch || 'main';
+		const summaryManager = new FileSummaryManager(supabase, repoId, summaryBranch);
 
-			// Load document to get tracked files
-			const { data: document } = await supabase
-				.from('documents')
-				.select('id, repo_id')
-				.eq('id', submissionId)
-				.single();
+		// Get file paths we're processing
+		const filePaths = fileEntries.map(f => f.path);
 
-			if (!document) {
-				throw new Error(`Document ${submissionId} not found`);
-			}
+		// Load existing summaries (without generating new ones)
+		summariesMap = await summaryManager.getExistingSummaries(filePaths);
 
-			// Get tracked files from document_files
-			const { data: documentFiles } = await supabase
-				.from('document_files')
-				.select('file_path')
-				.eq('document_id', submissionId);
+		// Check if we have summaries for all files
+		const missingFiles = filePaths.filter(path => !summariesMap.has(path));
+		if (missingFiles.length > 0) {
+			console.log(`[docGenerator] ⚠️ Missing summaries for ${missingFiles.length} files: ${missingFiles.join(', ')}`);
+			console.log(`[docGenerator] 📝 Proceeding with ${summariesMap.size} available summaries out of ${filePaths.length} total files`);
 
-			const selectedFiles = (documentFiles || []).map(df => df.file_path);
-
-			const repoId = normalizeRepoId(repoUrl);
-			const trackedFiles: string[] = selectedFiles.filter(
-				(f: unknown): f is string => typeof f === 'string'
-			);
-
-			if (trackedFiles.length === 0) {
-				throw new Error('No tracked files found in document');
-			}
-
-			// Get branch from repo
-			const { data: repo } = await supabase
-				.from('workspace_repos')
-				.select('default_branch')
-				.eq('id', document.repo_id)
-				.single();
-
-			const submissionBranch = repo?.default_branch || branch || 'main';
-
-			// Load ALL summaries for this repo (don't filter by exact file paths)
-			// This allows fuzzy path matching (e.g., "frontend/src/..." vs "src/...")
-			const { data: allSummaries, error: summariesError } = await supabase
-				.from('repo_file_summaries')
-				.select('file_path, summary_text, summary_json')
-				.ilike('repo_id', repoId)
-				.eq('branch', submissionBranch);
-
-			if (summariesError) {
-				throw new Error(`Failed to load summaries: ${summariesError.message}`);
-			}
-
-			// Build map using fuzzy path matching to handle path prefix differences
-			// (e.g., "frontend/src/..." vs "src/...")
-			const matchedTrackedFiles = new Set<string>();
-
-			for (const summary of allSummaries || []) {
-				// Find which tracked file this summary matches
-				for (const trackedPath of trackedFiles) {
-					if (pathsMatch(summary.file_path, trackedPath)) {
-						// Store with the tracked file path as key (for lookup during generation)
-						summariesMap.set(trackedPath, summary);
-						matchedTrackedFiles.add(trackedPath);
-						break;
-					}
-				}
-			}
-
-			// Check for any missing summaries
-			const missingFiles = trackedFiles.filter((path) => !matchedTrackedFiles.has(path));
-
-			if (missingFiles.length > 0) {
-				// Generate summaries for missing files
-				console.log(`Generating summaries for ${missingFiles.length} missing file(s): ${missingFiles.join(', ')}`);
-
-				// Re-run prepare to generate missing summaries
-				await prepareFileSummaries(supabase, submissionId, false, userId || null);
-
-				// Reload ALL summaries after generation
-				const { data: updatedSummaries, error: reloadError } = await supabase
-					.from('repo_file_summaries')
-					.select('file_path, summary_text, summary_json')
-					.ilike('repo_id', repoId)
-					.eq('branch', submissionBranch);
-
-				if (reloadError) {
-					throw new Error(`Failed to reload summaries: ${reloadError.message}`);
-				}
-
-				// Re-match with fuzzy path matching
-				for (const summary of updatedSummaries || []) {
-					for (const trackedPath of trackedFiles) {
-						if (pathsMatch(summary.file_path, trackedPath)) {
-							summariesMap.set(trackedPath, summary);
-							matchedTrackedFiles.add(trackedPath);
-							break;
-						}
-					}
-				}
-
-				// Verify all files now have summaries
-				const stillMissing = trackedFiles.filter((path) => !matchedTrackedFiles.has(path));
-
-				if (stillMissing.length > 0) {
-					throw new Error(
-						`Unable to generate summaries for ${stillMissing.length} file(s) after retry: ${stillMissing.join(', ')}. ` +
-						`Available summaries: ${(updatedSummaries || []).map(s => s.file_path).join(', ')}`
-					);
-				}
-			}
-		} else {
-			// First-time generation: no submissionId, but summaries should exist
-			// Load summaries directly by repo/branch for all files we're processing
-			const repoId = normalizeRepoId(repoUrl);
-			const summaryBranch = branch || 'main';
-
-			// Get file paths we're processing
-			const filePaths = fileEntries.map(f => f.path);
-
-			// Load ALL summaries for this repo/branch that match our files
-			const { data: allSummaries, error: summariesError } = await supabase
-				.from('repo_file_summaries')
-				.select('file_path, summary_text, summary_json')
-				.ilike('repo_id', repoId)
-				.eq('branch', summaryBranch)
-				.in('file_path', filePaths);
-
-			if (summariesError) {
-				throw new Error(`Failed to load summaries: ${summariesError.message}`);
-			}
-
-			// Build map using fuzzy path matching
-			for (const summary of allSummaries || []) {
-				for (const filePath of filePaths) {
-					if (pathsMatch(summary.file_path, filePath)) {
-						summariesMap.set(filePath, summary);
-						break;
-					}
-				}
-			}
-
-			// Check if we have summaries for all files
-			const missingFiles = filePaths.filter(path => !summariesMap.has(path));
-			if (missingFiles.length > 0) {
-				console.log(`[docGenerator] ⚠️ Missing summaries for ${missingFiles.length} files (likely due to LLM timeouts): ${missingFiles.join(', ')}`);
-				console.log(`[docGenerator] 📝 Proceeding with ${summariesMap.size} available summaries out of ${filePaths.length} total files`);
-
-				// Filter files to only include those with summaries
-				fileEntries = fileEntries.filter(file => summariesMap.has(file.path));
-				console.log(`[docGenerator] ✅ Filtered to ${files.length} files with available summaries`);
-			}
+			// Filter files to only include those with summaries
+			fileEntries = fileEntries.filter(file => summariesMap.has(file.path));
+			console.log(`[docGenerator] ✅ Filtered to ${fileEntries.length} files with available summaries`);
 		}
 	} else if (useSummaries) {
 		// useSummaries was requested but we don't have the required params
@@ -477,27 +345,15 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 	const userTokens = estimateTokenCount(userPrompt);
 	const estimatedTokens = systemTokens + userTokens;
 
-	console.log(`\n[docGenerator] ========== TOKEN ANALYSIS ==========`);
-	console.log(`[docGenerator] Project: ${projectName}`);
-	console.log(`[docGenerator] Files: ${fileEntries.length}`);
-	console.log(`[docGenerator] System prompt tokens: ~${systemTokens.toLocaleString()}`);
-	console.log(`[docGenerator] User prompt tokens: ~${userTokens.toLocaleString()}`);
-	console.log(`[docGenerator] Total estimated tokens: ~${estimatedTokens.toLocaleString()}`);
-	console.log(`[docGenerator] Requested model: ${model}`);
-
 	const selectedModel = selectModelForTokenCount(estimatedTokens, model);
 
 	if (selectedModel !== model) {
 		console.log(`[docGenerator] ⚠️  MODEL SWITCH: ${model} → ${selectedModel} (context limit exceeded)`);
-	} else {
-		console.log(`[docGenerator] ✓ Using model: ${selectedModel}`);
 	}
-	console.log(`[docGenerator] ==========================================\n`);
 
 	const gateway = new LLMGateway();
 
 	// Generate documentation (this is the main blocking operation)
-	console.log(`[docGenerator] 🚀 Starting LLM call to ${selectedModel}...`);
 	const startTime = Date.now();
 
 	const markdown = await gateway.call(
@@ -508,70 +364,6 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 		selectedModel,
 		promptConfig?.temperature
 	);
-
-	const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-	console.log(`[docGenerator] ✓ LLM call completed in ${duration}s`);
-	console.log(`[docGenerator] Generated ${markdown.length.toLocaleString()} characters of documentation`);
-
-	// Generate and save file summaries asynchronously (don't block the response)
-	// This ensures all files used in documentation have summaries in repo_file_summaries
-	if (repoUrl && fileEntries.length > 0) {
-		// Get file hashes from repo_file_summaries if available
-		let fileHashes: Record<string, string | null> = {};
-		let submissionBranch = branch || 'main';
-		if (submissionId) {
-			try {
-				// Get document and repo details
-				const { data: document } = await supabase
-					.from('documents')
-					.select('id, repo_id')
-					.eq('id', submissionId)
-					.single();
-
-				if (document) {
-					const { data: repo } = await supabase
-						.from('workspace_repos')
-						.select('repo_url, default_branch')
-						.eq('id', document.repo_id)
-						.single();
-
-					if (repo) {
-						submissionBranch = repo.default_branch || branch || 'main';
-
-						// Get file hashes from repo_file_summaries
-						const normalizedRepoId = normalizeRepoId(repo.repo_url);
-						const { data: summaries } = await supabase
-							.from('repo_file_summaries')
-							.select('file_path, file_hash')
-							.ilike('repo_id', normalizedRepoId)
-							.eq('branch', submissionBranch);
-
-						summaries?.forEach(s => {
-							fileHashes[s.file_path] = s.file_hash;
-						});
-					}
-				}
-			} catch (error) {
-				console.warn('Failed to load document metadata for summary generation:', error);
-			}
-		}
-
-		// Prepare files with hashes for summary generation
-		const filesWithHashes = fileEntries.map((file) => ({
-			path: file.path,
-			content: file.content,
-			hash: fileHashes[file.path] || null,
-		}));
-
-		// Generate summaries asynchronously (fire and forget - don't await)
-		// This ensures summaries are saved without blocking documentation generation
-		generateAndSaveFileSummaries(supabase, repoUrl, filesWithHashes, userId, 'gpt-4o-mini', submissionId || null, submissionBranch).catch(
-			(error) => {
-				// Log errors but don't fail the documentation generation
-				console.error('Failed to generate file summaries asynchronously:', error);
-			}
-		);
-	}
 
 	return {
 		markdown,

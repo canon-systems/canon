@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createClient as createSupabaseClient } from '@/lib/supabase/server';
+import { scheduleAutomationRule, cancelScheduledAutomation } from '@/lib/server/services/qstashService';
 
 interface RepoRow {
   settings: Record<string, any> | null;
@@ -101,13 +102,104 @@ export async function PATCH(
 
     const supabase = await createSupabaseClient();
     const currentSettings = data.settings || {};
-    const metadata = currentSettings.automation_metadata || {};
+    const currentMetadata = currentSettings.automation_metadata || {};
     const sanitizedRules = body.automation_rules.map((rule) => ({ ...rule }));
+
+    // Handle QStash scheduling for automation rules
+    const schedulingResults = [];
+    const updatedMetadata = { ...currentMetadata };
+
+    // Get current rules for comparison
+    const currentRules = Array.isArray(currentSettings.automation_rules)
+      ? currentSettings.automation_rules
+      : [];
+
+    // Cancel scheduling for disabled/removed rules
+    for (const currentRule of currentRules) {
+      const ruleId = currentRule.id || currentRule.name || 'default';
+      const stillExists = sanitizedRules.some(r =>
+        (r.id || r.name || 'default') === ruleId
+      );
+      const isDisabled = sanitizedRules.some(r =>
+        (r.id || r.name || 'default') === ruleId && !r.enabled
+      );
+
+      if (!stillExists || isDisabled) {
+        // Cancel any scheduled automation
+        const scheduledMessageId = currentMetadata[ruleId]?.scheduled_message_id;
+        if (scheduledMessageId) {
+          try {
+            await cancelScheduledAutomation(scheduledMessageId);
+            console.log(`Cancelled scheduled automation for rule: ${ruleId}`);
+          } catch (cancelError) {
+            console.error(`Failed to cancel scheduled automation for rule ${ruleId}:`, cancelError);
+          }
+        }
+        // Clean up metadata
+        delete updatedMetadata[ruleId];
+      }
+    }
+
+    // Schedule new/enabled rules
+    for (const newRule of sanitizedRules) {
+      if (!newRule.enabled || !newRule.schedule) continue;
+
+      const ruleId = newRule.id || newRule.name || 'default';
+      const currentRule = currentRules.find(r =>
+        (r.id || r.name || 'default') === ruleId
+      );
+
+      // Schedule if it's a new rule or if the schedule changed
+      const needsScheduling = !currentRule ||
+        currentRule.schedule !== newRule.schedule ||
+        !currentMetadata[ruleId]?.scheduled_message_id;
+
+      if (needsScheduling) {
+        try {
+          console.log(`Scheduling automation rule: ${ruleId} with schedule: ${newRule.schedule}`);
+          const scheduleResult = await scheduleAutomationRule({
+            userId: user.id,
+            repoId: id,
+            ruleId,
+            schedule: newRule.schedule,
+          });
+
+          if (scheduleResult.success) {
+            updatedMetadata[ruleId] = {
+              ...updatedMetadata[ruleId],
+              scheduled_message_id: scheduleResult.messageId,
+              next_run: scheduleResult.nextRun?.toISOString(),
+              last_scheduled: new Date().toISOString(),
+            };
+            schedulingResults.push({
+              ruleId,
+              scheduled: true,
+              nextRun: scheduleResult.nextRun,
+              messageId: scheduleResult.messageId,
+            });
+          } else {
+            console.error(`Failed to schedule rule ${ruleId}:`, scheduleResult.error);
+            schedulingResults.push({
+              ruleId,
+              scheduled: false,
+              error: scheduleResult.error,
+            });
+          }
+        } catch (scheduleError) {
+          console.error(`Error scheduling rule ${ruleId}:`, scheduleError);
+          schedulingResults.push({
+            ruleId,
+            scheduled: false,
+            error: scheduleError.message,
+          });
+        }
+      }
+    }
 
     const updatedSettings = {
       ...currentSettings,
       automation_rules: sanitizedRules,
-      automation_metadata: metadata,
+      automation_metadata: updatedMetadata,
     };
 
     const { error: updateError } = await supabase
@@ -127,7 +219,8 @@ export async function PATCH(
     return NextResponse.json(
       {
         automation_rules: sanitizedRules,
-        automation_metadata: metadata,
+        automation_metadata: updatedMetadata,
+        scheduling_results: schedulingResults,
       },
       { status: 200 }
     );

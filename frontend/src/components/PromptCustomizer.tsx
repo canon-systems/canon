@@ -6,6 +6,7 @@ import { ChevronDown, Sparkles, Loader2 } from 'lucide-react';
 interface PromptConfig {
   personality?: string;
   style?: string;
+  perspective?: string;
   audience?: string;
   customInstructions?: string;
   temperature?: number;
@@ -38,6 +39,14 @@ const styleOptions = [
   { value: 'blog-post', label: 'Blog Post Style' }
 ];
 
+const perspectiveOptions = [
+  { value: 'default', label: 'Default (Third Person)' },
+  { value: 'first-person', label: 'First Person (I/We)' },
+  { value: 'second-person', label: 'Second Person (You)' },
+  { value: 'third-person', label: 'Third Person (It/They)' },
+  { value: 'third-person-formal', label: 'Third Person Formal' }
+];
+
 const audienceOptions = [
   { value: 'technical', label: 'Technical (Developers, Engineers)' },
   { value: 'non-technical', label: 'Non-Technical (Business, End Users)' },
@@ -67,6 +76,7 @@ export function PromptCustomizer({ promptConfig, onChange, onSave, saving = fals
     if (config.temperature === undefined) config.temperature = 0.3;
     if (!config.personality) config.personality = 'default';
     if (!config.style) config.style = 'default';
+    if (!config.perspective) config.perspective = 'default';
     if (!config.audience) config.audience = 'technical';
     if (!config.customInstructions) config.customInstructions = '';
     onChange(config);
@@ -106,6 +116,7 @@ export function PromptCustomizer({ promptConfig, onChange, onSave, saving = fals
   const hasCustomization =
     (promptConfig.personality && promptConfig.personality !== 'default') ||
     (promptConfig.style && promptConfig.style !== 'default') ||
+    (promptConfig.perspective && promptConfig.perspective !== 'default') ||
     (promptConfig.audience && promptConfig.audience !== 'technical') ||
     (promptConfig.customInstructions?.trim() || '').length > 0 ||
     (promptConfig.temperature !== undefined && promptConfig.temperature !== 0.3);
@@ -118,6 +129,7 @@ export function PromptCustomizer({ promptConfig, onChange, onSave, saving = fals
     updateConfig({
       personality: 'default',
       style: 'default',
+      perspective: 'default',
       audience: 'technical',
       customInstructions: '',
       temperature: 0.3
@@ -167,15 +179,21 @@ export function PromptCustomizer({ promptConfig, onChange, onSave, saving = fals
               {styleOptions.find(o => o.value === promptConfig.style)?.label || promptConfig.style}
             </>
           )}
-          {promptConfig.audience && promptConfig.audience !== 'technical' && (
+          {promptConfig.perspective && promptConfig.perspective !== 'default' && (
             <>
               {((promptConfig.personality && promptConfig.personality !== 'default') || (promptConfig.style && promptConfig.style !== 'default')) && ' • '}
+              {perspectiveOptions.find(o => o.value === promptConfig.perspective)?.label || promptConfig.perspective}
+            </>
+          )}
+          {promptConfig.audience && promptConfig.audience !== 'technical' && (
+            <>
+              {((promptConfig.personality && promptConfig.personality !== 'default') || (promptConfig.style && promptConfig.style !== 'default') || (promptConfig.perspective && promptConfig.perspective !== 'default')) && ' • '}
               {audienceOptions.find(o => o.value === promptConfig.audience)?.label || promptConfig.audience}
             </>
           )}
           {promptConfig.temperature !== undefined && promptConfig.temperature !== 0.3 && (
             <>
-              {((promptConfig.personality && promptConfig.personality !== 'default') || (promptConfig.style && promptConfig.style !== 'default') || (promptConfig.audience && promptConfig.audience !== 'technical')) && ' • '}
+              {((promptConfig.personality && promptConfig.personality !== 'default') || (promptConfig.style && promptConfig.style !== 'default') || (promptConfig.perspective && promptConfig.perspective !== 'default') || (promptConfig.audience && promptConfig.audience !== 'technical')) && ' • '}
               Temp: {promptConfig.temperature.toFixed(1)}
             </>
           )}
@@ -278,6 +296,21 @@ export function PromptCustomizer({ promptConfig, onChange, onSave, saving = fals
               </select>
             )}
             <p className="mt-1 text-xs text-white/50">Determines the technical level and format of the documentation</p>
+          </div>
+
+          {/* Perspective */}
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-white/70">Narrative Perspective</label>
+            <select
+              value={promptConfig.perspective || 'default'}
+              onChange={(e) => updateConfig({ perspective: e.target.value })}
+              className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white outline-none focus:border-white/40"
+            >
+              {perspectiveOptions.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-white/50">Controls whether the documentation uses "I/we", "you", "it/they", or formal third person</p>
           </div>
 
           {/* Audience */}

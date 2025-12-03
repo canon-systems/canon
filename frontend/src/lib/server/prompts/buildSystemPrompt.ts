@@ -11,6 +11,7 @@ export interface DocumentStructureConfig {
 export interface PromptConfig {
 	personality?: string;
 	style?: string;
+	perspective?: string;
 	customInstructions?: string;
 	temperature?: number;
 	document_structure?: DocumentStructureConfig;
@@ -65,6 +66,22 @@ export function buildSystemPrompt(
 		const styleInstruction = styleMap[config.style] || '';
 		if (styleInstruction) {
 			basePrompt.push(styleInstruction);
+		}
+	}
+
+	// Add perspective
+	const perspectiveMap: Record<string, string> = {
+		'first-person': 'Write in first person (I/we). Use "I" or "we" when referring to actions, decisions, and implementations. For example: "I designed this system to..." or "We implemented this feature to...".',
+		'second-person': 'Write in second person (you). Use "you" when addressing the reader directly. For example: "You can use this function to..." or "When you implement this...".',
+		'third-person': 'Write in third person (it/they/the system). Avoid using "I", "we", or "you". For example: "The system provides..." or "This function handles...".',
+		'third-person-formal': 'Write in formal third person. Use passive voice and avoid contractions. For example: "The function is designed to..." or "Implementation shall include...".',
+		default: '' // No additional perspective instruction
+	};
+
+	if (config?.perspective && config.perspective !== 'default') {
+		const perspectiveInstruction = perspectiveMap[config.perspective] || '';
+		if (perspectiveInstruction) {
+			basePrompt.push(perspectiveInstruction);
 		}
 	}
 

@@ -1,64 +1,63 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { getDueRules, updateRuleLastRun, AutomationRuleEntry } from '@/lib/server/services/automationRules';
-import { executeAutomationRule } from '@/lib/server/services/automationRunner';
+import { getSession } from '@/lib/auth';
+import { queueAutomationExecution } from '@/lib/server/services/qstashService';
 
 /**
- * Manual trigger endpoint for automation rules.
- * This endpoint can be called manually or scheduled via cron.
+ * Manual trigger endpoint for automation rules using QStash queuing.
+ *
+ * Request body:
+ * - userId: string (required) - The user ID
+ * - repoId: string (required) - The repository ID
+ * - ruleId: string (required) - The automation rule ID
  */
 export async function POST(request: NextRequest) {
   try {
-    const cronSecret = process.env.CRON_SECRET;
-    const authHeader = request.headers.get('authorization');
-
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    const { user } = await getSession();
+    if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const supabase = await createClient();
-    const dueRules: AutomationRuleEntry[] = await getDueRules(supabase);
+    const body = await request.json();
+    const { userId, repoId, ruleId } = body;
 
-    if (dueRules.length === 0) {
-      return NextResponse.json({ success: true, rules_checked: 0, rules_executed: 0, results: [] }, { status: 200 });
+    if (!userId || !repoId || !ruleId) {
+      return NextResponse.json({
+        error: 'Missing required fields: userId, repoId, ruleId'
+      }, { status: 400 });
     }
 
-    const results = [];
-
-    for (const ruleInfo of dueRules) {
-      const repo = ruleInfo.repo;
-      const rule = ruleInfo.rule;
-      const workspaceId = repo.workspace_id || '';
-
-      const execution = await executeAutomationRule({
-        supabase,
-        repo,
-        rule,
-        userId: workspaceId,
-      });
-
-      results.push({
-        repo_id: ruleInfo.repo_id,
-        rule_id: ruleInfo.rule_id,
-        ...execution,
-      });
-
-      // Update metadata for all execution results (success, failed, or skipped)
-      await updateRuleLastRun(supabase, ruleInfo.repo_id, ruleInfo.rule_id, workspaceId, {
-        ...execution,
-        trigger: 'scheduled',
-      });
+    // Ensure user can only trigger their own automations
+    if (userId !== user.id) {
+      return NextResponse.json({
+        error: 'You can only trigger automations for your own account'
+      }, { status: 403 });
     }
 
-    return NextResponse.json({
-      success: true,
-      rules_checked: dueRules.length,
-      rules_executed: results.length,
-      results,
+    const result = await queueAutomationExecution({
+      userId,
+      repoId,
+      ruleId,
     });
+
+    if (result.success) {
+      return NextResponse.json({
+        success: true,
+        queued: true,
+        messageId: result.messageId,
+        message: 'Automation queued for immediate execution'
+      });
+    } else {
+      return NextResponse.json({
+        error: 'Failed to queue automation',
+        detail: result.error
+      }, { status: 500 });
+    }
   } catch (err: any) {
     console.error('Automation run error:', err);
-    return NextResponse.json({ error: 'Automation run failed', detail: err.message || String(err) }, { status: 500 });
+    return NextResponse.json({
+      error: 'Automation run failed',
+      detail: err.message || String(err)
+    }, { status: 500 });
   }
 }
 

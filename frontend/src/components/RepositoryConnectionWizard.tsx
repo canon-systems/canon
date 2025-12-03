@@ -63,8 +63,9 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
     checkGitHubConnection();
   }, []);
 
-  const searchRepositories = async () => {
-    if (!searchQuery.trim() || isSearching) return;
+  const searchRepositories = async (ownerOverride?: string) => {
+    const owner = ownerOverride ?? searchQuery.trim();
+    if (!owner || isSearching) return;
 
     setIsSearching(true);
     setError(null);
@@ -73,7 +74,7 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
       const response = await fetch('/api/github/repos', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ owner: searchQuery.trim() })
+        body: JSON.stringify({ owner })
       });
 
       if (response.ok) {
@@ -251,7 +252,7 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
               <input
                 type="text"
                 className="field-input flex-1"
-                placeholder="Enter username or organization (e.g., 'facebook', 'github')"
+                placeholder="Enter username or organization (e.g., 'facebook', 'github', or @me for yours')"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onKeyPress={handleKeyPress}
@@ -269,7 +270,9 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
                 {isSearching ? 'Searching...' : 'Search'}
               </button>
             </div>
-            <p className="field-note">Search for repositories by owner username or organization name.</p>
+            <p className="field-note">
+              Tip: use <code className="px-1 rounded bg-white/10">@me</code> to list all repositories (public and private) you can access with your connected GitHub account.
+            </p>
           </div>
         </div>
       )}

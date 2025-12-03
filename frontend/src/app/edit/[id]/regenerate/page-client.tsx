@@ -191,12 +191,12 @@ export function RegeneratePageClient({ submission }: RegeneratePageClientProps) 
   const [previewPromptConfig, setPreviewPromptConfig] = useState<any>({});
   const [previewError, setPreviewError] = useState('');
   const [significanceAnalysis, setSignificanceAnalysis] = useState<any>(null);
-  const [skipSignificanceCheck, setSkipSignificanceCheck] = useState(false);
   const [selectedRegenModel, setSelectedRegenModel] = useState(submission.source_meta?.model || 'gpt-4o');
   const [regenPromptConfig, setRegenPromptConfig] = useState(
     submission.source_meta?.llm_prompt_config || {
       personality: 'default',
       style: 'default',
+      perspective: 'default',
       audience: 'technical',
       customInstructions: '',
       temperature: 0.3
@@ -261,8 +261,7 @@ export function RegeneratePageClient({ submission }: RegeneratePageClientProps) 
           promptConfig: {
             ...regenPromptConfig,
             document_structure: structureConfig
-          },
-          skipSignificanceCheck: skipSignificanceCheck
+          }
         })
       });
 
@@ -455,19 +454,6 @@ export function RegeneratePageClient({ submission }: RegeneratePageClientProps) 
                 <DocumentStructure config={structureConfig} onChange={setStructureConfig} />
               </div>
 
-              {/* Significance Analysis Checkbox */}
-              <div className="flex items-center gap-2 rounded-lg border border-white/20 bg-white/5 p-3">
-                <input
-                  type="checkbox"
-                  id="skipSignificanceCheck"
-                  checked={skipSignificanceCheck}
-                  onChange={(e) => setSkipSignificanceCheck(e.target.checked)}
-                  className="h-4 w-4 rounded border-white/30 bg-white/10 text-purple-500 focus:ring-purple-500/50"
-                />
-                <label htmlFor="skipSignificanceCheck" className="text-sm text-white/80 cursor-pointer">
-                  Skip significance analysis (regenerate regardless of change significance)
-                </label>
-              </div>
 
               {/* Error Message */}
               {previewError && (
