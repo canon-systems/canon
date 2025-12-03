@@ -258,7 +258,7 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
                 onKeyPress={handleKeyPress}
               />
               <button
-                onClick={searchRepositories}
+                onClick={() => searchRepositories()}
                 disabled={!searchQuery.trim() || isSearching}
                 className="btn btn-primary flex items-center gap-2"
               >

@@ -94,12 +94,13 @@ export async function POST(
       publishResourceId: execution.publishResourceId,
       // Add more detailed stats for better UX
       stats: {
-        filesProcessed: execution.filesProcessed || 0,
-        documentsUpdated: execution.documentsUpdated || 0,
-        documentsCreated: execution.documentsCreated || 0,
-        timeElapsed: execution.timeElapsed || 0,
+        // TODO: Add actual stats when executeAutomationRule returns them
+        filesProcessed: 0,
+        documentsUpdated: 0,
+        documentsCreated: 0,
+        timeElapsed: 0,
       },
-      executionLog: execution.executionLog || [], // Array of step-by-step log messages
+      executionLog: [], // Array of step-by-step log messages
     });
   } catch (err: any) {
     console.error('[Manual Run] Error:', err);

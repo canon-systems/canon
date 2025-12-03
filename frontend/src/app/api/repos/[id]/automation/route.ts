@@ -190,7 +190,7 @@ export async function PATCH(
           schedulingResults.push({
             ruleId,
             scheduled: false,
-            error: scheduleError.message,
+            error: scheduleError instanceof Error ? scheduleError.message : String(scheduleError),
           });
         }
       }

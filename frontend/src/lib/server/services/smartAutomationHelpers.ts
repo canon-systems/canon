@@ -266,16 +266,16 @@ export async function processDiagramsBatch({
 		const diagramResult = await generateArchitectureDiagram({
 			supabase,
 			userId,
+			method: 'github',
 			repoUrl: repo.repo_url,
 			branch: repo.default_branch,
 			subdir,
-			filters,
-			model: 'gpt-4o',
+			files: filters,
 		});
 
-		if (diagramResult.id) {
+		if (diagramResult.diagram_id) {
 			results.push({
-				id: diagramResult.id,
+				id: diagramResult.diagram_id,
 				title: 'Architecture Diagram',
 				changes: 'new',
 				significance: significanceAnalysis,
