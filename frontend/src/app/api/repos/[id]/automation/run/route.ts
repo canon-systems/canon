@@ -41,10 +41,21 @@ export async function POST(
       );
     }
 
-    const settings = repo.settings || {};
-    const rules = Array.isArray(settings.automation_rules) ? settings.automation_rules : [];
+    // Fetch automation rules from the new table
+    const { data: rules, error: rulesError } = await supabase
+      .from('automation_rules')
+      .select('*')
+      .eq('repo_id', repoId);
 
-    if (rules.length === 0) {
+    if (rulesError) {
+      console.error('Error fetching automation rules:', rulesError);
+      return NextResponse.json(
+        { error: 'Failed to fetch automation rules' },
+        { status: 500 }
+      );
+    }
+
+    if (!rules || rules.length === 0) {
       return NextResponse.json(
         { error: 'No automation rules configured for this repository' },
         { status: 400 }
@@ -52,15 +63,37 @@ export async function POST(
     }
 
     // Find the specific rule to run (default to first rule if not specified)
-    const ruleId = body.ruleId || rules[0]?.id || rules[0]?.name || 'default';
-    const rule = rules.find((r: any) => (r.id || r.name || 'default') === ruleId);
+    const ruleId = body.ruleId || rules[0].rule_id;
+    const dbRule = rules.find((r: any) => r.rule_id === ruleId);
 
-    if (!rule) {
+    if (!dbRule) {
       return NextResponse.json(
         { error: `Automation rule '${ruleId}' not found` },
         { status: 404 }
       );
     }
+
+    // Convert database rule to the expected RuleConfig format
+    const rule = {
+      id: dbRule.rule_id,
+      name: dbRule.name,
+      enabled: dbRule.enabled,
+      schedule: dbRule.schedule,
+      action_preset: dbRule.action_preset,
+      significance_analysis: dbRule.significance_analysis,
+      target_documents: dbRule.target_documents,
+      target_diagrams: dbRule.target_diagrams,
+      notifications: dbRule.notifications,
+      publish_targets: dbRule.publish_targets,
+      // Legacy fields
+      generate_doc: dbRule.generate_doc,
+      generate_diagram: dbRule.generate_diagram,
+      auto_publish: dbRule.auto_publish,
+      auto_publish_new_docs: dbRule.auto_publish_new_docs,
+      auto_publish_max_changes: dbRule.auto_publish_max_changes,
+      auto_publish_max_change_percentage: dbRule.auto_publish_max_change_percentage,
+      auto_publish_target: dbRule.auto_publish_target,
+    };
 
     console.log(`[Manual Run] Triggering automation rule '${ruleId}' for ${repo.name}`);
 

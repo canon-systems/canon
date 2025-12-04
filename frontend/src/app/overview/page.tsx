@@ -39,13 +39,15 @@ export default async function OverviewPage() {
     .select('id, created_at, diagram_id, version_number')
     .order('created_at', { ascending: false });
 
-  // Get automation rules status
-  const { data: repos, error: reposError } = await supabase
-    .from('workspace_repos')
-    .select('id, name, repo_url, settings')
-    .order('created_at', { ascending: false });
+  // Get automation rules from the new table
+  const { data: rulesData, error: reposError } = await supabase
+    .from('automation_rules')
+    .select(`
+      *,
+      workspace_repos!inner(id, name, repo_url)
+    `);
 
-  // Extract automation rules and their metadata
+  // Extract automation rules
   const automationRules: Array<{
     repoId: string;
     repoName: string;
@@ -58,26 +60,16 @@ export default async function OverviewPage() {
     lastExecution?: any;
   }> = [];
 
-  repos?.forEach((repo) => {
-    const settings = repo.settings || {};
-    const rules = Array.isArray(settings.automation_rules) ? settings.automation_rules : [];
-    const metadata = settings.automation_metadata || {};
-
-    rules.forEach((rule: any) => {
-      const ruleId = rule.id || rule.name || 'default';
-      const ruleMetadata = metadata[ruleId] || {};
-      
-      automationRules.push({
-        repoId: repo.id,
-        repoName: repo.name || 'Untitled Repo',
-        repoUrl: repo.repo_url || '',
-        ruleId,
-        ruleName: rule.name || ruleId,
-        enabled: Boolean(rule.enabled),
-        lastRunAt: ruleMetadata.last_run_at,
-        lastRunStatus: ruleMetadata.last_run_status,
-        lastExecution: ruleMetadata.last_execution,
-      });
+  rulesData?.forEach((rule: any) => {
+    automationRules.push({
+      repoId: rule.repo_id,
+      repoName: rule.workspace_repos.name || 'Untitled Repo',
+      repoUrl: rule.workspace_repos.repo_url || '',
+      ruleId: rule.rule_id,
+      ruleName: rule.name || rule.rule_id,
+      enabled: Boolean(rule.enabled),
+      lastRunAt: rule.last_run_at,
+      lastRunStatus: rule.last_run_status,
     });
   });
 

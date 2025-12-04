@@ -191,74 +191,30 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
     loadConnections();
   }, []);
 
-  // Recalculate allRules and stats from repos data
-  function recalculateRulesAndStats(repos: Repo[]) {
-    const newAllRules: Array<{
-      repoId: string;
-      repoName: string;
-      repoUrl: string;
-      ruleId: string;
-      ruleName: string;
-      enabled: boolean;
-      lastRunAt?: string;
-      lastRunStatus?: string;
-      lastExecution?: any;
-    }> = [];
+  // Update stats from allRules data (rules are now provided by server)
+  async function updateStatsFromRules() {
+    const totalRules = allRules.length;
+    const activeRules = allRules.filter(rule => rule.enabled).length;
 
-    let totalRules = 0;
-    let activeRules = 0;
+    // Fetch execution statistics from automation_runs table
     let totalExecutions24h = 0;
     let successfulExecutions = 0;
 
-    repos.forEach((repo) => {
-      const settings = repo.settings || {};
-      const rules = Array.isArray(settings.automation_rules) ? settings.automation_rules : [];
-      const metadata = settings.automation_metadata || {};
-
-      rules.forEach((rule: any) => {
-        const ruleId = rule.id || rule.name || 'default';
-        const ruleMetadata = metadata[ruleId] || {};
-        const enabled = Boolean(rule.enabled);
-
-        totalRules++;
-        if (enabled) activeRules++;
-
-        // Count executions in last 24h
-        const executionHistory = ruleMetadata.execution_history || [];
-        const now = new Date();
-        const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-
-        const recentExecutions = executionHistory.filter((exec: any) => {
-          try {
-            const execTime = new Date(exec.timestamp);
-            return execTime >= last24h;
-          } catch {
-            return false;
-          }
-        });
-
-        totalExecutions24h += recentExecutions.length;
-        successfulExecutions += recentExecutions.filter((e: any) => e.success && !e.skipped).length;
-
-        newAllRules.push({
-          repoId: repo.id,
-          repoName: repo.name || 'Untitled Repo',
-          repoUrl: repo.repo_url || '',
-          ruleId,
-          ruleName: rule.name || ruleId,
-          enabled,
-          lastRunAt: ruleMetadata.last_run_at,
-          lastRunStatus: ruleMetadata.last_run_status,
-          lastExecution: ruleMetadata.last_execution,
-        });
-      });
-    });
+    try {
+      const response = await fetch('/api/automation/stats');
+      if (response.ok) {
+        const stats = await response.json();
+        totalExecutions24h = stats.executions24h || 0;
+        successfulExecutions = stats.successfulExecutions || 0;
+      }
+    } catch (error) {
+      console.error('Failed to fetch automation stats:', error);
+    }
 
     const successRate = totalExecutions24h > 0
       ? Math.round((successfulExecutions / totalExecutions24h) * 100)
       : 0;
 
-    setAllRules(newAllRules);
     setStats({
       totalRules,
       activeRules,
@@ -275,7 +231,7 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
       const data = await response.json();
       setReposList(data || []);
       // Recalculate rules and stats from the fetched repos data
-      recalculateRulesAndStats(data || []);
+      updateStatsFromRules();
     } catch (err: any) {
       setRepoError(err.message || 'Failed to load repositories');
       setTimeout(() => setRepoError(''), 5000);
@@ -941,33 +897,8 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
       const nextForms = mapRulesToForms(updated.automation_rules || []);
       setSingleRuleForm(nextForms.length > 0 ? nextForms[0] : createAutomationRuleForm());
 
-      // Update reposList with the saved automation rules
-      setReposList(prev => prev.map(r =>
-        r.id === repoId
-          ? {
-            ...r,
-            settings: {
-              ...r.settings,
-              automation_rules: updated.automation_rules,
-              automation_metadata: updated.automation_metadata
-            }
-          }
-          : r
-      ));
-
-      // Recalculate allRules and stats to reflect the changes in the UI
-      recalculateRulesAndStats(reposList.map(r =>
-        r.id === repoId
-          ? {
-            ...r,
-            settings: {
-              ...r.settings,
-              automation_rules: updated.automation_rules,
-              automation_metadata: updated.automation_metadata
-            }
-          }
-          : r
-      ));
+      // Update stats to reflect the changes in the UI
+      updateStatsFromRules();
 
       setAutomationAlerts((prev) => ({ ...prev, [repoId]: { type: 'success', message: 'Automation rule saved' } }));
 
@@ -983,15 +914,19 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
 
   async function toggleRuleEnabled(repoId: string, ruleId: string) {
     try {
-      // Find the current rule settings
-      const repo = reposList.find(r => r.id === repoId);
-      if (!repo) return;
+      // Fetch current rules from API
+      const rulesResponse = await fetch(`/api/repos/${repoId}/automation`);
+      if (!rulesResponse.ok) {
+        throw new Error('Failed to fetch current rules');
+      }
 
-      const currentRules = repo.settings?.automation_rules || [];
-      const ruleIndex = currentRules.findIndex((r: any) => (r.id || r.name) === ruleId);
+      const rulesData = await rulesResponse.json();
+      const currentRules = rulesData.automation_rules || [];
+
+      // Find and toggle the rule
+      const ruleIndex = currentRules.findIndex((r: any) => r.id === ruleId);
       if (ruleIndex === -1) return;
 
-      // Toggle the enabled state
       const updatedRules = [...currentRules];
       updatedRules[ruleIndex] = {
         ...updatedRules[ruleIndex],
@@ -1010,22 +945,25 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
         throw new Error('Failed to update rule status');
       }
 
-      // Update local state
-      const updated = await response.json();
-      const updatedReposList = reposList.map(r =>
-        r.id === repoId
-          ? { ...r, settings: { ...r.settings, automation_rules: updated.automation_rules } }
+      // Update local allRules state
+      const updatedAllRules = allRules.map(r =>
+        r.repoId === repoId && r.ruleId === ruleId
+          ? { ...r, enabled: !r.enabled }
           : r
       );
+      setAllRules(updatedAllRules);
 
-      setReposList(updatedReposList);
+      // Update stats
+      updateStatsFromRules();
 
-      // Update allRules state - use updatedReposList instead of reposList
-      recalculateRulesAndStats(updatedReposList);
+      setAutomationAlerts((prev) => ({ ...prev, [repoId]: { type: 'success', message: 'Automation rule updated' } }));
 
     } catch (error: any) {
       console.error('Failed to toggle rule enabled state:', error);
-      // Could add error handling UI here
+      setAutomationAlerts((prev) => ({
+        ...prev,
+        [repoId]: { type: 'error', message: error.message || 'Failed to update rule' }
+      }));
     }
   }
 
@@ -1417,255 +1355,55 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
 
                       {/* Single Rule Tile - Clickable to Configure */}
                       {rules.length > 0 ? (
-                        (() => {
-                          const rule = rules[0]; // Only show first rule (one rule per repo)
-                          const ruleMetadata = repoMetadata[rule.ruleId] || {};
-                          const lastExecution = ruleMetadata.last_execution;
-                          const settings = repo.settings || {};
-                          const ruleConfig = (settings.automation_rules || []).find((r: any) => (r.id || r.name) === rule.ruleId);
-
-                          return (
-                            <div
-                              onClick={() => openAutomationModal(repoId)}
-                              className="rounded-lg border border-white/10 bg-black/40 p-4 cursor-pointer hover:bg-black/60 transition-colors"
-                            >
-                              <div className="flex items-start justify-between gap-3 mb-3">
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-semibold text-white truncate">{rule.ruleName || 'Untitled Rule'}</p>
-                                  <div className="mt-2 space-y-1">
-                                    {ruleConfig?.schedule && (
-                                      <p className="text-xs text-white/60">Schedule: {ruleConfig.schedule}</p>
-                                    )}
-                                    <div className="flex items-center gap-2">
-                                      <span className={`text-xs px-2 py-0.5 rounded ${rule.enabled ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/10 text-white/60'}`}>
-                                        {rule.enabled ? 'Enabled' : 'Disabled'}
-                                      </span>
-                                      {lastExecution && (
-                                        <span className={`text-xs px-2 py-0.5 rounded ${getStatusColor(rule.lastRunStatus)}`}>
-                                          {rule.lastRunStatus || 'Never run'}
-                                        </span>
-                                      )}
-                                    </div>
-                                  </div>
-                                </div>
-                                <div className={`rounded-full p-2 ${getStatusColor(rule.lastRunStatus)}`}>
-                                  {getStatusIconComponent(rule.lastRunStatus)}
-                                </div>
-                              </div>
-
-                              <div className="space-y-2 mt-3 pt-3 border-t border-white/10">
-                                <div className="flex items-center justify-between text-xs">
-                                  <span className="text-white/60">Actions:</span>
-                                  <div className="flex flex-wrap gap-1">
-                                    {ruleConfig?.detect_changes && (
-                                      <span className="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 text-xs">Detect Changes</span>
-                                    )}
-                                    {ruleConfig?.generate_doc && (
-                                      <span className="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 text-xs">Generate Doc</span>
-                                    )}
-                                    {ruleConfig?.generate_diagram && (
-                                      <span className="px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 text-xs">Generate Diagram</span>
-                                    )}
-                                    {ruleConfig?.auto_publish && (
-                                      <span className="px-1.5 py-0.5 rounded bg-green-500/20 text-green-300 text-xs">Auto Publish</span>
-                                    )}
-                                  </div>
-                                </div>
-
-                                {lastExecution && (
-                                  <div className="space-y-1 mt-2">
-                                    <div className="flex items-center gap-2 text-xs">
-                                      {getStatusIcon(lastExecution.success ? (lastExecution.skipped ? 'skipped' : 'success') : 'failed')}
-                                      <span className="text-white/60">Last run: {formatDate(lastExecution.timestamp)}</span>
-                                    </div>
-                                    {lastExecution.actions && lastExecution.actions.length > 0 && (
-                                      <p className="text-xs text-white/50">Actions: {lastExecution.actions.join(', ')}</p>
-                                    )}
-                                    {lastExecution.doc_id && (
-                                      <Link
-                                        href={`/edit/${lastExecution.doc_id}`}
-                                        onClick={(e) => e.stopPropagation()}
-                                        className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
-                                      >
-                                        <FileText className="h-3 w-3" />
-                                        View Document
-                                      </Link>
-                                    )}
-                                  </div>
-                                )}
-
-                                {/* Enhanced run result feedback */}
-                                {runResults[`${repoId}-${rule.ruleId}`] && (
-                                  <div className={`mt-2 p-3 rounded border ${runResults[`${repoId}-${rule.ruleId}`]?.success
-                                    ? 'bg-emerald-500/10 border-emerald-500/30'
-                                    : 'bg-red-500/10 border-red-500/30'
-                                    }`}>
-                                    <div className="flex items-start gap-2 mb-2">
-                                      {runResults[`${repoId}-${rule.ruleId}`]?.success ? (
-                                        <CheckCircle2 className="h-4 w-4 text-emerald-400 mt-0.5 flex-shrink-0" />
-                                      ) : (
-                                        <XCircle className="h-4 w-4 text-red-400 mt-0.5 flex-shrink-0" />
-                                      )}
-                                      <div className="flex-1">
-                                        <div className={`text-sm font-medium ${runResults[`${repoId}-${rule.ruleId}`]?.success ? 'text-emerald-300' : 'text-red-300'
-                                          }`}>
-                                          {runResults[`${repoId}-${rule.ruleId}`]?.success ? 'Automation completed successfully' : 'Automation failed'}
-                                        </div>
-                                        <div className={`text-xs mt-1 ${runResults[`${repoId}-${rule.ruleId}`]?.success ? 'text-emerald-200' : 'text-red-200'
-                                          }`}>
-                                          {runResults[`${repoId}-${rule.ruleId}`]?.message}
-                                        </div>
-                                      </div>
-                                      <button
-                                        onClick={() => {
-                                          setRunResults(prev => ({ ...prev, [`${repoId}-${rule.ruleId}`]: null }));
-                                        }}
-                                        className="text-white/40 hover:text-white/60 text-xs"
-                                        title="Dismiss"
-                                      >
-                                        <X className="h-3 w-3" />
-                                      </button>
-                                    </div>
-
-                                    {/* Show actions taken */}
-                                    {(() => {
-                                      const result = runResults[`${repoId}-${rule.ruleId}`];
-                                      return result?.actions && result.actions.length > 0 && (
-                                        <div className="mt-2 text-xs text-white/70">
-                                          <div className="font-medium mb-1">Actions performed:</div>
-                                          <ul className="list-disc list-inside space-y-0.5">
-                                            {result.actions.map((action, idx) => (
-                                              <li key={idx}>{action}</li>
-                                            ))}
-                                          </ul>
-                                        </div>
-                                      );
-                                    })()}
-
-                                    {/* Show errors if any */}
-                                    {(() => {
-                                      const result = runResults[`${repoId}-${rule.ruleId}`];
-                                      return result?.errors && result.errors.length > 0 && (
-                                        <div className="mt-2 text-xs text-red-200">
-                                          <div className="font-medium mb-1">Errors encountered:</div>
-                                          <ul className="list-disc list-inside space-y-0.5">
-                                            {result.errors.map((error, idx) => (
-                                              <li key={idx}>{error}</li>
-                                            ))}
-                                          </ul>
-                                        </div>
-                                      );
-                                    })()}
-
-                                    {/* Show stats if available */}
-                                    {(() => {
-                                      const result = runResults[`${repoId}-${rule.ruleId}`];
-                                      return result?.stats && (
-                                        <div className="mt-2 text-xs text-white/60">
-                                          <div className="grid grid-cols-2 gap-2">
-                                            {result.stats.filesProcessed > 0 && (
-                                              <div>Files processed: {result.stats.filesProcessed}</div>
-                                            )}
-                                            {result.stats.documentsUpdated > 0 && (
-                                              <div>Docs updated: {result.stats.documentsUpdated}</div>
-                                            )}
-                                            {result.stats.timeElapsed > 0 && (
-                                              <div>Time: {result.stats.timeElapsed}s</div>
-                                            )}
-                                          </div>
-                                        </div>
-                                      );
-                                    })()}
-
-                                    {/* Action buttons */}
-                                    <div className="flex gap-2 mt-3">
-                                      {runResults[`${repoId}-${rule.ruleId}`]?.docId && (
-                                        <Link
-                                          href={`/edit/${runResults[`${repoId}-${rule.ruleId}`]?.docId}`}
-                                          onClick={(e) => e.stopPropagation()}
-                                          className="px-2 py-1 text-xs bg-emerald-500/20 text-emerald-300 rounded hover:bg-emerald-500/30 transition-colors"
-                                        >
-                                          View Document
-                                        </Link>
-                                      )}
-                                      {runResults[`${repoId}-${rule.ruleId}`]?.diagramId && (
-                                        <Link
-                                          href={`/architecture/${runResults[`${repoId}-${rule.ruleId}`]?.diagramId}/history`}
-                                          onClick={(e) => e.stopPropagation()}
-                                          className="px-2 py-1 text-xs bg-blue-500/20 text-blue-300 rounded hover:bg-blue-500/30 transition-colors"
-                                        >
-                                          View Diagram
-                                        </Link>
-                                      )}
-                                    </div>
-                                  </div>
-                                )}
-
-                                <div className="flex items-center gap-2 mt-3">
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      toggleRuleEnabled(repoId, rule.ruleId);
-                                    }}
-                                    className={`relative inline-flex h-6 w-10 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${rule.enabled ? 'bg-emerald-500' : 'bg-gray-600'
-                                      }`}
-                                    title={rule.enabled ? 'Disable rule' : 'Enable rule'}
-                                  >
-                                    <span
-                                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${rule.enabled ? 'translate-x-5' : 'translate-x-1'
-                                        }`}
-                                    />
-                                  </button>
-                                  {runningRules[`${repoId}-${rule.ruleId}`] ? (
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleCancelRule(repoId, rule.ruleId);
-                                      }}
-                                      className="flex items-center gap-1 text-xs text-red-400 hover:text-red-300 px-2 py-1 rounded border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 transition-colors"
-                                      title="Cancel running rule"
-                                    >
-                                      <StopCircle className="h-3 w-3" />
-                                      Cancel
-                                    </button>
-                                  ) : (
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleRunRule(repoId, rule.ruleId);
-                                      }}
-                                      className="flex items-center gap-1 text-xs text-purple-400 hover:text-purple-300 px-2 py-1 rounded border border-purple-500/30 bg-purple-500/10 hover:bg-purple-500/20 transition-colors"
-                                      title="Run rule now"
-                                    >
-                                      <PlayCircle className="h-3 w-3" />
-                                      Run Now
-                                    </button>
+                        <div
+                          onClick={() => openAutomationModal(repoId)}
+                          className="rounded-lg border border-white/10 bg-black/40 p-4 cursor-pointer hover:bg-black/60 transition-colors"
+                        >
+                          <div className="flex items-start justify-between gap-3 mb-3">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-white truncate">{rules[0].ruleName || 'Untitled Rule'}</p>
+                              <div className="mt-2 space-y-1">
+                                <div className="flex items-center gap-2">
+                                  <span className={`text-xs px-2 py-0.5 rounded ${rules[0].enabled ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/10 text-white/60'}`}>
+                                    {rules[0].enabled ? 'Enabled' : 'Disabled'}
+                                  </span>
+                                  {rules[0].lastRunStatus && (
+                                    <span className={`text-xs px-2 py-0.5 rounded ${getStatusColor(rules[0].lastRunStatus)}`}>
+                                      {rules[0].lastRunStatus}
+                                    </span>
                                   )}
-                                  {runningRules[`${repoId}-${rule.ruleId}`] && (
-                                    <div className="flex items-center gap-2 text-xs text-blue-400">
-                                      <Loader2 className="h-3 w-3 animate-spin" />
-                                      <div>
-                                        <div className="font-medium">Running automation...</div>
-                                        <div className="text-white/60 text-xs">Detecting changes</div>
-                                      </div>
-                                    </div>
-                                  )}
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setDeleteRuleModal({ open: true, repoId, ruleId: rule.ruleId, ruleName: rule.ruleName });
-                                    }}
-                                    className="text-xs text-red-400 hover:text-red-300 px-2"
-                                    title="Delete rule"
-                                  >
-                                    <Trash2 className="h-3 w-3" />
-                                  </button>
-                                  <p className="flex-1 text-xs text-white/50 text-right">Click to configure →</p>
                                 </div>
                               </div>
                             </div>
-                          );
-                        })()
+                            <div className={`rounded-full p-2 ${getStatusColor(rules[0].lastRunStatus)}`}>
+                              {getStatusIconComponent(rules[0].lastRunStatus)}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 mt-3">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleRuleEnabled(repoId, rules[0].ruleId);
+                              }}
+                              className={`relative inline-flex h-6 w-10 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${rules[0].enabled ? 'bg-emerald-500' : 'bg-gray-600'}`}
+                              title={rules[0].enabled ? 'Disable rule' : 'Enable rule'}
+                            >
+                              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${rules[0].enabled ? 'translate-x-5' : 'translate-x-1'}`} />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDeleteRuleModal({ open: true, repoId, ruleId: rules[0].ruleId, ruleName: rules[0].ruleName });
+                              }}
+                              className="text-xs text-red-400 hover:text-red-300 px-2"
+                              title="Delete rule"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                            <p className="flex-1 text-xs text-white/50 text-right">Click to configure →</p>
+                          </div>
+                        </div>
                       ) : (
                         <div
                           onClick={() => openAutomationModal(repoId)}

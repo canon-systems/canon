@@ -47,26 +47,51 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Get the automation rules for this repo
-        const settings = repo.settings || {};
-        const rules = Array.isArray(settings.automation_rules) ? settings.automation_rules : [];
-        const rule = rules.find((r: any) => r.id === ruleId || r.name === ruleId);
+        // Get the automation rule from the new table
+        const { data: dbRule, error: ruleError } = await supabase
+            .from('automation_rules')
+            .select('*')
+            .eq('repo_id', repoId)
+            .eq('rule_id', ruleId)
+            .single();
 
-        if (!rule) {
-            console.error('Rule not found:', ruleId);
+        if (ruleError || !dbRule) {
+            console.error('Rule not found:', ruleId, ruleError);
             return NextResponse.json(
                 { error: 'Automation rule not found' },
                 { status: 404 }
             );
         }
 
-        if (!rule.enabled) {
+        if (!dbRule.enabled) {
             return NextResponse.json({
                 success: true,
                 skipped: true,
                 skipReason: 'Rule is disabled'
             });
         }
+
+        // Convert database rule to the expected RuleConfig format
+        const rule = {
+            id: dbRule.rule_id,
+            name: dbRule.name,
+            enabled: dbRule.enabled,
+            schedule: dbRule.schedule,
+            action_preset: dbRule.action_preset,
+            significance_analysis: dbRule.significance_analysis,
+            target_documents: dbRule.target_documents,
+            target_diagrams: dbRule.target_diagrams,
+            notifications: dbRule.notifications,
+            publish_targets: dbRule.publish_targets,
+            // Legacy fields
+            generate_doc: dbRule.generate_doc,
+            generate_diagram: dbRule.generate_diagram,
+            auto_publish: dbRule.auto_publish,
+            auto_publish_new_docs: dbRule.auto_publish_new_docs,
+            auto_publish_max_changes: dbRule.auto_publish_max_changes,
+            auto_publish_max_change_percentage: dbRule.auto_publish_max_change_percentage,
+            auto_publish_target: dbRule.auto_publish_target,
+        };
 
         console.log(`🚀 Executing smart automation: ${repo.name} - ${rule.name || ruleId}`);
 

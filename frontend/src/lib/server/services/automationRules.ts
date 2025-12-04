@@ -179,22 +179,38 @@ export function isRuleDue(rule: RuleConfig, lastRunAt?: string, currentTime = ne
 	return false;
 }
 
-export async function getRulesForRepo(supabase: SupabaseClient, repoId: string, workspaceId: string) {
-	const response = await supabase
-		.from('workspace_repos')
-		.select('settings')
-		.eq('id', repoId)
-		.eq('workspace_id', workspaceId)
-		.single();
+export async function getRulesForRepo(supabase: SupabaseClient, repoId: string, workspaceId: string): Promise<RuleConfig[]> {
+	const { data, error } = await supabase
+		.from('automation_rules')
+		.select('*')
+		.eq('repo_id', repoId);
 
-	if (!response || !response.data) return [];
-
-	const settings = response.data.settings || {};
-	if (!Array.isArray(settings.automation_rules)) {
+	if (error) {
+		console.error('Error fetching automation rules:', error);
 		return [];
 	}
 
-	return settings.automation_rules as RuleConfig[];
+	// Convert back to RuleConfig format for compatibility
+	return (data || []).map(rule => ({
+		id: rule.rule_id,
+		name: rule.name,
+		enabled: rule.enabled,
+		schedule: rule.schedule,
+		action_preset: rule.action_preset,
+		significance_analysis: rule.significance_analysis,
+		target_documents: rule.target_documents,
+		target_diagrams: rule.target_diagrams,
+		notifications: rule.notifications,
+		publish_targets: rule.publish_targets,
+		// Legacy fields
+		generate_doc: rule.generate_doc,
+		generate_diagram: rule.generate_diagram,
+		auto_publish: rule.auto_publish,
+		auto_publish_new_docs: rule.auto_publish_new_docs,
+		auto_publish_max_changes: rule.auto_publish_max_changes,
+		auto_publish_max_change_percentage: rule.auto_publish_max_change_percentage,
+		auto_publish_target: rule.auto_publish_target,
+	}));
 }
 
 export type AutomationRuleEntry = {
@@ -207,41 +223,52 @@ export type AutomationRuleEntry = {
 export async function getDueRules(
 	supabase: SupabaseClient,
 	workspaceId?: string | null
-) {
-	const query = supabase.from('workspace_repos').select('*');
+): Promise<AutomationRuleEntry[]> {
+	let query = supabase
+		.from('automation_rules')
+		.select(`
+			*,
+			workspace_repos!inner(*)
+		`)
+		.eq('enabled', true)
+		.lte('next_run_at', new Date().toISOString());
+
 	if (workspaceId) {
-		query.eq('workspace_id', workspaceId);
+		query = query.eq('workspace_id', workspaceId);
 	}
 
-	const result = await query;
-	if (!result || !result.data) return [];
+	const { data, error } = await query;
 
-	const currentTime = new Date();
-	const dueRules: AutomationRuleEntry[] = [];
-
-	for (const repo of result.data) {
-		const settings = repo.settings || {};
-		const rules = Array.isArray(settings.automation_rules) ? settings.automation_rules : [];
-		const metadata = settings.automation_metadata || {};
-
-		for (const rule of rules) {
-			if (!rule.enabled) continue;
-
-			const ruleId = rule.id || rule.name || 'default';
-			const lastRun = metadata?.[ruleId]?.last_run_at;
-
-			if (isRuleDue(rule, lastRun, currentTime)) {
-				dueRules.push({
-					repo,
-					repo_id: repo.id,
-					rule,
-					rule_id: ruleId,
-				});
-			}
-		}
+	if (error) {
+		console.error('Error fetching due rules:', error);
+		return [];
 	}
 
-	return dueRules;
+	return (data || []).map(row => ({
+		repo_id: row.repo_id,
+		repo: row.workspace_repos,
+		rule: {
+			id: row.rule_id,
+			name: row.name,
+			enabled: row.enabled,
+			schedule: row.schedule,
+			action_preset: row.action_preset,
+			significance_analysis: row.significance_analysis,
+			target_documents: row.target_documents,
+			target_diagrams: row.target_diagrams,
+			notifications: row.notifications,
+			publish_targets: row.publish_targets,
+			// Legacy fields
+			generate_doc: row.generate_doc,
+			generate_diagram: row.generate_diagram,
+			auto_publish: row.auto_publish,
+			auto_publish_new_docs: row.auto_publish_new_docs,
+			auto_publish_max_changes: row.auto_publish_max_changes,
+			auto_publish_max_change_percentage: row.auto_publish_max_change_percentage,
+			auto_publish_target: row.auto_publish_target,
+		},
+		rule_id: row.rule_id,
+	}));
 }
 
 export type ExecutionResult = {
@@ -264,60 +291,55 @@ export async function updateRuleLastRun(
 	ruleId: string,
 	workspaceId: string,
 	execution?: ExecutionResult
-) {
-	const response = await supabase
-		.from('workspace_repos')
-		.select('settings')
-		.eq('id', repoId)
-		.eq('workspace_id', workspaceId)
-		.single();
-
-	if (!response || !response.data) return;
-
-	const settings = response.data.settings || {};
-	const metadata = settings.automation_metadata || {};
-	const existingMetadata = metadata[ruleId] || {};
-
-	// Build execution history entry
-	const executionEntry = {
-		timestamp: new Date().toISOString(),
-		success: execution?.success ?? false,
-		skipped: execution?.skipped ?? false,
-		skip_reason: execution?.skipReason,
-		actions: execution?.actions || [],
-		doc_id: execution?.docId || null,
-		diagram_id: execution?.diagramId || null,
-		errors: execution?.errors || [],
-		publish_status: execution?.publishStatus,
-		publish_provider: execution?.publishProvider,
-		publish_resource_id: execution?.publishResourceId,
-		trigger: execution?.trigger || 'scheduled',
+): Promise<void> {
+	const now = new Date().toISOString();
+	const updateData: any = {
+		last_run_at: now,
 	};
 
-	// Maintain execution history (last 10 runs)
-	const existingHistory = existingMetadata.execution_history || [];
-	const executionHistory = [
-		executionEntry,
-		...existingHistory.slice(0, 9), // Keep last 10 executions
-	];
+	if (execution) {
+		updateData.last_run_status = execution.success ?
+			(execution.skipped ? 'skipped' : 'success') : 'failed';
+		updateData.last_run_error = execution.errors?.length > 0 ?
+			execution.errors.join('; ') : null;
+	}
 
-	metadata[ruleId] = {
-		...existingMetadata,
-		last_run_at: new Date().toISOString(),
-		last_run_status: execution?.success ? (execution.skipped ? 'skipped' : 'success') : 'failed',
-		last_run_error: execution?.errors && execution.errors.length > 0 ? execution.errors.join('; ') : null,
-		last_execution: executionEntry,
-		execution_history: executionHistory,
-	};
+	// Update the automation rule
+	const { error } = await supabase
+		.from('automation_rules')
+		.update(updateData)
+		.eq('repo_id', repoId)
+		.eq('rule_id', ruleId);
 
-	settings.automation_metadata = metadata;
+	if (error) {
+		console.error('Error updating automation rule:', error);
+	}
 
-	await supabase
-		.from('workspace_repos')
-		.update({
-			settings,
-			updated_at: new Date().toISOString(),
-		})
-		.eq('id', repoId);
+	// Still insert into automation_runs table for execution history
+	if (execution) {
+		const { error: insertError } = await supabase
+			.from('automation_runs')
+			.insert({
+				repo_id: repoId,
+				rule_id: ruleId,
+				workspace_id: workspaceId,
+				executed_at: now,
+				trigger_type: execution.trigger || 'scheduled',
+				success: execution.success,
+				skipped: execution.skipped || false,
+				skip_reason: execution.skipReason,
+				actions: execution.actions || [],
+				doc_id: execution.docId || null,
+				diagram_id: execution.diagramId || null,
+				publish_status: execution.publishStatus,
+				publish_provider: execution.publishProvider,
+				publish_resource_id: execution.publishResourceId,
+				errors: execution.errors || [],
+			});
+
+		if (insertError) {
+			console.error('Failed to insert automation run:', insertError);
+		}
+	}
 }
 

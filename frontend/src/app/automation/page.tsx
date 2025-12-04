@@ -15,7 +15,7 @@ export default async function AutomationPage() {
   // Get all repos (not just ones with automation rules)
   const { data: repos } = await supabase
     .from('workspace_repos')
-    .select('id, name, repo_url, default_branch, provider, auth_type, settings, created_at, updated_at')
+    .select('id, name, repo_url, default_branch, provider, auth_type, created_at, updated_at')
     .order('created_at', { ascending: false });
 
   // Get connections for knowledge base providers
@@ -25,7 +25,15 @@ export default async function AutomationPage() {
     .eq('status', 'active')
     .order('created_at', { ascending: false });
 
-  // Extract automation rules and calculate stats
+  // Get automation rules from the new table
+  const { data: rules } = await supabase
+    .from('automation_rules')
+    .select(`
+      *,
+      workspace_repos!inner(id, name, repo_url)
+    `);
+
+  // Extract automation rules (stats will be calculated client-side from API)
   const allRules: Array<{
     repoId: string;
     repoName: string;
@@ -40,56 +48,24 @@ export default async function AutomationPage() {
 
   let totalRules = 0;
   let activeRules = 0;
-  let totalExecutions24h = 0;
-  let successfulExecutions = 0;
 
-  repos?.forEach((repo) => {
-    const settings = repo.settings || {};
-    const rules = Array.isArray(settings.automation_rules) ? settings.automation_rules : [];
-    const metadata = settings.automation_metadata || {};
+  rules?.forEach((rule: any) => {
+    const enabled = Boolean(rule.enabled);
 
-    rules.forEach((rule: any) => {
-      const ruleId = rule.id || rule.name || 'default';
-      const ruleMetadata = metadata[ruleId] || {};
-      const enabled = Boolean(rule.enabled);
-      
-      totalRules++;
-      if (enabled) activeRules++;
+    totalRules++;
+    if (enabled) activeRules++;
 
-      // Count executions in last 24h
-      const executionHistory = ruleMetadata.execution_history || [];
-      const now = new Date();
-      const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-      
-      const recentExecutions = executionHistory.filter((exec: any) => {
-        try {
-          const execTime = new Date(exec.timestamp);
-          return execTime >= last24h;
-        } catch {
-          return false;
-        }
-      });
-
-      totalExecutions24h += recentExecutions.length;
-      successfulExecutions += recentExecutions.filter((e: any) => e.success && !e.skipped).length;
-
-      allRules.push({
-        repoId: repo.id,
-        repoName: repo.name || 'Untitled Repo',
-        repoUrl: repo.repo_url || '',
-        ruleId,
-        ruleName: rule.name || ruleId,
-        enabled,
-        lastRunAt: ruleMetadata.last_run_at,
-        lastRunStatus: ruleMetadata.last_run_status,
-        lastExecution: ruleMetadata.last_execution,
-      });
+    allRules.push({
+      repoId: rule.repo_id,
+      repoName: rule.workspace_repos.name || 'Untitled Repo',
+      repoUrl: rule.workspace_repos.repo_url || '',
+      ruleId: rule.rule_id,
+      ruleName: rule.name || rule.rule_id,
+      enabled,
+      lastRunAt: rule.last_run_at,
+      lastRunStatus: rule.last_run_status,
     });
   });
-
-  const successRate = totalExecutions24h > 0 
-    ? Math.round((successfulExecutions / totalExecutions24h) * 100) 
-    : 0;
 
   return (
     <AutomationPageClient
@@ -100,8 +76,8 @@ export default async function AutomationPage() {
       stats={{
         totalRules,
         activeRules,
-        executions24h: totalExecutions24h,
-        successRate,
+        executions24h: 0, // Will be calculated client-side from API
+        successRate: 0,   // Will be calculated client-side from API
       }}
     />
   );
