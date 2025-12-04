@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createClient as createSupabaseClient } from '@/lib/supabase/server';
+import { calculateNextRunAt } from '@/lib/server/services/automationRules';
 
 export async function GET(
   request: NextRequest,
@@ -114,6 +115,7 @@ export async function PATCH(
       target_diagrams: rule.target_diagrams || [],
       notifications: rule.notifications,
       publish_targets: rule.publish_targets,
+      next_run_at: (rule.enabled && rule.schedule) ? calculateNextRunAt(rule.schedule).toISOString() : null,
       // Legacy fields
       generate_doc: rule.generate_doc,
       generate_diagram: rule.generate_diagram,

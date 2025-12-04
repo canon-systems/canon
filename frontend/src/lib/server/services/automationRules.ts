@@ -95,6 +95,55 @@ export function parseSchedule(schedule: string) {
 	return { schedule_type: 'daily', schedule_config: { hour: 0, minute: 0 } };
 }
 
+export function calculateNextRunAt(schedule: string, fromTime: Date = new Date()): Date {
+	const parsed = parseSchedule(schedule);
+	const nextTime = new Date(fromTime);
+
+	switch (parsed.schedule_type) {
+		case 'daily':
+			nextTime.setHours(parsed.schedule_config.hour || 0, parsed.schedule_config.minute || 0, 0, 0);
+			if (nextTime <= fromTime) {
+				nextTime.setDate(nextTime.getDate() + 1);
+			}
+			break;
+
+		case 'weekly':
+			const targetDay = parsed.schedule_config.day_of_week || 0;
+			const currentDay = fromTime.getDay();
+			const daysUntilTarget = (targetDay - currentDay + 7) % 7;
+			// If it's today but already past the scheduled time, move to next week
+			const daysToAdd = (daysUntilTarget === 0 &&
+				(fromTime.getHours() > (parsed.schedule_config.hour || 0) ||
+				 (fromTime.getHours() === (parsed.schedule_config.hour || 0) &&
+				  fromTime.getMinutes() >= (parsed.schedule_config.minute || 0))))
+				? 7 : daysUntilTarget;
+
+			nextTime.setDate(fromTime.getDate() + daysToAdd);
+			nextTime.setHours(parsed.schedule_config.hour || 0, parsed.schedule_config.minute || 0, 0, 0);
+			break;
+
+		case 'interval':
+			if (parsed.schedule_config.hours) {
+				nextTime.setTime(fromTime.getTime() + (parsed.schedule_config.hours * 60 * 60 * 1000));
+			} else if (parsed.schedule_config.minutes) {
+				nextTime.setTime(fromTime.getTime() + (parsed.schedule_config.minutes * 60 * 1000));
+			} else {
+				// Default to 24 hours
+				nextTime.setTime(fromTime.getTime() + (24 * 60 * 60 * 1000));
+			}
+			break;
+
+		default:
+			// Default to daily at midnight
+			nextTime.setHours(0, 0, 0, 0);
+			if (nextTime <= fromTime) {
+				nextTime.setDate(nextTime.getDate() + 1);
+			}
+	}
+
+	return nextTime;
+}
+
 export function isRuleDue(rule: RuleConfig, lastRunAt?: string, currentTime = new Date()) {
 	const schedule = rule.schedule;
 	if (!schedule) return false;
@@ -292,9 +341,10 @@ export async function updateRuleLastRun(
 	workspaceId: string,
 	execution?: ExecutionResult
 ): Promise<void> {
-	const now = new Date().toISOString();
+	const now = new Date();
+	const nowIso = now.toISOString();
 	const updateData: any = {
-		last_run_at: now,
+		last_run_at: nowIso,
 	};
 
 	if (execution) {
@@ -302,6 +352,20 @@ export async function updateRuleLastRun(
 			(execution.skipped ? 'skipped' : 'success') : 'failed';
 		updateData.last_run_error = execution.errors?.length > 0 ?
 			execution.errors.join('; ') : null;
+	}
+
+	// First get the rule to calculate next run time
+	const { data: rule } = await supabase
+		.from('automation_rules')
+		.select('schedule, enabled')
+		.eq('repo_id', repoId)
+		.eq('rule_id', ruleId)
+		.single();
+
+	// Calculate next run time if rule has a schedule and is enabled
+	if (rule?.schedule && rule?.enabled) {
+		const nextRun = calculateNextRunAt(rule.schedule, now);
+		updateData.next_run_at = nextRun.toISOString();
 	}
 
 	// Update the automation rule
@@ -323,7 +387,7 @@ export async function updateRuleLastRun(
 				repo_id: repoId,
 				rule_id: ruleId,
 				workspace_id: workspaceId,
-				executed_at: now,
+				executed_at: nowIso,
 				trigger_type: execution.trigger || 'scheduled',
 				success: execution.success,
 				skipped: execution.skipped || false,

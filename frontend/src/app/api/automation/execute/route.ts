@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { executeAutomationRule } from '@/lib/server/services/automationRunner';
 import { updateRuleLastRun } from '@/lib/server/services/automationRules';
-import { rescheduleAutomationRule } from '@/lib/server/services/qstashService';
 
 interface AutomationExecutionRequest {
     userId: string;
@@ -14,7 +13,7 @@ interface AutomationExecutionRequest {
 
 /**
  * Execute a specific automation rule
- * This endpoint is called by QStash for scheduled automations
+ * This endpoint is called by the heartbeat system for scheduled automations
  * and can also be called manually for immediate execution
  */
 export async function POST(request: NextRequest) {
@@ -112,22 +111,6 @@ export async function POST(request: NextRequest) {
             skipReason: execution.skipReason,
             trigger: scheduled ? 'scheduled' : (manual ? 'manual' : 'scheduled'),
         });
-
-        // Auto-reschedule if this was a scheduled execution and it succeeded
-        if (scheduled && execution.success && !execution.skipped) {
-            try {
-                console.log(`📅 Rescheduling smart automation: ${repo.name} - ${rule.name || ruleId}`);
-                await rescheduleAutomationRule({
-                    userId,
-                    repoId,
-                    ruleId,
-                    schedule: rule.schedule,
-                });
-            } catch (rescheduleError) {
-                console.error('Failed to reschedule smart automation:', rescheduleError);
-                // Don't fail the execution if rescheduling fails
-            }
-        }
 
         return NextResponse.json({
             success: true,
