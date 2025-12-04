@@ -103,11 +103,6 @@ export class LLMGateway {
 	}
 
 	async call(messages: Message[], model: string, temperature?: number, context?: string): Promise<string> {
-		const contextInfo = context ? ` [${context}]` : '';
-		console.log(`[LLMGateway] Making API call to model: ${model}${contextInfo}`);
-		console.log(`[LLMGateway] Temperature: ${temperature ?? this.defaultTemperature}`);
-		console.log(`[LLMGateway] Messages: ${messages.length} (system: ${messages.filter(m => m.role === 'system').length}, user: ${messages.filter(m => m.role === 'user').length})`);
-		console.log(`[LLMGateway] Gateway URL: ${this.url}`);
 
 		try {
 			// Add timeout to prevent indefinite hangs (60 seconds for LLM calls)
@@ -138,9 +133,6 @@ export class LLMGateway {
 			}
 
 			const content = payload?.choices?.[0]?.message?.content;
-			const outputLength = typeof content === 'string' ? content.length : 0;
-			console.log(`[LLMGateway] ✓ API call successful. Response: ${outputLength.toLocaleString()} characters`);
-
 			return typeof content === 'string' ? content.trim() : '';
 		} catch (error: any) {
 			// Handle specific error types

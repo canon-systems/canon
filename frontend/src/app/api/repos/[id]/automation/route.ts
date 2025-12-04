@@ -1,22 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createClient as createSupabaseClient } from '@/lib/supabase/server';
-
-interface RepoRow {
-  settings: Record<string, any> | null;
-}
-
-async function fetchRepoSettings(repoId: string, userId: string) {
-  const supabase = await createSupabaseClient();
-  const { data, error } = await supabase
-    .from('workspace_repos')
-    .select('settings')
-    .eq('id', repoId)
-    .eq('workspace_id', userId)
-    .single();
-
-  return { data: data as RepoRow | null, error };
-}
+import { calculateNextRunAt } from '@/lib/server/services/automationRules';
 
 export async function GET(
   request: NextRequest,
@@ -29,28 +14,48 @@ export async function GET(
     }
 
     const { id } = await params;
-    const { data, error } = await fetchRepoSettings(id, user.id);
+    const supabase = await createSupabaseClient();
 
-    if (error && error.code !== 'PGRST116') {
-      console.error('Automation GET supabase error:', error);
+    // Fetch from new automation_rules table
+    const { data: rules, error } = await supabase
+      .from('automation_rules')
+      .select('*')
+      .eq('repo_id', id);
+
+    if (error) {
+      console.error('Automation GET error:', error);
       throw error;
     }
 
-    if (!data) {
-      return NextResponse.json(
-        { automation_rules: [], automation_metadata: {} },
-        { status: 200 }
-      );
-    }
+    // Convert to the expected response format
+    const automationRules = (rules || []).map(rule => ({
+      id: rule.rule_id,
+      name: rule.name,
+      enabled: rule.enabled,
+      schedule: rule.schedule,
+      action_preset: rule.action_preset,
+      significance_analysis: rule.significance_analysis,
+      target_documents: rule.target_documents,
+      target_diagrams: rule.target_diagrams,
+      notifications: rule.notifications,
+      publish_targets: rule.publish_targets,
+      // Legacy fields
+      generate_doc: rule.generate_doc,
+      generate_diagram: rule.generate_diagram,
+      auto_publish: rule.auto_publish,
+      auto_publish_new_docs: rule.auto_publish_new_docs,
+      auto_publish_max_changes: rule.auto_publish_max_changes,
+      auto_publish_max_change_percentage: rule.auto_publish_max_change_percentage,
+      auto_publish_target: rule.auto_publish_target,
+    }));
 
-    const settings = data.settings || {};
-    const rules = Array.isArray(settings.automation_rules) ? settings.automation_rules : [];
-    const metadata = settings.automation_metadata || {};
+    // For now, return empty metadata (this will be migrated separately)
+    const automationMetadata = {};
 
     return NextResponse.json(
       {
-        automation_rules: rules,
-        automation_metadata: metadata,
+        automation_rules: automationRules,
+        automation_metadata: automationMetadata,
       },
       { status: 200 }
     );
@@ -88,46 +93,53 @@ export async function PATCH(
       );
     }
 
-    const { data, error } = await fetchRepoSettings(id, user.id);
-
-    if (error && error.code !== 'PGRST116') {
-      console.error('Automation PATCH supabase error:', error);
-      throw error;
-    }
-
-    if (!data) {
-      return NextResponse.json({ error: 'Repository not found' }, { status: 404 });
-    }
-
     const supabase = await createSupabaseClient();
-    const currentSettings = data.settings || {};
-    const metadata = currentSettings.automation_metadata || {};
-    const sanitizedRules = body.automation_rules.map((rule) => ({ ...rule }));
 
-    const updatedSettings = {
-      ...currentSettings,
-      automation_rules: sanitizedRules,
-      automation_metadata: metadata,
-    };
+    // Delete existing rules for this repo
+    await supabase
+      .from('automation_rules')
+      .delete()
+      .eq('repo_id', id);
 
-    const { error: updateError } = await supabase
-      .from('workspace_repos')
-      .update({
-        settings: updatedSettings,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', id)
-      .eq('workspace_id', user.id);
+    // Insert new rules
+    const rulesToInsert = body.automation_rules.map(rule => ({
+      workspace_id: user.id,
+      repo_id: id,
+      rule_id: rule.id || rule.name || 'default',
+      name: rule.name,
+      enabled: rule.enabled ?? true,
+      schedule: rule.schedule,
+      action_preset: rule.action_preset,
+      significance_analysis: rule.significance_analysis,
+      target_documents: rule.target_documents || [],
+      target_diagrams: rule.target_diagrams || [],
+      notifications: rule.notifications,
+      publish_targets: rule.publish_targets,
+      next_run_at: (rule.enabled && rule.schedule) ? calculateNextRunAt(rule.schedule).toISOString() : null,
+      // Legacy fields
+      generate_doc: rule.generate_doc,
+      generate_diagram: rule.generate_diagram,
+      auto_publish: rule.auto_publish,
+      auto_publish_new_docs: rule.auto_publish_new_docs,
+      auto_publish_max_changes: rule.auto_publish_max_changes,
+      auto_publish_max_change_percentage: rule.auto_publish_max_change_percentage,
+      auto_publish_target: rule.auto_publish_target,
+    }));
 
-    if (updateError) {
-      console.error('Automation PATCH update error:', updateError);
-      throw updateError;
+    const { error: insertError } = await supabase
+      .from('automation_rules')
+      .insert(rulesToInsert);
+
+    if (insertError) {
+      console.error('Automation PATCH insert error:', insertError);
+      throw insertError;
     }
 
     return NextResponse.json(
       {
-        automation_rules: sanitizedRules,
-        automation_metadata: metadata,
+        automation_rules: body.automation_rules,
+        automation_metadata: {}, // Will be migrated separately
+        scheduling_results: [], // TODO: Implement GitHub Actions scheduling
       },
       { status: 200 }
     );

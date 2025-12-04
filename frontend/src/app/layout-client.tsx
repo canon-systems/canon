@@ -53,7 +53,7 @@ export function RootLayoutClient({
       </div>
 
       <div className="app-layout">
-      <Navigation user={initialUser} session={initialSession} onLogout={handleLogout} />
+        <Navigation user={initialUser} session={initialSession} onLogout={handleLogout} />
 
         <div className="app-layout__main">
           <main className="app-main">{children}</main>

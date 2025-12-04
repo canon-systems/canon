@@ -63,11 +63,10 @@ export async function POST(request: NextRequest) {
   try {
     const startTime = Date.now();
     const body = await request.json().catch(() => ({}));
-    const { submissionId, model, promptConfig, skipSignificanceCheck } = body as {
+    const { submissionId, model, promptConfig } = body as {
       submissionId: string;
       model: string;
       promptConfig?: any;
-      skipSignificanceCheck?: boolean;
     };
 
     if (!submissionId) {
@@ -255,10 +254,6 @@ export async function POST(request: NextRequest) {
     let changesDetected = false;
 
     const significancePromise = (async () => {
-      if (skipSignificanceCheck) {
-        return { significanceAnalysis: null, changesDetected: false };
-      }
-
       try {
         const changeDetection = await detectRepositoryChanges({
           supabase,

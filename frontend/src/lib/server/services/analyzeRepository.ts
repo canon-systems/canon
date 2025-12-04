@@ -204,8 +204,6 @@ export async function analyzeRepository({
 
 	if (shouldUseZip) {
 		// Use ZIP download (1 API call regardless of file count)
-		console.log(`[analyzeRepository] Using ZIP fetch for ${filePaths.length} files`);
-
 		const zipFiles = await fetchFilesViaZip(
 			octokit,
 			owner,
@@ -222,8 +220,6 @@ export async function analyzeRepository({
 		}));
 	} else {
 		// Use smart fetch (individual calls with caching for small batches)
-		console.log(`[analyzeRepository] Using smart fetch for ${filePaths.length} files`);
-
 		const fetchedFiles = await fetchFilesSmart(
 			octokit,
 			owner,
@@ -240,12 +236,8 @@ export async function analyzeRepository({
 		}));
 	}
 
-	// Log rate limit status for monitoring
+	// Check rate limit status (but don't log for reduced noise)
 	const rateLimitStatus = getRateLimitStatus();
-	console.log(
-		`[analyzeRepository] Completed. Rate limit: ${rateLimitStatus.remaining}/${rateLimitStatus.limit} ` +
-		`(${rateLimitStatus.percentUsed}% used)`
-	);
 
 	if (files.length === 0) {
 		throw new Error('No files found in repository for analysis');

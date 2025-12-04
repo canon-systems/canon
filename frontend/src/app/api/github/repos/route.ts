@@ -38,62 +38,74 @@ export async function POST(request: NextRequest) {
     const repos: any[] = [];
 
     try {
-      // Try to get repos for the owner (user or org)
-      const { data: userOrOrg } = await octokit.users.getByUsername({ username: owner });
-
-      if (userOrOrg.type === 'User') {
-        // If searching for authenticated user's own account, use listForAuthenticatedUser to get private repos
-        if (authenticatedUsername && authenticatedUsername.toLowerCase() === owner.toLowerCase()) {
-          // Get all repos the authenticated user OWNS (not collaborator repos)
-          const { data: allRepos } = await octokit.repos.listForAuthenticatedUser({
-            sort: 'updated',
-            per_page: 100,
-            affiliation: 'owner' // CRITICAL: Only repos owned by the user, not collaborator repos
-          });
-          if (Array.isArray(allRepos)) {
-            // Double-check: filter to ensure owner matches exactly (case-insensitive)
-            const ownerLower = owner.toLowerCase();
-            repos.push(...allRepos
-              .filter((r) => {
-                const repoOwner = r.owner?.login?.toLowerCase();
-                return repoOwner === ownerLower;
-              }));
-          }
-        } else {
-          // For other users, list their public repos only
-          // Note: listForUser only returns public repos for other users
-          const { data: userRepos } = await octokit.repos.listForUser({
-            username: owner,
-            sort: 'updated',
-            per_page: 100
-          });
-          if (Array.isArray(userRepos)) {
-            // Filter to ensure owner matches exactly (case-insensitive)
-            const ownerLower = owner.toLowerCase();
-            repos.push(...userRepos
-              .filter((r) => {
-                const repoOwner = r.owner?.login?.toLowerCase();
-                return repoOwner === ownerLower;
-              }));
-          }
-        }
-      } else if (userOrOrg.type === 'Organization') {
-        // List organization's repositories
-        // For authenticated users, this may include private org repos they have access to
-        const { data: orgRepos } = await octokit.repos.listForOrg({
-          org: owner,
+      // Special owner token to fetch everything the authenticated user can see (public + private)
+      if (['me', '@me', 'self', '@self'].includes(owner.toLowerCase())) {
+        const { data: allRepos } = await octokit.repos.listForAuthenticatedUser({
           sort: 'updated',
           per_page: 100,
-          type: 'all' // Include all types (public, private, etc.)
+          affiliation: 'owner,collaborator,organization_member' // includes repos you can access (private + public)
         });
-        if (Array.isArray(orgRepos)) {
-          // Filter to ensure owner matches exactly (case-insensitive)
-          const ownerLower = owner.toLowerCase();
-          repos.push(...orgRepos
-            .filter((r) => {
-              const repoOwner = r.owner?.login?.toLowerCase();
-              return repoOwner === ownerLower;
-            }));
+        if (Array.isArray(allRepos)) {
+          repos.push(...allRepos);
+        }
+      } else {
+        // Try to get repos for the owner (user or org)
+        const { data: userOrOrg } = await octokit.users.getByUsername({ username: owner });
+
+        if (userOrOrg.type === 'User') {
+          // If searching for authenticated user's own account, use listForAuthenticatedUser to get private repos
+          if (authenticatedUsername && authenticatedUsername.toLowerCase() === owner.toLowerCase()) {
+            // Get all repos the authenticated user OWNS (not collaborator repos)
+            const { data: allRepos } = await octokit.repos.listForAuthenticatedUser({
+              sort: 'updated',
+              per_page: 100,
+              affiliation: 'owner' // CRITICAL: Only repos owned by the user, not collaborator repos
+            });
+            if (Array.isArray(allRepos)) {
+              // Double-check: filter to ensure owner matches exactly (case-insensitive)
+              const ownerLower = owner.toLowerCase();
+              repos.push(...allRepos
+                .filter((r) => {
+                  const repoOwner = r.owner?.login?.toLowerCase();
+                  return repoOwner === ownerLower;
+                }));
+            }
+          } else {
+            // For other users, list their public repos only
+            // Note: listForUser only returns public repos for other users
+            const { data: userRepos } = await octokit.repos.listForUser({
+              username: owner,
+              sort: 'updated',
+              per_page: 100
+            });
+            if (Array.isArray(userRepos)) {
+              // Filter to ensure owner matches exactly (case-insensitive)
+              const ownerLower = owner.toLowerCase();
+              repos.push(...userRepos
+                .filter((r) => {
+                  const repoOwner = r.owner?.login?.toLowerCase();
+                  return repoOwner === ownerLower;
+                }));
+            }
+          }
+        } else if (userOrOrg.type === 'Organization') {
+          // List organization's repositories
+          // For authenticated users, this may include private org repos they have access to
+          const { data: orgRepos } = await octokit.repos.listForOrg({
+            org: owner,
+            sort: 'updated',
+            per_page: 100,
+            type: 'all' // Include all types (public, private, etc.)
+          });
+          if (Array.isArray(orgRepos)) {
+            // Filter to ensure owner matches exactly (case-insensitive)
+            const ownerLower = owner.toLowerCase();
+            repos.push(...orgRepos
+              .filter((r) => {
+                const repoOwner = r.owner?.login?.toLowerCase();
+                return repoOwner === ownerLower;
+              }));
+          }
         }
       }
     } catch (error: any) {
@@ -143,4 +155,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

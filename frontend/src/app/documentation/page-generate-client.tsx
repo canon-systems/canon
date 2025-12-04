@@ -222,6 +222,7 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
   const [promptConfig, setPromptConfig] = useState({
     personality: 'default',
     style: 'default',
+    perspective: 'default',
     audience: 'technical',
     customInstructions: '',
     temperature: 0.3
@@ -1047,6 +1048,7 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
               setPromptConfig({
                 personality: config.personality ?? 'default',
                 style: config.style ?? 'default',
+                perspective: config.perspective ?? 'default',
                 audience: config.audience ?? 'technical',
                 customInstructions: config.customInstructions ?? '',
                 temperature: config.temperature ?? 0.3

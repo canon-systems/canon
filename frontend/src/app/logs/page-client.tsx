@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { FileText, Layers3, AlertCircle, RefreshCw, ExternalLink, Calendar, GitBranch, Folder, Code, Clock, Hash, Zap, Github, PlayCircle, StopCircle, XCircle, ChevronDown, Link as LinkIcon, CheckCircle2 } from 'lucide-react';
 import Link from 'next/link';
@@ -70,37 +70,111 @@ export function LogsPageClient({ user, logs, repos = [] }: LogsPageClientProps) 
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [activeTab, setActiveTab] = useState<LogsTab>('activity');
   const [expandedErrors, setExpandedErrors] = useState<Record<string, boolean>>({});
+  const [executionHistories, setExecutionHistories] = useState<Record<string, any[]>>({});
 
-  // Process automation rules from repos
-  const automationRules = useMemo(() => {
-    const rules: Array<{
-      repoId: string;
-      ruleId: string;
-      ruleName: string;
-      enabled: boolean;
-      repo: Repo;
-      executionHistory: any[];
-    }> = [];
+  // State for automation rules
+  const [automationRules, setAutomationRules] = useState<Array<{
+    repoId: string;
+    ruleId: string;
+    ruleName: string;
+    enabled: boolean;
+    repo: Repo;
+    executionHistory: any[];
+  }>>([]);
 
-    repos.forEach(repo => {
-      const repoSettings = repo.settings || {};
-      const automationRules = repoSettings.automation_rules || [];
+  // Fetch automation rules on mount and when repos change
+  useEffect(() => {
+    const fetchAutomationRules = async () => {
+      const rules: Array<{
+        repoId: string;
+        ruleId: string;
+        ruleName: string;
+        enabled: boolean;
+        repo: Repo;
+        executionHistory: any[];
+      }> = [];
 
-      automationRules.forEach((rule: any) => {
-        if (rule.enabled) {
-          rules.push({
-            repoId: repo.id,
-            ruleId: rule.id || rule.name,
-            ruleName: rule.name || rule.id,
-            enabled: rule.enabled,
-            repo,
-            executionHistory: (repoSettings.automation_metadata?.[rule.id || rule.name]?.execution_history || []),
-          });
+      try {
+        const response = await fetch('/api/repos');
+        if (response.ok) {
+          const allRepos = await response.json();
+          // For each repo, fetch its automation rules
+          for (const repo of allRepos) {
+            try {
+              const rulesResponse = await fetch(`/api/repos/${repo.id}/automation`);
+              if (rulesResponse.ok) {
+                const rulesData = await rulesResponse.json();
+                const repoAutomationRules = rulesData.automation_rules || [];
+
+                repoAutomationRules.forEach((rule: any) => {
+                  if (rule.enabled) {
+                    rules.push({
+                      repoId: repo.id,
+                      ruleId: rule.id,
+                      ruleName: rule.name || rule.id,
+                      enabled: rule.enabled,
+                      repo,
+                      executionHistory: executionHistories[`${repo.id}:${rule.id}`] || [],
+                    });
+                  }
+                });
+              }
+            } catch (error) {
+              console.error(`Failed to fetch automation rules for repo ${repo.id}:`, error);
+            }
+          }
         }
-      });
-    });
+      } catch (error) {
+        console.error('Failed to fetch repos for automation rules:', error);
+      }
 
-    return rules;
+      setAutomationRules(rules);
+    };
+
+    fetchAutomationRules();
+  }, [repos, executionHistories]);
+
+  // Load execution histories for automation rules
+  useEffect(() => {
+    async function loadExecutionHistories() {
+      if (repos.length === 0) return;
+
+      try {
+        const response = await fetch('/api/automation/runs');
+        if (response.ok) {
+          const runs = await response.json();
+          const histories: Record<string, any[]> = {};
+
+          // Group runs by repoId:ruleId
+          runs.forEach((run: any) => {
+            const key = `${run.repo_id}:${run.rule_id}`;
+            if (!histories[key]) {
+              histories[key] = [];
+            }
+            histories[key].push({
+              timestamp: run.executed_at,
+              success: run.success,
+              skipped: run.skipped,
+              skip_reason: run.skip_reason,
+              actions: run.actions || [],
+              doc_id: run.doc_id,
+              diagram_id: run.diagram_id,
+              errors: run.errors || [],
+              publish_status: run.publish_status,
+              publish_provider: run.publish_provider,
+              publish_resource_id: run.publish_resource_id,
+              trigger: run.trigger_type,
+            });
+          });
+
+          setExecutionHistories(histories);
+        }
+      } catch (error) {
+        console.error('Failed to load execution histories:', error);
+      }
+    }
+
+    loadExecutionHistories();
   }, [repos]);
 
   const filteredEntries = useMemo(() => {

@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
     // Load the document
     const { data: document, error: docErr } = await supabase
       .from('documents')
-      .select('id, repo_id')
+      .select('id, repo_id, updated_at')
       .eq('id', documentId)
       .single();
 
@@ -44,6 +44,7 @@ export async function POST(request: NextRequest) {
         { status: 404 }
       );
     }
+
 
     // Get repo details
     const { data: repo, error: repoErr } = await supabase

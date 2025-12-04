@@ -10,7 +10,6 @@ import {
   HelpCircle,
   Settings,
   Layers3,
-  Sparkles,
   ChevronsLeft,
   BarChart3,
   FileText,

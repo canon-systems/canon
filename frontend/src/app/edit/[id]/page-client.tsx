@@ -129,6 +129,7 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
     initialSubmission.source_meta?.llm_prompt_config || {
       personality: 'default',
       style: 'default',
+      perspective: 'default',
       audience: 'technical',
       customInstructions: '',
       temperature: 0.3
