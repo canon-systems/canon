@@ -1299,7 +1299,7 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                           )}
                         </td>
                         <td className="px-4 py-3 text-sm text-white/70">
-                          {hasRules && repoRules[0] ? calculateNextRun(repoRules[0].schedule) : '—'}
+                          {hasRules && repoRules[0] && repoRules[0].schedule ? calculateNextRun(repoRules[0].schedule) : '—'}
                         </td>
                         <td className="px-4 py-3 text-sm text-white/70">
                           {hasRules && repoRules[0]?.lastRunAt ? formatDate(repoRules[0].lastRunAt) : 'Never'}
