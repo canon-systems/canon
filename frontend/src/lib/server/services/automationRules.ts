@@ -122,10 +122,6 @@ export type AutomationRuleEntry = {
 };
 
 // Removed getDueRules - Inngest handles scheduling directly
-		},
-		rule_id: row.rule_id,
-	}));
-}
 
 export type ExecutionResult = {
 	success: boolean;
