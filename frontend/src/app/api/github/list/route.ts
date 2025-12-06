@@ -21,7 +21,13 @@ async function fetchContents(
     return data;
   } catch (error: any) {
     if (error.status === 404) {
-      throw new Error(`GitHub 404: Path not found`);
+      throw new Error(`GitHub 404: Path not found - ${path}`);
+    }
+    if (error.status === 403) {
+      throw new Error(`GitHub 403: Access denied - check repository permissions and token scope`);
+    }
+    if (error.status === 401) {
+      throw new Error(`GitHub 401: Authentication failed - please reconnect your GitHub account`);
     }
     throw new Error(`GitHub ${error.status}: ${error.message || 'Unknown error'}`);
   }
@@ -90,23 +96,62 @@ async function handleListRequest(repoUrl: string, branch: string, subdirRaw: str
 
   const supabase = await createClient();
 
-  // Verify user has access to this repository
-  const { data: userRepo, error: repoError } = await supabase
+  // Verify user has access to this repository (including specific branch)
+  const { data: userRepos, error: repoError } = await supabase
     .from('workspace_repos')
-    .select('id, workspace_id, repo_url')
+    .select('id, workspace_id, repo_url, default_branch, name')
     .eq('workspace_id', user.id)
     .eq('repo_url', repoUrl)
-    .single();
+    .eq('default_branch', branch);
 
-  if (repoError || !userRepo) {
+  if (repoError) {
+    return NextResponse.json(
+      { error: 'Database error checking repository access' },
+      { status: 500 }
+    );
+  }
+
+  if (!userRepos || userRepos.length === 0) {
+    // Check if the repository exists with a different branch
+    const { data: allReposForUrl, error: allReposError } = await supabase
+      .from('workspace_repos')
+      .select('default_branch, name')
+      .eq('workspace_id', user.id)
+      .eq('repo_url', repoUrl);
+
+    if (!allReposError && allReposForUrl && allReposForUrl.length > 0) {
+      const availableBranches = allReposForUrl.map(r => r.default_branch).join(', ');
+      return NextResponse.json(
+        {
+          error: `Repository found but not configured for branch '${branch}'`,
+          detail: `This repository is configured for branches: ${availableBranches}. Please specify one of these branches or set up the repository for branch '${branch}'.`
+        },
+        { status: 403 }
+      );
+    }
+
     return NextResponse.json(
       { error: 'Repository not found or you do not have access to it' },
       { status: 403 }
     );
   }
 
+  // Use the repository record that matches the requested branch
+  const userRepo = userRepos[0];
+
   // Clean subdir (trim leading/trailing slashes)
   const subdir = subdirRaw.replace(/^\/+|\/+$/g, '');
+
+  // Check if user has GitHub connected before proceeding
+  const { hasGitHubConnection } = await import('@/lib/server/github/getUserOctokit');
+  const hasConnection = await hasGitHubConnection(supabase, user.id);
+
+  if (!hasConnection) {
+    return NextResponse.json({
+      error: 'GitHub not connected',
+      detail: 'Please connect your GitHub account in Settings → Integrations to access private repositories'
+    }, { status: 403 });
+  }
 
   const octokit = await getUserOctokit(supabase, user.id);
 
@@ -127,9 +172,32 @@ export async function GET(request: NextRequest) {
     const subdir = searchParams.get('subdir') || '';
 
     return await handleListRequest(repoUrl, branch, subdir);
-  } catch (err) {
+  } catch (err: any) {
+    console.error('GitHub list API GET error:', err);
+
+    // Handle specific GitHub errors
+    if (err.message?.includes('403') || err.message?.includes('Access denied')) {
+      return NextResponse.json(
+        {
+          error: 'Repository access denied',
+          detail: 'You may not have permission to access this repository, or your GitHub token may need to be refreshed. Try reconnecting your GitHub account in Settings → Integrations.'
+        },
+        { status: 403 }
+      );
+    }
+
+    if (err.message?.includes('401') || err.message?.includes('Authentication failed')) {
+      return NextResponse.json(
+        {
+          error: 'GitHub authentication failed',
+          detail: 'Your GitHub connection may have expired. Please reconnect your GitHub account in Settings → Integrations.'
+        },
+        { status: 401 }
+      );
+    }
+
     return NextResponse.json(
-      { error: 'Failed to list repository files', detail: String(err) },
+      { error: 'Failed to list repository files', detail: err.message || String(err) },
       { status: 500 }
     );
   }
@@ -143,9 +211,32 @@ export async function POST(request: NextRequest) {
     const subdirRaw = String(body.subdir || '');
 
     return await handleListRequest(repoUrl, branch, subdirRaw);
-  } catch (err) {
+  } catch (err: any) {
+    console.error('GitHub list API POST error:', err);
+
+    // Handle specific GitHub errors
+    if (err.message?.includes('403') || err.message?.includes('Access denied')) {
+      return NextResponse.json(
+        {
+          error: 'Repository access denied',
+          detail: 'You may not have permission to access this repository, or your GitHub token may need to be refreshed. Try reconnecting your GitHub account in Settings → Integrations.'
+        },
+        { status: 403 }
+      );
+    }
+
+    if (err.message?.includes('401') || err.message?.includes('Authentication failed')) {
+      return NextResponse.json(
+        {
+          error: 'GitHub authentication failed',
+          detail: 'Your GitHub connection may have expired. Please reconnect your GitHub account in Settings → Integrations.'
+        },
+        { status: 401 }
+      );
+    }
+
     return NextResponse.json(
-      { error: 'Failed to list repository files', detail: String(err) },
+      { error: 'Failed to list repository files', detail: err.message || String(err) },
       { status: 500 }
     );
   }
