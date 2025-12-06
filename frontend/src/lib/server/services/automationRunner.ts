@@ -120,7 +120,7 @@ export async function executeAutomationRule({
 		];
 
 		const changeDetectionTime = ((Date.now() - changeDetectionStart) / 1000).toFixed(1);
-		console.log(`📊 [SCAN] Found ${changedFiles.length} changed files (${changeDetectionTime}s)`);
+		console.log(`📊 [SCAN] Found ${changedFiles.length} files (${changeDetectionTime}s)`);
 
 		if (changedFiles.length === 0) {
 			console.log(`⏭️ [SKIP] No changes detected - skipping regeneration`);
@@ -133,7 +133,7 @@ export async function executeAutomationRule({
 		result.actions.push('detect_changes');
 
 		// 📄 Document analysis
-		console.log(`📄 [DOCS] Analyzing ${changedFiles.length} changed files...`);
+		console.log(`📄 [DOCS] Analyzing ${changedFiles.length} files...`);
 
 		// Get all documents for this repo
 		const { data: repoDocs, error: docsError } = await supabase
