@@ -52,8 +52,10 @@ export async function executeAutomationRule({
 	publishResourceId?: string;
 }> {
 	const ruleName = rule.id || rule.name || 'unnamed-rule';
-	console.log(`\n🚀 STARTING AUTOMATION: ${repo.name} (${ruleName})`);
-	console.log(`═══════════════════════════════════════════════════════════════`);
+	const startTime = Date.now();
+
+	console.log(`🤖 [AUTOMATION] Starting: ${repo.name} (${ruleName})`);
+	console.log(`📋 [AUTOMATION] Rule: ${ruleName} | Repo: ${repo.name} | Branch: ${repo.default_branch}`);
 
 	const result = {
 		success: false,
@@ -69,17 +71,17 @@ export async function executeAutomationRule({
 	};
 
 	try {
-		// STEP 0: Pre-flight check - validate AI service
+		// 🔍 Pre-flight checks
 		try {
 			new LLMGateway();
-			console.log(`✅ STEP 0: AI service available`);
+			console.log(`✅ [CHECK] AI service available`);
 		} catch (error: any) {
-			console.error(`❌ AI service unavailable: ${error.message}`);
+			console.error(`❌ [ERROR] AI service unavailable: ${error.message}`);
 			result.errors.push(`AI service configuration error: ${error.message}`);
 			return result;
 		}
 
-		// STEP 1: Check if repository is set up for efficient automation
+		// 🔍 Repository validation
 		const { data: repoSetup, error: setupError } = await supabase
 			.from('repository_setup')
 			.select('setup_status, last_analyzed')
@@ -87,22 +89,22 @@ export async function executeAutomationRule({
 			.single();
 
 		if (setupError || !repoSetup || repoSetup.setup_status !== 'ready') {
-			console.log(`⚠️ Repository not set up for efficient automation - skipping`);
+			console.log(`⚠️ [SKIP] Repository not set up for automation`);
 			result.skipped = true;
 			result.skipReason = 'Repository not set up for automation. Please run repository setup first.';
 			result.success = true;
 			return result;
 		}
 
-		console.log(`✅ Repository ready for automation`);
+		console.log(`✅ [CHECK] Repository ready for automation`);
 
 		const settings = repo.settings || {};
 		const subdir = settings.subdir || null;
 		const filters = settings.filters || null;
 		const promptConfig = settings.prompt_config || null;
 
-		// STEP 2: Detect changes since last analysis
-		console.log(`📊 STEP 2: Detecting changes...`);
+		// 🔍 Change detection
+		console.log(`🔍 [SCAN] Detecting repository changes...`);
 
 		const changeDetectionStart = Date.now();
 		const changes = await detectRepositoryChanges({
@@ -118,10 +120,10 @@ export async function executeAutomationRule({
 		];
 
 		const changeDetectionTime = ((Date.now() - changeDetectionStart) / 1000).toFixed(1);
-		console.log(`✅ Found ${changedFiles.length} changed files (${changeDetectionTime}s)`);
+		console.log(`📊 [SCAN] Found ${changedFiles.length} changed files (${changeDetectionTime}s)`);
 
 		if (changedFiles.length === 0) {
-			console.log(`⏭️ No changes detected - skipping regeneration`);
+			console.log(`⏭️ [SKIP] No changes detected - skipping regeneration`);
 			result.skipped = true;
 			result.skipReason = 'No file changes detected';
 			result.success = true;
@@ -130,8 +132,8 @@ export async function executeAutomationRule({
 
 		result.actions.push('detect_changes');
 
-		// STEP 3: Identify affected documents
-		console.log(`🔍 STEP 3: Identifying affected documents...`);
+		// 📄 Document analysis
+		console.log(`📄 [DOCS] Analyzing ${changedFiles.length} changed files...`);
 
 		// Get all documents for this repo
 		const { data: repoDocs, error: docsError } = await supabase
@@ -140,7 +142,7 @@ export async function executeAutomationRule({
 			.eq('repo_id', repo.id);
 
 		if (docsError) {
-			console.error('Failed to get documents:', docsError);
+			console.error(`❌ [ERROR] Failed to get documents:`, docsError);
 			result.errors.push('Failed to identify affected documents');
 			return result;
 		}
@@ -156,7 +158,7 @@ export async function executeAutomationRule({
 			: { data: null, error: null };
 
 		if (filesError) {
-			console.error('Failed to get document files:', filesError);
+			console.error(`❌ [ERROR] Failed to get document files:`, filesError);
 			result.errors.push('Failed to identify affected documents');
 			return result;
 		}
@@ -179,10 +181,10 @@ export async function executeAutomationRule({
 			}
 		});
 
-		console.log(`📄 Found ${affectedDocs.size} documents affected by ${changedFiles.length} file changes`);
+		console.log(`📄 [DOCS] Found ${affectedDocs.size} affected documents from ${repoDocs?.length || 0} total docs`);
 
 		if (affectedDocs.size === 0) {
-			console.log(`⏭️ No documents affected by changes - skipping regeneration`);
+			console.log(`⏭️ [SKIP] No documents affected by changes`);
 			result.skipped = true;
 			result.skipReason = 'No documents affected by file changes';
 			result.success = true;
@@ -420,9 +422,11 @@ export async function executeAutomationRule({
 			}
 		}
 
-		console.log(`📊 Results: ${docsUpdated} docs updated, ${docsFailed} docs failed`);
+		console.log(`📊 [RESULTS] Updated: ${docsUpdated} docs | Failed: ${docsFailed} docs`);
 
 		result.success = docsFailed === 0;
+		const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+		console.log(`✅ [COMPLETE] Automation finished in ${duration}s`);
 		return result;
 	} catch (error: any) {
 		result.errors.push(error.message || String(error));
@@ -435,21 +439,20 @@ export async function executeAutomationRule({
 			errorMessage += '\n💡 SOLUTION: Check your AI gateway configuration and API key validity.';
 		}
 
-		console.error(`[automationRunner] ❌ Automation failed: ${errorMessage}`);
+		console.error(`❌ [ERROR] Automation failed: ${errorMessage}`);
 	}
 
 	// Log completion summary
-	const status = result.success ? '✅ SUCCESS' : '❌ FAILED';
-	const actions = result.actions.length > 0 ? ` (${result.actions.join(', ')})` : '';
-	console.log(`\n${status}: ${repo.name}${actions}`);
+	const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+	const status = result.success ? '✅ [SUCCESS]' : '❌ [FAILED]';
+	console.log(`${status} ${repo.name} (${duration}s)`);
 
 	if (result.errors.length > 0) {
-		console.log(`❌ Issues: ${result.errors.join(' | ')}`);
+		console.log(`❌ [ISSUES] ${result.errors.join(' | ')}`);
 	}
 	if (result.skipped) {
-		console.log(`⏭️ Skipped: ${result.skipReason}`);
+		console.log(`⏭️ [SKIPPED] ${result.skipReason}`);
 	}
-	console.log(`═══════════════════════════════════════════════════════════════\n`);
 
 	return result;
 }

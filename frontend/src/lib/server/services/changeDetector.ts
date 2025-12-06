@@ -276,9 +276,7 @@ export async function detectRepositoryChanges({
 
 	const summary = summaryPieces.length ? summaryPieces.join('. ') : 'No changes detected';
 
-	// Log rate limit status
-	const rateLimitStatus = getRateLimitStatus();
-	console.log(`[detectRepositoryChanges] Rate limit: ${rateLimitStatus.remaining}/${rateLimitStatus.limit}`);
+	// Rate limit status tracked internally (removed verbose logging)
 
 	if (submissionId) {
 		// Note: Documents table doesn't have is_outdated field in the new schema

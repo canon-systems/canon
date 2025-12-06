@@ -47,7 +47,7 @@ export const checkAndRunAutomations = inngest.createFunction(
     cron: "*/10 * * * *", // Run every 10 minutes
   },
   async ({ event, step }) => {
-    console.log(`🔍 Checking for automations to run at ${new Date().toISOString()}`);
+    console.log(`🤖 [SCHEDULER] Checking automations at ${new Date().toISOString()}`);
 
     // Create Supabase client
     const supabase = createClient(
@@ -63,12 +63,12 @@ export const checkAndRunAutomations = inngest.createFunction(
       .not('schedule', 'is', null);
 
     if (error) {
-      console.error('❌ Failed to fetch automation rules:', error);
+      console.error(`❌ [ERROR] Failed to fetch automation rules:`, error);
       return { error: 'Failed to fetch rules' };
     }
 
     if (!rules || rules.length === 0) {
-      console.log('ℹ️ No enabled automation rules found');
+      console.log(`📋 [SCHEDULER] No enabled automation rules found`);
       return { checked: 0, executed: 0 };
     }
 
@@ -82,7 +82,7 @@ export const checkAndRunAutomations = inngest.createFunction(
           continue; // Skip this rule
         }
 
-        console.log(`🚀 Executing automation rule: ${rule.rule_id} for repo: ${rule.repo_id}`);
+        console.log(`🚀 [AUTOMATION] Executing rule: ${rule.rule_id}`);
 
         // Get repo data
         const { data: repo, error: repoError } = await supabase
@@ -119,16 +119,12 @@ export const checkAndRunAutomations = inngest.createFunction(
           .update(updateData)
           .eq('rule_id', rule.rule_id);
 
-        console.log(`✅ Automation completed: ${rule.rule_id}`, {
-          success: result.success,
-          actions: result.actions?.length || 0,
-          errors: result.errors?.length || 0,
-        });
+        console.log(`✅ [AUTOMATION] Completed: ${rule.rule_id} (Success: ${result.success}, Actions: ${result.actions?.length || 0}, Errors: ${result.errors?.length || 0})`);
 
         executed++;
 
       } catch (error: any) {
-        console.error(`❌ Automation failed: ${rule.rule_id}`, error);
+        console.error(`❌ [AUTOMATION] Failed: ${rule.rule_id} - ${error.message || String(error)}`);
 
         // Update with failure status
         await supabase
@@ -273,7 +269,7 @@ export const scanAndGenerateSummaries = inngest.createFunction(
     cron: "0 * * * *", // Run every hour at the start of the hour
   },
   async ({ event, step }) => {
-    console.log(`🔍 Scanning repositories for new files at ${new Date().toISOString()}`);
+    console.log(`🔍 [SCANNER] Starting repository scan at ${new Date().toISOString()}`);
 
     // Create Supabase client
     const supabase = createClient(
@@ -294,16 +290,16 @@ export const scanAndGenerateSummaries = inngest.createFunction(
       .eq('repository_setup.setup_status', 'ready');
 
     if (reposError) {
-      console.error('❌ Failed to fetch active repositories:', reposError);
+      console.error(`❌ [ERROR] Failed to fetch active repositories:`, reposError);
       return { error: 'Failed to fetch repositories' };
     }
 
     if (!activeRepos || activeRepos.length === 0) {
-      console.log('ℹ️ No active repositories found');
+      console.log(`📋 [SCANNER] No active repositories found`);
       return { scanned: 0, processed: 0 };
     }
 
-    console.log(`📊 Found ${activeRepos.length} active repositories to scan`);
+    console.log(`📊 [SCANNER] Found ${activeRepos.length} active repositories to scan`);
 
     let totalProcessed = 0;
     let totalScanned = 0;
@@ -314,7 +310,7 @@ export const scanAndGenerateSummaries = inngest.createFunction(
     // Process each repository
     for (const repo of activeRepos) {
       try {
-        console.log(`🔍 Scanning repo: ${repo.repo_url} (${repo.default_branch})`);
+        console.log(`📁 [REPO] Scanning: ${repo.repo_url} (${repo.default_branch})`);
 
         totalScanned++;
 
@@ -402,7 +398,7 @@ export const scanAndGenerateSummaries = inngest.createFunction(
         }
 
         if (filesWithContent.length === 0) {
-          console.log(`⚠️ No accessible files found for ${repo.repo_url}`);
+          console.log(`⚠️ [REPO] No accessible files found for ${repo.repo_url}`);
           continue;
         }
 
@@ -410,11 +406,11 @@ export const scanAndGenerateSummaries = inngest.createFunction(
         const result = await summaryManager.updateSummariesIfNeeded(filesWithContent, {
           batchSize: 10,
           onProgress: (progress) => {
-            console.log(`📊 ${repo.repo_url}: Summary generation ${progress.processed}/${progress.total}`);
+            console.log(`📊 [PROGRESS] ${repo.repo_url}: ${progress.processed}/${progress.total} summaries`);
           }
         });
 
-        console.log(`✅ Generated ${result.processed} summaries for ${repo.repo_url} (${result.skipped} skipped, ${result.failed} failed)`);
+        console.log(`✅ [REPO] Generated ${result.processed} summaries for ${repo.repo_url} (Skipped: ${result.skipped}, Failed: ${result.failed})`);
 
         // Update repository_setup with current counts
         const summarizedCount = allFiles.length - filesWithoutSummaries.length + result.processed;
@@ -430,11 +426,11 @@ export const scanAndGenerateSummaries = inngest.createFunction(
         totalProcessed += result.processed;
 
       } catch (error) {
-        console.error(`❌ Failed to process repository ${repo.repo_url}:`, error);
+        console.error(`❌ [ERROR] Failed to process repository ${repo.repo_url}:`, error);
       }
     }
 
-    console.log(`🎉 Summary generation complete: scanned ${totalScanned} repos, processed ${totalProcessed} files`);
+    console.log(`🎉 [COMPLETE] Repository scan finished: ${totalScanned} repos scanned, ${totalProcessed} files processed`);
 
     return {
       scanned: totalScanned,
