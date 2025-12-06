@@ -160,9 +160,8 @@ Thumbs.db
 .cursorignore
 .cursorindexingignore
 
-# Trigger.dev
-trigger/
-.trigger
+# .temp
+.temp/
 # Note: trigger.config.ts is needed for deployment, so don't ignore it
 
 # TypeScript build info

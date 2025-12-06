@@ -2,7 +2,6 @@ import { inngest } from "../client";
 import { createClient } from "@supabase/supabase-js";
 import { executeAutomationRule } from "../../lib/server/services/automationRunner";
 import { FileSummaryManager } from "../../lib/server/services/fileSummaryManager";
-import { detectRepositoryChanges } from "../../lib/server/services/changeDetector";
 import { getUserOctokit } from "../../lib/server/github/getUserOctokit";
 import { parseRepoUrl } from "../../lib/server/github/github";
 
@@ -114,11 +113,6 @@ export const checkAndRunAutomations = inngest.createFunction(
           updateData.last_run_error = result.errors.join('; ');
         }
 
-        // Store current commit SHA as baseline for next run (only if successful and not skipped)
-        if (result.success && !result.skipped && result.currentCommitSha) {
-          updateData.last_commit_sha = result.currentCommitSha;
-        }
-
         await supabase
           .from('automation_rules')
           .update(updateData)
@@ -219,11 +213,6 @@ export const runAutomation = inngest.createFunction(
 
       if (result.errors?.length > 0) {
         updateData.last_run_error = result.errors.join('; ');
-      }
-
-      // Store current commit SHA as baseline for next run (only if successful and not skipped)
-      if (result.success && !result.skipped && result.currentCommitSha) {
-        updateData.last_commit_sha = result.currentCommitSha;
       }
 
       await supabase
