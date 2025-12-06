@@ -1,35 +1,39 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
-import { createClient } from '@/lib/supabase/server';
+import { createClient as createSupabaseClient } from '@/lib/supabase/server';
 
-/**
- * GET /api/automation/stats
- * Get automation execution statistics for the current user
- */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const { user } = await getSession();
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const supabase = await createClient();
+    const supabase = await createSupabaseClient();
 
-    // Get execution stats for the last 24 hours
-    const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    // Get current time and 24 hours ago
+    const now = new Date();
+    const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-    const { data: executions, error } = await supabase
+    // Query automation_runs for the last 24 hours
+    const { data: runs, error } = await supabase
       .from('automation_runs')
-      .select('success, skipped')
+      .select('success')
       .eq('workspace_id', user.id)
-      .gte('executed_at', last24h.toISOString());
+      .gte('executed_at', twentyFourHoursAgo.toISOString())
+      .order('executed_at', { ascending: false });
 
     if (error) {
-      throw error;
+      console.error('Error fetching automation runs:', error);
+      return NextResponse.json(
+        { error: 'Failed to fetch automation statistics' },
+        { status: 500 }
+      );
     }
 
-    const executions24h = executions?.length || 0;
-    const successfulExecutions = executions?.filter(e => e.success && !e.skipped).length || 0;
+    // Calculate statistics
+    const executions24h = runs?.length || 0;
+    const successfulExecutions = runs?.filter(run => run.success).length || 0;
 
     return NextResponse.json({
       executions24h,
@@ -39,7 +43,7 @@ export async function GET() {
     console.error('Automation stats error:', err);
     return NextResponse.json(
       {
-        error: 'Failed to get automation stats',
+        error: 'Failed to load automation statistics',
         detail: err.message || String(err),
       },
       { status: 500 }

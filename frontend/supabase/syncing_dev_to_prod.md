@@ -202,7 +202,6 @@ AND table_name LIKE 'automation%'
 ORDER BY table_name;
 
 # Expected result:
-# automation_results
 # automation_rules
 # automation_runs
 

@@ -2,7 +2,6 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { analyzeRepository } from './analyzeRepository';
 import { generateDocumentation } from './docGenerator';
 import { generateArchitectureDiagram } from './diagramGenerator';
-import { sendAutomationNotification as sendEmailNotification } from './emailService';
 
 type AutomationResult = {
 	success: boolean;
@@ -39,8 +38,6 @@ type SmartAutomationRule = {
 	significance_analysis: {
 		sensitivity: 'strict' | 'balanced' | 'lenient';
 		minimum_confidence: 'high' | 'medium' | 'low';
-		require_technical_changes?: boolean;
-		require_business_changes?: boolean;
 	};
 	target_documents?: string[];
 	target_diagrams?: string[];
@@ -290,93 +287,4 @@ export async function processDiagramsBatch({
 	return results;
 }
 
-/**
- * Store automation results for review
- */
-export async function storeAutomationResult({
-	supabase,
-	repoId,
-	ruleId,
-	userId,
-	result,
-	significanceAnalysis,
-}: {
-	supabase: SupabaseClient;
-	repoId: string;
-	ruleId: string;
-	userId: string;
-	result: AutomationResult;
-	significanceAnalysis: any;
-}): Promise<{ id: string }> {
-	const automationResult = {
-		id: `auto_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-		rule_id: ruleId,
-		repo_id: repoId,
-		user_id: userId,
-		status: result.success ? 'completed' : 'failed',
-		significance_analysis: significanceAnalysis,
-		generated_documents: result.generatedDocuments || [],
-		generated_diagrams: result.generatedDiagrams || [],
-		actions_taken: result.actions,
-		errors: result.errors,
-		preview_url: result.previewUrl,
-		created_at: new Date().toISOString(),
-	};
-
-	await supabase.from('automation_results').insert(automationResult);
-
-	return { id: automationResult.id };
-}
-
-/**
- * Send email notification about automation completion
- */
-export async function sendAutomationNotification({
-	supabase,
-	userId,
-	automationResult,
-	rule,
-	repo,
-	result,
-}: {
-	supabase: SupabaseClient;
-	userId: string;
-	automationResult: { id: string };
-	rule: SmartAutomationRule;
-	repo: any;
-	result: AutomationResult;
-}): Promise<void> {
-	try {
-		// Get user email
-		const { data: user, error: userError } = await supabase.auth.admin.getUserById(userId);
-		if (userError || !user?.user?.email) {
-			console.error('Failed to get user email for notification:', userError);
-			return;
-		}
-
-		// Send email notification
-		const emailResult = await sendEmailNotification({
-			userEmail: user.user.email,
-			repoName: repo.name,
-			ruleName: rule.name,
-			previewUrl: result.previewUrl,
-			summary: {
-				filesAnalyzed: result.significanceAnalysis?.filesAnalyzed || 0,
-				significantChanges: result.significanceAnalysis?.significantChanges || 0,
-				confidence: result.significanceAnalysis?.confidence || 'unknown',
-				documentsCount: result.generatedDocuments?.length || 0,
-				diagramsCount: result.generatedDiagrams?.length || 0,
-			},
-		});
-
-		if (emailResult.success) {
-			console.log('✅ Email notification sent successfully');
-		} else {
-			console.error('❌ Failed to send email notification:', emailResult.error);
-		}
-
-	} catch (error) {
-		console.error('Failed to send automation notification:', error);
-	}
-}
 

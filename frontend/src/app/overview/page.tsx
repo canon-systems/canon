@@ -61,13 +61,13 @@ export default async function OverviewPage() {
   }> = [];
 
   rulesData?.forEach((rule: any) => {
-    automationRules.push({
+      automationRules.push({
       repoId: rule.repo_id,
       repoName: rule.workspace_repos.name || 'Untitled Repo',
       repoUrl: rule.workspace_repos.repo_url || '',
       ruleId: rule.rule_id,
       ruleName: rule.name || rule.rule_id,
-      enabled: Boolean(rule.enabled),
+        enabled: Boolean(rule.enabled),
       lastRunAt: rule.last_run_at,
       lastRunStatus: rule.last_run_status,
     });

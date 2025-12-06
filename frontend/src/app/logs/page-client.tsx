@@ -85,14 +85,14 @@ export function LogsPageClient({ user, logs, repos = [] }: LogsPageClientProps) 
   // Fetch automation rules on mount and when repos change
   useEffect(() => {
     const fetchAutomationRules = async () => {
-      const rules: Array<{
-        repoId: string;
-        ruleId: string;
-        ruleName: string;
-        enabled: boolean;
-        repo: Repo;
-        executionHistory: any[];
-      }> = [];
+    const rules: Array<{
+      repoId: string;
+      ruleId: string;
+      ruleName: string;
+      enabled: boolean;
+      repo: Repo;
+      executionHistory: any[];
+    }> = [];
 
       try {
         const response = await fetch('/api/repos');
@@ -107,17 +107,17 @@ export function LogsPageClient({ user, logs, repos = [] }: LogsPageClientProps) 
                 const repoAutomationRules = rulesData.automation_rules || [];
 
                 repoAutomationRules.forEach((rule: any) => {
-                  if (rule.enabled) {
-                    rules.push({
-                      repoId: repo.id,
+        if (rule.enabled) {
+          rules.push({
+            repoId: repo.id,
                       ruleId: rule.id,
-                      ruleName: rule.name || rule.id,
-                      enabled: rule.enabled,
-                      repo,
+            ruleName: rule.name || rule.id,
+            enabled: rule.enabled,
+            repo,
                       executionHistory: executionHistories[`${repo.id}:${rule.id}`] || [],
-                    });
-                  }
-                });
+          });
+        }
+      });
               }
             } catch (error) {
               console.error(`Failed to fetch automation rules for repo ${repo.id}:`, error);

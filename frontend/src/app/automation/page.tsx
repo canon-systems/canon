@@ -50,18 +50,18 @@ export default async function AutomationPage() {
   let activeRules = 0;
 
   rules?.forEach((rule: any) => {
-    const enabled = Boolean(rule.enabled);
+      const enabled = Boolean(rule.enabled);
 
-    totalRules++;
-    if (enabled) activeRules++;
+      totalRules++;
+      if (enabled) activeRules++;
 
-    allRules.push({
+      allRules.push({
       repoId: rule.repo_id,
       repoName: rule.workspace_repos.name || 'Untitled Repo',
       repoUrl: rule.workspace_repos.repo_url || '',
       ruleId: rule.rule_id,
       ruleName: rule.name || rule.rule_id,
-      enabled,
+        enabled,
       lastRunAt: rule.last_run_at,
       lastRunStatus: rule.last_run_status,
     });
