@@ -44,7 +44,7 @@ export const checkAndRunAutomations = inngest.createFunction(
     name: "Check and Run Scheduled Automations",
   },
   {
-    cron: "*/1 * * * *", // Run every 1 minutes
+    cron: "*/10 * * * *", // Run every 1 minutes
   },
   async ({ event, step }) => {
     console.log(`🔍 Checking for automations to run at ${new Date().toISOString()}`);
@@ -308,6 +308,9 @@ export const scanAndGenerateSummaries = inngest.createFunction(
     let totalProcessed = 0;
     let totalScanned = 0;
 
+    // Import required services
+    const { analyzeRepository } = await import("../../lib/server/services/analyzeRepository");
+
     // Process each repository
     for (const repo of activeRepos) {
       try {
@@ -315,52 +318,86 @@ export const scanAndGenerateSummaries = inngest.createFunction(
 
         totalScanned++;
 
-        // Detect changes since last summary generation
-        const changes = await detectRepositoryChanges({
-          supabase,
-          userId: repo.workspace_id, // Assuming workspace_id is available
-          repoUrl: repo.repo_url,
-          branch: repo.default_branch,
-        });
-
-        const newFiles = changes.files_added || [];
-        if (newFiles.length === 0) {
-          console.log(`✅ No new files in ${repo.repo_url}`);
-          continue;
-        }
-
-        console.log(`🆕 Found ${newFiles.length} new files in ${repo.repo_url}`);
-
-        // Get file contents for new files
-        const octokit = await getUserOctokit(supabase, repo.workspace_id);
+        // Parse repo URL
         const parsed = parseRepoUrl(repo.repo_url);
         if (!parsed) {
           console.error(`❌ Invalid repo URL: ${repo.repo_url}`);
           continue;
         }
 
+        const normalizedRepoId = `github.com/${parsed.owner}/${parsed.repo}`;
+
+        // Analyze repository to get all files
+        console.log(`📊 Analyzing repository structure for ${repo.repo_url}`);
+        const analyzeResult = await analyzeRepository({
+          supabase,
+          userId: repo.workspace_id,
+          repoUrl: repo.repo_url,
+          branch: repo.default_branch,
+          subdir: null,
+          filters: null,
+          maxFiles: 1000, // Limit to prevent excessive processing
+        });
+
+        if (!analyzeResult.success || !analyzeResult.files) {
+          console.error(`❌ Failed to analyze repository ${repo.repo_url}:`, analyzeResult.message);
+          continue;
+        }
+
+        const allFiles = analyzeResult.files;
+        console.log(`📁 Found ${allFiles.length} files in ${repo.repo_url}`);
+
+        // Check which files already have summaries
+        const summaryManager = new FileSummaryManager(supabase, normalizedRepoId, repo.default_branch);
+        const filePaths = allFiles.map(f => f.path);
+        const existingSummaries = await summaryManager.getExistingSummaries(filePaths);
+
+        // Filter to files without summaries
+        const filesWithoutSummaries = allFiles.filter(file => !existingSummaries.has(file.path));
+
+        if (filesWithoutSummaries.length === 0) {
+          console.log(`✅ All ${allFiles.length} files in ${repo.repo_url} already have summaries`);
+
+          // Update repository_setup with current counts
+          await supabase
+            .from('repository_setup')
+            .update({
+              total_files: allFiles.length,
+              summarized_files: allFiles.length,
+              last_summary_scan: new Date().toISOString(),
+            })
+            .eq('repo_id', repo.id);
+
+          continue;
+        }
+
+        console.log(`🆕 Found ${filesWithoutSummaries.length} files without summaries in ${repo.repo_url}`);
+
+        // Get file contents for files without summaries
+        const octokit = await getUserOctokit(supabase, repo.workspace_id);
         const { owner, repo: repoName } = parsed;
         const filesWithContent: Array<{ path: string; content: string; hash?: string }> = [];
 
-        // Fetch content for new files
-        for (const filePath of newFiles) {
+        // Fetch content for files without summaries
+        for (const file of filesWithoutSummaries) {
           try {
             const { data: fileData } = await octokit.repos.getContent({
               owner,
               repo: repoName,
-              path: filePath,
-              ref: changes.current_commit_sha,
+              path: file.path,
+              ref: analyzeResult.snapshot.commitSha,
             });
 
             if (!Array.isArray(fileData) && fileData.type === 'file' && fileData.content) {
               const content = Buffer.from(fileData.content, 'base64').toString('utf-8');
               filesWithContent.push({
-                path: filePath,
+                path: file.path,
                 content,
+                hash: file.hash || undefined,
               });
             }
           } catch (error) {
-            console.error(`❌ Failed to fetch content for ${filePath}:`, error);
+            console.error(`❌ Failed to fetch content for ${file.path}:`, error);
           }
         }
 
@@ -369,18 +406,27 @@ export const scanAndGenerateSummaries = inngest.createFunction(
           continue;
         }
 
-        // Generate summaries for new files
-        const normalizedRepoId = `github.com/${parsed.owner}/${parsed.repo}`;
-        const summaryManager = new FileSummaryManager(supabase, normalizedRepoId, repo.default_branch);
-
+        // Generate summaries for files without summaries
         const result = await summaryManager.updateSummariesIfNeeded(filesWithContent, {
-          batchSize: 3,
+          batchSize: 10,
           onProgress: (progress) => {
             console.log(`📊 ${repo.repo_url}: Summary generation ${progress.processed}/${progress.total}`);
           }
         });
 
         console.log(`✅ Generated ${result.processed} summaries for ${repo.repo_url} (${result.skipped} skipped, ${result.failed} failed)`);
+
+        // Update repository_setup with current counts
+        const summarizedCount = allFiles.length - filesWithoutSummaries.length + result.processed;
+        await supabase
+          .from('repository_setup')
+          .update({
+            total_files: allFiles.length,
+            summarized_files: summarizedCount,
+            last_summary_scan: new Date().toISOString(),
+          })
+          .eq('repo_id', repo.id);
+
         totalProcessed += result.processed;
 
       } catch (error) {

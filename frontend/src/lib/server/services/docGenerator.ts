@@ -148,7 +148,7 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 				// Generate summaries for missing files
 				await summaryManager.updateSummariesIfNeeded(missingFileEntries, {
 					force: true, // Generate even if recently checked
-					batchSize: 3, // Smaller batches for responsiveness
+					batchSize: 10, // Increased batch size for better performance
 					onProgress: (progress) => {
 						console.log(`[docGenerator] 📊 Summary generation progress: ${progress.processed}/${progress.total}`);
 					}
