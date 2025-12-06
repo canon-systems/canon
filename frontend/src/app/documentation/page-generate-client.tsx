@@ -211,11 +211,41 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
   const [subdir, setSubdir] = useState('');
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
 
+  // Enhanced repository selection
+  const [selectedRepoUrl, setSelectedRepoUrl] = useState<string | null>(null);
+  const [selectedBranch, setSelectedBranch] = useState<string>('');
+
   // Dropdown options
   const [directories, setDirectories] = useState<string[]>([]);
   const [availableRepos, setAvailableRepos] = useState<RepoWithSetup[]>(initialRepos);
   const [loadingDirectories, setLoadingDirectories] = useState(false);
   const [loadingRepos, setLoadingRepos] = useState(false);
+
+  // Create unique repository options (deduplicated by repo_url)
+  const uniqueRepos = availableRepos.reduce((acc, repo) => {
+    const existing = acc.find(r => r.repo_url === repo.repo_url);
+    if (!existing) {
+      acc.push({
+        repo_url: repo.repo_url,
+        name: repo.name,
+        // Store all branches for this repo
+        branches: availableRepos
+          .filter(r => r.repo_url === repo.repo_url)
+          .map(r => ({ id: r.id, branch: r.default_branch, setup_branch: r.setup_branch }))
+      });
+    }
+    return acc;
+  }, [] as Array<{
+    repo_url: string;
+    name: string;
+    branches: Array<{ id: string; branch: string; setup_branch: string }>;
+  }>);
+
+  // Get available branches for selected repo
+  const availableBranches = uniqueRepos.find(r => r.repo_url === selectedRepoUrl)?.branches || [];
+
+  // Find the selected repo record based on repo URL and branch
+  const selectedRepoRecord = availableBranches.find(b => b.branch === selectedBranch);
 
 
   // LLM Prompt customization
@@ -319,16 +349,25 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
     }
   }, [method, repoUrl, branch, subdir, isGit]);
 
-  // React to branch changes
+  // React to branch changes (both old and new flow)
   useEffect(() => {
-    if (branch && repoUrl && repoUrl.includes('github.com') && method === 'github_repo_directory') {
-      fetchDirectories();
-    } else {
-      setDirectories([]);
-      setSubdir('');
+    // Handle new enhanced selection flow - load directories whenever branch is selected
+    if (selectedBranch && selectedRepoUrl) {
+      fetchDirectoriesForSelection(selectedRepoUrl, selectedBranch);
+      return;
     }
+
+    // Handle old flow (backward compatibility)
+    if (branch && repoUrl && repoUrl.includes('github.com') && !selectedRepoUrl) {
+      fetchDirectories();
+      return;
+    }
+
+    // Clear directories if no valid selection
+    setDirectories([]);
+    setSubdir('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [branch, repoUrl, method]);
+  }, [branch, repoUrl, method, selectedBranch, selectedRepoUrl]);
 
   async function fetchDirectories() {
     if (!repoUrl.trim() || !repoUrl.includes('github.com') || !branch) {
@@ -352,6 +391,34 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
       }
     } catch (err) {
       console.error('Failed to fetch directories:', err);
+      setDirectories([]);
+    } finally {
+      setLoadingDirectories(false);
+    }
+  }
+
+  async function fetchDirectoriesForSelection(repoUrl: string, branchName: string) {
+    if (!repoUrl.trim() || !repoUrl.includes('github.com') || !branchName) {
+      setDirectories([]);
+      return;
+    }
+
+    setLoadingDirectories(true);
+    try {
+      const response = await fetch('/api/github/directories', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ repoUrl, branch: branchName })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setDirectories(data.directories || []);
+      } else {
+        setDirectories([]);
+      }
+    } catch (err) {
+      console.error('Failed to fetch directories for selection:', err);
       setDirectories([]);
     } finally {
       setLoadingDirectories(false);
@@ -400,7 +467,7 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
         body: JSON.stringify({
           repoUrl,
           branch,
-          subdir: method === 'github_repo_directory' ? subdir : ''
+          subdir: subdir || ''
         })
       });
       const data = await r.json().catch(() => ({}));
@@ -481,7 +548,7 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
     return [
       repoUrl || '',
       branch ? `@${branch}` : '',
-      method === 'github_repo_directory' && subdir ? `/${subdir}` : '',
+      subdir ? `/${subdir}` : '',
       files.length ? ` • files: ${files.slice(0, 6).join(', ')}${files.length > 6 ? '…' : ''}` : ''
     ].join('');
   }
@@ -503,42 +570,22 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
       setStatusMsg('Queuing…');
       const filesForLog = selectedArray();
 
-      // Get or create workspace_repos entry
-      let repoId: string;
+      // Validate that repository exists and is properly set up
+      if (!selectedRepoId) {
+        throw new Error('Please select a repository from the dropdown. Repositories must be set up first before creating documents.');
+      }
+
       const { data: existingRepo } = await supabase
         .from('workspace_repos')
         .select('id')
-        .eq('repo_url', repoUrl)
+        .eq('id', selectedRepoId)
         .single();
 
-      if (existingRepo) {
-        repoId = existingRepo.id;
-      } else {
-        // Create new repo entry
-        const { data: newRepo, error: repoError } = await supabase
-          .from('workspace_repos')
-          .insert({
-            workspace_id: (await supabase.auth.getUser()).data.user?.id || '',
-            name: repoUrl.split('/').pop()?.replace('.git', '') || 'Repository',
-            repo_url: repoUrl,
-            default_branch: branch || 'main',
-            provider: 'github',
-            auth_type: 'github_pat',
-            settings: {
-              model: selectedModel,
-              llm_prompt_config: promptConfig,
-              document_structure: structureConfig,
-              ...(method === 'github_repo_directory' ? { subdir } : {})
-            }
-          })
-          .select('id')
-          .single();
-
-        if (repoError || !newRepo) {
-          throw new Error(`Failed to create repository entry: ${repoError?.message || 'Unknown error'}`);
-        }
-        repoId = newRepo.id;
+      if (!existingRepo) {
+        throw new Error('Selected repository not found. Please go to the Repositories page to set up this repository first.');
       }
+
+      const repoId = existingRepo.id;
 
       // Create document
       const { data: docData, error: docError } = await supabase
@@ -578,7 +625,7 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
         body: JSON.stringify({
           repoUrl,
           branch,
-          subdir: method === 'github_repo_directory' ? subdir : '',
+          subdir: subdir || '',
           selectedFiles: chosen,
           includeContent: true,
           previewChars: 0,
@@ -649,7 +696,7 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
           },
           repoUrl,
           branch,
-          subdir: method === 'github_repo_directory' && subdir ? subdir : undefined,
+          subdir: subdir || undefined,
           prepareFirst: documentId ? true : false,
           documentId: documentId ? documentId : undefined,
           useSummaries: documentId ? true : false
@@ -762,8 +809,8 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
 
           <div className="method-grid">
             {[
-              { id: 'github_repo', label: 'Full Repository' },
-              { id: 'github_repo_directory', label: 'Specific Directory' },
+              { id: 'github_repo', label: 'Full Repository', description: 'Document entire repository or focus on specific folder' },
+              { id: 'github_repo_directory', label: 'Directory Mode', description: 'Start with a specific directory selection' },
             ].map((opt) => {
               const Icon = getMethodIcon(opt.id as InputType);
               return (
@@ -773,6 +820,7 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
                   data-active={method === opt.id}
                   onClick={() => setMethod(opt.id as InputType)}
                   aria-pressed={method === opt.id}
+                  title={opt.description}
                 >
                   <Icon className="h-4 w-4" />
                   <span>{opt.label}</span>
@@ -888,20 +936,25 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
                 Repository <span className="text-red-400">*</span>
               </span>
               <SearchableSelect
-                options={availableRepos.map((r) => ({
-                  value: r.id,
-                  label: r.name,
+                options={uniqueRepos.map((repo) => ({
+                  value: repo.repo_url,
+                  label: `${repo.name} (${repo.repo_url.replace('https://github.com/', '')})`,
                 }))}
-                value={selectedRepoId || ''}
-                placeholder={loadingRepos ? 'Loading repositories...' : availableRepos.length === 0 ? 'No repositories available' : 'Select a repository...'}
+                value={selectedRepoUrl || ''}
+                placeholder={loadingRepos ? 'Loading repositories...' : uniqueRepos.length === 0 ? 'No repositories available' : 'Select a repository...'}
                 searchPlaceholder="Search repositories..."
-                disabled={loadingRepos || availableRepos.length === 0}
-                onChange={(value) => setSelectedRepoId(value)}
+                disabled={loadingRepos || uniqueRepos.length === 0}
+                onChange={(repoUrl) => {
+                  setSelectedRepoUrl(repoUrl);
+                  setSelectedBranch(''); // Reset branch selection
+                  setSelectedRepoId(null); // Reset repo record ID
+                  setDirectories([]); // Clear directories when repo changes
+                }}
                 triggerClassName="field-select"
               />
               {loadingRepos ? (
                 <p className="field-note">Loading repositories…</p>
-              ) : availableRepos.length === 0 ? (
+              ) : uniqueRepos.length === 0 ? (
                 <div className="field-note flex items-center justify-between">
                   <span>No repositories with file summaries found. Complete repository setup first.</span>
                   <Link
@@ -916,7 +969,76 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
               )}
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2">
+            {/* Branch Selection */}
+            {selectedRepoUrl && (
+              <div className="field-group">
+                <span className="field-label">
+                  Branch <span className="text-red-400">*</span>
+                </span>
+                <SearchableSelect
+                  options={availableBranches.map((branch) => ({
+                    value: branch.branch,
+                    label: branch.branch,
+                  }))}
+                  value={selectedBranch}
+                  placeholder="Select a branch..."
+                  searchPlaceholder="Search branches..."
+                  disabled={availableBranches.length === 0}
+                  onChange={(branch) => {
+                    setSelectedBranch(branch);
+                    // Find the repo record for this branch
+                    const repoRecord = availableBranches.find(b => b.branch === branch);
+                    setSelectedRepoId(repoRecord?.id || null);
+                    // Update the branch state for API calls
+                    setBranch(branch);
+                    setDirectories([]); // Clear directories when branch changes
+                  }}
+                  triggerClassName="field-select"
+                />
+                {availableBranches.length === 0 && (
+                  <p className="field-note text-yellow-400">No branches available for this repository.</p>
+                )}
+                {availableBranches.length > 0 && (
+                  <p className="field-note">Select the branch you want to generate documentation for.</p>
+                )}
+              </div>
+            )}
+
+            {/* Folder Selection for new flow - available whenever branch is selected */}
+            {selectedBranch && (
+              <div className="field-group">
+                <span className="field-label">
+                  Focus Folder <span className="text-xs text-white/50">(optional)</span>
+                </span>
+                <SearchableSelect
+                  options={[
+                    { value: '', label: '📁 Root directory (all files)' },
+                    ...directories.map((d) => ({ value: d, label: `📂 ${d}` })),
+                  ]}
+                  value={subdir}
+                  placeholder={
+                    loadingDirectories
+                      ? 'Loading folders...'
+                      : directories.length === 0
+                        ? 'No folders found'
+                        : 'Choose folder to focus on...'
+                  }
+                  searchPlaceholder="Search folders..."
+                  disabled={loadingDirectories}
+                  onChange={setSubdir}
+                  triggerClassName="field-select"
+                />
+                <p className="field-note">
+                  {subdir
+                    ? `Documentation will focus on the "${subdir}" folder and its contents.`
+                    : 'Leave empty to include all files in the repository, or select a specific folder to focus the documentation.'
+                  }
+                </p>
+              </div>
+            )}
+
+            {/* Show old branch input only when no repository is selected (backward compatibility) */}
+            {!selectedRepoUrl && (
               <div className="field-group">
                 <span className="field-label">Branch</span>
                 <input
@@ -928,37 +1050,13 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
                 />
                 <p className="field-note">Branch is set from the initial repository setup and cannot be changed.</p>
               </div>
-
-              {method === 'github_repo_directory' && (
-                <div className="field-group">
-                  <span className="field-label">Subdirectory (optional)</span>
-                  <SearchableSelect
-                    options={[
-                      { value: '', label: 'Root (all files)' },
-                      ...directories.map((d) => ({ value: d, label: d })),
-                    ]}
-                    value={subdir}
-                    placeholder={
-                      loadingDirectories
-                        ? 'Loading...'
-                        : directories.length === 0 && branch
-                          ? 'No subdirectories found'
-                          : 'Select subfolder...'
-                    }
-                    searchPlaceholder="Search directories..."
-                    disabled={loadingDirectories || !branch}
-                    onChange={(value) => setSubdir(value)}
-                    triggerClassName="field-select"
-                  />
-                </div>
-              )}
-            </div>
+            )}
 
             <div className="form-divider" />
 
             <div>
               <div className="mb-3 flex items-center justify-between text-sm text-white/80">
-                <span>Files in repository{method === 'github_repo_directory' && subdir ? `/${subdir}` : ''}</span>
+                <span>Files in repository{subdir ? `/${subdir}` : ''}</span>
                 <div className="flex items-center gap-2">
                   {showLoadButton && (
                     <button className="secondary-action px-3 py-1 text-xs" onClick={listGitFiles} disabled={listing}>

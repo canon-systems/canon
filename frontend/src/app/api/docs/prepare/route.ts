@@ -3,6 +3,8 @@ import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
 import { prepareFileSummaries } from '@/lib/server/services/prepareSummaries';
 
+export const runtime = 'nodejs';
+
 export async function POST(request: NextRequest) {
 	try {
 		const { user } = await getSession();

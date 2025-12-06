@@ -20,6 +20,11 @@ export async function middleware(request: NextRequest) {
       return NextResponse.next();
     }
 
+    // Protected routes (updated to match current routes) - declare early
+    const pathname = request.nextUrl.pathname;
+    const protectedPrefixes = ['/overview', '/documentation', '/history', '/logs', '/architecture', '/edit', '/settings'];
+    const isProtectedRoute = protectedPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+
     let supabaseResponse = NextResponse.next({
       request,
     });
@@ -51,15 +56,36 @@ export async function middleware(request: NextRequest) {
       error,
     } = await supabase.auth.getUser();
 
-    // If there's an error getting the user, continue without auth checks
+    // Handle specific auth errors that require session cleanup
     if (error) {
+      // Check for refresh token related errors
+      const isRefreshTokenError = error.message?.includes('refresh_token_not_found') ||
+                                  error.message?.includes('Invalid Refresh Token') ||
+                                  error.message?.includes('refresh token') ||
+                                  error.status === 400;
+
+      if (isRefreshTokenError) {
+        console.log('Refresh token error detected, clearing session cookies');
+
+        // Clear all auth-related cookies to prevent further errors
+        const response = NextResponse.next();
+        response.cookies.delete('sb-access-token');
+        response.cookies.delete('sb-refresh-token');
+        response.cookies.delete('supabase-auth-token');
+
+        // For protected routes, redirect to login
+        if (isProtectedRoute) {
+          const url = request.nextUrl.clone();
+          url.pathname = '/login';
+          return NextResponse.redirect(url);
+        }
+
+        return response;
+      }
+
+      // For other auth errors, continue without auth checks
       return NextResponse.next();
     }
-
-    // Protected routes (updated to match current routes)
-    const pathname = request.nextUrl.pathname;
-    const protectedPrefixes = ['/overview', '/documentation', '/history', '/logs', '/architecture', '/edit', '/settings'];
-    const isProtectedRoute = protectedPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 
     if (!user && isProtectedRoute) {
       const url = request.nextUrl.clone();

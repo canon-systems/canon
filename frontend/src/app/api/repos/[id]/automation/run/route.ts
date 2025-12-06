@@ -4,6 +4,8 @@ import { createClient as createSupabaseClient } from '@/lib/supabase/server';
 import { executeAutomationRule } from '@/lib/server/services/automationRunner';
 import { updateRuleLastRun } from '@/lib/server/services/automationRules';
 
+export const runtime = 'nodejs';
+
 /**
  * POST /api/repos/[id]/automation/run
  * Manually trigger an automation rule for a specific repository.

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createClient as createSupabaseClient } from '@/lib/supabase/server';
-import { calculateNextRunAt } from '@/lib/server/services/automationRules';
 
 export async function GET(
   request: NextRequest,
@@ -101,7 +100,7 @@ export async function PATCH(
       .delete()
       .eq('repo_id', id);
 
-    // Insert new rules
+    // Insert new rules (without next_run_at)
     const rulesToInsert = body.automation_rules.map(rule => ({
       workspace_id: user.id,
       repo_id: id,
@@ -115,7 +114,6 @@ export async function PATCH(
       target_diagrams: rule.target_diagrams || [],
       notifications: rule.notifications,
       publish_targets: rule.publish_targets,
-      next_run_at: (rule.enabled && rule.schedule) ? calculateNextRunAt(rule.schedule).toISOString() : null,
       // Legacy fields
       generate_doc: rule.generate_doc,
       generate_diagram: rule.generate_diagram,
@@ -126,14 +124,18 @@ export async function PATCH(
       auto_publish_target: rule.auto_publish_target,
     }));
 
-    const { error: insertError } = await supabase
+    const { data: insertedRules, error: insertError } = await supabase
       .from('automation_rules')
-      .insert(rulesToInsert);
+      .insert(rulesToInsert)
+      .select();
 
     if (insertError) {
       console.error('Automation PATCH insert error:', insertError);
       throw insertError;
     }
+
+    // Note: Schedules are handled by the checkAndRunAutomations function
+    // which runs every 5 minutes and checks all enabled rules
 
     return NextResponse.json(
       {

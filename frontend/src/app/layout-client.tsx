@@ -21,11 +21,29 @@ export function RootLayoutClient({
   useEffect(() => {
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    } = supabase.auth.onAuthStateChange(async (event, newSession) => {
+      console.log('Auth state changed:', event, !!newSession);
+
+      // Handle token refresh errors
+      if (event === 'TOKEN_REFRESHED' && !newSession) {
+        console.log('Token refresh failed, redirecting to login');
+        router.push('/login');
+        return;
+      }
+
+      // Handle sign out events
+      if (event === 'SIGNED_OUT') {
+        console.log('User signed out, redirecting to login');
+        router.push('/login');
+        return;
+      }
+
+      // Handle other session changes
       const oldExp = initialSession?.expires_at ?? null;
       const newExp = newSession?.expires_at ?? null;
 
       if (oldExp !== newExp) {
+        console.log('Session expiration changed, refreshing page');
         router.refresh();
       }
     });
@@ -35,13 +53,23 @@ export function RootLayoutClient({
 
   async function handleLogout() {
     try {
-      await supabase.auth.signOut();
-      // Wait a moment for cookies to sync, then redirect with full page reload
-      await new Promise(resolve => setTimeout(resolve, 100));
-      window.location.href = '/login';
+      console.log('Attempting logout...');
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        console.error('Logout error:', error);
+        // If there's an auth error during logout, clear local session anyway
+        if (error.message?.includes('refresh_token') || error.status === 400) {
+          console.log('Clearing local session due to refresh token error');
+        }
+      } else {
+        console.log('Logout successful');
+      }
     } catch (e) {
-      console.error('Logout failed', e);
-      // Even if logout fails, redirect to login page
+      console.error('Logout failed with exception:', e);
+    } finally {
+      // Always redirect to login, even if logout fails
+      // Wait a moment for any pending operations to complete
+      await new Promise(resolve => setTimeout(resolve, 100));
       window.location.href = '/login';
     }
   }

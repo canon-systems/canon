@@ -74,10 +74,11 @@ export default async function RepositoriesPage() {
               .eq('branch', setup.branch);
 
             if (!countError && count !== null) {
-              fileSummaryCount = count;
-              if (setup.total_files && count >= setup.total_files) {
+              // Cap the summary count at total_files to ensure we never show more summaries than total files
+              fileSummaryCount = Math.min(count, setup.total_files || count);
+              if (setup.total_files && fileSummaryCount >= setup.total_files) {
                 fileSummaryStatus = 'complete';
-              } else if (count > 0) {
+              } else if (fileSummaryCount > 0) {
                 fileSummaryStatus = 'partial';
               }
             }

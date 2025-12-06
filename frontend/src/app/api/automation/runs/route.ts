@@ -1,21 +1,17 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
-import { createClient } from '@/lib/supabase/server';
+import { createClient as createSupabaseClient } from '@/lib/supabase/server';
 
-/**
- * GET /api/automation/runs
- * Get automation runs for the current user
- */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const { user } = await getSession();
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const supabase = await createClient();
+    const supabase = await createSupabaseClient();
 
-    // Get all automation runs for the user, ordered by execution time descending
+    // Query all automation_runs for the user
     const { data: runs, error } = await supabase
       .from('automation_runs')
       .select('*')
@@ -23,7 +19,11 @@ export async function GET() {
       .order('executed_at', { ascending: false });
 
     if (error) {
-      throw error;
+      console.error('Error fetching automation runs:', error);
+      return NextResponse.json(
+        { error: 'Failed to fetch automation runs' },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json(runs || []);
@@ -31,7 +31,7 @@ export async function GET() {
     console.error('Automation runs error:', err);
     return NextResponse.json(
       {
-        error: 'Failed to get automation runs',
+        error: 'Failed to load automation runs',
         detail: err.message || String(err),
       },
       { status: 500 }

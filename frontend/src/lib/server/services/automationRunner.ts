@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { createHash } from 'crypto';
 import { analyzeRepository } from './analyzeRepository';
 import { generateDocumentation } from './docGenerator';
 import { generateArchitectureDiagram } from './diagramGenerator';
@@ -9,7 +10,7 @@ import { updateTrackedFilesForRenames } from './fileRenameHandler';
 import { prepareFileSummaries, generateAndSaveFileSummaries } from './prepareSummaries';
 import { prepareRepoSummaries } from './prepareRepoSummaries';
 import { LLMGateway } from './llmGateway';
-import { generateFileSummary } from './fileSummarizer';
+import { FileSummaryManager } from './fileSummaryManager';
 import { getUserOctokit } from '../github/getUserOctokit';
 import { parseRepoUrl } from '../github/github';
 
@@ -49,10 +50,13 @@ export async function executeAutomationRule({
 	publishStatus?: string;
 	publishProvider?: string;
 	publishResourceId?: string;
+	currentCommitSha?: string;
 }> {
 	const ruleName = rule.id || rule.name || 'unnamed-rule';
-	console.log(`\n🚀 STARTING AUTOMATION: ${repo.name} (${ruleName})`);
-	console.log(`═══════════════════════════════════════════════════════════════`);
+	const startTime = Date.now();
+
+	console.log(`🤖 [AUTOMATION] Starting: ${repo.name} (${ruleName})`);
+	console.log(`📋 [AUTOMATION] Rule: ${ruleName} | Repo: ${repo.name} | Branch: ${repo.default_branch}`);
 
 	const result = {
 		success: false,
@@ -65,20 +69,21 @@ export async function executeAutomationRule({
 		publishStatus: undefined as string | undefined,
 		publishProvider: undefined as string | undefined,
 		publishResourceId: undefined as string | undefined,
+		currentCommitSha: undefined as string | undefined,
 	};
 
 	try {
-		// STEP 0: Pre-flight check - validate AI service
+		// 🔍 Pre-flight checks
 		try {
 			new LLMGateway();
-			console.log(`✅ STEP 0: AI service available`);
+			console.log(`✅ [CHECK] AI service available`);
 		} catch (error: any) {
-			console.error(`❌ AI service unavailable: ${error.message}`);
+			console.error(`❌ [ERROR] AI service unavailable: ${error.message}`);
 			result.errors.push(`AI service configuration error: ${error.message}`);
 			return result;
 		}
 
-		// STEP 1: Check if repository is set up for efficient automation
+		// 🔍 Repository validation
 		const { data: repoSetup, error: setupError } = await supabase
 			.from('repository_setup')
 			.select('setup_status, last_analyzed')
@@ -86,22 +91,22 @@ export async function executeAutomationRule({
 			.single();
 
 		if (setupError || !repoSetup || repoSetup.setup_status !== 'ready') {
-			console.log(`⚠️ Repository not set up for efficient automation - skipping`);
+			console.log(`⚠️ [SKIP] Repository not set up for automation`);
 			result.skipped = true;
 			result.skipReason = 'Repository not set up for automation. Please run repository setup first.';
 			result.success = true;
 			return result;
 		}
 
-		console.log(`✅ Repository ready for automation`);
+		console.log(`✅ [CHECK] Repository ready for automation`);
 
 		const settings = repo.settings || {};
 		const subdir = settings.subdir || null;
 		const filters = settings.filters || null;
 		const promptConfig = settings.prompt_config || null;
 
-		// STEP 2: Detect changes since last analysis
-		console.log(`📊 STEP 2: Detecting changes...`);
+		// 🔍 Change detection
+		console.log(`🔍 [SCAN] Detecting repository changes...`);
 
 		const changeDetectionStart = Date.now();
 		const changes = await detectRepositoryChanges({
@@ -109,7 +114,11 @@ export async function executeAutomationRule({
 			userId,
 			repoUrl: repo.repo_url,
 			branch: repo.default_branch,
+			oldCommitSha: rule.last_commit_sha || null,
 		});
+
+		// Store the current commit SHA for baseline tracking
+		result.currentCommitSha = changes.current_commit_sha;
 
 		const changedFiles = [
 			...changes.files_changed.map(f => f.path),
@@ -117,10 +126,10 @@ export async function executeAutomationRule({
 		];
 
 		const changeDetectionTime = ((Date.now() - changeDetectionStart) / 1000).toFixed(1);
-		console.log(`✅ Found ${changedFiles.length} changed files (${changeDetectionTime}s)`);
+		console.log(`📊 [SCAN] Found ${changedFiles.length} files (${changeDetectionTime}s)`);
 
 		if (changedFiles.length === 0) {
-			console.log(`⏭️ No changes detected - skipping regeneration`);
+			console.log(`⏭️ [SKIP] No changes detected - skipping regeneration`);
 			result.skipped = true;
 			result.skipReason = 'No file changes detected';
 			result.success = true;
@@ -129,8 +138,8 @@ export async function executeAutomationRule({
 
 		result.actions.push('detect_changes');
 
-		// STEP 3: Identify affected documents
-		console.log(`🔍 STEP 3: Identifying affected documents...`);
+		// 📄 Document analysis
+		console.log(`📄 [DOCS] Analyzing ${changedFiles.length} files...`);
 
 		// Get all documents for this repo
 		const { data: repoDocs, error: docsError } = await supabase
@@ -139,7 +148,7 @@ export async function executeAutomationRule({
 			.eq('repo_id', repo.id);
 
 		if (docsError) {
-			console.error('Failed to get documents:', docsError);
+			console.error(`❌ [ERROR] Failed to get documents:`, docsError);
 			result.errors.push('Failed to identify affected documents');
 			return result;
 		}
@@ -155,7 +164,7 @@ export async function executeAutomationRule({
 			: { data: null, error: null };
 
 		if (filesError) {
-			console.error('Failed to get document files:', filesError);
+			console.error(`❌ [ERROR] Failed to get document files:`, filesError);
 			result.errors.push('Failed to identify affected documents');
 			return result;
 		}
@@ -178,23 +187,24 @@ export async function executeAutomationRule({
 			}
 		});
 
-		console.log(`📄 Found ${affectedDocs.size} documents affected by ${changedFiles.length} file changes`);
+		console.log(`📄 [DOCS] Found ${affectedDocs.size} affected documents from ${repoDocs?.length || 0} total docs`);
 
 		if (affectedDocs.size === 0) {
-			console.log(`⏭️ No documents affected by changes - skipping regeneration`);
+			console.log(`⏭️ [SKIP] No documents affected by changes`);
 			result.skipped = true;
 			result.skipReason = 'No documents affected by file changes';
 			result.success = true;
 			return result;
 		}
 
-		// STEP 4: Regenerate summaries for changed files
-		if (rule.update_mode !== 'incremental_update' && changes.files_changed.length > 0) {
-			console.log(`📝 STEP 4: Regenerating summaries for ${changes.files_changed.length} changed files...`);
+		// STEP 4: Regenerate summaries for changed and new files using FileSummaryManager
+		const totalFilesToProcess = changes.files_changed.length + changes.files_added.length;
+		if (rule.update_mode !== 'incremental_update' && totalFilesToProcess > 0) {
+			console.log(`📝 STEP 4: Processing ${totalFilesToProcess} files (${changes.files_changed.length} changed, ${changes.files_added.length} new)...`);
 
 			const summaryStartTime = Date.now();
 
-			// Get current file contents for changed files
+			// Get current file contents for changed and new files
 			const octokit = await getUserOctokit(supabase, userId);
 			const parsed = parseRepoUrl(repo.repo_url);
 			if (!parsed) {
@@ -204,59 +214,115 @@ export async function executeAutomationRule({
 			const { owner, repo: repoName } = parsed;
 			const currentCommitSha = changes.current_commit_sha;
 
-			// Regenerate summaries for changed files
-			for (const changedFile of changes.files_changed) {
-				try {
-					const timestamp = new Date().toISOString();
-					const reason = `File changed (hash: ${changedFile.old_hash?.substring(0, 8)} → ${changedFile.new_hash?.substring(0, 8)})`;
-					console.log(`[${timestamp}] Regenerating summary for file: ${changedFile.path}`);
-					console.log(`[${timestamp}]   Reason: ${reason}`);
+			// Collect all files that need processing with their content
+			const filesToProcess: Array<{ path: string; content: string; hash?: string }> = [];
 
-					const { data: fileData } = await octokit.repos.getContent({
-						owner,
-						repo: repoName,
-						path: changedFile.path,
-						ref: currentCommitSha,
-					});
-
-					let fileContent = '';
-					if (!Array.isArray(fileData) && fileData.type === 'file' && fileData.content) {
-						fileContent = fileData.encoding === 'base64'
-							? Buffer.from(fileData.content, 'base64').toString('utf-8')
-							: fileData.content;
-					}
-
-					if (fileContent) {
-						const summary = await generateFileSummary(fileContent, changedFile.path, 'gpt-4o-mini');
-
-						// Update summary in database
-						const { error: upsertError } = await supabase.rpc('upsert_repo_file_summary', {
-							p_repo_id: normalizeRepoId(repo.repo_url),
-							p_file_path: changedFile.path,
-							p_file_hash: changedFile.new_hash,
-							p_summary_text: summary.summary_text,
-							p_summary_json: summary.summary_json,
-							p_summary_model: 'gpt-4o-mini',
-							p_user_id: userId,
-							// p_submission_id omitted - submissions table no longer exists
-							p_branch: repo.default_branch,
-							// Note: p_last_regenerated and p_regeneration_reason are handled by the function automatically
+			// Process changed files
+			if (changes.files_changed.length > 0) {
+				console.log(`🔄 Collecting ${changes.files_changed.length} changed files...`);
+				for (const changedFile of changes.files_changed) {
+					try {
+						const { data: fileData } = await octokit.repos.getContent({
+							owner,
+							repo: repoName,
+							path: changedFile.path,
+							ref: currentCommitSha,
 						});
 
-						if (upsertError) {
-							console.error(`[${timestamp}] Failed to update summary for ${changedFile.path}:`, upsertError);
-						} else {
-							console.log(`[${timestamp}] ✅ Successfully regenerated summary for ${changedFile.path}`);
+						let fileContent = '';
+						if (!Array.isArray(fileData) && fileData.type === 'file' && fileData.content) {
+							fileContent = fileData.encoding === 'base64'
+								? Buffer.from(fileData.content, 'base64').toString('utf-8')
+								: fileData.content;
 						}
+
+						if (fileContent) {
+							filesToProcess.push({
+								path: changedFile.path,
+								content: fileContent,
+								hash: changedFile.new_hash || undefined,
+							});
+						}
+					} catch (error) {
+						console.error(`Failed to get content for changed file ${changedFile.path}:`, error);
 					}
-				} catch (error) {
-					const timestamp = new Date().toISOString();
-					console.error(`[${timestamp}] Failed to regenerate summary for ${changedFile.path}:`, error);
 				}
 			}
 
+			// Process new files
+			if (changes.files_added.length > 0) {
+				console.log(`🆕 Collecting ${changes.files_added.length} new files...`);
+				for (const newFilePath of changes.files_added) {
+					try {
+						const { data: fileData } = await octokit.repos.getContent({
+							owner,
+							repo: repoName,
+							path: newFilePath,
+							ref: currentCommitSha,
+						});
+
+						let fileContent = '';
+						if (!Array.isArray(fileData) && fileData.type === 'file' && fileData.content) {
+							fileContent = fileData.encoding === 'base64'
+								? Buffer.from(fileData.content, 'base64').toString('utf-8')
+								: fileData.content;
+						}
+
+						if (fileContent) {
+							// Calculate hash for the new file
+							const fileHash = createHash('sha256').update(fileContent).digest('hex');
+							filesToProcess.push({
+								path: newFilePath,
+								content: fileContent,
+								hash: fileHash,
+							});
+						}
+					} catch (error) {
+						console.error(`Failed to get content for new file ${newFilePath}:`, error);
+					}
+				}
+			}
+
+			// Use FileSummaryManager for proper deduplication and batch processing
+			if (filesToProcess.length > 0) {
+				const summaryManager = new FileSummaryManager(
+					supabase,
+					normalizeRepoId(repo.repo_url),
+					repo.default_branch
+				);
+
+				console.log(`📊 Processing ${filesToProcess.length} files with FileSummaryManager...`);
+
+				const result = await summaryManager.updateSummariesIfNeeded(
+					filesToProcess,
+					{
+						force: false,
+						batchSize: 5,
+						onProgress: (progress) => {
+							console.log(`📊 Summary generation progress: ${progress.processed}/${progress.total} files processed`);
+							if (progress.currentFile) {
+								console.log(`   Currently processing: ${progress.currentFile}`);
+							}
+						},
+						model: rule.model || 'gpt-4o-mini',
+					}
+				);
+
+				console.log(`✅ File summary processing complete:`);
+				console.log(`   - Processed: ${result.processed} files`);
+				console.log(`   - Skipped: ${result.skipped} files (already up-to-date)`);
+				console.log(`   - Failed: ${result.failed} files`);
+				console.log(`   - Total: ${result.total} files`);
+
+				if (result.updatedFiles.length > 0) {
+					console.log(`📁 Updated files: ${result.updatedFiles.slice(0, 5).join(', ')}${result.updatedFiles.length > 5 ? ` ... and ${result.updatedFiles.length - 5} more` : ''}`);
+				}
+			} else {
+				console.log(`ℹ️ No files collected for processing`);
+			}
+
 			const summaryTime = ((Date.now() - summaryStartTime) / 1000).toFixed(1);
-			console.log(`✅ Regenerated summaries in ${summaryTime}s`);
+			console.log(`⏱️ STEP 4 completed in ${summaryTime}s`);
 		} else {
 			console.log(`⏭️ STEP 4: Skipping summary regeneration (${rule.update_mode})`);
 		}
@@ -351,9 +417,51 @@ export async function executeAutomationRule({
 						change_summary: `Automated update: ${docInfo.affectedFiles.length} file(s) changed`
 					});
 
+					// Update document_files table with the files that were actually used in regeneration
+					// This ensures the tracked files stay in sync with what was used to generate the document
+					const actualFilePaths = filesToUse.map(f => f.path);
+					const currentTrackedPaths = allDocFiles.map(f => f.file_path);
+
+					// Find files to remove (in tracked but not in actual)
+					const filesToRemove = currentTrackedPaths.filter(path => !actualFilePaths.includes(path));
+
+					// Find files to add (in actual but not in tracked)
+					const filesToAdd = actualFilePaths.filter(path => !currentTrackedPaths.includes(path));
+
+					if (filesToRemove.length > 0) {
+						const { error: deleteError } = await supabase
+							.from('document_files')
+							.delete()
+							.eq('document_id', docId)
+							.in('file_path', filesToRemove);
+
+						if (deleteError) {
+							console.warn(`Failed to remove outdated files from document_files for doc ${docId}:`, deleteError);
+						} else {
+							console.log(`[${timestamp}]    Removed ${filesToRemove.length} outdated file(s) from tracking`);
+						}
+					}
+
+					if (filesToAdd.length > 0) {
+						const fileMappings = filesToAdd.map(filePath => ({
+							document_id: docId,
+							file_path: filePath
+						}));
+
+						const { error: insertError } = await supabase
+							.from('document_files')
+							.insert(fileMappings);
+
+						if (insertError) {
+							console.warn(`Failed to add new files to document_files for doc ${docId}:`, insertError);
+						} else {
+							console.log(`[${timestamp}]    Added ${filesToAdd.length} new file(s) to tracking`);
+						}
+					}
+
 					docsUpdated++;
-					const timestamp = new Date().toISOString();
-					console.log(`[${timestamp}]  ✅ Updated: ${docInfo.title}`);
+					const completionTimestamp = new Date().toISOString();
+					console.log(`[${completionTimestamp}]  ✅ Updated: ${docInfo.title}`);
 				}
 
 			} catch (error) {
@@ -362,9 +470,11 @@ export async function executeAutomationRule({
 			}
 		}
 
-		console.log(`📊 Results: ${docsUpdated} docs updated, ${docsFailed} docs failed`);
+		console.log(`📊 [RESULTS] Updated: ${docsUpdated} docs | Failed: ${docsFailed} docs`);
 
 		result.success = docsFailed === 0;
+		const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+		console.log(`✅ [COMPLETE] Automation finished in ${duration}s`);
 		return result;
 	} catch (error: any) {
 		result.errors.push(error.message || String(error));
@@ -377,21 +487,20 @@ export async function executeAutomationRule({
 			errorMessage += '\n💡 SOLUTION: Check your AI gateway configuration and API key validity.';
 		}
 
-		console.error(`[automationRunner] ❌ Automation failed: ${errorMessage}`);
+		console.error(`❌ [ERROR] Automation failed: ${errorMessage}`);
 	}
 
 	// Log completion summary
-	const status = result.success ? '✅ SUCCESS' : '❌ FAILED';
-	const actions = result.actions.length > 0 ? ` (${result.actions.join(', ')})` : '';
-	console.log(`\n${status}: ${repo.name}${actions}`);
+	const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+	const status = result.success ? '✅ [SUCCESS]' : '❌ [FAILED]';
+	console.log(`${status} ${repo.name} (${duration}s)`);
 
 	if (result.errors.length > 0) {
-		console.log(`❌ Issues: ${result.errors.join(' | ')}`);
+		console.log(`❌ [ISSUES] ${result.errors.join(' | ')}`);
 	}
 	if (result.skipped) {
-		console.log(`⏭️ Skipped: ${result.skipReason}`);
+		console.log(`⏭️ [SKIPPED] ${result.skipReason}`);
 	}
-	console.log(`═══════════════════════════════════════════════════════════════\n`);
 
 	return result;
 }

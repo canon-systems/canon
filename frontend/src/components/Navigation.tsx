@@ -75,6 +75,7 @@ export function Navigation({ user, session, onLogout }: NavigationProps) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
   function isActive(item: NavItem) {
@@ -85,6 +86,28 @@ export function Navigation({ user, session, onLogout }: NavigationProps) {
   }
 
   const initials = user?.email?.[0]?.toUpperCase() ?? 'C';
+
+  // Handle responsive behavior
+  useEffect(() => {
+    const checkMobile = () => {
+      const mobile = window.innerWidth < 1024;
+      setIsMobile(mobile);
+
+      // Auto-collapse on mobile, auto-expand on desktop
+      if (mobile && !collapsed) {
+        setCollapsed(true);
+      } else if (!mobile && collapsed) {
+        setCollapsed(false);
+      }
+    };
+
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+
+    return () => {
+      window.removeEventListener('resize', checkMobile);
+    };
+  }, [collapsed]);
 
   // Close user menu when clicking outside
   useEffect(() => {
@@ -239,15 +262,17 @@ export function Navigation({ user, session, onLogout }: NavigationProps) {
           )}
         </div>
 
-        <button
-          type="button"
-          className="nav-rail__collapse"
-          onClick={() => setCollapsed((prev) => !prev)}
-          aria-pressed={collapsed}
-          aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
-        >
-          <ChevronsLeft aria-hidden="true" />
-        </button>
+        {!isMobile && (
+          <button
+            type="button"
+            className="nav-rail__collapse"
+            onClick={() => setCollapsed((prev) => !prev)}
+            aria-pressed={collapsed}
+            aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
+          >
+            <ChevronsLeft aria-hidden="true" />
+          </button>
+        )}
       </div>
     </aside>
   );

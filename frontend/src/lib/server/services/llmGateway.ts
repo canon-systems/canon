@@ -94,8 +94,7 @@ export class LLMGateway {
 		this.url = GATEWAY_URL.replace(/\/+$/, '');
 		this.apiKey = GATEWAY_API_KEY;
 
-		console.log(`[LLMGateway] Initializing with URL: ${!!this.url} (set: ${!!GATEWAY_URL})`);
-		console.log(`[LLMGateway] Initializing with API key: ${!!this.apiKey} (set: ${!!GATEWAY_API_KEY})`);
+		console.log(`🤖 [LLM] Gateway initialized`);
 
 		if (!this.url || !this.apiKey) {
 			throw new Error('LLM gateway configuration is missing. Please check VERCEL_AI_GATEWAY_URL and VERCEL_AI_GATEWAY_API_KEY environment variables.');
