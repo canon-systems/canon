@@ -62,6 +62,8 @@ export default async function AutomationPage() {
       ruleId: rule.rule_id,
       ruleName: rule.name || rule.rule_id,
         enabled,
+      action_preset: rule.action_preset,
+      schedule: rule.schedule,
       lastRunAt: rule.last_run_at,
       lastRunStatus: rule.last_run_status,
     });
