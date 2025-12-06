@@ -20,6 +20,11 @@ export async function middleware(request: NextRequest) {
       return NextResponse.next();
     }
 
+    // Protected routes (updated to match current routes) - declare early
+    const pathname = request.nextUrl.pathname;
+    const protectedPrefixes = ['/overview', '/documentation', '/history', '/logs', '/architecture', '/edit', '/settings'];
+    const isProtectedRoute = protectedPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+
     let supabaseResponse = NextResponse.next({
       request,
     });
@@ -81,11 +86,6 @@ export async function middleware(request: NextRequest) {
       // For other auth errors, continue without auth checks
       return NextResponse.next();
     }
-
-    // Protected routes (updated to match current routes)
-    const pathname = request.nextUrl.pathname;
-    const protectedPrefixes = ['/overview', '/documentation', '/history', '/logs', '/architecture', '/edit', '/settings'];
-    const isProtectedRoute = protectedPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 
     if (!user && isProtectedRoute) {
       const url = request.nextUrl.clone();

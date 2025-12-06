@@ -270,7 +270,7 @@ export const scanAndGenerateSummaries = inngest.createFunction(
     name: "Scan Repositories for New Files and Generate Summaries",
   },
   {
-    cron: "* */1 * * *", // Run every 1 hour
+    cron: "0 * * * *", // Run every hour at the start of the hour
   },
   async ({ event, step }) => {
     console.log(`🔍 Scanning repositories for new files at ${new Date().toISOString()}`);

@@ -82,13 +82,13 @@ export async function fetchFilesViaZip(
 
 		try {
 			const content = await zipEntry.async('string');
-			
+
 			// Check file size after reading
 			if (content.length > maxFileSize) {
 				console.log(`Skipping large file: ${relativePath} (${content.length} bytes)`);
 				continue;
 			}
-			
+
 			files.push({
 				path: relativePath,
 				content,
@@ -119,7 +119,7 @@ export async function fetchFilesSmart(
 		threshold?: number; // Number of files before switching to ZIP
 	}
 ): Promise<Array<{ path: string; content: string; size: number }>> {
-	const { threshold = 10 } = options || {};
+	const { threshold = 15 } = options || {};
 
 	if (paths.length < threshold) {
 		// Use individual API calls for small batches
