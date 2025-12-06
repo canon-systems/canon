@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Zap, Plus, CheckCircle2, XCircle, Clock, Loader2, GitBranch, ExternalLink, TrendingUp, ChevronDown, Github, Trash2, X } from 'lucide-react';
+import { Zap, Plus, CheckCircle2, XCircle, Clock, Loader2, GitBranch, ExternalLink, TrendingUp, ChevronDown, Github, Trash2, X, AlertTriangle } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 
@@ -227,8 +227,72 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
     timestamp?: number;
   } | null>>({});
 
+  // Smart Alerts & Notifications
+  const [alerts, setAlerts] = useState<Array<{
+    id: string;
+    type: 'success' | 'error' | 'warning' | 'info';
+    title: string;
+    message: string;
+    details?: string;
+    timestamp: number;
+    expanded?: boolean;
+    actions?: Array<{
+      label: string;
+      action: () => void;
+      variant?: 'primary' | 'secondary';
+    }>;
+  }>>([]);
+
+  // Real-time execution dashboard state
+  const [executionDashboard, setExecutionDashboard] = useState<{
+    open: boolean;
+    repoId: string;
+    ruleId: string;
+    ruleName: string;
+    repoName: string;
+    progress: {
+      phase: string;
+      progress: number;
+      status: string;
+      details?: string;
+      startTime: number;
+    };
+    completed: boolean;
+    result?: any;
+  } | null>(null);
+
   // Abort controllers for cancelling running rules
   const abortControllersRef = useRef<Record<string, AbortController>>({});
+
+  // Alert management functions
+  const addAlert = (alert: Omit<typeof alerts[0], 'id' | 'timestamp'>) => {
+    const newAlert = {
+      ...alert,
+      id: `alert-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      timestamp: Date.now(),
+    };
+    setAlerts(prev => [newAlert, ...prev]);
+
+    // Auto-dismiss after 8 seconds for success/info, 12 seconds for warnings/errors
+    const dismissTime = alert.type === 'success' || alert.type === 'info' ? 8000 : 12000;
+    setTimeout(() => {
+      dismissAlert(newAlert.id);
+    }, dismissTime);
+  };
+
+  const dismissAlert = (id: string) => {
+    setAlerts(prev => prev.filter(alert => alert.id !== id));
+  };
+
+  const toggleAlertExpansion = (id: string) => {
+    setAlerts(prev => prev.map(alert =>
+      alert.id === id ? { ...alert, expanded: !alert.expanded } : alert
+    ));
+  };
+
+  const clearAllAlerts = () => {
+    setAlerts([]);
+  };
 
   // Load repos on mount
   useEffect(() => {
@@ -389,6 +453,12 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
   async function handleRunRule(repoId: string, ruleId: string) {
     const key = `${repoId}-${ruleId}`;
 
+    // Find rule and repo info
+    const repo = reposList.find(r => r.id === repoId);
+    const rule = allRules.find(r => r.repoId === repoId && r.ruleId === ruleId);
+
+    if (!repo || !rule) return;
+
     // Create abort controller for this run
     const abortController = new AbortController();
     abortControllersRef.current[key] = abortController;
@@ -396,7 +466,83 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
     setRunningRules((prev) => ({ ...prev, [key]: true }));
     setRunResults((prev) => ({ ...prev, [key]: null }));
 
+    // Initialize execution dashboard
+    setExecutionDashboard({
+      open: true,
+      repoId,
+      ruleId,
+      ruleName: rule.ruleName,
+      repoName: repo.name,
+      progress: {
+        phase: 'detecting',
+        progress: 0,
+        status: 'Starting automation execution...',
+        details: 'Initializing...',
+        startTime: Date.now(),
+      },
+      completed: false,
+    });
+
+    let progressInterval: NodeJS.Timeout | null = null;
+
     try {
+      // Simulate progress updates (in a real implementation, you'd get progress from the server)
+      progressInterval = setInterval(() => {
+        setExecutionDashboard(prev => {
+          if (!prev || prev.completed) return prev;
+
+          let newProgress = { ...prev.progress };
+          let newPhase = prev.progress.phase;
+
+          // Progress simulation based on time elapsed
+          const elapsed = Date.now() - prev.progress.startTime;
+          const progressPercent = Math.min(95, (elapsed / 10000) * 100); // Assume 10 seconds total
+
+          if (elapsed < 2000) {
+            newPhase = 'detecting';
+            newProgress = {
+              ...newProgress,
+              phase: 'detecting',
+              progress: Math.min(25, progressPercent),
+              status: 'Detecting repository changes...',
+              details: 'Scanning for file modifications',
+            };
+          } else if (elapsed < 5000) {
+            newPhase = 'processing';
+            newProgress = {
+              ...newProgress,
+              phase: 'processing',
+              progress: Math.min(60, progressPercent),
+              status: 'Processing changed files...',
+              details: 'Analyzing and summarizing file changes',
+            };
+          } else if (elapsed < 8000) {
+            newPhase = 'updating';
+            newProgress = {
+              ...newProgress,
+              phase: 'updating',
+              progress: Math.min(85, progressPercent),
+              status: 'Updating documentation...',
+              details: 'Regenerating affected documents',
+            };
+          } else {
+            newPhase = 'publishing';
+            newProgress = {
+              ...newProgress,
+              phase: 'publishing',
+              progress: progressPercent,
+              status: 'Publishing content...',
+              details: 'Sending updates to knowledge bases',
+            };
+          }
+
+          return {
+            ...prev,
+            progress: newProgress,
+          };
+        });
+      }, 500);
+
       const response = await fetch(`/api/repos/${repoId}/automation/run`, {
         method: 'POST',
         credentials: 'include',
@@ -404,6 +550,8 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
         body: JSON.stringify({ ruleId }),
         signal: abortController.signal,
       });
+
+      if (progressInterval) clearInterval(progressInterval);
 
       const data = await response.json();
 
@@ -422,19 +570,57 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
         message = `Failed: ${data.errors?.join(', ') || 'Unknown error'}`;
       }
 
-      setRunResults((prev) => ({
+      const result = {
+        success: data.success && !data.skipped,
+        message,
+        docId: data.docId,
+        diagramId: data.diagramId,
+        actions: data.actions,
+        errors: data.errors,
+        stats: data.stats,
+        timestamp: Date.now(),
+      };
+
+      setRunResults((prev) => ({ ...prev, [key]: result }));
+
+      // Update execution dashboard with completion
+      setExecutionDashboard(prev => prev ? {
         ...prev,
-        [key]: {
-          success: data.success && !data.skipped,
-          message,
-          docId: data.docId,
-          diagramId: data.diagramId,
-          actions: data.actions,
-          errors: data.errors,
-          stats: data.stats,
-          timestamp: Date.now(),
+        progress: {
+          ...prev.progress,
+          progress: 100,
+          status: result.success ? 'Execution completed successfully' : 'Execution completed with errors',
+          details: message,
         },
-      }));
+        completed: true,
+        result,
+      } : null);
+
+      // Create smart alert
+      const alertType = result.success ? 'success' : data.skipped ? 'warning' : 'error';
+      const alertTitle = result.success ? 'Automation completed successfully' :
+        data.skipped ? 'Automation skipped' : 'Automation failed';
+
+      let alertDetails = '';
+      if (result.stats) {
+        alertDetails = `Processed ${result.stats.filesProcessed || 0} files, updated ${result.stats.documentsUpdated || 0} documents in ${result.stats.timeElapsed || 0}s`;
+      }
+
+      addAlert({
+        type: alertType,
+        title: alertTitle,
+        message,
+        details: alertDetails,
+        actions: result.success ? [
+          {
+            label: 'View Results',
+            action: () => {
+              // Could open a detailed results modal here
+              console.log('View detailed results', result);
+            }
+          }
+        ] : undefined,
+      });
 
       // Auto-clear result after 10 seconds
       setTimeout(() => {
@@ -444,23 +630,61 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
       // Refresh to update stats
       await loadRepos();
     } catch (err: any) {
+      if (progressInterval) clearInterval(progressInterval);
+
       // Check if this was a cancellation
       if (err.name === 'AbortError') {
-        setRunResults((prev) => ({
+        const cancelResult = {
+          success: false,
+          message: 'Run cancelled by user',
+        };
+        setRunResults((prev) => ({ ...prev, [key]: cancelResult }));
+        setExecutionDashboard(prev => prev ? {
           ...prev,
-          [key]: {
-            success: false,
-            message: 'Run cancelled by user',
+          progress: {
+            ...prev.progress,
+            status: 'Execution cancelled',
+            details: 'Run was cancelled by user',
           },
-        }));
+          completed: true,
+          result: cancelResult,
+        } : null);
+
+        addAlert({
+          type: 'warning',
+          title: 'Automation cancelled',
+          message: 'The automation rule execution was cancelled by user request.',
+        });
       } else {
-        setRunResults((prev) => ({
+        const errorResult = {
+          success: false,
+          message: err.message || 'Failed to run rule',
+        };
+        setRunResults((prev) => ({ ...prev, [key]: errorResult }));
+        setExecutionDashboard(prev => prev ? {
           ...prev,
-          [key]: {
-            success: false,
-            message: err.message || 'Failed to run rule',
+          progress: {
+            ...prev.progress,
+            status: 'Execution failed',
+            details: err.message || 'Unknown error occurred',
           },
-        }));
+          completed: true,
+          result: errorResult,
+        } : null);
+
+        addAlert({
+          type: 'error',
+          title: 'Automation failed',
+          message: err.message || 'An unexpected error occurred during automation execution.',
+          details: 'Check your repository setup and try again. If the problem persists, contact support.',
+          actions: [
+            {
+              label: 'Retry',
+              action: () => handleRunRule(repoId, ruleId),
+              variant: 'primary'
+            }
+          ],
+        });
       }
 
       // Auto-clear error after 10 seconds
@@ -479,6 +703,16 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
     const controller = abortControllersRef.current[key];
     if (controller) {
       controller.abort();
+
+      // Update execution dashboard
+      setExecutionDashboard(prev => prev ? {
+        ...prev,
+        progress: {
+          ...prev.progress,
+          status: 'Cancelling execution...',
+          details: 'Sending cancellation request',
+        },
+      } : null);
 
       // Record the cancellation in execution history
       try {
@@ -810,12 +1044,29 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
       // Update stats (which will fetch fresh data and update allRules state)
       updateStatsFromRules();
 
-      setAutomationAlerts((prev) => ({ ...prev, [repoId]: { type: 'success', message: 'Automation rule saved' } }));
+      addAlert({
+        type: 'success',
+        title: 'Automation rule saved',
+        message: `Successfully configured automation for ${activeAutomationRepo?.name}`,
+        details: 'Your automation rule is now active and will run according to the schedule.',
+      });
 
       // Close the modal after successful save
       setActiveAutomationRepoId(null);
     } catch (error: any) {
-      setAutomationAlerts((prev) => ({ ...prev, [repoId]: { type: 'error', message: error?.message || 'Failed to save automation rule' } }));
+      addAlert({
+        type: 'error',
+        title: 'Failed to save automation rule',
+        message: error?.message || 'An error occurred while saving your automation configuration.',
+        details: 'Please check your settings and try again. If the problem continues, contact support.',
+        actions: [
+          {
+            label: 'Try Again',
+            action: () => handleSaveAutomationRules(repoId),
+            variant: 'primary'
+          }
+        ],
+      });
     } finally {
       setAutomationSaving((prev) => ({ ...prev, [repoId]: false }));
     }
@@ -836,10 +1087,12 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
       const ruleIndex = currentRules.findIndex((r: any) => r.id === ruleId);
       if (ruleIndex === -1) return;
 
+      const enabled = !currentRules[ruleIndex].enabled;
+
       const updatedRules = [...currentRules];
       updatedRules[ruleIndex] = {
         ...updatedRules[ruleIndex],
-        enabled: !updatedRules[ruleIndex].enabled
+        enabled
       };
 
       // Send the update to the server
@@ -857,7 +1110,11 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
       // Update stats (which will fetch fresh data and update allRules state)
       updateStatsFromRules();
 
-      setAutomationAlerts((prev) => ({ ...prev, [repoId]: { type: 'success', message: 'Automation rule updated' } }));
+      addAlert({
+        type: 'info',
+        title: `Rule ${enabled ? 'enabled' : 'disabled'}`,
+        message: `Automation rule "${currentRules[ruleIndex].name || currentRules[ruleIndex].id}" has been ${enabled ? 'enabled' : 'disabled'}.`,
+      });
 
     } catch (error: any) {
       console.error('Failed to toggle rule enabled state:', error);
@@ -909,13 +1166,11 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
       // Update stats (which will fetch fresh data and update allRules state)
       updateStatsFromRules();
 
-      setAutomationAlerts((prev) => ({
-        ...prev,
-        [repoId]: {
-          type: 'success',
-          message: newEnabledState ? 'All automation rules enabled' : 'All automation rules disabled'
-        }
-      }));
+      addAlert({
+        type: 'info',
+        title: `All rules ${newEnabledState ? 'enabled' : 'disabled'}`,
+        message: `All automation rules for this repository have been ${newEnabledState ? 'enabled' : 'disabled'}.`,
+      });
 
     } catch (error: any) {
       console.error('Failed to toggle all rules enabled state:', error);
@@ -1021,6 +1276,140 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
     return <Clock className="h-4 w-4" />;
   };
 
+  // Enhanced status helpers for richer badges
+  const getRichStatusBadge = (rule: any, showDetails = false) => {
+    if (!rule) return null;
+
+    const enabled = rule.enabled;
+    const lastRunAt = rule.lastRunAt;
+    const lastRunStatus = rule.lastRunStatus;
+    const schedule = rule.schedule;
+
+    // Calculate next run time if enabled and has schedule
+    let nextRunInfo = '';
+    if (enabled && schedule) {
+      try {
+        // Simple next run calculation based on cron
+        const parts = schedule.split(/\s+/);
+        if (parts.length >= 2) {
+          const hour = parts[1];
+          if (hour && hour !== '*') {
+            const hourNum = parseInt(hour);
+            if (!isNaN(hourNum)) {
+              const now = new Date();
+              const nextRun = new Date(now);
+              nextRun.setHours(hourNum, 0, 0, 0);
+
+              // If the time has passed today, schedule for tomorrow
+              if (nextRun <= now) {
+                nextRun.setDate(nextRun.getDate() + 1);
+              }
+
+              const timeUntil = nextRun.getTime() - now.getTime();
+              const hoursUntil = Math.floor(timeUntil / (1000 * 60 * 60));
+              if (hoursUntil < 24) {
+                nextRunInfo = `next in ${hoursUntil}h`;
+              }
+            }
+          }
+        }
+      } catch (error) {
+        // Ignore cron parsing errors
+      }
+    }
+
+    // Determine overall status
+    let statusType: 'active' | 'paused' | 'failed' | 'skipped' | 'unknown' = 'unknown';
+    let statusText = '';
+    let statusEmoji = '⏸️';
+
+    if (!enabled) {
+      statusType = 'paused';
+      statusText = 'Manually disabled';
+      statusEmoji = '⏸️';
+    } else if (lastRunStatus === 'failed') {
+      statusType = 'failed';
+      statusText = 'Recent failure';
+      statusEmoji = '🔴';
+    } else if (lastRunStatus === 'success') {
+      statusType = 'active';
+      statusText = nextRunInfo ? `Running every ${getCronDescription(schedule)}, ${nextRunInfo}` : 'Active';
+      statusEmoji = '🟢';
+    } else if (lastRunStatus === 'skipped') {
+      statusType = 'skipped';
+      statusText = 'No changes detected (normal)';
+      statusEmoji = '⏸️';
+    } else if (enabled) {
+      statusType = 'active';
+      statusText = nextRunInfo ? `Active, ${nextRunInfo}` : 'Active';
+      statusEmoji = '🟢';
+    }
+
+    const statusColors = {
+      active: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+      paused: 'bg-gray-600/20 text-gray-400 border-gray-600/30',
+      failed: 'bg-red-500/20 text-red-300 border-red-500/30',
+      skipped: 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30',
+      unknown: 'bg-white/10 text-white/60 border-white/20'
+    };
+
+    if (showDetails) {
+      return (
+        <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm font-medium ${statusColors[statusType]}`}>
+          <span className="text-base">{statusEmoji}</span>
+          <div className="flex flex-col">
+            <span className="font-semibold">{statusText}</span>
+            {lastRunAt && (
+              <span className="text-xs opacity-80">
+                Last: {formatDate(lastRunAt)}
+                {lastRunStatus && ` (${lastRunStatus})`}
+              </span>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full border text-xs font-medium ${statusColors[statusType]}`}>
+        <span>{statusEmoji}</span>
+        <span>{statusText}</span>
+      </div>
+    );
+  };
+
+  const getExecutionTimeline = (rule: any) => {
+    if (!rule.lastRunAt) return null;
+
+    const lastRun = new Date(rule.lastRunAt);
+    const now = new Date();
+    const daysSince = Math.floor((now.getTime() - lastRun.getTime()) / (1000 * 60 * 60 * 24));
+
+    let timelineText = '';
+    let timelineColor = 'text-white/40';
+
+    if (daysSince === 0) {
+      timelineText = 'Today';
+      timelineColor = 'text-emerald-400';
+    } else if (daysSince === 1) {
+      timelineText = 'Yesterday';
+      timelineColor = 'text-blue-400';
+    } else if (daysSince < 7) {
+      timelineText = `${daysSince} days ago`;
+      timelineColor = 'text-yellow-400';
+    } else {
+      timelineText = lastRun.toLocaleDateString();
+      timelineColor = 'text-white/40';
+    }
+
+    return (
+      <div className={`text-xs ${timelineColor} flex items-center gap-1`}>
+        <Clock className="h-3 w-3" />
+        {timelineText}
+      </div>
+    );
+  };
+
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
@@ -1034,6 +1423,91 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
           Set it and forget it. Automatically generate and publish documentation when your code changes.
         </p>
       </div>
+
+      {/* Smart Alerts */}
+      {alerts.length > 0 && (
+        <div className="mb-6 space-y-3">
+          {alerts.slice(0, 3).map((alert) => (
+            <div
+              key={alert.id}
+              className={`relative p-4 rounded-lg border backdrop-blur-sm transition-all duration-200 ${alert.type === 'success'
+                  ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-100'
+                  : alert.type === 'error'
+                    ? 'bg-red-500/10 border-red-500/20 text-red-100'
+                    : alert.type === 'warning'
+                      ? 'bg-yellow-500/10 border-yellow-500/20 text-yellow-100'
+                      : 'bg-blue-500/10 border-blue-500/20 text-blue-100'
+                }`}
+            >
+              <div className="flex items-start justify-between">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className={`p-1 rounded ${alert.type === 'success' ? 'bg-emerald-500/20' :
+                        alert.type === 'error' ? 'bg-red-500/20' :
+                          alert.type === 'warning' ? 'bg-yellow-500/20' :
+                            'bg-blue-500/20'
+                      }`}>
+                      {alert.type === 'success' && <CheckCircle2 className="h-4 w-4" />}
+                      {alert.type === 'error' && <XCircle className="h-4 w-4" />}
+                      {alert.type === 'warning' && <AlertTriangle className="h-4 w-4" />}
+                      {alert.type === 'info' && <Zap className="h-4 w-4" />}
+                    </div>
+                    <h4 className="font-semibold text-sm">{alert.title}</h4>
+                  </div>
+                  <p className="text-sm opacity-90 mb-2">{alert.message}</p>
+
+                  {alert.details && alert.expanded && (
+                    <div className="mt-2 p-3 rounded bg-black/20 text-xs opacity-80">
+                      {alert.details}
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-3 mt-2">
+                    {alert.details && (
+                      <button
+                        onClick={() => toggleAlertExpansion(alert.id)}
+                        className="text-xs opacity-70 hover:opacity-100 transition-opacity"
+                      >
+                        {alert.expanded ? 'Show less' : 'Show details'}
+                      </button>
+                    )}
+                    {alert.actions?.map((action, index) => (
+                      <button
+                        key={index}
+                        onClick={action.action}
+                        className={`text-xs px-2 py-1 rounded transition-colors ${action.variant === 'primary'
+                            ? 'bg-white/20 hover:bg-white/30 text-white'
+                            : 'opacity-70 hover:opacity-100'
+                          }`}
+                      >
+                        {action.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => dismissAlert(alert.id)}
+                  className="ml-2 opacity-50 hover:opacity-100 transition-opacity"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          ))}
+
+          {alerts.length > 3 && (
+            <div className="flex justify-center">
+              <button
+                onClick={clearAllAlerts}
+                className="text-xs text-white/60 hover:text-white/80 transition-colors"
+              >
+                Clear all notifications ({alerts.length})
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
@@ -1153,13 +1627,9 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                         </td>
                         <td className="px-4 py-3">
                           {hasRules ? (
-                            <div className="flex items-center gap-2">
-                              <div className={`rounded-full px-2 py-1 text-xs font-medium ${repoRules[0]?.enabled
-                                ? 'bg-emerald-500/20 text-emerald-300'
-                                : 'bg-gray-600/20 text-gray-400'
-                                }`}>
-                                {repoRules[0]?.enabled ? 'Enabled' : 'Disabled'}
-                              </div>
+                            <div className="space-y-1">
+                              {getRichStatusBadge(repoRules[0])}
+                              {getExecutionTimeline(repoRules[0])}
                             </div>
                           ) : (
                             <span className="text-xs text-white/40">No rules</span>
@@ -1263,30 +1733,33 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                                       <div key={rule.ruleId} className="rounded-lg border border-white/10 bg-black/40 p-4">
                                         <div className="flex items-start justify-between gap-3 mb-3">
                                           <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-2 mb-1">
+                                            <div className="flex items-center gap-2 mb-2">
                                               <h4 className="font-semibold text-white">{rule.ruleName}</h4>
-                                              <div className={`rounded-full px-2 py-0.5 text-xs ${rule.enabled
-                                                ? 'bg-emerald-500/20 text-emerald-300'
-                                                : 'bg-gray-600/20 text-gray-400'
-                                                }`}>
-                                                {rule.enabled ? 'Enabled' : 'Disabled'}
-                                              </div>
+                                              {getRichStatusBadge(rule, true)}
                                             </div>
                                             <p className="text-sm text-white/70 mb-2">
                                               {rule.action_preset === 'docs_only' && '📄 Generates documentation only'}
-                                              {rule.action_preset === 'diagrams_only' && '📊 Generates diagrams only'}
-                                              {rule.action_preset === 'docs_and_diagrams' && '📄📊 Generates both docs and diagrams'}
+                                              {rule.action_preset === 'diagrams_only' && '🎨 Generates diagrams only'}
+                                              {rule.action_preset === 'docs_and_diagrams' && '📊 Generates both docs and diagrams'}
                                               {rule.action_preset === 'full_auto_publish' && '🚀 Auto-generates and publishes'}
                                             </p>
                                             <div className="flex items-center gap-4 text-xs text-white/60">
-                                              <span>Schedule: {rule.schedule || 'Not set'}</span>
+                                              <span>Schedule: {getCronDescription(rule.schedule || '')}</span>
                                               {rule.lastRunAt && (
-                                                <span>Last run: {new Date(rule.lastRunAt).toLocaleDateString()}</span>
+                                                <span>Last: {formatDate(rule.lastRunAt)}</span>
                                               )}
                                             </div>
                                           </div>
-                                          <div className={`rounded-full p-2 ${getStatusColor(rule.lastRunStatus)}`}>
-                                            {getStatusIconComponent(rule.lastRunStatus)}
+                                          <div className="flex flex-col items-end gap-2">
+                                            <div className={`rounded-full p-2 ${getStatusColor(rule.lastRunStatus)}`}>
+                                              {getStatusIconComponent(rule.lastRunStatus)}
+                                            </div>
+                                            {rule.lastRunStatus === 'failed' && (
+                                              <div className="flex items-center gap-1 text-xs text-red-400">
+                                                <AlertTriangle className="h-3 w-3" />
+                                                Failed
+                                              </div>
+                                            )}
                                           </div>
                                         </div>
 
@@ -1343,6 +1816,196 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
 
 
 
+
+      {/* Execution Dashboard Modal */}
+      {executionDashboard?.open && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-6 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => !executionDashboard.completed && setExecutionDashboard(null)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape' && !executionDashboard.completed) setExecutionDashboard(null);
+          }}
+        >
+          <div
+            className="w-full max-w-2xl rounded-2xl border border-white/20 bg-black/95 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-blue-500/20">
+                    <Zap className="h-6 w-6 text-blue-400" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-semibold text-white">Automation Execution</h2>
+                    <p className="text-sm text-white/60">{executionDashboard.repoName}</p>
+                  </div>
+                </div>
+                {!executionDashboard.completed && (
+                  <button
+                    onClick={() => setExecutionDashboard(null)}
+                    className="text-white/60 hover:text-white transition-colors"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                )}
+              </div>
+
+              <div className="space-y-6">
+                {/* Rule Info */}
+                <div className="flex items-center justify-between p-4 rounded-lg border border-white/10 bg-white/5">
+                  <div>
+                    <p className="font-medium text-white">{executionDashboard.ruleName}</p>
+                    <p className="text-sm text-white/60">Running automation rule</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm text-white/60">Started</p>
+                    <p className="text-sm text-white">
+                      {new Date(executionDashboard.progress.startTime).toLocaleTimeString()}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Progress Indicators */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-semibold text-white">Execution Progress</h3>
+                    <span className="text-sm text-white/60">
+                      {executionDashboard.progress.progress}% complete
+                    </span>
+                  </div>
+
+                  {/* Overall Progress */}
+                  <div className="w-full bg-white/10 rounded-full h-2">
+                    <div
+                      className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full transition-all duration-500 ease-out"
+                      style={{ width: `${executionDashboard.progress.progress}%` }}
+                    />
+                  </div>
+
+                  {/* Current Phase */}
+                  <div className="flex items-center gap-3 p-4 rounded-lg border border-white/10 bg-white/5">
+                    <div className="flex-shrink-0">
+                      {executionDashboard.progress.phase === 'detecting' && <Loader2 className="h-5 w-5 text-blue-400 animate-spin" />}
+                      {executionDashboard.progress.phase === 'processing' && <TrendingUp className="h-5 w-5 text-yellow-400" />}
+                      {executionDashboard.progress.phase === 'updating' && <CheckCircle2 className="h-5 w-5 text-green-400" />}
+                      {executionDashboard.progress.phase === 'publishing' && <ExternalLink className="h-5 w-5 text-purple-400" />}
+                      {executionDashboard.completed && <CheckCircle2 className="h-5 w-5 text-emerald-400" />}
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-medium text-white">{executionDashboard.progress.status}</p>
+                      {executionDashboard.progress.details && (
+                        <p className="text-sm text-white/60">{executionDashboard.progress.details}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Phase Progress Bars */}
+                  <div className="grid grid-cols-1 gap-3">
+                    {[
+                      { phase: 'detecting', label: '🔍 Detecting Changes', color: 'from-blue-500 to-blue-600' },
+                      { phase: 'processing', label: '📝 Processing Files', color: 'from-yellow-500 to-yellow-600' },
+                      { phase: 'updating', label: '📄 Updating Documents', color: 'from-green-500 to-green-600' },
+                      { phase: 'publishing', label: '🚀 Publishing Content', color: 'from-purple-500 to-purple-600' },
+                    ].map((phaseInfo, index) => {
+                      const isActive = executionDashboard.progress.phase === phaseInfo.phase;
+                      const isCompleted = executionDashboard.completed ||
+                        ['processing', 'updating', 'publishing'].includes(executionDashboard.progress.phase) && index < ['detecting', 'processing', 'updating', 'publishing'].indexOf(executionDashboard.progress.phase);
+
+                      let progress = 0;
+                      if (isCompleted) progress = 100;
+                      else if (isActive) progress = executionDashboard.progress.progress;
+                      else progress = 0;
+
+                      return (
+                        <div key={phaseInfo.phase} className="flex items-center gap-3">
+                          <div className="w-32 text-xs text-white/60">{phaseInfo.label}</div>
+                          <div className="flex-1">
+                            <div className="w-full bg-white/10 rounded-full h-1.5">
+                              <div
+                                className={`bg-gradient-to-r ${phaseInfo.color} h-1.5 rounded-full transition-all duration-500 ease-out ${isActive ? 'animate-pulse' : ''
+                                  }`}
+                                style={{ width: `${progress}%` }}
+                              />
+                            </div>
+                          </div>
+                          <div className="w-12 text-right text-xs text-white/60">
+                            {progress}%
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Completion Results */}
+                {executionDashboard.completed && executionDashboard.result && (
+                  <div className="p-4 rounded-lg border border-white/10 bg-white/5">
+                    <h4 className="font-semibold text-white mb-2">Execution Complete</h4>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-white/60">Status:</span>
+                        <span className={executionDashboard.result.success ? 'text-emerald-400' : 'text-red-400'}>
+                          {executionDashboard.result.success ? 'Success' : 'Failed'}
+                        </span>
+                      </div>
+                      {executionDashboard.result.stats && (
+                        <>
+                          <div className="flex justify-between">
+                            <span className="text-white/60">Files Processed:</span>
+                            <span className="text-white">{executionDashboard.result.stats.filesProcessed || 0}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-white/60">Documents Updated:</span>
+                            <span className="text-white">{executionDashboard.result.stats.documentsUpdated || 0}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-white/60">Time Elapsed:</span>
+                            <span className="text-white">{executionDashboard.result.stats.timeElapsed || 0}s</span>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                <div className="flex justify-end gap-3">
+                  {executionDashboard.completed ? (
+                    <>
+                      <button
+                        onClick={() => setExecutionDashboard(null)}
+                        className="px-4 py-2 text-white/80 hover:text-white transition-colors"
+                      >
+                        Close
+                      </button>
+                      <button
+                        onClick={() => {
+                          setExecutionDashboard(null);
+                          // Refresh data
+                          loadRepos();
+                        }}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                      >
+                        View Results
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => handleCancelRule(executionDashboard.repoId, executionDashboard.ruleId)}
+                      className="px-4 py-2 text-red-400 hover:text-red-300 hover:bg-red-500/20 rounded-lg transition-colors"
+                    >
+                      Cancel Execution
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delete Rule Confirmation Modal */}
       {deleteRuleModal.open && deleteRuleModal.repoId && deleteRuleModal.ruleId && (

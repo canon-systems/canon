@@ -44,7 +44,7 @@ export const checkAndRunAutomations = inngest.createFunction(
     name: "Check and Run Scheduled Automations",
   },
   {
-    cron: "*/10 * * * *", // Run every 1 minutes
+    cron: "*/10 * * * *", // Run every 10 minutes
   },
   async ({ event, step }) => {
     console.log(`🔍 Checking for automations to run at ${new Date().toISOString()}`);
@@ -270,7 +270,7 @@ export const scanAndGenerateSummaries = inngest.createFunction(
     name: "Scan Repositories for New Files and Generate Summaries",
   },
   {
-    cron: "*/10 * * * *", // Run every 10 minutes
+    cron: "* */1 * * *", // Run every 1 hour
   },
   async ({ event, step }) => {
     console.log(`🔍 Scanning repositories for new files at ${new Date().toISOString()}`);

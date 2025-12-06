@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Github, Plus, Settings, Activity, FileText, Zap, ExternalLink, X, Trash2, ChevronDown, Check } from 'lucide-react';
+import { Github, Plus, Settings, Activity, FileText, Zap, ExternalLink, X, Trash2, ChevronDown, Check, MoreHorizontal } from 'lucide-react';
 import { RepositoryConnectionWizard } from '@/components/RepositoryConnectionWizard';
 
 interface Repository {
@@ -28,6 +28,7 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
   const router = useRouter();
   const [showConnectionWizard, setShowConnectionWizard] = useState(false);
   const [deletingRepoId, setDeletingRepoId] = useState<string | null>(null);
+  const [dropdownOpen, setDropdownOpen] = useState<string | null>(null);
 
   // Check for ongoing setup processes and redirect if found
   useEffect(() => {
@@ -56,6 +57,19 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
     }
   }, [repositories, router]);
 
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Element;
+      if (!target.closest('[data-dropdown]')) {
+        closeDropdowns();
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   const handleConnectRepository = () => {
     setShowConnectionWizard(true);
   };
@@ -64,6 +78,14 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
     setShowConnectionWizard(false);
     // Redirect to setup for the newly connected repository
     router.push(`/repos/setup?repoId=${repoId}`);
+  };
+
+  const toggleDropdown = (repoId: string) => {
+    setDropdownOpen(dropdownOpen === repoId ? null : repoId);
+  };
+
+  const closeDropdowns = () => {
+    setDropdownOpen(null);
   };
 
 
@@ -195,34 +217,52 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
               </div>
 
               <div className="flex gap-2">
-                {/* Show Setup button if not set up, or Setup/View Setup if in progress/complete */}
-                <Link
-                  href={`/repos/setup?repoId=${repo.id}`}
-                  className="btn btn-secondary flex-1 text-center text-sm"
-                >
-                  <Settings className="h-3 w-3 mr-1" />
-                  Setup
-                </Link>
-
-                {/* Only show Generate Docs if repository is fully set up */}
-                {repo.setup_status === 'ready' ? (
-                  <Link
-                    href={`/documentation?repoId=${repo.id}`}
-                    className="btn btn-primary flex-1 text-center text-sm"
-                  >
-                    <FileText className="h-3 w-3 mr-1" />
-                    Generate Docs
-                  </Link>
-                ) : (
+                {/* Three-dots menu with Setup and Generate Docs options */}
+                <div className="relative" data-dropdown>
                   <button
-                    disabled
-                    className="btn btn-secondary flex-1 text-center text-sm opacity-50 cursor-not-allowed"
-                    title={`Setup ${repo.setup_status || 'not started'} - Complete repository setup first to enable documentation generation`}
+                    onClick={() => toggleDropdown(repo.id)}
+                    className="btn btn-secondary p-2"
+                    title="Repository actions"
                   >
-                    <FileText className="h-3 w-3 mr-1" />
-                    Generate Docs
+                    <MoreHorizontal className="h-4 w-4" />
                   </button>
-                )}
+
+                  {/* Dropdown Menu */}
+                  {dropdownOpen === repo.id && (
+                    <div className="absolute right-0 top-full mt-2 w-48 bg-gray-800 border border-white/20 rounded-lg shadow-lg z-10">
+                      <div className="py-1">
+                        <Link
+                          href={`/repos/setup?repoId=${repo.id}`}
+                          onClick={closeDropdowns}
+                          className="flex items-center gap-2 px-4 py-2 text-sm text-white hover:bg-white/10 transition-colors"
+                        >
+                          <Settings className="h-4 w-4" />
+                          Setup
+                        </Link>
+
+                        {repo.setup_status === 'ready' ? (
+                          <Link
+                            href={`/documentation?repoId=${repo.id}`}
+                            onClick={closeDropdowns}
+                            className="flex items-center gap-2 px-4 py-2 text-sm text-white hover:bg-white/10 transition-colors"
+                          >
+                            <FileText className="h-4 w-4" />
+                            Generate Docs
+                          </Link>
+                        ) : (
+                          <button
+                            disabled
+                            className="flex items-center gap-2 px-4 py-2 text-sm text-white/50 cursor-not-allowed w-full text-left"
+                            title={`Setup ${repo.setup_status || 'not started'} - Complete repository setup first to enable documentation generation`}
+                          >
+                            <FileText className="h-4 w-4" />
+                            Generate Docs
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
 
                 <button
                   onClick={() => handleDeleteRepository(repo.id, repo.name)}
