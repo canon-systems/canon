@@ -8,6 +8,8 @@ import { generateDocumentation } from '@/lib/server/services/docGenerator';
 import { prepareFileSummaries } from '@/lib/server/services/prepareSummaries';
 import { createOrUpdateDocument } from '@/lib/server/services/documentService';
 
+export const runtime = 'nodejs';
+
 export async function POST(request: NextRequest) {
   try {
     const { user } = await getSession();

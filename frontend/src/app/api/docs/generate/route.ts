@@ -5,6 +5,8 @@ import { generateDocumentation } from '@/lib/server/services/docGenerator';
 import type { PromptConfig } from '@/lib/server/prompts/buildSystemPrompt';
 import { prepareFileSummaries } from '@/lib/server/services/prepareSummaries';
 
+export const runtime = 'nodejs';
+
 type GenerateDocRequestBody = {
   projectName?: string | null;
   files?: Array<{ path?: string; content?: string }>;

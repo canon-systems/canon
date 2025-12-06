@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { createHash } from 'crypto';
 import { analyzeRepository } from './analyzeRepository';
 import { generateDocumentation } from './docGenerator';
 import { generateArchitectureDiagram } from './diagramGenerator';

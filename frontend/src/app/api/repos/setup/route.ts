@@ -3,6 +3,8 @@ import { createClient } from '@/lib/supabase/server';
 import { setupRepositorySimple } from '@/lib/server/services/repoSetupSimple';
 import { parseRepoUrl } from '@/lib/server/github/github';
 
+export const runtime = 'nodejs';
+
 function normalizeRepoId(repoUrl: string): string {
   const parsed = parseRepoUrl(repoUrl);
   if (!parsed) {

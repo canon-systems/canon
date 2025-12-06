@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
   serverExternalPackages: [
     // Nango packages
     '@nangohq/node',
-    // GitHub/Octokit packages  
+    // GitHub/Octokit packages
     '@octokit/rest',
     '@octokit/core',
     '@octokit/auth-token',
@@ -25,6 +25,8 @@ const nextConfig: NextConfig = {
     '@supabase/supabase-js',
     // Note: '@supabase/ssr' is Edge-compatible and should NOT be externalized
     // Externalizing it causes bundling issues in middleware (Edge Runtime)
+    // Node.js built-in modules that should not be bundled
+    'crypto',
     // Other potential Node.js packages
     'dagre',
     'simple-icons',
