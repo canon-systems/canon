@@ -50,6 +50,7 @@ export async function executeAutomationRule({
 	publishStatus?: string;
 	publishProvider?: string;
 	publishResourceId?: string;
+	currentCommitSha?: string;
 }> {
 	const ruleName = rule.id || rule.name || 'unnamed-rule';
 	const startTime = Date.now();
@@ -68,6 +69,7 @@ export async function executeAutomationRule({
 		publishStatus: undefined as string | undefined,
 		publishProvider: undefined as string | undefined,
 		publishResourceId: undefined as string | undefined,
+		currentCommitSha: undefined as string | undefined,
 	};
 
 	try {
@@ -112,7 +114,11 @@ export async function executeAutomationRule({
 			userId,
 			repoUrl: repo.repo_url,
 			branch: repo.default_branch,
+			oldCommitSha: rule.last_commit_sha || null,
 		});
+
+		// Store the current commit SHA for baseline tracking
+		result.currentCommitSha = changes.current_commit_sha;
 
 		const changedFiles = [
 			...changes.files_changed.map(f => f.path),
@@ -454,8 +460,8 @@ export async function executeAutomationRule({
 					}
 
 					docsUpdated++;
-					const timestamp = new Date().toISOString();
-					console.log(`[${timestamp}]  ✅ Updated: ${docInfo.title}`);
+					const completionTimestamp = new Date().toISOString();
+					console.log(`[${completionTimestamp}]  ✅ Updated: ${docInfo.title}`);
 				}
 
 			} catch (error) {

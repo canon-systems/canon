@@ -20,6 +20,7 @@ type DetectChangesParams = {
 	commitRange?: string | null;
 	submissionId?: string | null;
 	diagramId?: string | null;
+	oldCommitSha?: string | null; // For automation rules baseline
 };
 
 type FileChange = {
@@ -37,6 +38,7 @@ export async function detectRepositoryChanges({
 	branch,
 	submissionId,
 	diagramId,
+	oldCommitSha,
 }: DetectChangesParams): Promise<{
 	has_changes: boolean;
 	commit_changed: boolean;
@@ -123,7 +125,7 @@ export async function detectRepositoryChanges({
 	// Get current commit SHA using cached method
 	const branchData = await getCachedBranch(octokit, parsed.owner, parsed.repo, resolvedBranch);
 	const currentCommitSha = branchData.commit.sha;
-	const oldCommitSha = oldSnapshot?.commitSha || null;
+	const effectiveOldCommitSha = oldCommitSha || oldSnapshot?.commitSha || null;
 
 	// Get new snapshot (analyzeRepository now uses optimized methods internally)
 	const analyzeResult = await analyzeRepository({
@@ -143,14 +145,14 @@ export async function detectRepositoryChanges({
 	let filesAdded: string[] = [];
 	let filesRemoved: string[] = [];
 
-	if (oldCommitSha && oldCommitSha !== currentCommitSha) {
+	if (effectiveOldCommitSha && effectiveOldCommitSha !== currentCommitSha) {
 		// Use cached compareCommits which is more efficient
 		try {
 			const compareData = await getCachedCompareCommits(
 				octokit,
 				parsed.owner,
 				parsed.repo,
-				oldCommitSha,
+				effectiveOldCommitSha,
 				currentCommitSha
 			);
 
@@ -227,7 +229,7 @@ export async function detectRepositoryChanges({
 
 	const codeComparison = {
 		hasChanges: filesChanged.length > 0 || filesAdded.length > 0 || filesRemoved.length > 0 || filesRenamed.length > 0,
-		commitChanged: oldCommitSha !== currentCommitSha,
+		commitChanged: effectiveOldCommitSha !== currentCommitSha,
 		filesChanged,
 		filesAdded,
 		filesRemoved,

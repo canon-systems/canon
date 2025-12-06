@@ -114,6 +114,11 @@ export const checkAndRunAutomations = inngest.createFunction(
           updateData.last_run_error = result.errors.join('; ');
         }
 
+        // Store current commit SHA as baseline for next run (only if successful and not skipped)
+        if (result.success && !result.skipped && result.currentCommitSha) {
+          updateData.last_commit_sha = result.currentCommitSha;
+        }
+
         await supabase
           .from('automation_rules')
           .update(updateData)
@@ -214,6 +219,11 @@ export const runAutomation = inngest.createFunction(
 
       if (result.errors?.length > 0) {
         updateData.last_run_error = result.errors.join('; ');
+      }
+
+      // Store current commit SHA as baseline for next run (only if successful and not skipped)
+      if (result.success && !result.skipped && result.currentCommitSha) {
+        updateData.last_commit_sha = result.currentCommitSha;
       }
 
       await supabase
