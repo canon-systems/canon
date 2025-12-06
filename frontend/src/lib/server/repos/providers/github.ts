@@ -227,47 +227,9 @@ export class GitHubProvider implements RepoProvider {
     }
 
     handleWebhook(payload: unknown): WebhookResult | null {
-        try {
-            const p = payload as any;
-
-            // Check if this is a GitHub push event
-            if (!p.repository || !p.ref || !p.commits) {
-                return null;
-            }
-
-            const repoUrl = p.repository.html_url || p.repository.url;
-            if (!repoUrl || !this.canHandle(repoUrl)) {
-                return null;
-            }
-
-            const branch = p.ref.replace('refs/heads/', '');
-            const latestCommitSha = p.after || p.head_commit?.id || '';
-
-            // Extract changed files from commits
-            const changedFiles = new Set<string>();
-            if (Array.isArray(p.commits)) {
-                for (const commit of p.commits) {
-                    if (commit.added) {
-                        commit.added.forEach((f: string) => changedFiles.add(f));
-                    }
-                    if (commit.modified) {
-                        commit.modified.forEach((f: string) => changedFiles.add(f));
-                    }
-                    if (commit.removed) {
-                        commit.removed.forEach((f: string) => changedFiles.add(f));
-                    }
-                }
-            }
-
-            return {
-                repoUrl,
-                branch,
-                changedFiles: Array.from(changedFiles),
-                latestCommitSha
-            };
-        } catch (error) {
-            console.error('Error handling GitHub webhook:', error);
-            return null;
-        }
+        // Webhooks are not used in this implementation
+        // File summary generation happens automatically through background jobs
+        console.log('Webhook functionality is disabled - summaries are generated automatically');
+        return null;
     }
 }

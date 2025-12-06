@@ -138,12 +138,45 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 		// Check if we have summaries for all files
 		const missingFiles = filePaths.filter(path => !summariesMap.has(path));
 		if (missingFiles.length > 0) {
-			console.log(`[docGenerator] ⚠️ Missing summaries for ${missingFiles.length} files: ${missingFiles.join(', ')}`);
-			console.log(`[docGenerator] 📝 Proceeding with ${summariesMap.size} available summaries out of ${filePaths.length} total files`);
+			console.log(`[docGenerator] ⚠️ Missing summaries for ${missingFiles.length} files, generating on-demand...`);
 
-			// Filter files to only include those with summaries
-			fileEntries = fileEntries.filter(file => summariesMap.has(file.path));
-			console.log(`[docGenerator] ✅ Filtered to ${fileEntries.length} files with available summaries`);
+			// Generate missing summaries on-demand
+			try {
+				// Get file entries for missing files
+				const missingFileEntries = fileEntries.filter(file => missingFiles.includes(file.path));
+
+				// Generate summaries for missing files
+				await summaryManager.updateSummariesIfNeeded(missingFileEntries, {
+					force: true, // Generate even if recently checked
+					batchSize: 3, // Smaller batches for responsiveness
+					onProgress: (progress) => {
+						console.log(`[docGenerator] 📊 Summary generation progress: ${progress.processed}/${progress.total}`);
+					}
+				});
+
+				// Reload summaries to include newly generated ones
+				summariesMap = await summaryManager.getExistingSummaries(filePaths);
+
+				// Check if we now have all summaries
+				const stillMissing = filePaths.filter(path => !summariesMap.has(path));
+				if (stillMissing.length > 0) {
+					console.log(`[docGenerator] ⚠️ Still missing summaries for ${stillMissing.length} files after generation attempt`);
+					console.log(`[docGenerator] 📝 Proceeding with ${summariesMap.size} available summaries out of ${filePaths.length} total files`);
+
+					// Filter to files with summaries (fallback)
+					fileEntries = fileEntries.filter(file => summariesMap.has(file.path));
+					console.log(`[docGenerator] ✅ Filtered to ${fileEntries.length} files with available summaries`);
+				} else {
+					console.log(`[docGenerator] ✅ Successfully generated summaries for all ${missingFiles.length} missing files`);
+				}
+			} catch (error) {
+				console.error(`[docGenerator] ❌ Failed to generate missing summaries:`, error);
+				console.log(`[docGenerator] 📝 Proceeding with ${summariesMap.size} available summaries out of ${filePaths.length} total files`);
+
+				// Filter to files with summaries (fallback on error)
+				fileEntries = fileEntries.filter(file => summariesMap.has(file.path));
+				console.log(`[docGenerator] ✅ Filtered to ${fileEntries.length} files with available summaries`);
+			}
 		}
 	} else if (useSummaries) {
 		// useSummaries was requested but we don't have the required params

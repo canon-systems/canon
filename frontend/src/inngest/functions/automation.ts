@@ -1,6 +1,10 @@
 import { inngest } from "../client";
 import { createClient } from "@supabase/supabase-js";
 import { executeAutomationRule } from "../../lib/server/services/automationRunner";
+import { FileSummaryManager } from "../../lib/server/services/fileSummaryManager";
+import { detectRepositoryChanges } from "../../lib/server/services/changeDetector";
+import { getUserOctokit } from "../../lib/server/github/getUserOctokit";
+import { parseRepoUrl } from "../../lib/server/github/github";
 
 // Cron matching utility
 function shouldRunBasedOnCron(cronExpression: string, currentDate: Date = new Date()): boolean {
@@ -256,5 +260,140 @@ export const runAutomation = inngest.createFunction(
         timestamp: new Date().toISOString(),
       };
     }
+  }
+);
+
+// Periodic background job to scan for new files and generate summaries
+export const scanAndGenerateSummaries = inngest.createFunction(
+  {
+    id: "scan-and-generate-summaries",
+    name: "Scan Repositories for New Files and Generate Summaries",
+  },
+  {
+    cron: "*/10 * * * *", // Run every 10 minutes
+  },
+  async ({ event, step }) => {
+    console.log(`🔍 Scanning repositories for new files at ${new Date().toISOString()}`);
+
+    // Create Supabase client
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_KEY!
+    );
+
+    // Get all active repositories (those that have been set up)
+    const { data: activeRepos, error: reposError } = await supabase
+      .from('workspace_repos')
+      .select(`
+        id,
+        repo_url,
+        default_branch,
+        workspace_id,
+        repository_setup!inner(setup_status)
+      `)
+      .eq('repository_setup.setup_status', 'ready');
+
+    if (reposError) {
+      console.error('❌ Failed to fetch active repositories:', reposError);
+      return { error: 'Failed to fetch repositories' };
+    }
+
+    if (!activeRepos || activeRepos.length === 0) {
+      console.log('ℹ️ No active repositories found');
+      return { scanned: 0, processed: 0 };
+    }
+
+    console.log(`📊 Found ${activeRepos.length} active repositories to scan`);
+
+    let totalProcessed = 0;
+    let totalScanned = 0;
+
+    // Process each repository
+    for (const repo of activeRepos) {
+      try {
+        console.log(`🔍 Scanning repo: ${repo.repo_url} (${repo.default_branch})`);
+
+        totalScanned++;
+
+        // Detect changes since last summary generation
+        const changes = await detectRepositoryChanges({
+          supabase,
+          userId: repo.workspace_id, // Assuming workspace_id is available
+          repoUrl: repo.repo_url,
+          branch: repo.default_branch,
+        });
+
+        const newFiles = changes.files_added || [];
+        if (newFiles.length === 0) {
+          console.log(`✅ No new files in ${repo.repo_url}`);
+          continue;
+        }
+
+        console.log(`🆕 Found ${newFiles.length} new files in ${repo.repo_url}`);
+
+        // Get file contents for new files
+        const octokit = await getUserOctokit(supabase, repo.workspace_id);
+        const parsed = parseRepoUrl(repo.repo_url);
+        if (!parsed) {
+          console.error(`❌ Invalid repo URL: ${repo.repo_url}`);
+          continue;
+        }
+
+        const { owner, repo: repoName } = parsed;
+        const filesWithContent: Array<{ path: string; content: string; hash?: string }> = [];
+
+        // Fetch content for new files
+        for (const filePath of newFiles) {
+          try {
+            const { data: fileData } = await octokit.repos.getContent({
+              owner,
+              repo: repoName,
+              path: filePath,
+              ref: changes.current_commit_sha,
+            });
+
+            if (!Array.isArray(fileData) && fileData.type === 'file' && fileData.content) {
+              const content = Buffer.from(fileData.content, 'base64').toString('utf-8');
+              filesWithContent.push({
+                path: filePath,
+                content,
+              });
+            }
+          } catch (error) {
+            console.error(`❌ Failed to fetch content for ${filePath}:`, error);
+          }
+        }
+
+        if (filesWithContent.length === 0) {
+          console.log(`⚠️ No accessible files found for ${repo.repo_url}`);
+          continue;
+        }
+
+        // Generate summaries for new files
+        const normalizedRepoId = `github.com/${parsed.owner}/${parsed.repo}`;
+        const summaryManager = new FileSummaryManager(supabase, normalizedRepoId, repo.default_branch);
+
+        const result = await summaryManager.updateSummariesIfNeeded(filesWithContent, {
+          batchSize: 3,
+          onProgress: (progress) => {
+            console.log(`📊 ${repo.repo_url}: Summary generation ${progress.processed}/${progress.total}`);
+          }
+        });
+
+        console.log(`✅ Generated ${result.processed} summaries for ${repo.repo_url} (${result.skipped} skipped, ${result.failed} failed)`);
+        totalProcessed += result.processed;
+
+      } catch (error) {
+        console.error(`❌ Failed to process repository ${repo.repo_url}:`, error);
+      }
+    }
+
+    console.log(`🎉 Summary generation complete: scanned ${totalScanned} repos, processed ${totalProcessed} files`);
+
+    return {
+      scanned: totalScanned,
+      processed: totalProcessed,
+      timestamp: new Date().toISOString(),
+    };
   }
 );
