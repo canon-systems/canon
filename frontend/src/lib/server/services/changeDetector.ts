@@ -20,7 +20,6 @@ type DetectChangesParams = {
 	commitRange?: string | null;
 	submissionId?: string | null;
 	diagramId?: string | null;
-	oldCommitSha?: string | null; // For automation rules baseline
 };
 
 type FileChange = {
@@ -38,7 +37,6 @@ export async function detectRepositoryChanges({
 	branch,
 	submissionId,
 	diagramId,
-	oldCommitSha,
 }: DetectChangesParams): Promise<{
 	has_changes: boolean;
 	commit_changed: boolean;
@@ -75,7 +73,7 @@ export async function detectRepositoryChanges({
 			if (repo) {
 				effectiveRepoUrl = repo.repo_url || effectiveRepoUrl || null;
 				effectiveBranch = repo.default_branch || effectiveBranch || 'main';
-				
+
 				// Get file hashes from repo_file_summaries for old snapshot
 				const normalizedRepoId = `github.com/${parseRepoUrl(repo.repo_url || '')?.owner}/${parseRepoUrl(repo.repo_url || '')?.repo}`;
 				const { data: summaries } = await supabase
@@ -125,7 +123,7 @@ export async function detectRepositoryChanges({
 	// Get current commit SHA using cached method
 	const branchData = await getCachedBranch(octokit, parsed.owner, parsed.repo, resolvedBranch);
 	const currentCommitSha = branchData.commit.sha;
-	const effectiveOldCommitSha = oldCommitSha || oldSnapshot?.commitSha || null;
+	const oldCommitSha = oldSnapshot?.commitSha || null;
 
 	// Get new snapshot (analyzeRepository now uses optimized methods internally)
 	const analyzeResult = await analyzeRepository({
@@ -145,14 +143,14 @@ export async function detectRepositoryChanges({
 	let filesAdded: string[] = [];
 	let filesRemoved: string[] = [];
 
-	if (effectiveOldCommitSha && effectiveOldCommitSha !== currentCommitSha) {
+	if (oldCommitSha && oldCommitSha !== currentCommitSha) {
 		// Use cached compareCommits which is more efficient
 		try {
 			const compareData = await getCachedCompareCommits(
 				octokit,
 				parsed.owner,
 				parsed.repo,
-				effectiveOldCommitSha,
+				oldCommitSha,
 				currentCommitSha
 			);
 
@@ -166,7 +164,7 @@ export async function detectRepositoryChanges({
 						old_path: oldPath,
 						new_path: newPath,
 					});
-					
+
 					filesChanged.push({
 						path: newPath,
 						old_path: oldPath,
@@ -191,7 +189,7 @@ export async function detectRepositoryChanges({
 			console.warn('Failed to use compareCommits API, falling back to snapshot comparison:', error);
 			// Fallback to snapshot comparison
 			const codeComparison = compareCodeSnapshots(oldSnapshot, newSnapshot);
-			
+
 			filesChanged = codeComparison.filesChanged.map((change) => ({
 				path: change.path,
 				old_hash: change.oldHash,
@@ -204,7 +202,7 @@ export async function detectRepositoryChanges({
 	} else {
 		// No old commit or same commit - use snapshot comparison
 		const codeComparison = compareCodeSnapshots(oldSnapshot, newSnapshot);
-		
+
 		filesChanged = codeComparison.filesChanged.map((change) => ({
 			path: change.path,
 			old_hash: change.oldHash,
@@ -221,7 +219,7 @@ export async function detectRepositoryChanges({
 
 	filesChanged = filesChanged.map(change => ({
 		...change,
-		old_hash: change.old_path 
+		old_hash: change.old_path
 			? oldFileShas[change.old_path] || null
 			: oldFileShas[change.path] || null,
 		new_hash: newFileShas[change.path] || null,
@@ -229,7 +227,7 @@ export async function detectRepositoryChanges({
 
 	const codeComparison = {
 		hasChanges: filesChanged.length > 0 || filesAdded.length > 0 || filesRemoved.length > 0 || filesRenamed.length > 0,
-		commitChanged: effectiveOldCommitSha !== currentCommitSha,
+		commitChanged: oldCommitSha !== currentCommitSha,
 		filesChanged,
 		filesAdded,
 		filesRemoved,
