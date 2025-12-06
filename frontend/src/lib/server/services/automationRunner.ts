@@ -411,6 +411,48 @@ export async function executeAutomationRule({
 						change_summary: `Automated update: ${docInfo.affectedFiles.length} file(s) changed`
 					});
 
+					// Update document_files table with the files that were actually used in regeneration
+					// This ensures the tracked files stay in sync with what was used to generate the document
+					const actualFilePaths = filesToUse.map(f => f.path);
+					const currentTrackedPaths = allDocFiles.map(f => f.file_path);
+
+					// Find files to remove (in tracked but not in actual)
+					const filesToRemove = currentTrackedPaths.filter(path => !actualFilePaths.includes(path));
+
+					// Find files to add (in actual but not in tracked)
+					const filesToAdd = actualFilePaths.filter(path => !currentTrackedPaths.includes(path));
+
+					if (filesToRemove.length > 0) {
+						const { error: deleteError } = await supabase
+							.from('document_files')
+							.delete()
+							.eq('document_id', docId)
+							.in('file_path', filesToRemove);
+
+						if (deleteError) {
+							console.warn(`Failed to remove outdated files from document_files for doc ${docId}:`, deleteError);
+						} else {
+							console.log(`[${timestamp}]    Removed ${filesToRemove.length} outdated file(s) from tracking`);
+						}
+					}
+
+					if (filesToAdd.length > 0) {
+						const fileMappings = filesToAdd.map(filePath => ({
+							document_id: docId,
+							file_path: filePath
+						}));
+
+						const { error: insertError } = await supabase
+							.from('document_files')
+							.insert(fileMappings);
+
+						if (insertError) {
+							console.warn(`Failed to add new files to document_files for doc ${docId}:`, insertError);
+						} else {
+							console.log(`[${timestamp}]    Added ${filesToAdd.length} new file(s) to tracking`);
+						}
+					}
+
 					docsUpdated++;
 					const timestamp = new Date().toISOString();
 					console.log(`[${timestamp}]  ✅ Updated: ${docInfo.title}`);

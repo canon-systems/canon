@@ -570,42 +570,22 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
       setStatusMsg('Queuing…');
       const filesForLog = selectedArray();
 
-      // Get or create workspace_repos entry
-      let repoId: string;
+      // Validate that repository exists and is properly set up
+      if (!selectedRepoId) {
+        throw new Error('Please select a repository from the dropdown. Repositories must be set up first before creating documents.');
+      }
+
       const { data: existingRepo } = await supabase
         .from('workspace_repos')
         .select('id')
-        .eq('repo_url', repoUrl)
+        .eq('id', selectedRepoId)
         .single();
 
-      if (existingRepo) {
-        repoId = existingRepo.id;
-      } else {
-        // Create new repo entry
-        const { data: newRepo, error: repoError } = await supabase
-          .from('workspace_repos')
-          .insert({
-            workspace_id: (await supabase.auth.getUser()).data.user?.id || '',
-            name: repoUrl.split('/').pop()?.replace('.git', '') || 'Repository',
-            repo_url: repoUrl,
-            default_branch: branch || 'main',
-            provider: 'github',
-            auth_type: 'github_pat',
-            settings: {
-              model: selectedModel,
-              llm_prompt_config: promptConfig,
-              document_structure: structureConfig,
-              ...(subdir ? { subdir } : {})
-            }
-          })
-          .select('id')
-          .single();
-
-        if (repoError || !newRepo) {
-          throw new Error(`Failed to create repository entry: ${repoError?.message || 'Unknown error'}`);
-        }
-        repoId = newRepo.id;
+      if (!existingRepo) {
+        throw new Error('Selected repository not found. Please go to the Repositories page to set up this repository first.');
       }
+
+      const repoId = existingRepo.id;
 
       // Create document
       const { data: docData, error: docError } = await supabase

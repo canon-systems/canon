@@ -1233,6 +1233,8 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                   <th className="px-4 py-3 text-left text-sm font-semibold text-white/90">Repository</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold text-white/90">Branch</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold text-white/90">Automation</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-white/90">Next Run</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-white/90">Last Run</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold text-white/90">Added</th>
                   <th className="px-4 py-3 text-right text-sm font-semibold text-white/90">Actions</th>
                 </tr>
@@ -1297,6 +1299,12 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                           )}
                         </td>
                         <td className="px-4 py-3 text-sm text-white/70">
+                          {hasRules && repoRules[0] ? calculateNextRun(repoRules[0].schedule) : '—'}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-white/70">
+                          {hasRules && repoRules[0]?.lastRunAt ? formatDate(repoRules[0].lastRunAt) : 'Never'}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-white/70">
                           {new Date(repo.created_at).toLocaleDateString()}
                         </td>
                         <td className="px-4 py-3">
@@ -1349,7 +1357,7 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                       {/* Expanded Automation Rules Row */}
                       {isExpanded && (
                         <tr>
-                          <td colSpan={6} className="px-0 py-0">
+                          <td colSpan={8} className="px-0 py-0">
                             <div className="border-t border-white/10 bg-white/5">
                               <div className="p-6">
                                 {/* Automation Rules Content */}
@@ -1400,6 +1408,18 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                                           >
                                             <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ${rule.enabled ? 'translate-x-5' : 'translate-x-1'
                                               }`} />
+                                          </button>
+                                          <button
+                                            onClick={() => setDeleteRuleModal({
+                                              open: true,
+                                              repoId: repo.id,
+                                              ruleId: rule.ruleId,
+                                              ruleName: rule.ruleName
+                                            })}
+                                            className="rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-red-400 transition-colors hover:bg-red-500/20 hover:border-red-500/50"
+                                            title="Delete rule"
+                                          >
+                                            <Trash2 className="h-4 w-4" />
                                           </button>
                                         </div>
                                       </div>
