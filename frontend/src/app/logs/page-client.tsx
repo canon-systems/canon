@@ -518,13 +518,9 @@ export function LogsPageClient({ user, logs, repos = [] }: LogsPageClientProps) 
                       </div>
                     </div>
                     {entry.link && (
-                      <Link
-                        href={entry.link}
-                        className="text-white/60 hover:text-white transition-colors flex-shrink-0"
-                        onClick={(e) => e.stopPropagation()}
-                      >
+                      <div className="text-white/60 flex-shrink-0">
                         <ExternalLink className="h-4 w-4" />
-                      </Link>
+                      </div>
                     )}
                   </div>
                 );
