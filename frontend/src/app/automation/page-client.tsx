@@ -122,6 +122,62 @@ function getProviderDisplayName(provider: string) {
   return provider.charAt(0).toUpperCase() + provider.slice(1);
 }
 
+function isValidCron(cron: string): boolean {
+  try {
+    const parts = cron.trim().split(/\s+/);
+    return parts.length === 5 && parts.every(part => part.length > 0);
+  } catch (error) {
+    return false;
+  }
+}
+
+function getCronDescription(cron: string): string {
+  try {
+    const parts = cron.trim().split(/\s+/);
+    if (parts.length !== 5) return 'Invalid cron expression';
+
+    const [minute, hour, day, month, weekday] = parts;
+
+    // Common patterns
+    if (cron === '0 2 * * *') return 'Daily at 2:00 AM UTC';
+    if (cron === '0 9 * * *') return 'Daily at 9:00 AM UTC';
+    if (cron === '0 0 * * *') return 'Daily at midnight UTC';
+    if (cron === '*/30 * * * *') return 'Every 30 minutes';
+    if (cron === '*/15 * * * *') return 'Every 15 minutes';
+    if (cron === '0 * * * *') return 'Every hour';
+    if (cron === '0 */6 * * *') return 'Every 6 hours';
+    if (cron === '0 */12 * * *') return 'Every 12 hours';
+    if (cron === '0 9 * * 1') return 'Weekly on Monday at 9:00 AM UTC';
+    if (cron === '0 0 * * 1') return 'Weekly on Monday at midnight UTC';
+
+    // Generic descriptions
+    let description = '';
+
+    if (minute === '0' && hour !== '*' && hour !== '*/1') {
+      const hourNum = parseInt(hour);
+      if (hourNum >= 0 && hourNum <= 23) {
+        const hour12 = hourNum === 0 ? 12 : hourNum > 12 ? hourNum - 12 : hourNum;
+        const ampm = hourNum >= 12 ? 'PM' : 'AM';
+        description = `Daily at ${hour12}:00 ${ampm} UTC`;
+      }
+    } else if (minute === '*/30') {
+      description = 'Every 30 minutes';
+    } else if (minute === '*/15') {
+      description = 'Every 15 minutes';
+    } else if (hour === '*/6') {
+      description = 'Every 6 hours';
+    } else if (hour === '*/12') {
+      description = 'Every 12 hours';
+    } else {
+      description = `Custom schedule: ${cron}`;
+    }
+
+    return description;
+  } catch (error) {
+    return 'Invalid cron expression';
+  }
+}
+
 export function AutomationPageClient({ repos, connections: initialConnections, allRules: initialAllRules, stats: initialStats }: AutomationPageClientProps) {
   const supabase = createClient();
 
@@ -650,61 +706,6 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
     });
   }
 
-  function isValidCron(cron: string): boolean {
-    try {
-      const parts = cron.trim().split(/\s+/);
-      return parts.length === 5 && parts.every(part => part.length > 0);
-    } catch (error) {
-      return false;
-    }
-  }
-
-  function getCronDescription(cron: string): string {
-    try {
-      const parts = cron.trim().split(/\s+/);
-      if (parts.length !== 5) return 'Invalid cron expression';
-
-      const [minute, hour, day, month, weekday] = parts;
-
-      // Common patterns
-      if (cron === '0 2 * * *') return 'Daily at 2:00 AM UTC';
-      if (cron === '0 9 * * *') return 'Daily at 9:00 AM UTC';
-      if (cron === '0 0 * * *') return 'Daily at midnight UTC';
-      if (cron === '*/30 * * * *') return 'Every 30 minutes';
-      if (cron === '*/15 * * * *') return 'Every 15 minutes';
-      if (cron === '0 * * * *') return 'Every hour';
-      if (cron === '0 */6 * * *') return 'Every 6 hours';
-      if (cron === '0 */12 * * *') return 'Every 12 hours';
-      if (cron === '0 9 * * 1') return 'Weekly on Monday at 9:00 AM UTC';
-      if (cron === '0 0 * * 1') return 'Weekly on Monday at midnight UTC';
-
-      // Generic descriptions
-      let description = '';
-
-      if (minute === '0' && hour !== '*' && hour !== '*/1') {
-        const hourNum = parseInt(hour);
-        if (hourNum >= 0 && hourNum <= 23) {
-          const hour12 = hourNum === 0 ? 12 : hourNum > 12 ? hourNum - 12 : hourNum;
-          const ampm = hourNum >= 12 ? 'PM' : 'AM';
-          description = `Daily at ${hour12}:00 ${ampm} UTC`;
-        }
-      } else if (minute === '*/30') {
-        description = 'Every 30 minutes';
-      } else if (minute === '*/15') {
-        description = 'Every 15 minutes';
-      } else if (hour === '*/6') {
-        description = 'Every 6 hours';
-      } else if (hour === '*/12') {
-        description = 'Every 12 hours';
-      } else {
-        description = `Custom schedule: ${cron}`;
-      }
-
-      return description;
-    } catch (error) {
-      return 'Invalid cron expression';
-    }
-  }
 
   function buildScheduleValue(form: AutomationRuleForm) {
     // Simply return the cron expression directly

@@ -49,35 +49,35 @@ type RuleConfig = {
 
 // Simple schedule to cron conversion for Inngest
 export function scheduleToCron(schedule: string): string {
-  const normalized = schedule.toLowerCase().trim();
+	const normalized = schedule.toLowerCase().trim();
 
-  switch (normalized) {
-    case 'interval:5m':
-      return '*/5 * * * *';
-    case 'interval:15m':
-      return '*/15 * * * *';
-    case 'interval:30m':
-      return '*/30 * * * *';
-    case 'interval:1h':
-      return '0 * * * *';
-    case 'interval:2h':
-      return '0 */2 * * *';
-    case 'interval:6h':
-      return '0 */6 * * *';
-    case 'interval:12h':
-      return '0 */12 * * *';
-    case 'daily':
-    case 'every_night':
-    case 'nightly':
-      return '0 0 * * *';
-    case 'weekly':
-    case 'every_monday':
-      return '0 0 * * 1';
-    default:
-      // Default to daily
-      console.warn(`Unrecognized schedule: ${schedule}, defaulting to daily`);
-      return '0 0 * * *';
-  }
+	switch (normalized) {
+		case 'interval:5m':
+			return '*/5 * * * *';
+		case 'interval:15m':
+			return '*/15 * * * *';
+		case 'interval:30m':
+			return '*/30 * * * *';
+		case 'interval:1h':
+			return '0 * * * *';
+		case 'interval:2h':
+			return '0 */2 * * *';
+		case 'interval:6h':
+			return '0 */6 * * *';
+		case 'interval:12h':
+			return '0 */12 * * *';
+		case 'daily':
+		case 'every_night':
+		case 'nightly':
+			return '0 0 * * *';
+		case 'weekly':
+		case 'every_monday':
+			return '0 0 * * 1';
+		default:
+			// Default to daily
+			console.warn(`Unrecognized schedule: ${schedule}, defaulting to daily`);
+			return '0 0 * * *';
+	}
 }
 
 export async function getRulesForRepo(supabase: SupabaseClient, repoId: string, workspaceId: string): Promise<RuleConfig[]> {
