@@ -1,5 +1,4 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { createHash } from 'crypto';
 import { analyzeRepository } from './analyzeRepository';
 import { generateDocumentation } from './docGenerator';
 import { generateArchitectureDiagram } from './diagramGenerator';
@@ -10,7 +9,7 @@ import { updateTrackedFilesForRenames } from './fileRenameHandler';
 import { prepareFileSummaries, generateAndSaveFileSummaries } from './prepareSummaries';
 import { prepareRepoSummaries } from './prepareRepoSummaries';
 import { LLMGateway } from './llmGateway';
-import { generateFileSummary } from './fileSummarizer';
+import { FileSummaryManager } from './fileSummaryManager';
 import { getUserOctokit } from '../github/getUserOctokit';
 import { parseRepoUrl } from '../github/github';
 
@@ -189,7 +188,7 @@ export async function executeAutomationRule({
 			return result;
 		}
 
-		// STEP 4: Regenerate summaries for changed and new files
+		// STEP 4: Regenerate summaries for changed and new files using FileSummaryManager
 		const totalFilesToProcess = changes.files_changed.length + changes.files_added.length;
 		if (rule.update_mode !== 'incremental_update' && totalFilesToProcess > 0) {
 			console.log(`📝 STEP 4: Processing ${totalFilesToProcess} files (${changes.files_changed.length} changed, ${changes.files_added.length} new)...`);
@@ -206,16 +205,14 @@ export async function executeAutomationRule({
 			const { owner, repo: repoName } = parsed;
 			const currentCommitSha = changes.current_commit_sha;
 
-			// Regenerate summaries for changed files
+			// Collect all files that need processing with their content
+			const filesToProcess: Array<{ path: string; content: string; hash?: string }> = [];
+
+			// Process changed files
 			if (changes.files_changed.length > 0) {
-				console.log(`🔄 Processing ${changes.files_changed.length} changed files...`);
+				console.log(`🔄 Collecting ${changes.files_changed.length} changed files...`);
 				for (const changedFile of changes.files_changed) {
 					try {
-						const timestamp = new Date().toISOString();
-						const reason = `File changed (hash: ${changedFile.old_hash?.substring(0, 8)} → ${changedFile.new_hash?.substring(0, 8)})`;
-						console.log(`[${timestamp}] 🔄 Regenerating summary for changed file: ${changedFile.path}`);
-						console.log(`[${timestamp}]    Reason: ${reason}`);
-
 						const { data: fileData } = await octokit.repos.getContent({
 							owner,
 							repo: repoName,
@@ -231,43 +228,23 @@ export async function executeAutomationRule({
 						}
 
 						if (fileContent) {
-							const summary = await generateFileSummary(fileContent, changedFile.path, 'gpt-4o-mini');
-
-							// Update summary in database
-							const { error: upsertError } = await supabase.rpc('upsert_repo_file_summary', {
-								p_repo_id: normalizeRepoId(repo.repo_url),
-								p_file_path: changedFile.path,
-								p_file_hash: changedFile.new_hash,
-								p_summary_text: summary.summary_text,
-								p_summary_json: summary.summary_json,
-								p_summary_model: 'gpt-4o-mini',
-								p_user_id: userId,
-								// p_submission_id omitted - submissions table no longer exists
-								p_branch: repo.default_branch,
-								// Note: p_last_regenerated and p_regeneration_reason are handled by the function automatically
+							filesToProcess.push({
+								path: changedFile.path,
+								content: fileContent,
+								hash: changedFile.new_hash || undefined,
 							});
-
-							if (upsertError) {
-								console.error(`[${timestamp}] ❌ Failed to update summary for ${changedFile.path}:`, upsertError);
-							} else {
-								console.log(`[${timestamp}] ✅ Successfully updated summary for ${changedFile.path}`);
-							}
 						}
 					} catch (error) {
-						const timestamp = new Date().toISOString();
-						console.error(`[${timestamp}] ❌ Failed to regenerate summary for ${changedFile.path}:`, error);
+						console.error(`Failed to get content for changed file ${changedFile.path}:`, error);
 					}
 				}
 			}
 
-			// Generate summaries for new files
+			// Process new files
 			if (changes.files_added.length > 0) {
-				console.log(`🆕 Processing ${changes.files_added.length} new files...`);
+				console.log(`🆕 Collecting ${changes.files_added.length} new files...`);
 				for (const newFilePath of changes.files_added) {
 					try {
-						const timestamp = new Date().toISOString();
-						console.log(`[${timestamp}] 🆕 Generating summary for new file: ${newFilePath}`);
-
 						const { data: fileData } = await octokit.repos.getContent({
 							owner,
 							repo: repoName,
@@ -285,38 +262,58 @@ export async function executeAutomationRule({
 						if (fileContent) {
 							// Calculate hash for the new file
 							const fileHash = createHash('sha256').update(fileContent).digest('hex');
-
-							const summary = await generateFileSummary(fileContent, newFilePath, 'gpt-4o-mini');
-
-							// Insert new summary in database
-							const { error: upsertError } = await supabase.rpc('upsert_repo_file_summary', {
-								p_repo_id: normalizeRepoId(repo.repo_url),
-								p_file_path: newFilePath,
-								p_file_hash: fileHash,
-								p_summary_text: summary.summary_text,
-								p_summary_json: summary.summary_json,
-								p_summary_model: 'gpt-4o-mini',
-								p_user_id: userId,
-								// p_submission_id omitted - submissions table no longer exists
-								p_branch: repo.default_branch,
-								// Note: p_last_regenerated and p_regeneration_reason are handled by the function automatically
+							filesToProcess.push({
+								path: newFilePath,
+								content: fileContent,
+								hash: fileHash,
 							});
-
-							if (upsertError) {
-								console.error(`[${timestamp}] ❌ Failed to create summary for new file ${newFilePath}:`, upsertError);
-							} else {
-								console.log(`[${timestamp}] ✅ Successfully created summary for new file ${newFilePath}`);
-							}
 						}
 					} catch (error) {
-						const timestamp = new Date().toISOString();
-						console.error(`[${timestamp}] ❌ Failed to generate summary for new file ${newFilePath}:`, error);
+						console.error(`Failed to get content for new file ${newFilePath}:`, error);
 					}
 				}
 			}
 
+			// Use FileSummaryManager for proper deduplication and batch processing
+			if (filesToProcess.length > 0) {
+				const summaryManager = new FileSummaryManager(
+					supabase,
+					normalizeRepoId(repo.repo_url),
+					repo.default_branch
+				);
+
+				console.log(`📊 Processing ${filesToProcess.length} files with FileSummaryManager...`);
+
+				const result = await summaryManager.updateSummariesIfNeeded(
+					filesToProcess,
+					{
+						force: false,
+						batchSize: 5,
+						onProgress: (progress) => {
+							console.log(`📊 Summary generation progress: ${progress.processed}/${progress.total} files processed`);
+							if (progress.currentFile) {
+								console.log(`   Currently processing: ${progress.currentFile}`);
+							}
+						},
+						model: rule.model || 'gpt-4o-mini',
+					}
+				);
+
+				console.log(`✅ File summary processing complete:`);
+				console.log(`   - Processed: ${result.processed} files`);
+				console.log(`   - Skipped: ${result.skipped} files (already up-to-date)`);
+				console.log(`   - Failed: ${result.failed} files`);
+				console.log(`   - Total: ${result.total} files`);
+
+				if (result.updatedFiles.length > 0) {
+					console.log(`📁 Updated files: ${result.updatedFiles.slice(0, 5).join(', ')}${result.updatedFiles.length > 5 ? ` ... and ${result.updatedFiles.length - 5} more` : ''}`);
+				}
+			} else {
+				console.log(`ℹ️ No files collected for processing`);
+			}
+
 			const summaryTime = ((Date.now() - summaryStartTime) / 1000).toFixed(1);
-			console.log(`✅ Processed ${totalFilesToProcess} files in ${summaryTime}s (${changes.files_changed.length} updated, ${changes.files_added.length} new)`);
+			console.log(`⏱️ STEP 4 completed in ${summaryTime}s`);
 		} else {
 			console.log(`⏭️ STEP 4: Skipping summary regeneration (${rule.update_mode})`);
 		}
