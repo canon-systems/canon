@@ -18,13 +18,17 @@ export default function LandingPage() {
           </div>
           <div className="flex items-center gap-4">
             <a
-              href="https://app.whatevermynamewillbe.com/login"
+              href="https://sync-swart.vercel.app/login"
+              target="_blank"
+              rel="noopener noreferrer"
               className="text-white/80 hover:text-white transition-colors"
             >
               Sign In
             </a>
             <a
-              href="https://app.whatevermynamewillbe.com/login"
+              href="https://sync-swart.vercel.app/login"
+              target="_blank"
+              rel="noopener noreferrer"
               className="px-4 py-2 bg-gradient-to-r from-gray-500 to-gray-600 text-white rounded-lg hover:from-gray-600 hover:to-gray-700 transition-all font-medium"
             >
               Get Started
@@ -42,9 +46,9 @@ export default function LandingPage() {
           </div>
 
           <h1 className="mb-6 text-5xl sm:text-6xl lg:text-7xl font-bold text-white leading-tight">
-            Never Write Docs Again
+            Docs That Write Themselves
             <span className="block bg-gradient-to-r from-gray-300 via-gray-400 to-gray-500 bg-clip-text text-transparent">
-              Auto-Generated & Always Up-to-Date
+              Always Accurate, Always Current
             </span>
           </h1>
 
@@ -56,7 +60,9 @@ export default function LandingPage() {
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
             <a
-              href="https://app.whatevermynamewillbe.com/login"
+              href="https://sync-swart.vercel.app/login"
+              target="_blank"
+              rel="noopener noreferrer"
               className="px-8 py-4 bg-gradient-to-r from-gray-500 to-gray-600 text-white rounded-xl hover:from-gray-600 hover:to-gray-700 transition-all font-semibold text-lg shadow-lg hover:shadow-xl flex items-center gap-2 group"
             >
               Connect Your Code Repository
@@ -294,7 +300,9 @@ export default function LandingPage() {
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
             <a
-              href="https://app.whatevermynamewillbe.com/login"
+              href="https://sync-swart.vercel.app/login"
+              target="_blank"
+              rel="noopener noreferrer"
               className="px-8 py-4 bg-gradient-to-r from-gray-500 to-gray-600 text-white rounded-xl hover:from-gray-600 hover:to-gray-700 transition-all font-semibold text-lg shadow-lg hover:shadow-xl flex items-center gap-2 group"
             >
               Start Free Trial
