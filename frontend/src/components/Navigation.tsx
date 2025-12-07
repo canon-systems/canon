@@ -129,15 +129,15 @@ export function Navigation({ user, session, onLogout }: NavigationProps) {
 
   return (
     <aside className="nav-rail" data-collapsed={collapsed}>
-      <Link href="/" className="nav-rail__brand" aria-label="CodeSense home">
+      <Link href="/" className="nav-rail__brand" aria-label="Sync home">
         <span className="nav-rail__brand-badge">
-              <Code2 className="h-5 w-5 text-white" />
+          <Code2 className="h-5 w-5 text-white" />
         </span>
         <div>
-          <h1>CodeSense</h1>
+          <h1>Sync</h1>
           <p>INTEL</p>
-            </div>
-          </Link>
+        </div>
+      </Link>
 
       <div className="nav-rail__menu">
         {navSections.map((section) => (
@@ -241,8 +241,8 @@ export function Navigation({ user, session, onLogout }: NavigationProps) {
             </>
           ) : (
             <>
-              <Link 
-                href="/login" 
+              <Link
+                href="/login"
                 className={`nav-rail__user w-full ${collapsed ? 'justify-center' : ''}`}
                 title={collapsed ? 'Login / Sign up' : undefined}
               >

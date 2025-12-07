@@ -18,7 +18,7 @@ const spaceGrotesk = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: "CodeSense - Business Intelligence",
+  title: "Sync - Business Intelligence",
   description: "Automatically generate clear, non-technical summaries that explain the business purpose and value of any code.",
 };
 

@@ -12,17 +12,17 @@ export default function HelpPage() {
           </div>
 
           <h1 className="mb-4 text-4xl font-bold text-white">Help & About</h1>
-          <p className="text-xl text-white/80">Get help or learn more about CodeSense.</p>
+          <p className="text-xl text-white/80">Get help or learn more about Sync.</p>
         </div>
 
         <div className="rounded-2xl border border-white/20 bg-white/10 backdrop-blur-md">
           <div className="rounded-t-2xl border-b border-white/10 px-6 py-4">
-            <h2 className="text-lg font-semibold text-white">About CodeSense</h2>
+            <h2 className="text-lg font-semibold text-white">About Sync</h2>
           </div>
 
           <div className="space-y-4 p-6">
             <p className="text-white/80">
-              CodeSense is a tool that bridges the gap between code and business outcomes. It analyzes
+              Sync is a tool that bridges the gap between code and business outcomes. It analyzes
               your codebase or project and produces a clear, high level summary of the problem it solves
               and the value it creates.
             </p>
@@ -30,9 +30,9 @@ export default function HelpPage() {
               For support, email{' '}
               <a
                 className="underline hover:no-underline"
-                href="mailto:support@codesense.app"
+                href="mailto:support@Sync.app"
               >
-                support@codesense.app
+                support@Sync.app
               </a>
               .
             </p>

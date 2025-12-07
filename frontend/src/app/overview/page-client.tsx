@@ -323,7 +323,7 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
     <div className="page-shell space-y-6">
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-3xl font-semibold text-white mb-2">Welcome to CodeSense</h1>
+          <h1 className="text-3xl font-semibold text-white mb-2">Welcome to Sync</h1>
           <p className="text-white/60">Your AI-powered documentation platform for software teams</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -374,7 +374,7 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
       {stats.rawData.submissions.length === 0 && (!stats.automationRules || stats.automationRules.length === 0) && (
         <div className="glass-panel p-8 text-center">
           <div className="max-w-2xl mx-auto">
-            <h2 className="text-2xl font-semibold text-white mb-4">Get Started with CodeSense</h2>
+            <h2 className="text-2xl font-semibold text-white mb-4">Get Started with Sync</h2>
             <p className="text-white/70 mb-6">
               Transform your codebase into clear, comprehensive documentation with AI-powered analysis.
               Connect your first repository to begin generating professional documentation automatically.
