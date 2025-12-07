@@ -23,7 +23,7 @@ interface Model {
 }
 
 const availableModels: Model[] = [
-  // OpenAI Models
+  // OpenLLMs
   {
     value: 'gpt-4o',
     label: 'GPT-4o',
@@ -843,7 +843,7 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
             </label>
 
             <label className="field-group">
-              <span className="field-label">AI model</span>
+              <span className="field-label">LLM</span>
               <div className="relative z-[100]" ref={modelDropdownRef}>
                 <button
                   type="button"

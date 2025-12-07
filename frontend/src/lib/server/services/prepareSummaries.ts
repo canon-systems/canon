@@ -94,8 +94,8 @@ export async function prepareFileSummaries(
 	let filesToProcess: Array<{ file_path: string; file_hash: string | null }> = [];
 
 	if (!documentFiles || documentFiles.length === 0) {
-			return { filesPrepared: 0, filesUpdated: 0, filesSkipped: 0 };
-		}
+		return { filesPrepared: 0, filesUpdated: 0, filesSkipped: 0 };
+	}
 
 	// Get hashes for these files from repo_file_summaries
 	const filePaths = documentFiles.map(df => df.file_path);
@@ -243,7 +243,7 @@ export async function prepareFileSummaries(
 					} else if (errorMessage.includes('authentication') || errorMessage.includes('token')) {
 						errorMessage = 'Authentication failed';
 					} else if (errorMessage.includes('LLM') || errorMessage.includes('model')) {
-						errorMessage = 'AI model error - check API configuration';
+						errorMessage = 'LLM error - check API configuration';
 					}
 
 					return { filePath, success: false, error: errorMessage };

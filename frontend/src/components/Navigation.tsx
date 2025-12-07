@@ -63,10 +63,11 @@ const navSections: Array<{ title: string; items: NavItem[] }> = [
     ],
   },
   {
-    title: 'Settings',
+    title: 'Resources',
     items: [
-      { href: '/settings', label: 'Preferences', icon: Settings, matchPrefix: true },
+      { href: '/docs', label: 'Video Tutorials', icon: BookOpen },
       { href: '/help', label: 'Help', icon: HelpCircle },
+      { href: '/settings', label: 'Settings', icon: Settings, matchPrefix: true },
     ],
   },
 ];

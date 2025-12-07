@@ -190,7 +190,7 @@ export default function LandingPage() {
                       </div>
                       <div className="flex items-center gap-3">
                         <CheckCircle className="h-5 w-5 text-green-400 flex-shrink-0" />
-                        <span className="text-white/80">Multiple AI models (GPT-4, Claude, etc.)</span>
+                        <span className="text-white/80">Multiple LLMs (GPT-4, Claude, etc.)</span>
                       </div>
                       <div className="flex items-center gap-3">
                         <CheckCircle className="h-5 w-5 text-green-400 flex-shrink-0" />
