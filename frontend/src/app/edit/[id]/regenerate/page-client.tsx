@@ -30,7 +30,7 @@ interface Model {
 }
 
 const availableModels: Model[] = [
-  // OpenAI Models
+  // OpenLLMs
   {
     value: 'gpt-4o',
     label: 'GPT-4o',
@@ -384,7 +384,7 @@ export function RegeneratePageClient({ submission }: RegeneratePageClientProps) 
               <div>
                 <h2 className="text-xl font-semibold text-white mb-2">Configuration</h2>
                 <p className="text-sm text-white/60">
-                  Choose your AI model and customize the prompt settings to regenerate your documentation.
+                  Choose your LLM and customize the prompt settings to regenerate your documentation.
                 </p>
               </div>
 
@@ -393,7 +393,7 @@ export function RegeneratePageClient({ submission }: RegeneratePageClientProps) 
                 <label className="mb-3 block text-sm font-semibold text-white/90">
                   <span className="flex items-center gap-2">
                     <Sparkles className="h-4 w-4 text-purple-400" />
-                    AI Model
+                    LLM
                   </span>
                 </label>
                 <div className="relative" ref={regenModelDropdownRef}>

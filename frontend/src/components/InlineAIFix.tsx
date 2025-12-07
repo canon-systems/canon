@@ -497,7 +497,7 @@ export function InlineAIFix({
             {/* Model Selector */}
             <div className="px-4 py-3 border-b border-white/10 bg-white/5">
               <label className="block text-xs font-medium text-white/70 mb-2">
-                AI Model
+                LLM
               </label>
               <div className="relative" ref={modelDropdownRef}>
                 <button
@@ -559,8 +559,8 @@ export function InlineAIFix({
                       key={cat}
                       onClick={() => setSelectedCategory(cat)}
                       className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all whitespace-nowrap ${selectedCategory === cat
-                          ? 'bg-purple-500/30 text-purple-200 border border-purple-500/50'
-                          : 'text-white/60 hover:text-white/80 hover:bg-white/10'
+                        ? 'bg-purple-500/30 text-purple-200 border border-purple-500/50'
+                        : 'text-white/60 hover:text-white/80 hover:bg-white/10'
                         }`}
                     >
                       <Icon className="h-3 w-3" />
