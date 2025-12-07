@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Zap, Plus, CheckCircle2, XCircle, Clock, Loader2, GitBranch, ExternalLink, TrendingUp, ChevronDown, Github, Trash2, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
@@ -353,26 +353,6 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
   const [deleteRuleModal, setDeleteRuleModal] = useState<{ open: boolean; repoId: string | null; ruleId: string | null; ruleName: string }>({ open: false, repoId: null, ruleId: null, ruleName: '' });
   const [deleting, setDeleting] = useState(false);
 
-  // Manual rule execution state
-  const [runningRules, setRunningRules] = useState<Record<string, boolean>>({});
-  const [runResults, setRunResults] = useState<Record<string, {
-    success: boolean;
-    message: string;
-    docId?: string | null;
-    diagramId?: string | null;
-    actions?: string[];
-    errors?: string[];
-    stats?: {
-      filesProcessed: number;
-      documentsUpdated: number;
-      documentsCreated: number;
-      timeElapsed: number;
-    };
-    timestamp?: number;
-  } | null>>({});
-
-  // Abort controllers for cancelling running rules
-  const abortControllersRef = useRef<Record<string, AbortController>>({});
 
   // Load repos on mount
   useEffect(() => {
@@ -530,116 +510,6 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
     }
   }
 
-  async function handleRunRule(repoId: string, ruleId: string) {
-    const key = `${repoId}-${ruleId}`;
-
-    // Create abort controller for this run
-    const abortController = new AbortController();
-    abortControllersRef.current[key] = abortController;
-
-    setRunningRules((prev) => ({ ...prev, [key]: true }));
-    setRunResults((prev) => ({ ...prev, [key]: null }));
-
-    try {
-      const response = await fetch(`/api/repos/${repoId}/automation/run`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ruleId }),
-        signal: abortController.signal,
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || data.detail || 'Failed to run automation rule');
-      }
-
-      // Build result message
-      let message = '';
-      if (data.skipped) {
-        message = `Skipped: ${data.skipReason || 'No changes detected'}`;
-      } else if (data.success) {
-        const actions = data.actions?.length > 0 ? data.actions.join(', ') : 'completed';
-        message = `Success: ${actions}`;
-      } else {
-        message = `Failed: ${data.errors?.join(', ') || 'Unknown error'}`;
-      }
-
-      setRunResults((prev) => ({
-        ...prev,
-        [key]: {
-          success: data.success && !data.skipped,
-          message,
-          docId: data.docId,
-          diagramId: data.diagramId,
-          actions: data.actions,
-          errors: data.errors,
-          stats: data.stats,
-          timestamp: Date.now(),
-        },
-      }));
-
-      // Auto-clear result after 10 seconds
-      setTimeout(() => {
-        setRunResults((prev) => ({ ...prev, [key]: null }));
-      }, 10000);
-
-      // Refresh to update stats
-      await loadRepos();
-    } catch (err: any) {
-      // Check if this was a cancellation
-      if (err.name === 'AbortError') {
-        setRunResults((prev) => ({
-          ...prev,
-          [key]: {
-            success: false,
-            message: 'Run cancelled by user',
-          },
-        }));
-      } else {
-        setRunResults((prev) => ({
-          ...prev,
-          [key]: {
-            success: false,
-            message: err.message || 'Failed to run rule',
-          },
-        }));
-      }
-
-      // Auto-clear error after 10 seconds
-      setTimeout(() => {
-        setRunResults((prev) => ({ ...prev, [key]: null }));
-      }, 10000);
-    } finally {
-      setRunningRules((prev) => ({ ...prev, [key]: false }));
-      // Clean up abort controller
-      delete abortControllersRef.current[key];
-    }
-  }
-
-  async function handleCancelRule(repoId: string, ruleId: string) {
-    const key = `${repoId}-${ruleId}`;
-    const controller = abortControllersRef.current[key];
-    if (controller) {
-      controller.abort();
-
-      // Record the cancellation in execution history
-      try {
-        await fetch(`/api/repos/${repoId}/automation/cancel`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ruleId }),
-        });
-
-        // Refresh to show the cancelled run in the logs
-        await loadRepos();
-      } catch (err) {
-        console.error('Failed to record cancellation:', err);
-      }
-    }
-  }
 
   async function loadConnections() {
     try {
