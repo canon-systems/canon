@@ -12,7 +12,7 @@ export default function DocumentationPage() {
           </div>
 
           <h1 className="mb-4 text-4xl font-bold text-white">Documentation</h1>
-          <p className="text-xl text-white/80">How to use CodeSense to its full potential.</p>
+          <p className="text-xl text-white/80">How to use Sync to its full potential.</p>
         </div>
 
         <div className="rounded-2xl border border-white/20 bg-white/10 backdrop-blur-md">
@@ -23,7 +23,7 @@ export default function DocumentationPage() {
           <div className="p-6">
             <p className="text-white/80">
               Our team is hard at work creating comprehensive documentation. Please check back soon for
-              detailed guides and tutorials on how to integrate and use CodeSense effectively.
+              detailed guides and tutorials on how to integrate and use Sync effectively.
             </p>
           </div>
         </div>
