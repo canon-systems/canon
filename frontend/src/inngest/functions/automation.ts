@@ -38,6 +38,7 @@ export const checkAndRunAutomations = inngest.createFunction(
   {
     id: "smart-summary-manager",
     name: "Smart Summary & Automation Manager",
+    retries: 3,
   },
   {
     cron: "*/5 * * * *", // Run every 5 minutes for responsive automation
