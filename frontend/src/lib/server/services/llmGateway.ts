@@ -104,9 +104,9 @@ export class LLMGateway {
 	async call(messages: Message[], model: string, temperature?: number, context?: string): Promise<string> {
 
 		try {
-			// Add timeout to prevent indefinite hangs (60 seconds for LLM calls)
+			// Add timeout to prevent indefinite hangs (3 minutes for LLM calls)
 			const controller = new AbortController();
-			const timeoutId = setTimeout(() => controller.abort(), 60000);
+			const timeoutId = setTimeout(() => controller.abort(), 180000);
 
 			const response = await fetch(`${this.url}/chat/completions`, {
 				method: 'POST',
@@ -136,8 +136,8 @@ export class LLMGateway {
 		} catch (error: any) {
 			// Handle specific error types
 			if (error.name === 'AbortError') {
-				console.error(`[LLMGateway] ⏰ Request timed out after 60 seconds`);
-				throw new Error('LLM API call timed out after 60 seconds');
+				console.error(`[LLMGateway] ⏰ Request timed out after 180 seconds`);
+				throw new Error('LLM API call timed out after 180 seconds');
 			}
 
 			console.error(`[LLMGateway] 💥 Network or parsing error:`, error);
