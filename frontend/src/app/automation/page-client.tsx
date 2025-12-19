@@ -42,7 +42,7 @@ interface AutomationRuleForm {
   customScheduleDescription?: string;
 
   // NEW: Smart automation with presets
-  action_preset: 'docs_only' | 'diagrams_only' | 'docs_and_diagrams' | 'full_auto_publish';
+  action_preset: 'docs_only' | 'full_auto_publish';
 
   // NEW: Significance analysis (always enabled)
   significance_sensitivity: 'strict' | 'balanced' | 'lenient';
@@ -51,7 +51,6 @@ interface AutomationRuleForm {
 
   // NEW: Scope targeting
   target_documents: string[]; // Empty = all documents
-  target_diagrams: string[];  // Empty = all diagrams
 
   // NEW: Notifications
   notifications_email_enabled: boolean;
@@ -69,7 +68,6 @@ interface AutomationRuleForm {
   // LEGACY: Keep for backward compatibility
   detect_changes?: boolean;
   generate_doc?: boolean;
-  generate_diagram?: boolean;
   auto_publish?: boolean;
   auto_publish_new_docs?: boolean;
 }
@@ -530,18 +528,16 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
       enabled: overrides.enabled ?? false,
       customCron: overrides.customCron ?? '0 2 * * *',
       // NEW: Smart automation defaults
-      action_preset: overrides.action_preset ?? 'docs_and_diagrams',
+      action_preset: overrides.action_preset ?? 'docs_only',
       significance_sensitivity: overrides.significance_sensitivity ?? 'balanced',
       significance_minimum_confidence: overrides.significance_minimum_confidence ?? 'medium',
       target_documents: overrides.target_documents ?? [],
-      target_diagrams: overrides.target_diagrams ?? [],
       notifications_email_enabled: overrides.notifications_email_enabled ?? true,
       notifications_include_preview_links: overrides.notifications_include_preview_links ?? true,
 
       // LEGACY: Keep for backward compatibility (not displayed in UI)
       detect_changes: true, // Always true for smart automation
       generate_doc: overrides.generate_doc ?? true,
-      generate_diagram: overrides.generate_diagram ?? false,
       auto_publish: overrides.auto_publish ?? false,
       auto_publish_new_docs: overrides.auto_publish_new_docs ?? false,
       significance_analysis_enabled: true, // Always true for smart automation
@@ -578,12 +574,8 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
       let action_preset = rule.action_preset;
       if (!action_preset) {
         // Infer preset from legacy fields
-        if (rule.generate_doc && rule.generate_diagram && rule.auto_publish) {
+        if (rule.generate_doc && rule.auto_publish) {
           action_preset = 'full_auto_publish';
-        } else if (rule.generate_doc && rule.generate_diagram) {
-          action_preset = 'docs_and_diagrams';
-        } else if (rule.generate_diagram) {
-          action_preset = 'diagrams_only';
         } else {
           action_preset = 'docs_only';
         }
@@ -600,14 +592,12 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
         significance_sensitivity: rule.significance_analysis?.sensitivity || 'balanced',
         significance_minimum_confidence: rule.significance_analysis?.minimum_confidence || 'medium',
         target_documents: rule.target_documents || [],
-        target_diagrams: rule.target_diagrams || [],
         notifications_email_enabled: rule.notifications?.email_enabled ?? true,
         notifications_include_preview_links: rule.notifications?.include_preview_links ?? true,
 
         // LEGACY: Keep for backward compatibility (not displayed in UI)
         detect_changes: true, // Always true for smart automation
         generate_doc: rule.generate_doc ?? true,
-        generate_diagram: rule.generate_diagram ?? false,
         auto_publish: rule.auto_publish ?? false,
         auto_publish_new_docs: rule.auto_publish_new_docs ?? false,
         significance_analysis_enabled: true, // Always true for smart automation
@@ -741,7 +731,6 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
         minimum_confidence: form.significance_minimum_confidence,
       },
       target_documents: form.target_documents || [],
-      target_diagrams: form.target_diagrams || [],
       notifications: {
         email_enabled: form.notifications_email_enabled,
         include_preview_links: form.notifications_include_preview_links,
@@ -764,8 +753,7 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
 
     // LEGACY: Keep for backward compatibility during migration
     rule.detect_changes = true; // Always true for smart automation
-    rule.generate_doc = ['docs_only', 'docs_and_diagrams', 'full_auto_publish'].includes(form.action_preset);
-    rule.generate_diagram = ['diagrams_only', 'docs_and_diagrams', 'full_auto_publish'].includes(form.action_preset);
+    rule.generate_doc = ['docs_only', 'full_auto_publish'].includes(form.action_preset);
     rule.auto_publish = form.action_preset === 'full_auto_publish';
     rule.auto_publish_new_docs = false; // Never auto-publish new docs in smart automation
 
@@ -1254,8 +1242,6 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                                             </div>
                                             <p className="text-sm text-white/70 mb-2">
                                               {rule.action_preset === 'docs_only' && '📄 Generates documentation only'}
-                                              {rule.action_preset === 'diagrams_only' && '📊 Generates diagrams only'}
-                                              {rule.action_preset === 'docs_and_diagrams' && '📄📊 Generates both docs and diagrams'}
                                               {rule.action_preset === 'full_auto_publish' && '🚀 Auto-generates and publishes'}
                                             </p>
                                             <div className="flex items-center gap-4 text-xs text-white/60">
@@ -1553,10 +1539,8 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                                 <div className="w-2 h-2 bg-green-400 rounded-full"></div>
                                 Active: {
                                   singleRuleForm.action_preset === 'docs_only' ? '📄 Docs Only' :
-                                    singleRuleForm.action_preset === 'diagrams_only' ? '🎨 Diagrams Only' :
-                                      singleRuleForm.action_preset === 'docs_and_diagrams' ? '📊 Everything' :
-                                        singleRuleForm.action_preset === 'full_auto_publish' ? '🚀 Auto-Publish' :
-                                          'Not selected'
+                                    singleRuleForm.action_preset === 'full_auto_publish' ? '🚀 Auto-Publish' :
+                                      'Not selected'
                                 }
                               </div>
                             )}

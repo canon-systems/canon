@@ -44,7 +44,6 @@ const navSections: Array<{ title: string; items: NavItem[] }> = [
     title: 'Create',
     items: [
       { href: '/documentation', label: 'Generate Docs', icon: FileText },
-      { href: '/architecture', label: 'Architecture', icon: Layers3 },
     ],
   },
   {
