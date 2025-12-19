@@ -1,7 +1,39 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createHash } from 'crypto';
+import { generateFileSummary } from './fileSummarizer';
+import type { FileSummary } from './fileSummarizer';
+
+// Global cancellation registry for immediate cancellation
+const cancellationRegistry = new Map<string, AbortController>();
+
+/**
+ * Register an AbortController for a setup process
+ */
+export function registerSetupCancellation(setupId: string, controller: AbortController) {
+	cancellationRegistry.set(setupId, controller);
+}
+
+/**
+ * Cancel a setup process immediately
+ */
+export function cancelSetupImmediately(setupId: string) {
+	const controller = cancellationRegistry.get(setupId);
+	if (controller) {
+		console.log(`[repoSetupSimple] Immediately cancelling setup ${setupId}`);
+		controller.abort();
+		cancellationRegistry.delete(setupId);
+		return true;
+	}
+	return false;
+}
+
+/**
+ * Clean up a setup cancellation registration
+ */
+export function unregisterSetupCancellation(setupId: string) {
+	cancellationRegistry.delete(setupId);
+}
 import { analyzeRepository } from './analyzeRepository';
-import { generateSimpleFileSummary } from './fileSummarizerSimple';
 import { createServiceRoleClient } from '../../supabase/server';
 import { parseRepoUrl } from '../github/github';
 
@@ -135,56 +167,24 @@ async function saveFileSummary(
 	repoId: string,
 	filePath: string,
 	fileHash: string,
-	summary: { summary: string; purpose: string; mainExports: string[]; keyDependencies: string[]; fileType: string },
+	summary: FileSummary,
 	branch: string,
 	userId: string | null,
 	model: string
 ): Promise<void> {
 	const normalizedPath = normalizeFilePath(filePath);
 
-	// Convert simple summary to the format expected by the database
-	const summaryText = `${summary.summary}\n\nPurpose: ${summary.purpose}\n\nMain exports: ${summary.mainExports.join(', ') || 'None'}\n\nKey dependencies: ${summary.keyDependencies.join(', ') || 'None'}`;
-
-	const summaryJson = {
-		problem_solved: summary.purpose,
-		functions: summary.mainExports.map(name => ({
-			name,
-			signature: '',
-			description: '',
-			exported: true,
-			parameters: [],
-			returnType: '',
-		})),
-		apis: [],
-		imports: summary.keyDependencies.map(module => ({
-			module,
-			type: 'external' as const,
-			items: [],
-			purpose: '',
-		})),
-		logic: {
-			main_flow: summary.summary,
-			algorithms: [],
-			business_rules: [],
-			entry_points: summary.mainExports,
-			data_structures: [],
-			error_handling: '',
-			edge_cases: [],
-			state_management: '',
-		},
-		downstream_usage: [],
-		upstream_dependencies: [],
-		code_uses: [],
-		design_patterns: [],
-		key_decisions: [],
-	};
+	// Combine summary text with resources
+	let summaryText = summary.summary_text;
+	if (summary.resources && summary.resources.trim()) {
+		summaryText += `\n\nResources: ${summary.resources}`;
+	}
 
 	const { error } = await supabase.rpc('upsert_repo_file_summary', {
 		p_repo_id: repoId,
 		p_file_path: normalizedPath,
 		p_file_hash: fileHash,
 		p_summary_text: summaryText,
-		p_summary_json: summaryJson,
 		p_summary_model: model,
 		p_user_id: userId,
 		// p_submission_id is omitted - not used and submissions table no longer exists
@@ -231,6 +231,32 @@ export async function setupRepositorySimple(
 	model: string = 'gpt-4o-mini'
 ): Promise<{ success: boolean; totalFiles: number; processedFiles: number; cachedFiles: number }> {
 	const repoId = normalizeRepoId(repoUrl);
+
+	// Create AbortController for cancelling ongoing operations
+	const abortController = new AbortController();
+
+	// Register for immediate cancellation
+	registerSetupCancellation(setupId, abortController);
+
+	// Verify we can access the setup record at startup
+	try {
+		const { data: initialSetup, error: initialError } = await supabase
+			.from('repository_setup')
+			.select('setup_status, repo_id')
+			.eq('id', setupId)
+			.single();
+
+		if (initialError) {
+			console.error(`[repoSetupSimple] ❌ Cannot access setup record ${setupId}: ${initialError.message}`);
+			throw new Error(`Setup record access failed: ${initialError.message}`);
+		}
+
+		console.log(`[repoSetupSimple] ✅ Setup record accessible: ${setupId} (status: ${initialSetup?.setup_status}, repo: ${initialSetup?.repo_id})`);
+	} catch (accessError: any) {
+		console.error(`[repoSetupSimple] ❌ Failed to access setup record at startup: ${accessError.message}`);
+		throw accessError;
+	}
+
 	const progress: ProgressState = {
 		phase: 'scanning',
 		totalFiles: 0,
@@ -276,62 +302,118 @@ export async function setupRepositorySimple(
 		console.log(`[repoSetupSimple] Phase 2: Processing files...`);
 
 		const fileShas = analysis.snapshot?.fileShas || {};
-		const BATCH_SIZE = 10; // Process 10 files at a time for better rate limiting
+		const BATCH_SIZE = 20; // Process 20 files at a time for better throughput
 
 		// Process files in batches
 		for (let i = 0; i < analysis.rawFiles.length; i += BATCH_SIZE) {
+			// Check if operations were cancelled before starting the next batch
+			if (abortController.signal.aborted) {
+				console.log(`[repoSetupSimple] Operations cancelled before starting batch ${Math.floor(i / BATCH_SIZE) + 1}, stopping processing`);
+				break;
+			}
+
 			const batch = analysis.rawFiles.slice(i, i + BATCH_SIZE);
 
-			await Promise.all(
-				batch.map(async (file) => {
-					const filePath = file.path;
-					const fileContent = file.content;
-					const fileHash = fileShas[filePath] || calculateFileHash(fileContent);
+			// Check if operations were cancelled before processing next batch
+			if (abortController.signal.aborted) {
+				console.log(`[repoSetupSimple] Operations cancelled before batch ${Math.floor(i / BATCH_SIZE) + 1}, stopping processing`);
+				break;
+			}
 
-					// Update current file
-					progress.currentFile = filePath;
-					progress.recentFiles.unshift({
-						path: filePath,
-						status: 'processing',
-						timestamp: Date.now(),
-					});
-					if (progress.recentFiles.length > 10) {
-						progress.recentFiles.pop();
+			// Check if already aborted before starting batch
+			if (abortController.signal.aborted) {
+				console.log(`[repoSetupSimple] Operations aborted, skipping batch ${Math.floor(i / BATCH_SIZE) + 1}`);
+				break;
+			}
+
+			// Process files in parallel within batch with proper cancellation control
+			const filePromises = batch.map(async (file) => {
+				const filePath = file.path;
+				const fileContent = file.content;
+				const fileHash = fileShas[filePath] || calculateFileHash(fileContent);
+
+				// Update current file
+				progress.currentFile = filePath;
+				progress.recentFiles.unshift({
+					path: filePath,
+					status: 'processing',
+					timestamp: Date.now(),
+				});
+				if (progress.recentFiles.length > 10) {
+					progress.recentFiles.pop();
+				}
+
+				try {
+					// Check if operations were cancelled
+					if (abortController.signal.aborted) {
+						console.log(`[repoSetupSimple] Operations cancelled, skipping file: ${filePath}`);
+						return;
 					}
 
-					try {
-						// Check cache
-						const cached = await getCachedSummary(supabase, repoId, filePath, fileHash, branch);
+					// Check cache
+					const cached = await getCachedSummary(supabase, repoId, filePath, fileHash, branch);
 
-						if (cached.exists && cached.hash === fileHash) {
-							// File is cached and up-to-date
-							progress.cachedFiles++;
-							const fileIndex = progress.recentFiles.findIndex(f => f.path === filePath);
-							if (fileIndex >= 0) {
-								progress.recentFiles[fileIndex].status = 'skipped';
-							}
-							console.log(`[repoSetupSimple] ✓ Cached: ${filePath}`);
-						} else {
-							// Generate summary
-							const summary = await generateSimpleFileSummary(fileContent, filePath, model);
-							await saveFileSummary(supabase, repoId, filePath, fileHash, summary, branch, userId, model);
-							progress.processedFiles++;
-							const fileIndex = progress.recentFiles.findIndex(f => f.path === filePath);
-							if (fileIndex >= 0) {
-								progress.recentFiles[fileIndex].status = 'completed';
-							}
-							console.log(`[repoSetupSimple] ✓ Processed: ${filePath}`);
+					if (cached.exists && cached.hash === fileHash) {
+						// File is cached and up-to-date
+						progress.cachedFiles++;
+						const fileIndex = progress.recentFiles.findIndex(f => f.path === filePath);
+						if (fileIndex >= 0) {
+							progress.recentFiles[fileIndex].status = 'skipped';
 						}
-					} catch (error: any) {
+						console.log(`[repoSetupSimple] ✓ Cached: ${filePath}`);
+					} else {
+						// Generate summary with abort signal
+						const summary = await generateFileSummary(fileContent, filePath, model);
+						await saveFileSummary(supabase, repoId, filePath, fileHash, summary, branch, userId, model);
+						progress.processedFiles++;
+						const fileIndex = progress.recentFiles.findIndex(f => f.path === filePath);
+						if (fileIndex >= 0) {
+							progress.recentFiles[fileIndex].status = 'completed';
+						}
+						console.log(`[repoSetupSimple] ✓ Processed: ${filePath}`);
+					}
+				} catch (error: any) {
+					// Handle cancellation vs other errors
+					if (error.name === 'AbortError' || error.message?.includes('cancelled')) {
+						console.log(`[repoSetupSimple] File processing cancelled: ${filePath}`);
+						const fileIndex = progress.recentFiles.findIndex(f => f.path === filePath);
+						if (fileIndex >= 0) {
+							progress.recentFiles[fileIndex].status = 'failed';
+						}
+						// Immediately abort all operations and re-throw to stop the batch
+						abortController.abort();
+						throw error;
+					} else {
 						console.error(`[repoSetupSimple] ❌ Failed: ${filePath} - ${error.message}`);
 						const fileIndex = progress.recentFiles.findIndex(f => f.path === filePath);
 						if (fileIndex >= 0) {
 							progress.recentFiles[fileIndex].status = 'failed';
 						}
-						// Continue with other files
+						// Don't throw for non-cancellation errors - continue with other files
 					}
-				})
+				}
+			});
+
+			// Wait for all files in batch to complete (or fail)
+			const results = await Promise.allSettled(filePromises);
+
+			// Check if any operation was cancelled - if so, abort everything immediately
+			const hasCancellation = results.some(result =>
+				result.status === 'rejected' &&
+				(result.reason?.name === 'AbortError' || result.reason?.message?.includes('cancelled'))
 			);
+
+			if (hasCancellation) {
+				console.log(`[repoSetupSimple] Cancellation detected in batch ${Math.floor(i / BATCH_SIZE) + 1}, aborting all operations immediately`);
+				abortController.abort();
+				break;
+			}
+
+			// Check if operations are already aborted (from another source)
+			if (abortController.signal.aborted) {
+				console.log(`[repoSetupSimple] Operations aborted during batch ${Math.floor(i / BATCH_SIZE) + 1} processing`);
+				break;
+			}
 
 			// Update progress after each batch
 			const { rate, estimatedSeconds } = calculateTimeEstimate(
@@ -355,6 +437,16 @@ export async function setupRepositorySimple(
 				processingRate: progress.processingRate,
 				estimatedTimeRemaining: progress.estimatedTimeRemaining,
 			});
+		}
+
+		// Check if operations were cancelled during processing
+		if (abortController.signal.aborted) {
+			console.log(`[repoSetupSimple] Operations were cancelled during processing, exiting`);
+			await updateProgress(supabase, setupId, {
+				phase: 'failed',
+				currentFile: null
+			});
+			throw new Error('Setup cancelled by user during processing');
 		}
 
 		// Phase 3: Validate
@@ -394,6 +486,9 @@ export async function setupRepositorySimple(
 			})
 			.eq('id', setupId);
 
+		// Unregister cancellation on successful completion
+		unregisterSetupCancellation(setupId);
+
 		return {
 			success: true,
 			totalFiles: progress.totalFiles,
@@ -416,6 +511,15 @@ export async function setupRepositorySimple(
 				setup_completed_at: new Date().toISOString(),
 			})
 			.eq('id', setupId);
+
+		// Remove the repository from workspace_repos if setup failed or was cancelled
+		console.log(`[repoSetupSimple] Aborting operations and removing failed/cancelled repository ${repoId} from workspace_repos`);
+		abortController.abort();
+		unregisterSetupCancellation(setupId);
+		await supabase
+			.from('workspace_repos')
+			.delete()
+			.eq('id', repoId);
 
 		throw error;
 	}

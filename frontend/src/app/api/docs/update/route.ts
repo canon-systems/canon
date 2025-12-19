@@ -135,7 +135,7 @@ export async function POST(request: NextRequest) {
                 // Look up existing summary data to preserve it while updating hash
                 const { data: existingSummary } = await supabase
                   .from('repo_file_summaries')
-                  .select('summary_text, summary_json, summary_model')
+                  .select('summary_text, summary_model')
                   .ilike('repo_id', normalizeRepoId(repo.repo_url))
                   .eq('branch', branch)
                   .eq('file_path', filePath)
@@ -147,7 +147,6 @@ export async function POST(request: NextRequest) {
                   p_file_path: filePath,
                   p_file_hash: currentHash,
                   p_summary_text: existingSummary?.summary_text || '', // Preserve existing or use empty string
-                  p_summary_json: existingSummary?.summary_json || {}, // Preserve existing or use empty object
                   p_summary_model: existingSummary?.summary_model || 'unknown', // Preserve existing or use default
                   p_user_id: user.id,
                   p_branch: branch,

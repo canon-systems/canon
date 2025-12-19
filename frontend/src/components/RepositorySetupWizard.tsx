@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronRight, CheckCircle2, Github, FileText, Loader2, AlertCircle, X } from 'lucide-react';
 
@@ -55,6 +55,7 @@ export function RepositorySetupWizard({ repoId, onComplete: _onComplete }: Repos
     processingRate?: number; // files per minute
     estimatedTimeRemaining?: number; // in seconds
   } | null>(null);
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const steps = [
     { id: 'connect' as SetupStep, title: '1. Repository Status', icon: Github },
@@ -86,8 +87,11 @@ export function RepositorySetupWizard({ repoId, onComplete: _onComplete }: Repos
   // Cleanup on component unmount
   useEffect(() => {
     return () => {
-      // If setup is still in progress when component unmounts, we could potentially cancel it
-      // But we'll let it continue in the background for now
+      // Clear the polling interval when component unmounts
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
     };
   }, []);
 
@@ -240,7 +244,7 @@ export function RepositorySetupWizard({ repoId, onComplete: _onComplete }: Repos
     let processingStartTime: number | null = null;
     const recentFiles: Array<{ path: string; status: 'completed' | 'skipped' | 'processing'; timestamp: number }> = [];
 
-    const pollInterval = setInterval(async () => {
+    pollIntervalRef.current = setInterval(async () => {
       pollCount++;
       const response = await fetch(`/api/repos/setup?repoId=${repoId}`);
       const data = await response.json();
@@ -319,6 +323,7 @@ export function RepositorySetupWizard({ repoId, onComplete: _onComplete }: Repos
             estimatedTimeRemaining: 0
           } : null);
           clearInterval(pollInterval);
+          pollIntervalRef.current = null;
 
           // Redirect to repositories route after showing success message
           setTimeout(() => {
@@ -347,6 +352,7 @@ export function RepositorySetupWizard({ repoId, onComplete: _onComplete }: Repos
             estimatedTimeRemaining
           } : null);
           clearInterval(pollInterval);
+          pollIntervalRef.current = null;
           setError(data.setup.errorMessage || 'Setup failed');
 
           // Show recovery option after a brief delay
@@ -712,8 +718,8 @@ export function RepositorySetupWizard({ repoId, onComplete: _onComplete }: Repos
                               message: 'Repository setup was cancelled by user.',
                               progress: 0
                             } : null);
-                            // Refresh setup status
-                            await loadSetupStatus();
+                            // Redirect to repos page after successful cancellation
+                            router.push('/repos');
                           } else {
                             alert('Failed to cancel setup. Please try again.');
                           }

@@ -21,7 +21,7 @@ type GenerateDocRequestBody = {
 };
 
 /**
- * Proxy endpoint that forwards requests to the FastAPI backend
+ * Generate documentation from repository content
  * Maps frontend field names to backend field names
  */
 export async function POST(request: NextRequest) {

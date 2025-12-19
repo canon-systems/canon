@@ -120,7 +120,7 @@ export class FileSummaryManager {
 
     const { data, error } = await this.supabase
       .from('repo_file_summaries')
-      .select('file_path, summary_text, summary_json')
+      .select('file_path, summary_text')
       .ilike('repo_id', this.repoId)
       .eq('branch', this.branch)
       .in('file_path', normalizedPaths);
@@ -225,7 +225,6 @@ export class FileSummaryManager {
               p_file_path: this.normalizeFilePath(file.path),
               p_file_hash: fileHash,
               p_summary_text: summary.summary_text,
-              p_summary_json: summary.summary_json,
               p_summary_model: model,
               p_user_id: null, // Will be set by RLS
               p_branch: this.branch,

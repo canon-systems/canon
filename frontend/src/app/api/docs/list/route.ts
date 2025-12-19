@@ -35,7 +35,6 @@ type SubmissionRow = {
 
 /**
  * GET: List documents with filtering and pagination
- * Proxies to FastAPI backend /api/docs
  */
 export async function GET(request: NextRequest) {
   try {

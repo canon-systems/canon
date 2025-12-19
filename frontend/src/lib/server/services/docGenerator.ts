@@ -240,7 +240,7 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 					// Load all summaries and find matching one with fuzzy path matching
 					const { data: reloadedSummaries } = await supabase
 						.from('repo_file_summaries')
-						.select('file_path, summary_text, summary_json')
+						.select('file_path, summary_text')
 						.ilike('repo_id', repoId)
 						.eq('branch', submissionBranch);
 
@@ -260,13 +260,11 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 				}
 			}
 
-			// Format summary for LLM
-			const summaryJson = summary.summary_json || {};
-			const problemSolved = summaryJson.problem_solved;
-			const functions = summaryJson.functions || [];
-			const apis = summaryJson.apis || [];
-			const imports = summaryJson.imports || [];
-			const dependencies = summaryJson.upstream_dependencies || [];
+			// Use summary text directly since we removed summary_json
+			const summaryText = summary.summary_text || 'No summary available';
+
+			// Format summary for LLM - simplified since we only have text now
+			let formattedSummary = `--- FILE: ${file.path} ---\n${summaryText}`;
 			const codeUses = summaryJson.code_uses || [];
 			const logic = summaryJson.logic || {};
 			const designPatterns = summaryJson.design_patterns || [];

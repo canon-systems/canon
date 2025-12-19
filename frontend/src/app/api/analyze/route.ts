@@ -5,7 +5,6 @@ import { analyzeRepository } from '@/lib/server/services/analyzeRepository';
 
 /**
  * POST: Analyze a repository
- * Proxies to FastAPI backend /api/analyze-repo
  */
 type AnalyzeRequestBody = {
   repoUrl: string;

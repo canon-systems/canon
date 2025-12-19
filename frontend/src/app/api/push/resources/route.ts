@@ -9,7 +9,6 @@ type OAuthConnectionRow = {
 
 /**
  * GET: List available resources (pages, databases, etc.) for a provider
- * Proxies to FastAPI backend /api/push/{provider}/resources
  */
 export async function GET(request: NextRequest) {
   try {

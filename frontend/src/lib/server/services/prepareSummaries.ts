@@ -220,7 +220,6 @@ export async function prepareFileSummaries(
 						p_file_path: filePath,
 						p_file_hash: currentHash,
 						p_summary_text: summary.summary_text,
-						p_summary_json: summary.summary_json,
 						p_summary_model: 'gpt-4o-mini',
 						p_user_id: userId || null,
 						// p_submission_id omitted - submissions table no longer exists
@@ -450,7 +449,6 @@ export async function generateAndSaveFileSummaries(
 						p_file_path: filePath,
 						p_file_hash: finalHash,
 						p_summary_text: summary.summary_text,
-						p_summary_json: summary.summary_json,
 						p_summary_model: model,
 						p_user_id: userId || null,
 						// p_submission_id omitted - submissions table no longer exists

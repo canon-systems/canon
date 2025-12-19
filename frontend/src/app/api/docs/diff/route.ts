@@ -18,7 +18,6 @@ type SubmissionRow = {
 
 /**
  * GET: Get document diff
- * Proxies to FastAPI backend /api/diff?docId=...
  */
 export async function GET(request: NextRequest) {
   try {

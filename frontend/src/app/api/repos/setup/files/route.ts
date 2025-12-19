@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
     // Get all file summaries for this repository
     const { data: fileSummaries, error: summariesError } = await supabase
       .from('repo_file_summaries')
-      .select('file_path, summary_text, summary_json, created_at, last_regenerated')
+      .select('file_path, summary_text, created_at, last_regenerated')
       .ilike('repo_id', `github.com/%/${repoId.split('/').pop()}`) // Match repo pattern
       .order('file_path');
 
@@ -82,7 +82,6 @@ export async function GET(request: NextRequest) {
     const files = (fileSummaries || []).map(summary => ({
       file_path: summary.file_path,
       summary_text: summary.summary_text,
-      summary_json: summary.summary_json,
       created_at: summary.created_at,
       last_regenerated: summary.last_regenerated,
     }));
