@@ -64,7 +64,7 @@ export function RepositorySetupWizard({ repoId, onComplete: _onComplete }: Repos
   // Load repository and setup data on mount
   useEffect(() => {
     loadRepositoryData();
-  }, [repoId, loadRepositoryData]);
+  }, [repoId]);
 
   // Prevent navigation away during setup process and handle cleanup
   useEffect(() => {
