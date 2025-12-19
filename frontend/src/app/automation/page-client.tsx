@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Zap, Plus, CheckCircle2, XCircle, Clock, Loader2, GitBranch, ExternalLink, TrendingUp, ChevronDown, Github, Trash2, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
@@ -1106,7 +1106,7 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                   const isExpanded = expandedRows.has(repo.id);
 
                   return (
-                    <>
+                    <React.Fragment key={repo.id}>
                       {/* Main Repository Row */}
                       <tr className="hover:bg-white/5 transition-colors cursor-pointer" onClick={() => toggleExpandedRow(repo.id)}>
                         <td className="px-4 py-3 w-8">
@@ -1296,7 +1296,7 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                           </td>
                         </tr>
                       )}
-                    </>
+                    </React.Fragment>
                   );
                 })}
               </tbody>
