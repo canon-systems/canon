@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { FileText, Layers3, AlertCircle, RefreshCw, ExternalLink, Calendar, GitBranch, Folder, Code, Clock, Hash, Zap, Github, PlayCircle, StopCircle, XCircle, ChevronDown, Link as LinkIcon, CheckCircle2 } from 'lucide-react';
 import Link from 'next/link';
@@ -158,7 +158,6 @@ export function LogsPageClient({ user, logs, repos = [] }: LogsPageClientProps) 
               skip_reason: run.skip_reason,
               actions: run.actions || [],
               doc_id: run.doc_id,
-              diagram_id: run.diagram_id,
               errors: run.errors || [],
               publish_status: run.publish_status,
               publish_provider: run.publish_provider,
@@ -673,15 +672,6 @@ export function LogsPageClient({ user, logs, repos = [] }: LogsPageClientProps) 
                                           >
                                             <FileText className="h-3 w-3" />
                                             View Document
-                                          </Link>
-                                        )}
-                                        {execution.diagram_id && (
-                                          <Link
-                                            href={`/architecture/${execution.diagram_id}`}
-                                            className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
-                                          >
-                                            <LinkIcon className="h-3 w-3" />
-                                            View Diagram
                                           </Link>
                                         )}
                                       </div>

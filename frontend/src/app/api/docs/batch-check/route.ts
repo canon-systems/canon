@@ -2,10 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
 
-export async function POST(_request: NextRequest) {
+export async function POST() {
   try {
     const supabase = await createClient();
-    await getSession();
 
     // Get all documents (replaced submissions)
     const { user } = await getSession();
@@ -20,12 +19,12 @@ export async function POST(_request: NextRequest) {
       .eq('workspace_id', user.id);
 
     const repoIds = userRepos?.map(r => r.id) || [];
-    
+
     const { data: documents, error: docError } = repoIds.length > 0
       ? await supabase
-          .from('documents')
-          .select('id, repo_id, updated_at')
-          .in('repo_id', repoIds)
+        .from('documents')
+        .select('id, repo_id, updated_at')
+        .in('repo_id', repoIds)
       : { data: null, error: null };
 
     if (docError) {

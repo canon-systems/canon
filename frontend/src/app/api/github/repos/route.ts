@@ -5,7 +5,7 @@ import { getSession } from '@/lib/auth';
 
 /**
  * API endpoint to list repositories for a GitHub user or organization
- * Supports both authenticated (user's repos) and anonymous (public org repos)
+ * Requires authenticated GitHub connection
  */
 export async function POST(request: NextRequest) {
   try {
@@ -16,10 +16,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'owner is required' }, { status: 400 });
     }
 
-    // Get user's GitHub connection (or anonymous if not connected)
+    // Require authentication and GitHub connection
     const { user } = await getSession();
+    if (!user) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
     const supabase = await createClient();
-    const octokit = await getUserOctokit(supabase, user?.id || null);
+    const octokit = await getUserOctokit(supabase, user.id);
 
     // Get authenticated user's GitHub username if authenticated
     // Try to get authenticated user - if this succeeds, user has GitHub connected
@@ -146,6 +149,18 @@ export async function POST(request: NextRequest) {
     });
   } catch (err: any) {
     console.error('Error fetching repositories:', err);
+
+    // Handle GitHub connection errors specifically
+    if (err.message?.includes('GitHub connection') || err.message?.includes('GitHub not connected')) {
+      return NextResponse.json(
+        {
+          error: 'GitHub connection required',
+          detail: err.message
+        },
+        { status: 403 }
+      );
+    }
+
     return NextResponse.json(
       {
         error: 'Failed to fetch repositories',

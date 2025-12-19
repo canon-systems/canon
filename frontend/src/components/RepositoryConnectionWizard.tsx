@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Github, Search, Loader2, CheckCircle2, AlertCircle, ExternalLink, Plus, ChevronRight } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
 
 interface RepositoryConnectionWizardProps {
   onComplete?: (repoId: string) => void;
@@ -24,7 +23,6 @@ interface GitHubRepo {
 
 export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryConnectionWizardProps) {
   const router = useRouter();
-  const supabase = createClient();
 
   const [step, setStep] = useState<'search' | 'select' | 'branch' | 'connect'>('search');
   const [searchQuery, setSearchQuery] = useState('');
@@ -49,7 +47,6 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
             (c: { provider: string; status: string }) =>
               c.provider === 'github' && c.status === 'active'
           );
-          console.log('GitHub connection check:', { hasConnection, connections: data.connections });
           setHasGitHubConnection(hasConnection);
         } else {
           console.error('Failed to check GitHub connection:', response.status);
@@ -147,8 +144,6 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
         provider: 'github'
       };
 
-      console.log('Frontend sending data:', requestData);
-      console.log('Selected repo full data:', selectedRepo);
 
       const createResponse = await fetch('/api/repos', {
         method: 'POST',
@@ -170,7 +165,7 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
         // Redirect to setup for the newly connected repository
         router.push(`/repos/setup?repoId=${repoData.id}`);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       setError(err.message || 'Failed to connect repository. Please try again.');
       console.error('Connection error:', err);
     } finally {

@@ -7,7 +7,6 @@ import {
   Code2,
   LayoutDashboard,
   BookOpen,
-  HelpCircle,
   Settings,
   Layers3,
   ChevronsLeft,
@@ -66,7 +65,6 @@ const navSections: Array<{ title: string; items: NavItem[] }> = [
     title: 'Resources',
     items: [
       { href: '/docs', label: 'Video Tutorials', icon: BookOpen },
-      { href: '/help', label: 'Help', icon: HelpCircle },
       { href: '/settings', label: 'Settings', icon: Settings, matchPrefix: true },
     ],
   },

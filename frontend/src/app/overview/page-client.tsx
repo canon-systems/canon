@@ -82,8 +82,6 @@ interface OverviewStats {
   failedDocuments: number;
   outdatedDocuments: number;
   totalRegenerated: number;
-  totalArchitectureDiagrams: number;
-  totalArchitectureVersions: number;
   autoUpdateEnabled: number;
   inputTypeBreakdown: Record<string, number>;
   rawData: {
@@ -94,16 +92,6 @@ interface OverviewStats {
       is_outdated: boolean;
       input_type: string | null;
     }>;
-    diagrams: Array<{
-      created_at: string;
-      last_updated_at: string;
-      auto_update_enabled: boolean;
-      title: string;
-    }>;
-    versions: Array<{
-      created_at: string;
-      version_number: number;
-    }>;
   };
   recentActivity: {
     submissions: Array<{
@@ -112,16 +100,9 @@ interface OverviewStats {
       status: string;
       is_outdated: boolean;
     }>;
-    diagrams: Array<{
-      id: string;
-      title: string;
-      last_updated_at: string;
-    }>;
   };
   errors: {
     submissions?: string;
-    diagrams?: string;
-    versions?: string;
     repos?: string;
   };
   automationRules?: Array<{
@@ -217,13 +198,6 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
       return checked.getTime() - created.getTime() > 60000;
     });
 
-    const filteredDiagrams = stats.rawData.diagrams.filter((diag) =>
-      filterByDate(diag.created_at)
-    );
-
-    const filteredVersions = stats.rawData.versions.filter((version) =>
-      filterByDate(version.created_at)
-    );
 
     // Calculate status breakdown
     const completed = filteredSubmissions.filter(s => s.status === 'completed').length;
@@ -232,30 +206,14 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
     const outdated = filteredSubmissions.filter(s => s.is_outdated).length;
 
     // Calculate activity over time (group by day)
-    const activityByDay: Record<string, { documents: number; diagrams: number; versions: number; date: string }> = {};
+    const activityByDay: Record<string, { documents: number; date: string }> = {};
 
     filteredSubmissions.forEach(sub => {
       const date = new Date(sub.created_at).toISOString().split('T')[0];
       if (!activityByDay[date]) {
-        activityByDay[date] = { documents: 0, diagrams: 0, versions: 0, date };
+        activityByDay[date] = { documents: 0, date };
       }
       activityByDay[date].documents++;
-    });
-
-    filteredDiagrams.forEach(diag => {
-      const date = new Date(diag.created_at).toISOString().split('T')[0];
-      if (!activityByDay[date]) {
-        activityByDay[date] = { documents: 0, diagrams: 0, versions: 0, date };
-      }
-      activityByDay[date].diagrams++;
-    });
-
-    filteredVersions.forEach(version => {
-      const date = new Date(version.created_at).toISOString().split('T')[0];
-      if (!activityByDay[date]) {
-        activityByDay[date] = { documents: 0, diagrams: 0, versions: 0, date };
-      }
-      activityByDay[date].versions++;
     });
 
     const activityData = Object.values(activityByDay)
@@ -292,13 +250,9 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
     return {
       totalDocuments: filteredSubmissions.filter(s => s.status === 'completed').length,
       totalRegenerated: filteredRegenerated.length,
-      totalArchitectureDiagrams: filteredDiagrams.length,
-      totalArchitectureVersions: filteredVersions.length,
       activityData: activityHasData ? activityData : [{
         date: new Date().toISOString().split('T')[0],
         documents: 0,
-        diagrams: 0,
-        versions: 0,
       }],
       inputTypeData: inputTypeHasData ? inputTypeData : [{
         name: 'No Data',
@@ -438,20 +392,6 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
           description="Updated after initial creation"
           color="green"
         />
-        <StatCard
-          title="Architecture Diagrams"
-          value={filteredStats.totalArchitectureDiagrams}
-          icon={Layers3}
-          description="Total diagrams created"
-          color="purple"
-        />
-        <StatCard
-          title="Diagram Versions"
-          value={filteredStats.totalArchitectureVersions}
-          icon={Activity}
-          description="Total version history"
-          color="orange"
-        />
       </div>
 
       {/* Additional Stats */}
@@ -544,22 +484,6 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
                   stroke="#3b82f6"
                   fill="url(#colorDocuments)"
                   name="Documents"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="diagrams"
-                  stackId="1"
-                  stroke="#a855f7"
-                  fill="url(#colorDiagrams)"
-                  name="Diagrams"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="versions"
-                  stackId="1"
-                  stroke="#10b981"
-                  fill="url(#colorVersions)"
-                  name="Versions"
                 />
               </AreaChart>
             </ResponsiveContainer>
@@ -854,23 +778,7 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
                 </Link>
               </div>
             ))}
-            {stats.recentActivity.diagrams.slice(0, 3).map((diag) => (
-              <div key={diag.id} className="flex items-center gap-3 p-3 rounded-lg border border-white/10 bg-white/5">
-                <div className="rounded-full p-2 bg-purple-500/20 text-purple-400">
-                  <Layers3 className="h-4 w-4" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-white truncate">{diag.title}</p>
-                  <p className="text-xs text-white/50">
-                    Updated {new Date(diag.last_updated_at).toLocaleString()}
-                  </p>
-                </div>
-                <Link href={`/architecture/${diag.id}/history`} className="text-white/60 hover:text-white">
-                  <LinkIcon className="h-4 w-4" />
-                </Link>
-              </div>
-            ))}
-            {stats.recentActivity.submissions.length === 0 && stats.recentActivity.diagrams.length === 0 && (
+            {stats.recentActivity.submissions.length === 0 && (
               <div className="text-center py-8 text-white/60">
                 <Activity className="h-8 w-8 mx-auto mb-2 opacity-50" />
                 <p className="text-sm">No recent activity</p>
@@ -881,7 +789,7 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
       </div>
 
       {/* Error Display (if any) */}
-      {(stats.errors.submissions || stats.errors.diagrams || stats.errors.versions) && (
+      {stats.errors.submissions && (
         <div className="glass-panel p-4 border border-red-500/20 bg-red-500/10">
           <p className="text-red-400 text-sm">
             Some data could not be loaded. Please refresh the page.

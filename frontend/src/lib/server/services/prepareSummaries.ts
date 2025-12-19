@@ -49,7 +49,7 @@ export async function prepareFileSummaries(
 	supabase: SupabaseClient,
 	documentId: string,
 	regenerateAll: boolean = false,
-	userId?: string | null,
+	userId: string,
 	onFileProgress?: (filePath: string, status: 'processing' | 'completed' | 'skipped' | 'failed', error?: string) => void
 ): Promise<{ filesPrepared: number; filesUpdated: number; filesSkipped: number }> {
 	const startTime = Date.now();
@@ -158,7 +158,7 @@ export async function prepareFileSummaries(
 	}
 
 	// Get GitHub client
-	const octokit = await getUserOctokit(supabase, userId || null);
+	const octokit = await getUserOctokit(supabase, userId);
 	const parsed = parseRepoUrl(repoUrl);
 	if (!parsed) {
 		throw new Error(`Invalid repo URL: ${repoUrl}`);

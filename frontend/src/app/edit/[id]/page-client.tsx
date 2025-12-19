@@ -10,8 +10,6 @@ import { RichTextEditor } from '@/components/RichTextEditor';
 import { IntegrationLogos } from '@/components/IntegrationLogos';
 import { ReviewPanel, ViewMode } from '@/components/ReviewPanel';
 import { EnhancedDiffViewer } from '@/components/EnhancedDiffViewer';
-import { InlineAIFix } from '@/components/InlineAIFix';
-import { DiagramDiffViewer } from '@/components/DiagramDiffViewer';
 import { marked } from 'marked';
 import TurndownService from 'turndown';
 import { buildFileChangeUrl } from '@/lib/utils/repoUrls';
@@ -163,8 +161,6 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
   const [isProcessing, setIsProcessing] = useState(false);
   const [showDiff, setShowDiff] = useState(false);
   const [diffData, setDiffData] = useState<any>(null);
-  const [showDiagramDiff, setShowDiagramDiff] = useState(false);
-  const [diagramDiffData, setDiagramDiffData] = useState<any>(null);
   const [originalMarkdown, setOriginalMarkdown] = useState(initialSubmission.markdown);
 
   const isGitRepo = initialSubmission.input_type === 'github_repo' || initialSubmission.input_type === 'github_repo_directory';
@@ -620,354 +616,18 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
   }
 
 
-  const [aiFixState, setAiFixState] = useState<{
-    isStreaming: boolean;
-    streamingContent: string;
-    originalMarkdown: string;
-    showAcceptReject: boolean;
-    previewMarkdown: string; // Preview of changes (not applied to editor)
-  }>({
-    isStreaming: false,
-    streamingContent: '',
-    originalMarkdown: '',
-    showAcceptReject: false,
-    previewMarkdown: ''
-  });
 
-  const [streamAbortController, setStreamAbortController] = useState<AbortController | null>(null);
 
-  async function handleAIFix(selectedText: string, instruction?: string, model?: string) {
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token;
 
-      if (!token) {
-        throw new Error('Not authenticated');
-      }
 
-      // Use provided model or fallback to submission metadata or default
-      const modelToUse = model || initialSubmission.source_meta?.model || 'gpt-4o';
 
-      // Store original markdown for potential rejection
-      const originalMarkdown = markdown;
 
-      // Create abort controller for cancellation
-      const abortController = new AbortController();
-      setStreamAbortController(abortController);
 
-      setAiFixState({
-        isStreaming: true,
-        streamingContent: '',
-        originalMarkdown: originalMarkdown,
-        showAcceptReject: false,
-        previewMarkdown: ''
-      });
 
-      // Call Next.js API route with streaming enabled
-      const response = await fetch('/api/ai-fix/apply', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          docId: initialSubmission.id,
-          markdownContent: markdown,
-          section: selectedText, // Use full selected text to identify section
-          instruction: instruction || 'Improve this section',
-          model: modelToUse,
-          stream: true
-        }),
-        signal: abortController.signal
-      });
 
-      // Check if request was aborted before processing response
-      if (abortController.signal.aborted) {
-        console.log('Request was aborted before response');
-        return;
-      }
 
-      if (!response.ok) {
-        // Try to get error message
-        let errorMessage = `Request failed with status ${response.status}`;
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.error || errorData.detail || errorMessage;
-        } catch {
-          // If response isn't JSON, use status text
-          errorMessage = response.statusText || errorMessage;
-        }
-        throw new Error(errorMessage);
-      }
 
-      // Check if response body exists
-      if (response.body === null) {
-        console.log('Response body is null - request may have been aborted');
-        return;
-      }
 
-      // Handle streaming response
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      if (!reader) {
-        throw new Error('No response body');
-      }
-
-      let streamComplete = false;
-      const STREAM_TIMEOUT = 30000; // 30 seconds timeout
-      let chunkCount = 0;
-      let lastActivityTime = Date.now();
-
-      // Set up timeout check interval
-      const timeoutCheckInterval = setInterval(() => {
-        const timeSinceLastActivity = Date.now() - lastActivityTime;
-        if (timeSinceLastActivity > STREAM_TIMEOUT) {
-          console.warn(`Stream timeout after ${STREAM_TIMEOUT}ms - no activity for ${Math.round(timeSinceLastActivity / 1000)}s`);
-          streamComplete = true;
-          // Abort the reader
-          reader.cancel();
-        }
-      }, 1000); // Check every second
-
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) {
-            console.log('Stream reader done - marking as complete');
-            streamComplete = true;
-            break;
-          }
-
-          lastActivityTime = Date.now();
-          const chunk = decoder.decode(value, { stream: true });
-          buffer += chunk;
-
-          // Process complete lines
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || ''; // Keep incomplete line in buffer
-
-          for (const line of lines) {
-            if (line.trim() === '') continue;
-
-            if (line.startsWith('data: ')) {
-              try {
-                const data = JSON.parse(line.slice(6));
-
-                if (data.error) {
-                  throw new Error(data.error);
-                }
-
-                if (data.done) {
-                  // Streaming complete
-                  console.log('Received done signal');
-                  streamComplete = true;
-                  break;
-                }
-
-                if (data.chunk) {
-                  chunkCount++;
-                  lastActivityTime = Date.now();
-
-                  // The chunk is always the full updated markdown (backend accumulates for us)
-                  const newMarkdown = data.chunk;
-
-                  console.log(`Received chunk ${chunkCount}, length: ${newMarkdown.length}`);
-
-                  // Store preview (don't update editor yet - wait for accept)
-                  setAiFixState(prev => ({
-                    ...prev,
-                    streamingContent: newMarkdown,
-                    previewMarkdown: newMarkdown
-                  }));
-
-                  // Don't update editor - changes are preview only until accepted
-                }
-              } catch (e) {
-                // Skip invalid JSON lines
-                console.warn('Failed to parse SSE data:', e, 'Line:', line.substring(0, 100));
-                continue;
-              }
-            } else if (line.trim()) {
-              // Log non-data lines for debugging
-              console.log('Non-data line:', line.substring(0, 100));
-            }
-          }
-
-          // Break from while loop if stream is complete
-          if (streamComplete) {
-            break;
-          }
-        }
-      } finally {
-        // Clear timeout interval
-        if (timeoutCheckInterval) {
-          clearInterval(timeoutCheckInterval);
-        }
-
-        // Always mark as complete when stream ends (even if done signal wasn't received)
-        console.log(`Stream processing complete. Received ${chunkCount} chunks.`);
-
-        // Only show accept/reject if we actually received content
-        if (chunkCount > 0 || aiFixState.streamingContent) {
-          setAiFixState(prev => ({
-            ...prev,
-            isStreaming: false,
-            showAcceptReject: true
-          }));
-        } else {
-          // If no chunks received, reset to original state
-          console.warn('No chunks received - resetting to original state');
-          setMarkdown(aiFixState.originalMarkdown);
-          const parsed = marked.parse(aiFixState.originalMarkdown);
-          setHtml(typeof parsed === 'string' ? parsed : '<p></p>');
-          setAiFixState({
-            isStreaming: false,
-            streamingContent: '',
-            originalMarkdown: '',
-            showAcceptReject: false,
-            previewMarkdown: ''
-          });
-        }
-
-        setStreamAbortController(null);
-      }
-
-      // Handle any remaining buffer
-      if (buffer.trim()) {
-        const line = buffer.trim();
-        if (line.startsWith('data: ')) {
-          try {
-            const data = JSON.parse(line.slice(6));
-            if (data.done) {
-              streamComplete = true;
-            } else if (data.chunk) {
-              const newMarkdown = data.chunk;
-              setMarkdown(newMarkdown);
-              const parsed = marked.parse(newMarkdown);
-              setHtml(typeof parsed === 'string' ? parsed : '<p></p>');
-              setAiFixState(prev => ({
-                ...prev,
-                streamingContent: newMarkdown
-              }));
-            }
-          } catch (e) {
-            // Ignore parse errors for buffer
-          }
-        }
-      }
-    } catch (error: any) {
-      console.error('Failed to apply AI fix:', error);
-
-      // Don't show error if it was a cancellation
-      if (error.name === 'AbortError' || error.message?.includes('aborted')) {
-        console.log('Request was aborted - reverting to original');
-        // Revert to original on cancel
-        if (aiFixState.originalMarkdown) {
-          setMarkdown(aiFixState.originalMarkdown);
-          const parsed = marked.parse(aiFixState.originalMarkdown);
-          setHtml(typeof parsed === 'string' ? parsed : '<p></p>');
-        }
-        setAiFixState({
-          isStreaming: false,
-          streamingContent: '',
-          originalMarkdown: '',
-          showAcceptReject: false,
-          previewMarkdown: ''
-        });
-        setStreamAbortController(null);
-        return;
-      }
-
-      // Revert to original on error
-      if (aiFixState.originalMarkdown) {
-        setMarkdown(aiFixState.originalMarkdown);
-        const parsed = marked.parse(aiFixState.originalMarkdown);
-        setHtml(typeof parsed === 'string' ? parsed : '<p></p>');
-      }
-      setAiFixState({
-        isStreaming: false,
-        streamingContent: '',
-        originalMarkdown: '',
-        showAcceptReject: false,
-        previewMarkdown: ''
-      });
-      setStreamAbortController(null);
-      alert(`Failed to improve text: ${error.message}`);
-    }
-  }
-
-  function handleCancelAIFix() {
-    console.log('Cancelling AI fix stream...');
-
-    // Abort the fetch request
-    if (streamAbortController) {
-      streamAbortController.abort();
-      setStreamAbortController(null);
-    }
-
-    // Revert to original markdown immediately
-    if (aiFixState.originalMarkdown) {
-      setMarkdown(aiFixState.originalMarkdown);
-      const parsed = marked.parse(aiFixState.originalMarkdown);
-      setHtml(typeof parsed === 'string' ? parsed : '<p></p>');
-    }
-
-    // Reset all state
-    setAiFixState({
-      isStreaming: false,
-      streamingContent: '',
-      originalMarkdown: '',
-      showAcceptReject: false,
-      previewMarkdown: ''
-    });
-
-    // Clear selection
-    window.getSelection()?.removeAllRanges();
-
-    console.log('AI fix cancelled and reverted');
-  }
-
-  function handleAcceptAIFix() {
-    // Apply the preview changes to the editor
-    if (aiFixState.previewMarkdown) {
-      setMarkdown(aiFixState.previewMarkdown);
-      const parsed = marked.parse(aiFixState.previewMarkdown);
-      setHtml(typeof parsed === 'string' ? parsed : '<p></p>');
-    }
-
-    // Reset state
-    setAiFixState({
-      isStreaming: false,
-      streamingContent: '',
-      originalMarkdown: '',
-      showAcceptReject: false,
-      previewMarkdown: ''
-    });
-    // Clear selection
-    window.getSelection()?.removeAllRanges();
-  }
-
-  function handleRejectAIFix() {
-    // Revert to original markdown (already in editor, but ensure it's correct)
-    if (aiFixState.originalMarkdown) {
-      setMarkdown(aiFixState.originalMarkdown);
-      const parsed = marked.parse(aiFixState.originalMarkdown);
-      setHtml(typeof parsed === 'string' ? parsed : '<p></p>');
-    }
-
-    // Reset state
-    setAiFixState({
-      isStreaming: false,
-      streamingContent: '',
-      originalMarkdown: '',
-      showAcceptReject: false,
-      previewMarkdown: ''
-    });
-    // Clear selection
-    window.getSelection()?.removeAllRanges();
-  }
 
   async function handleApplyTemplate(templateId: string) {
     try {
@@ -1028,24 +688,6 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
     }
   }
 
-  async function loadDiagramDiff() {
-    try {
-      const response = await fetch(`/api/docs/diagram-diff?docId=${initialSubmission.id}`);
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || error.detail || 'Failed to load diagram diff');
-      }
-
-      const result = await response.json();
-      setDiagramDiffData(result);
-      setShowDiagramDiff(true);
-      // View mode will be set by the ReviewPanel button click
-    } catch (error: any) {
-      console.error('Failed to load diagram diff:', error);
-      alert(`Failed to load diagram diff: ${error.message}`);
-    }
-  }
 
 
   // Load connections on mount
@@ -1368,16 +1010,6 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                         onChange={handleEditorChange}
                         onCursorChange={handleCursorChange}
                       />
-                      <InlineAIFix
-                        onFix={handleAIFix}
-                        onCancel={handleCancelAIFix}
-                        disabled={isProcessing}
-                        isStreaming={aiFixState.isStreaming}
-                        showAcceptReject={aiFixState.showAcceptReject}
-                        onAccept={handleAcceptAIFix}
-                        onReject={handleRejectAIFix}
-                        defaultModel={initialSubmission.source_meta?.model || 'gpt-4o'}
-                      />
                     </div>
                   </div>
                 </div>
@@ -1415,38 +1047,6 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
               </div>
             )}
 
-            {viewMode === 'diagram-diff' && (
-              <div className="space-y-2">
-                <div className="mb-1 flex items-center justify-between">
-                  <div className="text-sm text-white/70">Architecture Diagram Diff</div>
-                  <button
-                    onClick={() => {
-                      setViewMode('editor');
-                      setShowDiagramDiff(false);
-                    }}
-                    className="rounded-lg p-1.5 text-white/60 hover:bg-white/10 hover:text-white transition-all"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-                <div className="rounded-lg border border-white/10 bg-black/20 p-6">
-                  {showDiagramDiff && diagramDiffData ? (
-                    <DiagramDiffViewer
-                      addedNodes={diagramDiffData.added_nodes || []}
-                      removedNodes={diagramDiffData.removed_nodes || []}
-                      addedEdges={diagramDiffData.added_edges || []}
-                      removedEdges={diagramDiffData.removed_edges || []}
-                      currentDiagramMarkdown={diagramDiffData.current_diagram_markdown}
-                    />
-                  ) : (
-                    <div className="flex items-center justify-center py-12">
-                      <Loader2 className="h-6 w-6 animate-spin text-white/50" />
-                      <span className="ml-3 text-white/60">Loading diagram diff...</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Right Column - Review Panel */}
@@ -1461,7 +1061,6 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                   isProcessing={isProcessing}
                   onApplyTemplate={handleApplyTemplate}
                   onViewDiff={loadDiff}
-                  onViewDiagramDiff={loadDiagramDiff}
                 />
               </div>
 

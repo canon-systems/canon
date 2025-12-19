@@ -215,7 +215,10 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 				if (!submissionId) {
 					throw new Error(`Cannot generate missing summary for ${file.path} without submissionId`);
 				}
-				await prepareFileSummaries(supabase, submissionId, false, userId || null);
+				if (!userId) {
+					throw new Error(`Cannot generate missing summary for ${file.path} without userId`);
+				}
+				await prepareFileSummaries(supabase, submissionId, false, userId);
 
 				// Reload ALL summaries and use fuzzy matching
 				const { data: document } = await supabase

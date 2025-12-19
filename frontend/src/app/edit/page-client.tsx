@@ -145,8 +145,6 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
 
       // Debug: Log first item to check push metadata
       if (data.items && data.items.length > 0) {
-        console.log('Sample item:', data.items[0]);
-        console.log('Last pushed:', data.items[0].lastPushedProvider, data.items[0].lastPushedAt);
       }
     } catch (err: any) {
       setError(err.message || 'Failed to load documents');

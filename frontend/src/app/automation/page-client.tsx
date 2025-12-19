@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Zap, Plus, CheckCircle2, XCircle, Clock, Loader2, GitBranch, ExternalLink, TrendingUp, ChevronDown, Github, Trash2, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
@@ -341,8 +341,6 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
 
   // Repository management state
   const [loadingRepos, setLoadingRepos] = useState(false);
-  const [repoError, setRepoError] = useState('');
-  const [repoSuccess, setRepoSuccess] = useState('');
 
   // Tab management
 
@@ -1118,7 +1116,7 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                   const isExpanded = expandedRows.has(repo.id);
 
                   return (
-                    <React.Fragment key={repo.id}>
+                    <>
                       {/* Main Repository Row */}
                       <tr className="hover:bg-white/5 transition-colors cursor-pointer" onClick={() => toggleExpandedRow(repo.id)}>
                         <td className="px-4 py-3 w-8">
@@ -1310,7 +1308,7 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                           </td>
                         </tr>
                       )}
-                    </React.Fragment>
+                    </>
                   );
                 })}
               </tbody>
@@ -1567,16 +1565,6 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                                 value: 'docs_only',
                                 label: '📄 Update Documentation Only',
                                 description: 'Regenerate documentation when files change significantly'
-                              },
-                              {
-                                value: 'diagrams_only',
-                                label: '🎨 Update Diagrams Only',
-                                description: 'Generate architecture diagrams when changes are detected'
-                              },
-                              {
-                                value: 'docs_and_diagrams',
-                                label: '📊 Update Everything',
-                                description: 'Regenerate both documentation and diagrams'
                               },
                               {
                                 value: 'full_auto_publish',

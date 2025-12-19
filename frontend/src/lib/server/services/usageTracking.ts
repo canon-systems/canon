@@ -28,18 +28,6 @@ export async function trackDocGenerated(
 	});
 }
 
-export async function trackDiagramGenerated(
-	supabase: SupabaseClient,
-	workspaceId: string,
-	diagramId?: string | null,
-	repoId?: string | null
-) {
-	await trackUsageEvent(supabase, workspaceId, 'diagram_generated', {
-		diagram_id: diagramId,
-		repo_id: repoId,
-	});
-}
-
 export async function trackRepoScan(
 	supabase: SupabaseClient,
 	workspaceId: string,
@@ -63,20 +51,6 @@ export async function trackPushToKb(
 		provider,
 		doc_id: docId,
 		resource_id: resourceId,
-	});
-}
-
-export async function trackDocApproved(
-	supabase: SupabaseClient,
-	workspaceId: string,
-	docId: string,
-	autoApproved = false,
-	diffSize?: number | null
-) {
-	await trackUsageEvent(supabase, workspaceId, 'doc_approved', {
-		doc_id: docId,
-		auto_approved: autoApproved,
-		diff_size: diffSize,
 	});
 }
 

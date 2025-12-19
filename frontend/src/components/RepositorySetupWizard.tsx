@@ -35,7 +35,7 @@ interface Repository {
   default_branch: string;
 }
 
-export function RepositorySetupWizard({ repoId, onComplete }: RepositorySetupWizardProps) {
+export function RepositorySetupWizard({ repoId, onComplete: _onComplete }: RepositorySetupWizardProps) {
   const router = useRouter();
   const [currentStep, setCurrentStep] = useState<SetupStep>('connect');
   const [isLoading, setIsLoading] = useState(true);
@@ -64,7 +64,7 @@ export function RepositorySetupWizard({ repoId, onComplete }: RepositorySetupWiz
   // Load repository and setup data on mount
   useEffect(() => {
     loadRepositoryData();
-  }, [repoId]);
+  }, [repoId, loadRepositoryData]);
 
   // Prevent navigation away during setup process and handle cleanup
   useEffect(() => {
@@ -103,11 +103,10 @@ export function RepositorySetupWizard({ repoId, onComplete }: RepositorySetupWiz
       }
       const repoData = await repoResponse.json();
       setRepository(repoData);
-      console.log('Loaded repository:', repoData);
 
       // Then load setup status
       await loadSetupStatus();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to load repository data:', err);
       setError(err.message || 'Failed to load repository data');
     } finally {
@@ -170,7 +169,7 @@ export function RepositorySetupWizard({ repoId, onComplete }: RepositorySetupWiz
       } else {
         setError(data.error || 'Failed to load setup status');
       }
-    } catch (err) {
+    } catch (_err) {
       setError('Failed to load setup status');
     } finally {
       setIsLoadingSetupStatus(false);
@@ -226,7 +225,7 @@ export function RepositorySetupWizard({ repoId, onComplete }: RepositorySetupWiz
         setSetupProgress(null);
         setError(data.error || 'Failed to start setup');
       }
-    } catch (err) {
+    } catch (_err) {
       setSetupProgress(null);
       setError('Failed to start repository setup');
     } finally {
@@ -250,7 +249,6 @@ export function RepositorySetupWizard({ repoId, onComplete }: RepositorySetupWiz
 
         const now = Date.now();
         const elapsed = setupProgress ? now - setupProgress.startTime : 0;
-        const elapsedMinutes = Math.floor(elapsed / 60000);
         const elapsedSeconds = Math.floor(elapsed / 1000);
 
         const totalFiles = data.setup.totalFiles || 0;
@@ -937,7 +935,7 @@ export function RepositorySetupWizard({ repoId, onComplete }: RepositorySetupWiz
               <div className="flex-1">
                 <h3 className="font-medium text-amber-300">Setup In Progress</h3>
                 <p className="text-sm text-amber-200/80">
-                  Repository setup is currently running. Please don't navigate away until it's complete to ensure accurate progress tracking.
+                  Repository setup is currently running. Please don&apos;t navigate away until it&apos;s complete to ensure accurate progress tracking.
                 </p>
               </div>
             </div>
