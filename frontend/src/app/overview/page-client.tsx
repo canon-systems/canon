@@ -116,6 +116,7 @@ interface OverviewStats {
     lastRunStatus?: string;
     lastExecution?: any;
   }>;
+  connectedReposCount: number;
 }
 
 type TimeFilter = '24h' | '3d' | '7d' | '14d' | '30d' | '90d' | '180d' | '1y' | 'all';
@@ -325,7 +326,7 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
       </div>
 
       {/* Welcome Section for New Users */}
-      {stats.rawData.submissions.length === 0 && (!stats.automationRules || stats.automationRules.length === 0) && (
+      {stats.connectedReposCount === 0 && (
         <div className="glass-panel p-8 text-center">
           <div className="max-w-2xl mx-auto">
             <h2 className="text-2xl font-semibold text-white mb-4">Get Started with Sync</h2>

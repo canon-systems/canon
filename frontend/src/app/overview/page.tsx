@@ -108,6 +108,7 @@ export default async function OverviewPage() {
       repos: reposError?.message,
     },
     automationRules,
+    connectedReposCount: repoIds.length,
   };
 
   return (
