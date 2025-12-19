@@ -341,6 +341,7 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
 
   // Repository management state
   const [loadingRepos, setLoadingRepos] = useState(false);
+  const [repoError, setRepoError] = useState('');
 
   // Tab management
 
