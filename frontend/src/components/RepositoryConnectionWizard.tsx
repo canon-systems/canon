@@ -166,7 +166,8 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
         router.push(`/repos/setup?repoId=${repoData.id}`);
       }
     } catch (err: unknown) {
-      setError(err.message || 'Failed to connect repository. Please try again.');
+      const message = err instanceof Error ? err.message : typeof err === 'string' ? err : 'Failed to connect repository. Please try again.';
+      setError(message);
       console.error('Connection error:', err);
     } finally {
       setIsConnecting(false);

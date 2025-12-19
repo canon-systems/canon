@@ -108,7 +108,8 @@ export function RepositorySetupWizard({ repoId, onComplete: _onComplete }: Repos
       await loadSetupStatus();
     } catch (err: unknown) {
       console.error('Failed to load repository data:', err);
-      setError(err.message || 'Failed to load repository data');
+      const message = err instanceof Error ? err.message : typeof err === 'string' ? err : 'Failed to load repository data';
+      setError(message);
     } finally {
       setIsLoading(false);
     }
