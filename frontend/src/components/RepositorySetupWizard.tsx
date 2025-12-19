@@ -322,7 +322,9 @@ export function RepositorySetupWizard({ repoId, onComplete: _onComplete }: Repos
             processingRate,
             estimatedTimeRemaining: 0
           } : null);
-          clearInterval(pollInterval);
+          if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current);
+          }
           pollIntervalRef.current = null;
 
           // Redirect to repositories route after showing success message
@@ -351,7 +353,9 @@ export function RepositorySetupWizard({ repoId, onComplete: _onComplete }: Repos
             processingRate,
             estimatedTimeRemaining
           } : null);
-          clearInterval(pollInterval);
+          if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current);
+          }
           pollIntervalRef.current = null;
           setError(data.setup.errorMessage || 'Setup failed');
 
@@ -426,7 +430,9 @@ export function RepositorySetupWizard({ repoId, onComplete: _onComplete }: Repos
     // Stop polling after 25 minutes (increased timeout)
     setTimeout(() => {
       if (!setupProgress || setupProgress.progress < 100) {
-        clearInterval(pollInterval);
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current);
+        }
         setSetupProgress(prev => prev ? {
           ...prev,
           step: '⏱️ Taking Longer Than Expected',

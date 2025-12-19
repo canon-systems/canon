@@ -14,8 +14,10 @@ function normalizeRepoId(repoUrl: string): string {
 }
 
 export async function POST(request: NextRequest) {
+  const { repoId } = await request.json();
+  const supabase = await createClient();
+
   try {
-    const { repoId } = await request.json();
 
     if (!repoId) {
       return NextResponse.json(
@@ -23,8 +25,6 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-
-    const supabase = await createClient();
 
     // Verify user has access to this repository
     const { data: repo, error: repoError } = await supabase
