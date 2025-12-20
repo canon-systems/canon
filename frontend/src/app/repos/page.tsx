@@ -7,7 +7,7 @@ export default async function RepositoriesPage() {
 
   if (!user) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
+      <div className="flex items-center justify-center">
         <div className="glass-panel p-8 text-center">
           <h1 className="text-2xl font-bold text-white mb-4">Access Denied</h1>
           <p className="text-white/70">Please sign in to access repositories.</p>

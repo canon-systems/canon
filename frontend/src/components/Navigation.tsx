@@ -44,6 +44,7 @@ const navSections: Array<{ title: string; items: NavItem[] }> = [
     title: 'Create',
     items: [
       { href: '/documentation', label: 'Generate Docs', icon: FileText },
+      { href: '/architecture-diagrams', label: 'Architecture Diagrams', icon: Layers3 },
     ],
   },
   {
@@ -51,6 +52,7 @@ const navSections: Array<{ title: string; items: NavItem[] }> = [
     items: [
       { href: '/edit', label: 'Edit Documents', icon: BookOpen, matchPrefix: true },
       { href: '/automation', label: 'Automation', icon: Zap },
+      { href: '/architecture-diagrams/manage', label: 'Architecture Diagrams', icon: Layers3 },
     ],
   },
   {

@@ -121,11 +121,8 @@ export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagram
                     throw new Error('Diagram content does not appear to be valid Mermaid syntax (missing "graph TD")');
                 }
 
-                console.log('✅ Diagram content validation passed');
-
                 // Initialize Mermaid BEFORE checking refs (Mermaid needs to be ready first)
                 if (!mermaidInitialized) {
-                    console.log('🔄 Initializing Mermaid...');
                     try {
                         mermaid.initialize({
                             startOnLoad: false,
@@ -154,9 +151,8 @@ export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagram
                             securityLevel: 'loose' // Allow more HTML features
                         });
                         mermaidInitialized = true;
-                        console.log('✅ Mermaid initialized successfully');
                     } catch (initError) {
-                        console.error('❌ Mermaid initialization failed:', initError);
+                        console.error('Mermaid initialization failed:', initError);
                         throw new Error(`Mermaid initialization failed: ${initError instanceof Error ? initError.message : String(initError)}`);
                     }
                 }
@@ -164,22 +160,16 @@ export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagram
                 // Wait for next tick to ensure DOM is ready (optional but safer)
                 await new Promise(resolve => setTimeout(resolve, 0));
 
-                console.log('🎨 Rendering diagram with content:', diagram.content.substring(0, 200) + '...');
-
                 // Use a unique ID for each render to avoid conflicts (Mermaid requirement)
                 const uniqueId = `mermaid-diagram-${diagram.id}-${Date.now()}`;
-
-                console.log('🔧 About to call mermaid.render with ID:', uniqueId);
 
                 try {
                     // Try Mermaid v10 API first
                     let result;
                     try {
                         result = await mermaid.render(uniqueId, diagram.content);
-                        console.log('📊 Mermaid render result type:', typeof result);
-                        console.log('🔍 Mermaid render result keys:', Object.keys(result || {}));
                     } catch (renderError) {
-                        console.error('❌ Mermaid render failed:', renderError);
+                        console.error('Mermaid render failed:', renderError);
                         throw renderError;
                     }
 
@@ -193,9 +183,6 @@ export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagram
                         throw new Error('Unexpected Mermaid render result format');
                     }
 
-                    console.log('🎉 Extracted SVG content length:', svgContent.length);
-                    console.log('👀 SVG content preview:', svgContent.substring(0, 200));
-
                     if (!svgContent || svgContent.length < 50) {
                         throw new Error('SVG content is empty or too short');
                     }
@@ -204,15 +191,14 @@ export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagram
                     setError(null);
 
                 } catch (apiError) {
-                    console.error('🚨 Mermaid API error:', apiError);
+                    console.error('Mermaid API error:', apiError);
 
                     // Try fallback: generate HTML-based diagram from the Mermaid content
                     try {
-                        console.log('🔄 Generating fallback HTML diagram...');
                         const fallbackSvg = generateFallbackDiagram(diagram.content, diagram.analysis_data);
                         setRenderedSvg(fallbackSvg);
                     } catch (fallbackError) {
-                        console.error('❌ Fallback diagram generation failed:', fallbackError);
+                        console.error('Fallback diagram generation failed:', fallbackError);
                         // Ultimate fallback: simple error message
                         const errorSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200">
                             <rect width="100%" height="100%" fill="#1e293b" stroke="#ef4444" stroke-width="2"/>
@@ -268,7 +254,7 @@ export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagram
 
     if (loading) {
         return (
-            <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
+            <div className="flex items-center justify-center">
                 <div className="text-center">
                     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
                     <p className="text-white/70">Rendering architecture diagram...</p>
@@ -279,7 +265,7 @@ export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagram
 
     if (error) {
         return (
-            <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
+            <div className="flex items-center justify-center">
                 <div className="text-center max-w-2xl">
                     <div className="text-red-400 text-6xl mb-4">⚠️</div>
                     <h1 className="text-2xl font-bold text-white mb-2">Diagram Render Error</h1>
@@ -333,7 +319,7 @@ export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagram
     }
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+        <div>
             <div className="container mx-auto px-4 py-8">
                 {/* Header */}
                 <div className="mb-8">
@@ -390,35 +376,6 @@ export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagram
                                 </span>
                             </div>
                         </div>
-                    </div>
-                </div>
-
-                {/* Debug Info Panel */}
-                <div className="mb-4 glass-panel p-4">
-                    <h4 className="text-white font-medium mb-2">🔍 Debug Info:</h4>
-                    <div className="text-sm text-white/80 space-y-1 grid grid-cols-2 gap-2">
-                        <div>Diagram ID: <span className="text-blue-400">{diagram.id}</span></div>
-                        <div>Content Length: <span className="text-green-400">{diagram.content?.length || 0}</span></div>
-                        <div>SVG Length: <span className="text-yellow-400">{renderedSvg?.length || 0}</span></div>
-                        <div>Loading: <span className={loading ? "text-red-400" : "text-green-400"}>{loading ? 'Yes' : 'No'}</span></div>
-                        <div>Error: <span className={error ? "text-red-400" : "text-green-400"}>{error ? 'Yes' : 'No'}</span></div>
-                        <div>Mermaid Initialized: <span className={mermaidInitialized ? "text-green-400" : "text-red-400"}>{mermaidInitialized ? 'Yes' : 'No'}</span></div>
-                    </div>
-                    <div className="mt-3 pt-3 border-t border-white/20">
-                        <button
-                            onClick={() => {
-                                console.log('🔄 Force re-render triggered');
-                                setRenderedSvg('');
-                                setError(null);
-                                setLoading(true);
-                                // Trigger useEffect re-run by changing dependencies
-                                window.location.reload();
-                            }}
-                            className="px-3 py-1 text-sm bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded transition-colors"
-                            title="Force Re-render"
-                        >
-                            🔄 Force Re-render
-                        </button>
                     </div>
                 </div>
 
