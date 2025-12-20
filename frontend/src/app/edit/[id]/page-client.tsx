@@ -980,7 +980,7 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                   <div
                     className="prose prose-invert max-w-none text-white"
                     dangerouslySetInnerHTML={{
-                      __html: markdown ? marked.parse(markdown) : '<p class="text-white/50">No content</p>'
+                      __html: markdown ? marked.parse(markdown, { async: false }) : '<p class="text-white/50">No content</p>'
                     }}
                   />
                 </div>
