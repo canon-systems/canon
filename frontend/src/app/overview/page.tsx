@@ -27,6 +27,16 @@ export default async function OverviewPage() {
       .order('created_at', { ascending: false })
     : { data: null, error: null };
 
+  // Get architecture diagrams
+  const { data: architectureDiagrams, error: diagramsError } = repoIds.length > 0
+    ? await supabase
+      .from('diagrams')
+      .select('id, created_at, updated_at')
+      .eq('diagram_type', 'architecture')
+      .in('repo_id', repoIds)
+      .order('created_at', { ascending: false })
+    : { data: null, error: null };
+
 
   // Get automation rules from the new table
   const { data: rulesData, error: reposError } = await supabase
@@ -74,6 +84,18 @@ export default async function OverviewPage() {
     return updated.getTime() - created.getTime() > 60000;
   }).length || 0;
 
+  // Calculate architecture diagram statistics
+  const totalArchitectureDiagrams = architectureDiagrams?.length || 0;
+
+  // Count regenerated architecture diagrams
+  const architectureRegeneratedCount = architectureDiagrams?.filter((diagram) => {
+    if (!diagram.updated_at) return false;
+    const created = new Date(diagram.created_at);
+    const updated = new Date(diagram.updated_at);
+    // More than 1 minute difference indicates regeneration
+    return updated.getTime() - created.getTime() > 60000;
+  }).length || 0;
+
   // Get recent activity (last 10 items)
   const recentDocuments = documents?.slice(0, 10) || [];
 
@@ -85,6 +107,8 @@ export default async function OverviewPage() {
     outdatedDocuments: 0, // Documents don't have outdated state
     totalRegenerated: regeneratedCount,
     autoUpdateEnabled: 0,
+    totalArchitectureDiagrams: totalArchitectureDiagrams,
+    totalArchitectureRegenerated: architectureRegeneratedCount,
     inputTypeBreakdown: {}, // Documents don't have input_type
     rawData: {
       submissions: documents?.map((doc) => ({

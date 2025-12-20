@@ -83,6 +83,8 @@ interface OverviewStats {
   outdatedDocuments: number;
   totalRegenerated: number;
   autoUpdateEnabled: number;
+  totalArchitectureDiagrams: number;
+  totalArchitectureRegenerated: number;
   inputTypeBreakdown: Record<string, number>;
   rawData: {
     submissions: Array<{
@@ -392,6 +394,20 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
           icon={RefreshCw}
           description="Updated after initial creation"
           color="green"
+        />
+        <StatCard
+          title="Architecture Diagrams Generated"
+          value={stats.totalArchitectureDiagrams}
+          icon={Layers3}
+          description="Total completed diagrams"
+          color="purple"
+        />
+        <StatCard
+          title="Architecture Diagrams Regenerated"
+          value={stats.totalArchitectureRegenerated}
+          icon={RefreshCw}
+          description="Updated after initial creation"
+          color="orange"
         />
       </div>
 
