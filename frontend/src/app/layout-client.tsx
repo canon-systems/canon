@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import type { User, Session } from '@supabase/supabase-js';
 import { Navigation } from '@/components/Navigation';
@@ -16,7 +16,11 @@ export function RootLayoutClient({
   session: Session | null;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const supabase = createClient();
+  
+  // Hide navigation on login page
+  const isLoginPage = pathname === '/login';
 
   useEffect(() => {
     const {
@@ -81,7 +85,9 @@ export function RootLayoutClient({
       </div>
 
       <div className="app-layout">
-        <Navigation user={initialUser} session={initialSession} onLogout={handleLogout} />
+        {!isLoginPage && (
+          <Navigation user={initialUser} session={initialSession} onLogout={handleLogout} />
+        )}
 
         <div className="app-layout__main">
           <main className="app-main">{children}</main>
