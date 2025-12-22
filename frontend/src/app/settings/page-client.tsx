@@ -6,6 +6,7 @@ import { Settings, User, Link2, Sliders, Mail, Check, X, Loader2, Github, CheckC
 import { IntegrationLogos } from '@/components/IntegrationLogos';
 import Nango from '@nangohq/frontend';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
 interface Connection {
   id: string;
@@ -235,7 +236,8 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     });
   }
 
-  function setActiveTabAndUpdateUrl(tabId: TabId) {
+  function setActiveTabAndUpdateUrl(value: string) {
+    const tabId = value as TabId;
     setActiveTab(tabId);
     router.push(`/settings?tab=${tabId}`, { scroll: false });
   }
@@ -268,32 +270,21 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
           </p>
         </div>
 
-        {/* Tabs Navigation */}
-        <div className="mb-8 border-b border-white/10">
-          <nav className="flex gap-1" aria-label="Settings tabs">
+        {/* Tabs */}
+        <Tabs value={activeTab} onValueChange={setActiveTabAndUpdateUrl} className="mb-8">
+          <TabsList className="bg-white/5 border border-white/10">
             {tabs.map(tab => {
               const Icon = tab.icon;
               return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTabAndUpdateUrl(tab.id)}
-                  className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors border-b-2 ${activeTab === tab.id
-                    ? 'border-blue-500 text-white'
-                    : 'border-transparent text-white/60 hover:text-white hover:border-white/20'
-                    }`}
-                >
+                <TabsTrigger key={tab.id} value={tab.id} className="flex items-center gap-2 data-[state=active]:bg-white/10 data-[state=active]:text-white">
                   <Icon className="h-4 w-4" />
                   {tab.name}
-                </button>
+                </TabsTrigger>
               );
             })}
-          </nav>
-        </div>
-
-        {/* Tab Content */}
-        <div className="mt-6">
-          {activeTab === 'profile' ? (
-            /* Profile Tab */
+          </TabsList>
+          <TabsContent value="profile" className="mt-6">
+            {/* Profile Tab */}
             <div>
               <div className="mb-6">
                 <h2 className="text-2xl font-semibold text-white mb-2">Profile</h2>
@@ -332,8 +323,10 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                 </div>
               </div>
             </div>
-          ) : activeTab === 'integrations' ? (
-            /* Integrations Tab */
+          </TabsContent>
+
+          <TabsContent value="integrations" className="mt-6">
+            {/* Integrations Tab */}
             <div>
               {/* Success/Error Messages */}
               {success && (
@@ -616,8 +609,10 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                 )}
               </div>
             </div>
-          ) : activeTab === 'preferences' ? (
-            /* Preferences Tab */
+          </TabsContent>
+
+          <TabsContent value="preferences" className="mt-6">
+            {/* Preferences Tab */}
             <div>
               <div className="mb-6">
                 <h2 className="text-2xl font-semibold text-white mb-2">Preferences</h2>
@@ -636,8 +631,8 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                 </div>
               </div>
             </div>
-          ) : null}
-        </div>
+          </TabsContent>
+        </Tabs>
       </div>
 
       {/* Disconnect Confirmation Modal */}

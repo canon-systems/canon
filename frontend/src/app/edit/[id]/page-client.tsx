@@ -1204,7 +1204,7 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
           </button>
 
           <Link
-            href="/edit"
+            href="/documentation?tab=edit"
             className="rounded-xl border border-white/20 px-4 py-2 text-white/80 hover:bg-white/10"
           >
             Back to Edit

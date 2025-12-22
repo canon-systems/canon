@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Github, Loader2, AlertTriangle, Info, Search, X, FileText, GitBranch, Eye, Calendar, Layers3, Trash2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
@@ -11,6 +11,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
 interface RepoWithSetup {
     id: string;
@@ -35,13 +36,19 @@ interface ArchitectureDiagram {
     };
 }
 
+type TabId = 'generate' | 'view';
+
 interface ArchitectureDiagramsPageClientProps {
     repos?: RepoWithSetup[];
 }
 
 export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: ArchitectureDiagramsPageClientProps = {}) {
     const router = useRouter();
+    const searchParams = useSearchParams();
     const supabase = createClient();
+
+    // Tab management
+    const [activeTab, setActiveTab] = useState<TabId>('generate');
 
     const [availableRepos, setAvailableRepos] = useState<RepoWithSetup[]>(initialRepos);
     const [loadingRepos, setLoadingRepos] = useState(false);
@@ -51,7 +58,7 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
     const [successMsg, setSuccessMsg] = useState('');
     const [hasGitHubConnection, setHasGitHubConnection] = useState(false);
     const [checkingGitHub, setCheckingGitHub] = useState(true);
-    
+
     // Diagrams state
     const [diagrams, setDiagrams] = useState<ArchitectureDiagram[]>([]);
     const [loadingDiagrams, setLoadingDiagrams] = useState(true);
@@ -97,6 +104,15 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
 
         loadRepos();
     }, [supabase]);
+
+    // Tab initialization
+    useEffect(() => {
+        const tabParam = searchParams.get('tab');
+        const validTabs: TabId[] = ['generate', 'view'];
+        if (tabParam && validTabs.includes(tabParam as TabId)) {
+            setActiveTab(tabParam as TabId);
+        }
+    }, [searchParams]);
 
     // Check GitHub connection status
     useEffect(() => {
@@ -248,239 +264,284 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
         }
     }
 
+    function setActiveTabAndUpdateUrl(value: string) {
+        const tabId = value as TabId;
+        setActiveTab(tabId);
+        router.push(`/architecture-diagrams?tab=${tabId}`, { scroll: false });
+    }
+
+    const tabs: Array<{ id: TabId; name: string; icon: any }> = [
+        { id: 'generate', name: 'Generate', icon: Layers3 },
+        { id: 'view', name: 'View', icon: Eye }
+    ];
+
     return (
         <div className="min-h-screen px-4 py-8 sm:px-6 lg:px-8">
-            <div className="mx-auto max-w-4xl space-y-6">
-                <Card className="border border-white/10 bg-gradient-to-b from-white/5 to-white/0 shadow-lg">
-                    <CardHeader className="space-y-1 pb-6">
-                        <CardTitle className="text-2xl font-semibold text-white">Architecture Diagrams</CardTitle>
-                        <CardDescription className="text-white/70">
-                            Generate visual architecture diagrams from your codebase using advanced code analysis.
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-6">
-                        {/* GitHub Connection Status */}
-                        {!checkingGitHub && !hasGitHubConnection && (
-                            <Alert variant="warning">
-                                <AlertTriangle className="h-5 w-5" />
-                                <div>
-                                    <AlertTitle>GitHub Connection Required</AlertTitle>
-                                    <AlertDescription>
-                                        Connect your GitHub account to analyze private repositories and access higher rate limits.
-                                        <Button variant="secondary" size="sm" asChild className="ml-2 mt-2">
-                                            <Link href="/integrations">
-                                                <Github className="h-4 w-4" />
-                                                Connect GitHub
-                                            </Link>
-                                        </Button>
-                                    </AlertDescription>
-                                </div>
-                            </Alert>
-                        )}
+            <div className="mx-auto max-w-6xl">
+                <div className="mb-8">
+                    <div className="flex items-center gap-3 mb-2">
+                        <Layers3 className="h-8 w-8 text-white" />
+                        <h1 className="text-3xl font-bold text-white">Architecture Diagrams</h1>
+                    </div>
+                    <p className="text-white/70">
+                        Generate and manage visual architecture diagrams from your codebase.
+                    </p>
+                </div>
 
-                        <Separator />
+                {/* Tabs */}
+                <Tabs value={activeTab} onValueChange={setActiveTabAndUpdateUrl} className="mb-8">
+                    <TabsList className="bg-white/5 border border-white/10">
+                        {tabs.map(tab => {
+                            const Icon = tab.icon;
+                            return (
+                                <TabsTrigger key={tab.id} value={tab.id} className="flex items-center gap-2 data-[state=active]:bg-white/10 data-[state=active]:text-white">
+                                    <Icon className="h-4 w-4" />
+                                    {tab.name}
+                                </TabsTrigger>
+                            );
+                        })}
+                    </TabsList>
 
-                        {/* Repository Selection */}
-                        <div className="space-y-4">
-                            <div>
-                                <h2 className="text-base font-medium text-white">Select Repository</h2>
-                                <p className="text-sm text-white/60">Choose a repository to generate an architecture diagram from.</p>
-                            </div>
+                    <TabsContent value="generate" className="mt-6">
+                        <Card className="border border-white/10 bg-gradient-to-b from-white/5 to-white/0 shadow-lg">
+                            <CardHeader className="space-y-1 pb-6">
+                                <CardTitle className="text-2xl font-semibold text-white">Generate Architecture Diagram</CardTitle>
+                                <CardDescription className="text-white/70">
+                                    Generate visual architecture diagrams from your codebase using advanced code analysis.
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-6">
+                                {/* GitHub Connection Status */}
+                                {!checkingGitHub && !hasGitHubConnection && (
+                                    <Alert variant="warning">
+                                        <AlertTriangle className="h-5 w-5" />
+                                        <div>
+                                            <AlertTitle>GitHub Connection Required</AlertTitle>
+                                            <AlertDescription>
+                                                Connect your GitHub account to analyze private repositories and access higher rate limits.
+                                                <Button variant="secondary" size="sm" asChild className="ml-2 mt-2">
+                                                    <Link href="/integrations">
+                                                        <Github className="h-4 w-4" />
+                                                        Connect GitHub
+                                                    </Link>
+                                                </Button>
+                                            </AlertDescription>
+                                        </div>
+                                    </Alert>
+                                )}
 
-                            {loadingRepos ? (
-                                <div className="flex items-center gap-2 text-white/70">
-                                    <Loader2 className="w-4 h-4 animate-spin" />
-                                    Loading repositories...
-                                </div>
-                            ) : availableRepos.length === 0 ? (
-                                <Card>
-                                    <CardContent className="p-12 text-center">
-                                        <FileText className="w-12 h-12 text-white/30 mx-auto mb-4" />
-                                        <h3 className="text-lg font-medium text-white mb-2">No Repositories Available</h3>
-                                        <p className="text-white/70 mb-4">
-                                            Set up repositories to generate architecture diagrams. Repositories must complete the full setup process.
-                                        </p>
-                                        <Button asChild>
-                                            <Link href="/repos">
-                                                <Github className="w-4 h-4" />
-                                                Manage Repositories
-                                            </Link>
-                                        </Button>
-                                    </CardContent>
-                                </Card>
-                            ) : (
-                                <RadioGroup value={selectedRepoId || ''} onValueChange={setSelectedRepoId}>
-                                    {availableRepos.map(repo => (
-                                        <RadioGroupItem key={repo.id} value={repo.id}>
-                                            <div className="flex items-center justify-between w-full">
-                                                <div className="flex items-center gap-3">
-                                                    <Github className="w-5 h-5 text-white/70" />
-                                                    <div>
-                                                        <div className="text-white font-medium">{repo.name}</div>
-                                                        <div className="text-white/60 text-sm">{repo.repo_url}</div>
-                                                    </div>
-                                                </div>
-                                                <div className="flex items-center gap-2">
-                                                    <GitBranch className="w-4 h-4 text-white/50" />
-                                                    <span className="text-white/50 text-sm">{repo.setup_branch}</span>
-                                                </div>
-                                            </div>
-                                        </RadioGroupItem>
-                                    ))}
-                                </RadioGroup>
-                            )}
-                        </div>
-
-                        {/* Generate Button */}
-                        {selectedRepoId && (
-                            <>
                                 <Separator />
+
+                                {/* Repository Selection */}
                                 <div className="space-y-4">
                                     <div>
-                                        <h3 className="text-base font-medium text-white">Generate Architecture Diagram</h3>
-                                        <p className="text-sm text-white/60">
-                                            Analyze {selectedRepo?.name} and create a visual architecture diagram using Tree-sitter AST parsing.
-                                        </p>
+                                        <h2 className="text-base font-medium text-white">Select Repository</h2>
+                                        <p className="text-sm text-white/60">Choose a repository to generate an architecture diagram from.</p>
                                     </div>
-                                    <Button
-                                        onClick={generateDiagram}
-                                        disabled={generating}
-                                        className="w-full sm:w-auto"
-                                    >
-                                        {generating ? (
-                                            <>
-                                                <Loader2 className="w-4 h-4 animate-spin" />
-                                                Analyzing...
-                                            </>
-                                        ) : (
-                                            <>
-                                                <FileText className="w-4 h-4" />
-                                                Generate Diagram
-                                            </>
+
+                                    {loadingRepos ? (
+                                        <div className="flex items-center gap-2 text-white/70">
+                                            <Loader2 className="w-4 h-4 animate-spin" />
+                                            Loading repositories...
+                                        </div>
+                                    ) : availableRepos.length === 0 ? (
+                                        <Card>
+                                            <CardContent className="p-12 text-center">
+                                                <FileText className="w-12 h-12 text-white/30 mx-auto mb-4" />
+                                                <h3 className="text-lg font-medium text-white mb-2">No Repositories Available</h3>
+                                                <p className="text-white/70 mb-4">
+                                                    Set up repositories to generate architecture diagrams. Repositories must complete the full setup process.
+                                                </p>
+                                                <Button asChild>
+                                                    <Link href="/repos">
+                                                        <Github className="w-4 h-4" />
+                                                        Manage Repositories
+                                                    </Link>
+                                                </Button>
+                                            </CardContent>
+                                        </Card>
+                                    ) : (
+                                        <RadioGroup value={selectedRepoId || ''} onValueChange={setSelectedRepoId}>
+                                            {availableRepos.map(repo => (
+                                                <RadioGroupItem key={repo.id} value={repo.id}>
+                                                    <div className="flex items-center justify-between w-full">
+                                                        <div className="flex items-center gap-3">
+                                                            <Github className="w-5 h-5 text-white/70" />
+                                                            <div>
+                                                                <div className="text-white font-medium">{repo.name}</div>
+                                                                <div className="text-white/60 text-sm">{repo.repo_url}</div>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            <GitBranch className="w-4 h-4 text-white/50" />
+                                                            <span className="text-white/50 text-sm">{repo.setup_branch}</span>
+                                                        </div>
+                                                    </div>
+                                                </RadioGroupItem>
+                                            ))}
+                                        </RadioGroup>
+                                    )}
+                                </div>
+
+                                {/* Generate Button */}
+                                {selectedRepoId && (
+                                    <>
+                                        <Separator />
+                                        <div className="space-y-4">
+                                            <div>
+                                                <h3 className="text-base font-medium text-white">Generate Architecture Diagram</h3>
+                                                <p className="text-sm text-white/60">
+                                                    Analyze {selectedRepo?.name} and create a visual architecture diagram using Tree-sitter AST parsing.
+                                                </p>
+                                            </div>
+                                            <Button
+                                                onClick={generateDiagram}
+                                                disabled={generating}
+                                                className="w-full sm:w-auto"
+                                            >
+                                                {generating ? (
+                                                    <>
+                                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                                        Analyzing...
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <FileText className="w-4 h-4" />
+                                                        Generate Diagram
+                                                    </>
+                                                )}
+                                            </Button>
+                                        </div>
+                                    </>
+                                )}
+
+                                {/* Messages */}
+                                {(errorMsg || successMsg) && (
+                                    <div className="space-y-2">
+                                        {errorMsg && (
+                                            <Alert variant="destructive">
+                                                <AlertTriangle className="h-4 w-4" />
+                                                <AlertDescription>{errorMsg}</AlertDescription>
+                                            </Alert>
                                         )}
+                                        {successMsg && (
+                                            <Alert variant="success">
+                                                <Info className="h-4 w-4" />
+                                                <AlertDescription>{successMsg}</AlertDescription>
+                                            </Alert>
+                                        )}
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
+                    </TabsContent>
+
+                    <TabsContent value="view" className="mt-6">
+                        {/* View Tab */}
+                        <div className="space-y-6">
+                            {/* Header */}
+                            <div className="flex items-center gap-3 mb-6">
+                                <Eye className="h-6 w-6 text-white" />
+                                <div>
+                                    <h2 className="text-2xl font-semibold text-white">Your Architecture Diagrams</h2>
+                                    <p className="text-white/70">View and manage your generated architecture diagrams.</p>
+                                </div>
+                            </div>
+
+                            {/* Diagrams List */}
+                            {loadingDiagrams ? (
+                                <div className="flex items-center justify-center py-12">
+                                    <Loader2 className="h-8 w-8 animate-spin text-white/50" />
+                                    <span className="ml-2 text-white/60">Loading diagrams...</span>
+                                </div>
+                            ) : diagrams.length === 0 ? (
+                                <div className="text-center py-12">
+                                    <Layers3 className="w-16 h-16 text-white/20 mx-auto mb-4" />
+                                    <h3 className="text-lg font-medium text-white mb-2">No Architecture Diagrams Yet</h3>
+                                    <p className="text-white/70 mb-6">
+                                        Generate your first architecture diagram to get started with visualizing your codebase structure.
+                                    </p>
+                                    <Button onClick={() => setActiveTabAndUpdateUrl('generate')}>
+                                        <Layers3 className="w-4 h-4" />
+                                        Generate Diagram
                                     </Button>
                                 </div>
-                            </>
-                        )}
-
-                        {/* Messages */}
-                        {(errorMsg || successMsg) && (
-                            <div className="space-y-2">
-                                {errorMsg && (
-                                    <Alert variant="destructive">
-                                        <AlertTriangle className="h-4 w-4" />
-                                        <AlertDescription>{errorMsg}</AlertDescription>
-                                    </Alert>
-                                )}
-                                {successMsg && (
-                                    <Alert variant="success">
-                                        <Info className="h-4 w-4" />
-                                        <AlertDescription>{successMsg}</AlertDescription>
-                                    </Alert>
-                                )}
-                            </div>
-                        )}
-                    </CardContent>
-                </Card>
-
-                {/* Existing Diagrams Section */}
-                <Card>
-                    <CardHeader>
-                        <CardTitle className="text-xl font-semibold text-white">Your Architecture Diagrams</CardTitle>
-                        <CardDescription className="text-white/70">
-                            View and manage your generated architecture diagrams.
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        {loadingDiagrams ? (
-                            <div className="flex items-center justify-center py-12">
-                                <Loader2 className="h-6 w-6 animate-spin text-white/50" />
-                                <span className="ml-3 text-white/60">Loading diagrams...</span>
-                            </div>
-                        ) : diagrams.length === 0 ? (
-                            <div className="text-center py-12">
-                                <Layers3 className="w-16 h-16 text-white/20 mx-auto mb-4" />
-                                <h3 className="text-lg font-medium text-white mb-2">No Architecture Diagrams Yet</h3>
-                                <p className="text-white/70 mb-6">
-                                    Generate your first architecture diagram to get started with visualizing your codebase structure.
-                                </p>
-                            </div>
-                        ) : (
-                            <div className="space-y-4">
-                                {diagrams.map((diagram) => (
-                                    <Card key={diagram.id} className="hover:shadow-lg transition-shadow">
-                                        <CardContent className="p-6">
-                                            <div className="flex items-start justify-between">
-                                                <div className="flex-1">
-                                                    <div className="flex items-center gap-3 mb-2">
-                                                        <Layers3 className="w-5 h-5 text-blue-400" />
-                                                        <h3 className="text-lg font-semibold text-white">
-                                                            {diagram.title}
-                                                        </h3>
-                                                    </div>
-
-                                                    <div className="flex items-center gap-4 text-sm text-white/60 mb-3">
-                                                        <div className="flex items-center gap-1">
-                                                            <Github className="w-4 h-4" />
-                                                            <span>{diagram.repo_name}</span>
+                            ) : (
+                                <div className="space-y-4">
+                                    {diagrams.map((diagram) => (
+                                        <Card key={diagram.id} className="hover:shadow-lg transition-shadow border border-white/10 bg-white/5">
+                                            <CardContent className="p-6">
+                                                <div className="flex items-start justify-between">
+                                                    <div className="flex-1">
+                                                        <div className="flex items-center gap-3 mb-2">
+                                                            <Layers3 className="w-5 h-5 text-blue-400" />
+                                                            <h3 className="text-lg font-semibold text-white">
+                                                                {diagram.title}
+                                                            </h3>
                                                         </div>
-                                                        <div className="flex items-center gap-1">
-                                                            <Calendar className="w-4 h-4" />
-                                                            <span>{formatDate(diagram.created_at)}</span>
-                                                        </div>
-                                                        <div className="flex items-center gap-1">
-                                                            <FileText className="w-4 h-4" />
-                                                            <span>
-                                                                {diagram.analysis_data?.components?.length || 0} components,
-                                                                {' '}{diagram.analysis_data?.relationships?.length || 0} relationships
-                                                            </span>
-                                                        </div>
-                                                    </div>
 
-                                                    {diagram.repo_url && (
-                                                        <p className="text-white/50 text-sm">
-                                                            {diagram.repo_url}
-                                                        </p>
-                                                    )}
-                                                </div>
+                                                        <div className="flex items-center gap-4 text-sm text-white/60 mb-3">
+                                                            <div className="flex items-center gap-1">
+                                                                <Github className="w-4 h-4" />
+                                                                <span>{diagram.repo_name}</span>
+                                                            </div>
+                                                            <div className="flex items-center gap-1">
+                                                                <Calendar className="w-4 h-4" />
+                                                                <span>{formatDate(diagram.created_at)}</span>
+                                                            </div>
+                                                            <div className="flex items-center gap-1">
+                                                                <FileText className="w-4 h-4" />
+                                                                <span>
+                                                                    {diagram.analysis_data?.components?.length || 0} components,
+                                                                    {' '}{diagram.analysis_data?.relationships?.length || 0} relationships
+                                                                </span>
+                                                            </div>
+                                                        </div>
 
-                                                <div className="flex items-center gap-2">
-                                                    <Button variant="secondary" size="sm" asChild>
-                                                        <Link href={`/architecture-diagrams/view/${diagram.id}`}>
-                                                            <Eye className="w-4 h-4" />
-                                                            View
-                                                        </Link>
-                                                    </Button>
-                                                    <Button
-                                                        variant="destructive"
-                                                        size="sm"
-                                                        onClick={() => openDeleteModal({ id: diagram.id, title: diagram.title })}
-                                                        disabled={deletingDiagramId === diagram.id}
-                                                    >
-                                                        {deletingDiagramId === diagram.id ? (
-                                                            <Loader2 className="w-4 h-4 animate-spin" />
-                                                        ) : (
-                                                            <Trash2 className="w-4 h-4" />
+                                                        {diagram.repo_url && (
+                                                            <p className="text-white/50 text-sm">
+                                                                {diagram.repo_url}
+                                                            </p>
                                                         )}
-                                                    </Button>
-                                                </div>
-                                            </div>
-                                        </CardContent>
-                                    </Card>
-                                ))}
-                                
-                                {diagrams.length >= 10 && (
-                                    <div className="text-center pt-4">
-                                        <Button variant="secondary" asChild>
-                                            <Link href="/architecture-diagrams/manage">View All Diagrams</Link>
-                                        </Button>
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                    </CardContent>
-                </Card>
+                                                    </div>
 
+                                                    <div className="flex items-center gap-2">
+                                                        <Button variant="secondary" size="sm" asChild>
+                                                            <Link href={`/architecture-diagrams/view/${diagram.id}`}>
+                                                                <Eye className="w-4 h-4" />
+                                                                View
+                                                            </Link>
+                                                        </Button>
+                                                        <Button
+                                                            variant="destructive"
+                                                            size="sm"
+                                                            onClick={() => openDeleteModal({ id: diagram.id, title: diagram.title })}
+                                                            disabled={deletingDiagramId === diagram.id}
+                                                        >
+                                                            {deletingDiagramId === diagram.id ? (
+                                                                <Loader2 className="w-4 h-4 animate-spin" />
+                                                            ) : (
+                                                                <Trash2 className="w-4 h-4" />
+                                                            )}
+                                                        </Button>
+                                                    </div>
+                                                </div>
+                                            </CardContent>
+                                        </Card>
+                                    ))}
+
+                                    {diagrams.length >= 10 && (
+                                        <div className="text-center pt-4">
+                                            <Button variant="secondary">
+                                                Load More Diagrams
+                                            </Button>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    </TabsContent>
+                </Tabs>
                 {/* Delete Confirmation Modal */}
                 <Dialog open={showDeleteModal} onOpenChange={(open) => !open && cancelDelete()}>
                     <DialogContent>

@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Github, FolderOpen, Loader2, AlertTriangle, Info, ChevronDown, Check, Search, X } from 'lucide-react';
+import { Github, FolderOpen, Loader2, AlertTriangle, Info, ChevronDown, Check, Search, X, Grid3x3, List, MoreVertical, Clock, CheckCircle2, AlertCircle, Send, FileText, Filter, GitBranch, ExternalLink, BookOpen } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { PromptCustomizer } from '@/components/PromptCustomizer';
 import { DocumentStructure, type DocumentStructureConfig } from '@/components/DocumentStructure';
@@ -19,14 +19,38 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
 type InputType = 'github_repo' | 'github_repo_directory';
+type TabId = 'generate' | 'edit';
+
+interface DocItem {
+  id: string;
+  title: string;
+  status: 'published';
+  repo: string;
+  branch: string;
+  path: string;
+  commit: string;
+  createdAt: string;
+  updatedAt: string;
+  lastPushedProvider?: string;
+  lastPushedAt?: string;
+  lastPushedUrl?: string | null;
+  processingStatus: 'processing' | 'completed' | 'failed';
+  isOutdated: boolean;
+}
+
+type ViewMode = 'tile' | 'row';
+type StatusFilter = 'all' | 'published';
 interface Model {
   value: string;
   label: string;
@@ -211,13 +235,37 @@ interface DocumentationPageClientProps {
 
 export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: DocumentationPageClientProps = {}) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = createClient();
   const modelDropdownRef = useRef<HTMLDivElement>(null);
 
+  // Tab management
+  const [activeTab, setActiveTab] = useState<TabId>('generate');
+
+  // Generate tab state
   const [method, setMethod] = useState<InputType>('github_repo');
   const [docTitle, setDocTitle] = useState('Documentation Draft');
   const [selectedModel, setSelectedModel] = useState('gpt-4o');
   const [showModelDropdown, setShowModelDropdown] = useState(false);
+
+  // Edit tab state
+  const [editItems, setEditItems] = useState<DocItem[]>([]);
+  const [editLoading, setEditLoading] = useState(true);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>('row');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [repoFilter, setRepoFilter] = useState<string>('all');
+  const [repos, setRepos] = useState<Array<{ id: string; name: string; repo_url: string }>>([]);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<{ id: string; title: string } | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const menuRefs = useRef<Record<string, HTMLDivElement>>({});
 
   // Git inputs
   const [repoUrl, setRepoUrl] = useState('');
@@ -298,6 +346,54 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
 
   const selectedModelObj = availableModels.find(m => m.value === selectedModel) || availableModels[0];
   const isGit = method === 'github_repo' || method === 'github_repo_directory';
+
+  // Tab initialization
+  useEffect(() => {
+    const tabParam = searchParams.get('tab');
+    const validTabs: TabId[] = ['generate', 'edit'];
+    if (tabParam && validTabs.includes(tabParam as TabId)) {
+      setActiveTab(tabParam as TabId);
+    }
+  }, [searchParams]);
+
+  // Load edit data when edit tab is active
+  useEffect(() => {
+    if (activeTab === 'edit') {
+      loadEditItems();
+      loadRepos();
+    }
+  }, [activeTab]);
+
+  // Load view preference from localStorage for edit tab
+  useEffect(() => {
+    if (activeTab === 'edit') {
+      const saved = localStorage.getItem('edit-view-mode') as ViewMode | null;
+      if (saved === 'tile' || saved === 'row') {
+        setViewMode(saved);
+      }
+    }
+  }, [activeTab]);
+
+  // Close menu on outside click for edit tab
+  useEffect(() => {
+    if (activeTab === 'edit') {
+      function handleClickOutside(event: MouseEvent) {
+        if (!openMenuId) return;
+        const target = event.target as HTMLElement;
+        const menu = menuRefs.current[openMenuId];
+        const button = target.closest('button[title="More options"]');
+        if (menu && !menu.contains(target) && !button) {
+          setOpenMenuId(null);
+        }
+      }
+      if (openMenuId) {
+        document.addEventListener('click', handleClickOutside);
+      }
+      return () => {
+        document.removeEventListener('click', handleClickOutside);
+      };
+    }
+  }, [openMenuId, activeTab]);
 
   // Check GitHub connection status
   useEffect(() => {
@@ -796,16 +892,114 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
 
   const showLoadButton = isGit && !pickerFiles.length;
 
+  // Edit tab functions
+  async function loadEditItems() {
+    setEditLoading(true);
+    try {
+      const queryParams = new URLSearchParams({
+        page: page.toString(),
+        limit: '20',
+        ...(statusFilter !== 'all' && { status: statusFilter }),
+        ...(searchQuery && { search: searchQuery }),
+        ...(repoFilter !== 'all' && { repo_id: repoFilter }),
+      });
+
+      const response = await fetch(`/api/docs/list?${queryParams}`);
+      if (!response.ok) throw new Error('Failed to load documents');
+
+      const data = await response.json();
+      setEditItems(data.items || []);
+      setTotalPages(data.totalPages || 1);
+      setTotal(data.total || 0);
+    } catch (err: any) {
+      setEditError(err.message || 'Failed to load documents');
+    } finally {
+      setEditLoading(false);
+    }
+  }
+
+  async function loadRepos() {
+    try {
+      const response = await fetch('/api/repos');
+      if (response.ok) {
+        const data = await response.json();
+        setRepos(data.repos || []);
+      }
+    } catch (err) {
+      console.error('Failed to load repos:', err);
+    }
+  }
+
+  async function deleteItem(id: string, title: string) {
+    setDeletingId(id);
+    setDeleteError(null);
+    try {
+      const response = await fetch(`/api/docs/${id}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to delete document');
+      }
+
+      await loadEditItems();
+      setShowDeleteModal(false);
+      setItemToDelete(null);
+    } catch (err: any) {
+      setDeleteError(err.message || 'Failed to delete document');
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+
+  function setActiveTabAndUpdateUrl(value: string) {
+    const tabId = value as TabId;
+    setActiveTab(tabId);
+    router.push(`/documentation?tab=${tabId}`, { scroll: false });
+  }
+
+  const tabs: Array<{ id: TabId; name: string; icon: any }> = [
+    { id: 'generate', name: 'Generate', icon: FileText },
+    { id: 'edit', name: 'Edit', icon: BookOpen }
+  ];
+
   return (
     <div className="min-h-screen px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-4xl">
-        <Card className="border border-white/10 bg-gradient-to-b from-white/5 to-white/0 shadow-lg">
-          <CardHeader className="space-y-1 pb-6">
-            <CardTitle className="text-2xl font-semibold text-white">Generate Documentation</CardTitle>
-            <CardDescription className="text-white/70">
-              Select your repository, configure settings, and generate comprehensive documentation.
-            </CardDescription>
-          </CardHeader>
+      <div className="mx-auto max-w-6xl">
+        <div className="mb-8">
+          <div className="flex items-center gap-3 mb-2">
+            <FileText className="h-8 w-8 text-white" />
+            <h1 className="text-3xl font-bold text-white">Documentation</h1>
+          </div>
+          <p className="text-white/70">
+            Generate new documentation or edit existing documents.
+          </p>
+        </div>
+
+        {/* Tabs */}
+        <Tabs value={activeTab} onValueChange={setActiveTabAndUpdateUrl} className="mb-8">
+          <TabsList className="bg-white/5 border border-white/10">
+            {tabs.map(tab => {
+              const Icon = tab.icon;
+              return (
+                <TabsTrigger key={tab.id} value={tab.id} className="flex items-center gap-2 data-[state=active]:bg-white/10 data-[state=active]:text-white">
+                  <Icon className="h-4 w-4" />
+                  {tab.name}
+                </TabsTrigger>
+              );
+            })}
+          </TabsList>
+
+          <TabsContent value="generate" className="mt-6">
+            <Card className="border border-white/10 bg-gradient-to-b from-white/5 to-white/0 shadow-lg">
+              <CardHeader className="space-y-1 pb-6">
+                <CardTitle className="text-2xl font-semibold text-white">Generate Documentation</CardTitle>
+                <CardDescription className="text-white/70">
+                  Select your repository, configure settings, and generate comprehensive documentation.
+                </CardDescription>
+              </CardHeader>
           <CardContent>
             <form
               onSubmit={(e) => {
@@ -1184,13 +1378,195 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
                     'Analyze & Save'
                   )}
                 </Button>
-                <Button type="button" variant="secondary" asChild className="min-w-[160px]">
-                  <Link href="/edit">View History</Link>
+                <Button type="button" variant="secondary" onClick={() => setActiveTabAndUpdateUrl('edit')} className="min-w-[160px]">
+                  View Documents
                 </Button>
               </div>
             </form>
           </CardContent>
         </Card>
+          </TabsContent>
+
+          <TabsContent value="edit" className="mt-6">
+            {/* Edit Tab */}
+            <div className="space-y-6">
+              {/* Header with controls */}
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 className="text-2xl font-semibold text-white">Edit Documents</h2>
+                  <p className="text-white/70">Manage and edit your generated documentation</p>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      const newMode = viewMode === 'tile' ? 'row' : 'tile';
+                      setViewMode(newMode);
+                      localStorage.setItem('edit-view-mode', newMode);
+                    }}
+                    className="flex items-center gap-2"
+                  >
+                    {viewMode === 'tile' ? <List className="h-4 w-4" /> : <Grid3x3 className="h-4 w-4" />}
+                    {viewMode === 'tile' ? 'List' : 'Grid'}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Success/Error Messages */}
+              {editError && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{editError}</AlertDescription>
+                </Alert>
+              )}
+
+              {/* Filters */}
+              <div className="flex flex-col gap-4 sm:flex-row">
+                <div className="flex-1">
+                  <Input
+                    placeholder="Search documents..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="bg-white/5 border-white/10"
+                  />
+                </div>
+                <Select value={statusFilter} onValueChange={(value: StatusFilter) => setStatusFilter(value)}>
+                  <SelectTrigger className="w-full sm:w-[180px] bg-white/5 border-white/10">
+                    <SelectValue placeholder="Filter by status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Status</SelectItem>
+                    <SelectItem value="published">Published</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={repoFilter} onValueChange={setRepoFilter}>
+                  <SelectTrigger className="w-full sm:w-[200px] bg-white/5 border-white/10">
+                    <SelectValue placeholder="Filter by repo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Repositories</SelectItem>
+                    {repos.map((repo) => (
+                      <SelectItem key={repo.id} value={repo.id}>
+                        {repo.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Documents List */}
+              {editLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-white/50" />
+                  <span className="ml-2 text-white/60">Loading documents...</span>
+                </div>
+              ) : editItems.length === 0 ? (
+                <div className="text-center py-12">
+                  <FileText className="h-16 w-16 text-white/30 mx-auto mb-4" />
+                  <p className="text-white/60 mb-2">No documents found</p>
+                  <p className="text-sm text-white/40">Generate some documentation to get started</p>
+                </div>
+              ) : (
+                <div className={`grid gap-4 ${viewMode === 'tile' ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3' : 'grid-cols-1'}`}>
+                  {editItems.map((item) => (
+                    <Card key={item.id} className="border border-white/10 bg-white/5 hover:bg-white/10 transition-colors">
+                      <CardHeader className="pb-3">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1 min-w-0">
+                            <CardTitle className="text-lg text-white truncate">{item.title}</CardTitle>
+                            <div className="flex items-center gap-2 mt-1">
+                              <span className="text-sm text-white/60">{item.repo}</span>
+                              <span className="text-xs text-white/40">•</span>
+                              <span className="text-sm text-white/60">{item.branch}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1 ml-2">
+                            <div className={`w-2 h-2 rounded-full ${item.processingStatus === 'completed' ? 'bg-green-500' : item.processingStatus === 'processing' ? 'bg-yellow-500' : 'bg-red-500'}`} />
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                                  <MoreVertical className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="border-white/10 bg-black/90">
+                                <DropdownMenuItem asChild>
+                                  <Link href={`/edit/${item.id}`} className="flex items-center gap-2">
+                                    <FileText className="h-4 w-4" />
+                                    Edit Document
+                                  </Link>
+                                </DropdownMenuItem>
+                                {item.lastPushedUrl && (
+                                  <DropdownMenuItem asChild>
+                                    <a href={item.lastPushedUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2">
+                                      <ExternalLink className="h-4 w-4" />
+                                      View Published
+                                    </a>
+                                  </DropdownMenuItem>
+                                )}
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setItemToDelete({ id: item.id, title: item.title });
+                                    setShowDeleteModal(true);
+                                  }}
+                                  className="text-red-300 focus:bg-red-500/10"
+                                >
+                                  Delete
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="pt-0">
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 text-sm text-white/60">
+                            <Clock className="h-4 w-4" />
+                            <span>Updated {new Date(item.updatedAt).toLocaleDateString()}</span>
+                          </div>
+                          {item.isOutdated && (
+                            <div className="flex items-center gap-2 text-sm text-yellow-300">
+                              <AlertTriangle className="h-4 w-4" />
+                              <span>Outdated - source code has changed</span>
+                            </div>
+                          )}
+                          {item.lastPushedAt && item.lastPushedProvider && (
+                            <div className="flex items-center gap-2 text-sm text-green-300">
+                              <CheckCircle2 className="h-4 w-4" />
+                              <span>Pushed to {item.lastPushedProvider} {new Date(item.lastPushedAt).toLocaleDateString()}</span>
+                            </div>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-center gap-2 mt-8">
+                  <Button
+                    variant="secondary"
+                    onClick={() => setPage(Math.max(1, page - 1))}
+                    disabled={page === 1}
+                  >
+                    Previous
+                  </Button>
+                  <span className="text-white/60">
+                    Page {page} of {totalPages} ({total} total)
+                  </span>
+                  <Button
+                    variant="secondary"
+                    onClick={() => setPage(Math.min(totalPages, page + 1))}
+                    disabled={page === totalPages}
+                  >
+                    Next
+                  </Button>
+                </div>
+              )}
+            </div>
+          </TabsContent>
+        </Tabs>
       </div>
 
       <Dialog open={showConnectionWizard} onOpenChange={setShowConnectionWizard}>
@@ -1199,6 +1575,52 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
             onComplete={handleRepositoryConnected}
             onCancel={() => setShowConnectionWizard(false)}
           />
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Modal */}
+      <Dialog open={showDeleteModal} onOpenChange={setShowDeleteModal}>
+        <DialogContent className="border-white/20 bg-black/90">
+          <DialogHeader>
+            <DialogTitle className="text-white">Delete Document</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-white/70">
+              Are you sure you want to delete <span className="font-semibold text-white">"{itemToDelete?.title}"</span>?
+              This action cannot be undone.
+            </p>
+            {deleteError && (
+              <Alert variant="destructive">
+                <AlertDescription>{deleteError}</AlertDescription>
+              </Alert>
+            )}
+          </div>
+          <div className="flex justify-end gap-3">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setShowDeleteModal(false);
+                setItemToDelete(null);
+                setDeleteError(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => itemToDelete && deleteItem(itemToDelete.id, itemToDelete.title)}
+              disabled={deletingId === itemToDelete?.id}
+            >
+              {deletingId === itemToDelete?.id ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete'
+              )}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

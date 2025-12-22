@@ -39,7 +39,6 @@ const primaryNav: NavItem[] = [
   { href: '/overview', label: 'Overview', icon: Activity },
   { href: '/repos', label: 'Repos', icon: Github },
   { href: '/documentation', label: 'Docs', icon: FileText },
-  { href: '/edit', label: 'Edit', icon: BookOpen, matchPrefix: true },
   { href: '/architecture-diagrams', label: 'Architecture', icon: Layers3 },
   { href: '/automation', label: 'Automation', icon: Zap },
 ];
