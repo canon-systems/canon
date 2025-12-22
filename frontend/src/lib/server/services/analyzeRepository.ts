@@ -47,6 +47,7 @@ const RELEVANT_EXTENSIONS = new Set([
 	'.makefile',
 	'.cmake',
 	'.gradle',
+	'.gradle.kts',
 	'.maven',
 	'package.json',
 	'requirements.txt',
@@ -55,7 +56,11 @@ const RELEVANT_EXTENSIONS = new Set([
 	'go.mod',
 	'pom.xml',
 	'build.gradle',
+	'build.gradle.kts',
 	'composer.json',
+	'Gemfile',
+	'Gemfile.lock',
+	'.csproj',
 	'.yml',
 ]);
 

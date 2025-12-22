@@ -16,7 +16,7 @@ function generateFallbackDiagram(mermaidContent: string, analysisData?: any): st
 
     // Parse basic component info from Mermaid content
     const componentLines = mermaidContent.split('\n').filter(line =>
-        line.trim() && !line.includes('graph TD') && !line.includes('-->')
+        line.trim() && !line.includes('graph TD') && !line.includes('graph LR') && !line.includes('-->')
     );
 
     const width = Math.max(600, componentLines.length * 200);
@@ -47,8 +47,8 @@ function generateFallbackDiagram(mermaidContent: string, analysisData?: any): st
 
         // Extract component name from Mermaid syntax
         const nameMatch = line.match(/\[([^\]]+)\]/) || line.match(/\[\[([^\]]+)\]\]/) ||
-                         line.match(/\(\(([^\)]+)\)\)/) || line.match(/\{\{([^\}]+)\}\}/) ||
-                         line.match(/([^\[]+)\[/);
+            line.match(/\(\(([^\)]+)\)\)/) || line.match(/\{\{([^\}]+)\}\}/) ||
+            line.match(/([^\[]+)\[/);
 
         const componentName = nameMatch ? nameMatch[1] : `Component ${index + 1}`;
 
@@ -117,8 +117,8 @@ export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagram
                     throw new Error('Diagram content is empty');
                 }
 
-                if (!diagram.content.includes('graph TD')) {
-                    throw new Error('Diagram content does not appear to be valid Mermaid syntax (missing "graph TD")');
+                if (!diagram.content.includes('graph TD') && !diagram.content.includes('graph LR')) {
+                    throw new Error('Diagram content does not appear to be valid Mermaid syntax (missing "graph TD" or "graph LR")');
                 }
 
                 // Initialize Mermaid BEFORE checking refs (Mermaid needs to be ready first)

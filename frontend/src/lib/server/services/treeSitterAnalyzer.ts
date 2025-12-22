@@ -2,7 +2,6 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import Parser from 'web-tree-sitter';
 import fs from 'fs';
 import path from 'path';
-
 export interface DependencyInfo {
     filePath: string;
     language: string;
@@ -25,9 +24,97 @@ export interface ArchitectureComponent {
     dependencies: string[];
 }
 
+const COMPONENT_TYPE_LABELS: Record<ArchitectureComponent['type'], string> = {
+    entry: 'Entry Points',
+    api: 'API Layer',
+    business: 'Business Logic',
+    data: 'Data Layer',
+    ui: 'User Interface',
+    infra: 'Infrastructure',
+    auth: 'Authentication',
+    config: 'Configuration',
+    middleware: 'Middleware',
+    util: 'Utilities',
+    test: 'Tests'
+};
+
+const EXTERNAL_CATEGORY_LABELS: Record<ExternalCategory | 'other', string> = {
+    api: 'APIs & SDKs',
+    ai: 'AI & ML',
+    auth: 'Authentication',
+    cloud: 'Cloud Platform',
+    db: 'Datastores',
+    queue: 'Queues & Streaming',
+    search: 'Search & Vector',
+    observability: 'Monitoring',
+    orchestration: 'Orchestration',
+    storage: 'Storage',
+    messaging: 'Messaging',
+    email: 'Email',
+    payments: 'Payments',
+    cdn: 'CDN & Edge',
+    other: 'Other Tools'
+};
+
+export type ExternalCategory =
+    | 'api'
+    | 'ai'
+    | 'auth'
+    | 'cloud'
+    | 'db'
+    | 'queue'
+    | 'search'
+    | 'observability'
+    | 'orchestration'
+    | 'storage'
+    | 'messaging'
+    | 'email'
+    | 'payments'
+    | 'cdn'
+    | 'other';
+
+export interface ExternalTarget {
+    id: string;
+    label: string;
+    category: ExternalCategory;
+    packageNames?: string[];
+    packagePrefixes?: string[];
+    source: 'manifest' | 'default';
+    needsReview?: boolean;
+}
+
+export interface ExternalRelationship {
+    from: string;
+    to: string;
+    strength: number;
+}
+
+export interface HighLevelNode {
+    id: string;
+    label: string;
+    type: 'internal' | 'external';
+    category?: string;
+    componentIds?: string[];
+    vendorIds?: string[];
+    fileCount?: number;
+    vendorLabels?: string[];
+    needsReview?: boolean;
+}
+
+export interface HighLevelEdge {
+    from: string;
+    to: string;
+    strength: number;
+    kind: 'internal' | 'external';
+}
+
 export interface ArchitectureAnalysis {
     components: ArchitectureComponent[];
-    relationships: Array<{ from: string, to: string, type: string }>;
+    relationships: Array<{ from: string, to: string, type: string, strength: number }>;
+    externalTargets?: ExternalTarget[];
+    externalRelationships?: ExternalRelationship[];
+    highLevelNodes?: HighLevelNode[];
+    highLevelEdges?: HighLevelEdge[];
     mermaid: string;
 }
 
@@ -103,18 +190,29 @@ export class TreeSitterAnalyzer {
     async analyzeRepository(
         supabase: SupabaseClient,
         repoId: string,
-        files: Array<{ path: string, content: string }>
+        files: Array<{ path: string, content: string }>,
+        manifestFiles: Array<{ path: string, content: string }> = []
     ): Promise<ArchitectureAnalysis> {
         await this.initialize();
 
         const dependencies = await this.extractDependencies(files);
         const components = this.clusterIntoComponents(dependencies);
+        const registryTargets = await this.loadExternalRegistry(supabase);
+        const manifestPackages = this.extractPackagesFromManifests(manifestFiles);
+        const { matchedTargets, unknownTargets } = await this.matchManifestPackagesToRegistry(supabase, manifestPackages, registryTargets);
+        const combinedExternalTargets = [...matchedTargets, ...unknownTargets];
         const relationships = this.buildRelationships(components, dependencies);
-        const mermaid = this.generateMermaidDiagram(components, relationships);
+        const externalRelationships = this.buildExternalRelationships(components, dependencies, matchedTargets, unknownTargets);
+        const highLevelGraph = this.buildHighLevelGraph(components, relationships, combinedExternalTargets, externalRelationships);
+        const mermaid = this.generateMermaidDiagram(highLevelGraph.nodes, highLevelGraph.edges);
 
         return {
             components,
             relationships,
+            externalTargets: combinedExternalTargets,
+            externalRelationships,
+            highLevelNodes: highLevelGraph.nodes,
+            highLevelEdges: highLevelGraph.edges,
             mermaid
         };
     }
@@ -237,10 +335,7 @@ export class TreeSitterAnalyzer {
                 const sourceNode = stmt.childForFieldName('source');
                 if (sourceNode) {
                     const importPath = sourceNode.text.replace(/['"]/g, '');
-                    // Only include relative imports (not node_modules)
-                    if (importPath.startsWith('.')) {
-                        imports.push(importPath);
-                    }
+                    imports.push(importPath);
                 }
             } catch (error) {
                 console.warn('Error parsing import statement:', error);
@@ -261,9 +356,7 @@ export class TreeSitterAnalyzer {
 
                         [...stringLiterals, ...templateStrings].forEach(node => {
                             const requirePath = node.text.replace(/['`]/g, '');
-                            if (requirePath.startsWith('.')) {
-                                imports.push(requirePath);
-                            }
+                            imports.push(requirePath);
                         });
                     }
                 }
@@ -1624,24 +1717,10 @@ export class TreeSitterAnalyzer {
     }
 
     private generateClusterName(cluster: ComponentCluster, type: ArchitectureComponent['type']): string {
-        const typeLabels = {
-            entry: 'Entry Points',
-            api: 'API Layer',
-            business: 'Business Logic',
-            data: 'Data Layer',
-            ui: 'User Interface',
-            infra: 'Infrastructure',
-            auth: 'Authentication',
-            config: 'Configuration',
-            middleware: 'Middleware',
-            util: 'Utilities',
-            test: 'Tests'
-        };
-
         const fileCount = cluster.files.length;
         const dominantLang = cluster.metadata?.language || 'mixed';
 
-        return `${typeLabels[type]} (${fileCount} files, ${dominantLang})`;
+        return `${this.getComponentTypeLabel(type)} (${fileCount} files, ${dominantLang})`;
     }
 
     private classifyClusterType(cluster: ComponentCluster, dependencies: DependencyInfo[]): ArchitectureComponent['type'] {
@@ -2504,30 +2583,471 @@ export class TreeSitterAnalyzer {
         return Array.from(relationshipMap.values()).sort((a, b) => b.strength - a.strength);
     }
 
-    private generateMermaidDiagram(components: ArchitectureComponent[], relationships: Array<{ from: string, to: string, type: string, strength: number }>): string {
-        let mermaid = 'graph TD\n';
+    private extractPackagesFromManifests(manifestFiles: Array<{ path: string, content: string }>): Set<string> {
+        const packages = new Set<string>();
 
-        // Add components
-        for (const component of components) {
-            const shape = this.getComponentShape(component.type);
-            mermaid += `    ${component.id}${shape.open}"${component.name}"${shape.close}\n`;
+        for (const file of manifestFiles) {
+            const lower = file.path.toLowerCase();
+
+            try {
+                if (lower.endsWith('package.json')) {
+                    const parsed = JSON.parse(file.content);
+                    const allDeps = {
+                        ...(parsed.dependencies || {}),
+                        ...(parsed.devDependencies || {}),
+                        ...(parsed.optionalDependencies || {}),
+                        ...(parsed.peerDependencies || {})
+                    };
+                    Object.keys(allDeps).forEach(pkg => packages.add(pkg));
+                } else if (lower.endsWith('requirements.txt')) {
+                    file.content.split(/\r?\n/).forEach(line => {
+                        const match = line.trim().match(/^([a-zA-Z0-9._-]+)/);
+                        if (match) packages.add(match[1]);
+                    });
+                } else if (lower.endsWith('pipfile')) {
+                    file.content.split(/\r?\n/).forEach(line => {
+                        const match = line.match(/^\s*([a-zA-Z0-9._-]+)\s*=/);
+                        if (match) packages.add(match[1]);
+                    });
+                } else if (lower.endsWith('pyproject.toml')) {
+                    file.content.split(/\r?\n/).forEach(line => {
+                        const match = line.match(/^\s*"?([a-zA-Z0-9._-]+)"?\s*=/);
+                        if (match) packages.add(match[1]);
+                    });
+                } else if (lower.endsWith('go.mod')) {
+                    let inRequireBlock = false;
+                    file.content.split(/\r?\n/).forEach(line => {
+                        const trimmed = line.trim();
+                        if (trimmed.startsWith('require (')) {
+                            inRequireBlock = true;
+                            return;
+                        }
+                        if (inRequireBlock && trimmed.startsWith(')')) {
+                            inRequireBlock = false;
+                            return;
+                        }
+                        if (trimmed.startsWith('require ')) {
+                            const parts = trimmed.replace('require', '').trim().split(/\s+/);
+                            if (parts[0]) packages.add(parts[0]);
+                        } else if (inRequireBlock && trimmed) {
+                            const parts = trimmed.split(/\s+/);
+                            if (parts[0]) packages.add(parts[0]);
+                        }
+                    });
+                } else if (lower.endsWith('cargo.toml')) {
+                    let inDeps = false;
+                    file.content.split(/\r?\n/).forEach(line => {
+                        const trimmed = line.trim();
+                        if (trimmed.startsWith('[dependencies')) {
+                            inDeps = true;
+                            return;
+                        }
+                        if (trimmed.startsWith('[') && !trimmed.startsWith('[dependencies')) {
+                            inDeps = false;
+                        }
+                        if (inDeps) {
+                            const match = trimmed.match(/^([a-zA-Z0-9_.-]+)\s*=|^([a-zA-Z0-9_.-]+)\s*$/);
+                            const name = match?.[1] || match?.[2];
+                            if (name) packages.add(name);
+                        }
+                    });
+                } else if (lower.endsWith('pom.xml')) {
+                    const groupIds = Array.from(file.content.matchAll(/<groupId>([^<]+)<\/groupId>/g)).map(m => m[1]);
+                    const artifactIds = Array.from(file.content.matchAll(/<artifactId>([^<]+)<\/artifactId>/g)).map(m => m[1]);
+                    groupIds.forEach(g => packages.add(g));
+                    artifactIds.forEach(a => packages.add(a));
+                } else if (lower.endsWith('build.gradle') || lower.endsWith('build.gradle.kts')) {
+                    const regex = /['"]([a-zA-Z0-9_.-]+:[a-zA-Z0-9_.-]+):/g;
+                    let match;
+                    while ((match = regex.exec(file.content)) !== null) {
+                        const [group, artifact] = match[1].split(':');
+                        if (group) packages.add(group);
+                        if (artifact) packages.add(artifact);
+                    }
+                } else if (lower.endsWith('composer.json')) {
+                    const parsed = JSON.parse(file.content);
+                    const allDeps = { ...(parsed.require || {}), ...(parsed['require-dev'] || {}) };
+                    Object.keys(allDeps).forEach(pkg => packages.add(pkg));
+                } else if (lower.endsWith('gemfile') || lower.endsWith('gemfile.lock')) {
+                    const gemRegex = /gem\s+['"]([^'"]+)['"]/g;
+                    let match;
+                    while ((match = gemRegex.exec(file.content)) !== null) {
+                        packages.add(match[1]);
+                    }
+                } else if (lower.endsWith('.csproj')) {
+                    const includeMatches = Array.from(file.content.matchAll(/<PackageReference[^>]*Include="([^"]+)"/g)).map(m => m[1]);
+                    includeMatches.forEach(m => packages.add(m));
+                } else if (lower.endsWith('package.swift')) {
+                    const urlMatches = Array.from(file.content.matchAll(/package\(url:\s*["']([^"']+)["']/g)).map(m => m[1]);
+                    urlMatches.forEach(u => packages.add(u));
+                }
+            } catch (error) {
+                console.warn(`Unable to parse manifest ${file.path}:`, error);
+            }
         }
 
-        // Add relationships with strength-based styling
-        for (const rel of relationships) {
-            let arrowStyle = '-->';
-            if (rel.strength > 5) {
-                arrowStyle = '===>'; // Thick arrow for strong dependencies
-            } else if (rel.strength > 2) {
-                arrowStyle = '==>'; // Medium arrow for moderate dependencies
-            } else {
-                arrowStyle = '-->'; // Regular arrow for weak dependencies
+        return packages;
+    }
+
+    private async loadExternalRegistry(supabase: SupabaseClient): Promise<ExternalTarget[]> {
+        try {
+            const { data, error } = await supabase
+                .from('external_targets')
+                .select('*')
+                .eq('enabled', true)
+                .order('priority', { ascending: true });
+
+            if (error) throw error;
+            if (!data) return [];
+
+            return data.map(row => {
+                const packageNames = Array.isArray((row as any).package_names) ? (row as any).package_names : [];
+                const packagePrefixes = Array.isArray((row as any).package_prefixes) ? (row as any).package_prefixes : [];
+                return {
+                    id: (row as any).id,
+                    label: (row as any).label,
+                    category: (row as any).category,
+                    packageNames,
+                    packagePrefixes,
+                    source: 'default' as const,
+                    needsReview: Boolean((row as any).needs_review)
+                };
+            }).filter(target => !!target.id && !!target.label);
+        } catch (err) {
+            console.warn('Falling back to in-code vendor map; failed to load external_targets:', err);
+            return [];
+        }
+    }
+
+    private async upsertExternalRegistry(supabase: SupabaseClient, targets: ExternalTarget[]): Promise<void> {
+        try {
+            if (!targets.length) return;
+            const payload = targets.map(t => ({
+                id: t.id,
+                label: t.label,
+                category: t.category,
+                package_names: t.packageNames || [],
+                package_prefixes: t.packagePrefixes || [],
+                enabled: true,
+                priority: 100,
+                needs_review: Boolean(t.needsReview)
+            }));
+
+            const { error } = await supabase
+                .from('external_targets')
+                .upsert(payload, { onConflict: 'id' });
+
+            if (error) {
+                console.warn('Failed to upsert external_targets registry:', error);
+            }
+        } catch (err) {
+            console.warn('Failed to upsert external_targets registry:', err);
+        }
+    }
+
+    private findVendorForImport(importPath: string, externalTargets: ExternalTarget[]): ExternalTarget | null {
+        // Skip relative/imports resolved locally
+        if (importPath.startsWith('.') || importPath.startsWith('/')) return null;
+
+        const normalizedImport = importPath.toLowerCase();
+
+        for (const target of externalTargets) {
+            const names = target.packageNames?.map(n => n.toLowerCase()) || [];
+            const prefixes = target.packagePrefixes?.map(p => p.toLowerCase()) || [];
+
+            const nameMatch = names.some(name =>
+                normalizedImport === name || normalizedImport.startsWith(`${name}/`)
+            );
+            const prefixMatch = prefixes.some(prefix =>
+                normalizedImport.startsWith(prefix)
+            );
+
+            if (nameMatch || prefixMatch) {
+                return target;
+            }
+        }
+
+        return null;
+    }
+
+    private async matchManifestPackagesToRegistry(
+        supabase: SupabaseClient,
+        manifestPackages: Set<string>,
+        registryTargets: ExternalTarget[]
+    ): Promise<{ matchedTargets: ExternalTarget[]; unknownTargets: ExternalTarget[] }> {
+        if (manifestPackages.size === 0) {
+            return { matchedTargets: [], unknownTargets: [] };
+        }
+
+        const matched = new Map<string, ExternalTarget>();
+        const unknown: ExternalTarget[] = [];
+
+        const normalizedPkgs = Array.from(manifestPackages)
+            .map(p => p.trim())
+            .filter(p => this.isLikelyExternalPackageName(p))
+            .map(p => p.toLowerCase());
+        const registry = registryTargets || [];
+
+        for (const pkg of normalizedPkgs) {
+            let found: ExternalTarget | null = null;
+
+            for (const target of registry) {
+                const names = (target.packageNames || []).map(n => n.toLowerCase());
+                const prefixes = (target.packagePrefixes || []).map(p => p.toLowerCase());
+
+                const nameMatch = names.some(name => pkg === name || pkg.startsWith(`${name}/`));
+                const prefixMatch = prefixes.some(prefix => pkg.startsWith(prefix));
+
+                if (nameMatch || prefixMatch) {
+                    found = target;
+                    break;
+                }
             }
 
-            mermaid += `    ${rel.from} ${arrowStyle} ${rel.to}\n`;
+            if (found) {
+                matched.set(found.id, found);
+            } else {
+                unknown.push({
+                    id: `unknown_${this.simpleHash(pkg)}`,
+                    label: `Unknown: ${pkg}`,
+                    category: 'other',
+                    packageNames: [pkg],
+                    packagePrefixes: [],
+                    source: 'manifest',
+                    needsReview: true
+                });
+            }
+        }
+
+        if (unknown.length > 0) {
+            await this.upsertExternalRegistry(supabase, unknown);
+        }
+
+        return {
+            matchedTargets: Array.from(matched.values()),
+            unknownTargets: unknown
+        };
+    }
+
+    private buildExternalRelationships(
+        components: ArchitectureComponent[],
+        dependencies: DependencyInfo[],
+        externalTargets: ExternalTarget[],
+        unknownTargets: ExternalTarget[]
+    ): ExternalRelationship[] {
+        const targets = [...externalTargets, ...unknownTargets];
+        if (targets.length === 0) return [];
+
+        const depMap = new Map(dependencies.map(d => [d.filePath, d]));
+        const edges = new Map<string, ExternalRelationship>();
+
+        for (const component of components) {
+            for (const filePath of component.files) {
+                const info = depMap.get(filePath);
+                if (!info) continue;
+
+                for (const imp of info.imports) {
+                    const vendor = this.findVendorForImport(imp, targets);
+                    if (!vendor) continue;
+
+                    const key = `${component.id}->${vendor.id}`;
+                    const current = edges.get(key) || { from: component.id, to: vendor.id, strength: 0 };
+                    current.strength += 1;
+                    edges.set(key, current);
+                }
+            }
+        }
+
+        return Array.from(edges.values()).sort((a, b) => b.strength - a.strength);
+    }
+
+    private buildHighLevelGraph(
+        components: ArchitectureComponent[],
+        relationships: Array<{ from: string, to: string, type: string, strength: number }>,
+        externalTargets: ExternalTarget[],
+        externalRelationships: ExternalRelationship[]
+    ): { nodes: HighLevelNode[], edges: HighLevelEdge[] } {
+        const internalGroups = this.groupInternalComponents(components);
+        const externalGroups = this.groupExternalTargets(externalTargets);
+        const edgeMap = new Map<string, HighLevelEdge>();
+
+        const addEdge = (from: string, to: string, strength: number, kind: 'internal' | 'external') => {
+            if (!from || !to || from === to) return;
+            const key = `${from}->${to}`;
+            const existing = edgeMap.get(key);
+            if (existing) {
+                existing.strength += strength;
+            } else {
+                edgeMap.set(key, { from, to, strength, kind });
+            }
+        };
+
+        for (const rel of relationships) {
+            const fromGroup = internalGroups.componentToGroup.get(rel.from);
+            const toGroup = internalGroups.componentToGroup.get(rel.to);
+            if (fromGroup && toGroup && fromGroup !== toGroup) {
+                addEdge(fromGroup, toGroup, rel.strength, 'internal');
+            }
+        }
+
+        for (const rel of externalRelationships) {
+            const fromGroup = internalGroups.componentToGroup.get(rel.from);
+            const toGroup = externalGroups.targetToGroup.get(rel.to);
+            if (fromGroup && toGroup) {
+                addEdge(fromGroup, toGroup, rel.strength, 'external');
+            }
+        }
+
+        return {
+            nodes: [...internalGroups.nodes, ...externalGroups.nodes],
+            edges: Array.from(edgeMap.values())
+        };
+    }
+
+    private groupInternalComponents(components: ArchitectureComponent[]): { nodes: HighLevelNode[], componentToGroup: Map<string, string> } {
+        const groups = new Map<string, HighLevelNode>();
+        const componentToGroup = new Map<string, string>();
+
+        for (const component of components) {
+            const type = component.type;
+            const groupId = `core_${type}`;
+            if (!groups.has(groupId)) {
+                groups.set(groupId, {
+                    id: groupId,
+                    label: this.getComponentTypeLabel(type),
+                    type: 'internal',
+                    category: type,
+                    componentIds: [],
+                    fileCount: 0
+                });
+            }
+
+            const group = groups.get(groupId)!;
+            group.componentIds!.push(component.id);
+            group.fileCount = (group.fileCount || 0) + component.files.length;
+            componentToGroup.set(component.id, groupId);
+        }
+
+        for (const group of groups.values()) {
+            const typeLabel = this.getComponentTypeLabel(group.category as ArchitectureComponent['type']);
+            group.label = `${typeLabel} (${group.fileCount ?? 0} files)`;
+        }
+
+        return {
+            nodes: Array.from(groups.values()),
+            componentToGroup
+        };
+    }
+
+    private groupExternalTargets(externalTargets: ExternalTarget[]): { nodes: HighLevelNode[], targetToGroup: Map<string, string> } {
+        const groups = new Map<string, HighLevelNode>();
+        const targetToGroup = new Map<string, string>();
+
+        for (const target of externalTargets) {
+            const category = target.category || 'other';
+            const groupId = `ext_${category}`;
+
+            if (!groups.has(groupId)) {
+                groups.set(groupId, {
+                    id: groupId,
+                    label: '',
+                    type: 'external',
+                    category,
+                    vendorIds: [],
+                    vendorLabels: [],
+                    needsReview: false
+                });
+            }
+
+            const group = groups.get(groupId)!;
+            group.vendorIds!.push(target.id);
+            group.vendorLabels!.push(target.label);
+            group.needsReview = group.needsReview || Boolean(target.needsReview);
+
+            targetToGroup.set(target.id, groupId);
+        }
+
+        for (const group of groups.values()) {
+            const categoryLabel = this.formatExternalCategory(group.category as ExternalCategory);
+            const vendors = group.vendorLabels || [];
+            const summary = vendors.slice(0, 3).join(', ');
+            const remainder = vendors.length > 3 ? ` +${vendors.length - 3} more` : '';
+            group.label = summary ? `${categoryLabel}\n${summary}${remainder}` : categoryLabel;
+        }
+
+        return {
+            nodes: Array.from(groups.values()),
+            targetToGroup
+        };
+    }
+
+    private generateMermaidDiagram(nodes: HighLevelNode[], edges: HighLevelEdge[]): string {
+        let mermaid = 'graph TD\n';
+        mermaid += '    classDef internal fill:#0d1b2a,stroke:#4f8cc9,color:#e0f1ff,stroke-width:2px;\n';
+        mermaid += '    classDef external fill:#1f1b2e,stroke:#ffb347,color:#ffe9c7,stroke-width:2px;\n';
+        mermaid += '    classDef unknown fill:#2d2d2d,stroke:#ffa8a8,color:#ffe9e9,stroke-dasharray: 5 3;\n';
+
+        const internalNodes = nodes.filter(node => node.type === 'internal');
+        const externalNodes = nodes.filter(node => node.type === 'external');
+        const filteredEdges = this.filterHighLevelEdges(edges);
+
+        if (internalNodes.length) {
+            mermaid += '    subgraph Internal Systems\n';
+            for (const node of internalNodes) {
+                const label = this.escapeMermaidLabel(node.label);
+                mermaid += `        ${node.id}["${label}"]:::internal\n`;
+            }
+            mermaid += '    end\n';
+        }
+
+        if (externalNodes.length) {
+            mermaid += '    subgraph External Services\n';
+            for (const node of externalNodes) {
+                const label = this.escapeMermaidLabel(node.label);
+                const cls = node.needsReview ? 'unknown' : 'external';
+                mermaid += `        ${node.id}["${label}"]:::${cls}\n`;
+            }
+            mermaid += '    end\n';
+        }
+
+        for (const edge of filteredEdges) {
+            const arrowStyle = edge.kind === 'external' ? '-.->' : '-->';
+            const label = edge.strength > 1 ? `${edge.strength} links` : 'link';
+            mermaid += `    ${edge.from} ${arrowStyle} |${label}| ${edge.to}\n`;
         }
 
         return mermaid;
+    }
+
+    private filterHighLevelEdges(edges: HighLevelEdge[], limitPerSource = 4): HighLevelEdge[] {
+        const grouped = new Map<string, HighLevelEdge[]>();
+        for (const edge of edges) {
+            if (!grouped.has(edge.from)) {
+                grouped.set(edge.from, []);
+            }
+            grouped.get(edge.from)!.push(edge);
+        }
+
+        const result: HighLevelEdge[] = [];
+        for (const list of grouped.values()) {
+            list.sort((a, b) => b.strength - a.strength);
+            result.push(...list.slice(0, limitPerSource));
+        }
+
+        return result;
+    }
+
+    private getComponentTypeLabel(type: ArchitectureComponent['type']): string {
+        return COMPONENT_TYPE_LABELS[type] || 'Component';
+    }
+
+    private formatExternalCategory(category?: ExternalCategory | string): string {
+        const key = (category as ExternalCategory) || 'other';
+        return EXTERNAL_CATEGORY_LABELS[key] || EXTERNAL_CATEGORY_LABELS.other;
+    }
+
+    private escapeMermaidLabel(label: string): string {
+        return label.replace(/"/g, '\'').replace(/\n/g, '<br/>');
     }
 
     private getComponentShape(type: ArchitectureComponent['type']): { open: string, close: string } {
@@ -2546,5 +3066,18 @@ export class TreeSitterAnalyzer {
         };
 
         return shapes[type] || { open: '[', close: ']' };
+    }
+
+    // Treat as external only if it looks like a package/module name (no relative paths or bare path aliases).
+    private isLikelyExternalPackageName(pkg: string): boolean {
+        if (!pkg) return false;
+        const trimmed = pkg.trim();
+        // Skip relative or absolute paths
+        if (trimmed.startsWith('.') || trimmed.startsWith('/')) return false;
+        // Allow scoped packages (@scope/name...) even though they contain '/'
+        if (trimmed.startsWith('@')) return true;
+        // Reject path-like strings (src/utils) but allow unscoped package ids (lodash, react, mongoose)
+        if (trimmed.includes('/')) return false;
+        return true;
     }
 }

@@ -77,9 +77,26 @@ export async function POST(request: NextRequest) {
         }
 
         const analyzer = new TreeSitterAnalyzer();
+        const manifestFiles = analysis.rawFiles.filter(file => {
+            const lower = file.path.toLowerCase();
+            return lower.endsWith('package.json') ||
+                lower.endsWith('requirements.txt') ||
+                lower.endsWith('pipfile') ||
+                lower.endsWith('pyproject.toml') ||
+                lower.endsWith('go.mod') ||
+                lower.endsWith('cargo.toml') ||
+                lower.endsWith('pom.xml') ||
+                lower.endsWith('build.gradle') ||
+                lower.endsWith('build.gradle.kts') ||
+                lower.endsWith('composer.json') ||
+                lower.endsWith('gemfile') ||
+                lower.endsWith('gemfile.lock') ||
+                lower.endsWith('.csproj') ||
+                lower.endsWith('package.swift');
+        });
 
         // Analyze architecture using Tree-sitter only
-        const architectureAnalysis = await analyzer.analyzeRepository(supabase, repoId, codeFiles);
+        const architectureAnalysis = await analyzer.analyzeRepository(supabase, repoId, codeFiles, manifestFiles);
 
         // Store the diagram
         const { data: diagram, error: insertError } = await supabase
