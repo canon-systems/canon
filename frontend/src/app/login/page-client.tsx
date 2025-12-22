@@ -2,6 +2,13 @@
 
 import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Separator } from '@/components/ui/separator';
+import { Loader2, AlertTriangle, Info } from 'lucide-react';
 
 export function LoginPageClient() {
   const supabase = createClient();
@@ -86,113 +93,135 @@ export function LoginPageClient() {
   }
 
   return (
-    <div className="page-shell">
-      <div className="glass-panel p-8 max-w-md mx-auto">
-        <h1 className="mb-6 text-3xl font-semibold text-white">Login or Sign up</h1>
+    <div className="min-h-screen px-4 py-8 sm:px-6 lg:px-8 flex items-center justify-center">
+      <div className="w-full max-w-md">
+        <Card className="border border-white/10 bg-gradient-to-b from-white/5 to-white/0 shadow-lg">
+          <CardHeader className="space-y-1 pb-6">
+            <CardTitle className="text-2xl font-semibold text-white text-center">
+              {mode === 'login' ? 'Welcome Back' : 'Create Account'}
+            </CardTitle>
+            <CardDescription className="text-white/70 text-center">
+              {mode === 'login' 
+                ? 'Sign in to your account to continue' 
+                : 'Get started by creating a new account'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {/* Toggle buttons to switch between forms */}
+            <div className="inline-flex rounded-lg border border-white/20 bg-white/10 p-1 w-full">
+              <Button
+                type="button"
+                variant={mode === 'login' ? 'default' : 'ghost'}
+                className={`flex-1 ${mode === 'login' ? '' : 'opacity-60'}`}
+                onClick={() => switchMode('login')}
+                disabled={loading}
+              >
+                Login
+              </Button>
+              <Button
+                type="button"
+                variant={mode === 'signup' ? 'default' : 'ghost'}
+                className={`flex-1 ${mode === 'signup' ? '' : 'opacity-60'}`}
+                onClick={() => switchMode('signup')}
+                disabled={loading}
+              >
+                Sign up
+              </Button>
+            </div>
 
-        {/* Toggle buttons to switch between forms */}
-        <div className="mb-6 inline-flex rounded-lg border border-white/20 bg-white/10">
-          <button
-            type="button"
-            className={`px-4 py-2 text-sm transition-colors ${mode === 'login' ? 'bg-white/20 font-medium text-white' : 'opacity-80 text-white/70'}`}
-            onClick={() => switchMode('login')}
-            disabled={loading}
-          >
-            Login
-          </button>
-          <button
-            type="button"
-            className={`px-4 py-2 text-sm transition-colors ${mode === 'signup' ? 'bg-white/20 font-medium text-white' : 'opacity-80 text-white/70'}`}
-            onClick={() => switchMode('signup')}
-            disabled={loading}
-          >
-            Sign up
-          </button>
-        </div>
+            <Separator />
 
-        {/* Shared email field */}
-        <div className="mb-3">
-          <label className="mb-1 block text-sm text-white/80">Email</label>
-          <input
-            type="email"
-            className="w-full rounded-lg bg-white/10 px-3 py-2 text-white outline-none ring-1 ring-white/20 focus:ring-2 focus:ring-blue-400/50 transition-colors placeholder:text-white/40"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            autoComplete="email"
-            placeholder="you@example.com"
-            disabled={loading}
-          />
-        </div>
-
-        {/* Shared password field */}
-        <div className="mb-4">
-          <label className="mb-1 block text-sm text-white/80">Password</label>
-          <input
-            type="password"
-            className="w-full rounded-lg bg-white/10 px-3 py-2 text-white outline-none ring-1 ring-white/20 focus:ring-2 focus:ring-blue-400/50 transition-colors placeholder:text-white/40"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !loading && email && password) {
+            {/* Form */}
+            <form
+              onSubmit={(e) => {
                 e.preventDefault();
                 if (mode === 'login') {
                   handleLogin();
                 } else {
                   handleSignup();
                 }
-              }
-            }}
-            required
-            autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-            placeholder={mode === 'login' ? 'Your password' : 'Create a strong password'}
-            disabled={loading}
-          />
-        </div>
+              }}
+              className="space-y-4"
+            >
+              {/* Email field */}
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  autoComplete="email"
+                  placeholder="you@example.com"
+                  disabled={loading}
+                />
+              </div>
 
-        {/* Primary action button changes by mode */}
-        {mode === 'login' ? (
-          <button
-            className="btn btn-primary w-full"
-            onClick={(e) => {
-              e.preventDefault();
-              handleLogin();
-            }}
-            disabled={loading}
-          >
-            {loading ? 'Logging in...' : 'Log in'}
-          </button>
-        ) : (
-          <button
-            className="btn btn-primary w-full"
-            onClick={(e) => {
-              e.preventDefault();
-              handleSignup();
-            }}
-            disabled={loading}
-          >
-            {loading ? 'Creating account...' : 'Create account'}
-          </button>
-        )}
+              {/* Password field */}
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !loading && email && password) {
+                      e.preventDefault();
+                      if (mode === 'login') {
+                        handleLogin();
+                      } else {
+                        handleSignup();
+                      }
+                    }
+                  }}
+                  required
+                  autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                  placeholder={mode === 'login' ? 'Your password' : 'Create a strong password'}
+                  disabled={loading}
+                />
+              </div>
 
-        {/* Error and info messages for the user */}
-        {errorMsg && (
-          <div className="mt-4 rounded-lg border border-rose-400/30 bg-rose-500/10 p-3 text-rose-200">
-            {errorMsg}
-          </div>
-        )}
+              {/* Primary action button */}
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={loading || !email || !password}
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    {mode === 'login' ? 'Logging in...' : 'Creating account...'}
+                  </>
+                ) : (
+                  mode === 'login' ? 'Log in' : 'Create account'
+                )}
+              </Button>
+            </form>
 
-        {infoMsg && (
-          <div className="mt-4 rounded-lg border border-amber-400/30 bg-amber-500/10 p-3 text-amber-200">
-            {infoMsg}
-          </div>
-        )}
+            {/* Error and info messages */}
+            {errorMsg && (
+              <Alert variant="destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>{errorMsg}</AlertDescription>
+              </Alert>
+            )}
 
-        {/* Small hint for new users */}
-        <p className="mt-6 text-sm text-white/60">
-          If your project uses email confirmation, check your inbox for a link. After you click it, you
-          will land on the Overview page.
-        </p>
+            {infoMsg && (
+              <Alert variant="success">
+                <Info className="h-4 w-4" />
+                <AlertDescription>{infoMsg}</AlertDescription>
+              </Alert>
+            )}
+
+            {/* Small hint for new users */}
+            <p className="text-sm text-white/60 text-center">
+              If your project uses email confirmation, check your inbox for a link. After you click it, you
+              will land on the Overview page.
+            </p>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

@@ -1,3 +1,4 @@
+import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
 import RepositoriesPageClient from './page-client';
@@ -6,14 +7,7 @@ export default async function RepositoriesPage() {
   const { user } = await getSession();
 
   if (!user) {
-    return (
-      <div className="flex items-center justify-center">
-        <div className="glass-panel p-8 text-center">
-          <h1 className="text-2xl font-bold text-white mb-4">Access Denied</h1>
-          <p className="text-white/70">Please sign in to access repositories.</p>
-        </div>
-      </div>
-    );
+    redirect('/login');
   }
 
   const supabase = await createClient();
