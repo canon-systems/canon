@@ -4,6 +4,10 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Layers3, Eye, Trash2, AlertTriangle, Loader2, Github, Calendar, FileText } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 interface ArchitectureDiagram {
     id: string;
@@ -25,6 +29,8 @@ export function ArchitectureDiagramsManagePageClient() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [deletingDiagramId, setDeletingDiagramId] = useState<string | null>(null);
+    const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [diagramToDelete, setDiagramToDelete] = useState<{ id: string; title: string } | null>(null);
 
     useEffect(() => {
         loadDiagrams();
@@ -71,11 +77,20 @@ export function ArchitectureDiagramsManagePageClient() {
         }
     }
 
-    async function deleteDiagram(diagramId: string) {
-        if (!confirm('Are you sure you want to delete this architecture diagram? This action cannot be undone.')) {
-            return;
-        }
+    function openDeleteModal(diagram: { id: string; title: string }) {
+        setDiagramToDelete(diagram);
+        setShowDeleteModal(true);
+    }
 
+    function cancelDelete() {
+        setShowDeleteModal(false);
+        setDiagramToDelete(null);
+    }
+
+    async function confirmDelete() {
+        if (!diagramToDelete) return;
+
+        const diagramId = diagramToDelete.id;
         try {
             setDeletingDiagramId(diagramId);
 
@@ -87,6 +102,8 @@ export function ArchitectureDiagramsManagePageClient() {
             if (error) throw error;
 
             setDiagrams(diagrams.filter(d => d.id !== diagramId));
+            setShowDeleteModal(false);
+            setDiagramToDelete(null);
         } catch (err: any) {
             console.error('Failed to delete diagram:', err);
             setError('Failed to delete diagram');
@@ -106,140 +123,165 @@ export function ArchitectureDiagramsManagePageClient() {
     }
 
     return (
-        <div>
-            <div className="container mx-auto px-4 py-8">
-                {/* Header */}
-                <div className="mb-8">
-                    <div className="flex items-center gap-4 mb-4">
-                        <Link
-                            href="/overview"
-                            className="text-white/70 hover:text-white transition-colors"
-                        >
-                            ← Back to Overview
-                        </Link>
-                    </div>
-                    <h1 className="text-3xl font-bold text-white mb-2">Manage Architecture Diagrams</h1>
-                    <p className="text-white/70">
-                        View and manage all your generated architecture diagrams.
-                    </p>
-                </div>
-
-                {/* Create New Button */}
-                <div className="mb-6">
-                    <Link
-                        href="/architecture-diagrams"
-                        className="inline-flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors"
-                    >
-                        <Layers3 className="w-4 h-4" />
-                        Create New Diagram
-                    </Link>
-                </div>
-
-                {/* Loading State */}
-                {loading && (
-                    <div className="flex items-center justify-center py-12">
-                        <Loader2 className="w-8 h-8 animate-spin text-white/70" />
-                        <span className="ml-2 text-white/70">Loading diagrams...</span>
-                    </div>
-                )}
-
-                {/* Error State */}
-                {error && (
-                    <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
-                        <div className="flex items-center gap-2 text-red-400 mb-1">
-                            <AlertTriangle className="w-5 h-5" />
-                            <span className="font-medium">Error</span>
-                        </div>
-                        <p className="text-red-200/80">{error}</p>
-                    </div>
-                )}
-
-                {/* Diagrams List */}
-                {!loading && !error && (
-                    <div className="space-y-4">
-                        {diagrams.length === 0 ? (
-                            <div className="text-center py-12">
-                                <Layers3 className="w-16 h-16 text-white/20 mx-auto mb-4" />
-                                <h3 className="text-xl font-medium text-white mb-2">No Architecture Diagrams Yet</h3>
-                                <p className="text-white/70 mb-6">
-                                    Generate your first architecture diagram to get started with visualizing your codebase structure.
-                                </p>
-                                <Link
-                                    href="/architecture-diagrams"
-                                    className="inline-flex items-center gap-2 px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors"
-                                >
-                                    <FileText className="w-4 h-4" />
-                                    Create First Diagram
+        <div className="min-h-screen px-4 py-8 sm:px-6 lg:px-8">
+            <div className="mx-auto max-w-6xl space-y-6">
+                <Card className="border border-white/10 bg-gradient-to-b from-white/5 to-white/0 shadow-lg">
+                    <CardHeader className="space-y-1 pb-6">
+                        <CardTitle className="text-2xl font-semibold text-white">Manage Architecture Diagrams</CardTitle>
+                        <CardDescription className="text-white/70">
+                            View and manage all your generated architecture diagrams.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-6">
+                        <div className="flex items-center justify-between">
+                            <Button asChild>
+                                <Link href="/architecture-diagrams">
+                                    <Layers3 className="w-4 h-4" />
+                                    Create New Diagram
                                 </Link>
-                            </div>
-                        ) : (
-                            diagrams.map((diagram) => (
-                                <div
-                                    key={diagram.id}
-                                    className="glass-panel p-6 hover:bg-white/5 transition-colors"
-                                >
-                                    <div className="flex items-start justify-between">
-                                        <div className="flex-1">
-                                            <div className="flex items-center gap-3 mb-2">
-                                                <Layers3 className="w-5 h-5 text-blue-400" />
-                                                <h3 className="text-xl font-semibold text-white">
-                                                    {diagram.title}
-                                                </h3>
-                                            </div>
+                            </Button>
+                        </div>
 
-                                            <div className="flex items-center gap-4 text-sm text-white/60 mb-3">
-                                                <div className="flex items-center gap-1">
-                                                    <Github className="w-4 h-4" />
-                                                    <span>{diagram.repo_name}</span>
-                                                </div>
-                                                <div className="flex items-center gap-1">
-                                                    <Calendar className="w-4 h-4" />
-                                                    <span>{formatDate(diagram.created_at)}</span>
-                                                </div>
-                                                <div className="flex items-center gap-1">
-                                                    <FileText className="w-4 h-4" />
-                                                    <span>
-                                                        {diagram.analysis_data?.components?.length || 0} components,
-                                                        {diagram.analysis_data?.relationships?.length || 0} relationships
-                                                    </span>
-                                                </div>
-                                            </div>
+                        <Separator />
 
-                                            {diagram.repo_url && (
-                                                <p className="text-white/50 text-sm mb-3">
-                                                    {diagram.repo_url}
-                                                </p>
-                                            )}
-                                        </div>
-
-                                        <div className="flex items-center gap-2">
-                                            <Link
-                                                href={`/architecture-diagrams/view/${diagram.id}`}
-                                                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg transition-colors"
-                                            >
-                                                <Eye className="w-4 h-4" />
-                                                View
-                                            </Link>
-
-                                            <button
-                                                onClick={() => deleteDiagram(diagram.id)}
-                                                disabled={deletingDiagramId === diagram.id}
-                                                className="inline-flex items-center gap-2 px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors disabled:opacity-50"
-                                            >
-                                                {deletingDiagramId === diagram.id ? (
-                                                    <Loader2 className="w-4 h-4 animate-spin" />
-                                                ) : (
-                                                    <Trash2 className="w-4 h-4" />
-                                                )}
-                                                Delete
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            ))
+                        {/* Loading State */}
+                        {loading && (
+                            <Card>
+                                <CardContent className="flex items-center justify-center py-12">
+                                    <Loader2 className="w-8 h-8 animate-spin text-white/70" />
+                                    <span className="ml-2 text-white/70">Loading diagrams...</span>
+                                </CardContent>
+                            </Card>
                         )}
-                    </div>
-                )}
+
+                        {/* Error State */}
+                        {error && (
+                            <Alert variant="destructive">
+                                <AlertTriangle className="h-4 w-4" />
+                                <AlertDescription>{error}</AlertDescription>
+                            </Alert>
+                        )}
+
+                        {/* Diagrams List */}
+                        {!loading && !error && (
+                            <div className="space-y-4">
+                                {diagrams.length === 0 ? (
+                                    <Card>
+                                        <CardContent className="p-12 text-center">
+                                            <Layers3 className="w-16 h-16 text-white/20 mx-auto mb-4" />
+                                            <h3 className="text-xl font-medium text-white mb-2">No Architecture Diagrams Yet</h3>
+                                            <p className="text-white/70 mb-6">
+                                                Generate your first architecture diagram to get started with visualizing your codebase structure.
+                                            </p>
+                                            <Button asChild>
+                                                <Link href="/architecture-diagrams">
+                                                    <FileText className="w-4 h-4" />
+                                                    Create First Diagram
+                                                </Link>
+                                            </Button>
+                                        </CardContent>
+                                    </Card>
+                                ) : (
+                                    diagrams.map((diagram) => (
+                                        <Card key={diagram.id} className="hover:shadow-lg transition-shadow">
+                                            <CardContent className="p-6">
+                                                <div className="flex items-start justify-between">
+                                                    <div className="flex-1">
+                                                        <div className="flex items-center gap-3 mb-2">
+                                                            <Layers3 className="w-5 h-5 text-blue-400" />
+                                                            <h3 className="text-xl font-semibold text-white">
+                                                                {diagram.title}
+                                                            </h3>
+                                                        </div>
+
+                                                        <div className="flex items-center gap-4 text-sm text-white/60 mb-3">
+                                                            <div className="flex items-center gap-1">
+                                                                <Github className="w-4 h-4" />
+                                                                <span>{diagram.repo_name}</span>
+                                                            </div>
+                                                            <div className="flex items-center gap-1">
+                                                                <Calendar className="w-4 h-4" />
+                                                                <span>{formatDate(diagram.created_at)}</span>
+                                                            </div>
+                                                            <div className="flex items-center gap-1">
+                                                                <FileText className="w-4 h-4" />
+                                                                <span>
+                                                                    {diagram.analysis_data?.components?.length || 0} components,
+                                                                    {diagram.analysis_data?.relationships?.length || 0} relationships
+                                                                </span>
+                                                            </div>
+                                                        </div>
+
+                                                        {diagram.repo_url && (
+                                                            <p className="text-white/50 text-sm mb-3">
+                                                                {diagram.repo_url}
+                                                            </p>
+                                                        )}
+                                                    </div>
+
+                                                    <div className="flex items-center gap-2">
+                                                        <Button variant="secondary" size="sm" asChild>
+                                                            <Link href={`/architecture-diagrams/view/${diagram.id}`}>
+                                                                <Eye className="w-4 h-4" />
+                                                                View
+                                                            </Link>
+                                                        </Button>
+
+                                                        <Button
+                                                            variant="destructive"
+                                                            size="sm"
+                                                            onClick={() => openDeleteModal({ id: diagram.id, title: diagram.title })}
+                                                            disabled={deletingDiagramId === diagram.id}
+                                                        >
+                                                            {deletingDiagramId === diagram.id ? (
+                                                                <Loader2 className="w-4 h-4 animate-spin" />
+                                                            ) : (
+                                                                <Trash2 className="w-4 h-4" />
+                                                            )}
+                                                            Delete
+                                                        </Button>
+                                                    </div>
+                                                </div>
+                                            </CardContent>
+                                        </Card>
+                                    ))
+                                )}
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+
+                {/* Delete Confirmation Modal */}
+                <Dialog open={showDeleteModal} onOpenChange={(open) => !open && cancelDelete()}>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>Confirm Delete</DialogTitle>
+                            <DialogDescription>
+                                Are you sure you want to delete <span className="font-semibold">"{diagramToDelete?.title}"</span>?
+                                This action cannot be undone.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="flex items-center justify-end gap-3">
+                            <Button variant="secondary" onClick={cancelDelete} disabled={deletingDiagramId !== null}>
+                                Cancel
+                            </Button>
+                            <Button
+                                variant="destructive"
+                                onClick={confirmDelete}
+                                disabled={deletingDiagramId !== null}
+                            >
+                                {deletingDiagramId === diagramToDelete?.id ? (
+                                    <>
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                        Deleting...
+                                    </>
+                                ) : (
+                                    'Delete'
+                                )}
+                            </Button>
+                        </div>
+                    </DialogContent>
+                </Dialog>
             </div>
         </div>
     );

@@ -138,6 +138,7 @@ button {
   z-index: 1;
   min-height: 100vh;
   display: flex;
+  flex-direction: column;
   gap: 0;
 }
 
@@ -181,7 +182,7 @@ button {
   position: relative;
   z-index: 1;
   flex: 1;
-  padding-block: clamp(2rem, 3vw, 4rem);
+  padding: 40px;
   min-height: 100vh;
   background: linear-gradient(to bottom right, #0a0a0a, #1a1a1a, #0a0a0a);
   background-clip: padding-box;

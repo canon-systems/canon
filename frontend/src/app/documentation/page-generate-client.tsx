@@ -9,10 +9,24 @@ import { PromptCustomizer } from '@/components/PromptCustomizer';
 import { DocumentStructure, type DocumentStructureConfig } from '@/components/DocumentStructure';
 import { SearchableSelect } from '@/components/SearchableSelect';
 import { RepositoryConnectionWizard } from '@/components/RepositoryConnectionWizard';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Progress } from '@/components/ui/progress';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Label } from '@/components/ui/label';
+import { Separator } from '@/components/ui/separator';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 
 type InputType = 'github_repo' | 'github_repo_directory';
-type Status = 'completed' | 'failed' | 'processing';
-
 interface Model {
   value: string;
   label: string;
@@ -543,15 +557,6 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
     return null;
   }
 
-  function buildInputContent(): string {
-    const files = selectedArray();
-    return [
-      repoUrl || '',
-      branch ? `@${branch}` : '',
-      subdir ? `/${subdir}` : '',
-      files.length ? ` • files: ${files.slice(0, 6).join(', ')}${files.length > 6 ? '…' : ''}` : ''
-    ].join('');
-  }
 
   async function analyzeAndSave() {
     setErrorMsg('');
@@ -793,425 +798,409 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
 
   return (
     <div className="min-h-screen px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-3xl space-y-10">
-        <div>
-          <h1 className="mb-2 text-3xl font-bold text-white">Generate Documentation</h1>
-          <p className="text-white/70">
-            Connect to a GitHub repository and generate comprehensive documentation automatically.
-          </p>
-        </div>
-
-        <section className="form-panel space-y-6 relative z-10">
-          <div>
-            <p className="section-label">Repository Scope</p>
-            <p className="section-helper">Choose whether to analyze the entire repository or focus on a specific directory.</p>
-          </div>
-
-          <div className="method-grid">
-            {[
-              { id: 'github_repo', label: 'Full Repository', description: 'Document entire repository or focus on specific folder' },
-              { id: 'github_repo_directory', label: 'Directory Mode', description: 'Start with a specific directory selection' },
-            ].map((opt) => {
-              const Icon = getMethodIcon(opt.id as InputType);
-              return (
-                <button
-                  key={opt.id}
-                  className="method-pill"
-                  data-active={method === opt.id}
-                  onClick={() => setMethod(opt.id as InputType)}
-                  aria-pressed={method === opt.id}
-                  title={opt.description}
-                >
-                  <Icon className="h-4 w-4" />
-                  <span>{opt.label}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="form-divider" />
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="field-group">
-              <span className="field-label">Document title</span>
-              <input
-                className="field-input"
-                value={docTitle}
-                onChange={(e) => setDocTitle(e.target.value)}
-                placeholder="e.g., API Overview"
-              />
-            </label>
-
-            <label className="field-group">
-              <span className="field-label">LLM</span>
-              <div className="relative z-[100]" ref={modelDropdownRef}>
-                <button
-                  type="button"
-                  className={`field-input flex items-center justify-between text-left disabled:cursor-not-allowed disabled:opacity-50 ${running ? 'opacity-70' : ''
-                    }`}
-                  onClick={() => !running && setShowModelDropdown(!showModelDropdown)}
-                  disabled={running}
-                >
-                  <div className="flex flex-wrap items-center gap-2 text-sm">
-                    {selectedModelObj ? (
-                      <>
-                        <span className="font-medium">{selectedModelObj.label}</span>
-                        <span className="text-xs text-white/60">({selectedModelObj.provider})</span>
-                        <span className="text-xs text-white/70">{selectedModelObj.cost}</span>
-                        <span className="text-xs text-white/50">{selectedModelObj.context}</span>
-                      </>
-                    ) : (
-                      <span className="font-medium text-white/60">Select model...</span>
-                    )}
-                  </div>
-                  <ChevronDown className={`h-4 w-4 text-white/60 transition-transform ${showModelDropdown ? 'rotate-180' : ''}`} />
-                </button>
-
-                {showModelDropdown && (
-                  <div className="absolute z-[100] mt-1 max-h-96 w-full overflow-auto rounded-lg border border-white/15 bg-[#0f0f12] shadow-xl">
-                    {availableModels
-                      .filter((m) => m && m.value && m.label)
-                      .map((model) => (
-                        <button
-                          key={model.value}
-                          type="button"
-                          className={`w-full px-4 py-3 text-left transition-colors hover:bg-white/5 focus:bg-white/5 focus:outline-none ${selectedModel === model.value ? 'bg-white/10' : ''
-                            }`}
-                          onClick={() => {
-                            setSelectedModel(model.value);
-                            setShowModelDropdown(false);
-                          }}
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0 flex-1 text-sm">
-                              <div className="mb-1 flex flex-wrap items-center gap-2">
-                                <span className="font-semibold text-white">{model.label}</span>
-                                {model.provider && <span className="text-xs text-white/60">({model.provider})</span>}
-                                {model.cost && <span className="text-xs font-medium text-white/70">{model.cost}</span>}
-                                {model.context && (
-                                  <span className="text-xs font-medium text-white/50">{model.context}</span>
-                                )}
-                              </div>
-                              {model.description && (
-                                <p className="text-xs leading-relaxed text-white/60">{model.description}</p>
-                              )}
-                            </div>
-                            {selectedModel === model.value && <Check className="h-5 w-5 shrink-0 text-green-400" />}
+      <div className="mx-auto max-w-4xl">
+        <Card className="border border-white/10 bg-gradient-to-b from-white/5 to-white/0 shadow-lg">
+          <CardHeader className="space-y-1 pb-6">
+            <CardTitle className="text-2xl font-semibold text-white">Generate Documentation</CardTitle>
+            <CardDescription className="text-white/70">
+              Select your repository, configure settings, and generate comprehensive documentation.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                analyzeAndSave();
+              }}
+              className="space-y-8"
+            >
+              {/* Input Type Selection */}
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-base font-medium text-white">Input Type</Label>
+                  <p className="text-sm text-white/60">Select how you want to generate documentation.</p>
+                </div>
+                <RadioGroup value={method} onValueChange={(value) => setMethod(value as InputType)}>
+                  {[
+                    { id: 'github_repo', label: 'Full Repository', description: 'Document the entire repository or a specific folder' },
+                    { id: 'github_repo_directory', label: 'Directory Mode', description: 'Start with a specific directory path' },
+                  ].map((opt) => {
+                    const Icon = getMethodIcon(opt.id as InputType);
+                    return (
+                      <RadioGroupItem key={opt.id} value={opt.id}>
+                        <div className="flex items-start gap-3">
+                          <Icon className="mt-0.5 h-5 w-5 text-white/70" />
+                          <div>
+                            <div className="font-medium text-white">{opt.label}</div>
+                            <div className="mt-1 text-sm text-white/60">{opt.description}</div>
                           </div>
-                        </button>
-                      ))}
-                  </div>
-                )}
+                        </div>
+                      </RadioGroupItem>
+                    );
+                  })}
+                </RadioGroup>
               </div>
-            </label>
-          </div>
-        </section>
 
-        {/* Method-specific inputs */}
-        {isGit && (
-          <section className="form-panel space-y-6 mt-10">
-            {!checkingGitHub && !hasGitHubConnection && (
-              <div className="rounded-xl border border-yellow-500/40 bg-yellow-500/15 p-4 text-sm text-yellow-100">
-                <div className="flex items-start gap-3">
-                  <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0" />
-                  <div className="flex-1">
-                    <p className="font-medium">GitHub connection recommended</p>
-                    <p className="mt-1 text-xs text-yellow-100/80">
-                      Public repositories work without a connection, but you'll have lower rate limits (60 requests/hour).
-                      Private repositories require a GitHub connection.
-                    </p>
-                    <a
-                      href="/settings?tab=integrations"
-                      className="mt-2 inline-flex items-center gap-1 text-xs font-semibold underline"
-                    >
-                      Connect GitHub for higher rate limits →
-                    </a>
+              <Separator />
+
+              {/* Basic Information */}
+              <div className="space-y-4">
+                <div>
+                  <Label className="text-base font-medium text-white">Basic Information</Label>
+                  <p className="text-sm text-white/60">Provide essential details for your documentation.</p>
+                </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="doc-title">Document title</Label>
+                    <Input id="doc-title" value={docTitle} onChange={(e) => setDocTitle(e.target.value)} placeholder="e.g., API Overview" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>LLM Model</Label>
+                    <div className="relative z-[100]" ref={modelDropdownRef}>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="w-full justify-between bg-white/5"
+                        onClick={() => !running && setShowModelDropdown(!showModelDropdown)}
+                        disabled={running}
+                      >
+                        <div className="flex flex-col text-left">
+                          <span className="font-semibold text-white">{selectedModelObj?.label ?? 'Select model'}</span>
+                          <span className="text-xs text-white/60">
+                            {selectedModelObj ? `${selectedModelObj.provider} • ${selectedModelObj.cost} • ${selectedModelObj.context}` : 'Pick a model'}
+                          </span>
+                        </div>
+                        <ChevronDown className={`h-4 w-4 text-white/60 transition ${showModelDropdown ? 'rotate-180' : ''}`} />
+                      </Button>
+                      {showModelDropdown && (
+                        <div className="absolute z-[100] mt-2 max-h-96 w-full overflow-auto rounded-xl border border-white/10 bg-black/90 shadow-2xl backdrop-blur">
+                          {availableModels.map((model) => (
+                            <button
+                              key={model.value}
+                              type="button"
+                              className={`w-full px-4 py-3 text-left transition hover:bg-white/5 ${selectedModel === model.value ? 'bg-white/10' : ''}`}
+                              onClick={() => {
+                                setSelectedModel(model.value);
+                                setShowModelDropdown(false);
+                              }}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0 flex-1 text-sm">
+                                  <div className="mb-1 flex flex-wrap items-center gap-2">
+                                    <span className="font-semibold text-white">{model.label}</span>
+                                    {model.provider && <span className="text-xs text-white/60">({model.provider})</span>}
+                                    {model.cost && <span className="text-xs font-medium text-white/70">{model.cost}</span>}
+                                    {model.context && <span className="text-xs font-medium text-white/50">{model.context}</span>}
+                                  </div>
+                                  {model.description && <p className="text-xs leading-relaxed text-white/60">{model.description}</p>}
+                                </div>
+                                {selectedModel === model.value && <Check className="h-5 w-5 shrink-0 text-emerald-400" />}
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
-            )}
 
-            <div className="field-group">
-              <span className="field-label">
-                Repository <span className="text-red-400">*</span>
-              </span>
-              <SearchableSelect
-                options={uniqueRepos.map((repo) => ({
-                  value: repo.repo_url,
-                  label: `${repo.name} (${repo.repo_url.replace('https://github.com/', '')})`,
-                }))}
-                value={selectedRepoUrl || ''}
-                placeholder={loadingRepos ? 'Loading repositories...' : uniqueRepos.length === 0 ? 'No repositories available' : 'Select a repository...'}
-                searchPlaceholder="Search repositories..."
-                disabled={loadingRepos || uniqueRepos.length === 0}
-                onChange={(repoUrl) => {
-                  setSelectedRepoUrl(repoUrl);
-                  setSelectedBranch(''); // Reset branch selection
-                  setSelectedRepoId(null); // Reset repo record ID
-                  setDirectories([]); // Clear directories when repo changes
-                }}
-                triggerClassName="field-select"
-              />
-              {loadingRepos ? (
-                <p className="field-note">Loading repositories…</p>
-              ) : uniqueRepos.length === 0 ? (
-                <div className="field-note flex items-center justify-between">
-                  <span>No repositories with file summaries found. Complete repository setup first.</span>
-                  <Link
-                    href="/repos"
-                    className="text-sm text-blue-400 hover:text-blue-300 underline"
-                  >
-                    Go to Repositories →
-                  </Link>
-                </div>
-              ) : (
-                <p className="field-note">Select a repository that has been set up with file summaries.</p>
-              )}
-            </div>
+              <Separator />
 
-            {/* Branch Selection */}
-            {selectedRepoUrl && (
-              <div className="field-group">
-                <span className="field-label">
-                  Branch <span className="text-red-400">*</span>
-                </span>
-                <SearchableSelect
-                  options={availableBranches.map((branch) => ({
-                    value: branch.branch,
-                    label: branch.branch,
-                  }))}
-                  value={selectedBranch}
-                  placeholder="Select a branch..."
-                  searchPlaceholder="Search branches..."
-                  disabled={availableBranches.length === 0}
-                  onChange={(branch) => {
-                    setSelectedBranch(branch);
-                    // Find the repo record for this branch
-                    const repoRecord = availableBranches.find(b => b.branch === branch);
-                    setSelectedRepoId(repoRecord?.id || null);
-                    // Update the branch state for API calls
-                    setBranch(branch);
-                    setDirectories([]); // Clear directories when branch changes
-                  }}
-                  triggerClassName="field-select"
-                />
-                {availableBranches.length === 0 && (
-                  <p className="field-note text-yellow-400">No branches available for this repository.</p>
-                )}
-                {availableBranches.length > 0 && (
-                  <p className="field-note">Select the branch you want to generate documentation for.</p>
-                )}
-              </div>
-            )}
+              {/* Repository Selection */}
+              {isGit && (
+                <div className="space-y-6 rounded-lg border border-white/10 bg-white/5 p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label className="text-base font-medium text-white">Repository Selection</Label>
+                      <p className="text-sm text-white/60">Pick repository, branch, and optional folder.</p>
+                    </div>
+                    <Button type="button" variant="secondary" onClick={() => setShowConnectionWizard(true)} size="sm">
+                      <Github className="h-4 w-4" />
+                      Connect repo
+                    </Button>
+                  </div>
 
-            {/* Folder Selection for new flow - available whenever branch is selected */}
-            {selectedBranch && (
-              <div className="field-group">
-                <span className="field-label">
-                  Focus Folder <span className="text-xs text-white/50">(optional)</span>
-                </span>
-                <SearchableSelect
-                  options={[
-                    { value: '', label: '📁 Root directory (all files)' },
-                    ...directories.map((d) => ({ value: d, label: `📂 ${d}` })),
-                  ]}
-                  value={subdir}
-                  placeholder={
-                    loadingDirectories
-                      ? 'Loading folders...'
-                      : directories.length === 0
-                        ? 'No folders found'
-                        : 'Choose folder to focus on...'
-                  }
-                  searchPlaceholder="Search folders..."
-                  disabled={loadingDirectories}
-                  onChange={setSubdir}
-                  triggerClassName="field-select"
-                />
-                <p className="field-note">
-                  {subdir
-                    ? `Documentation will focus on the "${subdir}" folder and its contents.`
-                    : 'Leave empty to include all files in the repository, or select a specific folder to focus the documentation.'
-                  }
-                </p>
-              </div>
-            )}
+                  {!checkingGitHub && !hasGitHubConnection && (
+                    <Alert variant="warning">
+                      <AlertTriangle className="h-5 w-5" />
+                      <div>
+                        <AlertTitle>GitHub connection recommended</AlertTitle>
+                        <AlertDescription>
+                          Public repos work without a connection but with lower rate limits. Private repos require a connection.
+                          <a href="/settings?tab=integrations" className="ml-1 font-semibold underline">
+                            Connect GitHub →
+                          </a>
+                        </AlertDescription>
+                      </div>
+                    </Alert>
+                  )}
 
-            {/* Show old branch input only when no repository is selected (backward compatibility) */}
-            {!selectedRepoUrl && (
-              <div className="field-group">
-                <span className="field-label">Branch</span>
-                <input
-                  className="field-input"
-                  value={branch}
-                  readOnly
-                  disabled
-                  placeholder="Branch from repository setup"
-                />
-                <p className="field-note">Branch is set from the initial repository setup and cannot be changed.</p>
-              </div>
-            )}
-
-            <div className="form-divider" />
-
-            <div>
-              <div className="mb-3 flex items-center justify-between text-sm text-white/80">
-                <span>Files in repository{subdir ? `/${subdir}` : ''}</span>
-                <div className="flex items-center gap-2">
-                  {showLoadButton && (
-                    <button className="secondary-action px-3 py-1 text-xs" onClick={listGitFiles} disabled={listing}>
-                      {listing ? (
-                        <span className="inline-flex items-center gap-1">
-                          <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+                  <div className="space-y-2">
+                    <Label>
+                      Repository <span className="text-red-400">*</span>
+                    </Label>
+                    <SearchableSelect
+                      options={uniqueRepos.map((repo) => ({
+                        value: repo.repo_url,
+                        label: `${repo.name} (${repo.repo_url.replace('https://github.com/', '')})`,
+                      }))}
+                      value={selectedRepoUrl || ''}
+                      placeholder={loadingRepos ? 'Loading repositories...' : uniqueRepos.length === 0 ? 'No repositories available' : 'Select a repository...'}
+                      searchPlaceholder="Search repositories..."
+                      disabled={loadingRepos || uniqueRepos.length === 0}
+                      onChange={(repoUrl) => {
+                        setSelectedRepoUrl(repoUrl);
+                        setSelectedBranch('');
+                        setSelectedRepoId(null);
+                        setDirectories([]);
+                      }}
+                      triggerClassName="field-select"
+                    />
+                    <p className="text-sm text-white/60">
+                      {uniqueRepos.length === 0 ? (
+                        <span>
+                          No ready repositories. <Link href="/repos" className="font-medium underline">Go to Repositories →</Link>
                         </span>
                       ) : (
-                        'Load files'
+                        'Select a repository that has been set up with file summaries.'
                       )}
-                    </button>
+                    </p>
+                  </div>
+
+                  {selectedRepoUrl && (
+                    <div className="space-y-2">
+                      <Label>
+                        Branch <span className="text-red-400">*</span>
+                      </Label>
+                      <SearchableSelect
+                        options={availableBranches.map((branch) => ({ value: branch.branch, label: branch.branch }))}
+                        value={selectedBranch}
+                        placeholder="Select a branch..."
+                        searchPlaceholder="Search branches..."
+                        disabled={availableBranches.length === 0}
+                        onChange={(branch) => {
+                          setSelectedBranch(branch);
+                          const repoRecord = availableBranches.find((b) => b.branch === branch);
+                          setSelectedRepoId(repoRecord?.id || null);
+                          setBranch(branch);
+                          setDirectories([]);
+                        }}
+                        triggerClassName="field-select"
+                      />
+                      <p className="text-sm text-white/60">
+                        {availableBranches.length === 0 ? 'No branches available for this repository.' : 'Select the branch you want to document.'}
+                      </p>
+                    </div>
                   )}
-                  {pickerFiles.length > 0 && (
-                    <>
-                      <button className="secondary-action px-3 py-1 text-xs" onClick={selectAll}>
-                        Select all{fileSearchQuery ? ` (${filteredFiles.length})` : ''}
-                      </button>
-                      <button className="secondary-action px-3 py-1 text-xs" onClick={clearAll}>
-                        Clear{fileSearchQuery ? ` (${filteredFiles.length})` : ''}
-                      </button>
-                    </>
+
+                  {selectedBranch && (
+                    <div className="space-y-2">
+                      <Label>Focus folder (optional)</Label>
+                      <SearchableSelect
+                        options={[{ value: '', label: '📁 Root directory (all files)' }, ...directories.map((d) => ({ value: d, label: `📂 ${d}` }))]}
+                        value={subdir}
+                        placeholder={
+                          loadingDirectories ? 'Loading folders...' : directories.length === 0 ? 'No folders found' : 'Choose folder to focus on...'
+                        }
+                        searchPlaceholder="Search folders..."
+                        disabled={loadingDirectories}
+                        onChange={setSubdir}
+                        triggerClassName="field-select"
+                      />
+                      <p className="text-sm text-white/60">
+                        {subdir
+                          ? `Documentation will focus on "${subdir}" and its contents.`
+                          : 'Leave empty to include all files or pick a folder to narrow scope.'}
+                      </p>
+                    </div>
                   )}
                 </div>
-              </div>
+              )}
 
-              {pickerFiles.length > 0 && (
-                <div className="mb-3">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" />
-                    <input
-                      type="text"
-                      className="field-input pl-9 pr-9"
-                      placeholder="Search files..."
-                      value={fileSearchQuery}
-                      onChange={(e) => setFileSearchQuery(e.target.value)}
-                    />
-                    {fileSearchQuery && (
-                      <button
-                        onClick={() => setFileSearchQuery('')}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/60"
-                        aria-label="Clear search"
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
+              {/* File Selection */}
+              {isGit && (
+                <>
+                  <Separator />
+                  <div className="space-y-4 rounded-lg border border-white/10 bg-white/5 p-6">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <Label className="text-base font-medium text-white">File Selection</Label>
+                        <p className="text-sm text-white/60">Load and pick files to include in your documentation.</p>
+                      </div>
+                      <div className="flex gap-2">
+                        {showLoadButton && (
+                          <Button variant="secondary" onClick={listGitFiles} disabled={listing}>
+                            {listing ? (
+                              <>
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                Loading…
+                              </>
+                            ) : (
+                              'Load files'
+                            )}
+                          </Button>
+                        )}
+                        {pickerFiles.length > 0 && (
+                          <>
+                            <Button variant="secondary" onClick={selectAll} className="text-sm">
+                              Select all{fileSearchQuery ? ` (${filteredFiles.length})` : ''}
+                            </Button>
+                            <Button variant="secondary" onClick={clearAll} className="text-sm">
+                              Clear{fileSearchQuery ? ` (${filteredFiles.length})` : ''}
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {pickerFiles.length > 0 && (
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" />
+                        <Input
+                          className="pl-9 pr-9"
+                          placeholder="Search files..."
+                          value={fileSearchQuery}
+                          onChange={(e) => setFileSearchQuery(e.target.value)}
+                        />
+                        {fileSearchQuery && (
+                          <button
+                            onClick={() => setFileSearchQuery('')}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/60"
+                            aria-label="Clear search"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        )}
+                        {fileSearchQuery && (
+                          <p className="mt-1 text-xs text-white/60">
+                            Showing {filteredFiles.length} of {pickerFiles.length} files
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {pickerFiles.length > 0 ? (
+                      filteredFiles.length > 0 ? (
+                        <div className="max-h-72 overflow-auto rounded-xl border border-white/10 bg-black/20">
+                          <ul className="divide-y divide-white/10">
+                            {filteredFiles.map((f) => (
+                              <li key={f.path} className="flex items-center gap-3 px-3 py-2 text-sm transition-colors hover:bg-white/5">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedPaths.has(f.path)}
+                                  onChange={() => togglePick(f.path)}
+                                  className="h-4 w-4 rounded border-white/30 bg-white/5 text-amber-500 focus:ring-2 focus:ring-amber-500/50 focus:ring-offset-2 focus:ring-offset-black"
+                                />
+                                <span className="flex-1 font-mono text-white/90">{f.path}</span>
+                                <span className="text-xs text-white/50">{f.size ? `${f.size} bytes` : '—'}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : (
+                        <Alert variant="default" className="text-center">
+                          <AlertDescription>
+                            No files match "{fileSearchQuery}"
+                          </AlertDescription>
+                        </Alert>
+                      )
+                    ) : (
+                      <p className="text-sm text-white/60">No files loaded yet.</p>
+                    )}
+
+                    {selectedPaths.size > 0 && (
+                      <div className="flex items-center justify-between text-sm text-white/70">
+                        <span>{selectedPaths.size} file(s) selected</span>
+                        <Progress value={100} className="h-1.5 w-48" />
+                      </div>
                     )}
                   </div>
-                  {fileSearchQuery && (
-                    <p className="mt-1 text-xs text-white/50">
-                      Showing {filteredFiles.length} of {pickerFiles.length} files
-                    </p>
+                </>
+              )}
+
+              <Separator />
+
+              {/* Prompt Customization */}
+              <div className="space-y-4 rounded-lg border border-white/10 bg-white/5 p-6">
+                <div>
+                  <Label className="text-base font-medium text-white">Prompt Customization</Label>
+                  <p className="text-sm text-white/60">Customize the tone, style, audience, and instructions for your documentation.</p>
+                </div>
+                <PromptCustomizer
+                  promptConfig={promptConfig}
+                  onChange={(config) => {
+                    setPromptConfig({
+                      personality: config.personality ?? 'default',
+                      style: config.style ?? 'default',
+                      perspective: config.perspective ?? 'default',
+                      audience: config.audience ?? 'technical',
+                      customInstructions: config.customInstructions ?? '',
+                      temperature: config.temperature ?? 0.3,
+                    });
+                  }}
+                />
+              </div>
+
+              <Separator />
+
+              {/* Document Structure */}
+              <div className="space-y-4 rounded-lg border border-white/10 bg-white/5 p-6">
+                <div>
+                  <Label className="text-base font-medium text-white">Document Structure</Label>
+                  <p className="text-sm text-white/60">Configure sections and table of contents for your documentation.</p>
+                </div>
+                <DocumentStructure config={structureConfig} onChange={setStructureConfig} />
+              </div>
+
+              {(errorMsg || statusMsg) && (
+                <div className="space-y-2">
+                  {errorMsg && (
+                    <Alert variant="destructive">
+                      <AlertTriangle className="h-4 w-4" />
+                      <AlertDescription>{errorMsg}</AlertDescription>
+                    </Alert>
+                  )}
+                  {statusMsg && (
+                    <Alert variant="default">
+                      <Info className="h-4 w-4" />
+                      <AlertDescription>{statusMsg}</AlertDescription>
+                    </Alert>
                   )}
                 </div>
               )}
 
-              {pickerFiles.length > 0 ? (
-                filteredFiles.length > 0 ? (
-                  <div className="max-h-64 overflow-auto rounded-xl border border-white/10">
-                    <ul className="divide-y divide-white/10">
-                      {filteredFiles.map((f) => (
-                        <li key={f.path} className="flex items-center gap-3 px-3 py-2 text-sm">
-                          <input type="checkbox" checked={selectedPaths.has(f.path)} onChange={() => togglePick(f.path)} />
-                          <span className="font-mono text-white/90">{f.path}</span>
-                          <span className="ml-auto text-xs text-white/50">{f.size ? `${f.size} bytes` : '—'}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : (
-                  <div className="rounded-xl border border-white/10 p-4 text-center text-sm text-white/60">
-                    No files match "{fileSearchQuery}"
-                  </div>
-                )
-              ) : (
-                <p className="text-sm text-white/60">No files loaded yet.</p>
-              )}
-            </div>
-          </section>
-        )}
+              <Separator />
 
-
-
-        {/* LLM Prompt Customization */}
-        <section className="form-panel space-y-4 mt-6">
-          <PromptCustomizer
-            promptConfig={promptConfig}
-            onChange={(config) => {
-              setPromptConfig({
-                personality: config.personality ?? 'default',
-                style: config.style ?? 'default',
-                perspective: config.perspective ?? 'default',
-                audience: config.audience ?? 'technical',
-                customInstructions: config.customInstructions ?? '',
-                temperature: config.temperature ?? 0.3
-              });
-            }}
-          />
-        </section>
-
-        {/* Document Structure */}
-        <section className="form-panel space-y-4 mt-6">
-          <DocumentStructure
-            config={structureConfig}
-            onChange={setStructureConfig}
-          />
-        </section>
-
-        {/* Error / Status */}
-        {errorMsg && (
-          <div className="mb-4 rounded-xl border border-red-400/30 bg-red-500/10 px-3 py-2 text-red-200">
-            {errorMsg}
-          </div>
-        )}
-        {statusMsg && (
-          <div className="mb-4 rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-white/80">
-            {statusMsg}
-          </div>
-        )}
-
-        {/* Primary CTA */}
-        <div className="flex flex-wrap gap-3 mt-6">
-          <button className="primary-action flex-1 min-w-[200px]" onClick={analyzeAndSave} disabled={running}>
-            {running ? (
-              <span className="inline-flex items-center gap-2 text-sm">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Analyzing…
-              </span>
-            ) : (
-              'Analyze & Save'
-            )}
-          </button>
-          <a href="/edit" className="secondary-action min-w-[160px] text-center">
-            View History
-          </a>
-        </div>
+              {/* Form Actions */}
+              <div className="flex flex-wrap gap-3">
+                <Button type="submit" className="flex-1 min-w-[200px]" disabled={running}>
+                  {running ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Analyzing…
+                    </>
+                  ) : (
+                    'Analyze & Save'
+                  )}
+                </Button>
+                <Button type="button" variant="secondary" asChild className="min-w-[160px]">
+                  <Link href="/edit">View History</Link>
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* Repository Connection Modal */}
-      {showConnectionWizard && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="relative">
-              <button
-                onClick={() => setShowConnectionWizard(false)}
-                className="absolute top-4 right-4 z-10 w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white/60 hover:text-white transition-colors"
-              >
-                <X className="h-4 w-4" />
-              </button>
-              <RepositoryConnectionWizard
-                onComplete={handleRepositoryConnected}
-                onCancel={() => setShowConnectionWizard(false)}
-              />
-            </div>
-          </div>
-        </div>
-      )}
+      <Dialog open={showConnectionWizard} onOpenChange={setShowConnectionWizard}>
+        <DialogContent className="p-0">
+          <RepositoryConnectionWizard
+            onComplete={handleRepositoryConnected}
+            onCancel={() => setShowConnectionWizard(false)}
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

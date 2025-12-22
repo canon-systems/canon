@@ -5,6 +5,9 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Download, RefreshCw, Share2, ZoomIn, ZoomOut } from 'lucide-react';
 import mermaid from 'mermaid';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 // Global Mermaid initialization flag (Mermaid best practice - initialize only once)
 let mermaidInitialized = false;
@@ -254,223 +257,224 @@ export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagram
 
     if (loading) {
         return (
-            <div className="flex items-center justify-center">
-                <div className="text-center">
-                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-                    <p className="text-white/70">Rendering architecture diagram...</p>
-                </div>
-            </div>
+            <Card>
+                <CardContent className="flex items-center justify-center py-12">
+                    <div className="text-center">
+                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+                        <p className="text-white/70">Rendering architecture diagram...</p>
+                    </div>
+                </CardContent>
+            </Card>
         );
     }
 
     if (error) {
         return (
-            <div className="flex items-center justify-center">
-                <div className="text-center max-w-2xl">
-                    <div className="text-red-400 text-6xl mb-4">⚠️</div>
-                    <h1 className="text-2xl font-bold text-white mb-2">Diagram Render Error</h1>
-                    <p className="text-white/70 mb-6">{error}</p>
+            <Card>
+                <CardContent className="p-12">
+                    <div className="text-center max-w-2xl mx-auto">
+                        <Alert variant="destructive" className="mb-6">
+                            <AlertDescription className="text-lg font-semibold mb-2">Diagram Render Error</AlertDescription>
+                            <AlertDescription>{error}</AlertDescription>
+                        </Alert>
 
-                    {/* Debug information */}
-                    <details className="mb-6 text-left bg-slate-800/50 p-4 rounded-lg">
-                        <summary className="text-white/80 cursor-pointer mb-2 font-medium">
-                            🔧 Mermaid Source & Debug Info (click to expand)
-                        </summary>
-                        <div className="text-xs text-white/60 mb-3 space-y-1">
-                            <div>Copy the content below to <a href="https://mermaid.live" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 underline">mermaid.live</a> to test the syntax manually</div>
-                            <div>Check browser console for detailed logs</div>
-                            <div>Rendered SVG length: {renderedSvg?.length || 0} characters</div>
-                        </div>
-                        <div className="space-y-4">
-                            <div>
-                                <h5 className="text-white/90 font-medium mb-2">Mermaid Syntax:</h5>
-                                <pre className="bg-slate-900 p-4 rounded text-sm text-white/80 overflow-x-auto max-h-64 whitespace-pre-wrap">
-                                    <code>{diagram.content}</code>
-                                </pre>
+                        {/* Debug information */}
+                        <details className="mb-6 text-left bg-slate-800/50 p-4 rounded-lg">
+                            <summary className="text-white/80 cursor-pointer mb-2 font-medium">
+                                🔧 Mermaid Source & Debug Info (click to expand)
+                            </summary>
+                            <div className="text-xs text-white/60 mb-3 space-y-1">
+                                <div>Copy the content below to <a href="https://mermaid.live" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 underline">mermaid.live</a> to test the syntax manually</div>
+                                <div>Check browser console for detailed logs</div>
+                                <div>Rendered SVG length: {renderedSvg?.length || 0} characters</div>
                             </div>
-                            {renderedSvg && (
+                            <div className="space-y-4">
                                 <div>
-                                    <h5 className="text-white/90 font-medium mb-2">Generated SVG (first 500 chars):</h5>
-                                    <pre className="bg-slate-900 p-4 rounded text-sm text-green-400 overflow-x-auto max-h-32 whitespace-pre-wrap">
-                                        <code>{renderedSvg.substring(0, 500)}{renderedSvg.length > 500 ? '...' : ''}</code>
+                                    <h5 className="text-white/90 font-medium mb-2">Mermaid Syntax:</h5>
+                                    <pre className="bg-slate-900 p-4 rounded text-sm text-white/80 overflow-x-auto max-h-64 whitespace-pre-wrap">
+                                        <code>{diagram.content}</code>
                                     </pre>
                                 </div>
-                            )}
-                        </div>
-                    </details>
+                                {renderedSvg && (
+                                    <div>
+                                        <h5 className="text-white/90 font-medium mb-2">Generated SVG (first 500 chars):</h5>
+                                        <pre className="bg-slate-900 p-4 rounded text-sm text-green-400 overflow-x-auto max-h-32 whitespace-pre-wrap">
+                                            <code>{renderedSvg.substring(0, 500)}{renderedSvg.length > 500 ? '...' : ''}</code>
+                                        </pre>
+                                    </div>
+                                )}
+                            </div>
+                        </details>
 
-                    <div className="space-x-4">
-                        <button
-                            onClick={() => window.location.reload()}
-                            className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors"
-                        >
-                            Try Again
-                        </button>
-                        <Link
-                            href="/architecture-diagrams"
-                            className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors"
-                        >
-                            Generate New
-                        </Link>
+                        <div className="flex items-center justify-center gap-4">
+                            <Button onClick={() => window.location.reload()}>
+                                Try Again
+                            </Button>
+                            <Button variant="secondary" asChild>
+                                <Link href="/architecture-diagrams">Generate New</Link>
+                            </Button>
+                        </div>
                     </div>
-                </div>
-            </div>
+                </CardContent>
+            </Card>
         );
     }
 
     return (
-        <div>
-            <div className="container mx-auto px-4 py-8">
-                {/* Header */}
-                <div className="mb-8">
-                    <div className="flex items-center justify-between mb-4">
-                        <Link
-                            href="/architecture-diagrams"
-                            className="flex items-center gap-2 text-white/70 hover:text-white transition-colors"
-                        >
-                            <ArrowLeft className="w-4 h-4" />
-                            Back to Diagrams
-                        </Link>
-                        <div className="flex items-center gap-2">
-                            <button
-                                onClick={() => setZoom(Math.min(zoom + 0.2, 2))}
-                                className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
-                                title="Zoom In"
-                            >
-                                <ZoomIn className="w-4 h-4" />
-                            </button>
-                            <button
-                                onClick={() => setZoom(Math.max(zoom - 0.2, 0.5))}
-                                className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
-                                title="Zoom Out"
-                            >
-                                <ZoomOut className="w-4 h-4" />
-                            </button>
-                            <button
-                                onClick={handleDownload}
-                                className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
-                                title="Download Diagram"
-                            >
-                                <Download className="w-4 h-4" />
-                            </button>
-                            <button
-                                onClick={regenerateDiagram}
-                                className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
-                                title="Regenerate"
-                            >
-                                <RefreshCw className="w-4 h-4" />
-                            </button>
-                        </div>
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <h1 className="text-3xl font-bold text-white mb-2">{diagram.title}</h1>
-                            <div className="flex items-center gap-4 text-white/70">
-                                <span className="flex items-center gap-2">
-                                    Repository: {repo.name}
-                                </span>
-                                <span>•</span>
-                                <span>
-                                    Generated: {new Date(diagram.created_at).toLocaleDateString()}
-                                </span>
+        <div className="min-h-screen px-4 py-8 sm:px-6 lg:px-8">
+            <div className="mx-auto max-w-6xl space-y-6">
+                <Card className="border border-white/10 bg-gradient-to-b from-white/5 to-white/0 shadow-lg">
+                    <CardHeader className="space-y-1 pb-6">
+                        <div className="flex items-center justify-between">
+                            <Button variant="ghost" size="sm" asChild>
+                                <Link href="/architecture-diagrams">
+                                    <ArrowLeft className="w-4 h-4" />
+                                    Back to Diagrams
+                                </Link>
+                            </Button>
+                            <div className="flex items-center gap-2">
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => setZoom(Math.min(zoom + 0.2, 2))}
+                                    title="Zoom In"
+                                >
+                                    <ZoomIn className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => setZoom(Math.max(zoom - 0.2, 0.5))}
+                                    title="Zoom Out"
+                                >
+                                    <ZoomOut className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={handleDownload}
+                                    title="Download Diagram"
+                                >
+                                    <Download className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={regenerateDiagram}
+                                    title="Regenerate"
+                                >
+                                    <RefreshCw className="w-4 h-4" />
+                                </Button>
                             </div>
                         </div>
-                    </div>
-                </div>
+                        <CardTitle className="text-2xl font-semibold text-white">{diagram.title}</CardTitle>
+                        <CardDescription className="text-white/70">
+                            Repository: {repo.name} • Generated: {new Date(diagram.created_at).toLocaleDateString()}
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        {/* Diagram */}
+                        <Card>
+                            <CardHeader>
+                                <div className="flex items-center justify-between">
+                                    <CardTitle className="text-lg font-semibold text-white">Architecture Overview</CardTitle>
+                                    <div className="text-sm text-white/60">
+                                        {diagram.analysis_data?.components?.length || 0} components •
+                                        {diagram.analysis_data?.relationships?.length || 0} relationships
+                                    </div>
+                                </div>
+                            </CardHeader>
+                            <CardContent>
+                                <div
+                                    className="overflow-auto bg-slate-800/50 rounded-lg p-4"
+                                    style={{ transform: `scale(${zoom})`, transformOrigin: 'top left' }}
+                                >
+                                    <div
+                                        ref={diagramRef}
+                                        className="mermaid-container flex justify-center items-center"
+                                        style={{
+                                            minWidth: '800px',
+                                            minHeight: '600px',
+                                            backgroundColor: '#1e293b'
+                                        }}
+                                        dangerouslySetInnerHTML={{ __html: renderedSvg }}
+                                    />
+                                </div>
 
-                {/* Diagram */}
-                <div className="glass-panel p-6">
-                    <div className="mb-4 flex items-center justify-between">
-                        <h2 className="text-xl font-semibold text-white">Architecture Overview</h2>
-                        <div className="text-sm text-white/60">
-                            {diagram.analysis_data?.components?.length || 0} components •
-                            {diagram.analysis_data?.relationships?.length || 0} relationships
-                        </div>
-                    </div>
+                                {zoom !== 1 && (
+                                    <div className="mt-4 text-center">
+                                        <Button variant="ghost" size="sm" onClick={() => setZoom(1)}>
+                                            Reset Zoom
+                                        </Button>
+                                    </div>
+                                )}
+                            </CardContent>
+                        </Card>
 
-                    <div
-                        className="overflow-auto bg-slate-800/50 rounded-lg p-4"
-                        style={{ transform: `scale(${zoom})`, transformOrigin: 'top left' }}
-                    >
-                        <div
-                            ref={diagramRef}
-                            className="mermaid-container flex justify-center items-center"
-                            style={{
-                                minWidth: '800px',
-                                minHeight: '600px',
-                                backgroundColor: '#1e293b'
-                            }}
-                            dangerouslySetInnerHTML={{ __html: renderedSvg }}
-                        />
-                    </div>
-
-                    {zoom !== 1 && (
-                        <div className="mt-4 text-center">
-                            <button
-                                onClick={() => setZoom(1)}
-                                className="text-sm text-blue-400 hover:text-blue-300"
-                            >
-                                Reset Zoom
-                            </button>
-                        </div>
-                    )}
-                </div>
-
-                {/* Analysis Details */}
-                {diagram.analysis_data && (
-                    <div className="mt-6 glass-panel p-6">
-                        <h3 className="text-lg font-semibold text-white mb-4">Analysis Details</h3>
-
-                        <div className="grid md:grid-cols-2 gap-6">
-                            <div>
-                                <h4 className="text-white font-medium mb-3">Components Found</h4>
-                                <div className="space-y-2">
-                                    {diagram.analysis_data.components?.map((component: any, index: number) => (
-                                        <div key={index} className="flex items-center justify-between p-2 bg-white/5 rounded">
-                                            <span className="text-white/80">{component.name}</span>
-                                            <span className="text-white/60 text-sm">{component.files?.length || 0} files</span>
+                        {/* Analysis Details */}
+                        {diagram.analysis_data && (
+                            <Card className="mt-6">
+                                <CardHeader>
+                                    <CardTitle className="text-lg font-semibold text-white">Analysis Details</CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                    <div className="grid md:grid-cols-2 gap-6">
+                                        <div>
+                                            <h4 className="text-white font-medium mb-3">Components Found</h4>
+                                            <div className="space-y-2">
+                                                {diagram.analysis_data.components?.map((component: any, index: number) => (
+                                                    <div key={index} className="flex items-center justify-between p-2 bg-white/5 rounded">
+                                                        <span className="text-white/80">{component.name}</span>
+                                                        <span className="text-white/60 text-sm">{component.files?.length || 0} files</span>
+                                                    </div>
+                                                )) || <p className="text-white/60">No component data available</p>}
+                                            </div>
                                         </div>
-                                    )) || <p className="text-white/60">No component data available</p>}
-                                </div>
-                            </div>
 
-                            <div>
-                                <h4 className="text-white font-medium mb-3">Architecture Insights</h4>
-                                <div className="space-y-3 text-white/80">
-                                    <div className="flex justify-between">
-                                        <span>Total Files Analyzed:</span>
-                                        <span>{diagram.analysis_data.components?.reduce((sum: number, c: any) => sum + (c.files?.length || 0), 0) || 0}</span>
+                                        <div>
+                                            <h4 className="text-white font-medium mb-3">Architecture Insights</h4>
+                                            <div className="space-y-3 text-white/80">
+                                                <div className="flex justify-between">
+                                                    <span>Total Files Analyzed:</span>
+                                                    <span>{diagram.analysis_data.components?.reduce((sum: number, c: any) => sum + (c.files?.length || 0), 0) || 0}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                    <span>Component Types:</span>
+                                                    <span>{new Set(diagram.analysis_data.components?.map((c: any) => c.type)).size || 0}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                    <span>Analysis Method:</span>
+                                                    <span className="text-blue-400">Tree-sitter AST Parsing</span>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div className="flex justify-between">
-                                        <span>Component Types:</span>
-                                        <span>{new Set(diagram.analysis_data.components?.map((c: any) => c.type)).size || 0}</span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                        <span>Analysis Method:</span>
-                                        <span className="text-blue-400">Tree-sitter AST Parsing</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )}
+                                </CardContent>
+                            </Card>
+                        )}
 
-                {/* Mermaid Source */}
-                <div className="mt-6 glass-panel p-6">
-                    <div className="flex items-center justify-between mb-4">
-                        <h3 className="text-lg font-semibold text-white">Mermaid Source</h3>
-                        <button
-                            onClick={() => navigator.clipboard.writeText(diagram.content)}
-                            className="px-3 py-1 text-sm bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded transition-colors"
-                        >
-                            Copy
-                        </button>
-                    </div>
-                    <pre className="bg-slate-800/50 p-4 rounded-lg overflow-x-auto text-sm text-white/80">
-                        <code>{diagram.content}</code>
-                    </pre>
-                </div>
+                        {/* Mermaid Source */}
+                        <Card className="mt-6">
+                            <CardHeader>
+                                <div className="flex items-center justify-between">
+                                    <CardTitle className="text-lg font-semibold text-white">Mermaid Source</CardTitle>
+                                    <Button
+                                        variant="secondary"
+                                        size="sm"
+                                        onClick={() => navigator.clipboard.writeText(diagram.content)}
+                                    >
+                                        Copy
+                                    </Button>
+                                </div>
+                            </CardHeader>
+                            <CardContent>
+                                <pre className="bg-slate-800/50 p-4 rounded-lg overflow-x-auto text-sm text-white/80">
+                                    <code>{diagram.content}</code>
+                                </pre>
+                            </CardContent>
+                        </Card>
+                    </CardContent>
+                </Card>
             </div>
         </div>
     );

@@ -1,24 +1,26 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  Code2,
-  LayoutDashboard,
-  BookOpen,
-  Settings,
-  Layers3,
-  ChevronsLeft,
-  BarChart3,
-  FileText,
-  LogOut,
-  ChevronDown,
-  Zap,
-  Github,
   Activity,
+  BookOpen,
+  Code2,
+  FileText,
+  Github,
+  Layers3,
+  LogOut,
+  Menu,
+  Settings,
+  Sparkles,
+  Zap,
 } from 'lucide-react';
 import type { Session, User } from '@supabase/supabase-js';
+import { Button } from './ui/button';
+import { Badge } from './ui/badge';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
+import { cn } from './ui/utils';
 
 interface NavigationProps {
   user: User | null;
@@ -29,252 +31,187 @@ interface NavigationProps {
 type NavItem = {
   href: string;
   label: string;
-  icon: typeof LayoutDashboard;
+  icon: typeof FileText;
   matchPrefix?: boolean;
 };
 
-const navSections: Array<{ title: string; items: NavItem[] }> = [
-  {
-    title: 'Get Started',
-    items: [
-      { href: '/repos', label: 'Connect Repos', icon: Github },
-    ],
-  },
-  {
-    title: 'Create',
-    items: [
-      { href: '/documentation', label: 'Generate Docs', icon: FileText },
-      { href: '/architecture-diagrams', label: 'Architecture Diagrams', icon: Layers3 },
-    ],
-  },
-  {
-    title: 'Manage',
-    items: [
-      { href: '/edit', label: 'Edit Documents', icon: BookOpen, matchPrefix: true },
-      { href: '/automation', label: 'Automation', icon: Zap },
-      { href: '/architecture-diagrams/manage', label: 'Architecture Diagrams', icon: Layers3 },
-    ],
-  },
-  {
-    title: 'Overview',
-    items: [
-      { href: '/overview', label: 'Dashboard', icon: BarChart3 },
-      { href: '/logs', label: 'Activity', icon: Activity },
-    ],
-  },
-  {
-    title: 'Resources',
-    items: [
-      { href: '/docs', label: 'Video Tutorials', icon: BookOpen },
-      { href: '/settings', label: 'Settings', icon: Settings, matchPrefix: true },
-    ],
-  },
+const primaryNav: NavItem[] = [
+  { href: '/overview', label: 'Overview', icon: Activity },
+  { href: '/repos', label: 'Repos', icon: Github },
+  { href: '/documentation', label: 'Docs', icon: FileText },
+  { href: '/edit', label: 'Edit', icon: BookOpen, matchPrefix: true },
+  { href: '/architecture-diagrams', label: 'Architecture', icon: Layers3 },
+  { href: '/automation', label: 'Automation', icon: Zap },
+];
+
+const secondaryNav: NavItem[] = [
+  { href: '/logs', label: 'Activity', icon: Activity },
+  { href: '/settings', label: 'Settings', icon: Settings, matchPrefix: true },
+  { href: '/docs', label: 'Tutorials', icon: BookOpen },
 ];
 
 export function Navigation({ user, session, onLogout }: NavigationProps) {
   const pathname = usePathname();
-  const [collapsed, setCollapsed] = useState(false);
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
-  const userMenuRef = useRef<HTMLDivElement>(null);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  function isActive(item: NavItem) {
-    if (item.matchPrefix) {
-      return pathname.startsWith(item.href);
-    }
+  const initials = useMemo(() => user?.email?.[0]?.toUpperCase() ?? 'C', [user]);
+
+  const isActive = (item: NavItem) => {
+    if (item.matchPrefix) return pathname.startsWith(item.href);
     return pathname === item.href;
-  }
+  };
 
-  const initials = user?.email?.[0]?.toUpperCase() ?? 'C';
-
-  // Handle responsive behavior
   useEffect(() => {
-    const checkMobile = () => {
-      const mobile = window.innerWidth < 1024;
-      setIsMobile(mobile);
+    const handleResize = () => setIsMobile(window.innerWidth < 1024);
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
-      // Auto-collapse on mobile, auto-expand on desktop
-      if (mobile && !collapsed) {
-        setCollapsed(true);
-      } else if (!mobile && collapsed) {
-        setCollapsed(false);
-      }
-    };
-
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-
-    return () => {
-      window.removeEventListener('resize', checkMobile);
-    };
-  }, [collapsed]);
-
-  // Close user menu when clicking outside
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (userMenuOpen && userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
-        setUserMenuOpen(false);
-      }
-    }
-
-    if (userMenuOpen) {
-      document.addEventListener('click', handleClickOutside);
-    }
-
-    return () => {
-      document.removeEventListener('click', handleClickOutside);
-    };
-  }, [userMenuOpen]);
-
+  const navLinkClass = (active: boolean) =>
+    cn(
+      'flex items-center gap-2 rounded-xl px-3 py-2 text-sm transition',
+      'border border-transparent bg-white/0 hover:bg-white/5 hover:border-white/10',
+      active && 'bg-white/10 border-white/15 text-white shadow-[0_8px_30px_rgba(0,0,0,0.35)]'
+    );
 
   return (
-    <aside className="nav-rail" data-collapsed={collapsed}>
-      <Link href="/" className="nav-rail__brand" aria-label="Sync home">
-        <span className="nav-rail__brand-badge">
-          <Code2 className="h-5 w-5 text-white" />
-        </span>
-        <div>
-          <h1>Sync</h1>
-          <p>INTEL</p>
+    <div className="sticky top-0 z-40" ref={containerRef}>
+      <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-slate-900/60 to-black/70 backdrop-blur-xl border-b border-white/10" />
+      <nav className="relative mx-auto flex max-w-screen-2xl items-center justify-between px-4 py-4 lg:px-8">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400/60 via-amber-500/40 to-orange-500/50 text-black shadow-lg shadow-amber-500/25">
+            <Code2 className="h-5 w-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <Link href="/" className="text-lg font-semibold text-white">
+                Sync
+              </Link>
+            </div>
+            <p className="text-xs text-white/60">AI docs & automation</p>
+          </div>
         </div>
-      </Link>
 
-      <div className="nav-rail__menu">
-        {navSections.map((section) => (
-          <div key={section.title} className="nav-rail__section">
-            <span className="nav-rail__section-title">{section.title}</span>
-            {section.items.map((item) => {
+        <div className="hidden items-center gap-2 rounded-full border border-white/10 bg-white/5 px-2 py-2 shadow-inner shadow-black/30 lg:flex">
+          {primaryNav.map((item) => {
+            const active = isActive(item);
+            const Icon = item.icon;
+            return (
+              <Link key={item.href} href={item.href} className={navLinkClass(active)}>
+                <Icon className="h-4 w-4 text-amber-300/80" />
+                <span className="text-white/90">{item.label}</span>
+              </Link>
+            );
+          })}
+        </div>
+
+        <div className="hidden items-center gap-3 lg:flex">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="flex items-center gap-3 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-left text-sm text-white/80 transition hover:bg-white/10">
+                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white">
+                  {initials}
+                </div>
+                <div className="flex flex-col leading-tight">
+                  <span className="text-white font-semibold">{user?.user_metadata?.full_name ?? 'Workspace Member'}</span>
+                  <span className="text-xs text-white/60">{user?.email}</span>
+                </div>
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="border-white/10 bg-[#0c0c0c]">
+              <DropdownMenuItem asChild>
+                <Link href="/settings">
+                  <Settings className="mr-2 h-4 w-4" />
+                  Settings
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/docs">
+                  <BookOpen className="mr-2 h-4 w-4" />
+                  Tutorials
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="text-red-300 focus:bg-red-500/10"
+                onClick={onLogout}
+              >
+                <LogOut className="mr-2 h-4 w-4" />
+                Logout
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+
+        <div className="flex items-center gap-2 lg:hidden">
+          <Button variant="secondary" className="h-10 w-10 rounded-full border-white/10 bg-white/5" onClick={() => setMobileOpen((v) => !v)}>
+            <Menu className="h-4 w-4 text-white" />
+          </Button>
+        </div>
+      </nav>
+
+      {mobileOpen && (
+        <div className="relative border-t border-white/10 bg-black/80 px-4 py-4 backdrop-blur-xl lg:hidden">
+          <div className="grid gap-2">
+            {primaryNav.map((item) => {
+              const active = isActive(item);
               const Icon = item.icon;
-
               return (
                 <Link
                   key={item.href}
                   href={item.href}
-                  className="nav-item"
-                  data-active={isActive(item)}
-                  aria-current={isActive(item) ? 'page' : undefined}
-                  title={collapsed ? item.label : undefined}
-                  aria-label={collapsed ? item.label : undefined}
+                  className={cn(
+                    'flex items-center gap-3 rounded-xl border border-white/10 px-3 py-3 text-sm text-white/90 transition',
+                    active ? 'bg-white/10' : 'bg-white/5 hover:bg-white/10'
+                  )}
+                  onClick={() => setMobileOpen(false)}
                 >
-                  <Icon aria-hidden="true" />
-                  <span>{item.label}</span>
+                  <Icon className="h-4 w-4 text-amber-300/80" />
+                  {item.label}
                 </Link>
               );
             })}
           </div>
-        ))}
-      </div>
-
-      <div className="nav-rail__footer">
-        <div className="relative" ref={userMenuRef}>
-          {session && user ? (
-            <>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setUserMenuOpen(!userMenuOpen);
-                }}
-                className="nav-rail__user w-full cursor-pointer hover:bg-white/10 transition-colors"
-                aria-expanded={userMenuOpen}
-                aria-haspopup="true"
-                title={collapsed ? `${user?.user_metadata?.full_name ?? 'Workspace Member'} - ${user?.email}` : undefined}
-              >
-                <span className="nav-rail__user-avatar" aria-hidden="true">
-                  {initials}
-                </span>
-                {!collapsed && (
-                  <>
-                    <div className="flex flex-1 flex-col">
-                      <strong className="text-sm font-medium text-white">
-                        {user?.user_metadata?.full_name ?? 'Workspace Member'}
-                      </strong>
-                      <span className="text-xs text-white/60">{user?.email}</span>
-                    </div>
-                    <ChevronDown
-                      className={`h-4 w-4 text-white/60 transition-transform ${userMenuOpen ? 'rotate-180' : ''}`}
-                      aria-hidden="true"
-                    />
-                  </>
-                )}
-              </button>
-              {userMenuOpen && (
-                <div
-                  className={`absolute ${collapsed ? 'bottom-full left-0 mb-2 w-64' : 'bottom-full left-0 mb-2 w-full'} rounded-lg border border-white/20 bg-black/95 p-1 shadow-xl backdrop-blur-md z-50`}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {collapsed && (
-                    <div className="px-3 py-2 border-b border-white/10 mb-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="nav-rail__user-avatar text-sm">{initials}</span>
-                        <div className="flex flex-col">
-                          <strong className="text-sm font-medium text-white">
-                            {user?.user_metadata?.full_name ?? 'Workspace Member'}
-                          </strong>
-                          <span className="text-xs text-white/60">{user?.email}</span>
-                        </div>
-                      </div>
-                    </div>
+          <div className="mt-3 grid gap-2">
+            {secondaryNav.map((item) => {
+              const active = isActive(item);
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={cn(
+                    'flex items-center gap-3 rounded-xl border border-white/10 px-3 py-3 text-sm text-white/80 transition',
+                    active ? 'bg-white/10' : 'bg-white/5 hover:bg-white/10'
                   )}
-                  <Link
-                    href="/settings"
-                    className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-white/90 transition-colors hover:bg-white/10"
-                    onClick={() => setUserMenuOpen(false)}
-                  >
-                    <Settings className="h-4 w-4" />
-                    Settings
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setUserMenuOpen(false);
-                      onLogout();
-                    }}
-                    className="user-menu-button flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-white/90 transition-colors border-0 bg-transparent text-left outline-none focus:outline-none"
-                  >
-                    <LogOut className="h-4 w-4" />
-                    Logout
-                  </button>
+                  onClick={() => setMobileOpen(false)}
+                >
+                  <Icon className="h-4 w-4 text-white/60" />
+                  {item.label}
+                </Link>
+              );
+            })}
+          </div>
+          {session && user && (
+            <div className="mt-4 flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-white/80">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white">
+                  {initials}
                 </div>
-              )}
-            </>
-          ) : (
-            <>
-              <Link
-                href="/login"
-                className={`nav-rail__user w-full ${collapsed ? 'justify-center' : ''}`}
-                title={collapsed ? 'Login / Sign up' : undefined}
-              >
-                <span className="nav-rail__user-avatar" aria-hidden="true">
-                  ?
-                </span>
-                {!collapsed && (
-                  <div className="flex flex-1 flex-col">
-                    <strong className="text-sm font-medium text-white">
-                      Not signed in
-                    </strong>
-                    <span className="text-xs text-white/60">Click to login</span>
-                  </div>
-                )}
-              </Link>
-            </>
+                <div className="flex flex-col">
+                  <span className="text-white font-semibold">{user?.user_metadata?.full_name ?? 'Workspace Member'}</span>
+                  <span className="text-xs text-white/60">{user?.email}</span>
+                </div>
+              </div>
+              <Button variant="ghost" className="text-red-300 hover:text-red-200" onClick={onLogout}>
+                <LogOut className="h-4 w-4" />
+              </Button>
+            </div>
           )}
         </div>
-
-        {!isMobile && (
-          <button
-            type="button"
-            className="nav-rail__collapse"
-            onClick={() => setCollapsed((prev) => !prev)}
-            aria-pressed={collapsed}
-            aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
-          >
-            <ChevronsLeft aria-hidden="true" />
-          </button>
-        )}
-      </div>
-    </aside>
+      )}
+    </div>
   );
 }
-
