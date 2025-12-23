@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Download, RefreshCw, Share2, ZoomIn, ZoomOut } from 'lucide-react';
@@ -11,6 +11,131 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 
 // Global Mermaid initialization flag (Mermaid best practice - initialize only once)
 let mermaidInitialized = false;
+
+function buildMermaid(nodes: any[], edges: any[]): string {
+    let mermaidText = 'flowchart TB\n';
+    mermaidText += '    classDef lane fill:#111827,stroke:#1f2937,color:#e5e7eb,stroke-width:1px;\n';
+    mermaidText += '    classDef internal fill:#0f172a,stroke:#1d4ed8,color:#e2e8f0,stroke-width:1.5px,rx:4px,ry:4px;\n';
+    mermaidText += '    classDef external fill:#1f2937,stroke:#f59e0b,color:#ffedd5,stroke-width:1.5px,rx:4px,ry:4px;\n';
+    mermaidText += '    classDef unknown fill:#1f1f1f,stroke:#ef4444,color:#fecdd3,stroke-dasharray: 6 4;\n';
+    const categories: Record<string, string> = {
+        entry: 'cat-entry',
+        api: 'cat-api',
+        business: 'cat-business',
+        data: 'cat-data',
+        ui: 'cat-ui',
+        infra: 'cat-infra',
+        auth: 'cat-auth',
+        config: 'cat-config',
+        middleware: 'cat-middleware',
+        util: 'cat-util',
+        test: 'cat-test',
+        db: 'cat-db',
+        queue: 'cat-queue',
+        search: 'cat-search',
+        messaging: 'cat-messaging',
+        observability: 'cat-observability',
+        orchestration: 'cat-orchestration',
+        storage: 'cat-storage',
+        email: 'cat-email',
+        payments: 'cat-payments',
+        cdn: 'cat-cdn',
+        ai: 'cat-ai',
+        cloud: 'cat-cloud',
+        other: 'cat-other',
+        gateway: 'cat-gateway',
+        analytics: 'cat-analytics',
+        repo: 'cat-repo',
+        scheduler: 'cat-scheduler',
+        hosting: 'cat-hosting',
+        payment: 'cat-payments'
+    };
+    mermaidText += '    classDef cat-entry stroke:#22d3ee,color:#e0f2fe;\n';
+    mermaidText += '    classDef cat-api stroke:#38bdf8,color:#e0f2fe;\n';
+    mermaidText += '    classDef cat-business stroke:#a855f7,color:#f5f3ff;\n';
+    mermaidText += '    classDef cat-data stroke:#14b8a6,color:#ccfbf1;\n';
+    mermaidText += '    classDef cat-ui stroke:#c084fc,color:#faf5ff;\n';
+    mermaidText += '    classDef cat-infra stroke:#94a3b8,color:#e2e8f0;\n';
+    mermaidText += '    classDef cat-auth stroke:#f97316,color:#ffedd5;\n';
+    mermaidText += '    classDef cat-config stroke:#eab308,color:#fef9c3;\n';
+    mermaidText += '    classDef cat-middleware stroke:#22c55e,color:#dcfce7;\n';
+    mermaidText += '    classDef cat-util stroke:#3b82f6,color:#dbeafe;\n';
+    mermaidText += '    classDef cat-test stroke:#f472b6,color:#fce7f3;\n';
+    mermaidText += '    classDef cat-db stroke:#f59e0b,color:#fffbeb;\n';
+    mermaidText += '    classDef cat-queue stroke:#f97316,color:#ffedd5;\n';
+    mermaidText += '    classDef cat-search stroke:#8b5cf6,color:#ede9fe;\n';
+    mermaidText += '    classDef cat-messaging stroke:#06b6d4,color:#cffafe;\n';
+    mermaidText += '    classDef cat-observability stroke:#22d3ee,color:#e0f2fe;\n';
+    mermaidText += '    classDef cat-orchestration stroke:#38bdf8,color:#e0f2fe;\n';
+    mermaidText += '    classDef cat-storage stroke:#0ea5e9,color:#e0f2fe;\n';
+    mermaidText += '    classDef cat-email stroke:#f472b6,color:#fce7f3;\n';
+    mermaidText += '    classDef cat-payments stroke:#22c55e,color:#dcfce7;\n';
+    mermaidText += '    classDef cat-cdn stroke:#eab308,color:#fef9c3;\n';
+    mermaidText += '    classDef cat-ai stroke:#a855f7,color:#f5f3ff;\n';
+    mermaidText += '    classDef cat-cloud stroke:#94a3b8,color:#e2e8f0;\n';
+    mermaidText += '    classDef cat-other stroke:#6b7280,color:#e5e7eb;\n';
+    mermaidText += '    classDef cat-gateway stroke:#22d3ee,color:#e0f2fe;\n';
+    mermaidText += '    classDef cat-analytics stroke:#f472b6,color:#fce7f3;\n';
+    mermaidText += '    classDef cat-repo stroke:#3b82f6,color:#dbeafe;\n';
+    mermaidText += '    classDef cat-scheduler stroke:#38bdf8,color:#e0f2fe;\n';
+    mermaidText += '    classDef cat-hosting stroke:#c084fc,color:#faf5ff;\n';
+
+    const internalNodes = nodes.filter(n => n.type === 'internal');
+    const externalNodes = nodes.filter(n => n.type === 'external');
+    const classAssignments: Array<{ id: string; cls: string }> = [];
+
+    const formatLabel = (node: any) => {
+        const parts = [node.label];
+        if (node.fileCount !== undefined) parts.push(`${node.fileCount} files`);
+        if (node.packages && node.packages.length) {
+            const pkgLine = node.packages.slice(0, 2).join(', ') + (node.packages.length > 2 ? ` +${node.packages.length - 2} more` : '');
+            parts.push(pkgLine);
+        }
+        return parts.join('\\n').replace(/"/g, "'");
+    };
+
+    if (internalNodes.length) {
+        mermaidText += '    subgraph Internal["Internal Systems"]\n';
+        mermaidText += '    direction LR\n';
+        for (const node of internalNodes) {
+            const cls = categories[node.category || ''] || 'internal';
+            mermaidText += `        ${node.id}["${formatLabel(node)}"]:::internal\n`;
+            classAssignments.push({ id: node.id, cls });
+        }
+        mermaidText += '    end\n';
+    }
+
+    if (externalNodes.length) {
+        mermaidText += '    subgraph External["External Services"]\n';
+        mermaidText += '    direction LR\n';
+        for (const node of externalNodes) {
+            const cls = node.needsReview ? 'unknown' : (categories[node.category || ''] || 'external');
+            mermaidText += `        ${node.id}["${formatLabel(node)}"]:::external\n`;
+            classAssignments.push({ id: node.id, cls });
+        }
+        mermaidText += '    end\n';
+    }
+
+    const linkStyles: string[] = [];
+    edges.forEach((edge: any, index: number) => {
+        const arrowStyle = edge.kind === 'external' ? '-.->' : '-->';
+        mermaidText += `    ${edge.from} ${arrowStyle} ${edge.to}\n`;
+        const strokeWidth = Math.min(6, 1.5 + Math.log((edge.strength || 1) + 1));
+        const dash = edge.kind === 'external' ? 'stroke-dasharray: 6 4,' : '';
+        const strokeColor = edge.kind === 'external' ? '#f59e0b' : '#7dd3fc';
+        linkStyles.push(`    linkStyle ${index} stroke:${strokeColor},stroke-width:${strokeWidth},${dash}opacity:0.9;`);
+    });
+
+    if (linkStyles.length) {
+        mermaidText += linkStyles.join('\n') + '\n';
+    }
+    if (classAssignments.length) {
+        for (const assignment of classAssignments) {
+            mermaidText += `    class ${assignment.id} ${assignment.cls};\n`;
+        }
+    }
+    return mermaidText;
+}
 
 // Fallback diagram generator for when Mermaid fails
 function generateFallbackDiagram(mermaidContent: string, analysisData?: any): string {
@@ -111,25 +236,96 @@ export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagram
     const [error, setError] = useState<string | null>(null);
     const [zoom, setZoom] = useState(1);
     const [renderedSvg, setRenderedSvg] = useState<string>('');
+    const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+
+    const initialNodes = (diagram.analysis_data?.highLevelNodes || []).length
+        ? diagram.analysis_data?.highLevelNodes
+        : (diagram.analysis_data?.fullNodes || []);
+    const initialEdges = (diagram.analysis_data?.highLevelEdges || []).length
+        ? diagram.analysis_data?.highLevelEdges
+        : (diagram.analysis_data?.fullEdges || []);
+    const fullNodes = diagram.analysis_data?.fullNodes || initialNodes;
+    const fullEdges = diagram.analysis_data?.fullEdges || initialEdges;
+
+    const [visibleNodes, setVisibleNodes] = useState<any[]>(initialNodes);
+    const [visibleEdges, setVisibleEdges] = useState<any[]>(initialEdges);
+    const [mermaidSource, setMermaidSource] = useState<string>(() => buildMermaid(initialNodes, initialEdges));
+
+    const nodeMap = useMemo(() => {
+        const map = new Map<string, any>();
+        visibleNodes.forEach((node: any) => map.set(node.id, node));
+        return map;
+    }, [visibleNodes]);
+
+    const fullNodeMap = useMemo(() => {
+        const map = new Map<string, any>();
+        fullNodes.forEach((node: any) => map.set(node.id, node));
+        return map;
+    }, [fullNodes]);
+
+    const selectedNode = selectedNodeId ? nodeMap.get(selectedNodeId) : null;
+
+    const relatedEdges = useMemo(() => {
+        if (!selectedNode) return [];
+        return visibleEdges.filter((e: any) => e.from === selectedNode.id || e.to === selectedNode.id);
+    }, [visibleEdges, selectedNode]);
+
+    const neighborEntries = useMemo(() => {
+        if (!selectedNode) return [];
+        return relatedEdges.map((edge: any) => {
+            const otherId = edge.from === selectedNode.id ? edge.to : edge.from;
+            return {
+                otherId,
+                other: nodeMap.get(otherId) || fullNodeMap.get(otherId),
+                strength: edge.strength,
+                kind: edge.kind
+            };
+        });
+    }, [relatedEdges, selectedNode, nodeMap, fullNodeMap]);
+
+    const expandNode = (nodeId: string) => {
+        const ids = new Set<string>(visibleNodes.map(n => n.id));
+        ids.add(nodeId);
+        fullEdges.forEach((e: any) => {
+            if (e.from === nodeId || e.to === nodeId) {
+                ids.add(e.from);
+                ids.add(e.to);
+            }
+        });
+        const newNodes = fullNodes.filter((n: any) => ids.has(n.id));
+        const newEdges = fullEdges.filter((e: any) => ids.has(e.from) && ids.has(e.to));
+        setVisibleNodes(newNodes);
+        setVisibleEdges(newEdges);
+        setSelectedNodeId(nodeId);
+    };
+
+    const resetView = () => {
+        setVisibleNodes(initialNodes);
+        setVisibleEdges(initialEdges);
+        setSelectedNodeId(null);
+    };
+
+    useEffect(() => {
+        const source = buildMermaid(visibleNodes, visibleEdges);
+        setMermaidSource(source);
+    }, [visibleNodes, visibleEdges]);
 
     useEffect(() => {
         const renderDiagram = async () => {
             try {
-                // Validate diagram content before attempting render
-                if (!diagram.content || diagram.content.trim().length === 0) {
+                if (!mermaidSource || mermaidSource.trim().length === 0) {
                     throw new Error('Diagram content is empty');
                 }
 
-                if (!diagram.content.includes('graph TD') && !diagram.content.includes('graph LR')) {
-                    throw new Error('Diagram content does not appear to be valid Mermaid syntax (missing "graph TD" or "graph LR")');
+                if (!mermaidSource.includes('flowchart')) {
+                    throw new Error('Diagram content does not appear to be valid Mermaid syntax');
                 }
 
-                // Initialize Mermaid BEFORE checking refs (Mermaid needs to be ready first)
                 if (!mermaidInitialized) {
                     try {
                         mermaid.initialize({
                             startOnLoad: false,
-                            theme: 'base', // Use base theme with custom variables (Mermaid v10 best practice)
+                            theme: 'base',
                             themeVariables: {
                                 background: '#1e293b',
                                 primaryColor: '#3b82f6',
@@ -138,7 +334,6 @@ export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagram
                                 lineColor: '#94a3b8',
                                 secondaryColor: '#64748b',
                                 tertiaryColor: '#475569',
-                                // Additional dark theme variables for better contrast
                                 textColor: '#ffffff',
                                 mainBkg: '#1e293b',
                                 secondBkg: '#334155',
@@ -151,7 +346,7 @@ export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagram
                                 curve: 'basis',
                                 padding: 20
                             },
-                            securityLevel: 'loose' // Allow more HTML features
+                            securityLevel: 'loose'
                         });
                         mermaidInitialized = true;
                     } catch (initError) {
@@ -160,77 +355,73 @@ export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagram
                     }
                 }
 
-                // Wait for next tick to ensure DOM is ready (optional but safer)
                 await new Promise(resolve => setTimeout(resolve, 0));
-
-                // Use a unique ID for each render to avoid conflicts (Mermaid requirement)
                 const uniqueId = `mermaid-diagram-${diagram.id}-${Date.now()}`;
 
+                let result;
                 try {
-                    // Try Mermaid v10 API first
-                    let result;
-                    try {
-                        result = await mermaid.render(uniqueId, diagram.content);
-                    } catch (renderError) {
-                        console.error('Mermaid render failed:', renderError);
-                        throw renderError;
-                    }
-
-                    // Handle different Mermaid API versions
-                    let svgContent = '';
-                    if (typeof result === 'string') {
-                        svgContent = result;
-                    } else if (result && typeof result === 'object') {
-                        svgContent = result.svg || String(result);
-                    } else {
-                        throw new Error('Unexpected Mermaid render result format');
-                    }
-
-                    if (!svgContent || svgContent.length < 50) {
-                        throw new Error('SVG content is empty or too short');
-                    }
-
-                    setRenderedSvg(svgContent);
-                    setError(null);
-
-                } catch (apiError) {
-                    console.error('Mermaid API error:', apiError);
-
-                    // Try fallback: generate HTML-based diagram from the Mermaid content
-                    try {
-                        const fallbackSvg = generateFallbackDiagram(diagram.content, diagram.analysis_data);
-                        setRenderedSvg(fallbackSvg);
-                    } catch (fallbackError) {
-                        console.error('Fallback diagram generation failed:', fallbackError);
-                        // Ultimate fallback: simple error message
-                        const errorSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200">
-                            <rect width="100%" height="100%" fill="#1e293b" stroke="#ef4444" stroke-width="2"/>
-                            <text x="50%" y="35%" text-anchor="middle" fill="#ef4444" font-family="Arial" font-size="16" font-weight="bold">
-                                Render Error
-                            </text>
-                            <text x="50%" y="55%" text-anchor="middle" fill="#94a3b8" font-family="Arial" font-size="12">
-                                Unable to generate diagram
-                            </text>
-                            <text x="50%" y="70%" text-anchor="middle" fill="#94a3b8" font-family="Arial" font-size="10">
-                                Check debug info above
-                            </text>
-                        </svg>`;
-                        setRenderedSvg(errorSvg);
-                    }
-
-                    setError(`Failed to render diagram: ${apiError instanceof Error ? apiError.message : String(apiError)}`);
+                    result = await mermaid.render(uniqueId, mermaidSource);
+                } catch (renderError) {
+                    console.error('Mermaid render failed:', renderError);
+                    throw renderError;
                 }
+
+                let svgContent = '';
+                if (typeof result === 'string') {
+                    svgContent = result;
+                } else if (result && typeof result === 'object') {
+                    svgContent = (result as any).svg || String(result);
+                } else {
+                    throw new Error('Unexpected Mermaid render result format');
+                }
+
+                if (!svgContent || svgContent.length < 50) {
+                    throw new Error('SVG content is empty or too short');
+                }
+
+                setRenderedSvg(svgContent);
+                setError(null);
                 setLoading(false);
             } catch (err) {
                 console.error('Failed to render Mermaid diagram:', err);
-                console.error('Diagram content:', diagram.content);
+                console.error('Diagram content:', mermaidSource);
                 setError(`Failed to render diagram: ${err instanceof Error ? err.message : String(err)}`);
+                try {
+                    const fallbackSvg = generateFallbackDiagram(mermaidSource, diagram.analysis_data);
+                    setRenderedSvg(fallbackSvg);
+                } catch {
+                    // ignore
+                }
                 setLoading(false);
             }
         };
 
         renderDiagram();
-    }, [diagram.content, diagram.id]);
+    }, [mermaidSource, diagram.id, diagram.analysis_data]);
+
+    // Attach click handlers for drill-down once SVG is rendered
+    useEffect(() => {
+        if (!renderedSvg) return;
+        const container = diagramRef.current;
+        const svg = container?.querySelector('svg');
+        if (!svg) return;
+
+        const handleClick = (event: Event) => {
+            const target = event.target as HTMLElement | null;
+            if (!target) return;
+            const group = target.closest('g[id]');
+            const nodeId = group?.getAttribute('id');
+            if (nodeId && (nodeMap.has(nodeId) || fullNodeMap.has(nodeId))) {
+                event.stopPropagation();
+                expandNode(nodeId);
+            }
+        };
+
+        svg.addEventListener('click', handleClick);
+        return () => {
+            svg.removeEventListener('click', handleClick);
+        };
+    }, [renderedSvg, nodeMap, fullNodeMap, expandNode]);
 
     const handleDownload = () => {
         if (renderedSvg) {
@@ -243,7 +434,7 @@ export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagram
         } else {
             // Fallback to Mermaid source
             const element = document.createElement('a');
-            const file = new Blob([diagram.content], { type: 'text/plain' });
+            const file = new Blob([mermaidSource], { type: 'text/plain' });
             element.href = URL.createObjectURL(file);
             element.download = `${diagram.title.replace(/[^a-zA-Z0-9]/g, '_')}.mmd`;
             element.click();
@@ -292,7 +483,7 @@ export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagram
                                 <div>
                                     <h5 className="text-white/90 font-medium mb-2">Mermaid Syntax:</h5>
                                     <pre className="bg-slate-900 p-4 rounded text-sm text-white/80 overflow-x-auto max-h-64 whitespace-pre-wrap">
-                                        <code>{diagram.content}</code>
+                                        <code>{mermaidSource}</code>
                                     </pre>
                                 </div>
                                 {renderedSvg && (
@@ -351,6 +542,14 @@ export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagram
                                 </Button>
                                 <Button
                                     variant="ghost"
+                                    size="sm"
+                                    onClick={resetView}
+                                    title="Reset View"
+                                >
+                                    Reset View
+                                </Button>
+                                <Button
+                                    variant="ghost"
                                     size="icon"
                                     onClick={handleDownload}
                                     title="Download Diagram"
@@ -373,43 +572,117 @@ export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagram
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
-                        {/* Diagram */}
-                        <Card>
-                            <CardHeader>
-                                <div className="flex items-center justify-between">
-                                    <CardTitle className="text-lg font-semibold text-white">Architecture Overview</CardTitle>
-                                    <div className="text-sm text-white/60">
-                                        {diagram.analysis_data?.components?.length || 0} components •
-                                        {diagram.analysis_data?.relationships?.length || 0} relationships
+                        <div className="grid lg:grid-cols-[2fr_1fr] gap-6">
+                            <Card className="border border-white/10 bg-white/5 shadow">
+                                <CardHeader>
+                                    <div className="flex items-center justify-between">
+                                        <CardTitle className="text-lg font-semibold text-white">Architecture Overview</CardTitle>
+                                        <div className="text-sm text-white/60">
+                                            {diagram.analysis_data?.components?.length || 0} components •
+                                            {diagram.analysis_data?.relationships?.length || 0} relationships
+                                        </div>
                                     </div>
-                                </div>
-                            </CardHeader>
-                            <CardContent>
-                                <div
-                                    className="overflow-auto bg-slate-800/50 rounded-lg p-4"
-                                    style={{ transform: `scale(${zoom})`, transformOrigin: 'top left' }}
-                                >
+                                </CardHeader>
+                                <CardContent>
                                     <div
-                                        ref={diagramRef}
-                                        className="mermaid-container flex justify-center items-center"
-                                        style={{
-                                            minWidth: '800px',
-                                            minHeight: '600px',
-                                            backgroundColor: '#1e293b'
-                                        }}
-                                        dangerouslySetInnerHTML={{ __html: renderedSvg }}
-                                    />
-                                </div>
-
-                                {zoom !== 1 && (
-                                    <div className="mt-4 text-center">
-                                        <Button variant="ghost" size="sm" onClick={() => setZoom(1)}>
-                                            Reset Zoom
-                                        </Button>
+                                        className="overflow-auto bg-slate-800/50 rounded-lg p-4"
+                                        style={{ transform: `scale(${zoom})`, transformOrigin: 'top left' }}
+                                    >
+                                        <div
+                                            ref={diagramRef}
+                                            className="mermaid-container flex justify-center items-center"
+                                            style={{
+                                                minWidth: '800px',
+                                                minHeight: '600px',
+                                                backgroundColor: '#1e293b'
+                                            }}
+                                            dangerouslySetInnerHTML={{ __html: renderedSvg }}
+                                        />
                                     </div>
-                                )}
-                            </CardContent>
-                        </Card>
+
+                                    {zoom !== 1 && (
+                                        <div className="mt-4 text-center">
+                                            <Button variant="ghost" size="sm" onClick={() => setZoom(1)}>
+                                                Reset Zoom
+                                            </Button>
+                                        </div>
+                                    )}
+                                </CardContent>
+                            </Card>
+
+                            <Card className="border border-white/10 bg-white/5 shadow">
+                                <CardHeader>
+                                    <CardTitle className="text-lg font-semibold text-white">Details</CardTitle>
+                                    <CardDescription className="text-white/70">
+                                        Click any node in the diagram to view drill-down info.
+                                    </CardDescription>
+                                </CardHeader>
+                                <CardContent className="space-y-4">
+                                    {selectedNode ? (
+                                        <div className="space-y-4">
+                                            <div className="space-y-1">
+                                                <div className="text-sm uppercase tracking-wide text-white/60">Selected</div>
+                                                <div className="text-white font-semibold">{selectedNode.label}</div>
+                                                <div className="text-white/60 text-sm">
+                                                    {selectedNode.role ? `Category: ${selectedNode.role}` : selectedNode.type === 'internal' ? 'Internal' : 'External'}
+                                                </div>
+                                                <div className="text-white/60 text-sm">
+                                                    Files: {selectedNode.fileCount ?? 0} • Source: {selectedNode.source || 'code'}
+                                                </div>
+                                            </div>
+
+                                            {selectedNode.packages && selectedNode.packages.length > 0 && (
+                                                <div>
+                                                    <div className="text-sm font-medium text-white mb-2">Packages</div>
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {selectedNode.packages.slice(0, 12).map((pkg: string) => (
+                                                            <span key={pkg} className="px-2 py-1 rounded bg-white/10 text-xs text-white/80">
+                                                                {pkg}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {neighborEntries.length > 0 && (
+                                                <div>
+                                                    <div className="text-sm font-medium text-white mb-2">Connections</div>
+                                                    <div className="space-y-1">
+                                                        {neighborEntries.map((entry, idx) => (
+                                                            <div key={idx} className="flex items-center justify-between text-sm text-white/80">
+                                                                <span>{entry.other?.label || entry.otherId}</span>
+                                                                <span className="text-white/60">{entry.strength} links</span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {selectedNode.files && selectedNode.files.length > 0 && (
+                                                <div>
+                                                    <div className="text-sm font-medium text-white mb-2">Files referencing this</div>
+                                                    <div className="space-y-1 max-h-48 overflow-auto pr-1 text-xs text-white/70">
+                                                        {selectedNode.files.slice(0, 15).map((file: string) => (
+                                                            <div key={file} className="truncate">{file}</div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+                                            <div className="flex gap-2">
+                                                <Button size="sm" onClick={() => expandNode(selectedNode.id)}>
+                                                    Expand neighbors
+                                                </Button>
+                                                <Button size="sm" variant="secondary" onClick={resetView}>
+                                                    Collapse
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="text-white/60 text-sm">Click a node to explore its details.</div>
+                                    )}
+                                </CardContent>
+                            </Card>
+                        </div>
 
                         {/* Analysis Details */}
                         {diagram.analysis_data && (
@@ -461,7 +734,7 @@ export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagram
                                     <Button
                                         variant="secondary"
                                         size="sm"
-                                        onClick={() => navigator.clipboard.writeText(diagram.content)}
+                                        onClick={() => navigator.clipboard.writeText(mermaidSource)}
                                     >
                                         Copy
                                     </Button>
@@ -469,7 +742,7 @@ export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagram
                             </CardHeader>
                             <CardContent>
                                 <pre className="bg-slate-800/50 p-4 rounded-lg overflow-x-auto text-sm text-white/80">
-                                    <code>{diagram.content}</code>
+                                    <code>{mermaidSource}</code>
                                 </pre>
                             </CardContent>
                         </Card>

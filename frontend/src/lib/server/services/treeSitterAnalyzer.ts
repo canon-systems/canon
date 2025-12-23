@@ -56,6 +56,7 @@ const EXTERNAL_CATEGORY_LABELS: Record<ExternalCategory | 'other', string> = {
     other: 'Other Tools'
 };
 
+
 export type ExternalCategory =
     | 'api'
     | 'ai'
@@ -99,6 +100,11 @@ export interface HighLevelNode {
     fileCount?: number;
     vendorLabels?: string[];
     needsReview?: boolean;
+    files?: string[];
+    packages?: string[];
+    role?: string;
+    source?: 'code' | 'manifest' | 'mixed';
+    manifestOnly?: boolean;
 }
 
 export interface HighLevelEdge {
@@ -115,6 +121,12 @@ export interface ArchitectureAnalysis {
     externalRelationships?: ExternalRelationship[];
     highLevelNodes?: HighLevelNode[];
     highLevelEdges?: HighLevelEdge[];
+    groupMappings?: {
+        componentToGroup: Record<string, string>;
+        vendorToGroup: Record<string, string>;
+    };
+    fullNodes?: HighLevelNode[];
+    fullEdges?: HighLevelEdge[];
     mermaid: string;
 }
 
@@ -203,16 +215,21 @@ export class TreeSitterAnalyzer {
         const combinedExternalTargets = [...matchedTargets, ...unknownTargets];
         const relationships = this.buildRelationships(components, dependencies);
         const externalRelationships = this.buildExternalRelationships(components, dependencies, matchedTargets, unknownTargets);
-        const highLevelGraph = this.buildHighLevelGraph(components, relationships, combinedExternalTargets, externalRelationships);
-        const mermaid = this.generateMermaidDiagram(highLevelGraph.nodes, highLevelGraph.edges);
+
+        // Tool-centric graph (focus on services/tools rather than component buckets)
+        const toolGraph = this.buildToolGraph(dependencies, manifestPackages, combinedExternalTargets);
+        const mermaid = this.generateMermaidDiagram(toolGraph.nodes, toolGraph.edges);
 
         return {
             components,
             relationships,
             externalTargets: combinedExternalTargets,
             externalRelationships,
-            highLevelNodes: highLevelGraph.nodes,
-            highLevelEdges: highLevelGraph.edges,
+            highLevelNodes: toolGraph.nodes,
+            highLevelEdges: toolGraph.edges,
+            fullNodes: toolGraph.fullNodes,
+            fullEdges: toolGraph.fullEdges,
+            groupMappings: toolGraph.groupMappings,
             mermaid
         };
     }
@@ -2866,7 +2883,7 @@ export class TreeSitterAnalyzer {
         relationships: Array<{ from: string, to: string, type: string, strength: number }>,
         externalTargets: ExternalTarget[],
         externalRelationships: ExternalRelationship[]
-    ): { nodes: HighLevelNode[], edges: HighLevelEdge[] } {
+    ): { nodes: HighLevelNode[], edges: HighLevelEdge[], componentToGroup: Map<string, string>, targetToGroup: Map<string, string> } {
         const internalGroups = this.groupInternalComponents(components);
         const externalGroups = this.groupExternalTargets(externalTargets);
         const edgeMap = new Map<string, HighLevelEdge>();
@@ -2900,8 +2917,180 @@ export class TreeSitterAnalyzer {
 
         return {
             nodes: [...internalGroups.nodes, ...externalGroups.nodes],
-            edges: Array.from(edgeMap.values())
+            edges: Array.from(edgeMap.values()),
+            componentToGroup: internalGroups.componentToGroup,
+            targetToGroup: externalGroups.targetToGroup
         };
+    }
+
+    private isUIFile(filePath: string): boolean {
+        const lower = filePath.toLowerCase();
+        const isReact = lower.endsWith('.tsx') || lower.endsWith('.jsx');
+        return isReact && (lower.includes('/app/') || lower.includes('/components/') || lower.includes('/pages/'));
+    }
+
+    private matchToolFromImport(importPath: string, targets: ExternalTarget[]): ExternalTarget | null {
+        if (!importPath || importPath.startsWith('.') || importPath.startsWith('/')) return null;
+        const lower = importPath.toLowerCase();
+
+        for (const tool of targets) {
+            const names = (tool.packageNames || []).map(n => n.toLowerCase());
+            const prefixes = (tool.packagePrefixes || []).map(p => p.toLowerCase());
+
+            const nameMatch = names.some(name => lower === name || lower.startsWith(`${name}/`));
+            const prefixMatch = prefixes.some(prefix => lower.startsWith(prefix));
+
+            if (nameMatch || prefixMatch) {
+                return tool;
+            }
+        }
+        return null;
+    }
+
+    private buildToolGraph(
+        dependencies: DependencyInfo[],
+        manifestPackages: Set<string>,
+        targets: ExternalTarget[]
+    ): { nodes: HighLevelNode[], edges: HighLevelEdge[], fullNodes: HighLevelNode[], fullEdges: HighLevelEdge[], groupMappings: { componentToGroup: Record<string, string>, vendorToGroup: Record<string, string> } } {
+        const nodeState = new Map<string, { def: ExternalTarget; files: Set<string>; packages: Set<string>; source: 'code' | 'manifest' | 'mixed' }>();
+        const edges = new Map<string, HighLevelEdge>();
+
+        const ensureNode = (def: ExternalTarget, source: 'code' | 'manifest') => {
+            const existing = nodeState.get(def.id);
+            if (existing) {
+                if (existing.source !== source) {
+                    existing.source = 'mixed';
+                }
+                return existing;
+            }
+            const state = { def, files: new Set<string>(), packages: new Set<string>(), source };
+            nodeState.set(def.id, state);
+            return state;
+        };
+
+        // From manifests
+        for (const pkg of manifestPackages) {
+            const tool = this.matchToolFromImport(pkg, targets);
+            if (tool) {
+                const state = ensureNode(tool, 'manifest');
+                state.packages.add(pkg);
+            }
+        }
+
+        const addEdge = (from: string, to: string, kind: 'internal' | 'external', weight = 1) => {
+            const key = `${from}->${to}`;
+            const current = edges.get(key);
+            if (current) {
+                current.strength += weight;
+            } else {
+                edges.set(key, { from, to, strength: weight, kind });
+            }
+        };
+
+        // Pseudo UI node when the UI references tools
+        const uiNode: ExternalTarget = { id: 'ui', label: 'User Interface', category: 'other', packageNames: [], packagePrefixes: [], source: 'default' };
+
+        for (const dep of dependencies) {
+            const fileTools = new Set<string>();
+
+            for (const imp of dep.imports) {
+                const tool = this.matchToolFromImport(imp, targets);
+                if (!tool) continue;
+                const state = ensureNode(tool, 'code');
+                state.files.add(dep.filePath);
+                state.packages.add(imp);
+                fileTools.add(tool.id);
+            }
+
+            if (fileTools.size === 0) continue;
+
+            // UI edges
+            if (this.isUIFile(dep.filePath)) {
+                ensureNode(uiNode, 'code');
+                for (const toolId of fileTools) {
+                    addEdge(uiNode.id, toolId, 'internal', 1);
+                }
+            }
+
+            // Tool-to-tool co-usage edges
+            const toolArray = Array.from(fileTools);
+            for (let i = 0; i < toolArray.length; i++) {
+                for (let j = i + 1; j < toolArray.length; j++) {
+                    const a = toolArray[i];
+                    const b = toolArray[j];
+                    const [from, to] = a < b ? [a, b] : [b, a];
+                    addEdge(from, to, 'internal', 1);
+                }
+            }
+        }
+
+        // Convert nodes
+        const nodes: HighLevelNode[] = Array.from(nodeState.values()).map(state => {
+            const isUI = state.def.id === 'ui';
+            const isExternal = !isUI;
+            const filesList = Array.from(state.files);
+            const packages = Array.from(state.packages);
+            const manifestOnly = state.source === 'manifest' && state.files.size === 0;
+
+            return {
+                id: state.def.id,
+                label: state.def.label,
+                category: state.def.category,
+                type: isExternal ? 'external' : 'internal',
+                fileCount: state.files.size,
+                files: filesList.slice(0, 30),
+                packages: packages.slice(0, 20),
+                role: state.def.category,
+                source: state.source,
+                manifestOnly
+            };
+        });
+
+        // Select initial top nodes to keep the first view clean
+        const nodeScores = new Map<string, number>();
+        const edgesByNode = new Map<string, HighLevelEdge[]>();
+        for (const edge of edges.values()) {
+            if (!edgesByNode.has(edge.from)) edgesByNode.set(edge.from, []);
+            if (!edgesByNode.has(edge.to)) edgesByNode.set(edge.to, []);
+            edgesByNode.get(edge.from)!.push(edge);
+            edgesByNode.get(edge.to)!.push(edge);
+        }
+        for (const node of nodes) {
+            const degree = (edgesByNode.get(node.id) || []).reduce((sum, e) => sum + e.strength, 0);
+            const score = (node.fileCount || 0) + degree;
+            nodeScores.set(node.id, score);
+        }
+
+        const limit = 12;
+        const uiNodeId = 'ui';
+        const sortedNodes = [...nodes].sort((a, b) => (nodeScores.get(b.id) || 0) - (nodeScores.get(a.id) || 0));
+        const selectedIds = new Set<string>();
+        for (const n of sortedNodes) {
+            if (selectedIds.size >= limit) break;
+            selectedIds.add(n.id);
+        }
+        if (!selectedIds.has(uiNodeId) && nodes.find(n => n.id === uiNodeId)) {
+            selectedIds.add(uiNodeId);
+        }
+
+        const MIN_INITIAL_EDGE_STRENGTH = 2;
+        const filteredEdges = Array.from(edges.values()).filter(e => selectedIds.has(e.from) && selectedIds.has(e.to) && e.strength >= MIN_INITIAL_EDGE_STRENGTH);
+        const filteredNodes = nodes.filter(n => selectedIds.has(n.id));
+
+        const finalNodes = filteredNodes.length ? filteredNodes : nodes;
+        const finalEdges = filteredEdges.length ? filteredEdges : Array.from(edges.values());
+
+        return {
+            nodes: finalNodes,
+            edges: finalEdges,
+            fullNodes: nodes,
+            fullEdges: Array.from(edges.values()),
+            groupMappings: { componentToGroup: {}, vendorToGroup: {} }
+        };
+    }
+
+    private getEdgeKey(edge: HighLevelEdge): string {
+        return `${edge.from}->${edge.to}`;
     }
 
     private groupInternalComponents(components: ArchitectureComponent[]): { nodes: HighLevelNode[], componentToGroup: Map<string, string> } {
@@ -2982,44 +3171,145 @@ export class TreeSitterAnalyzer {
     }
 
     private generateMermaidDiagram(nodes: HighLevelNode[], edges: HighLevelEdge[]): string {
-        let mermaid = 'graph TD\n';
-        mermaid += '    classDef internal fill:#0d1b2a,stroke:#4f8cc9,color:#e0f1ff,stroke-width:2px;\n';
-        mermaid += '    classDef external fill:#1f1b2e,stroke:#ffb347,color:#ffe9c7,stroke-width:2px;\n';
-        mermaid += '    classDef unknown fill:#2d2d2d,stroke:#ffa8a8,color:#ffe9e9,stroke-dasharray: 5 3;\n';
+        // Flowchart top-to-bottom with horizontal lanes to avoid ultra-wide rows
+        let mermaid = 'flowchart TB\n';
+
+        // Base styles
+        mermaid += '    classDef lane fill:#111827,stroke:#1f2937,color:#e5e7eb,stroke-width:1px;\n';
+        mermaid += '    classDef internal fill:#0f172a,stroke:#1d4ed8,color:#e2e8f0,stroke-width:1.5px,rx:4px,ry:4px;\n';
+        mermaid += '    classDef external fill:#1f2937,stroke:#f59e0b,color:#ffedd5,stroke-width:1.5px,rx:4px,ry:4px;\n';
+        mermaid += '    classDef unknown fill:#1f1f1f,stroke:#ef4444,color:#fecdd3,stroke-dasharray: 6 4;\n';
+
+        // Category accents for faster scanning
+        const categoryClass: Record<string, string> = {
+            entry: 'cat-entry',
+            api: 'cat-api',
+            business: 'cat-business',
+            data: 'cat-data',
+            ui: 'cat-ui',
+            infra: 'cat-infra',
+            auth: 'cat-auth',
+            config: 'cat-config',
+            middleware: 'cat-middleware',
+            util: 'cat-util',
+            test: 'cat-test',
+            db: 'cat-db',
+            queue: 'cat-queue',
+            search: 'cat-search',
+            messaging: 'cat-messaging',
+            observability: 'cat-observability',
+            orchestration: 'cat-orchestration',
+            storage: 'cat-storage',
+            email: 'cat-email',
+            payments: 'cat-payments',
+            cdn: 'cat-cdn',
+            ai: 'cat-ai',
+            cloud: 'cat-cloud',
+            other: 'cat-other',
+            gateway: 'cat-gateway',
+            analytics: 'cat-analytics',
+            repo: 'cat-repo',
+            scheduler: 'cat-scheduler',
+            hosting: 'cat-hosting',
+            payment: 'cat-payments'
+        };
+
+        mermaid += '    classDef cat-entry stroke:#22d3ee,color:#e0f2fe;\n';
+        mermaid += '    classDef cat-api stroke:#38bdf8,color:#e0f2fe;\n';
+        mermaid += '    classDef cat-business stroke:#a855f7,color:#f5f3ff;\n';
+        mermaid += '    classDef cat-data stroke:#14b8a6,color:#ccfbf1;\n';
+        mermaid += '    classDef cat-ui stroke:#c084fc,color:#faf5ff;\n';
+        mermaid += '    classDef cat-infra stroke:#94a3b8,color:#e2e8f0;\n';
+        mermaid += '    classDef cat-auth stroke:#f97316,color:#ffedd5;\n';
+        mermaid += '    classDef cat-config stroke:#eab308,color:#fef9c3;\n';
+        mermaid += '    classDef cat-middleware stroke:#22c55e,color:#dcfce7;\n';
+        mermaid += '    classDef cat-util stroke:#3b82f6,color:#dbeafe;\n';
+        mermaid += '    classDef cat-test stroke:#f472b6,color:#fce7f3;\n';
+        mermaid += '    classDef cat-db stroke:#f59e0b,color:#fffbeb;\n';
+        mermaid += '    classDef cat-queue stroke:#f97316,color:#ffedd5;\n';
+        mermaid += '    classDef cat-search stroke:#8b5cf6,color:#ede9fe;\n';
+        mermaid += '    classDef cat-messaging stroke:#06b6d4,color:#cffafe;\n';
+        mermaid += '    classDef cat-observability stroke:#22d3ee,color:#e0f2fe;\n';
+        mermaid += '    classDef cat-orchestration stroke:#38bdf8,color:#e0f2fe;\n';
+        mermaid += '    classDef cat-storage stroke:#0ea5e9,color:#e0f2fe;\n';
+        mermaid += '    classDef cat-email stroke:#f472b6,color:#fce7f3;\n';
+        mermaid += '    classDef cat-payments stroke:#22c55e,color:#dcfce7;\n';
+        mermaid += '    classDef cat-cdn stroke:#eab308,color:#fef9c3;\n';
+        mermaid += '    classDef cat-ai stroke:#a855f7,color:#f5f3ff;\n';
+        mermaid += '    classDef cat-cloud stroke:#94a3b8,color:#e2e8f0;\n';
+        mermaid += '    classDef cat-other stroke:#6b7280,color:#e5e7eb;\n';
+        mermaid += '    classDef cat-gateway stroke:#22d3ee,color:#e0f2fe;\n';
+        mermaid += '    classDef cat-analytics stroke:#f472b6,color:#fce7f3;\n';
+        mermaid += '    classDef cat-repo stroke:#3b82f6,color:#dbeafe;\n';
+        mermaid += '    classDef cat-scheduler stroke:#38bdf8,color:#e0f2fe;\n';
+        mermaid += '    classDef cat-hosting stroke:#c084fc,color:#faf5ff;\n';
 
         const internalNodes = nodes.filter(node => node.type === 'internal');
         const externalNodes = nodes.filter(node => node.type === 'external');
         const filteredEdges = this.filterHighLevelEdges(edges);
 
+        const formatNodeLabel = (node: HighLevelNode) => {
+            const parts = [node.label];
+            if (node.fileCount !== undefined) {
+                parts.push(`${node.fileCount} files`);
+            }
+            if (node.packages && node.packages.length > 0) {
+                parts.push(node.packages.slice(0, 2).join(', ') + (node.packages.length > 2 ? ` +${node.packages.length - 2} more` : ''));
+            }
+            return this.escapeMermaidLabel(parts.join('\n'));
+        };
+
+        const classAssignments: Array<{ id: string; cls: string }> = [];
+
         if (internalNodes.length) {
-            mermaid += '    subgraph Internal Systems\n';
+            mermaid += '    subgraph Internal["Internal Systems"]\n';
+            mermaid += '    direction LR\n';
             for (const node of internalNodes) {
-                const label = this.escapeMermaidLabel(node.label);
+                const label = formatNodeLabel(node);
+                const cls = categoryClass[node.category || ''] || 'internal';
                 mermaid += `        ${node.id}["${label}"]:::internal\n`;
+                classAssignments.push({ id: node.id, cls });
             }
             mermaid += '    end\n';
         }
 
         if (externalNodes.length) {
-            mermaid += '    subgraph External Services\n';
+            mermaid += '    subgraph External["External Services"]\n';
+            mermaid += '    direction LR\n';
             for (const node of externalNodes) {
-                const label = this.escapeMermaidLabel(node.label);
-                const cls = node.needsReview ? 'unknown' : 'external';
-                mermaid += `        ${node.id}["${label}"]:::${cls}\n`;
+                const label = formatNodeLabel(node);
+                const cls = node.needsReview ? 'unknown' : (categoryClass[node.category || ''] || 'external');
+                mermaid += `        ${node.id}["${label}"]:::external\n`;
+                classAssignments.push({ id: node.id, cls });
             }
             mermaid += '    end\n';
         }
 
-        for (const edge of filteredEdges) {
+        const linkStyles: string[] = [];
+        filteredEdges.forEach((edge, index) => {
             const arrowStyle = edge.kind === 'external' ? '-.->' : '-->';
-            const label = edge.strength > 1 ? `${edge.strength} links` : 'link';
-            mermaid += `    ${edge.from} ${arrowStyle} |${label}| ${edge.to}\n`;
+            mermaid += `    ${edge.from} ${arrowStyle} ${edge.to}\n`;
+
+            const strokeWidth = Math.min(6, 1.5 + Math.log(edge.strength + 1));
+            const dash = edge.kind === 'external' ? 'stroke-dasharray: 6 4,' : '';
+            const strokeColor = edge.kind === 'external' ? '#f59e0b' : '#7dd3fc';
+            linkStyles.push(`    linkStyle ${index} stroke:${strokeColor},stroke-width:${strokeWidth},${dash}opacity:0.9;`);
+        });
+
+        if (linkStyles.length) {
+            mermaid += linkStyles.join('\n') + '\n';
+        }
+
+        if (classAssignments.length) {
+            for (const assignment of classAssignments) {
+                mermaid += `    class ${assignment.id} ${assignment.cls};\n`;
+            }
         }
 
         return mermaid;
     }
 
-    private filterHighLevelEdges(edges: HighLevelEdge[], limitPerSource = 4): HighLevelEdge[] {
+    private filterHighLevelEdges(edges: HighLevelEdge[], limitPerSource = 6): HighLevelEdge[] {
         const grouped = new Map<string, HighLevelEdge[]>();
         for (const edge of edges) {
             if (!grouped.has(edge.from)) {
