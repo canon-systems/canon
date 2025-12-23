@@ -1,9 +1,37 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Github, Plus, Settings, Activity, FileText, Zap, ExternalLink, X, Trash2, ChevronDown, Check, MoreHorizontal } from 'lucide-react';
+import {
+  Activity,
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  ExternalLink,
+  FileText,
+  Github,
+  MoreHorizontal,
+  Plus,
+  Settings,
+  Trash2,
+  Zap,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Progress } from '@/components/ui/progress';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { RepositoryConnectionWizard } from '@/components/RepositoryConnectionWizard';
 
 interface Repository {
@@ -24,26 +52,26 @@ interface RepositoriesPageClientProps {
   repositories: Repository[];
 }
 
+type StatusFilter = 'all' | 'ready' | 'processing' | 'failed' | 'not_started';
+
 export default function RepositoriesPageClient({ repositories }: RepositoriesPageClientProps) {
   const router = useRouter();
   const [showConnectionWizard, setShowConnectionWizard] = useState(false);
   const [deletingRepoId, setDeletingRepoId] = useState<string | null>(null);
-  const [dropdownOpen, setDropdownOpen] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [searchQuery, setSearchQuery] = useState('');
 
-  // Check for ongoing setup processes and redirect if found
+  // Redirect to ongoing setup if found
   useEffect(() => {
     const checkOngoingSetups = async () => {
       for (const repo of repositories) {
         if (repo.setup_status === 'analyzing') {
-          // Check if there's actually an ongoing process by calling the setup API
           try {
             const response = await fetch(`/api/repos/setup?repoId=${repo.id}`);
             const data = await response.json();
-
             if (response.ok && data.setup?.setup_status === 'analyzing') {
-              // Redirect to setup wizard to resume the process
               router.push(`/repos/setup?repoId=${repo.id}`);
-              break; // Only redirect to the first ongoing process
+              break;
             }
           } catch (error) {
             console.error('Error checking setup status:', error);
@@ -51,57 +79,24 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
         }
       }
     };
-
-    if (repositories.length > 0) {
-      checkOngoingSetups();
-    }
+    if (repositories.length > 0) checkOngoingSetups();
   }, [repositories, router]);
 
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Element;
-      if (!target.closest('[data-dropdown]')) {
-        closeDropdowns();
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  const handleConnectRepository = () => {
-    setShowConnectionWizard(true);
-  };
+  const handleConnectRepository = () => setShowConnectionWizard(true);
 
   const handleConnectionComplete = (repoId: string) => {
     setShowConnectionWizard(false);
-    // Redirect to setup for the newly connected repository
     router.push(`/repos/setup?repoId=${repoId}`);
   };
 
-  const toggleDropdown = (repoId: string) => {
-    setDropdownOpen(dropdownOpen === repoId ? null : repoId);
-  };
-
-  const closeDropdowns = () => {
-    setDropdownOpen(null);
-  };
-
-
   const handleDeleteRepository = async (repoId: string, repoName: string) => {
-    if (!confirm(`Are you sure you want to disconnect ${repoName}? This will remove all associated data and documents.`)) {
+    if (!confirm(`Disconnect ${repoName}? This will remove associated data and documents.`)) {
       return;
     }
-
     setDeletingRepoId(repoId);
     try {
-      const response = await fetch(`/api/repos/${repoId}`, {
-        method: 'DELETE',
-      });
-
+      const response = await fetch(`/api/repos/${repoId}`, { method: 'DELETE' });
       if (response.ok) {
-        // Refresh the page to show updated repository list
         window.location.reload();
       } else {
         const error = await response.json();
@@ -115,234 +110,304 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
     }
   };
 
+  const statusCounts = useMemo(() => {
+    const ready = repositories.filter((r) => r.setup_status === 'ready').length;
+    const processing = repositories.filter((r) => r.setup_status === 'analyzing').length;
+    const failed = repositories.filter((r) => r.setup_status === 'failed').length;
+    const notStarted = repositories.filter((r) => !r.setup_status || r.setup_status === 'pending').length;
+    return { total: repositories.length, ready, processing, failed, notStarted };
+  }, [repositories]);
+
+  const filteredRepos = useMemo(() => {
+    return repositories.filter((repo) => {
+      const term = searchQuery.toLowerCase();
+      const matchesSearch =
+        !term ||
+        repo.name.toLowerCase().includes(term) ||
+        repo.repo_url.toLowerCase().includes(term);
+
+      const status =
+        repo.setup_status === 'ready'
+          ? 'ready'
+          : repo.setup_status === 'analyzing'
+            ? 'processing'
+            : repo.setup_status === 'failed'
+              ? 'failed'
+              : 'not_started';
+
+      const matchesStatus = statusFilter === 'all' || statusFilter === status;
+      return matchesSearch && matchesStatus;
+    });
+  }, [repositories, searchQuery, statusFilter]);
+
+  const getStatusMeta = (repo: Repository) => {
+    if (repo.setup_status === 'ready') {
+      return { label: 'Connected', color: 'success', tone: 'text-emerald-200', icon: <CheckCircle2 className="h-4 w-4" /> };
+    }
+    if (repo.setup_status === 'analyzing') {
+      return { label: 'Processing', color: 'default', tone: 'text-blue-200', icon: <Clock className="h-4 w-4" /> };
+    }
+    if (repo.setup_status === 'failed') {
+      return { label: 'Failed', color: 'destructive', tone: 'text-red-200', icon: <AlertTriangle className="h-4 w-4" /> };
+    }
+    return { label: 'Not started', color: 'outline', tone: 'text-white/70', icon: <Activity className="h-4 w-4" /> };
+  };
+
   return (
-    <div className="page-shell space-y-6">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-3xl font-semibold text-white mb-2">Repositories</h1>
-          <p className="text-white/60">Manage your connected GitHub repositories</p>
-        </div>
-        <button
-          onClick={handleConnectRepository}
-          className="btn btn-primary flex items-center gap-2"
-        >
-          <Plus className="h-4 w-4" />
-          Connect Repository
-        </button>
-      </div>
+    <div className="space-y-8 px-1 sm:px-2 md:px-0">
+      <Card className="overflow-hidden border-white/10 bg-gradient-to-r from-indigo-900/40 via-slate-900/60 to-cyan-900/40 px-1 sm:px-2 md:px-0">
+        <CardHeader className="p-8 pb-4 md:p-10 md:pb-6">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="space-y-2">
+              <Badge variant="default" className="bg-white/10 text-white/80">
+                GitHub Repositories
+              </Badge>
+              <CardTitle className="text-3xl text-white">Connect, analyze, and automate</CardTitle>
+              <CardDescription className="text-white/70">
+                Link repos, track setup progress, and jump straight into documentation or automation.
+              </CardDescription>
+              </div>
+            <div className="grid grid-cols-2 gap-3 lg:w-[360px]">
+              <Card className="border-white/10 bg-white/5">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="success">Ready</Badge>
+                    <CheckCircle2 className="h-4 w-4 text-emerald-300" />
+                  </div>
+                  <p className="mt-2 text-2xl font-semibold text-white">{statusCounts.ready}</p>
+                </CardContent>
+              </Card>
+              <Card className="border-white/10 bg-white/5">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2">
+                    <Badge>Processing</Badge>
+                    <Clock className="h-4 w-4 text-blue-200" />
+                  </div>
+                  <p className="mt-2 text-2xl font-semibold text-white">{statusCounts.processing}</p>
+                </CardContent>
+              </Card>
+              <Card className="border-white/10 bg-white/5">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="destructive">Failed</Badge>
+                    <AlertTriangle className="h-4 w-4 text-red-200" />
+                  </div>
+                  <p className="mt-2 text-2xl font-semibold text-white">{statusCounts.failed}</p>
+                </CardContent>
+              </Card>
+              <Card className="border-white/10 bg-white/5">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline">Total</Badge>
+                    <Github className="h-4 w-4 text-white/70" />
+                  </div>
+                  <p className="mt-2 text-2xl font-semibold text-white">{statusCounts.total}</p>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </CardHeader>
+      </Card>
 
-      {repositories.length === 0 ? (
-        <div className="glass-panel p-12 text-center">
-          <Github className="h-16 w-16 text-white/20 mx-auto mb-4" />
-          <h2 className="text-xl font-semibold text-white mb-2">No repositories connected</h2>
-          <p className="text-white/60 mb-6 max-w-md mx-auto">
-            Connect your first GitHub repository to start generating documentation and setting up automation.
-          </p>
-          <button
-            onClick={handleConnectRepository}
-            className="btn btn-primary inline-flex items-center gap-2"
-          >
-            <Plus className="h-4 w-4" />
-            Connect Your First Repository
-          </button>
-        </div>
+      <Card className="border-white/10 bg-white/5 px-1 sm:px-2 md:px-0">
+        <CardContent className="flex flex-col gap-3 p-5 lg:flex-row lg:items-center lg:justify-between md:px-6">
+          <div className="flex flex-1 items-center gap-3">
+            <Input
+              placeholder="Search by name or repo URL"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.currentTarget.value)}
+              className="max-w-lg"
+            />
+            <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as StatusFilter)}>
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder="All statuses" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All statuses</SelectItem>
+                <SelectItem value="ready">Ready</SelectItem>
+                <SelectItem value="processing">Processing</SelectItem>
+                <SelectItem value="failed">Failed</SelectItem>
+                <SelectItem value="not_started">Not started</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => { setSearchQuery(''); setStatusFilter('all'); }}>
+              Clear filters
+            </Button>
+            <Button onClick={handleConnectRepository}>
+              <Plus className="h-4 w-4" />
+              Connect
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {filteredRepos.length === 0 ? (
+        <Card className="border-white/10 bg-white/5 p-10 text-center">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-white/10">
+            <Github className="h-6 w-6 text-white/70" />
+          </div>
+          <CardTitle className="mt-4 text-xl text-white">No repositories match that view</CardTitle>
+          <CardDescription className="mt-2 text-white/70">
+            Try adjusting filters or connect a new repository.
+          </CardDescription>
+          <div className="mt-6 flex justify-center gap-3">
+            <Button onClick={handleConnectRepository}>
+              <Plus className="h-4 w-4" />
+              Connect repository
+            </Button>
+            <Button variant="secondary" asChild>
+              <Link href="/documentation">
+                <FileText className="h-4 w-4" />
+                Generate docs
+              </Link>
+            </Button>
+          </div>
+        </Card>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {repositories.map((repo) => (
-            <div key={repo.id} className="glass-panel p-6 hover:border-white/20 transition-colors">
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-gradient-to-r from-blue-500 to-purple-500 flex items-center justify-center">
-                    <Github className="w-5 h-5 text-white" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-white text-lg">{repo.name}</h3>
-                    <p className="text-sm text-white/60">{repo.repo_url.replace('https://github.com/', '')}</p>
-                  </div>
-                </div>
-                <a
-                  href={repo.repo_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-white/40 hover:text-white/60 transition-colors"
-                >
-                  <ExternalLink className="h-4 w-4" />
-                </a>
-              </div>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 px-1 sm:px-2 md:px-0">
+          {filteredRepos.map((repo) => {
+            const statusMeta = getStatusMeta(repo);
+            const hasSummaries = repo.setup_status === 'ready' && repo.total_files && repo.total_files > 0;
+            const summaryProgress = hasSummaries
+              ? Math.min(
+                  100,
+                  Math.round(((repo.file_summary_count || 0) / (repo.total_files || 1)) * 100)
+                )
+              : 0;
 
-              <div className="flex items-center gap-2 text-sm text-white/60 mb-4">
-                <span>Branch:</span>
-                <code className="px-2 py-1 rounded bg-white/10 text-white/80 text-xs">
-                  {repo.setup_branch || repo.default_branch || 'main'}
-                </code>
-              </div>
-
-              {/* Status Badges */}
-              <div className="flex flex-wrap gap-2 mb-4">
-                {/* Connection Status Badge */}
-                <span className={`px-2 py-1 rounded text-xs font-medium ${
-                  repo.setup_status === 'ready'
-                    ? 'bg-green-500/20 text-green-300'
-                    : repo.setup_status === 'analyzing'
-                    ? 'bg-blue-500/20 text-blue-300'
-                    : repo.setup_status === 'failed'
-                    ? 'bg-red-500/20 text-red-300'
-                    : 'bg-gray-500/20 text-gray-300'
-                }`}>
-                  {repo.setup_status === 'ready'
-                    ? '✓ Connected'
-                    : repo.setup_status === 'analyzing'
-                    ? '⏳ Processing'
-                    : repo.setup_status === 'failed'
-                    ? '✗ Failed'
-                    : '○ Not Started'}
-                </span>
-
-                {/* File Summary Status Badge */}
-                {repo.setup_status === 'ready' && (
-                  <span className={`px-2 py-1 rounded text-xs font-medium ${
-                    repo.file_summary_status === 'complete'
-                      ? 'bg-green-500/20 text-green-300'
-                      : repo.file_summary_status === 'partial'
-                      ? 'bg-yellow-500/20 text-yellow-300'
-                      : 'bg-gray-500/20 text-gray-300'
-                  }`}>
-                    {repo.file_summary_status === 'complete'
-                      ? `✓ Summaries: ${repo.file_summary_count || 0}/${repo.total_files || 0}`
-                      : repo.file_summary_status === 'partial'
-                      ? `⚠ Summaries: ${repo.file_summary_count || 0}/${repo.total_files || 0}`
-                      : '○ No Summaries'}
-                  </span>
-                )}
-              </div>
-
-              <div className="flex gap-2">
-                {/* Three-dots menu with Setup and Generate Docs options */}
-                <div className="relative" data-dropdown>
-                  <button
-                    onClick={() => toggleDropdown(repo.id)}
-                    className="btn btn-secondary p-2"
-                    title="Repository actions"
-                  >
-                    <MoreHorizontal className="h-4 w-4" />
-                  </button>
-
-                  {/* Dropdown Menu */}
-                  {dropdownOpen === repo.id && (
-                    <div className="absolute right-0 top-full mt-2 w-48 bg-gray-800 border border-white/20 rounded-lg shadow-lg z-10">
-                      <div className="py-1">
-                        <Link
-                          href={`/repos/setup?repoId=${repo.id}`}
-                          onClick={closeDropdowns}
-                          className="flex items-center gap-2 px-4 py-2 text-sm text-white hover:bg-white/10 transition-colors"
-                        >
-                          <Settings className="h-4 w-4" />
-                          Setup
-                        </Link>
-
-                        {repo.setup_status === 'ready' ? (
-                          <Link
-                            href={`/documentation?repoId=${repo.id}`}
-                            onClick={closeDropdowns}
-                            className="flex items-center gap-2 px-4 py-2 text-sm text-white hover:bg-white/10 transition-colors"
-                          >
-                            <FileText className="h-4 w-4" />
+            return (
+              <Card key={repo.id} className="border-white/10 bg-gradient-to-b from-white/8 to-black/60">
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-md shadow-indigo-500/20">
+                        <Github className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-white">{repo.name}</CardTitle>
+                        <CardDescription className="flex items-center gap-2 text-white/70">
+                          {repo.repo_url.replace('https://github.com/', '')}
+                          <Link href={repo.repo_url} target="_blank" rel="noreferrer" className="text-white/50 hover:text-white/80">
+                            <ExternalLink className="h-4 w-4" />
+                          </Link>
+                        </CardDescription>
+                      </div>
+                    </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full border border-white/10 bg-white/5">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem asChild>
+                          <Link href={`/repos/setup?repoId=${repo.id}`}>
+                            <Settings className="mr-2 h-4 w-4" />
+                            Setup
+                          </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem asChild disabled={repo.setup_status !== 'ready'}>
+                          <Link href={`/documentation?repoId=${repo.id}`}>
+                            <FileText className="mr-2 h-4 w-4" />
                             Generate Docs
                           </Link>
-                        ) : (
-                          <button
-                            disabled
-                            className="flex items-center gap-2 px-4 py-2 text-sm text-white/50 cursor-not-allowed w-full text-left"
-                            title={`Setup ${repo.setup_status || 'not started'} - Complete repository setup first to enable documentation generation`}
-                          >
-                            <FileText className="h-4 w-4" />
-                            Generate Docs
-                          </button>
-                        )}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem asChild>
+                          <Link href="/automation">
+                            <Zap className="mr-2 h-4 w-4" />
+                            Automation
+                          </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="text-red-300 focus:bg-red-500/10"
+                          onClick={() => handleDeleteRepository(repo.id, repo.name)}
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          Disconnect
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </CardHeader>
+
+                <CardContent className="space-y-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant={statusMeta.color as any} className="flex items-center gap-1">
+                      {statusMeta.icon}
+                      {statusMeta.label}
+                    </Badge>
+                    <Badge variant="outline" className="text-white/80">
+                      Branch: {repo.setup_branch || repo.default_branch || 'main'}
+                    </Badge>
+                    {repo.setup_status === 'ready' && (
+                      <Badge variant="success" className="text-emerald-200">
+                        Summaries: {repo.file_summary_count || 0}/{repo.total_files || 0}
+                      </Badge>
+                    )}
+                  </div>
+
+                  {hasSummaries && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-sm text-white/70">
+                        <span>File summaries</span>
+                        <span>{summaryProgress}%</span>
                       </div>
                     </div>
                   )}
-                </div>
+                </CardContent>
 
-                <button
-                  onClick={() => handleDeleteRepository(repo.id, repo.name)}
-                  disabled={deletingRepoId === repo.id}
-                  className="btn btn-secondary text-red-400 hover:text-red-300 hover:bg-red-500/10 p-2"
-                  title="Disconnect repository"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </div>
-
-            </div>
-          ))}
+                <CardFooter className="flex flex-wrap justify-between gap-3">
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="secondary" asChild>
+                      <Link href={`/repos/setup?repoId=${repo.id}`}>
+                        <Settings className="h-4 w-4" />
+                        Setup
+                      </Link>
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      disabled={repo.setup_status !== 'ready'}
+                      asChild
+                    >
+                      <Link href={`/documentation?repoId=${repo.id}`}>
+                        <FileText className="h-4 w-4" />
+                        Generate docs
+                      </Link>
+                    </Button>
+                    <Button variant="secondary" asChild>
+                      <Link href="/automation">
+                        <Zap className="h-4 w-4" />
+                        Automation
+                      </Link>
+                    </Button>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    className="text-red-300 hover:text-red-200"
+                    onClick={() => handleDeleteRepository(repo.id, repo.name)}
+                    disabled={deletingRepoId === repo.id}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Disconnect
+                  </Button>
+                </CardFooter>
+              </Card>
+            );
+          })}
         </div>
       )}
 
-      {/* Quick Actions */}
-      <div className="glass-panel p-6">
-        <h3 className="text-lg font-semibold text-white mb-4">Quick Actions</h3>
-        <div className="grid gap-4 md:grid-cols-3">
-          <Link
-            href="/documentation"
-            className="flex items-center gap-3 p-4 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 transition-colors"
-          >
-            <div className="w-10 h-10 rounded-lg bg-gradient-to-r from-green-500 to-emerald-500 flex items-center justify-center">
-              <FileText className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h4 className="font-medium text-white">Generate Documentation</h4>
-              <p className="text-sm text-white/60">Create docs from any repository</p>
-            </div>
-          </Link>
 
-          <Link
-            href="/automation"
-            className="flex items-center gap-3 p-4 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 transition-colors"
-          >
-            <div className="w-10 h-10 rounded-lg bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center">
-              <Zap className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h4 className="font-medium text-white">Setup Automation</h4>
-              <p className="text-sm text-white/60">Keep docs updated automatically</p>
-            </div>
-          </Link>
-
-          <Link
-            href="/overview"
-            className="flex items-center gap-3 p-4 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 transition-colors"
-          >
-            <div className="w-10 h-10 rounded-lg bg-gradient-to-r from-blue-500 to-cyan-500 flex items-center justify-center">
-              <Activity className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h4 className="font-medium text-white">View Dashboard</h4>
-              <p className="text-sm text-white/60">Monitor activity and stats</p>
-            </div>
-          </Link>
-        </div>
-      </div>
-
-      {/* Repository Connection Modal */}
-      {showConnectionWizard && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="relative">
-              <button
-                onClick={() => setShowConnectionWizard(false)}
-                className="absolute top-4 right-4 z-10 w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white/60 hover:text-white transition-colors"
-              >
-                <X className="h-4 w-4" />
-              </button>
-              <RepositoryConnectionWizard
-                onComplete={handleConnectionComplete}
-                onCancel={() => setShowConnectionWizard(false)}
-              />
-            </div>
-          </div>
-        </div>
-      )}
+      <Dialog open={showConnectionWizard} onOpenChange={setShowConnectionWizard}>
+        <DialogContent className="p-0">
+          <RepositoryConnectionWizard
+            onComplete={handleConnectionComplete}
+            onCancel={() => setShowConnectionWizard(false)}
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

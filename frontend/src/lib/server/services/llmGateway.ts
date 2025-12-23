@@ -101,12 +101,21 @@ export class LLMGateway {
 		}
 	}
 
-	async call(messages: Message[], model: string, temperature?: number, context?: string): Promise<string> {
+	async call(messages: Message[], model: string, temperature?: number, context?: string, abortSignal?: AbortSignal): Promise<string> {
 
 		try {
-			// Add timeout to prevent indefinite hangs (3 minutes for LLM calls)
-			const controller = new AbortController();
-			const timeoutId = setTimeout(() => controller.abort(), 180000);
+			// Use provided AbortSignal or create one for timeout
+			let controller: AbortController;
+			let timeoutId: NodeJS.Timeout | undefined;
+
+			if (abortSignal) {
+				// Use the provided signal
+				controller = { signal: abortSignal } as AbortController;
+			} else {
+				// Create our own for timeout (3 minutes for LLM calls)
+				controller = new AbortController();
+				timeoutId = setTimeout(() => controller.abort(), 180000);
+			}
 
 			const response = await fetch(`${this.url}/chat/completions`, {
 				method: 'POST',
@@ -123,7 +132,7 @@ export class LLMGateway {
 				signal: controller.signal,
 			});
 
-			clearTimeout(timeoutId);
+			if (timeoutId) clearTimeout(timeoutId);
 
 			const payload = await response.json().catch(() => ({}));
 			if (!response.ok) {

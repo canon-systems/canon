@@ -33,6 +33,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}));
     documentId = body.submissionId || body.documentId; // Support both for backward compatibility
     const previewContent = body.previewContent;
+    const regenerationSettings = body.regenerationSettings;
 
     if (!documentId) {
       return NextResponse.json({ error: 'documentId is required' }, { status: 400 });
@@ -74,12 +75,19 @@ export async function POST(request: NextRequest) {
     const versionNumber = versionData || 1;
 
     // Update document
+    const updateData: any = {
+      content: previewContent.trim(),
+      updated_at: new Date().toISOString(),
+    };
+
+    // Include regeneration settings if provided
+    if (regenerationSettings) {
+      updateData.configuration = regenerationSettings;
+    }
+
     const { error: updateError } = await supabase
       .from('documents')
-      .update({
-        content: previewContent.trim(),
-        updated_at: new Date().toISOString(),
-      })
+      .update(updateData)
       .eq('id', documentId);
 
     if (updateError) {
@@ -135,7 +143,7 @@ export async function POST(request: NextRequest) {
                 // Look up existing summary data to preserve it while updating hash
                 const { data: existingSummary } = await supabase
                   .from('repo_file_summaries')
-                  .select('summary_text, summary_json, summary_model')
+                  .select('summary_text, summary_model')
                   .ilike('repo_id', normalizeRepoId(repo.repo_url))
                   .eq('branch', branch)
                   .eq('file_path', filePath)
@@ -147,7 +155,6 @@ export async function POST(request: NextRequest) {
                   p_file_path: filePath,
                   p_file_hash: currentHash,
                   p_summary_text: existingSummary?.summary_text || '', // Preserve existing or use empty string
-                  p_summary_json: existingSummary?.summary_json || {}, // Preserve existing or use empty object
                   p_summary_model: existingSummary?.summary_model || 'unknown', // Preserve existing or use default
                   p_user_id: user.id,
                   p_branch: branch,

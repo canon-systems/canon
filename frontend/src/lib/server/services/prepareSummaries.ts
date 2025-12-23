@@ -49,7 +49,7 @@ export async function prepareFileSummaries(
 	supabase: SupabaseClient,
 	documentId: string,
 	regenerateAll: boolean = false,
-	userId?: string | null,
+	userId: string,
 	onFileProgress?: (filePath: string, status: 'processing' | 'completed' | 'skipped' | 'failed', error?: string) => void
 ): Promise<{ filesPrepared: number; filesUpdated: number; filesSkipped: number }> {
 	const startTime = Date.now();
@@ -158,7 +158,7 @@ export async function prepareFileSummaries(
 	}
 
 	// Get GitHub client
-	const octokit = await getUserOctokit(supabase, userId || null);
+	const octokit = await getUserOctokit(supabase, userId);
 	const parsed = parseRepoUrl(repoUrl);
 	if (!parsed) {
 		throw new Error(`Invalid repo URL: ${repoUrl}`);
@@ -220,7 +220,6 @@ export async function prepareFileSummaries(
 						p_file_path: filePath,
 						p_file_hash: currentHash,
 						p_summary_text: summary.summary_text,
-						p_summary_json: summary.summary_json,
 						p_summary_model: 'gpt-4o-mini',
 						p_user_id: userId || null,
 						// p_submission_id omitted - submissions table no longer exists
@@ -450,7 +449,6 @@ export async function generateAndSaveFileSummaries(
 						p_file_path: filePath,
 						p_file_hash: finalHash,
 						p_summary_text: summary.summary_text,
-						p_summary_json: summary.summary_json,
 						p_summary_model: model,
 						p_user_id: userId || null,
 						// p_submission_id omitted - submissions table no longer exists

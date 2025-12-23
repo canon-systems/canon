@@ -215,7 +215,10 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 				if (!submissionId) {
 					throw new Error(`Cannot generate missing summary for ${file.path} without submissionId`);
 				}
-				await prepareFileSummaries(supabase, submissionId, false, userId || null);
+				if (!userId) {
+					throw new Error(`Cannot generate missing summary for ${file.path} without userId`);
+				}
+				await prepareFileSummaries(supabase, submissionId, false, userId);
 
 				// Reload ALL summaries and use fuzzy matching
 				const { data: document } = await supabase
@@ -237,7 +240,7 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 					// Load all summaries and find matching one with fuzzy path matching
 					const { data: reloadedSummaries } = await supabase
 						.from('repo_file_summaries')
-						.select('file_path, summary_text, summary_json')
+						.select('file_path, summary_text')
 						.ilike('repo_id', repoId)
 						.eq('branch', submissionBranch);
 
@@ -257,111 +260,11 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 				}
 			}
 
-			// Format summary for LLM
-			const summaryJson = summary.summary_json || {};
-			const problemSolved = summaryJson.problem_solved;
-			const functions = summaryJson.functions || [];
-			const apis = summaryJson.apis || [];
-			const imports = summaryJson.imports || [];
-			const dependencies = summaryJson.upstream_dependencies || [];
-			const codeUses = summaryJson.code_uses || [];
-			const logic = summaryJson.logic || {};
-			const designPatterns = summaryJson.design_patterns || [];
-			const keyDecisions = summaryJson.key_decisions || [];
+			// Use summary text directly since we removed summary_json
+			const summaryText = summary.summary_text || 'No summary available';
 
-			let formattedSummary = `--- FILE: ${file.path} ---\n${summary.summary_text || ''}`;
-
-			if (problemSolved) {
-				formattedSummary += `\n\nProblem Solved:\n${problemSolved}`;
-			}
-
-			if (imports.length > 0) {
-				formattedSummary += `\n\nImports:\n${imports
-					.map(
-						(imp: any) =>
-							`  - ${imp.module} (${imp.type || 'unknown'}): ${imp.purpose}\n    Used: ${imp.items?.map((item: any) => `${item.name}${item.alias ? ` as ${item.alias}` : ''} (${item.usage})`).join(', ') || 'N/A'}`
-					)
-					.join('\n')}`;
-			}
-
-			if (functions.length > 0) {
-				formattedSummary += `\n\nFunctions:\n${functions
-					.map(
-						(f: any) => {
-							let funcDesc = `  - ${f.name}(${f.parameters?.map((p: any) => `${p.name}: ${p.type}`).join(', ') || ''}): ${f.returnType || 'void'} - ${f.description || ''}`;
-							if (f.logic) {
-								funcDesc += `\n    Logic: ${f.logic}`;
-							}
-							if (f.calls && f.calls.length > 0) {
-								funcDesc += `\n    Calls: ${f.calls.join(', ')}`;
-							}
-							if (f.called_by && f.called_by.length > 0) {
-								funcDesc += `\n    Called by: ${f.called_by.join(', ')}`;
-							}
-							return funcDesc;
-						}
-					)
-					.join('\n')}`;
-			}
-
-			if (apis.length > 0) {
-				formattedSummary += `\n\nAPIs:\n${apis
-					.map(
-						(api: any) => {
-							let apiDesc = `  - ${api.type.toUpperCase()}${api.method ? ` ${api.method}` : ''}: ${api.endpoint} - ${api.description || ''}`;
-							if (api.request_body) {
-								apiDesc += `\n    Request: ${api.request_body}`;
-							}
-							if (api.response) {
-								apiDesc += `\n    Response: ${api.response}`;
-							}
-							return apiDesc;
-						}
-					)
-					.join('\n')}`;
-			}
-
-			if (logic.main_flow) {
-				formattedSummary += `\n\nMain Logic Flow:\n${logic.main_flow}`;
-			}
-
-			if (logic.algorithms && logic.algorithms.length > 0) {
-				formattedSummary += `\n\nAlgorithms:\n${logic.algorithms.map((alg: string) => `  - ${alg}`).join('\n')}`;
-			}
-
-			if (logic.business_rules && logic.business_rules.length > 0) {
-				formattedSummary += `\n\nBusiness Rules:\n${logic.business_rules.map((rule: string) => `  - ${rule}`).join('\n')}`;
-			}
-
-			if (logic.error_handling) {
-				formattedSummary += `\n\nError Handling:\n${logic.error_handling}`;
-			}
-
-			if (codeUses.length > 0) {
-				formattedSummary += `\n\nCode Used:\n${codeUses
-					.map(
-						(use: any) =>
-							`  - ${use.type} ${use.name} from ${use.from}: ${use.usage}${use.location ? ` (${use.location})` : ''}`
-					)
-					.join('\n')}`;
-			}
-
-			if (dependencies.length > 0) {
-				formattedSummary += `\n\nDependencies:\n${dependencies
-					.map(
-						(dep: any) =>
-							`  - ${dep.file}: ${dep.functions?.join(', ') || ''} - ${dep.purpose || ''}${dep.usage_context ? ` (${dep.usage_context})` : ''}`
-					)
-					.join('\n')}`;
-			}
-
-			if (designPatterns.length > 0) {
-				formattedSummary += `\n\nDesign Patterns:\n${designPatterns.map((pattern: string) => `  - ${pattern}`).join('\n')}`;
-			}
-
-			if (keyDecisions.length > 0) {
-				formattedSummary += `\n\nKey Decisions:\n${keyDecisions.map((decision: string) => `  - ${decision}`).join('\n')}`;
-			}
+			// Format summary for LLM - simplified since we only have text now
+			let formattedSummary = `--- FILE: ${file.path} ---\n${summaryText}`;
 
 			fileContentParts.push(formattedSummary);
 		} else {

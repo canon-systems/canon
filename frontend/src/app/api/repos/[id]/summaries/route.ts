@@ -53,7 +53,7 @@ export async function GET(
 		// Use ilike for case-insensitive repo_id matching since GitHub URLs are case-insensitive
 		let query = supabase
 			.from('repo_file_summaries')
-			.select('file_path, summary_text, summary_json, updated_at')
+			.select('file_path, summary_text, updated_at')
 			.ilike('repo_id', repoId)
 			.eq('branch', branch)
 			.order('file_path', { ascending: true });

@@ -2,10 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
 
-export async function POST(_request: NextRequest) {
+export async function POST() {
   try {
     const supabase = await createClient();
-    await getSession();
 
     // Note: Documents table doesn't have is_outdated field in the new schema
     // This would need to be calculated on-demand by checking file hashes
@@ -21,12 +20,12 @@ export async function POST(_request: NextRequest) {
       .eq('workspace_id', user.id);
 
     const repoIds = userRepos?.map(r => r.id) || [];
-    
+
     const { data: documents, error } = repoIds.length > 0
       ? await supabase
-          .from('documents')
-          .select('id')
-          .in('repo_id', repoIds)
+        .from('documents')
+        .select('id')
+        .in('repo_id', repoIds)
       : { data: null, error: null };
 
     if (error) {

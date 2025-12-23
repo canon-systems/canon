@@ -4,6 +4,11 @@ import React, { useState, useEffect } from 'react';
 import { Zap, Plus, CheckCircle2, XCircle, Clock, Loader2, GitBranch, ExternalLink, TrendingUp, ChevronDown, Github, Trash2, X } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Separator } from '@/components/ui/separator';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 // Import all the automation types and interfaces from settings
 interface Connection {
@@ -42,7 +47,7 @@ interface AutomationRuleForm {
   customScheduleDescription?: string;
 
   // NEW: Smart automation with presets
-  action_preset: 'docs_only' | 'diagrams_only' | 'docs_and_diagrams' | 'full_auto_publish';
+  action_preset: 'docs_only' | 'full_auto_publish';
 
   // NEW: Significance analysis (always enabled)
   significance_sensitivity: 'strict' | 'balanced' | 'lenient';
@@ -51,7 +56,6 @@ interface AutomationRuleForm {
 
   // NEW: Scope targeting
   target_documents: string[]; // Empty = all documents
-  target_diagrams: string[];  // Empty = all diagrams
 
   // NEW: Notifications
   notifications_email_enabled: boolean;
@@ -69,7 +73,6 @@ interface AutomationRuleForm {
   // LEGACY: Keep for backward compatibility
   detect_changes?: boolean;
   generate_doc?: boolean;
-  generate_diagram?: boolean;
   auto_publish?: boolean;
   auto_publish_new_docs?: boolean;
 }
@@ -530,18 +533,16 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
       enabled: overrides.enabled ?? false,
       customCron: overrides.customCron ?? '0 2 * * *',
       // NEW: Smart automation defaults
-      action_preset: overrides.action_preset ?? 'docs_and_diagrams',
+      action_preset: overrides.action_preset ?? 'docs_only',
       significance_sensitivity: overrides.significance_sensitivity ?? 'balanced',
       significance_minimum_confidence: overrides.significance_minimum_confidence ?? 'medium',
       target_documents: overrides.target_documents ?? [],
-      target_diagrams: overrides.target_diagrams ?? [],
       notifications_email_enabled: overrides.notifications_email_enabled ?? true,
       notifications_include_preview_links: overrides.notifications_include_preview_links ?? true,
 
       // LEGACY: Keep for backward compatibility (not displayed in UI)
       detect_changes: true, // Always true for smart automation
       generate_doc: overrides.generate_doc ?? true,
-      generate_diagram: overrides.generate_diagram ?? false,
       auto_publish: overrides.auto_publish ?? false,
       auto_publish_new_docs: overrides.auto_publish_new_docs ?? false,
       significance_analysis_enabled: true, // Always true for smart automation
@@ -578,12 +579,8 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
       let action_preset = rule.action_preset;
       if (!action_preset) {
         // Infer preset from legacy fields
-        if (rule.generate_doc && rule.generate_diagram && rule.auto_publish) {
+        if (rule.generate_doc && rule.auto_publish) {
           action_preset = 'full_auto_publish';
-        } else if (rule.generate_doc && rule.generate_diagram) {
-          action_preset = 'docs_and_diagrams';
-        } else if (rule.generate_diagram) {
-          action_preset = 'diagrams_only';
         } else {
           action_preset = 'docs_only';
         }
@@ -600,14 +597,12 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
         significance_sensitivity: rule.significance_analysis?.sensitivity || 'balanced',
         significance_minimum_confidence: rule.significance_analysis?.minimum_confidence || 'medium',
         target_documents: rule.target_documents || [],
-        target_diagrams: rule.target_diagrams || [],
         notifications_email_enabled: rule.notifications?.email_enabled ?? true,
         notifications_include_preview_links: rule.notifications?.include_preview_links ?? true,
 
         // LEGACY: Keep for backward compatibility (not displayed in UI)
         detect_changes: true, // Always true for smart automation
         generate_doc: rule.generate_doc ?? true,
-        generate_diagram: rule.generate_diagram ?? false,
         auto_publish: rule.auto_publish ?? false,
         auto_publish_new_docs: rule.auto_publish_new_docs ?? false,
         significance_analysis_enabled: true, // Always true for smart automation
@@ -741,7 +736,6 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
         minimum_confidence: form.significance_minimum_confidence,
       },
       target_documents: form.target_documents || [],
-      target_diagrams: form.target_diagrams || [],
       notifications: {
         email_enabled: form.notifications_email_enabled,
         include_preview_links: form.notifications_include_preview_links,
@@ -764,8 +758,7 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
 
     // LEGACY: Keep for backward compatibility during migration
     rule.detect_changes = true; // Always true for smart automation
-    rule.generate_doc = ['docs_only', 'docs_and_diagrams', 'full_auto_publish'].includes(form.action_preset);
-    rule.generate_diagram = ['diagrams_only', 'docs_and_diagrams', 'full_auto_publish'].includes(form.action_preset);
+    rule.generate_doc = ['docs_only', 'full_auto_publish'].includes(form.action_preset);
     rule.auto_publish = form.action_preset === 'full_auto_publish';
     rule.auto_publish_new_docs = false; // Never auto-publish new docs in smart automation
 
@@ -1018,84 +1011,96 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
 
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-      {/* Header */}
-      <div className="mb-8">
-        <div className="flex items-center gap-3 mb-2">
-          <Zap className="h-8 w-8 text-purple-400" />
-          <h1 className="text-3xl font-bold text-white">Automation</h1>
-        </div>
-        <p className="text-white/70">
-          Set it and forget it. Automatically generate and publish documentation when your code changes.
-        </p>
-      </div>
+    <div className="min-h-screen px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl space-y-6">
+        <Card className="border border-white/10 bg-gradient-to-b from-white/5 to-white/0 shadow-lg">
+          <CardHeader className="space-y-1 pb-6">
+            <div className="flex items-center gap-3">
+              <Zap className="h-8 w-8 text-purple-400" />
+              <CardTitle className="text-2xl font-semibold text-white">Automation</CardTitle>
+            </div>
+            <CardDescription className="text-white/70">
+              Set it and forget it. Automatically generate and publish documentation when your code changes.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {/* Summary Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm text-white/60">Total Rules</p>
+                    <Zap className="h-5 w-5 text-purple-400" />
+                  </div>
+                  <p className="text-3xl font-semibold text-white">{stats.totalRules}</p>
+                  <p className="text-xs text-white/50 mt-1">across {reposList.length} repositories</p>
+                </CardContent>
+              </Card>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-        <div className="glass-panel p-6">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm text-white/60">Total Rules</p>
-            <Zap className="h-5 w-5 text-purple-400" />
-          </div>
-          <p className="text-3xl font-semibold text-white">{stats.totalRules}</p>
-          <p className="text-xs text-white/50 mt-1">across {reposList.length} repositories</p>
-        </div>
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm text-white/60">Active Rules</p>
+                    <CheckCircle2 className="h-5 w-5 text-emerald-400" />
+                  </div>
+                  <p className="text-3xl font-semibold text-white">{stats.activeRules}</p>
+                  <p className="text-xs text-white/50 mt-1">currently enabled</p>
+                </CardContent>
+              </Card>
 
-        <div className="glass-panel p-6">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm text-white/60">Active Rules</p>
-            <CheckCircle2 className="h-5 w-5 text-emerald-400" />
-          </div>
-          <p className="text-3xl font-semibold text-white">{stats.activeRules}</p>
-          <p className="text-xs text-white/50 mt-1">currently enabled</p>
-        </div>
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm text-white/60">Last 24h</p>
+                    <TrendingUp className="h-5 w-5 text-blue-400" />
+                  </div>
+                  <p className="text-3xl font-semibold text-white">{stats.executions24h}</p>
+                  <p className="text-xs text-white/50 mt-1">executions</p>
+                </CardContent>
+              </Card>
 
-        <div className="glass-panel p-6">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm text-white/60">Last 24h</p>
-            <TrendingUp className="h-5 w-5 text-blue-400" />
-          </div>
-          <p className="text-3xl font-semibold text-white">{stats.executions24h}</p>
-          <p className="text-xs text-white/50 mt-1">executions</p>
-        </div>
-
-        <div className="glass-panel p-6">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-sm text-white/60">Success Rate</p>
-            <CheckCircle2 className="h-5 w-5 text-emerald-400" />
-          </div>
-          <p className="text-3xl font-semibold text-white">{stats.successRate}%</p>
-          <p className="text-xs text-white/50 mt-1">last 24 hours</p>
-        </div>
-      </div>
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm text-white/60">Success Rate</p>
+                    <CheckCircle2 className="h-5 w-5 text-emerald-400" />
+                  </div>
+                  <p className="text-3xl font-semibold text-white">{stats.successRate}%</p>
+                  <p className="text-xs text-white/50 mt-1">last 24 hours</p>
+                </CardContent>
+              </Card>
+            </div>
+          </CardContent>
+        </Card>
 
 
 
-      {/* Combined Content */}
-      {/* Repository Management Section */}
-      <div className="glass-panel p-6 mb-8">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-2xl font-semibold text-white mb-2">Repositories & Automation Rules</h2>
-            <p className="text-white/70">Manage your repositories and configure automation rules</p>
-          </div>
-        </div>
-
-
-        {/* Repositories List */}
-        {loadingRepos ? (
-          <div className="rounded-xl border border-white/10 bg-white/5 p-8 text-center">
-            <Loader2 className="h-8 w-8 animate-spin text-white/50 mx-auto mb-2" />
-            <p className="text-white/60">Loading repositories...</p>
-          </div>
-        ) : reposList.length === 0 ? (
-          <div className="rounded-xl border border-white/10 bg-white/5 p-8 text-center">
-            <Github className="h-12 w-12 text-white/30 mx-auto mb-4" />
-            <p className="text-white/60 mb-2">No repositories registered yet.</p>
-            <p className="text-white/50 text-sm">Connect repositories through the repository setup process to enable automation.</p>
-          </div>
-        ) : (
-          <div className="rounded-xl border border-white/10 bg-white/5 overflow-hidden">
+        {/* Repository Management Section */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-xl font-semibold text-white">Repositories & Automation Rules</CardTitle>
+            <CardDescription className="text-white/70">Manage your repositories and configure automation rules</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {/* Repositories List */}
+            {loadingRepos ? (
+              <Card>
+                <CardContent className="flex items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-white/50" />
+                  <p className="ml-3 text-white/60">Loading repositories...</p>
+                </CardContent>
+              </Card>
+            ) : reposList.length === 0 ? (
+              <Card>
+                <CardContent className="p-12 text-center">
+                  <Github className="h-12 w-12 text-white/30 mx-auto mb-4" />
+                  <p className="text-white/60 mb-2">No repositories registered yet.</p>
+                  <p className="text-white/50 text-sm">Connect repositories through the repository setup process to enable automation.</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <Card className="overflow-hidden">
+                <CardContent className="p-0">
             <table className="w-full">
               <thead className="border-b border-white/10 bg-white/5">
                 <tr>
@@ -1254,8 +1259,6 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                                             </div>
                                             <p className="text-sm text-white/70 mb-2">
                                               {rule.action_preset === 'docs_only' && '📄 Generates documentation only'}
-                                              {rule.action_preset === 'diagrams_only' && '📊 Generates diagrams only'}
-                                              {rule.action_preset === 'docs_and_diagrams' && '📄📊 Generates both docs and diagrams'}
                                               {rule.action_preset === 'full_auto_publish' && '🚀 Auto-generates and publishes'}
                                             </p>
                                             <div className="flex items-center gap-4 text-xs text-white/60">
@@ -1315,102 +1318,83 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                 })}
               </tbody>
             </table>
-          </div>
-        )}
-      </div>
+                </CardContent>
+              </Card>
+            )}
+            
+            {/* Error/Success Messages */}
+            {(repoError || repoSuccess) && (
+              <div className="mt-4 space-y-2">
+                {repoError && (
+                  <Alert variant="destructive">
+                    <AlertDescription>{repoError}</AlertDescription>
+                  </Alert>
+                )}
+                {repoSuccess && (
+                  <Alert variant="success">
+                    <AlertDescription>{repoSuccess}</AlertDescription>
+                  </Alert>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
 
 
 
       {/* Delete Rule Confirmation Modal */}
-      {deleteRuleModal.open && deleteRuleModal.repoId && deleteRuleModal.ruleId && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-6 backdrop-blur-sm"
-          role="dialog"
-          aria-modal="true"
-          onClick={() => !deleting && setDeleteRuleModal({ open: false, repoId: null, ruleId: null, ruleName: '' })}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape' && !deleting) setDeleteRuleModal({ open: false, repoId: null, ruleId: null, ruleName: '' });
-          }}
-        >
-          <div
-            className="w-full max-w-md rounded-xl border border-white/20 bg-black/90 p-6 shadow-xl backdrop-blur-md"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="mb-4 text-xl font-semibold text-white">Delete Automation Rule</h2>
-            <p className="mb-6 text-white/70">
-              Are you sure you want to delete the rule <span className="font-semibold text-white">{deleteRuleModal.ruleName}</span>? This action cannot be undone.
-            </p>
-            <div className="flex justify-end gap-3">
-              <button
-                className="rounded-lg border border-white/20 px-4 py-2 text-white/80 hover:bg-white/10 disabled:opacity-50"
-                onClick={() => setDeleteRuleModal({ open: false, repoId: null, ruleId: null, ruleName: '' })}
-                disabled={deleting}
-              >
-                Cancel
-              </button>
-              <button
-                className="rounded-lg border border-red-500/50 bg-red-500/10 px-4 py-2 text-red-300 transition-colors hover:bg-red-500/20 disabled:opacity-50"
-                onClick={() => deleteRuleModal.repoId && deleteRuleModal.ruleId && handleDeleteRule(deleteRuleModal.repoId, deleteRuleModal.ruleId)}
-                disabled={deleting}
-              >
-                {deleting ? (
-                  <>
-                    <Loader2 className="h-4 w-4 inline animate-spin mr-2" />
-                    Deleting...
-                  </>
-                ) : (
-                  'Delete'
-                )}
-              </button>
-            </div>
+      <Dialog open={deleteRuleModal.open} onOpenChange={(open) => !open && !deleting && setDeleteRuleModal({ open: false, repoId: null, ruleId: null, ruleName: '' })}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Automation Rule</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete the rule <span className="font-semibold">{deleteRuleModal.ruleName}</span>? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-3">
+            <Button
+              variant="secondary"
+              onClick={() => setDeleteRuleModal({ open: false, repoId: null, ruleId: null, ruleName: '' })}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleteRuleModal.repoId && deleteRuleModal.ruleId && handleDeleteRule(deleteRuleModal.repoId, deleteRuleModal.ruleId)}
+              disabled={deleting}
+            >
+              {deleting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete'
+              )}
+            </Button>
           </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
 
       {/* Automation Configuration Modal */}
-      {activeAutomationRepo && (
-        <div
-          className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 px-4 py-6 backdrop-blur-sm"
-          role="dialog"
-          aria-modal="true"
-          onClick={closeAutomationModal}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') closeAutomationModal();
-          }}
-        >
-          <div
-            className="w-full max-w-4xl rounded-2xl border border-white/20 bg-black/95 shadow-xl"
-            style={{ maxHeight: '90vh' }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex h-full flex-col">
-              <div className="space-y-6 px-6 py-6 text-white">
-                <div className="flex flex-col gap-2 rounded-2xl border border-white/10 bg-white/5 p-4 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <h3 className="text-xl font-semibold text-white">Automation rules</h3>
-                    <p className="text-sm text-white/70">
-                      Schedule documentation updates for {activeAutomationRepo.name} with clear triggers and publishing behavior.
-                    </p>
-                  </div>
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-xs uppercase tracking-wider text-white/60">Repository</span>
-                    <p className="font-semibold text-white">{activeAutomationRepo.name}</p>
-                  </div>
-                  <button
-                    onClick={closeAutomationModal}
-                    className="ml-auto rounded-lg border border-white/20 px-3 py-1.5 text-sm text-white/80 transition hover:bg-white/10"
-                  >
-                    Close
-                  </button>
-                </div>
-              </div>
-              <div className="relative flex-1 overflow-hidden border-t border-white/5">
-                {automationLoading[activeAutomationRepo.id] ? (
-                  <div className="flex h-full items-center justify-center px-6 py-12 text-sm text-white/60">
-                    <Loader2 className="h-5 w-5 animate-spin mr-2" />
-                    Loading automation rule...
-                  </div>
+      <Dialog open={!!activeAutomationRepo} onOpenChange={(open) => !open && closeAutomationModal()}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Automation Rules</DialogTitle>
+            <DialogDescription>
+              Schedule documentation updates for {activeAutomationRepo?.name} with clear triggers and publishing behavior.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6">
+                {activeAutomationRepo && automationLoading[activeAutomationRepo.id] ? (
+                  <Card>
+                    <CardContent className="flex items-center justify-center py-12">
+                      <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                      <span className="text-sm text-white/60">Loading automation rule...</span>
+                    </CardContent>
+                  </Card>
                 ) : singleRuleForm ? (
                   <div className="space-y-6 overflow-y-auto px-6 py-6" style={{ maxHeight: 'calc(90vh - 140px)' }}>
                     <div className="space-y-5 rounded-2xl border border-white/10 bg-black/40 p-5">
@@ -1419,16 +1403,14 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                           <p className="text-sm font-semibold text-white">Configure Automation Rule</p>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
-                          <button
+                          <Button
                             type="button"
+                            variant={singleRuleForm.enabled ? 'default' : 'secondary'}
+                            size="sm"
                             onClick={() => updateSingleRuleField('enabled', !singleRuleForm.enabled)}
-                            className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold transition ${singleRuleForm.enabled
-                              ? 'border-emerald-500 bg-emerald-500/20 text-emerald-200 hover:bg-emerald-500/30'
-                              : 'border-white/30 text-white/60 hover:border-white/50 hover:text-white'
-                              }`}
                           >
                             {singleRuleForm.enabled ? 'Enabled' : 'Disabled'}
-                          </button>
+                          </Button>
                           <p className="text-xs text-white/60">When off, the rule is ignored. Rules are automatically enabled when saved.</p>
                         </div>
                       </div>
@@ -1553,10 +1535,8 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                                 <div className="w-2 h-2 bg-green-400 rounded-full"></div>
                                 Active: {
                                   singleRuleForm.action_preset === 'docs_only' ? '📄 Docs Only' :
-                                    singleRuleForm.action_preset === 'diagrams_only' ? '🎨 Diagrams Only' :
-                                      singleRuleForm.action_preset === 'docs_and_diagrams' ? '📊 Everything' :
-                                        singleRuleForm.action_preset === 'full_auto_publish' ? '🚀 Auto-Publish' :
-                                          'Not selected'
+                                    singleRuleForm.action_preset === 'full_auto_publish' ? '🚀 Auto-Publish' :
+                                      'Not selected'
                                 }
                               </div>
                             )}
@@ -1567,16 +1547,6 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                                 value: 'docs_only',
                                 label: '📄 Update Documentation Only',
                                 description: 'Regenerate documentation when files change significantly'
-                              },
-                              {
-                                value: 'diagrams_only',
-                                label: '🎨 Update Diagrams Only',
-                                description: 'Generate architecture diagrams when changes are detected'
-                              },
-                              {
-                                value: 'docs_and_diagrams',
-                                label: '📊 Update Everything',
-                                description: 'Regenerate both documentation and diagrams'
                               },
                               {
                                 value: 'full_auto_publish',
@@ -1721,11 +1691,10 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                       </div>
 
                       <div className="flex justify-end">
-                        <button
+                        <Button
                           type="button"
                           onClick={() => activeAutomationRepoId && handleSaveAutomationRules(activeAutomationRepoId)}
                           disabled={Boolean(activeAutomationRepoId && automationSaving[activeAutomationRepoId])}
-                          className="inline-flex items-center gap-2 rounded-lg border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
                         >
                           {activeAutomationRepoId && automationSaving[activeAutomationRepoId] ? (
                             <>
@@ -1735,29 +1704,27 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                           ) : (
                             'Save Rule'
                           )}
-                        </button>
+                        </Button>
                       </div>
                     </div>
 
                     {activeAutomationRepoId && automationAlerts[activeAutomationRepoId] && (
-                      <p
-                        className={`mt-2 text-sm ${automationAlerts[activeAutomationRepoId]?.type === 'error' ? 'text-red-300' : 'text-emerald-300'
-                          }`}
-                      >
-                        {automationAlerts[activeAutomationRepoId]?.message}
-                      </p>
+                      <Alert variant={automationAlerts[activeAutomationRepoId]?.type === 'error' ? 'destructive' : 'success'} className="mt-2">
+                        <AlertDescription>{automationAlerts[activeAutomationRepoId]?.message}</AlertDescription>
+                      </Alert>
                     )}
                   </div>
                 ) : (
-                  <div className="flex h-full items-center justify-center px-6 py-12 text-sm text-white/60">
-                    <p>No rule form available</p>
-                  </div>
+                  <Card>
+                    <CardContent className="flex items-center justify-center py-12">
+                      <p className="text-sm text-white/60">No rule form available</p>
+                    </CardContent>
+                  </Card>
                 )}
-              </div>
-            </div>
           </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
+      </div>
     </div>
   );
 }

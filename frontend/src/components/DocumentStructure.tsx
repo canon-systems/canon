@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Plus, X, GripVertical, FileText, Sparkles, Layers, BookOpen } from 'lucide-react';
+import { Plus, X, GripVertical, FileText, Sparkles, Layers, BookOpen, Loader2 } from 'lucide-react';
 
 export interface DocumentSection {
   id: string;
@@ -19,6 +19,10 @@ export interface DocumentStructureConfig {
 interface DocumentStructureProps {
   config: DocumentStructureConfig;
   onChange: (config: DocumentStructureConfig) => void;
+  onSave?: () => Promise<void>;
+  saving?: boolean;
+  saveMessage?: string;
+  saveError?: string;
 }
 
 const defaultSections: DocumentSection[] = [
@@ -30,7 +34,7 @@ const defaultSections: DocumentSection[] = [
   { id: 'troubleshooting', title: 'Troubleshooting', description: 'Common issues and solutions', required: false },
 ];
 
-export function DocumentStructure({ config, onChange }: DocumentStructureProps) {
+export function DocumentStructure({ config, onChange, onSave, saving = false, saveMessage, saveError }: DocumentStructureProps) {
   const [expanded, setExpanded] = useState(false);
   const [, setDraggedIndex] = useState<number | null>(null);
   const [activePreset, setActivePreset] = useState<'minimal' | 'default' | 'comprehensive' | null>(null);
@@ -115,6 +119,7 @@ export function DocumentStructure({ config, onChange }: DocumentStructureProps) 
           )}
         </div>
         <button
+          type="button"
           className="flex items-center gap-1 text-xs text-white/60 hover:text-white/80 transition-colors"
           onClick={() => setExpanded(!expanded)}
           title={expanded ? 'Hide structure options' : 'Customize document structure'}
@@ -345,6 +350,37 @@ export function DocumentStructure({ config, onChange }: DocumentStructureProps) 
               Clear Structure
             </button>
           )}
+        </div>
+      )}
+
+      {/* Save Controls */}
+      {onSave && (
+        <div className="mt-4 pt-4 border-t border-white/10">
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              {saveMessage && (
+                <div className="text-xs text-green-300">{saveMessage}</div>
+              )}
+              {saveError && (
+                <div className="text-xs text-red-300">{saveError}</div>
+              )}
+            </div>
+            <button
+              type="button"
+              className="flex items-center gap-2 rounded-lg bg-purple-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-purple-700 disabled:opacity-60 disabled:cursor-not-allowed"
+              onClick={onSave}
+              disabled={saving}
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                'Save Structure'
+              )}
+            </button>
+          </div>
         </div>
       )}
     </div>

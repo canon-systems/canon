@@ -3,12 +3,10 @@ import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
 import { analyzeRepository } from '@/lib/server/services/analyzeRepository';
 import { generateDocumentation } from '@/lib/server/services/docGenerator';
-import { generateArchitectureDiagram } from '@/lib/server/services/diagramGenerator';
-import { trackRepoScan, trackDocGenerated, trackDiagramGenerated } from '@/lib/server/services/usageTracking';
+import { trackRepoScan, trackDocGenerated } from '@/lib/server/services/usageTracking';
 import { createOrUpdateDocument } from '@/lib/server/services/documentService';
 
 type AnalyzeRepoRequestBody = {
-  generate_diagram?: boolean;
   model?: string;
 };
 
@@ -37,7 +35,7 @@ export async function POST(
     const supabase = await createClient();
     const { id } = await params;
     const body = (await request.json().catch(() => ({}))) as AnalyzeRepoRequestBody;
-    const { generate_diagram = false, model } = body;
+    const { model } = body;
 
     if (!model) {
       return NextResponse.json({ error: 'model is required' }, { status: 400 });
@@ -102,32 +100,10 @@ export async function POST(
     const docId = documentId;
     await trackDocGenerated(supabase, user.id, docId || '', repo.id);
 
-    let diagramId: string | null = null;
-
-    if (generate_diagram && docId) {
-      const diagramResult = await generateArchitectureDiagram({
-        supabase,
-        userId: user.id,
-        method: 'github',
-        repoUrl: repo.repo_url,
-        branch: repo.default_branch,
-        subdir,
-        files: analysis.rawFiles || [],
-        saveDiagram: true,
-        title: `${repo.name} Architecture`,
-      });
-
-      if (diagramResult.diagram_id) {
-        diagramId = diagramResult.diagram_id as string;
-        await trackDiagramGenerated(supabase, user.id, diagramId, repo.id);
-      }
-    }
-
     return NextResponse.json(
       {
         success: true,
         doc_id: docId,
-        diagram_id: diagramId,
         message: `Documentation generated and saved for ${repo.name}`,
       },
       { status: 200 }

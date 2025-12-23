@@ -113,10 +113,10 @@ Be thorough and clear.`;
 export async function getDocument(
 	supabase: SupabaseClient,
 	documentId: string
-): Promise<{ id: string; title: string; content: string; repo_id: string; kb_id: string | null; kb_provider: string | null; created_at: string; updated_at: string } | null> {
+): Promise<{ id: string; title: string; content: string; repo_id: string; kb_id: string | null; kb_provider: string | null; created_at: string; updated_at: string; configuration?: any } | null> {
 	const { data, error } = await supabase
 		.from('documents')
-		.select('id, title, content, repo_id, kb_id, kb_provider, created_at, updated_at')
+		.select('id, title, content, repo_id, kb_id, kb_provider, created_at, updated_at, configuration')
 		.eq('id', documentId)
 		.single();
 

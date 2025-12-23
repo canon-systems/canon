@@ -1,7 +1,10 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Search, ChevronDown } from 'lucide-react';
+import { Search, ChevronDown, Check } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { cn } from '@/components/ui/utils';
 
 interface SearchableSelectProps {
   options: Array<{ value: string; label: string }>;
@@ -72,9 +75,11 @@ export function SearchableSelect({
   }, [isOpen]);
 
   return (
-    <div className={`relative ${isOpen ? 'z-50' : ''}`} ref={dropdownRef}>
-      <button
+    <div className={cn('relative', isOpen && 'z-50')} ref={dropdownRef}>
+      <Button
         type="button"
+        variant="secondary"
+        className={cn('w-full justify-between', triggerClassName)}
         onClick={() => {
           if (!disabled) {
             setIsOpen(!isOpen);
@@ -84,34 +89,33 @@ export function SearchableSelect({
           }
         }}
         disabled={disabled}
-        className={`field-select flex w-full items-center justify-between text-left text-white disabled:cursor-not-allowed disabled:opacity-50 ${triggerClassName}`}
       >
-        <span className={value ? 'text-white' : 'text-white/60'}>{selectedLabel}</span>
-        <ChevronDown className="h-4 w-4 text-white/60" />
-      </button>
+        <span className={cn(value ? 'text-white' : 'text-white/60')}>{selectedLabel}</span>
+        <ChevronDown className={cn('h-4 w-4 text-white/60 transition-transform', isOpen && 'rotate-180')} />
+      </Button>
 
       {isOpen && !disabled && (
         <div
-          className="absolute z-50 mt-1 max-h-64 w-full overflow-hidden rounded-lg border border-white/15 bg-[#0f0f0f] shadow-xl"
+          className="absolute z-50 mt-2 w-full overflow-hidden rounded-xl border border-white/10 bg-black/90 shadow-xl backdrop-blur"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Search input */}
-          <div className="sticky top-0 border-b border-white/10 bg-[#0f0f0f] p-2">
+          <div className="sticky top-0 border-b border-white/10 bg-black/90 p-2">
             <div className="relative">
-              <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" />
-              <input
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" />
+              <Input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={searchPlaceholder}
-                className="w-full rounded bg-[#1c1c1c] px-8 py-1.5 text-sm text-white placeholder-white/40 outline-none focus:bg-[#252525]"
+                className="pl-9"
                 onClick={(e) => e.stopPropagation()}
               />
             </div>
           </div>
 
           {/* Options list */}
-          <div className="max-h-48 overflow-auto">
+          <div className="max-h-48 overflow-auto p-1">
             {filteredOptions.length === 0 ? (
               <div className="px-3 py-2 text-sm text-white/60">No matches found</div>
             ) : (
@@ -125,11 +129,15 @@ export function SearchableSelect({
                     selectOption(option.value);
                   }}
                   onMouseDown={(e) => e.preventDefault()}
-                  className={`w-full px-3 py-2 text-left text-sm text-white hover:bg-[#252525] focus:bg-[#252525] focus:outline-none ${
-                    value === option.value ? 'bg-[#2f2f2f]' : ''
-                  }`}
+                  className={cn(
+                    'relative flex w-full cursor-pointer select-none items-center rounded-md px-3 py-2 text-sm outline-none transition-colors hover:bg-white/10 focus:bg-white/10',
+                    value === option.value && 'bg-white/10'
+                  )}
                 >
-                  {option.label}
+                  {value === option.value && (
+                    <Check className="absolute left-3 h-4 w-4 text-emerald-400" />
+                  )}
+                  <span className={cn(value === option.value && 'pl-7')}>{option.label}</span>
                 </button>
               ))
             )}

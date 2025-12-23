@@ -1,7 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getUserOctokit } from '../github/getUserOctokit';
 import { parseRepoUrl } from '../github/github';
-import { detectTools } from '../architecture/detectTools';
 import { getCachedBranch, getCachedTree, getCachedFileShas } from '../github/cachedOctokit';
 import { fetchFilesViaZip, fetchFilesSmart } from '../github/batchFetch';
 import { getRateLimitStatus, hasQuotaFor } from '../github/rateLimiter';
@@ -48,6 +47,7 @@ const RELEVANT_EXTENSIONS = new Set([
 	'.makefile',
 	'.cmake',
 	'.gradle',
+	'.gradle.kts',
 	'.maven',
 	'package.json',
 	'requirements.txt',
@@ -56,7 +56,11 @@ const RELEVANT_EXTENSIONS = new Set([
 	'go.mod',
 	'pom.xml',
 	'build.gradle',
+	'build.gradle.kts',
 	'composer.json',
+	'Gemfile',
+	'Gemfile.lock',
+	'.csproj',
 	'.yml',
 ]);
 
@@ -108,7 +112,6 @@ export type AnalyzeRepositoryResult = {
 	message: string;
 	files: Array<{ path: string; size: number; hash: string | null; language: string | null }>;
 	languages: string[];
-	detection_result: ReturnType<typeof detectTools>;
 	snapshot: {
 		commitSha: string;
 		fileShas: Record<string, string | null>;
@@ -166,17 +169,17 @@ export async function analyzeRepository({
 		if (!item.path) return false;
 		const lowerPath = item.path.toLowerCase();
 		const fileName = item.path.split('/').pop() || '';
-		
+
 		// Check if file is in exclusion list
 		if (EXCLUDED_FILES.has(fileName)) {
 			return false;
 		}
-		
+
 		// Check if file matches any exclusion pattern
 		if (EXCLUDED_PATTERNS.some(pattern => pattern.test(item.path))) {
 			return false;
 		}
-		
+
 		const matched = Array.from(RELEVANT_EXTENSIONS).some((ext) =>
 			lowerPath.endsWith(ext) || lowerPath === ext
 		);
@@ -243,7 +246,6 @@ export async function analyzeRepository({
 		throw new Error('No files found in repository for analysis');
 	}
 
-	const detectionResult = detectTools(files);
 
 	// Build snapshot from tree data (no additional API calls needed)
 	const snapshot = {
@@ -268,7 +270,6 @@ export async function analyzeRepository({
 		message: `Repo analyzed: ${files.length} files detected`,
 		files: fileInfo,
 		languages,
-		detection_result: detectionResult,
 		snapshot,
 		rawFiles: files,
 	};

@@ -1,13 +1,13 @@
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { FileText, Layers3, AlertCircle, RefreshCw, ExternalLink, Calendar, GitBranch, Folder, Code, Clock, Hash, Zap, Github, PlayCircle, StopCircle, XCircle, ChevronDown, Link as LinkIcon, CheckCircle2 } from 'lucide-react';
 import Link from 'next/link';
 
 interface LogEntry {
   id: string;
-  type: 'document' | 'document_error' | 'document_regenerated' | 'architecture' | 'architecture_version' | 'automation_execution' | 'repo_connection';
+  type: 'document' | 'document_error' | 'document_regenerated' | 'automation_execution' | 'repo_connection';
   timestamp: string;
   title: string;
   message: string;
@@ -29,15 +29,13 @@ interface LogEntry {
 interface LogsData {
   entries: LogEntry[];
   errors: {
-    submissions?: string;
-    diagrams?: string;
-    versions?: string;
+    documents?: string;
   };
 }
 
 type TimeFilter = '24h' | '3d' | '7d' | '14d' | '30d' | '90d' | '180d' | '1y' | 'all';
 type StatusFilter = 'all' | 'completed' | 'processing' | 'failed';
-type TypeFilter = 'all' | 'document' | 'document_error' | 'document_regenerated' | 'architecture' | 'architecture_version' | 'automation_execution' | 'repo_connection';
+type TypeFilter = 'all' | 'document' | 'document_error' | 'document_regenerated' | 'automation_execution' | 'repo_connection';
 
 interface Repo {
   id: string;
@@ -158,7 +156,6 @@ export function LogsPageClient({ user, logs, repos = [] }: LogsPageClientProps) 
               skip_reason: run.skip_reason,
               actions: run.actions || [],
               doc_id: run.doc_id,
-              diagram_id: run.diagram_id,
               errors: run.errors || [],
               publish_status: run.publish_status,
               publish_provider: run.publish_provider,
@@ -265,10 +262,6 @@ export function LogsPageClient({ user, logs, repos = [] }: LogsPageClientProps) 
         return AlertCircle;
       case 'document_regenerated':
         return RefreshCw;
-      case 'architecture':
-        return Layers3;
-      case 'architecture_version':
-        return RefreshCw;
       case 'automation_execution':
         return Zap;
       case 'repo_connection':
@@ -288,10 +281,6 @@ export function LogsPageClient({ user, logs, repos = [] }: LogsPageClientProps) 
         return 'bg-red-500/20 text-red-400';
       case 'document_regenerated':
         return 'bg-gradient-to-br from-purple-500/30 to-pink-500/30 text-purple-200 border border-purple-500/50';
-      case 'architecture':
-        return 'bg-purple-500/20 text-purple-400';
-      case 'architecture_version':
-        return 'bg-green-500/20 text-green-400';
       case 'repo_connection':
         return 'bg-indigo-500/20 text-indigo-400';
       default:
@@ -395,27 +384,17 @@ export function LogsPageClient({ user, logs, repos = [] }: LogsPageClientProps) 
               <option value="document">Document</option>
               <option value="document_error">Document Error</option>
               <option value="document_regenerated">Regenerated</option>
-              <option value="architecture">Architecture</option>
-              <option value="architecture_version">Architecture Version</option>
               <option value="repo_connection">Repository Connection</option>
             </select>
           </div>
           {/* Error Display (if any) */}
-          {(logs.errors.submissions || logs.errors.diagrams || logs.errors.versions) && (
+          {logs.errors.documents && (
             <div className="glass-panel p-4 border border-red-500/20 bg-red-500/10">
               <p className="text-red-400 text-sm font-medium mb-2">
                 Some logs could not be loaded:
               </p>
               <ul className="text-red-300 text-xs space-y-1">
-                {logs.errors.submissions && (
-                  <li>• Submissions: {logs.errors.submissions}</li>
-                )}
-                {logs.errors.diagrams && (
-                  <li>• Architecture Diagrams: {logs.errors.diagrams}</li>
-                )}
-                {logs.errors.versions && (
-                  <li>• Architecture Versions: {logs.errors.versions}</li>
-                )}
+                <li>• Documents: {logs.errors.documents}</li>
               </ul>
             </div>
           )}
@@ -673,15 +652,6 @@ export function LogsPageClient({ user, logs, repos = [] }: LogsPageClientProps) 
                                           >
                                             <FileText className="h-3 w-3" />
                                             View Document
-                                          </Link>
-                                        )}
-                                        {execution.diagram_id && (
-                                          <Link
-                                            href={`/architecture/${execution.diagram_id}`}
-                                            className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
-                                          >
-                                            <LinkIcon className="h-3 w-3" />
-                                            View Diagram
                                           </Link>
                                         )}
                                       </div>

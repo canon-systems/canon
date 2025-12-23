@@ -1,18 +1,56 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Github, FolderOpen, Loader2, AlertTriangle, Info, ChevronDown, Check, Search, X } from 'lucide-react';
+import { Github, FolderOpen, Loader2, AlertTriangle, Info, ChevronDown, Check, Search, X, Grid3x3, List, MoreVertical, Clock, CheckCircle2, AlertCircle, Send, FileText, Filter, GitBranch, ExternalLink, BookOpen } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { PromptCustomizer } from '@/components/PromptCustomizer';
 import { DocumentStructure, type DocumentStructureConfig } from '@/components/DocumentStructure';
 import { SearchableSelect } from '@/components/SearchableSelect';
 import { RepositoryConnectionWizard } from '@/components/RepositoryConnectionWizard';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Progress } from '@/components/ui/progress';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Label } from '@/components/ui/label';
+import { Separator } from '@/components/ui/separator';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
 type InputType = 'github_repo' | 'github_repo_directory';
-type Status = 'completed' | 'failed' | 'processing';
+type TabId = 'generate' | 'edit';
 
+interface DocItem {
+  id: string;
+  title: string;
+  status: 'published';
+  repo: string;
+  branch: string;
+  path: string;
+  commit: string;
+  createdAt: string;
+  updatedAt: string;
+  lastPushedProvider?: string;
+  lastPushedAt?: string;
+  lastPushedUrl?: string | null;
+  processingStatus: 'processing' | 'completed' | 'failed';
+  isOutdated: boolean;
+}
+
+type ViewMode = 'tile' | 'row';
+type StatusFilter = 'all' | 'published';
 interface Model {
   value: string;
   label: string;
@@ -197,13 +235,37 @@ interface DocumentationPageClientProps {
 
 export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: DocumentationPageClientProps = {}) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = createClient();
   const modelDropdownRef = useRef<HTMLDivElement>(null);
 
+  // Tab management
+  const [activeTab, setActiveTab] = useState<TabId>('generate');
+
+  // Generate tab state
   const [method, setMethod] = useState<InputType>('github_repo');
   const [docTitle, setDocTitle] = useState('Documentation Draft');
   const [selectedModel, setSelectedModel] = useState('gpt-4o');
   const [showModelDropdown, setShowModelDropdown] = useState(false);
+
+  // Edit tab state
+  const [editItems, setEditItems] = useState<DocItem[]>([]);
+  const [editLoading, setEditLoading] = useState(true);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>('row');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [repoFilter, setRepoFilter] = useState<string>('all');
+  const [repos, setRepos] = useState<Array<{ id: string; name: string; repo_url: string }>>([]);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<{ id: string; title: string } | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const menuRefs = useRef<Record<string, HTMLDivElement>>({});
 
   // Git inputs
   const [repoUrl, setRepoUrl] = useState('');
@@ -284,6 +346,54 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
 
   const selectedModelObj = availableModels.find(m => m.value === selectedModel) || availableModels[0];
   const isGit = method === 'github_repo' || method === 'github_repo_directory';
+
+  // Tab initialization
+  useEffect(() => {
+    const tabParam = searchParams.get('tab');
+    const validTabs: TabId[] = ['generate', 'edit'];
+    if (tabParam && validTabs.includes(tabParam as TabId)) {
+      setActiveTab(tabParam as TabId);
+    }
+  }, [searchParams]);
+
+  // Load edit data when edit tab is active
+  useEffect(() => {
+    if (activeTab === 'edit') {
+      loadEditItems();
+      loadRepos();
+    }
+  }, [activeTab]);
+
+  // Load view preference from localStorage for edit tab
+  useEffect(() => {
+    if (activeTab === 'edit') {
+      const saved = localStorage.getItem('edit-view-mode') as ViewMode | null;
+      if (saved === 'tile' || saved === 'row') {
+        setViewMode(saved);
+      }
+    }
+  }, [activeTab]);
+
+  // Close menu on outside click for edit tab
+  useEffect(() => {
+    if (activeTab === 'edit') {
+      function handleClickOutside(event: MouseEvent) {
+        if (!openMenuId) return;
+        const target = event.target as HTMLElement;
+        const menu = menuRefs.current[openMenuId];
+        const button = target.closest('button[title="More options"]');
+        if (menu && !menu.contains(target) && !button) {
+          setOpenMenuId(null);
+        }
+      }
+      if (openMenuId) {
+        document.addEventListener('click', handleClickOutside);
+      }
+      return () => {
+        document.removeEventListener('click', handleClickOutside);
+      };
+    }
+  }, [openMenuId, activeTab]);
 
   // Check GitHub connection status
   useEffect(() => {
@@ -543,15 +653,6 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
     return null;
   }
 
-  function buildInputContent(): string {
-    const files = selectedArray();
-    return [
-      repoUrl || '',
-      branch ? `@${branch}` : '',
-      subdir ? `/${subdir}` : '',
-      files.length ? ` • files: ${files.slice(0, 6).join(', ')}${files.length > 6 ? '…' : ''}` : ''
-    ].join('');
-  }
 
   async function analyzeAndSave() {
     setErrorMsg('');
@@ -587,13 +688,26 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
 
       const repoId = existingRepo.id;
 
-      // Create document
+      // Prepare configuration settings
+      const regenerationSettings = {
+        personality: promptConfig.personality || 'default',
+        style: promptConfig.style || 'default',
+        perspective: promptConfig.perspective || 'default',
+        audience: promptConfig.audience || 'technical',
+        temperature: promptConfig.temperature || 0.3,
+        customInstructions: promptConfig.customInstructions || '',
+        documentStructure: structureConfig,
+        model: selectedModel
+      };
+
+      // Create document with configuration
       const { data: docData, error: docError } = await supabase
         .from('documents')
         .insert({
           repo_id: repoId,
           title: docTitle || 'Untitled',
-          content: '' // Will be updated after generation
+          content: '', // Will be updated after generation
+          configuration: regenerationSettings
         })
         .select('id')
         .single();
@@ -755,7 +869,8 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
         .update({
           title: docTitle || 'Untitled',
           content: markdown,
-          updated_at: new Date().toISOString()
+          updated_at: new Date().toISOString(),
+          configuration: regenerationSettings
         })
         .eq('id', documentId);
 
@@ -791,427 +906,748 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
 
   const showLoadButton = isGit && !pickerFiles.length;
 
+  // Edit tab functions
+  async function loadEditItems() {
+    setEditLoading(true);
+    try {
+      const queryParams = new URLSearchParams({
+        page: page.toString(),
+        limit: '20',
+        ...(statusFilter !== 'all' && { status: statusFilter }),
+        ...(searchQuery && { search: searchQuery }),
+        ...(repoFilter !== 'all' && { repo_id: repoFilter }),
+      });
+
+      const response = await fetch(`/api/docs/list?${queryParams}`);
+      if (!response.ok) throw new Error('Failed to load documents');
+
+      const data = await response.json();
+      setEditItems(data.items || []);
+      setTotalPages(data.totalPages || 1);
+      setTotal(data.total || 0);
+    } catch (err: any) {
+      setEditError(err.message || 'Failed to load documents');
+    } finally {
+      setEditLoading(false);
+    }
+  }
+
+  async function loadRepos() {
+    try {
+      const response = await fetch('/api/repos');
+      if (response.ok) {
+        const data = await response.json();
+        setRepos(data.repos || []);
+      }
+    } catch (err) {
+      console.error('Failed to load repos:', err);
+    }
+  }
+
+  async function deleteItem(id: string, title: string) {
+    setDeletingId(id);
+    setDeleteError(null);
+    try {
+      const { error } = await supabase.from('documents').delete().eq('id', id);
+
+      if (error) throw error;
+
+      await loadEditItems();
+      setShowDeleteModal(false);
+      setItemToDelete(null);
+    } catch (err: any) {
+      setDeleteError(err.message || 'Failed to delete document');
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+
+  function setActiveTabAndUpdateUrl(value: string) {
+    const tabId = value as TabId;
+    setActiveTab(tabId);
+    router.push(`/documentation?tab=${tabId}`, { scroll: false });
+  }
+
+  const tabs: Array<{ id: TabId; name: string; icon: any }> = [
+    { id: 'generate', name: 'Generate', icon: FileText },
+    { id: 'edit', name: 'Edit', icon: BookOpen }
+  ];
+
   return (
     <div className="min-h-screen px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-3xl space-y-10">
-        <div>
-          <h1 className="mb-2 text-3xl font-bold text-white">Generate Documentation</h1>
+      <div className="mx-auto max-w-6xl">
+        <div className="mb-8">
+          <div className="flex items-center gap-3 mb-2">
+            <FileText className="h-8 w-8 text-white" />
+            <h1 className="text-3xl font-bold text-white">Documentation</h1>
+          </div>
           <p className="text-white/70">
-            Connect to a GitHub repository and generate comprehensive documentation automatically.
+            Generate new documentation or edit existing documents.
           </p>
         </div>
 
-        <section className="form-panel space-y-6 relative z-10">
-          <div>
-            <p className="section-label">Repository Scope</p>
-            <p className="section-helper">Choose whether to analyze the entire repository or focus on a specific directory.</p>
-          </div>
-
-          <div className="method-grid">
-            {[
-              { id: 'github_repo', label: 'Full Repository', description: 'Document entire repository or focus on specific folder' },
-              { id: 'github_repo_directory', label: 'Directory Mode', description: 'Start with a specific directory selection' },
-            ].map((opt) => {
-              const Icon = getMethodIcon(opt.id as InputType);
+        {/* Tabs */}
+        <Tabs value={activeTab} onValueChange={setActiveTabAndUpdateUrl} className="mb-8">
+          <TabsList className="bg-white/5 border border-white/10">
+            {tabs.map(tab => {
+              const Icon = tab.icon;
               return (
-                <button
-                  key={opt.id}
-                  className="method-pill"
-                  data-active={method === opt.id}
-                  onClick={() => setMethod(opt.id as InputType)}
-                  aria-pressed={method === opt.id}
-                  title={opt.description}
-                >
+                <TabsTrigger key={tab.id} value={tab.id} className="flex items-center gap-2 data-[state=active]:bg-white/10 data-[state=active]:text-white">
                   <Icon className="h-4 w-4" />
-                  <span>{opt.label}</span>
-                </button>
+                  {tab.name}
+                </TabsTrigger>
               );
             })}
-          </div>
+          </TabsList>
 
-          <div className="form-divider" />
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="field-group">
-              <span className="field-label">Document title</span>
-              <input
-                className="field-input"
-                value={docTitle}
-                onChange={(e) => setDocTitle(e.target.value)}
-                placeholder="e.g., API Overview"
-              />
-            </label>
-
-            <label className="field-group">
-              <span className="field-label">LLM</span>
-              <div className="relative z-[100]" ref={modelDropdownRef}>
-                <button
-                  type="button"
-                  className={`field-input flex items-center justify-between text-left disabled:cursor-not-allowed disabled:opacity-50 ${running ? 'opacity-70' : ''
-                    }`}
-                  onClick={() => !running && setShowModelDropdown(!showModelDropdown)}
-                  disabled={running}
-                >
-                  <div className="flex flex-wrap items-center gap-2 text-sm">
-                    {selectedModelObj ? (
-                      <>
-                        <span className="font-medium">{selectedModelObj.label}</span>
-                        <span className="text-xs text-white/60">({selectedModelObj.provider})</span>
-                        <span className="text-xs text-white/70">{selectedModelObj.cost}</span>
-                        <span className="text-xs text-white/50">{selectedModelObj.context}</span>
-                      </>
-                    ) : (
-                      <span className="font-medium text-white/60">Select model...</span>
-                    )}
-                  </div>
-                  <ChevronDown className={`h-4 w-4 text-white/60 transition-transform ${showModelDropdown ? 'rotate-180' : ''}`} />
-                </button>
-
-                {showModelDropdown && (
-                  <div className="absolute z-[100] mt-1 max-h-96 w-full overflow-auto rounded-lg border border-white/15 bg-[#0f0f12] shadow-xl">
-                    {availableModels
-                      .filter((m) => m && m.value && m.label)
-                      .map((model) => (
-                        <button
-                          key={model.value}
-                          type="button"
-                          className={`w-full px-4 py-3 text-left transition-colors hover:bg-white/5 focus:bg-white/5 focus:outline-none ${selectedModel === model.value ? 'bg-white/10' : ''
-                            }`}
-                          onClick={() => {
-                            setSelectedModel(model.value);
-                            setShowModelDropdown(false);
-                          }}
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0 flex-1 text-sm">
-                              <div className="mb-1 flex flex-wrap items-center gap-2">
-                                <span className="font-semibold text-white">{model.label}</span>
-                                {model.provider && <span className="text-xs text-white/60">({model.provider})</span>}
-                                {model.cost && <span className="text-xs font-medium text-white/70">{model.cost}</span>}
-                                {model.context && (
-                                  <span className="text-xs font-medium text-white/50">{model.context}</span>
-                                )}
-                              </div>
-                              {model.description && (
-                                <p className="text-xs leading-relaxed text-white/60">{model.description}</p>
-                              )}
-                            </div>
-                            {selectedModel === model.value && <Check className="h-5 w-5 shrink-0 text-green-400" />}
-                          </div>
-                        </button>
-                      ))}
-                  </div>
-                )}
-              </div>
-            </label>
-          </div>
-        </section>
-
-        {/* Method-specific inputs */}
-        {isGit && (
-          <section className="form-panel space-y-6 mt-10">
-            {!checkingGitHub && !hasGitHubConnection && (
-              <div className="rounded-xl border border-yellow-500/40 bg-yellow-500/15 p-4 text-sm text-yellow-100">
-                <div className="flex items-start gap-3">
-                  <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0" />
-                  <div className="flex-1">
-                    <p className="font-medium">GitHub connection recommended</p>
-                    <p className="mt-1 text-xs text-yellow-100/80">
-                      Public repositories work without a connection, but you'll have lower rate limits (60 requests/hour).
-                      Private repositories require a GitHub connection.
-                    </p>
-                    <a
-                      href="/settings?tab=integrations"
-                      className="mt-2 inline-flex items-center gap-1 text-xs font-semibold underline"
-                    >
-                      Connect GitHub for higher rate limits →
-                    </a>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="field-group">
-              <span className="field-label">
-                Repository <span className="text-red-400">*</span>
-              </span>
-              <SearchableSelect
-                options={uniqueRepos.map((repo) => ({
-                  value: repo.repo_url,
-                  label: `${repo.name} (${repo.repo_url.replace('https://github.com/', '')})`,
-                }))}
-                value={selectedRepoUrl || ''}
-                placeholder={loadingRepos ? 'Loading repositories...' : uniqueRepos.length === 0 ? 'No repositories available' : 'Select a repository...'}
-                searchPlaceholder="Search repositories..."
-                disabled={loadingRepos || uniqueRepos.length === 0}
-                onChange={(repoUrl) => {
-                  setSelectedRepoUrl(repoUrl);
-                  setSelectedBranch(''); // Reset branch selection
-                  setSelectedRepoId(null); // Reset repo record ID
-                  setDirectories([]); // Clear directories when repo changes
-                }}
-                triggerClassName="field-select"
-              />
-              {loadingRepos ? (
-                <p className="field-note">Loading repositories…</p>
-              ) : uniqueRepos.length === 0 ? (
-                <div className="field-note flex items-center justify-between">
-                  <span>No repositories with file summaries found. Complete repository setup first.</span>
-                  <Link
-                    href="/repos"
-                    className="text-sm text-blue-400 hover:text-blue-300 underline"
-                  >
-                    Go to Repositories →
-                  </Link>
-                </div>
-              ) : (
-                <p className="field-note">Select a repository that has been set up with file summaries.</p>
-              )}
-            </div>
-
-            {/* Branch Selection */}
-            {selectedRepoUrl && (
-              <div className="field-group">
-                <span className="field-label">
-                  Branch <span className="text-red-400">*</span>
-                </span>
-                <SearchableSelect
-                  options={availableBranches.map((branch) => ({
-                    value: branch.branch,
-                    label: branch.branch,
-                  }))}
-                  value={selectedBranch}
-                  placeholder="Select a branch..."
-                  searchPlaceholder="Search branches..."
-                  disabled={availableBranches.length === 0}
-                  onChange={(branch) => {
-                    setSelectedBranch(branch);
-                    // Find the repo record for this branch
-                    const repoRecord = availableBranches.find(b => b.branch === branch);
-                    setSelectedRepoId(repoRecord?.id || null);
-                    // Update the branch state for API calls
-                    setBranch(branch);
-                    setDirectories([]); // Clear directories when branch changes
+          <TabsContent value="generate" className="mt-6">
+            <Card className="border border-white/10 bg-gradient-to-b from-white/5 to-white/0 shadow-lg">
+              <CardHeader className="space-y-1 pb-6">
+                <CardTitle className="text-2xl font-semibold text-white">Generate Documentation</CardTitle>
+                <CardDescription className="text-white/70">
+                  Select your repository, configure settings, and generate comprehensive documentation.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    analyzeAndSave();
                   }}
-                  triggerClassName="field-select"
-                />
-                {availableBranches.length === 0 && (
-                  <p className="field-note text-yellow-400">No branches available for this repository.</p>
-                )}
-                {availableBranches.length > 0 && (
-                  <p className="field-note">Select the branch you want to generate documentation for.</p>
-                )}
-              </div>
-            )}
+                  className="space-y-8"
+                >
+                  {/* Input Type Selection */}
+                  <div className="space-y-3">
+                    <div>
+                      <Label className="text-base font-medium text-white">Input Type</Label>
+                      <p className="text-sm text-white/60">Select how you want to generate documentation.</p>
+                    </div>
+                    <RadioGroup value={method} onValueChange={(value) => setMethod(value as InputType)}>
+                      {[
+                        { id: 'github_repo', label: 'Full Repository', description: 'Document the entire repository or a specific folder' },
+                        { id: 'github_repo_directory', label: 'Directory Mode', description: 'Start with a specific directory path' },
+                      ].map((opt) => {
+                        const Icon = getMethodIcon(opt.id as InputType);
+                        return (
+                          <RadioGroupItem key={opt.id} value={opt.id}>
+                            <div className="flex items-start gap-3">
+                              <Icon className="mt-0.5 h-5 w-5 text-white/70" />
+                              <div>
+                                <div className="font-medium text-white">{opt.label}</div>
+                                <div className="mt-1 text-sm text-white/60">{opt.description}</div>
+                              </div>
+                            </div>
+                          </RadioGroupItem>
+                        );
+                      })}
+                    </RadioGroup>
+                  </div>
 
-            {/* Folder Selection for new flow - available whenever branch is selected */}
-            {selectedBranch && (
-              <div className="field-group">
-                <span className="field-label">
-                  Focus Folder <span className="text-xs text-white/50">(optional)</span>
-                </span>
-                <SearchableSelect
-                  options={[
-                    { value: '', label: '📁 Root directory (all files)' },
-                    ...directories.map((d) => ({ value: d, label: `📂 ${d}` })),
-                  ]}
-                  value={subdir}
-                  placeholder={
-                    loadingDirectories
-                      ? 'Loading folders...'
-                      : directories.length === 0
-                        ? 'No folders found'
-                        : 'Choose folder to focus on...'
-                  }
-                  searchPlaceholder="Search folders..."
-                  disabled={loadingDirectories}
-                  onChange={setSubdir}
-                  triggerClassName="field-select"
-                />
-                <p className="field-note">
-                  {subdir
-                    ? `Documentation will focus on the "${subdir}" folder and its contents.`
-                    : 'Leave empty to include all files in the repository, or select a specific folder to focus the documentation.'
-                  }
-                </p>
-              </div>
-            )}
+                  <Separator />
 
-            {/* Show old branch input only when no repository is selected (backward compatibility) */}
-            {!selectedRepoUrl && (
-              <div className="field-group">
-                <span className="field-label">Branch</span>
-                <input
-                  className="field-input"
-                  value={branch}
-                  readOnly
-                  disabled
-                  placeholder="Branch from repository setup"
-                />
-                <p className="field-note">Branch is set from the initial repository setup and cannot be changed.</p>
-              </div>
-            )}
+                  {/* Basic Information */}
+                  <div className="space-y-4">
+                    <div>
+                      <Label className="text-base font-medium text-white">Basic Information</Label>
+                      <p className="text-sm text-white/60">Provide essential details for your documentation.</p>
+                    </div>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="doc-title">Document title</Label>
+                        <Input id="doc-title" value={docTitle} onChange={(e) => setDocTitle(e.target.value)} placeholder="e.g., API Overview" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>LLM Model</Label>
+                        <div className="relative z-[100]" ref={modelDropdownRef}>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            className="w-full justify-between bg-white/5"
+                            onClick={() => !running && setShowModelDropdown(!showModelDropdown)}
+                            disabled={running}
+                          >
+                            <div className="flex flex-col text-left">
+                              <span className="font-semibold text-white">{selectedModelObj?.label ?? 'Select model'}</span>
+                              <span className="text-xs text-white/60">
+                                {selectedModelObj ? `${selectedModelObj.provider} • ${selectedModelObj.cost} • ${selectedModelObj.context}` : 'Pick a model'}
+                              </span>
+                            </div>
+                            <ChevronDown className={`h-4 w-4 text-white/60 transition ${showModelDropdown ? 'rotate-180' : ''}`} />
+                          </Button>
+                          {showModelDropdown && (
+                            <div className="absolute z-[100] mt-2 max-h-96 w-full overflow-auto rounded-xl border border-white/10 bg-black/90 shadow-2xl backdrop-blur">
+                              {availableModels.map((model) => (
+                                <button
+                                  key={model.value}
+                                  type="button"
+                                  className={`w-full px-4 py-3 text-left transition hover:bg-white/5 ${selectedModel === model.value ? 'bg-white/10' : ''}`}
+                                  onClick={() => {
+                                    setSelectedModel(model.value);
+                                    setShowModelDropdown(false);
+                                  }}
+                                >
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0 flex-1 text-sm">
+                                      <div className="mb-1 flex flex-wrap items-center gap-2">
+                                        <span className="font-semibold text-white">{model.label}</span>
+                                        {model.provider && <span className="text-xs text-white/60">({model.provider})</span>}
+                                        {model.cost && <span className="text-xs font-medium text-white/70">{model.cost}</span>}
+                                        {model.context && <span className="text-xs font-medium text-white/50">{model.context}</span>}
+                                      </div>
+                                      {model.description && <p className="text-xs leading-relaxed text-white/60">{model.description}</p>}
+                                    </div>
+                                    {selectedModel === model.value && <Check className="h-5 w-5 shrink-0 text-emerald-400" />}
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
 
-            <div className="form-divider" />
+                  <Separator />
 
-            <div>
-              <div className="mb-3 flex items-center justify-between text-sm text-white/80">
-                <span>Files in repository{subdir ? `/${subdir}` : ''}</span>
-                <div className="flex items-center gap-2">
-                  {showLoadButton && (
-                    <button className="secondary-action px-3 py-1 text-xs" onClick={listGitFiles} disabled={listing}>
-                      {listing ? (
-                        <span className="inline-flex items-center gap-1">
-                          <Loader2 className="h-4 w-4 animate-spin" /> Loading…
-                        </span>
-                      ) : (
-                        'Load files'
+                  {/* Repository Selection */}
+                  {isGit && (
+                    <div className="space-y-6 rounded-lg border border-white/10 bg-white/5 p-6">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <Label className="text-base font-medium text-white">Repository Selection</Label>
+                          <p className="text-sm text-white/60">Pick repository, branch, and optional folder.</p>
+                        </div>
+                        <Button type="button" variant="secondary" onClick={() => setShowConnectionWizard(true)} size="sm">
+                          <Github className="h-4 w-4" />
+                          Connect repo
+                        </Button>
+                      </div>
+
+                      {!checkingGitHub && !hasGitHubConnection && (
+                        <Alert variant="warning">
+                          <AlertTriangle className="h-5 w-5" />
+                          <div>
+                            <AlertTitle>GitHub connection recommended</AlertTitle>
+                            <AlertDescription>
+                              Public repos work without a connection but with lower rate limits. Private repos require a connection.
+                              <a href="/settings?tab=integrations" className="ml-1 font-semibold underline">
+                                Connect GitHub →
+                              </a>
+                            </AlertDescription>
+                          </div>
+                        </Alert>
                       )}
-                    </button>
+
+                      <div className="space-y-2">
+                        <Label>
+                          Repository <span className="text-red-400">*</span>
+                        </Label>
+                        <SearchableSelect
+                          options={uniqueRepos.map((repo) => ({
+                            value: repo.repo_url,
+                            label: `${repo.name} (${repo.repo_url.replace('https://github.com/', '')})`,
+                          }))}
+                          value={selectedRepoUrl || ''}
+                          placeholder={loadingRepos ? 'Loading repositories...' : uniqueRepos.length === 0 ? 'No repositories available' : 'Select a repository...'}
+                          searchPlaceholder="Search repositories..."
+                          disabled={loadingRepos || uniqueRepos.length === 0}
+                          onChange={(repoUrl) => {
+                            setSelectedRepoUrl(repoUrl);
+                            setSelectedBranch('');
+                            setSelectedRepoId(null);
+                            setDirectories([]);
+                          }}
+                          triggerClassName="field-select"
+                        />
+                        <p className="text-sm text-white/60">
+                          {uniqueRepos.length === 0 ? (
+                            <span>
+                              No ready repositories. <Link href="/repos" className="font-medium underline">Go to Repositories →</Link>
+                            </span>
+                          ) : (
+                            'Select a repository that has been set up with file summaries.'
+                          )}
+                        </p>
+                      </div>
+
+                      {selectedRepoUrl && (
+                        <div className="space-y-2">
+                          <Label>
+                            Branch <span className="text-red-400">*</span>
+                          </Label>
+                          <SearchableSelect
+                            options={availableBranches.map((branch) => ({ value: branch.branch, label: branch.branch }))}
+                            value={selectedBranch}
+                            placeholder="Select a branch..."
+                            searchPlaceholder="Search branches..."
+                            disabled={availableBranches.length === 0}
+                            onChange={(branch) => {
+                              setSelectedBranch(branch);
+                              const repoRecord = availableBranches.find((b) => b.branch === branch);
+                              setSelectedRepoId(repoRecord?.id || null);
+                              setBranch(branch);
+                              setDirectories([]);
+                            }}
+                            triggerClassName="field-select"
+                          />
+                          <p className="text-sm text-white/60">
+                            {availableBranches.length === 0 ? 'No branches available for this repository.' : 'Select the branch you want to document.'}
+                          </p>
+                        </div>
+                      )}
+
+                      {selectedBranch && (
+                        <div className="space-y-2">
+                          <Label>Focus folder (optional)</Label>
+                          <SearchableSelect
+                            options={[{ value: '', label: '📁 Root directory (all files)' }, ...directories.map((d) => ({ value: d, label: `📂 ${d}` }))]}
+                            value={subdir}
+                            placeholder={
+                              loadingDirectories ? 'Loading folders...' : directories.length === 0 ? 'No folders found' : 'Choose folder to focus on...'
+                            }
+                            searchPlaceholder="Search folders..."
+                            disabled={loadingDirectories}
+                            onChange={setSubdir}
+                            triggerClassName="field-select"
+                          />
+                          <p className="text-sm text-white/60">
+                            {subdir
+                              ? `Documentation will focus on "${subdir}" and its contents.`
+                              : 'Leave empty to include all files or pick a folder to narrow scope.'}
+                          </p>
+                        </div>
+                      )}
+                    </div>
                   )}
-                  {pickerFiles.length > 0 && (
+
+                  {/* File Selection */}
+                  {isGit && (
                     <>
-                      <button className="secondary-action px-3 py-1 text-xs" onClick={selectAll}>
-                        Select all{fileSearchQuery ? ` (${filteredFiles.length})` : ''}
-                      </button>
-                      <button className="secondary-action px-3 py-1 text-xs" onClick={clearAll}>
-                        Clear{fileSearchQuery ? ` (${filteredFiles.length})` : ''}
-                      </button>
+                      <Separator />
+                      <div className="space-y-4 rounded-lg border border-white/10 bg-white/5 p-6">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <Label className="text-base font-medium text-white">File Selection</Label>
+                            <p className="text-sm text-white/60">Load and pick files to include in your documentation.</p>
+                          </div>
+                          <div className="flex gap-2">
+                            {showLoadButton && (
+                              <Button variant="secondary" onClick={listGitFiles} disabled={listing}>
+                                {listing ? (
+                                  <>
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    Loading…
+                                  </>
+                                ) : (
+                                  'Load files'
+                                )}
+                              </Button>
+                            )}
+                            {pickerFiles.length > 0 && (
+                              <>
+                                <Button variant="secondary" onClick={selectAll} className="text-sm">
+                                  Select all{fileSearchQuery ? ` (${filteredFiles.length})` : ''}
+                                </Button>
+                                <Button variant="secondary" onClick={clearAll} className="text-sm">
+                                  Clear{fileSearchQuery ? ` (${filteredFiles.length})` : ''}
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        {pickerFiles.length > 0 && (
+                          <div className="relative">
+                            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" />
+                            <Input
+                              className="pl-9 pr-9"
+                              placeholder="Search files..."
+                              value={fileSearchQuery}
+                              onChange={(e) => setFileSearchQuery(e.target.value)}
+                            />
+                            {fileSearchQuery && (
+                              <button
+                                onClick={() => setFileSearchQuery('')}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/60"
+                                aria-label="Clear search"
+                              >
+                                <X className="h-4 w-4" />
+                              </button>
+                            )}
+                            {fileSearchQuery && (
+                              <p className="mt-1 text-xs text-white/60">
+                                Showing {filteredFiles.length} of {pickerFiles.length} files
+                              </p>
+                            )}
+                          </div>
+                        )}
+
+                        {pickerFiles.length > 0 ? (
+                          filteredFiles.length > 0 ? (
+                            <div className="max-h-72 overflow-auto rounded-xl border border-white/10 bg-black/20">
+                              <ul className="divide-y divide-white/10">
+                                {filteredFiles.map((f) => (
+                                  <li key={f.path} className="flex items-center gap-3 px-3 py-2 text-sm transition-colors hover:bg-white/5">
+                                    <input
+                                      type="checkbox"
+                                      checked={selectedPaths.has(f.path)}
+                                      onChange={() => togglePick(f.path)}
+                                      className="h-4 w-4 rounded border-white/30 bg-white/5 text-amber-500 focus:ring-2 focus:ring-amber-500/50 focus:ring-offset-2 focus:ring-offset-black"
+                                    />
+                                    <span className="flex-1 font-mono text-white/90">{f.path}</span>
+                                    <span className="text-xs text-white/50">{f.size ? `${f.size} bytes` : '—'}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          ) : (
+                            <Alert variant="default" className="text-center">
+                              <AlertDescription>
+                                No files match "{fileSearchQuery}"
+                              </AlertDescription>
+                            </Alert>
+                          )
+                        ) : (
+                          <p className="text-sm text-white/60">No files loaded yet.</p>
+                        )}
+
+                        {selectedPaths.size > 0 && (
+                          <div className="flex items-center justify-between text-sm text-white/70">
+                            <span>{selectedPaths.size} file(s) selected</span>
+                          </div>
+                        )}
+                      </div>
                     </>
                   )}
+
+                  <Separator />
+
+                  {/* Prompt Customization */}
+                  <div className="space-y-4 rounded-lg border border-white/10 bg-white/5 p-6">
+                    <div>
+                      <Label className="text-base font-medium text-white">Prompt Customization</Label>
+                      <p className="text-sm text-white/60">Customize the tone, style, audience, and instructions for your documentation.</p>
+                    </div>
+                    <PromptCustomizer
+                      promptConfig={promptConfig}
+                      onChange={(config) => {
+                        setPromptConfig({
+                          personality: config.personality ?? 'default',
+                          style: config.style ?? 'default',
+                          perspective: config.perspective ?? 'default',
+                          audience: config.audience ?? 'technical',
+                          customInstructions: config.customInstructions ?? '',
+                          temperature: config.temperature ?? 0.3,
+                        });
+                      }}
+                    />
+                  </div>
+
+                  <Separator />
+
+                  {/* Document Structure */}
+                  <div className="space-y-4 rounded-lg border border-white/10 bg-white/5 p-6">
+                    <div>
+                      <Label className="text-base font-medium text-white">Document Structure</Label>
+                      <p className="text-sm text-white/60">Configure sections and table of contents for your documentation.</p>
+                    </div>
+                    <DocumentStructure config={structureConfig} onChange={setStructureConfig} />
+                  </div>
+
+                  {(errorMsg || statusMsg) && (
+                    <div className="space-y-2">
+                      {errorMsg && (
+                        <Alert variant="destructive">
+                          <AlertTriangle className="h-4 w-4" />
+                          <AlertDescription>{errorMsg}</AlertDescription>
+                        </Alert>
+                      )}
+                      {statusMsg && (
+                        <Alert variant="default">
+                          <Info className="h-4 w-4" />
+                          <AlertDescription>{statusMsg}</AlertDescription>
+                        </Alert>
+                      )}
+                    </div>
+                  )}
+
+                  <Separator />
+
+                  {/* Form Actions */}
+                  <div className="flex flex-wrap gap-3">
+                    <Button type="submit" className="flex-1 min-w-[200px]" disabled={running}>
+                      {running ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Analyzing…
+                        </>
+                      ) : (
+                        'Analyze & Save'
+                      )}
+                    </Button>
+                    <Button type="button" variant="secondary" onClick={() => setActiveTabAndUpdateUrl('edit')} className="min-w-[160px]">
+                      View Documents
+                    </Button>
+                  </div>
+                </form>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="edit" className="mt-6">
+            {/* Edit Tab */}
+            <div className="space-y-6">
+              {/* Header with controls */}
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 className="text-2xl font-semibold text-white">Edit Documents</h2>
+                  <p className="text-white/70">Manage and edit your generated documentation</p>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      const newMode = viewMode === 'tile' ? 'row' : 'tile';
+                      setViewMode(newMode);
+                      localStorage.setItem('edit-view-mode', newMode);
+                    }}
+                    className="flex items-center gap-2"
+                  >
+                    {viewMode === 'tile' ? <List className="h-4 w-4" /> : <Grid3x3 className="h-4 w-4" />}
+                    {viewMode === 'tile' ? 'List' : 'Grid'}
+                  </Button>
                 </div>
               </div>
 
-              {pickerFiles.length > 0 && (
-                <div className="mb-3">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" />
-                    <input
-                      type="text"
-                      className="field-input pl-9 pr-9"
-                      placeholder="Search files..."
-                      value={fileSearchQuery}
-                      onChange={(e) => setFileSearchQuery(e.target.value)}
-                    />
-                    {fileSearchQuery && (
-                      <button
-                        onClick={() => setFileSearchQuery('')}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/60"
-                        aria-label="Clear search"
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
-                    )}
-                  </div>
-                  {fileSearchQuery && (
-                    <p className="mt-1 text-xs text-white/50">
-                      Showing {filteredFiles.length} of {pickerFiles.length} files
-                    </p>
-                  )}
+              {/* Success/Error Messages */}
+              {editError && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{editError}</AlertDescription>
+                </Alert>
+              )}
+
+              {/* Filters */}
+              <div className="flex flex-col gap-4 sm:flex-row">
+                <div className="flex-1">
+                  <Input
+                    placeholder="Search documents..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="bg-white/5 border-white/10"
+                  />
+                </div>
+                <Select value={statusFilter} onValueChange={(value: StatusFilter) => setStatusFilter(value)}>
+                  <SelectTrigger className="w-full sm:w-[180px] bg-white/5 border-white/10">
+                    <SelectValue placeholder="Filter by status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Status</SelectItem>
+                    <SelectItem value="published">Published</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={repoFilter} onValueChange={setRepoFilter}>
+                  <SelectTrigger className="w-full sm:w-[200px] bg-white/5 border-white/10">
+                    <SelectValue placeholder="Filter by repo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Repositories</SelectItem>
+                    {repos.map((repo) => (
+                      <SelectItem key={repo.id} value={repo.id}>
+                        {repo.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Documents List */}
+              {editLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-white/50" />
+                  <span className="ml-2 text-white/60">Loading documents...</span>
+                </div>
+              ) : editItems.length === 0 ? (
+                <div className="text-center py-12">
+                  <FileText className="h-16 w-16 text-white/30 mx-auto mb-4" />
+                  <p className="text-white/60 mb-2">No documents found</p>
+                  <p className="text-sm text-white/40">Generate some documentation to get started</p>
+                </div>
+              ) : (
+                <div className={`grid gap-4 ${viewMode === 'tile' ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3' : 'grid-cols-1'}`}>
+                  {editItems.map((item) => (
+                    <Card
+                      key={item.id}
+                      className="cursor-pointer border border-white/10 bg-white/5 hover:bg-white/10 transition-colors"
+                      onClick={() => router.push(`/edit/${item.id}`)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          router.push(`/edit/${item.id}`);
+                        }
+                      }}
+                    >
+                      <CardHeader className="pb-3">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1 min-w-0">
+                            <CardTitle className="text-lg text-white truncate">{item.title}</CardTitle>
+                            <div className="flex items-center gap-2 mt-1">
+                              <span className="text-sm text-white/60">{item.repo}</span>
+                              <span className="text-xs text-white/40">•</span>
+                              <span className="text-sm text-white/60">{item.branch}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1 ml-2">
+                            <div className={`w-2 h-2 rounded-full ${item.processingStatus === 'completed' ? 'bg-green-500' : item.processingStatus === 'processing' ? 'bg-yellow-500' : 'bg-red-500'}`} />
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 p-0"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <MoreVertical className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="border-white/10 bg-black/90">
+                                <DropdownMenuItem asChild>
+                                  <Link href={`/edit/${item.id}`} className="flex items-center gap-2">
+                                    <FileText className="h-4 w-4" />
+                                    Edit Document
+                                  </Link>
+                                </DropdownMenuItem>
+                                {item.lastPushedUrl && (
+                                  <DropdownMenuItem asChild>
+                                    <a href={item.lastPushedUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2">
+                                      <ExternalLink className="h-4 w-4" />
+                                      View Published
+                                    </a>
+                                  </DropdownMenuItem>
+                                )}
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setItemToDelete({ id: item.id, title: item.title });
+                                    setShowDeleteModal(true);
+                                  }}
+                                  className="text-red-300 focus:bg-red-500/10"
+                                >
+                                  Delete
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="pt-0">
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 text-sm text-white/60">
+                            <Clock className="h-4 w-4" />
+                            <span>Updated {new Date(item.updatedAt).toLocaleDateString()}</span>
+                          </div>
+                          {item.isOutdated && (
+                            <div className="flex items-center gap-2 text-sm text-yellow-300">
+                              <AlertTriangle className="h-4 w-4" />
+                              <span>Outdated - source code has changed</span>
+                            </div>
+                          )}
+                          {item.lastPushedAt && item.lastPushedProvider && (
+                            <div className="flex items-center gap-2 text-sm text-green-300">
+                              <CheckCircle2 className="h-4 w-4" />
+                              <span>Pushed to {item.lastPushedProvider} {new Date(item.lastPushedAt).toLocaleDateString()}</span>
+                            </div>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
                 </div>
               )}
 
-              {pickerFiles.length > 0 ? (
-                filteredFiles.length > 0 ? (
-                  <div className="max-h-64 overflow-auto rounded-xl border border-white/10">
-                    <ul className="divide-y divide-white/10">
-                      {filteredFiles.map((f) => (
-                        <li key={f.path} className="flex items-center gap-3 px-3 py-2 text-sm">
-                          <input type="checkbox" checked={selectedPaths.has(f.path)} onChange={() => togglePick(f.path)} />
-                          <span className="font-mono text-white/90">{f.path}</span>
-                          <span className="ml-auto text-xs text-white/50">{f.size ? `${f.size} bytes` : '—'}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : (
-                  <div className="rounded-xl border border-white/10 p-4 text-center text-sm text-white/60">
-                    No files match "{fileSearchQuery}"
-                  </div>
-                )
-              ) : (
-                <p className="text-sm text-white/60">No files loaded yet.</p>
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-center gap-2 mt-8">
+                  <Button
+                    variant="secondary"
+                    onClick={() => setPage(Math.max(1, page - 1))}
+                    disabled={page === 1}
+                  >
+                    Previous
+                  </Button>
+                  <span className="text-white/60">
+                    Page {page} of {totalPages} ({total} total)
+                  </span>
+                  <Button
+                    variant="secondary"
+                    onClick={() => setPage(Math.min(totalPages, page + 1))}
+                    disabled={page === totalPages}
+                  >
+                    Next
+                  </Button>
+                </div>
               )}
             </div>
-          </section>
-        )}
-
-
-
-        {/* LLM Prompt Customization */}
-        <section className="form-panel space-y-4 mt-6">
-          <PromptCustomizer
-            promptConfig={promptConfig}
-            onChange={(config) => {
-              setPromptConfig({
-                personality: config.personality ?? 'default',
-                style: config.style ?? 'default',
-                perspective: config.perspective ?? 'default',
-                audience: config.audience ?? 'technical',
-                customInstructions: config.customInstructions ?? '',
-                temperature: config.temperature ?? 0.3
-              });
-            }}
-          />
-        </section>
-
-        {/* Document Structure */}
-        <section className="form-panel space-y-4 mt-6">
-          <DocumentStructure
-            config={structureConfig}
-            onChange={setStructureConfig}
-          />
-        </section>
-
-        {/* Error / Status */}
-        {errorMsg && (
-          <div className="mb-4 rounded-xl border border-red-400/30 bg-red-500/10 px-3 py-2 text-red-200">
-            {errorMsg}
-          </div>
-        )}
-        {statusMsg && (
-          <div className="mb-4 rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-white/80">
-            {statusMsg}
-          </div>
-        )}
-
-        {/* Primary CTA */}
-        <div className="flex flex-wrap gap-3 mt-6">
-          <button className="primary-action flex-1 min-w-[200px]" onClick={analyzeAndSave} disabled={running}>
-            {running ? (
-              <span className="inline-flex items-center gap-2 text-sm">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Analyzing…
-              </span>
-            ) : (
-              'Analyze & Save'
-            )}
-          </button>
-          <a href="/edit" className="secondary-action min-w-[160px] text-center">
-            View History
-          </a>
-        </div>
+          </TabsContent>
+        </Tabs>
       </div>
 
-      {/* Repository Connection Modal */}
-      {showConnectionWizard && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="relative">
-              <button
-                onClick={() => setShowConnectionWizard(false)}
-                className="absolute top-4 right-4 z-10 w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white/60 hover:text-white transition-colors"
-              >
-                <X className="h-4 w-4" />
-              </button>
-              <RepositoryConnectionWizard
-                onComplete={handleRepositoryConnected}
-                onCancel={() => setShowConnectionWizard(false)}
-              />
-            </div>
+      <Dialog open={showConnectionWizard} onOpenChange={setShowConnectionWizard}>
+        <DialogContent className="p-0">
+          <RepositoryConnectionWizard
+            onComplete={handleRepositoryConnected}
+            onCancel={() => setShowConnectionWizard(false)}
+          />
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Modal */}
+      <Dialog open={showDeleteModal} onOpenChange={setShowDeleteModal}>
+        <DialogContent className="border-white/20 bg-black/90">
+          <DialogHeader>
+            <DialogTitle className="text-white">Delete Document</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-white/70">
+              Are you sure you want to delete <span className="font-semibold text-white">"{itemToDelete?.title}"</span>?
+              This action cannot be undone.
+            </p>
+            {deleteError && (
+              <Alert variant="destructive">
+                <AlertDescription>{deleteError}</AlertDescription>
+              </Alert>
+            )}
           </div>
-        </div>
-      )}
+          <div className="flex justify-end gap-3">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setShowDeleteModal(false);
+                setItemToDelete(null);
+                setDeleteError(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => itemToDelete && deleteItem(itemToDelete.id, itemToDelete.title)}
+              disabled={deletingId === itemToDelete?.id}
+            >
+              {deletingId === itemToDelete?.id ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete'
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

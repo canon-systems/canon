@@ -3,7 +3,7 @@
 import { Send, FileText, Code, Edit, Loader2, GitCompare } from 'lucide-react';
 import { TemplateSelector } from '@/components/TemplateSelector';
 
-export type ViewMode = 'rendered' | 'raw' | 'editor' | 'diff' | 'diagram-diff';
+export type ViewMode = 'rendered' | 'raw' | 'editor' | 'diff';
 
 interface ReviewPanelProps {
   docId: string;
@@ -13,7 +13,6 @@ interface ReviewPanelProps {
   isProcessing?: boolean;
   onApplyTemplate?: (templateId: string) => Promise<void>;
   onViewDiff?: () => void;
-  onViewDiagramDiff?: () => void;
 }
 
 export function ReviewPanel({
@@ -22,14 +21,13 @@ export function ReviewPanel({
   onOpenPublishModal,
   isProcessing = false,
   onApplyTemplate,
-  onViewDiff,
-  onViewDiagramDiff
+  onViewDiff
 }: ReviewPanelProps) {
 
   return (
     <div className="space-y-4">
       {/* Template and Diff Actions */}
-      {(onApplyTemplate || onViewDiff || onViewDiagramDiff) && (
+      {(onApplyTemplate || onViewDiff) && (
         <div className="space-y-2 pb-4 border-b border-white/10">
           {onApplyTemplate && (
             <div className="w-full">
@@ -55,23 +53,6 @@ export function ReviewPanel({
               >
                 <GitCompare className="h-4 w-4" />
                 View Diff
-              </button>
-            )}
-            {onViewDiagramDiff && (
-              <button
-                onClick={() => {
-                  onViewChange('diagram-diff');
-                  onViewDiagramDiff?.();
-                }}
-                disabled={isProcessing}
-                className={`w-full inline-flex items-center justify-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-all hover:shadow-lg hover:-translate-y-0.5 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-none ${
-                  currentView === 'diagram-diff'
-                    ? 'border-purple-500/70 bg-purple-500/30 text-purple-200 shadow-lg shadow-purple-500/20'
-                    : 'border-purple-500/50 bg-purple-500/20 text-purple-200 hover:bg-purple-500/30 hover:border-purple-500/70 hover:shadow-purple-500/20'
-                }`}
-              >
-                <GitCompare className="h-4 w-4" />
-                View Diagram Diff
               </button>
             )}
           </div>

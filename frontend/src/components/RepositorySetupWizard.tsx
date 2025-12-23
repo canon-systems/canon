@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronRight, CheckCircle2, Github, FileText, Loader2, AlertCircle, X } from 'lucide-react';
 
@@ -35,7 +35,7 @@ interface Repository {
   default_branch: string;
 }
 
-export function RepositorySetupWizard({ repoId, onComplete }: RepositorySetupWizardProps) {
+export function RepositorySetupWizard({ repoId, onComplete: _onComplete }: RepositorySetupWizardProps) {
   const router = useRouter();
   const [currentStep, setCurrentStep] = useState<SetupStep>('connect');
   const [isLoading, setIsLoading] = useState(true);
@@ -55,6 +55,7 @@ export function RepositorySetupWizard({ repoId, onComplete }: RepositorySetupWiz
     processingRate?: number; // files per minute
     estimatedTimeRemaining?: number; // in seconds
   } | null>(null);
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const steps = [
     { id: 'connect' as SetupStep, title: '1. Repository Status', icon: Github },
@@ -86,8 +87,11 @@ export function RepositorySetupWizard({ repoId, onComplete }: RepositorySetupWiz
   // Cleanup on component unmount
   useEffect(() => {
     return () => {
-      // If setup is still in progress when component unmounts, we could potentially cancel it
-      // But we'll let it continue in the background for now
+      // Clear the polling interval when component unmounts
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
     };
   }, []);
 
@@ -103,13 +107,13 @@ export function RepositorySetupWizard({ repoId, onComplete }: RepositorySetupWiz
       }
       const repoData = await repoResponse.json();
       setRepository(repoData);
-      console.log('Loaded repository:', repoData);
 
       // Then load setup status
       await loadSetupStatus();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to load repository data:', err);
-      setError(err.message || 'Failed to load repository data');
+      const message = err instanceof Error ? err.message : typeof err === 'string' ? err : 'Failed to load repository data';
+      setError(message);
     } finally {
       setIsLoading(false);
     }
@@ -170,7 +174,7 @@ export function RepositorySetupWizard({ repoId, onComplete }: RepositorySetupWiz
       } else {
         setError(data.error || 'Failed to load setup status');
       }
-    } catch (err) {
+    } catch (_err) {
       setError('Failed to load setup status');
     } finally {
       setIsLoadingSetupStatus(false);
@@ -226,7 +230,7 @@ export function RepositorySetupWizard({ repoId, onComplete }: RepositorySetupWiz
         setSetupProgress(null);
         setError(data.error || 'Failed to start setup');
       }
-    } catch (err) {
+    } catch (_err) {
       setSetupProgress(null);
       setError('Failed to start repository setup');
     } finally {
@@ -240,7 +244,7 @@ export function RepositorySetupWizard({ repoId, onComplete }: RepositorySetupWiz
     let processingStartTime: number | null = null;
     const recentFiles: Array<{ path: string; status: 'completed' | 'skipped' | 'processing'; timestamp: number }> = [];
 
-    const pollInterval = setInterval(async () => {
+    pollIntervalRef.current = setInterval(async () => {
       pollCount++;
       const response = await fetch(`/api/repos/setup?repoId=${repoId}`);
       const data = await response.json();
@@ -250,7 +254,6 @@ export function RepositorySetupWizard({ repoId, onComplete }: RepositorySetupWiz
 
         const now = Date.now();
         const elapsed = setupProgress ? now - setupProgress.startTime : 0;
-        const elapsedMinutes = Math.floor(elapsed / 60000);
         const elapsedSeconds = Math.floor(elapsed / 1000);
 
         const totalFiles = data.setup.totalFiles || 0;
@@ -319,7 +322,10 @@ export function RepositorySetupWizard({ repoId, onComplete }: RepositorySetupWiz
             processingRate,
             estimatedTimeRemaining: 0
           } : null);
-          clearInterval(pollInterval);
+          if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current);
+          }
+          pollIntervalRef.current = null;
 
           // Redirect to repositories route after showing success message
           setTimeout(() => {
@@ -347,7 +353,10 @@ export function RepositorySetupWizard({ repoId, onComplete }: RepositorySetupWiz
             processingRate,
             estimatedTimeRemaining
           } : null);
-          clearInterval(pollInterval);
+          if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current);
+          }
+          pollIntervalRef.current = null;
           setError(data.setup.errorMessage || 'Setup failed');
 
           // Show recovery option after a brief delay
@@ -421,7 +430,9 @@ export function RepositorySetupWizard({ repoId, onComplete }: RepositorySetupWiz
     // Stop polling after 25 minutes (increased timeout)
     setTimeout(() => {
       if (!setupProgress || setupProgress.progress < 100) {
-        clearInterval(pollInterval);
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current);
+        }
         setSetupProgress(prev => prev ? {
           ...prev,
           step: '⏱️ Taking Longer Than Expected',
@@ -713,8 +724,8 @@ export function RepositorySetupWizard({ repoId, onComplete }: RepositorySetupWiz
                               message: 'Repository setup was cancelled by user.',
                               progress: 0
                             } : null);
-                            // Refresh setup status
-                            await loadSetupStatus();
+                            // Redirect to repos page after successful cancellation
+                            router.push('/repos');
                           } else {
                             alert('Failed to cancel setup. Please try again.');
                           }
@@ -927,7 +938,7 @@ export function RepositorySetupWizard({ repoId, onComplete }: RepositorySetupWiz
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+    <div>
       <div className="max-w-4xl mx-auto p-6">
         {/* Warning banner for ongoing setup */}
         {setupProgress && (
@@ -937,7 +948,7 @@ export function RepositorySetupWizard({ repoId, onComplete }: RepositorySetupWiz
               <div className="flex-1">
                 <h3 className="font-medium text-amber-300">Setup In Progress</h3>
                 <p className="text-sm text-amber-200/80">
-                  Repository setup is currently running. Please don't navigate away until it's complete to ensure accurate progress tracking.
+                  Repository setup is currently running. Please don&apos;t navigate away until it&apos;s complete to ensure accurate progress tracking.
                 </p>
               </div>
             </div>

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { setupRepositorySimple } from '@/lib/server/services/repoSetupSimple';
+import { setupRepositorySimple, cancelSetupImmediately } from '@/lib/server/services/repoSetupSimple';
 import { parseRepoUrl } from '@/lib/server/github/github';
 
 export const runtime = 'nodejs';
@@ -14,8 +14,10 @@ function normalizeRepoId(repoUrl: string): string {
 }
 
 export async function POST(request: NextRequest) {
+  const { repoId } = await request.json();
+  const supabase = await createClient();
+
   try {
-    const { repoId } = await request.json();
 
     if (!repoId) {
       return NextResponse.json(
@@ -23,8 +25,6 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-
-    const supabase = await createClient();
 
     // Verify user has access to this repository
     const { data: repo, error: repoError } = await supabase
@@ -184,6 +184,13 @@ export async function POST(request: NextRequest) {
         })
         .eq('id', setup.id);
 
+      // Remove the repository from workspace_repos since setup failed to start
+      console.log(`[repo-setup] Removing repository ${repoId} from workspace_repos due to setup failure`);
+      await supabase
+        .from('workspace_repos')
+        .delete()
+        .eq('id', repoId);
+
       return NextResponse.json(
         { error: 'Failed to start repository setup', details: startError instanceof Error ? startError.message : 'Unknown error' },
         { status: 500 }
@@ -192,6 +199,20 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Repository setup failed:', error);
+
+    // If we have a repoId, remove the repository from workspace_repos since setup failed
+    if (repoId) {
+      console.log(`[repo-setup] Removing repository ${repoId} from workspace_repos due to unexpected error`);
+      try {
+        await supabase
+          .from('workspace_repos')
+          .delete()
+          .eq('id', repoId);
+      } catch (deleteError) {
+        console.error('Failed to remove repository after setup error:', deleteError);
+      }
+    }
+
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
@@ -221,31 +242,48 @@ export async function DELETE(request: NextRequest) {
       .eq('repo_id', repoId)
       .single();
 
-    if (setupError || !setup) {
-      return NextResponse.json(
-        { error: 'Setup not found' },
-        { status: 404 }
-      );
+    let setupId = null;
+    if (setup && !setupError) {
+      setupId = setup.id;
+
+      if (setup.setup_status === 'ready') {
+        return NextResponse.json(
+          { error: 'Setup is already complete' },
+          { status: 400 }
+        );
+      }
+
+      // Immediately cancel the running setup process
+      const immediateCancel = cancelSetupImmediately(setup.id);
+      if (immediateCancel) {
+        console.log(`[repo-setup] Immediately cancelled running setup process for ${setup.id}`);
+      } else {
+        console.log(`[repo-setup] No active setup process found for ${setup.id} (might have already completed)`);
+      }
+
+      // Update status to cancelled
+      await supabase
+        .from('repository_setup')
+        .update({
+          setup_status: 'failed',
+          error_message: 'Setup cancelled by user',
+          setup_completed_at: new Date().toISOString(),
+        })
+        .eq('id', setup.id);
+
+      console.log(`[repo-setup] Updated setup record ${setup.id} to cancelled status`);
+    } else {
+      console.log(`[repo-setup] No setup record found for repo ${repoId} - cancelling without database record`);
     }
 
-    if (setup.setup_status === 'ready') {
-      return NextResponse.json(
-        { error: 'Setup is already complete' },
-        { status: 400 }
-      );
-    }
-
-    // Update status to cancelled
+    // Remove the repository from workspace_repos since setup was cancelled
+    console.log(`[repo-setup] Removing cancelled repository ${repoId} from workspace_repos`);
     await supabase
-      .from('repository_setup')
-      .update({
-        setup_status: 'failed',
-        error_message: 'Setup cancelled by user',
-        setup_completed_at: new Date().toISOString(),
-      })
-      .eq('id', setup.id);
+      .from('workspace_repos')
+      .delete()
+      .eq('id', repoId);
 
-    console.log(`[repo-setup] Cancelled setup for repo ${repoId}`);
+    console.log(`[repo-setup] Cancelled setup for repo ${repoId} and removed repository record`);
 
     return NextResponse.json({
       success: true,
@@ -281,6 +319,35 @@ export async function GET(request: NextRequest) {
       .select('repo_url')
       .eq('id', repoId)
       .single();
+
+    // If repository doesn't exist (likely cancelled and removed), check if setup record exists
+    if (repoError && repoError.code === 'PGRST116') {
+      console.log(`Repository ${repoId} not found in workspace_repos (likely cancelled and removed)`);
+
+      // Check if there's still a setup record
+      const { data: setupRecord } = await supabase
+        .from('repository_setup')
+        .select('setup_status, error_message')
+        .eq('repo_id', repoId)
+        .single();
+
+      if (setupRecord) {
+        // Setup record exists but repo was removed (cancelled)
+        return NextResponse.json({
+          setup: {
+            id: null,
+            status: 'cancelled',
+            message: setupRecord.error_message || 'Setup was cancelled and repository removed'
+          }
+        });
+      } else {
+        // No setup record either
+        return NextResponse.json(
+          { error: 'Setup not found - repository was removed' },
+          { status: 404 }
+        );
+      }
+    }
 
     if (repoError) {
       console.error('Failed to get repository:', repoError);

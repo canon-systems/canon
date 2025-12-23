@@ -35,7 +35,6 @@ export async function executeAutomationRule({
 	actions: string[];
 	errors: string[];
 	docId?: string | null;
-	diagramId?: string | null;
 	skipped?: boolean;
 	skipReason?: string;
 	publishStatus?: string;
@@ -53,7 +52,6 @@ export async function executeAutomationRule({
 		actions: [] as string[],
 		errors: [] as string[],
 		docId: null as string | null,
-		diagramId: null as string | null,
 		skipped: false,
 		skipReason: undefined as string | undefined,
 		publishStatus: undefined as string | undefined,
