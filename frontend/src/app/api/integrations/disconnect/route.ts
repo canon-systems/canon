@@ -17,21 +17,56 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing connectionId or provider' }, { status: 400 });
     }
 
-    // Delete from Nango (optional - you may want to keep it for reconnection)
-    if (connectionId) {
+    // Delete from Nango - this is required to properly disconnect
+    if (connectionId && provider) {
       try {
+        // Get the provider config to determine the correct provider_config_key
+        const providerConfig = NANGO_CONFIG.providers[provider as keyof typeof NANGO_CONFIG.providers];
+        if (!providerConfig) {
+          console.error('Invalid provider for disconnection:', provider);
+          return NextResponse.json({ error: 'Invalid provider' }, { status: 400 });
+        }
+
         const nangoUrl = new URL(`/connection/${connectionId}`, NANGO_CONFIG.host);
-        await fetch(nangoUrl.toString(), {
+        nangoUrl.searchParams.set('provider_config_key', providerConfig.providerConfigKey);
+
+        const deleteResponse = await fetch(nangoUrl.toString(), {
           method: 'DELETE',
           headers: {
             'Authorization': `Bearer ${NANGO_CONFIG.secretKey}`,
             'Content-Type': 'application/json'
           }
         });
+
+        if (!deleteResponse.ok) {
+          const errorText = await deleteResponse.text();
+          console.error('Failed to delete connection from Nango:', {
+            status: deleteResponse.status,
+            statusText: deleteResponse.statusText,
+            error: errorText,
+            connectionId,
+            provider: providerConfig.providerConfigKey
+          });
+          return NextResponse.json({
+            error: 'Failed to disconnect from Nango',
+            detail: `Nango deletion failed: ${deleteResponse.status} ${deleteResponse.statusText}`
+          }, { status: 500 });
+        }
+
+        console.log('Successfully deleted connection from Nango:', {
+          connectionId,
+          provider: providerConfig.providerConfigKey
+        });
       } catch (err) {
-        console.warn('Failed to delete from Nango (may not exist):', err);
-        // Continue anyway
+        console.error('Error deleting from Nango:', err);
+        return NextResponse.json({
+          error: 'Failed to disconnect from Nango',
+          detail: err instanceof Error ? err.message : String(err)
+        }, { status: 500 });
       }
+    } else if (connectionId && !provider) {
+      console.warn('Cannot delete from Nango without provider information');
+      // Continue with database cleanup but log the issue
     }
 
     // Remove from database
