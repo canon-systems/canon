@@ -318,7 +318,7 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
                                         <div>
                                             <AlertTitle>GitHub Connection Required</AlertTitle>
                                             <AlertDescription>
-                                                Connect your GitHub account to analyze private repositories and access higher rate limits.
+                                                Connect your GitHub account to analyze private repositories.
                                                 <Button variant="secondary" size="sm" asChild className="ml-2 mt-2">
                                                     <Link href="/integrations">
                                                         <Github className="h-4 w-4" />
