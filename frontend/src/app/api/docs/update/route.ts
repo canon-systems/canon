@@ -33,6 +33,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}));
     documentId = body.submissionId || body.documentId; // Support both for backward compatibility
     const previewContent = body.previewContent;
+    const regenerationSettings = body.regenerationSettings;
 
     if (!documentId) {
       return NextResponse.json({ error: 'documentId is required' }, { status: 400 });
@@ -74,12 +75,19 @@ export async function POST(request: NextRequest) {
     const versionNumber = versionData || 1;
 
     // Update document
+    const updateData: any = {
+      content: previewContent.trim(),
+      updated_at: new Date().toISOString(),
+    };
+
+    // Include regeneration settings if provided
+    if (regenerationSettings) {
+      updateData.configuration = regenerationSettings;
+    }
+
     const { error: updateError } = await supabase
       .from('documents')
-      .update({
-        content: previewContent.trim(),
-        updated_at: new Date().toISOString(),
-      })
+      .update(updateData)
       .eq('id', documentId);
 
     if (updateError) {

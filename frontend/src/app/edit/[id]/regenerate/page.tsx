@@ -39,6 +39,9 @@ export default async function RegeneratePage({ params }: { params: Promise<{ id:
     document_structure?: any;
   };
 
+  // Get regeneration settings from document if available, otherwise fall back to repo settings
+  const regenerationSettings = (document as any).configuration || {};
+
   // Format as submission for backward compatibility with client component
   const submission = {
     id: String(document.id),
@@ -52,9 +55,9 @@ export default async function RegeneratePage({ params }: { params: Promise<{ id:
     summary: document.content.replace(/\s+/g, ' ').slice(0, 200),
     source_meta: {
       repoId: document.repo_id,
-      llm_prompt_config: repoSettings.llm_prompt_config || null,
-      model: repoSettings.model || null,
-      document_structure: repoSettings.document_structure || null,
+      llm_prompt_config: regenerationSettings || repoSettings.llm_prompt_config || null,
+      model: regenerationSettings.model || repoSettings.model || null,
+      document_structure: regenerationSettings.documentStructure || repoSettings.document_structure || null,
     },
     is_outdated: false
   };

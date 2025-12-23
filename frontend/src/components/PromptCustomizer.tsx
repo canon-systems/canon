@@ -153,6 +153,7 @@ export function PromptCustomizer({ promptConfig, onChange, onSave, saving = fals
           )}
         </div>
         <button
+          type="button"
           className="flex items-center gap-1 text-xs text-white/60 hover:text-white/80 transition-colors"
           onClick={() => setExpanded(!expanded)}
           title={expanded ? 'Hide customization options' : 'Customize how the AI writes documentation'}

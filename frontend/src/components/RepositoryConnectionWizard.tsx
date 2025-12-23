@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Github, Search, Loader2, CheckCircle2, AlertCircle, ExternalLink, Plus, ChevronRight } from 'lucide-react';
+import { Github, Search, Loader2, CheckCircle2, AlertCircle, ExternalLink, Plus, ChevronRight, X } from 'lucide-react';
 
 interface RepositoryConnectionWizardProps {
   onComplete?: (repoId: string) => void;
@@ -27,14 +27,44 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
   const [step, setStep] = useState<'search' | 'select' | 'branch' | 'connect'>('search');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<GitHubRepo[]>([]);
+  const [filteredResults, setFilteredResults] = useState<GitHubRepo[]>([]);
+  const [repoFilterQuery, setRepoFilterQuery] = useState('');
   const [selectedRepo, setSelectedRepo] = useState<GitHubRepo | null>(null);
   const [availableBranches, setAvailableBranches] = useState<string[]>([]);
+  const [filteredBranches, setFilteredBranches] = useState<string[]>([]);
+  const [branchFilterQuery, setBranchFilterQuery] = useState<string>('');
   const [selectedBranch, setSelectedBranch] = useState<string>('');
   const [isSearching, setIsSearching] = useState(false);
   const [isLoadingBranches, setIsLoadingBranches] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasGitHubConnection, setHasGitHubConnection] = useState(false);
+
+  // Filter repositories based on search query
+  useEffect(() => {
+    if (!repoFilterQuery.trim()) {
+      setFilteredResults(searchResults);
+    } else {
+      const filtered = searchResults.filter(repo =>
+        repo.name.toLowerCase().includes(repoFilterQuery.toLowerCase()) ||
+        repo.full_name.toLowerCase().includes(repoFilterQuery.toLowerCase()) ||
+        (repo.description && repo.description.toLowerCase().includes(repoFilterQuery.toLowerCase()))
+      );
+      setFilteredResults(filtered);
+    }
+  }, [searchResults, repoFilterQuery]);
+
+  // Filter branches based on search query
+  useEffect(() => {
+    if (!branchFilterQuery.trim()) {
+      setFilteredBranches(availableBranches);
+    } else {
+      const filtered = availableBranches.filter(branch =>
+        branch.toLowerCase().includes(branchFilterQuery.toLowerCase())
+      );
+      setFilteredBranches(filtered);
+    }
+  }, [availableBranches, branchFilterQuery]);
 
   // Check GitHub connection status
   useEffect(() => {
@@ -77,6 +107,7 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
       if (response.ok) {
         const data = await response.json();
         setSearchResults(data.repos || []);
+        setFilteredResults(data.repos || []);
         if (data.repos && data.repos.length > 0) {
           setStep('select');
         } else {
@@ -115,6 +146,7 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
         const data = await response.json();
         const branches = data.branches || [];
         setAvailableBranches(branches);
+        setFilteredBranches(branches);
         setSelectedBranch(repo.default_branch); // Pre-select default branch
         setStep('branch');
       } else {
@@ -285,8 +317,41 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
             </button>
           </div>
 
+          {/* Repository Filter Search */}
+          <div className="field-group">
+            <span className="field-label">Filter Repositories</span>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-white/40" />
+              <input
+                type="text"
+                className="field-input pl-10"
+                placeholder="Search repositories by name, description..."
+                value={repoFilterQuery}
+                onChange={(e) => setRepoFilterQuery(e.target.value)}
+              />
+              {repoFilterQuery && (
+                <button
+                  onClick={() => setRepoFilterQuery('')}
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-white/40 hover:text-white/60"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+            <p className="field-note">
+              Found {filteredResults.length} of {searchResults.length} repositories
+            </p>
+          </div>
+
           <div className="max-h-96 overflow-y-auto space-y-3">
-            {searchResults.map((repo) => (
+            {filteredResults.length === 0 && repoFilterQuery ? (
+              <div className="text-center py-8">
+                <Search className="h-12 w-12 text-white/20 mx-auto mb-4" />
+                <h4 className="text-white/60 mb-2">No repositories match your search</h4>
+                <p className="text-sm text-white/40">Try adjusting your search terms</p>
+              </div>
+            ) : (
+              filteredResults.map((repo) => (
               <div
                 key={repo.id}
                 className={`p-4 rounded-lg border cursor-pointer transition-all ${
@@ -335,7 +400,8 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
                   </div>
                 </div>
               </div>
-            ))}
+            ))
+            )}
           </div>
 
           {selectedRepo && (
@@ -375,6 +441,32 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
             </button>
           </div>
 
+          {/* Branch Filter Search */}
+          <div className="field-group">
+            <span className="field-label">Filter Branches</span>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-white/40" />
+              <input
+                type="text"
+                className="field-input pl-10"
+                placeholder="Search branches..."
+                value={branchFilterQuery}
+                onChange={(e) => setBranchFilterQuery(e.target.value)}
+              />
+              {branchFilterQuery && (
+                <button
+                  onClick={() => setBranchFilterQuery('')}
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-white/40 hover:text-white/60"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+            <p className="field-note">
+              Found {filteredBranches.length} of {availableBranches.length} branches
+            </p>
+          </div>
+
           <div className="glass-panel p-4">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-8 h-8 rounded-lg bg-gradient-to-r from-blue-500 to-purple-500 flex items-center justify-center">
@@ -392,7 +484,14 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
                   Available Branches
                 </label>
                 <div className="max-h-48 overflow-y-auto space-y-1">
-                  {availableBranches.map((branch) => (
+                  {filteredBranches.length === 0 && branchFilterQuery ? (
+                    <div className="text-center py-8">
+                      <Search className="h-8 w-8 text-white/20 mx-auto mb-4" />
+                      <p className="text-white/60 text-sm">No branches match your search</p>
+                      <p className="text-white/40 text-xs mt-1">Try adjusting your search terms</p>
+                    </div>
+                  ) : (
+                    filteredBranches.map((branch) => (
                     <div
                       key={branch}
                       className={`p-3 rounded-lg border cursor-pointer transition-all ${
@@ -418,7 +517,8 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
                         )}
                       </div>
                     </div>
-                  ))}
+                  ))
+                  )}
                 </div>
               </div>
             ) : (

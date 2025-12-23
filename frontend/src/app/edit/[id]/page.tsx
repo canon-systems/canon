@@ -49,6 +49,10 @@ export default async function EditDetailPage({ params }: { params: Promise<{ id:
     document_structure?: any;
   };
 
+  // Get configuration from document if available, otherwise fall back to repo settings
+  const documentConfig = document.configuration || {};
+  const regenerationSettings = documentConfig;
+
   // Format as submission for backward compatibility with client component
   const submission = {
     id: String(document.id),
@@ -64,9 +68,9 @@ export default async function EditDetailPage({ params }: { params: Promise<{ id:
       repoId: document.repo_id,
       repoUrl: repo.repo_url,
       branch: setup?.branch || repo.default_branch || 'main',
-      llm_prompt_config: repoSettings.llm_prompt_config || null,
-      model: repoSettings.model || null,
-      document_structure: repoSettings.document_structure || null,
+      llm_prompt_config: regenerationSettings || repoSettings.llm_prompt_config || null,
+      model: regenerationSettings.model || repoSettings.model || null,
+      document_structure: regenerationSettings.documentStructure || repoSettings.document_structure || null,
     },
     code_snapshot: null as any,
     is_outdated: false,

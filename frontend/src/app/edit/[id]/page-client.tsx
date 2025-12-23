@@ -5,11 +5,13 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Loader2, AlertCircle, CheckCircle2, RefreshCw, Clock, FileText, GitCompare, X, Send, ExternalLink, ChevronDown, Github, GitBranch, Search, Check } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
-import { PromptCustomizer } from '@/components/PromptCustomizer';
+import { DocumentConfiguration, type DocumentStructureConfig } from '@/components/DocumentConfiguration';
 import { RichTextEditor } from '@/components/RichTextEditor';
 import { IntegrationLogos } from '@/components/IntegrationLogos';
 import { ReviewPanel, ViewMode } from '@/components/ReviewPanel';
 import { EnhancedDiffViewer } from '@/components/EnhancedDiffViewer';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 import { marked } from 'marked';
 import TurndownService from 'turndown';
 import { buildFileChangeUrl } from '@/lib/utils/repoUrls';
@@ -137,6 +139,17 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
   const [promptConfigMsg, setPromptConfigMsg] = useState('');
   const [promptConfigErr, setPromptConfigErr] = useState('');
 
+  // Document structure configuration state
+  const [structureConfig, setStructureConfig] = useState<DocumentStructureConfig>(
+    initialSubmission.source_meta?.document_structure || {
+      sections: [],
+      includeTableOfContents: false,
+    }
+  );
+
+  // Configuration save confirmation dialog
+  const [showConfigConfirm, setShowConfigConfirm] = useState(false);
+
   // Push to knowledge base state
   const [showPushModal, setShowPushModal] = useState(false);
   const [connections, setConnections] = useState<Array<{ provider: string; connection_id: string; metadata?: any }>>([]);
@@ -208,23 +221,39 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
     }
   }
 
-  async function savePromptConfig() {
+  function showConfigSaveConfirm() {
+    setShowConfigConfirm(true);
+  }
+
+  async function saveConfiguration() {
     setPromptConfigErr('');
     setPromptConfigMsg('');
     setSavingPromptConfig(true);
+    setShowConfigConfirm(false);
+
     try {
-      // Note: In the new schema, prompt config should be stored in workspace_repos.settings
-      // For now, we'll skip this update as it requires getting the repo_id first
-      // This functionality may need to be reimplemented differently
+      // Save configuration to the document
+      const configuration = {
+        personality: promptConfig.personality,
+        style: promptConfig.style,
+        perspective: promptConfig.perspective,
+        audience: promptConfig.audience,
+        customInstructions: promptConfig.customInstructions,
+        temperature: promptConfig.temperature,
+        documentStructure: structureConfig,
+        model: initialSubmission.source_meta?.model || 'gpt-4o'
+      };
+
       const { error } = await supabase
         .from('documents')
         .update({
+          configuration: configuration,
           updated_at: new Date().toISOString()
         })
         .eq('id', initialSubmission.id);
 
       if (error) throw new Error(error.message);
-      setPromptConfigMsg('Prompt settings saved. These will be used for future regenerations.');
+      setPromptConfigMsg('Configuration settings saved. These will be used for future regenerations.');
       setTimeout(() => setPromptConfigMsg(''), 3000);
       return; // Return success
     } catch (e) {
@@ -945,17 +974,6 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
           )}
         </header>
 
-        {/* LLM Prompt Customization - Moved above title for better UX */}
-        <div className="mb-4">
-          <PromptCustomizer
-            promptConfig={promptConfig}
-            onChange={setPromptConfig}
-            onSave={savePromptConfig}
-            saving={savingPromptConfig}
-            saveMessage={promptConfigMsg}
-            saveError={promptConfigErr}
-          />
-        </div>
 
         {/* Title input */}
         <label className="block">
@@ -1184,6 +1202,20 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
               )}
             </div>
           </div>
+        </div>
+
+        {/* Configuration Settings */}
+        <div className="mb-6">
+          <DocumentConfiguration
+            promptConfig={promptConfig}
+            onPromptConfigChange={setPromptConfig}
+            structureConfig={structureConfig}
+            onStructureConfigChange={setStructureConfig}
+            onSave={showConfigSaveConfirm}
+            saving={savingPromptConfig}
+            saveMessage={promptConfigMsg}
+            saveError={promptConfigErr}
+          />
         </div>
 
         {/* Save controls */}
@@ -1886,6 +1918,41 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
           </div>
         </div>
       )}
+
+      {/* Configuration Save Confirmation Dialog */}
+      <Dialog open={showConfigConfirm} onOpenChange={setShowConfigConfirm}>
+        <DialogContent className="bg-gray-900 border border-white/20">
+          <DialogHeader>
+            <DialogTitle className="text-white">Save Configuration Changes</DialogTitle>
+            <DialogDescription className="text-white/70">
+              Are you sure you want to save these configuration changes? This will update the document's configuration settings and affect future regenerations.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowConfigConfirm(false)}
+              className="border-white/20 text-white hover:bg-white/10"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={saveConfiguration}
+              disabled={savingPromptConfig}
+              className="bg-purple-600 hover:bg-purple-700 text-white"
+            >
+              {savingPromptConfig ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                'Save Configuration'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

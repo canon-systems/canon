@@ -354,7 +354,6 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
                         <span>File summaries</span>
                         <span>{summaryProgress}%</span>
                       </div>
-                      <Progress value={summaryProgress} />
                     </div>
                   )}
                 </CardContent>
