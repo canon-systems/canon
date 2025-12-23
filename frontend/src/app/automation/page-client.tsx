@@ -1073,38 +1073,7 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
           </CardContent>
         </Card>
 
-        {/* Smart Analysis Configuration */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg font-semibold text-white flex items-center gap-2">
-              <span>🎯</span>
-              Smart Analysis Settings
-            </CardTitle>
-            <CardDescription className="text-white/70">
-              Configure how automation detects significant changes that warrant documentation updates
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-white/90 mb-2">Change Sensitivity</label>
-                <select
-                  value={singleRuleForm?.significance_sensitivity || 'balanced'}
-                  onChange={(e) => singleRuleForm && updateSingleRuleField('significance_sensitivity', e.target.value)}
-                  className="w-full rounded border border-white/20 bg-white/10 px-3 py-2 text-sm text-white"
-                  disabled={!singleRuleForm}
-                >
-                  <option value="strict">Strict - Only major changes</option>
-                  <option value="balanced">Balanced - Recommended</option>
-                  <option value="lenient">Lenient - Catch more changes</option>
-                </select>
-                <p className="text-xs text-white/60 mt-1">
-                  Determines how sensitive the automation is to code changes. Higher sensitivity means more frequent documentation updates.
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+
 
         {/* Repository Management Section */}
         <Card>
@@ -1371,37 +1340,8 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
           </CardContent>
         </Card>
 
-        {/* Notifications Configuration */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg font-semibold text-white flex items-center gap-2">
-              <span>📧</span>
-              Notification Settings
-            </CardTitle>
-            <CardDescription className="text-white/70">
-              Configure how you want to be notified about automation activity
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div>
-                <label className="flex items-center gap-3 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={singleRuleForm?.notifications_email_enabled ?? true}
-                    onChange={(e) => singleRuleForm && updateSingleRuleField('notifications_email_enabled', (e.target as HTMLInputElement).checked)}
-                    className="h-4 w-4 rounded border-white/30 bg-black/60 text-blue-500"
-                    disabled={!singleRuleForm}
-                  />
-                  <div>
-                    <div className="font-medium text-white/90">Email Notifications</div>
-                    <div className="text-xs text-white/60">Receive email updates when automation runs complete</div>
-                  </div>
-                </label>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+
+
 
       {/* Delete Rule Confirmation Modal */}
       <Dialog open={deleteRuleModal.open} onOpenChange={(open) => !open && !deleting && setDeleteRuleModal({ open: false, repoId: null, ruleId: null, ruleName: '' })}>
@@ -1651,6 +1591,41 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                           </div>
                         </div>
 
+                        {/* Smart Analysis Settings */}
+                        <div className="rounded-lg border border-white/20 bg-white/5 p-4">
+                          <h4 className="text-sm font-semibold text-white/90 mb-3">🎯 Smart Analysis</h4>
+                          <p className="text-xs text-white/60 mb-3">
+                            Automation only runs when changes are significant enough to warrant documentation updates.
+                          </p>
+                          <div className="space-y-3">
+                            <div>
+                              <label className="block text-xs font-medium text-white/70 mb-1">Change Sensitivity</label>
+                              <select
+                                value={singleRuleForm.significance_sensitivity}
+                                onChange={(e) => updateSingleRuleField('significance_sensitivity', e.target.value)}
+                                className="w-full rounded border border-white/20 bg-white/10 px-3 py-2 text-sm text-white"
+                              >
+                                <option value="strict">Strict - Only major changes</option>
+                                <option value="balanced">Balanced - Recommended</option>
+                                <option value="lenient">Lenient - Catch more changes</option>
+                              </select>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Notifications */}
+                        <div className="rounded-lg border border-white/20 bg-white/5 p-4">
+                          <h4 className="text-sm font-semibold text-white/90 mb-3">📧 Notifications</h4>
+                          <label className="flex items-center gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={singleRuleForm.notifications_email_enabled}
+                              onChange={(e) => updateSingleRuleField('notifications_email_enabled', (e.target as HTMLInputElement).checked)}
+                              className="h-4 w-4 rounded border-white/30 bg-black/60 text-blue-500"
+                            />
+                            Send email notifications when automation completes
+                          </label>
+                        </div>
                       </div>
 
 

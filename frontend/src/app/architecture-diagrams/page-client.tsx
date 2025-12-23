@@ -469,64 +469,64 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
                             ) : (
                                 <div className="space-y-4">
                                     {diagrams.map((diagram) => (
-                                        <Card key={diagram.id} className="hover:shadow-lg transition-shadow border border-white/10 bg-white/5">
-                                            <CardContent className="p-6">
-                                                <div className="flex items-start justify-between">
-                                                    <div className="flex-1">
-                                                        <div className="flex items-center gap-3 mb-2">
-                                                            <Layers3 className="w-5 h-5 text-blue-400" />
-                                                            <h3 className="text-lg font-semibold text-white">
-                                                                {diagram.title}
-                                                            </h3>
-                                                        </div>
-
-                                                        <div className="flex items-center gap-4 text-sm text-white/60 mb-3">
-                                                            <div className="flex items-center gap-1">
-                                                                <Github className="w-4 h-4" />
-                                                                <span>{diagram.repo_name}</span>
+                                        <Card key={diagram.id} className="hover:shadow-lg transition-all duration-200 border border-white/10 bg-white/5 cursor-pointer">
+                                            <Link href={`/architecture-diagrams/view/${diagram.id}`}>
+                                                <CardContent className="p-6">
+                                                    <div className="flex items-start justify-between">
+                                                        <div className="flex-1">
+                                                            <div className="flex items-center gap-3 mb-2">
+                                                                <Layers3 className="w-5 h-5 text-blue-400" />
+                                                                <h3 className="text-lg font-semibold text-white">
+                                                                    {diagram.title}
+                                                                </h3>
                                                             </div>
-                                                            <div className="flex items-center gap-1">
-                                                                <Calendar className="w-4 h-4" />
-                                                                <span>{formatDate(diagram.created_at)}</span>
-                                                            </div>
-                                                            <div className="flex items-center gap-1">
-                                                                <FileText className="w-4 h-4" />
-                                                                <span>
-                                                                    {diagram.analysis_data?.components?.length || 0} components,
-                                                                    {' '}{diagram.analysis_data?.relationships?.length || 0} relationships
-                                                                </span>
-                                                            </div>
-                                                        </div>
 
-                                                        {diagram.repo_url && (
-                                                            <p className="text-white/50 text-sm">
-                                                                {diagram.repo_url}
-                                                            </p>
-                                                        )}
-                                                    </div>
+                                                            <div className="flex items-center gap-4 text-sm text-white/60 mb-3">
+                                                                <div className="flex items-center gap-1">
+                                                                    <Github className="w-4 h-4" />
+                                                                    <span>{diagram.repo_name}</span>
+                                                                </div>
+                                                                <div className="flex items-center gap-1">
+                                                                    <Calendar className="w-4 h-4" />
+                                                                    <span>{formatDate(diagram.created_at)}</span>
+                                                                </div>
+                                                                <div className="flex items-center gap-1">
+                                                                    <FileText className="w-4 h-4" />
+                                                                    <span>
+                                                                        {diagram.analysis_data?.components?.length || 0} components,
+                                                                        {' '}{diagram.analysis_data?.relationships?.length || 0} relationships
+                                                                    </span>
+                                                                </div>
+                                                            </div>
 
-                                                    <div className="flex items-center gap-2">
-                                                        <Button variant="secondary" size="sm" asChild>
-                                                            <Link href={`/architecture-diagrams/view/${diagram.id}`}>
-                                                                <Eye className="w-4 h-4" />
-                                                                View
-                                                            </Link>
-                                                        </Button>
-                                                        <Button
-                                                            variant="destructive"
-                                                            size="sm"
-                                                            onClick={() => openDeleteModal({ id: diagram.id, title: diagram.title })}
-                                                            disabled={deletingDiagramId === diagram.id}
-                                                        >
-                                                            {deletingDiagramId === diagram.id ? (
-                                                                <Loader2 className="w-4 h-4 animate-spin" />
-                                                            ) : (
-                                                                <Trash2 className="w-4 h-4" />
+                                                            {diagram.repo_url && (
+                                                                <p className="text-white/50 text-sm">
+                                                                    {diagram.repo_url}
+                                                                </p>
                                                             )}
-                                                        </Button>
+                                                        </div>
+
+                                                        <div className="flex items-center gap-2">
+                                                            <Button
+                                                                variant="destructive"
+                                                                size="sm"
+                                                                onClick={(e) => {
+                                                                    e.preventDefault();
+                                                                    e.stopPropagation();
+                                                                    openDeleteModal({ id: diagram.id, title: diagram.title });
+                                                                }}
+                                                                disabled={deletingDiagramId === diagram.id}
+                                                            >
+                                                                {deletingDiagramId === diagram.id ? (
+                                                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                                                ) : (
+                                                                    <Trash2 className="w-4 h-4" />
+                                                                )}
+                                                            </Button>
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            </CardContent>
+                                                </CardContent>
+                                            </Link>
                                         </Card>
                                     ))}
 

@@ -327,7 +327,7 @@ export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagram
                     <CardHeader className="space-y-1 pb-6">
                         <div className="flex items-center justify-between">
                             <Button variant="ghost" size="sm" asChild>
-                                <Link href="/architecture-diagrams">
+                                <Link href="/architecture-diagrams?tab=view">
                                     <ArrowLeft className="w-4 h-4" />
                                     Back to Diagrams
                                 </Link>
