@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Plus, X, GripVertical, FileText, Sparkles, Layers, BookOpen } from 'lucide-react';
+import { Plus, X, GripVertical, FileText, Sparkles, Layers, BookOpen, Loader2 } from 'lucide-react';
 
 export interface DocumentSection {
   id: string;

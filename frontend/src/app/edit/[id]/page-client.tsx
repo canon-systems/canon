@@ -222,7 +222,7 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
     }
   }
 
-  function showConfigSaveConfirm() {
+  async function showConfigSaveConfirm() {
     setShowConfigConfirm(true);
   }
 
