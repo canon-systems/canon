@@ -779,7 +779,7 @@ COMMENT ON COLUMN "public"."documents"."configuration" IS 'What personality and 
 
 
 
-CREATE TABLE IF NOT EXISTS "public"."external_targets" (
+CREATE TABLE IF NOT EXISTS "public"."system_nodes" (
     "id" "text" NOT NULL,
     "label" "text" NOT NULL,
     "category" "text" NOT NULL,
@@ -792,7 +792,7 @@ CREATE TABLE IF NOT EXISTS "public"."external_targets" (
 );
 
 
-ALTER TABLE "public"."external_targets" OWNER TO "postgres";
+ALTER TABLE "public"."system_nodes" OWNER TO "postgres";
 
 
 CREATE TABLE IF NOT EXISTS "public"."oauth_connections" (
@@ -964,8 +964,8 @@ ALTER TABLE ONLY "public"."documents"
 
 
 
-ALTER TABLE ONLY "public"."external_targets"
-    ADD CONSTRAINT "external_targets_pkey" PRIMARY KEY ("id");
+ALTER TABLE ONLY "public"."system_nodes"
+    ADD CONSTRAINT "system_nodes_pkey" PRIMARY KEY ("id");
 
 
 
@@ -1030,7 +1030,7 @@ CREATE INDEX "automation_results_user_id_idx" ON "public"."automation_results" U
 
 
 
-CREATE INDEX "external_targets_enabled_idx" ON "public"."external_targets" USING "btree" ("enabled");
+CREATE INDEX "system_nodes_enabled_idx" ON "public"."system_nodes" USING "btree" ("enabled");
 
 
 
@@ -2708,9 +2708,9 @@ GRANT ALL ON TABLE "public"."documents" TO "service_role";
 
 
 
-GRANT ALL ON TABLE "public"."external_targets" TO "anon";
-GRANT ALL ON TABLE "public"."external_targets" TO "authenticated";
-GRANT ALL ON TABLE "public"."external_targets" TO "service_role";
+GRANT ALL ON TABLE "public"."system_nodes" TO "anon";
+GRANT ALL ON TABLE "public"."system_nodes" TO "authenticated";
+GRANT ALL ON TABLE "public"."system_nodes" TO "service_role";
 
 
 

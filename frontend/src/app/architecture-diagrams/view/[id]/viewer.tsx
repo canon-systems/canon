@@ -105,17 +105,6 @@ function buildMermaid(nodes: any[], edges: any[]): string {
         mermaidText += '    end\n';
     }
 
-    if (externalNodes.length) {
-        mermaidText += '    subgraph External["External Services"]\n';
-        mermaidText += '    direction LR\n';
-        for (const node of externalNodes) {
-            const cls = node.needsReview ? 'unknown' : (categories[node.category || ''] || 'external');
-            mermaidText += `        ${node.id}["${formatLabel(node)}"]:::external\n`;
-            classAssignments.push({ id: node.id, cls });
-        }
-        mermaidText += '    end\n';
-    }
-
     const linkStyles: string[] = [];
     edges.forEach((edge: any, index: number) => {
         const arrowStyle = edge.kind === 'external' ? '-.->' : '-->';
@@ -203,7 +192,7 @@ function generateFallbackDiagram(mermaidContent: string, analysisData?: any): st
     svg += `
         <!-- Footer message -->
         <text x="50%" y="${height - 30}" text-anchor="middle" fill="#64748b" font-family="Arial" font-size="11">
-            This is a fallback diagram. Mermaid rendering failed - check debug info above.
+            This is a fallback diagram. Mermaid rendering failed.
         </text>
     </svg>`;
 
@@ -746,6 +735,7 @@ export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagram
                                 </pre>
                             </CardContent>
                         </Card>
+
                     </CardContent>
                 </Card>
             </div>

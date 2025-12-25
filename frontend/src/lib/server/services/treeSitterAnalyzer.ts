@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import Parser from 'web-tree-sitter';
 import fs from 'fs';
 import path from 'path';
+import { createServiceRoleClient } from '../../supabase/server';
 export interface DependencyInfo {
     filePath: string;
     language: string;
@@ -80,8 +81,12 @@ export interface ExternalTarget {
     category: ExternalCategory;
     packageNames?: string[];
     packagePrefixes?: string[];
-    source: 'manifest' | 'default';
+    protocolSchemes?: string[];
+    serviceHostPatterns?: string[];
+    surfaces?: any[];
+    provider?: string | null;
     needsReview?: boolean;
+    enabled?: boolean;
 }
 
 export interface ExternalRelationship {
@@ -129,6 +134,13 @@ export interface ArchitectureAnalysis {
     fullEdges?: HighLevelEdge[];
     mermaid: string;
 }
+
+const rowEnabled = (row: any): boolean => {
+    // Treat null/undefined as enabled to avoid filtering out rows missing the flag
+    if (row === null || row === undefined) return false;
+    if ('enabled' in row) return row.enabled !== false;
+    return true;
+};
 
 export class TreeSitterAnalyzer {
     private parsers: Map<string, Parser> = new Map();
@@ -210,14 +222,12 @@ export class TreeSitterAnalyzer {
         const dependencies = await this.extractDependencies(files);
         const components = this.clusterIntoComponents(dependencies);
         const registryTargets = await this.loadExternalRegistry(supabase);
-        const manifestPackages = this.extractPackagesFromManifests(manifestFiles);
-        const { matchedTargets, unknownTargets } = await this.matchManifestPackagesToRegistry(supabase, manifestPackages, registryTargets);
-        const combinedExternalTargets = [...matchedTargets, ...unknownTargets];
+        const combinedExternalTargets = registryTargets;
         const relationships = this.buildRelationships(components, dependencies);
-        const externalRelationships = this.buildExternalRelationships(components, dependencies, matchedTargets, unknownTargets);
+        const externalRelationships = this.buildExternalRelationships(components, dependencies, combinedExternalTargets, []);
 
         // Tool-centric graph (focus on services/tools rather than component buckets)
-        const toolGraph = this.buildToolGraph(dependencies, manifestPackages, combinedExternalTargets);
+        const toolGraph = this.buildToolGraph(dependencies, combinedExternalTargets);
         const mermaid = this.generateMermaidDiagram(toolGraph.nodes, toolGraph.edges);
 
         return {
@@ -2708,57 +2718,68 @@ export class TreeSitterAnalyzer {
 
     private async loadExternalRegistry(supabase: SupabaseClient): Promise<ExternalTarget[]> {
         try {
-            const { data, error } = await supabase
-                .from('external_targets')
-                .select('*')
-                .eq('enabled', true)
-                .order('priority', { ascending: true });
+            let data: any[] | null = null;
+            let rawCount = 0;
 
-            if (error) throw error;
-            if (!data) return [];
+            // Prefer service role to bypass RLS; fall back to provided client if it fails
+            try {
+                const adminClient = createServiceRoleClient();
+                const { data: adminData, error: adminError } = await adminClient
+                    .from('system_nodes')
+                    .select('*');
+                if (adminError) {
+                    throw adminError;
+                }
+                data = adminData || [];
+            } catch (adminErr) {
+                console.warn('[SID] service role query failed, falling back to provided client:', adminErr);
+            }
 
-            return data.map(row => {
+            if (!data) {
+                const { data: anonData, error: anonError } = await supabase
+                    .from('system_nodes')
+                    .select('*');
+                if (anonError) throw anonError;
+                data = anonData || [];
+            }
+
+            rawCount = Array.isArray(data) ? data.length : 0;
+            const nodes = (data as any[]).map(row => {
                 const packageNames = Array.isArray((row as any).package_names) ? (row as any).package_names : [];
                 const packagePrefixes = Array.isArray((row as any).package_prefixes) ? (row as any).package_prefixes : [];
+                const protocolSchemes = Array.isArray((row as any).protocol_schemes) ? (row as any).protocol_schemes : [];
+                const serviceHostPatterns = Array.isArray((row as any).service_host_patterns) ? (row as any).service_host_patterns : [];
+                const surfacesRaw = (row as any).surfaces;
+                let surfaces: any[] = [];
+                if (Array.isArray(surfacesRaw)) {
+                    surfaces = surfacesRaw;
+                } else if (typeof surfacesRaw === 'string') {
+                    try {
+                        const parsed = JSON.parse(surfacesRaw);
+                        if (Array.isArray(parsed)) surfaces = parsed;
+                    } catch {
+                        surfaces = [];
+                    }
+                }
                 return {
                     id: (row as any).id,
                     label: (row as any).label,
                     category: (row as any).category,
                     packageNames,
                     packagePrefixes,
-                    source: 'default' as const,
-                    needsReview: Boolean((row as any).needs_review)
+                    protocolSchemes,
+                    serviceHostPatterns,
+                    surfaces,
+                    provider: (row as any).provider ?? null,
+                    needsReview: Boolean((row as any).needs_review),
+                    enabled: (row as any).enabled
                 };
-            }).filter(target => !!target.id && !!target.label);
+            }).filter(target => !!target.id && !!target.label && rowEnabled(target));
+
+            return nodes;
         } catch (err) {
-            console.warn('Falling back to in-code vendor map; failed to load external_targets:', err);
+            console.warn('Failed to load system_nodes:', err);
             return [];
-        }
-    }
-
-    private async upsertExternalRegistry(supabase: SupabaseClient, targets: ExternalTarget[]): Promise<void> {
-        try {
-            if (!targets.length) return;
-            const payload = targets.map(t => ({
-                id: t.id,
-                label: t.label,
-                category: t.category,
-                package_names: t.packageNames || [],
-                package_prefixes: t.packagePrefixes || [],
-                enabled: true,
-                priority: 100,
-                needs_review: Boolean(t.needsReview)
-            }));
-
-            const { error } = await supabase
-                .from('external_targets')
-                .upsert(payload, { onConflict: 'id' });
-
-            if (error) {
-                console.warn('Failed to upsert external_targets registry:', error);
-            }
-        } catch (err) {
-            console.warn('Failed to upsert external_targets registry:', err);
         }
     }
 
@@ -2785,65 +2806,6 @@ export class TreeSitterAnalyzer {
         }
 
         return null;
-    }
-
-    private async matchManifestPackagesToRegistry(
-        supabase: SupabaseClient,
-        manifestPackages: Set<string>,
-        registryTargets: ExternalTarget[]
-    ): Promise<{ matchedTargets: ExternalTarget[]; unknownTargets: ExternalTarget[] }> {
-        if (manifestPackages.size === 0) {
-            return { matchedTargets: [], unknownTargets: [] };
-        }
-
-        const matched = new Map<string, ExternalTarget>();
-        const unknown: ExternalTarget[] = [];
-
-        const normalizedPkgs = Array.from(manifestPackages)
-            .map(p => p.trim())
-            .filter(p => this.isLikelyExternalPackageName(p))
-            .map(p => p.toLowerCase());
-        const registry = registryTargets || [];
-
-        for (const pkg of normalizedPkgs) {
-            let found: ExternalTarget | null = null;
-
-            for (const target of registry) {
-                const names = (target.packageNames || []).map(n => n.toLowerCase());
-                const prefixes = (target.packagePrefixes || []).map(p => p.toLowerCase());
-
-                const nameMatch = names.some(name => pkg === name || pkg.startsWith(`${name}/`));
-                const prefixMatch = prefixes.some(prefix => pkg.startsWith(prefix));
-
-                if (nameMatch || prefixMatch) {
-                    found = target;
-                    break;
-                }
-            }
-
-            if (found) {
-                matched.set(found.id, found);
-            } else {
-                unknown.push({
-                    id: `unknown_${this.simpleHash(pkg)}`,
-                    label: `Unknown: ${pkg}`,
-                    category: 'other',
-                    packageNames: [pkg],
-                    packagePrefixes: [],
-                    source: 'manifest',
-                    needsReview: true
-                });
-            }
-        }
-
-        if (unknown.length > 0) {
-            await this.upsertExternalRegistry(supabase, unknown);
-        }
-
-        return {
-            matchedTargets: Array.from(matched.values()),
-            unknownTargets: unknown
-        };
     }
 
     private buildExternalRelationships(
@@ -2949,142 +2911,107 @@ export class TreeSitterAnalyzer {
 
     private buildToolGraph(
         dependencies: DependencyInfo[],
-        manifestPackages: Set<string>,
         targets: ExternalTarget[]
     ): { nodes: HighLevelNode[], edges: HighLevelEdge[], fullNodes: HighLevelNode[], fullEdges: HighLevelEdge[], groupMappings: { componentToGroup: Record<string, string>, vendorToGroup: Record<string, string> } } {
-        const nodeState = new Map<string, { def: ExternalTarget; files: Set<string>; packages: Set<string>; source: 'code' | 'manifest' | 'mixed' }>();
-        const edges = new Map<string, HighLevelEdge>();
-
-        const ensureNode = (def: ExternalTarget, source: 'code' | 'manifest') => {
-            const existing = nodeState.get(def.id);
-            if (existing) {
-                if (existing.source !== source) {
-                    existing.source = 'mixed';
-                }
-                return existing;
-            }
-            const state = { def, files: new Set<string>(), packages: new Set<string>(), source };
-            nodeState.set(def.id, state);
-            return state;
-        };
-
-        // From manifests
-        for (const pkg of manifestPackages) {
-            const tool = this.matchToolFromImport(pkg, targets);
-            if (tool) {
-                const state = ensureNode(tool, 'manifest');
-                state.packages.add(pkg);
-            }
+        const targetMap = new Map<string, ExternalTarget>();
+        for (const t of targets) {
+            if (t.id) targetMap.set(t.id, t);
         }
 
-        const addEdge = (from: string, to: string, kind: 'internal' | 'external', weight = 1) => {
-            const key = `${from}->${to}`;
-            const current = edges.get(key);
-            if (current) {
-                current.strength += weight;
-            } else {
-                edges.set(key, { from, to, strength: weight, kind });
-            }
-        };
-
-        // Pseudo UI node when the UI references tools
-        const uiNode: ExternalTarget = { id: 'ui', label: 'User Interface', category: 'other', packageNames: [], packagePrefixes: [], source: 'default' };
+        const fileMap = new Map<string, DependencyInfo>(dependencies.map(d => [d.filePath, d]));
+        const fileToolMap = new Map<string, Set<string>>();
+        const localImports = new Map<string, string[]>();
 
         for (const dep of dependencies) {
-            const fileTools = new Set<string>();
-
+            const tools = new Set<string>();
             for (const imp of dep.imports) {
                 const tool = this.matchToolFromImport(imp, targets);
-                if (!tool) continue;
-                const state = ensureNode(tool, 'code');
-                state.files.add(dep.filePath);
-                state.packages.add(imp);
-                fileTools.add(tool.id);
-            }
-
-            if (fileTools.size === 0) continue;
-
-            // UI edges
-            if (this.isUIFile(dep.filePath)) {
-                ensureNode(uiNode, 'code');
-                for (const toolId of fileTools) {
-                    addEdge(uiNode.id, toolId, 'internal', 1);
+                if (tool) {
+                    tools.add(tool.id);
+                } else {
+                    const resolved = this.resolveImportToFile(imp, dep.filePath, fileMap);
+                    if (resolved) {
+                        if (!localImports.has(dep.filePath)) localImports.set(dep.filePath, []);
+                        localImports.get(dep.filePath)!.push(resolved);
+                    }
                 }
             }
+            fileToolMap.set(dep.filePath, tools);
+            if (!localImports.has(dep.filePath)) localImports.set(dep.filePath, []);
+        }
 
-            // Tool-to-tool co-usage edges
-            const toolArray = Array.from(fileTools);
+        // Propagate tool tags through relative imports so wrapper files still carry the tool identity
+        let changed = true;
+        while (changed) {
+            changed = false;
+            for (const [filePath, imports] of localImports.entries()) {
+                const fileTools = fileToolMap.get(filePath) ?? new Set<string>();
+                for (const targetFile of imports) {
+                    const targetTools = fileToolMap.get(targetFile);
+                    if (!targetTools || targetTools.size === 0) continue;
+                    for (const toolId of targetTools) {
+                        if (!fileTools.has(toolId)) {
+                            fileTools.add(toolId);
+                            changed = true;
+                        }
+                    }
+                }
+                fileToolMap.set(filePath, fileTools);
+            }
+        }
+
+        const toolUsage = new Map<string, Set<string>>();
+        const edges = new Map<string, HighLevelEdge>();
+        const addEdge = (a: string, b: string) => {
+            if (a === b) return;
+            const [from, to] = a < b ? [a, b] : [b, a];
+            const key = `${from}->${to}`;
+            const existing = edges.get(key);
+            if (existing) {
+                existing.strength += 1;
+            } else {
+                edges.set(key, { from, to, strength: 1, kind: 'internal' });
+            }
+        };
+
+        for (const [filePath, tools] of fileToolMap.entries()) {
+            if (!tools || tools.size === 0) continue;
+            for (const toolId of tools) {
+                if (!toolUsage.has(toolId)) toolUsage.set(toolId, new Set());
+                toolUsage.get(toolId)!.add(filePath);
+            }
+
+            const toolArray = Array.from(tools);
             for (let i = 0; i < toolArray.length; i++) {
                 for (let j = i + 1; j < toolArray.length; j++) {
-                    const a = toolArray[i];
-                    const b = toolArray[j];
-                    const [from, to] = a < b ? [a, b] : [b, a];
-                    addEdge(from, to, 'internal', 1);
+                    addEdge(toolArray[i], toolArray[j]);
                 }
             }
         }
 
-        // Convert nodes
-        const nodes: HighLevelNode[] = Array.from(nodeState.values()).map(state => {
-            const isUI = state.def.id === 'ui';
-            const isExternal = !isUI;
-            const filesList = Array.from(state.files);
-            const packages = Array.from(state.packages);
-            const manifestOnly = state.source === 'manifest' && state.files.size === 0;
-
-            return {
-                id: state.def.id,
-                label: state.def.label,
-                category: state.def.category,
-                type: isExternal ? 'external' : 'internal',
-                fileCount: state.files.size,
-                files: filesList.slice(0, 30),
-                packages: packages.slice(0, 20),
-                role: state.def.category,
-                source: state.source,
-                manifestOnly
-            };
-        });
-
-        // Select initial top nodes to keep the first view clean
-        const nodeScores = new Map<string, number>();
-        const edgesByNode = new Map<string, HighLevelEdge[]>();
-        for (const edge of edges.values()) {
-            if (!edgesByNode.has(edge.from)) edgesByNode.set(edge.from, []);
-            if (!edgesByNode.has(edge.to)) edgesByNode.set(edge.to, []);
-            edgesByNode.get(edge.from)!.push(edge);
-            edgesByNode.get(edge.to)!.push(edge);
-        }
-        for (const node of nodes) {
-            const degree = (edgesByNode.get(node.id) || []).reduce((sum, e) => sum + e.strength, 0);
-            const score = (node.fileCount || 0) + degree;
-            nodeScores.set(node.id, score);
+        const nodes: HighLevelNode[] = [];
+        for (const [toolId, files] of toolUsage.entries()) {
+            const def = targetMap.get(toolId);
+            if (!def) continue;
+            nodes.push({
+                id: toolId,
+                label: def.label,
+                category: def.category,
+                type: 'external',
+                fileCount: files.size,
+                files: Array.from(files).slice(0, 50),
+                packages: (def.packageNames || []).slice(0, 20),
+                role: def.category,
+                source: 'code'
+            });
         }
 
-        const limit = 12;
-        const uiNodeId = 'ui';
-        const sortedNodes = [...nodes].sort((a, b) => (nodeScores.get(b.id) || 0) - (nodeScores.get(a.id) || 0));
-        const selectedIds = new Set<string>();
-        for (const n of sortedNodes) {
-            if (selectedIds.size >= limit) break;
-            selectedIds.add(n.id);
-        }
-        if (!selectedIds.has(uiNodeId) && nodes.find(n => n.id === uiNodeId)) {
-            selectedIds.add(uiNodeId);
-        }
-
-        const MIN_INITIAL_EDGE_STRENGTH = 2;
-        const filteredEdges = Array.from(edges.values()).filter(e => selectedIds.has(e.from) && selectedIds.has(e.to) && e.strength >= MIN_INITIAL_EDGE_STRENGTH);
-        const filteredNodes = nodes.filter(n => selectedIds.has(n.id));
-
-        const finalNodes = filteredNodes.length ? filteredNodes : nodes;
-        const finalEdges = filteredEdges.length ? filteredEdges : Array.from(edges.values());
-
+        const fullEdges = Array.from(edges.values());
         return {
-            nodes: finalNodes,
-            edges: finalEdges,
+            nodes,
+            edges: fullEdges,
             fullNodes: nodes,
-            fullEdges: Array.from(edges.values()),
+            fullEdges,
             groupMappings: { componentToGroup: {}, vendorToGroup: {} }
         };
     }
