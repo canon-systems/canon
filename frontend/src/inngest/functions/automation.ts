@@ -41,7 +41,7 @@ export const checkAndRunAutomations = inngest.createFunction(
     retries: 3,
   },
   {
-    cron: "*/5 * * * *", // Run every 5 minutes for responsive automation
+    cron: "*/5 * * * *", // Run every 5 minutes for responsive automation 
   },
   async ({ event, step }) => {
     console.log(`🎯 [SMART] Starting smart summary management cycle at ${new Date().toISOString()}`);
@@ -99,6 +99,7 @@ export const checkAndRunAutomations = inngest.createFunction(
           repo,
           rule,
           userId: rule.workspace_id,
+          triggerType: 'scheduled',
         });
 
         // Update last run status
