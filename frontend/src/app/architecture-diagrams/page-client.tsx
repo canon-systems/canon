@@ -58,6 +58,8 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
     const [successMsg, setSuccessMsg] = useState('');
     const [hasGitHubConnection, setHasGitHubConnection] = useState(false);
     const [checkingGitHub, setCheckingGitHub] = useState(true);
+    const [existingDiagram, setExistingDiagram] = useState<{ id: string; title: string; created_at: string } | null>(null);
+    const [forceCreate, setForceCreate] = useState(false);
 
     // Diagrams state
     const [diagrams, setDiagrams] = useState<ArchitectureDiagram[]>([]);
@@ -180,6 +182,50 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
         loadDiagrams();
     }, [supabase]);
 
+    // Check for existing diagram when repo is selected
+    useEffect(() => {
+        async function checkExistingDiagram() {
+            if (!selectedRepoId) {
+                setExistingDiagram(null);
+                setForceCreate(false);
+                return;
+            }
+
+            try {
+                const { data, error } = await supabase
+                    .from('diagrams')
+                    .select('id, title, created_at')
+                    .eq('repo_id', selectedRepoId)
+                    .eq('diagram_type', 'architecture')
+                    .single();
+
+                if (error && error.code !== 'PGRST116') { // PGRST116 is "not found"
+                    console.error('Error checking for existing diagram:', error);
+                    return;
+                }
+
+                if (data) {
+                    setExistingDiagram({
+                        id: data.id,
+                        title: data.title,
+                        created_at: data.created_at
+                    });
+                    // Reset forceCreate when switching repos
+                    setForceCreate(false);
+                } else {
+                    setExistingDiagram(null);
+                    setForceCreate(false);
+                }
+            } catch (err) {
+                console.error('Failed to check for existing diagram:', err);
+                setExistingDiagram(null);
+                setForceCreate(false);
+            }
+        }
+
+        checkExistingDiagram();
+    }, [selectedRepoId, supabase]);
+
     function formatDate(dateString: string) {
         return new Date(dateString).toLocaleDateString('en-US', {
             year: 'numeric',
@@ -241,7 +287,10 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
             const response = await fetch('/api/diagrams/generate', {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ repoId: selectedRepoId })
+                body: JSON.stringify({ 
+                    repoId: selectedRepoId,
+                    forceCreate: forceCreate
+                })
             });
 
             const data = await response.json();
@@ -250,7 +299,54 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
                 throw new Error(data.error || 'Failed to generate diagram');
             }
 
-            setSuccessMsg(`Architecture diagram generated successfully! Found ${data.components} components and ${data.relationships} relationships.`);
+            const action = data.isNew ? 'generated' : 'updated';
+            setSuccessMsg(`Architecture diagram ${action} successfully! Found ${data.components} components and ${data.relationships} relationships.`);
+
+            // Update existing diagram state if it was updated
+            if (!data.isNew && existingDiagram) {
+                setExistingDiagram({
+                    ...existingDiagram,
+                    id: data.diagramId
+                });
+            } else if (data.isNew) {
+                setExistingDiagram({
+                    id: data.diagramId,
+                    title: selectedRepo?.name || 'Architecture Diagram',
+                    created_at: new Date().toISOString()
+                });
+            }
+
+            // Reload diagrams list to show updated/new diagram
+            if (activeTab === 'view') {
+                const { data: updatedDiagrams, error } = await supabase
+                    .from('diagrams')
+                    .select(`
+                        id,
+                        title,
+                        created_at,
+                        repo_id,
+                        content,
+                        analysis_data,
+                        workspace_repos!inner(name, repo_url)
+                    `)
+                    .eq('diagram_type', 'architecture')
+                    .order('created_at', { ascending: false })
+                    .limit(10);
+
+                if (!error && updatedDiagrams) {
+                    const diagramsWithRepoInfo = updatedDiagrams.map((diagram: any) => ({
+                        id: diagram.id,
+                        title: diagram.title,
+                        created_at: diagram.created_at,
+                        repo_id: diagram.repo_id,
+                        repo_name: diagram.workspace_repos?.name || 'Unknown Repository',
+                        repo_url: diagram.workspace_repos?.repo_url || '',
+                        content: diagram.content,
+                        analysis_data: diagram.analysis_data
+                    }));
+                    setDiagrams(diagramsWithRepoInfo);
+                }
+            }
 
             // Redirect to view the diagram
             setTimeout(() => {
@@ -389,11 +485,69 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
                                         <Separator />
                                         <div className="space-y-4">
                                             <div>
-                                                <h3 className="text-base font-medium text-white">Generate Architecture Diagram</h3>
+                                                <h3 className="text-base font-medium text-white">
+                                                    {existingDiagram && !forceCreate ? 'Update Architecture Diagram' : 'Generate Architecture Diagram'}
+                                                </h3>
                                                 <p className="text-sm text-white/60">
-                                                    Analyze {selectedRepo?.name} and create a visual architecture diagram using Tree-sitter AST parsing.
+                                                    {existingDiagram && !forceCreate ? (
+                                                        <>
+                                                            Update the existing architecture diagram for {selectedRepo?.name} with the latest code analysis.
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            Analyze {selectedRepo?.name} and create a visual architecture diagram using Tree-sitter AST parsing.
+                                                        </>
+                                                    )}
                                                 </p>
                                             </div>
+
+                                            {/* Existing Diagram Info */}
+                                            {existingDiagram && !forceCreate && (
+                                                <Alert>
+                                                    <Info className="h-4 w-4" />
+                                                    <div>
+                                                        <AlertTitle>Existing Diagram Found</AlertTitle>
+                                                        <AlertDescription className="flex items-center justify-between">
+                                                            <span>
+                                                                A diagram already exists for this repository (created {formatDate(existingDiagram.created_at)}).
+                                                                It will be updated with the latest analysis.
+                                                            </span>
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                onClick={() => setForceCreate(true)}
+                                                                className="ml-4"
+                                                            >
+                                                                Create New Instead
+                                                            </Button>
+                                                        </AlertDescription>
+                                                    </div>
+                                                </Alert>
+                                            )}
+
+                                            {/* Force Create Option */}
+                                            {forceCreate && (
+                                                <Alert>
+                                                    <Info className="h-4 w-4" />
+                                                    <div>
+                                                        <AlertTitle>Creating New Diagram</AlertTitle>
+                                                        <AlertDescription className="flex items-center justify-between">
+                                                            <span>
+                                                                A new diagram will be created even though one already exists for this repository.
+                                                            </span>
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                onClick={() => setForceCreate(false)}
+                                                                className="ml-4"
+                                                            >
+                                                                Update Existing Instead
+                                                            </Button>
+                                                        </AlertDescription>
+                                                    </div>
+                                                </Alert>
+                                            )}
+
                                             <Button
                                                 onClick={generateDiagram}
                                                 disabled={generating}
@@ -402,12 +556,12 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
                                                 {generating ? (
                                                     <>
                                                         <Loader2 className="w-4 h-4 animate-spin" />
-                                                        Analyzing...
+                                                        {existingDiagram && !forceCreate ? 'Updating...' : 'Analyzing...'}
                                                     </>
                                                 ) : (
                                                     <>
                                                         <FileText className="w-4 h-4" />
-                                                        Generate Diagram
+                                                        {existingDiagram && !forceCreate ? 'Update Diagram' : 'Generate Diagram'}
                                                     </>
                                                 )}
                                             </Button>

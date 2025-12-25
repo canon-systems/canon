@@ -39,25 +39,6 @@ const COMPONENT_TYPE_LABELS: Record<ArchitectureComponent['type'], string> = {
     test: 'Tests'
 };
 
-const EXTERNAL_CATEGORY_LABELS: Record<ExternalCategory | 'other', string> = {
-    api: 'APIs & SDKs',
-    ai: 'AI & ML',
-    auth: 'Authentication',
-    cloud: 'Cloud Platform',
-    db: 'Datastores',
-    queue: 'Queues & Streaming',
-    search: 'Search & Vector',
-    observability: 'Monitoring',
-    orchestration: 'Orchestration',
-    storage: 'Storage',
-    messaging: 'Messaging',
-    email: 'Email',
-    payments: 'Payments',
-    cdn: 'CDN & Edge',
-    other: 'Other Tools'
-};
-
-
 export type ExternalCategory =
     | 'api'
     | 'ai'
@@ -89,11 +70,6 @@ export interface ExternalTarget {
     enabled?: boolean;
 }
 
-export interface ExternalRelationship {
-    from: string;
-    to: string;
-    strength: number;
-}
 
 export interface HighLevelNode {
     id: string;
@@ -122,8 +98,6 @@ export interface HighLevelEdge {
 export interface ArchitectureAnalysis {
     components: ArchitectureComponent[];
     relationships: Array<{ from: string, to: string, type: string, strength: number }>;
-    externalTargets?: ExternalTarget[];
-    externalRelationships?: ExternalRelationship[];
     highLevelNodes?: HighLevelNode[];
     highLevelEdges?: HighLevelEdge[];
     groupMappings?: {
@@ -222,19 +196,15 @@ export class TreeSitterAnalyzer {
         const dependencies = await this.extractDependencies(files);
         const components = this.clusterIntoComponents(dependencies);
         const registryTargets = await this.loadExternalRegistry(supabase);
-        const combinedExternalTargets = registryTargets;
         const relationships = this.buildRelationships(components, dependencies);
-        const externalRelationships = this.buildExternalRelationships(components, dependencies, combinedExternalTargets, []);
 
         // Tool-centric graph (focus on services/tools rather than component buckets)
-        const toolGraph = this.buildToolGraph(dependencies, combinedExternalTargets);
+        const toolGraph = this.buildToolGraph(dependencies, registryTargets);
         const mermaid = this.generateMermaidDiagram(toolGraph.nodes, toolGraph.edges);
 
         return {
             components,
             relationships,
-            externalTargets: combinedExternalTargets,
-            externalRelationships,
             highLevelNodes: toolGraph.nodes,
             highLevelEdges: toolGraph.edges,
             fullNodes: toolGraph.fullNodes,
@@ -2783,107 +2753,6 @@ export class TreeSitterAnalyzer {
         }
     }
 
-    private findVendorForImport(importPath: string, externalTargets: ExternalTarget[]): ExternalTarget | null {
-        // Skip relative/imports resolved locally
-        if (importPath.startsWith('.') || importPath.startsWith('/')) return null;
-
-        const normalizedImport = importPath.toLowerCase();
-
-        for (const target of externalTargets) {
-            const names = target.packageNames?.map(n => n.toLowerCase()) || [];
-            const prefixes = target.packagePrefixes?.map(p => p.toLowerCase()) || [];
-
-            const nameMatch = names.some(name =>
-                normalizedImport === name || normalizedImport.startsWith(`${name}/`)
-            );
-            const prefixMatch = prefixes.some(prefix =>
-                normalizedImport.startsWith(prefix)
-            );
-
-            if (nameMatch || prefixMatch) {
-                return target;
-            }
-        }
-
-        return null;
-    }
-
-    private buildExternalRelationships(
-        components: ArchitectureComponent[],
-        dependencies: DependencyInfo[],
-        externalTargets: ExternalTarget[],
-        unknownTargets: ExternalTarget[]
-    ): ExternalRelationship[] {
-        const targets = [...externalTargets, ...unknownTargets];
-        if (targets.length === 0) return [];
-
-        const depMap = new Map(dependencies.map(d => [d.filePath, d]));
-        const edges = new Map<string, ExternalRelationship>();
-
-        for (const component of components) {
-            for (const filePath of component.files) {
-                const info = depMap.get(filePath);
-                if (!info) continue;
-
-                for (const imp of info.imports) {
-                    const vendor = this.findVendorForImport(imp, targets);
-                    if (!vendor) continue;
-
-                    const key = `${component.id}->${vendor.id}`;
-                    const current = edges.get(key) || { from: component.id, to: vendor.id, strength: 0 };
-                    current.strength += 1;
-                    edges.set(key, current);
-                }
-            }
-        }
-
-        return Array.from(edges.values()).sort((a, b) => b.strength - a.strength);
-    }
-
-    private buildHighLevelGraph(
-        components: ArchitectureComponent[],
-        relationships: Array<{ from: string, to: string, type: string, strength: number }>,
-        externalTargets: ExternalTarget[],
-        externalRelationships: ExternalRelationship[]
-    ): { nodes: HighLevelNode[], edges: HighLevelEdge[], componentToGroup: Map<string, string>, targetToGroup: Map<string, string> } {
-        const internalGroups = this.groupInternalComponents(components);
-        const externalGroups = this.groupExternalTargets(externalTargets);
-        const edgeMap = new Map<string, HighLevelEdge>();
-
-        const addEdge = (from: string, to: string, strength: number, kind: 'internal' | 'external') => {
-            if (!from || !to || from === to) return;
-            const key = `${from}->${to}`;
-            const existing = edgeMap.get(key);
-            if (existing) {
-                existing.strength += strength;
-            } else {
-                edgeMap.set(key, { from, to, strength, kind });
-            }
-        };
-
-        for (const rel of relationships) {
-            const fromGroup = internalGroups.componentToGroup.get(rel.from);
-            const toGroup = internalGroups.componentToGroup.get(rel.to);
-            if (fromGroup && toGroup && fromGroup !== toGroup) {
-                addEdge(fromGroup, toGroup, rel.strength, 'internal');
-            }
-        }
-
-        for (const rel of externalRelationships) {
-            const fromGroup = internalGroups.componentToGroup.get(rel.from);
-            const toGroup = externalGroups.targetToGroup.get(rel.to);
-            if (fromGroup && toGroup) {
-                addEdge(fromGroup, toGroup, rel.strength, 'external');
-            }
-        }
-
-        return {
-            nodes: [...internalGroups.nodes, ...externalGroups.nodes],
-            edges: Array.from(edgeMap.values()),
-            componentToGroup: internalGroups.componentToGroup,
-            targetToGroup: externalGroups.targetToGroup
-        };
-    }
 
     private isUIFile(filePath: string): boolean {
         const lower = filePath.toLowerCase();
@@ -3055,47 +2924,6 @@ export class TreeSitterAnalyzer {
         };
     }
 
-    private groupExternalTargets(externalTargets: ExternalTarget[]): { nodes: HighLevelNode[], targetToGroup: Map<string, string> } {
-        const groups = new Map<string, HighLevelNode>();
-        const targetToGroup = new Map<string, string>();
-
-        for (const target of externalTargets) {
-            const category = target.category || 'other';
-            const groupId = `ext_${category}`;
-
-            if (!groups.has(groupId)) {
-                groups.set(groupId, {
-                    id: groupId,
-                    label: '',
-                    type: 'external',
-                    category,
-                    vendorIds: [],
-                    vendorLabels: [],
-                    needsReview: false
-                });
-            }
-
-            const group = groups.get(groupId)!;
-            group.vendorIds!.push(target.id);
-            group.vendorLabels!.push(target.label);
-            group.needsReview = group.needsReview || Boolean(target.needsReview);
-
-            targetToGroup.set(target.id, groupId);
-        }
-
-        for (const group of groups.values()) {
-            const categoryLabel = this.formatExternalCategory(group.category as ExternalCategory);
-            const vendors = group.vendorLabels || [];
-            const summary = vendors.slice(0, 3).join(', ');
-            const remainder = vendors.length > 3 ? ` +${vendors.length - 3} more` : '';
-            group.label = summary ? `${categoryLabel}\n${summary}${remainder}` : categoryLabel;
-        }
-
-        return {
-            nodes: Array.from(groups.values()),
-            targetToGroup
-        };
-    }
 
     private generateMermaidDiagram(nodes: HighLevelNode[], edges: HighLevelEdge[]): string {
         // Flowchart top-to-bottom with horizontal lanes to avoid ultra-wide rows
@@ -3258,10 +3086,6 @@ export class TreeSitterAnalyzer {
         return COMPONENT_TYPE_LABELS[type] || 'Component';
     }
 
-    private formatExternalCategory(category?: ExternalCategory | string): string {
-        const key = (category as ExternalCategory) || 'other';
-        return EXTERNAL_CATEGORY_LABELS[key] || EXTERNAL_CATEGORY_LABELS.other;
-    }
 
     private escapeMermaidLabel(label: string): string {
         return label.replace(/"/g, '\'').replace(/\n/g, '<br/>');
