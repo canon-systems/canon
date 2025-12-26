@@ -322,7 +322,10 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           className="text-red-300 focus:bg-red-500/10"
-                          onClick={() => handleDeleteRepository(repo.id, repo.name)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteRepository(repo.id, repo.name);
+                          }}
                         >
                           <Trash2 className="mr-2 h-4 w-4" />
                           Disconnect
@@ -386,7 +389,10 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
                   <Button
                     variant="ghost"
                     className="text-red-300 hover:text-red-200"
-                    onClick={() => handleDeleteRepository(repo.id, repo.name)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteRepository(repo.id, repo.name);
+                    }}
                     disabled={deletingRepoId === repo.id}
                   >
                     <Trash2 className="h-4 w-4" />

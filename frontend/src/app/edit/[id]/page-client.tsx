@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Loader2, AlertCircle, CheckCircle2, RefreshCw, Clock, FileText, GitCompare, X, Send, ExternalLink, ChevronDown, Github, GitBranch, Search, Check } from 'lucide-react';
+import { Loader2, AlertCircle, CheckCircle2, RefreshCw, Clock, FileText, GitCompare, X, Send, ExternalLink, ChevronDown, Github, GitBranch, Search, Check, ArrowLeft } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { DocumentConfiguration } from '@/components/DocumentConfiguration';
 import type { DocumentStructureConfig } from '@/components/DocumentStructure';
@@ -743,6 +743,12 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
     <div className="min-h-screen px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto w-full max-w-none space-y-6">
         <header>
+          <Button variant="ghost" size="sm" asChild className="mb-4">
+            <Link href="/documentation?tab=edit">
+              <ArrowLeft className="w-4 h-4" />
+              Back to Documentation
+            </Link>
+          </Button>
           <div className="flex items-start justify-between gap-4 mb-4">
             <div className="flex-1">
               <h1 className="text-3xl font-bold text-white">Edit Documentation</h1>
@@ -1156,7 +1162,8 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                                 </span>
                               )}
                               <button
-                                onClick={() => {
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   const newFiles = trackedFiles.filter((_, i) => i !== idx);
                                   handleUpdateTrackedFiles(newFiles);
                                 }}

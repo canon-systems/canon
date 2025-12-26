@@ -1513,7 +1513,7 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
                                   <MoreVertical className="h-4 w-4" />
                                 </Button>
                               </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="border-white/10 bg-black/90">
+                              <DropdownMenuContent align="end" className="border-white/10 bg-black/90 z-[100]">
                                 <DropdownMenuItem asChild>
                                   <Link href={`/edit/${item.id}`} className="flex items-center gap-2">
                                     <FileText className="h-4 w-4" />
@@ -1529,7 +1529,8 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
                                   </DropdownMenuItem>
                                 )}
                                 <DropdownMenuItem
-                                  onClick={() => {
+                                  onClick={(e) => {
+                                    e.stopPropagation();
                                     setItemToDelete({ id: item.id, title: item.title });
                                     setShowDeleteModal(true);
                                   }}
