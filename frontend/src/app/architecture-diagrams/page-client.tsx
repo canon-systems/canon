@@ -199,7 +199,7 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
                     .eq('diagram_type', 'architecture')
                     .single();
 
-                if (error && error.code !== 'PGRST116') { // PGRST116 is "not found"
+                if (error && error.code && error.code !== 'PGRST116') { // PGRST116 is "not found"
                     console.error('Error checking for existing diagram:', error);
                     return;
                 }
@@ -289,7 +289,7 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
             const response = await fetch('/api/diagrams/generate', {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ 
+                body: JSON.stringify({
                     repoId: selectedRepoId,
                     forceCreate: forceCreate
                 })

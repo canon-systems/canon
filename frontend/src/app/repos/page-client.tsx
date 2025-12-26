@@ -29,7 +29,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { RepositoryConnectionWizard } from '@/components/RepositoryConnectionWizard';
@@ -408,6 +408,7 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
 
       <Dialog open={showConnectionWizard} onOpenChange={setShowConnectionWizard}>
         <DialogContent className="p-0">
+          <DialogTitle className="sr-only">Connect Repository</DialogTitle>
           <RepositoryConnectionWizard
             onComplete={handleConnectionComplete}
             onCancel={() => setShowConnectionWizard(false)}
