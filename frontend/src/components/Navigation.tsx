@@ -12,6 +12,7 @@ import {
   Layers3,
   LogOut,
   Menu,
+  ScrollText,
   Settings,
   Sparkles,
   Zap,
@@ -41,6 +42,7 @@ const primaryNav: NavItem[] = [
   { href: '/documentation', label: 'Docs', icon: FileText },
   { href: '/architecture-diagrams', label: 'Architecture', icon: Layers3 },
   { href: '/automation', label: 'Automation', icon: Zap },
+  { href: '/logs', label: 'Logs', icon: ScrollText },
 ];
 
 const secondaryNav: NavItem[] = [

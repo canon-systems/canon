@@ -1246,10 +1246,10 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
                             )}
                             {pickerFiles.length > 0 && (
                               <>
-                                <Button variant="secondary" onClick={selectAll} className="text-sm">
+                                <Button type="button" variant="secondary" onClick={selectAll} className="text-sm">
                                   Select all{fileSearchQuery ? ` (${filteredFiles.length})` : ''}
                                 </Button>
-                                <Button variant="secondary" onClick={clearAll} className="text-sm">
+                                <Button type="button" variant="secondary" onClick={clearAll} className="text-sm">
                                   Clear{fileSearchQuery ? ` (${filteredFiles.length})` : ''}
                                 </Button>
                               </>
