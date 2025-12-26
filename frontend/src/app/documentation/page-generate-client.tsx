@@ -948,9 +948,11 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
     setDeletingId(id);
     setDeleteError(null);
     try {
-      const { error } = await supabase.from('documents').delete().eq('id', id);
-
-      if (error) throw error;
+      const response = await fetch(`/api/docs/${id}`, { method: 'DELETE' });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to delete document');
+      }
 
       await loadEditItems();
       setShowDeleteModal(false);

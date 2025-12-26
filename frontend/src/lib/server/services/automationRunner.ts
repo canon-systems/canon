@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { analyzeRepository } from './analyzeRepository';
 import { generateDocumentation } from './docGenerator';
+import { trackDocGenerated } from './usageTracking';
 import { LLMGateway } from './llmGateway';
 import { FileSummaryManager } from './fileSummaryManager';
 import { parseRepoUrl } from '../github/github';
@@ -449,6 +450,8 @@ export async function executeAutomationRule({
 					docsUpdated++;
 					const completionTimestamp = new Date().toISOString();
 					console.log(`[${completionTimestamp}]  ✅ Updated: ${docInfo.title}`);
+
+					await trackDocGenerated(supabase, userId, docId, repo.id, false);
 				}
 
 			} catch (error) {

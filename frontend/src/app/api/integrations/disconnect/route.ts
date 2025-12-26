@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
 import { NANGO_CONFIG } from '@/lib/server/nango/config';
+import { trackIntegrationDisconnected } from '@/lib/server/services/usageTracking';
 
 export async function POST(request: NextRequest) {
   try {
@@ -69,8 +70,20 @@ export async function POST(request: NextRequest) {
       // Continue with database cleanup but log the issue
     }
 
-    // Remove from database
+    // Remove from database (and capture details for logging)
     const supabase = await createClient();
+
+    let providerForLog = provider;
+    if (!providerForLog && connectionId) {
+      const { data: existingConnection } = await supabase
+        .from('oauth_connections')
+        .select('provider')
+        .eq('user_id', user.id)
+        .eq('connection_id', connectionId)
+        .single();
+      providerForLog = existingConnection?.provider || providerForLog;
+    }
+
     let query = supabase
       .from('oauth_connections')
       .delete()
@@ -89,6 +102,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to disconnect' }, { status: 500 });
     }
 
+    try {
+      await trackIntegrationDisconnected(supabase, user.id, providerForLog || 'unknown', connectionId);
+    } catch (logError) {
+      console.warn('Failed to track integration disconnect:', logError);
+    }
+
     return NextResponse.json({ success: true });
   } catch (err: any) {
     console.error('Disconnect error:', err);
@@ -101,4 +120,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

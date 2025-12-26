@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
 import { NANGO_CONFIG } from '@/lib/server/nango/config';
+import { trackIntegrationConnected } from '@/lib/server/services/usageTracking';
 
 export async function POST(request: NextRequest) {
   try {
@@ -67,6 +68,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to store connection' }, { status: 500 });
     }
 
+    await trackIntegrationConnected(supabase, user.id, internalProvider, connectionId);
+
     return NextResponse.json({
       success: true,
       connectionId,
@@ -83,4 +86,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

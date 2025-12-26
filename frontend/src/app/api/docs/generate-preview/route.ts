@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
 import { generateDocumentation } from '@/lib/server/services/docGenerator';
+import { trackDocGenerated } from '@/lib/server/services/usageTracking';
 import type { PromptConfig } from '@/lib/server/prompts/buildSystemPrompt';
 import { prepareFileSummaries } from '@/lib/server/services/prepareSummaries';
 import { getDocument } from '@/lib/server/services/documentService';
@@ -103,6 +104,10 @@ export async function POST(request: NextRequest) {
             useSummaries: true, // Always use summaries for previews
             submissionId,
         });
+
+        if (user?.id) {
+            await trackDocGenerated(supabase, user.id, submissionId, document.repo_id, false);
+        }
 
         // Analyze significance of changes
         const significanceAnalysis = await analyzeSignificance(

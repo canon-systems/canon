@@ -253,12 +253,14 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
         try {
             setDeletingDiagramId(diagramId);
 
-            const { error } = await supabase
-                .from('diagrams')
-                .delete()
-                .eq('id', diagramId);
+            const response = await fetch(`/api/diagrams/${diagramId}`, {
+                method: 'DELETE',
+            });
 
-            if (error) throw error;
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.error || 'Failed to delete diagram');
+            }
 
             setDiagrams(diagrams.filter(d => d.id !== diagramId));
             setShowDeleteModal(false);

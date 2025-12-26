@@ -12,7 +12,17 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
 interface LogEntry {
   id: string;
-  type: 'document' | 'document_error' | 'document_regenerated' | 'automation_execution' | 'repo_connection';
+  type:
+    | 'document'
+    | 'document_error'
+    | 'document_regenerated'
+    | 'document_deleted'
+    | 'automation_execution'
+    | 'repo_connection'
+    | 'integration_connection'
+    | 'integration_disconnected'
+    | 'diagram'
+    | 'kb_push';
   timestamp: string;
   title: string;
   message: string;
@@ -28,19 +38,31 @@ interface LogEntry {
     changeSummary?: string;
     automationRuleId?: string;
     isAutomation?: boolean;
+    provider?: string;
   };
 }
 
 interface LogsData {
   entries: LogEntry[];
   errors: {
-    documents?: string;
+    usageEvents?: string;
   };
 }
 
 type TimeFilter = '24h' | '3d' | '7d' | '14d' | '30d' | '90d' | '180d' | '1y' | 'all';
 type StatusFilter = 'all' | 'completed' | 'processing' | 'failed';
-type TypeFilter = 'all' | 'document' | 'document_error' | 'document_regenerated' | 'automation_execution' | 'repo_connection';
+type TypeFilter =
+  | 'all'
+  | 'document'
+  | 'document_error'
+  | 'document_regenerated'
+  | 'document_deleted'
+  | 'automation_execution'
+  | 'repo_connection'
+  | 'integration_connection'
+  | 'integration_disconnected'
+  | 'diagram'
+  | 'kb_push';
 
 interface Repo {
   id: string;
@@ -267,10 +289,20 @@ export function LogsPageClient({ user, logs, repos = [] }: LogsPageClientProps) 
         return AlertCircle;
       case 'document_regenerated':
         return RefreshCw;
+      case 'document_deleted':
+        return XCircle;
       case 'automation_execution':
         return Zap;
       case 'repo_connection':
         return Github;
+      case 'integration_connection':
+        return LinkIcon;
+      case 'integration_disconnected':
+        return XCircle;
+      case 'diagram':
+        return Layers3;
+      case 'kb_push':
+        return ScrollText;
       default:
         return FileText;
     }
@@ -286,8 +318,18 @@ export function LogsPageClient({ user, logs, repos = [] }: LogsPageClientProps) 
         return 'bg-red-500/20 text-red-400';
       case 'document_regenerated':
         return 'bg-gradient-to-br from-purple-500/30 to-pink-500/30 text-purple-200 border border-purple-500/50';
+      case 'document_deleted':
+        return 'bg-red-500/20 text-red-200';
       case 'repo_connection':
         return 'bg-indigo-500/20 text-indigo-400';
+      case 'integration_connection':
+        return 'bg-emerald-500/20 text-emerald-300';
+      case 'integration_disconnected':
+        return 'bg-amber-500/20 text-amber-300';
+      case 'diagram':
+        return 'bg-sky-500/20 text-sky-300';
+      case 'kb_push':
+        return 'bg-cyan-500/20 text-cyan-300';
       default:
         return 'bg-gray-500/20 text-gray-400';
     }
@@ -380,19 +422,24 @@ export function LogsPageClient({ user, logs, repos = [] }: LogsPageClientProps) 
                 <SelectItem value="document">Document</SelectItem>
                 <SelectItem value="document_error">Document Error</SelectItem>
                 <SelectItem value="document_regenerated">Regenerated</SelectItem>
+                <SelectItem value="document_deleted">Deleted</SelectItem>
                 <SelectItem value="repo_connection">Repository Connection</SelectItem>
+                <SelectItem value="integration_connection">Integration Connected</SelectItem>
+                <SelectItem value="integration_disconnected">Integration Disconnected</SelectItem>
+                <SelectItem value="diagram">Diagram</SelectItem>
+                <SelectItem value="kb_push">KB Push</SelectItem>
               </SelectContent>
             </Select>
           </div>
           {/* Error Display (if any) */}
-          {logs.errors.documents && (
+          {logs.errors.usageEvents && (
             <Card className="border-red-500/20 bg-red-500/10">
               <CardContent className="p-4">
                 <p className="text-red-400 text-sm font-medium mb-2">
                   Some logs could not be loaded:
                 </p>
                 <ul className="text-red-300 text-xs space-y-1">
-                  <li>• Documents: {logs.errors.documents}</li>
+                  <li>• Usage events: {logs.errors.usageEvents}</li>
                 </ul>
               </CardContent>
             </Card>
@@ -677,4 +724,3 @@ export function LogsPageClient({ user, logs, repos = [] }: LogsPageClientProps) 
     </div>
   );
 }
-

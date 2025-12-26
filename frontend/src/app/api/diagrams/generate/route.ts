@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
 import { TreeSitterAnalyzer } from '@/lib/server/services/treeSitterAnalyzer';
+import { trackArchitectureDiagram } from '@/lib/server/services/usageTracking';
 
 export async function POST(request: NextRequest) {
     try {
@@ -163,6 +164,18 @@ export async function POST(request: NextRequest) {
             diagram = inserted;
             isNew = true;
         }
+
+        await trackArchitectureDiagram(
+            supabase,
+            user.id,
+            repoId,
+            diagram.id,
+            isNew,
+            architectureAnalysis.components.length,
+            architectureAnalysis.relationships.length,
+            repo.repo_url,
+            repoSetup?.branch || repo.default_branch
+        );
 
         return NextResponse.json({
             success: true,

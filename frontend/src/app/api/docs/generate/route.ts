@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
 import { generateDocumentation } from '@/lib/server/services/docGenerator';
+import { trackDocGenerated } from '@/lib/server/services/usageTracking';
 import type { PromptConfig } from '@/lib/server/prompts/buildSystemPrompt';
 import { prepareFileSummaries } from '@/lib/server/services/prepareSummaries';
 
@@ -83,6 +84,10 @@ export async function POST(request: NextRequest) {
       submissionId: submissionId || undefined,
     });
 
+    if (user?.id) {
+      await trackDocGenerated(supabase, user.id, submissionId || null, null, false);
+    }
+
     return NextResponse.json({ markdown: result.markdown }, { status: 200 });
   } catch (err: any) {
     console.error('Generate doc error:', err);
@@ -95,4 +100,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-
