@@ -188,7 +188,7 @@ export async function executeAutomationRule({
 				filesToProcess,
 				{
 					force: false,
-					batchSize: 5,
+					batchSize: 20,
 					onProgress: (progress) => {
 						console.log(`📊 Summary generation progress: ${progress.processed}/${progress.total} files processed`);
 						if (progress.currentFile) {
