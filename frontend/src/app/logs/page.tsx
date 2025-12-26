@@ -26,6 +26,14 @@ export default async function LogsPage() {
     .order('created_at', { ascending: false })
     .limit(200);
 
+  // Get automation runs
+  const { data: automationRuns, error: automationError } = await supabase
+    .from('automation_runs')
+    .select('id, repo_id, rule_id, executed_at, trigger_type, success, skipped, skip_reason, actions, doc_id, errors')
+    .eq('workspace_id', user.id)
+    .order('executed_at', { ascending: false })
+    .limit(100);
+
 
   // Build activity log entries
   const logEntries: Array<{
@@ -183,6 +191,28 @@ export default async function LogsPage() {
 
   logEntries.push(...entriesFromEvents);
 
+  // Add automation runs
+  const entriesFromRuns = (automationRuns || []).map(run => {
+    const repo = run.repo_id ? repoMap.get(run.repo_id) : null;
+    const repoName = repo?.name || undefined;
+
+    return {
+      id: run.id,
+      type: 'automation_execution' as const,
+      timestamp: run.executed_at,
+      title: repoName ? `Automation run: ${repoName}` : 'Automation run',
+      message: run.rule_id ? `Rule ${run.rule_id}` : 'Automation executed',
+      status: run.success ? 'completed' : run.skipped ? 'processing' : 'failed',
+      link: run.doc_id ? `/edit/${run.doc_id}` : '/automation',
+      metadata: {
+        repoUrl: repo?.repo_url,
+        branch: repo?.default_branch,
+      },
+    };
+  }) as typeof logEntries;
+
+  logEntries.push(...entriesFromRuns);
+
 
   // Sort by timestamp (most recent first)
   logEntries.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
@@ -203,12 +233,18 @@ export default async function LogsPage() {
   if (eventsError && !isTableNotFoundError(eventsError)) {
     console.error('Logs page - usage_events error:', eventsError);
   }
+  if (automationError && !isTableNotFoundError(automationError)) {
+    console.error('Logs page - automation_runs error:', automationError);
+  }
 
   const logs = {
     entries: logEntries.slice(0, 100), // Limit to 100 most recent
     errors: {
       usageEvents: eventsError && !isTableNotFoundError(eventsError)
         ? (eventsError.message || eventsError.code)
+        : undefined,
+      automationRuns: automationError && !isTableNotFoundError(automationError)
+        ? (automationError.message || automationError.code)
         : undefined,
     },
   };
