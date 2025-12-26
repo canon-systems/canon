@@ -31,8 +31,7 @@ interface ArchitectureDiagram {
     repo_url: string;
     content: string;
     analysis_data: {
-        components: any[];
-        relationships: any[];
+        [key: string]: any;
     };
 }
 
@@ -302,7 +301,7 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
             }
 
             const action = data.isNew ? 'generated' : 'updated';
-            setSuccessMsg(`Architecture diagram ${action} successfully! Found ${data.components} components and ${data.relationships} relationships.`);
+            setSuccessMsg(`Architecture diagram ${action} successfully!`);
 
             // Update existing diagram state if it was updated
             if (!data.isNew && existingDiagram) {
@@ -645,13 +644,6 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
                                                                 <div className="flex items-center gap-1">
                                                                     <Calendar className="w-4 h-4" />
                                                                     <span>{formatDate(diagram.created_at)}</span>
-                                                                </div>
-                                                                <div className="flex items-center gap-1">
-                                                                    <FileText className="w-4 h-4" />
-                                                                    <span>
-                                                                        {diagram.analysis_data?.components?.length || 0} components,
-                                                                        {' '}{diagram.analysis_data?.relationships?.length || 0} relationships
-                                                                    </span>
                                                                 </div>
                                                             </div>
 

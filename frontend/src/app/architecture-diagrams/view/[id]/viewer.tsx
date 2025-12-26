@@ -128,9 +128,6 @@ function buildMermaid(nodes: any[], edges: any[]): string {
 
 // Fallback diagram generator for when Mermaid fails
 function generateFallbackDiagram(mermaidContent: string, analysisData?: any): string {
-    const components = analysisData?.components || [];
-    const relationships = analysisData?.relationships || [];
-
     // Parse basic component info from Mermaid content
     const componentLines = mermaidContent.split('\n').filter(line =>
         line.trim() && !line.includes('graph TD') && !line.includes('graph LR') && !line.includes('-->')
@@ -152,7 +149,7 @@ function generateFallbackDiagram(mermaidContent: string, analysisData?: any): st
             Architecture Diagram (Fallback)
         </text>
         <text x="50%" y="50" text-anchor="middle" fill="#94a3b8" font-family="Arial" font-size="12">
-            ${components.length} components, ${relationships.length} relationships
+            Mermaid rendering failed
         </text>`;
 
     // Draw components
@@ -176,18 +173,6 @@ function generateFallbackDiagram(mermaidContent: string, analysisData?: any): st
             ${componentName.length > 15 ? componentName.substring(0, 12) + '...' : componentName}
         </text>`;
     });
-
-    // Draw basic relationship lines (simplified)
-    if (relationships.length > 0 && componentLines.length >= 2) {
-        for (let i = 0; i < Math.min(relationships.length, 3); i++) {
-            const startX = 150 + (i % 3) * 200;
-            const startY = 100 + Math.floor(i / 3) * 120 + 20;
-            const endX = 150 + ((i + 1) % 3) * 200;
-            const endY = 100 + Math.floor((i + 1) / 3) * 120 - 20;
-
-            svg += `<line x1="${startX}" y1="${startY}" x2="${endX}" y2="${endY}" stroke="#94a3b8" stroke-width="2" marker-end="url(#arrowhead)"/>`;
-        }
-    }
 
     svg += `
         <!-- Footer message -->
@@ -566,10 +551,6 @@ export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagram
                                 <CardHeader>
                                     <div className="flex items-center justify-between">
                                         <CardTitle className="text-lg font-semibold text-white">Architecture Overview</CardTitle>
-                                        <div className="text-sm text-white/60">
-                                            {diagram.analysis_data?.components?.length || 0} components •
-                                            {diagram.analysis_data?.relationships?.length || 0} relationships
-                                        </div>
                                     </div>
                                 </CardHeader>
                                 <CardContent>

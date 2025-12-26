@@ -171,8 +171,6 @@ export async function POST(request: NextRequest) {
             repoId,
             diagram.id,
             isNew,
-            architectureAnalysis.components.length,
-            architectureAnalysis.relationships.length,
             repo.repo_url,
             repoSetup?.branch || repo.default_branch
         );
@@ -181,8 +179,6 @@ export async function POST(request: NextRequest) {
             success: true,
             diagramId: diagram.id,
             diagram: architectureAnalysis.mermaid,
-            components: architectureAnalysis.components.length,
-            relationships: architectureAnalysis.relationships.length,
             isNew
         });
 

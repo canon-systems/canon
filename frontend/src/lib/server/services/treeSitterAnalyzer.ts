@@ -96,8 +96,6 @@ export interface HighLevelEdge {
 }
 
 export interface ArchitectureAnalysis {
-    components: ArchitectureComponent[];
-    relationships: Array<{ from: string, to: string, type: string, strength: number }>;
     highLevelNodes?: HighLevelNode[];
     highLevelEdges?: HighLevelEdge[];
     groupMappings?: {
@@ -194,17 +192,13 @@ export class TreeSitterAnalyzer {
         await this.initialize();
 
         const dependencies = await this.extractDependencies(files);
-        const components = this.clusterIntoComponents(dependencies);
         const registryTargets = await this.loadExternalRegistry(supabase);
-        const relationships = this.buildRelationships(components, dependencies);
 
         // Tool-centric graph (focus on services/tools rather than component buckets)
         const toolGraph = this.buildToolGraph(dependencies, registryTargets);
         const mermaid = this.generateMermaidDiagram(toolGraph.nodes, toolGraph.edges);
 
         return {
-            components,
-            relationships,
             highLevelNodes: toolGraph.nodes,
             highLevelEdges: toolGraph.edges,
             fullNodes: toolGraph.fullNodes,

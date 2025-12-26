@@ -74,8 +74,6 @@ export async function trackArchitectureDiagram(
 	repoId: string,
 	diagramId: string,
 	isNew: boolean,
-	componentsCount?: number,
-	relationshipsCount?: number,
 	repoUrl?: string | null,
 	branch?: string | null
 ) {
@@ -86,8 +84,6 @@ export async function trackArchitectureDiagram(
 		repo_url: repoUrl,
 		diagram_id: diagramId,
 		is_new: isNew,
-		components_count: componentsCount,
-		relationships_count: relationshipsCount,
 		branch,
 	});
 }
