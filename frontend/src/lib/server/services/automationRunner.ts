@@ -1,10 +1,83 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { analyzeRepository } from './analyzeRepository';
 import { generateDocumentation } from './docGenerator';
-import { trackDocGenerated } from './usageTracking';
+import { trackArchitectureDiagram, trackDocGenerated, trackPushToKb } from './usageTracking';
 import { LLMGateway } from './llmGateway';
 import { FileSummaryManager } from './fileSummaryManager';
 import { parseRepoUrl } from '../github/github';
+import { TreeSitterAnalyzer } from './treeSitterAnalyzer';
+import { getWorkspaceProvider } from '../workspaces/workspaceFactory';
+import type { WorkspaceInfo } from '../workspaces/base';
+
+const ARCHITECTURE_SUPPORTED_EXTENSIONS = new Set([
+	'js',
+	'ts',
+	'tsx',
+	'jsx',
+	'py',
+	'java',
+	'go',
+	'rs',
+	'cpp',
+	'c',
+	'cs',
+	'php',
+	'rb',
+]);
+
+const ARCHITECTURE_MANIFEST_SUFFIXES = [
+	'package.json',
+	'requirements.txt',
+	'pipfile',
+	'pyproject.toml',
+	'go.mod',
+	'cargo.toml',
+	'pom.xml',
+	'build.gradle',
+	'build.gradle.kts',
+	'composer.json',
+	'gemfile',
+	'gemfile.lock',
+	'.csproj',
+	'package.swift',
+];
+
+function isArchitectureCodeFile(filePath: string): boolean {
+	const ext = filePath.split('.').pop()?.toLowerCase();
+	return Boolean(ext && ARCHITECTURE_SUPPORTED_EXTENSIONS.has(ext));
+}
+
+function isManifestFile(filePath: string): boolean {
+	const lower = filePath.toLowerCase();
+	return ARCHITECTURE_MANIFEST_SUFFIXES.some(suffix => lower.endsWith(suffix));
+}
+
+async function getProviderConnectionId(
+	supabase: SupabaseClient,
+	workspaceId: string,
+	provider: string,
+	desiredConnectionId?: string | null
+): Promise<string | null> {
+	let query = supabase
+		.from('oauth_connections')
+		.select('connection_id, status')
+		.eq('user_id', workspaceId)
+		.eq('provider', provider)
+		.eq('status', 'active')
+		.limit(1);
+
+	if (desiredConnectionId) {
+		query = query.eq('connection_id', desiredConnectionId);
+	}
+
+	const { data, error } = await query.maybeSingle();
+	if (error) {
+		console.error(`❌ [PUBLISH] Failed to load connection for ${provider}:`, error);
+		return null;
+	}
+
+	return data?.connection_id || null;
+}
 
 /**
  * Normalize repo URL to repo_id format: "github.com/owner/repo"
@@ -68,6 +141,21 @@ export async function executeAutomationRule({
 		documentsUpdated: 0,
 	};
 
+	const actionPreset = rule.action_preset || 'docs_only';
+	const targetDiagramTypes = Array.isArray(rule.target_diagrams) ? rule.target_diagrams.filter(Boolean) : [];
+	const shouldGenerateDiagrams =
+		rule.generate_diagram === true ||
+		targetDiagramTypes.length > 0 ||
+		actionPreset === 'diagrams_only' ||
+		actionPreset === 'docs_and_diagrams' ||
+		actionPreset === 'full_auto_publish';
+	const shouldGenerateDocs = actionPreset !== 'diagrams_only' && rule.generate_doc !== false;
+	const desiredDiagramTypes = targetDiagramTypes.length > 0 ? targetDiagramTypes : ['architecture'];
+	const generatedDiagrams: Array<{ id: string; type: string; title?: string; isNew?: boolean; updatedAt?: string }> = [];
+	let diagramGenerated = false;
+	const shouldAutoPublish = actionPreset === 'full_auto_publish' || rule.auto_publish === true;
+	const autoPublishTarget = rule.auto_publish_target || null;
+
 	try {
 		// 🔍 Pre-flight checks
 		try {
@@ -95,7 +183,7 @@ export async function executeAutomationRule({
 		// 🔍 Repository validation
 		const { data: repoSetup, error: setupError } = await supabase
 			.from('repository_setup')
-			.select('setup_status, last_analyzed')
+			.select('setup_status, last_analyzed, branch')
 			.eq('repo_id', repo.id)
 			.single();
 
@@ -122,6 +210,7 @@ export async function executeAutomationRule({
 		}
 
 		console.log(`✅ [CHECK] Repository ready for automation`);
+		const repoBranch = repoSetup?.branch || repo.default_branch;
 
 		const settings = repo.settings || {};
 		const subdir = settings.subdir || null;
@@ -141,7 +230,7 @@ export async function executeAutomationRule({
 			supabase,
 			userId,
 			repoUrl: repo.repo_url,
-			branch: repo.default_branch,
+			branch: repoBranch,
 			subdir: null,
 			filters: null,
 		});
@@ -179,7 +268,7 @@ export async function executeAutomationRule({
 			const summaryManager = new FileSummaryManager(
 				supabase,
 				normalizeRepoId(repo.repo_url),
-				repo.default_branch
+				repoBranch
 			);
 
 			console.log(`📊 Processing ${filesToProcess.length} files with FileSummaryManager...`);
@@ -215,9 +304,161 @@ export async function executeAutomationRule({
 		const summaryTime = ((Date.now() - summaryStartTime) / 1000).toFixed(1);
 		console.log(`⏱️ STEP 4 completed in ${summaryTime}s`);
 
-		// STEP 5: Regenerate affected documents based on files that were actually updated
+		// STEP 5: Regenerate architecture diagrams when configured
 		const updatedFiles = (summaryResult && filesToProcess.length > 0) ? summaryResult.updatedFiles : [];
-		console.log(`🔄 STEP 5: Regenerating documents based on ${updatedFiles.length} updated files...`);
+
+		if (shouldGenerateDiagrams && analysis.rawFiles) {
+			const wantsArchitecture = desiredDiagramTypes.includes('architecture');
+			if (wantsArchitecture) {
+				const architectureFiles = analysis.rawFiles.filter(file => isArchitectureCodeFile(file.path));
+				const manifestFiles = analysis.rawFiles.filter(file => isManifestFile(file.path));
+				const architectureChanges = updatedFiles.filter((path: string) => isArchitectureCodeFile(path));
+				let existingDiagram: { id: string; title?: string; updated_at?: string } | null = null;
+
+				if (architectureFiles.length === 0) {
+					console.log(`⚠️ [DIAGRAMS] No supported code files found for architecture analysis`);
+				} else {
+					const { data: existing, error: findError } = await supabase
+						.from('diagrams')
+						.select('id, title, updated_at')
+						.eq('repo_id', repo.id)
+						.eq('diagram_type', 'architecture')
+						.single();
+
+					if (!findError && existing) {
+						existingDiagram = existing;
+					}
+
+					const shouldRegenerateDiagram = architectureChanges.length > 0 || !existingDiagram;
+
+					if (shouldRegenerateDiagram) {
+						try {
+							const analyzer = new TreeSitterAnalyzer();
+							const architectureAnalysis = await analyzer.analyzeRepository(
+								supabase,
+								repo.id,
+								architectureFiles,
+								manifestFiles
+							);
+
+							let diagram;
+							let isNew = false;
+
+							if (existingDiagram) {
+								const { data: updatedDiagram, error: updateError } = await supabase
+									.from('diagrams')
+									.update({
+										title: `Architecture Diagram - ${repo.name}`,
+										content: architectureAnalysis.mermaid,
+										analysis_data: architectureAnalysis,
+										updated_at: new Date().toISOString(),
+									})
+									.eq('id', existingDiagram.id)
+									.select()
+									.single();
+
+								if (updateError) {
+									throw updateError;
+								}
+
+								diagram = updatedDiagram;
+							} else {
+								const { data: insertedDiagram, error: insertError } = await supabase
+									.from('diagrams')
+									.insert({
+										repo_id: repo.id,
+										title: `Architecture Diagram - ${repo.name}`,
+										diagram_type: 'architecture',
+										content: architectureAnalysis.mermaid,
+										analysis_data: architectureAnalysis,
+									})
+									.select()
+									.single();
+
+								if (insertError) {
+									throw insertError;
+								}
+
+								diagram = insertedDiagram;
+								isNew = true;
+							}
+
+							if (diagram) {
+								diagramGenerated = true;
+								result.diagramId = diagram.id;
+								result.actions.push('generate_architecture_diagram');
+								generatedDiagrams.push({
+									id: diagram.id,
+									type: 'architecture',
+									title: diagram.title,
+									isNew,
+									updatedAt: diagram.updated_at || new Date().toISOString(),
+								});
+
+								try {
+									await trackArchitectureDiagram(
+										supabase,
+										userId,
+										repo.id,
+										diagram.id,
+										isNew,
+										repo.repo_url,
+										repoBranch
+									);
+								} catch (trackingError) {
+									console.warn(`⚠️ [DIAGRAMS] Failed to track architecture diagram event:`, trackingError);
+								}
+
+								console.log(`✅ [DIAGRAMS] Architecture diagram ${isNew ? 'created' : 'updated'} (id: ${diagram.id})`);
+							}
+						} catch (diagramError: any) {
+							const message = diagramError?.message || 'Failed to generate architecture diagram';
+							console.error(`❌ [DIAGRAMS] ${message}`, diagramError);
+							result.errors.push(message);
+						}
+					} else {
+						console.log(`⏭️ [DIAGRAMS] No architecture code changes detected; skipping diagram regeneration`);
+					}
+				}
+			}
+		}
+
+		// If documents are not part of this rule, finalize early
+		if (!shouldGenerateDocs) {
+			result.filesProcessed = summaryResult?.processed || 0;
+			result.documentsUpdated = 0;
+			result.success = result.errors.length === 0;
+			if (!diagramGenerated) {
+				result.skipped = true;
+				result.skipReason = 'No architecture diagram changes detected';
+			}
+
+			await insertAutomationRun(supabase, {
+				repoId: repo.id,
+				ruleId: rule.rule_id || rule.id || ruleName,
+				workspaceId: userId,
+				triggerType,
+				success: result.success,
+				skipped: result.skipped,
+				skipReason: result.skipReason,
+				actions: result.actions,
+				docId: result.docId,
+				diagramId: result.diagramId,
+				publishStatus: result.publishStatus,
+				publishProvider: result.publishProvider,
+				publishResourceId: result.publishResourceId,
+				executionTimeMs: Date.now() - startTime,
+				filesProcessed: result.filesProcessed,
+				documentsUpdated: result.documentsUpdated,
+				errors: result.errors,
+				generatedDiagrams,
+			});
+
+			return result;
+		}
+
+		// STEP 6: Regenerate affected documents based on files that were actually updated
+		console.log(`🔄 STEP 6: Regenerating documents based on ${updatedFiles.length} updated files...`);
 
 		// Get all documents for this repo
 		const { data: repoDocs, error: docsError } = await supabase
@@ -237,10 +478,13 @@ export async function executeAutomationRule({
 				success: false,
 				skipped: false,
 				actions: result.actions,
+				docId: result.docId,
+				diagramId: result.diagramId,
 				executionTimeMs: Date.now() - startTime,
 				filesProcessed: result.filesProcessed,
 				documentsUpdated: 0,
 				errors: result.errors,
+				generatedDiagrams,
 			});
 			return result;
 		}
@@ -267,10 +511,13 @@ export async function executeAutomationRule({
 				success: false,
 				skipped: false,
 				actions: result.actions,
+				docId: result.docId,
+				diagramId: result.diagramId,
 				executionTimeMs: Date.now() - startTime,
 				filesProcessed: result.filesProcessed,
 				documentsUpdated: 0,
 				errors: result.errors,
+				generatedDiagrams,
 			});
 			return result;
 		}
@@ -297,23 +544,31 @@ export async function executeAutomationRule({
 
 		if (affectedDocs.size === 0) {
 			console.log(`⏭️ [SKIP] No documents affected by file updates`);
-			result.skipped = true;
-			result.skipReason = 'No documents affected by file updates';
-			result.success = true;
 			result.filesProcessed = summaryResult?.processed || 0;
+			result.documentsUpdated = 0;
+			result.success = result.errors.length === 0;
+
+			if (!diagramGenerated) {
+				result.skipped = true;
+				result.skipReason = 'No documents affected by file updates';
+			}
+
 			await insertAutomationRun(supabase, {
 				repoId: repo.id,
 				ruleId: rule.rule_id || rule.id || ruleName,
 				workspaceId: userId,
 				triggerType,
-				success: true,
-				skipped: true,
+				success: result.success,
+				skipped: result.skipped,
 				skipReason: result.skipReason,
 				actions: result.actions,
+				docId: result.docId,
+				diagramId: result.diagramId,
 				executionTimeMs: Date.now() - startTime,
 				filesProcessed: result.filesProcessed,
-				documentsUpdated: 0,
+				documentsUpdated: result.documentsUpdated,
 				errors: result.errors,
+				generatedDiagrams,
 			});
 			return result;
 		}
@@ -349,7 +604,7 @@ export async function executeAutomationRule({
 					supabase,
 					userId,
 					repoUrl: repo.repo_url,
-					branch: repo.default_branch,
+					branch: repoBranch,
 					subdir,
 					filters,
 				});
@@ -372,7 +627,7 @@ export async function executeAutomationRule({
 					model: rule.model || 'gpt-4o',
 					files: filesToUse,
 					repoUrl: repo.repo_url,
-					branch: repo.default_branch,
+					branch: repoBranch,
 					subdir,
 					promptConfig,
 					useSummaries: true,
@@ -452,6 +707,85 @@ export async function executeAutomationRule({
 					console.log(`[${completionTimestamp}]  ✅ Updated: ${docInfo.title}`);
 
 					await trackDocGenerated(supabase, userId, docId, repo.id, false);
+
+					if (shouldAutoPublish) {
+						const provider = autoPublishTarget?.provider;
+						const targetResourceId = autoPublishTarget?.resource_id || autoPublishTarget?.resourceId;
+						const connectionIdOverride = autoPublishTarget?.connection_id || autoPublishTarget?.connectionId;
+
+						if (!provider) {
+							console.warn(`⚠️ [PUBLISH] Auto-publish enabled but no provider configured`);
+						} else {
+							const providerImpl = getWorkspaceProvider(provider);
+							if (!providerImpl) {
+								console.warn(`⚠️ [PUBLISH] Unsupported provider: ${provider}`);
+							} else if (!targetResourceId) {
+								console.warn(`⚠️ [PUBLISH] Missing target resource for provider ${provider}`);
+							} else {
+								const connectionId = await getProviderConnectionId(
+									supabase,
+									userId,
+									provider,
+									connectionIdOverride
+								);
+
+								if (!connectionId) {
+									console.warn(`⚠️ [PUBLISH] No active connection found for provider ${provider}`);
+								} else {
+									const workspaceInfo: WorkspaceInfo = {
+										provider,
+										resourceId: targetResourceId,
+										metadata: autoPublishTarget?.metadata || {},
+									};
+
+									try {
+										const pushed = await providerImpl.pushContent(
+											workspaceInfo,
+											{
+												title: docInfo.title,
+												markdown: docResult.markdown,
+											},
+											connectionId,
+											true
+										);
+
+										if (pushed) {
+											result.publishStatus = 'success';
+											result.publishProvider = provider;
+											result.publishResourceId = pushed.resourceId || targetResourceId;
+
+											await supabase
+												.from('documents')
+												.update({
+													kb_provider: provider,
+													kb_id: pushed.resourceId || targetResourceId,
+													updated_at: new Date().toISOString(),
+												})
+												.eq('id', docId);
+
+											await trackPushToKb(
+												supabase,
+												userId,
+												provider,
+												docId,
+												pushed.resourceId || targetResourceId
+											);
+										} else {
+											result.publishStatus = 'failed';
+											result.publishProvider = provider;
+											result.errors.push(`Failed to publish document ${docInfo.title} to ${provider}`);
+											console.warn(`⚠️ [PUBLISH] Failed to push document ${docId} to ${provider}`);
+										}
+									} catch (publishError: any) {
+										result.publishStatus = 'failed';
+										result.publishProvider = provider;
+										result.errors.push(publishError?.message || `Publish failed for provider ${provider}`);
+										console.error(`❌ [PUBLISH] Error pushing document ${docId} to ${provider}:`, publishError);
+									}
+								}
+							}
+						}
+					}
 				}
 
 			} catch (error) {
@@ -462,10 +796,10 @@ export async function executeAutomationRule({
 
 		console.log(`📊 [RESULTS] Updated: ${docsUpdated} docs | Failed: ${docsFailed} docs`);
 
-		result.success = docsFailed === 0;
+		result.success = docsFailed === 0 && result.errors.length === 0;
 		result.filesProcessed = summaryResult?.processed || 0;
 		result.documentsUpdated = docsUpdated;
-		
+
 		// Store the first updated doc ID if any were updated
 		if (docsUpdated > 0 && affectedDocs.size > 0) {
 			const firstDocId = Array.from(affectedDocs.keys())[0];
@@ -474,7 +808,7 @@ export async function executeAutomationRule({
 
 		const duration = ((Date.now() - startTime) / 1000).toFixed(1);
 		console.log(`✅ [COMPLETE] Automation finished in ${duration}s`);
-		
+
 		// Insert into automation_runs table
 		await insertAutomationRun(supabase, {
 			repoId: repo.id,
@@ -494,6 +828,7 @@ export async function executeAutomationRule({
 			filesProcessed: result.filesProcessed,
 			documentsUpdated: result.documentsUpdated,
 			errors: result.errors,
+			generatedDiagrams,
 		});
 
 		return result;
@@ -542,6 +877,7 @@ export async function executeAutomationRule({
 		filesProcessed: result.filesProcessed,
 		documentsUpdated: result.documentsUpdated,
 		errors: result.errors,
+		generatedDiagrams,
 	});
 
 	return result;

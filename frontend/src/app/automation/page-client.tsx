@@ -47,7 +47,7 @@ interface AutomationRuleForm {
   customScheduleDescription?: string;
 
   // NEW: Smart automation with presets
-  action_preset: 'docs_only' | 'full_auto_publish';
+  action_preset: 'docs_only' | 'diagrams_only' | 'docs_and_diagrams' | 'full_auto_publish';
 
   // NEW: Significance analysis (always enabled)
   significance_sensitivity: 'strict' | 'balanced' | 'lenient';
@@ -56,6 +56,7 @@ interface AutomationRuleForm {
 
   // NEW: Scope targeting
   target_documents: string[]; // Empty = all documents
+  target_diagrams: string[];  // Empty = all diagrams of selected types
 
   // NEW: Notifications
   notifications_email_enabled: boolean;
@@ -537,6 +538,7 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
       significance_sensitivity: overrides.significance_sensitivity ?? 'balanced',
       significance_minimum_confidence: overrides.significance_minimum_confidence ?? 'medium',
       target_documents: overrides.target_documents ?? [],
+      target_diagrams: overrides.target_diagrams ?? [],
       notifications_email_enabled: overrides.notifications_email_enabled ?? true,
       notifications_include_preview_links: overrides.notifications_include_preview_links ?? true,
 
@@ -576,15 +578,23 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
       const schedule = parseSchedule(rule);
 
       // NEW: Smart automation - determine preset from legacy fields or use new format
-      let action_preset = rule.action_preset;
+      let action_preset = rule.action_preset as AutomationRuleForm['action_preset'] | undefined;
       if (!action_preset) {
         // Infer preset from legacy fields
-        if (rule.generate_doc && rule.auto_publish) {
+        if (rule.generate_doc && rule.generate_diagram) {
+          action_preset = 'docs_and_diagrams';
+        } else if (!rule.generate_doc && rule.generate_diagram) {
+          action_preset = 'diagrams_only';
+        } else if (rule.generate_doc && rule.auto_publish) {
           action_preset = 'full_auto_publish';
         } else {
           action_preset = 'docs_only';
         }
       }
+
+      const targetDiagrams = (rule.target_diagrams && rule.target_diagrams.length > 0)
+        ? rule.target_diagrams
+        : (rule.generate_diagram ? ['architecture'] : []);
 
       return createAutomationRuleForm({
         id: rule.id || `rule-${index}-${Date.now()}`,
@@ -597,6 +607,7 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
         significance_sensitivity: rule.significance_analysis?.sensitivity || 'balanced',
         significance_minimum_confidence: rule.significance_analysis?.minimum_confidence || 'medium',
         target_documents: rule.target_documents || [],
+        target_diagrams: targetDiagrams,
         notifications_email_enabled: rule.notifications?.email_enabled ?? true,
         notifications_include_preview_links: rule.notifications?.include_preview_links ?? true,
 
@@ -736,6 +747,7 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
         minimum_confidence: form.significance_minimum_confidence,
       },
       target_documents: form.target_documents || [],
+      target_diagrams: form.target_diagrams || [],
       notifications: {
         email_enabled: form.notifications_email_enabled,
         include_preview_links: form.notifications_include_preview_links,
@@ -758,9 +770,15 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
 
     // LEGACY: Keep for backward compatibility during migration
     rule.detect_changes = true; // Always true for smart automation
-    rule.generate_doc = ['docs_only', 'full_auto_publish'].includes(form.action_preset);
+    rule.generate_doc = ['docs_only', 'docs_and_diagrams', 'full_auto_publish'].includes(form.action_preset);
+    rule.generate_diagram = ['diagrams_only', 'docs_and_diagrams'].includes(form.action_preset);
     rule.auto_publish = form.action_preset === 'full_auto_publish';
     rule.auto_publish_new_docs = false; // Never auto-publish new docs in smart automation
+
+    // Default architecture diagrams when diagram generation is selected and no explicit target provided
+    if (rule.generate_diagram && (!rule.target_diagrams || rule.target_diagrams.length === 0)) {
+      rule.target_diagrams = ['architecture'];
+    }
 
     return rule;
   }
@@ -1535,8 +1553,10 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                                 <div className="w-2 h-2 bg-green-400 rounded-full"></div>
                                 Active: {
                                   singleRuleForm.action_preset === 'docs_only' ? '📄 Docs Only' :
-                                    singleRuleForm.action_preset === 'full_auto_publish' ? '🚀 Auto-Publish' :
-                                      'Not selected'
+                                    singleRuleForm.action_preset === 'diagrams_only' ? '🏛 Architecture Diagrams' :
+                                      singleRuleForm.action_preset === 'docs_and_diagrams' ? '📄 + 🏛 Docs & Diagrams' :
+                                        singleRuleForm.action_preset === 'full_auto_publish' ? '🚀 Auto-Publish' :
+                                          'Not selected'
                                 }
                               </div>
                             )}
@@ -1547,6 +1567,16 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
                                 value: 'docs_only',
                                 label: '📄 Update Documentation Only',
                                 description: 'Regenerate documentation when files change significantly'
+                              },
+                              {
+                                value: 'diagrams_only',
+                                label: '🏛 Keep Architecture Diagram Updated',
+                                description: 'Regenerate the architecture diagram when code changes'
+                              },
+                              {
+                                value: 'docs_and_diagrams',
+                                label: '📄 + 🏛 Docs & Diagrams',
+                                description: 'Regenerate both docs and architecture diagrams automatically'
                               },
                               {
                                 value: 'full_auto_publish',
