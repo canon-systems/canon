@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Zap, Plus, CheckCircle2, XCircle, Clock, Loader2, GitBranch, ExternalLink, TrendingUp, ChevronDown, Github, Trash2, X } from 'lucide-react';
+import { Zap, Plus, CheckCircle2, XCircle, Clock, Loader2, GitBranch, ExternalLink, TrendingUp, ChevronDown, Github, Trash2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { Button } from '@/components/ui/button';
@@ -46,42 +46,30 @@ interface AutomationRuleForm {
   customCron: string;
   customScheduleDescription?: string;
 
-  // NEW: Smart automation with presets
-  action_preset: 'docs_only' | 'diagrams_only' | 'docs_and_diagrams' | 'full_auto_publish';
-
-  // NEW: Significance analysis (always enabled)
-  significance_sensitivity: 'strict' | 'balanced' | 'lenient';
-  significance_minimum_confidence: 'high' | 'medium' | 'low';
-  significance_analysis_enabled?: boolean;
+  // Individual behavior toggles (replaces action_preset)
+  generate_doc: boolean;
+  generate_diagram: boolean;
+  auto_publish: boolean;
 
   // NEW: Scope targeting
-  target_documents: string[]; // Empty = all documents
   target_diagrams: string[];  // Empty = all diagrams of selected types
 
-  // NEW: Notifications
-  notifications_email_enabled: boolean;
-  notifications_include_preview_links: boolean;
-
   // NEW: Auto-publish configuration
-  auto_publish_max_changes?: string;
-  auto_publish_max_change_percentage?: string;
   auto_publish_target_provider?: string;
   auto_publish_target_connection_id?: string;
   auto_publish_target_resource_id?: string;
   auto_publish_custom_resource?: string;
-  publish_targets?: Record<string, any>;
 
   // LEGACY: Keep for backward compatibility
   detect_changes?: boolean;
-  generate_doc?: boolean;
-  auto_publish?: boolean;
-  auto_publish_new_docs?: boolean;
 }
 
 type AutomationAlert = {
   type: 'success' | 'error';
   message: string;
 } | null;
+
+type AutomationPreset = 'docs_only' | 'diagrams_only' | 'docs_and_diagrams' | 'full_auto_publish';
 
 interface AutomationPageClientProps {
   user: SupabaseUser | null;
@@ -94,7 +82,9 @@ interface AutomationPageClientProps {
     ruleId: string;
     ruleName: string;
     enabled: boolean;
-    action_preset?: string;
+    generate_doc?: boolean;
+    generate_diagram?: boolean;
+    auto_publish?: boolean;
     schedule?: string;
     lastRunAt?: string;
     lastRunStatus?: string;
@@ -109,6 +99,17 @@ interface AutomationPageClientProps {
 }
 
 const KNOWLEDGE_BASE_PROVIDERS = new Set<string>(['notion', 'confluence', 'coda']);
+
+function presetFromFlags(flags: { generate_doc?: boolean; generate_diagram?: boolean; auto_publish?: boolean }): AutomationPreset {
+  const generateDoc = Boolean(flags.generate_doc);
+  const generateDiagram = Boolean(flags.generate_diagram);
+  const autoPublish = Boolean(flags.auto_publish);
+
+  if (autoPublish) return 'full_auto_publish';
+  if (generateDoc && generateDiagram) return 'docs_and_diagrams';
+  if (!generateDoc && generateDiagram) return 'diagrams_only';
+  return 'docs_only';
+}
 
 function normalizeProviderName(provider?: string | null) {
   if (!provider) return '';
@@ -326,7 +327,7 @@ function getEnhancedStatus(rule: any): {
   };
 }
 
-export function AutomationPageClient({ repos, connections: initialConnections, allRules: initialAllRules, stats: initialStats }: AutomationPageClientProps) {
+export function AutomationPageClient({ user, repos, connections: initialConnections, allRules: initialAllRules, stats: initialStats }: AutomationPageClientProps) {
   const supabase = createClient();
 
   const [reposList, setReposList] = useState<Repo[]>(repos);
@@ -368,12 +369,18 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
   async function updateStatsFromRules() {
     try {
       // Fetch fresh automation rules from all repos
-      const { data: rules } = await supabase
+      let query = supabase
         .from('automation_rules')
         .select(`
-          *,
-          workspace_repos!inner(id, name, repo_url)
-        `);
+	          *,
+	          workspace_repos!inner(id, name, repo_url)
+	        `);
+
+      if (user && user.id) {
+        query = query.eq('user_id', user.id);
+      }
+
+      const { data: rules } = await query;
 
       // Calculate stats from fresh data
       let totalRules = 0;
@@ -390,10 +397,12 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
           repoId: rule.repo_id,
           repoName: rule.workspace_repos.name || 'Untitled Repo',
           repoUrl: rule.workspace_repos.repo_url || '',
-          ruleId: rule.rule_id,
+          ruleId: rule.id,
           ruleName: (rule.name && rule.name.trim() !== '') ? rule.name : 'Smart Automation',
           enabled,
-          action_preset: rule.action_preset,
+          generate_doc: rule.generate_doc,
+          generate_diagram: rule.generate_diagram,
+          auto_publish: rule.auto_publish,
           schedule: rule.schedule,
           lastRunAt: rule.last_run_at,
           lastRunStatus: rule.last_run_status,
@@ -529,32 +538,22 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
   // All the automation helper functions from settings (extracted)
   function createAutomationRuleForm(overrides: Partial<AutomationRuleForm> = {}): AutomationRuleForm {
     return {
-      id: overrides.id ?? `rule-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      id: overrides.id ?? globalThis.crypto?.randomUUID?.() ?? `rule-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       name: overrides.name ?? 'Smart Automation',
       enabled: overrides.enabled ?? false,
       customCron: overrides.customCron ?? '0 2 * * *',
-      // NEW: Smart automation defaults
-      action_preset: overrides.action_preset ?? 'docs_only',
-      significance_sensitivity: overrides.significance_sensitivity ?? 'balanced',
-      significance_minimum_confidence: overrides.significance_minimum_confidence ?? 'medium',
-      target_documents: overrides.target_documents ?? [],
+      // Individual behavior defaults (docs-only)
+      generate_doc: overrides.generate_doc ?? true,
+      generate_diagram: overrides.generate_diagram ?? false,
+      auto_publish: overrides.auto_publish ?? false,
       target_diagrams: overrides.target_diagrams ?? [],
-      notifications_email_enabled: overrides.notifications_email_enabled ?? true,
-      notifications_include_preview_links: overrides.notifications_include_preview_links ?? true,
 
       // LEGACY: Keep for backward compatibility (not displayed in UI)
       detect_changes: true, // Always true for smart automation
-      generate_doc: overrides.generate_doc ?? true,
-      auto_publish: overrides.auto_publish ?? false,
-      auto_publish_new_docs: overrides.auto_publish_new_docs ?? false,
-      significance_analysis_enabled: true, // Always true for smart automation
-      auto_publish_max_changes: overrides.auto_publish_max_changes ?? '50',
-      auto_publish_max_change_percentage: overrides.auto_publish_max_change_percentage ?? '5',
       auto_publish_target_provider: overrides.auto_publish_target_provider ?? '',
       auto_publish_target_connection_id: overrides.auto_publish_target_connection_id ?? '',
       auto_publish_target_resource_id: overrides.auto_publish_target_resource_id ?? '',
       auto_publish_custom_resource: overrides.auto_publish_custom_resource ?? '',
-      publish_targets: overrides.publish_targets ?? {}
     };
   }
 
@@ -577,24 +576,21 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
     return rules.map((rule, index) => {
       const schedule = parseSchedule(rule);
 
-      // NEW: Smart automation - determine preset from legacy fields or use new format
-      let action_preset = rule.action_preset as AutomationRuleForm['action_preset'] | undefined;
-      if (!action_preset) {
-        // Infer preset from legacy fields
-        if (rule.generate_doc && rule.generate_diagram) {
-          action_preset = 'docs_and_diagrams';
-        } else if (!rule.generate_doc && rule.generate_diagram) {
-          action_preset = 'diagrams_only';
-        } else if (rule.generate_doc && rule.auto_publish) {
-          action_preset = 'full_auto_publish';
-        } else {
-          action_preset = 'docs_only';
-        }
+      let generate_doc = rule.generate_doc;
+      let generate_diagram = rule.generate_diagram;
+      let auto_publish = rule.auto_publish;
+
+      // Backward-compat: infer from action_preset if present
+      const actionPreset = typeof rule.action_preset === 'string' ? rule.action_preset : null;
+      if (actionPreset) {
+        generate_doc = actionPreset !== 'diagrams_only';
+        generate_diagram = actionPreset === 'diagrams_only' || actionPreset === 'docs_and_diagrams' || actionPreset === 'full_auto_publish';
+        auto_publish = actionPreset === 'full_auto_publish';
       }
 
       const targetDiagrams = (rule.target_diagrams && rule.target_diagrams.length > 0)
         ? rule.target_diagrams
-        : (rule.generate_diagram ? ['architecture'] : []);
+        : (generate_diagram ? ['architecture'] : []);
 
       return createAutomationRuleForm({
         id: rule.id || `rule-${index}-${Date.now()}`,
@@ -602,28 +598,18 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
         enabled: rule.enabled ?? false,
         customCron: schedule.customCron,
 
-        // NEW: Smart automation fields
-        action_preset,
-        significance_sensitivity: rule.significance_analysis?.sensitivity || 'balanced',
-        significance_minimum_confidence: rule.significance_analysis?.minimum_confidence || 'medium',
-        target_documents: rule.target_documents || [],
+        // Individual behavior fields
+        generate_doc: generate_doc ?? true,
+        generate_diagram: generate_diagram ?? false,
+        auto_publish: auto_publish ?? false,
         target_diagrams: targetDiagrams,
-        notifications_email_enabled: rule.notifications?.email_enabled ?? true,
-        notifications_include_preview_links: rule.notifications?.include_preview_links ?? true,
 
         // LEGACY: Keep for backward compatibility (not displayed in UI)
         detect_changes: true, // Always true for smart automation
-        generate_doc: rule.generate_doc ?? true,
-        auto_publish: rule.auto_publish ?? false,
-        auto_publish_new_docs: rule.auto_publish_new_docs ?? false,
-        significance_analysis_enabled: true, // Always true for smart automation
-        auto_publish_max_changes: rule.auto_publish_max_changes?.toString() ?? '50',
-        auto_publish_max_change_percentage: rule.auto_publish_max_change_percentage?.toString() ?? '5',
         auto_publish_target_provider: rule?.auto_publish_target?.provider ?? '',
         auto_publish_target_connection_id: rule?.auto_publish_target?.connection_id ?? '',
         auto_publish_target_resource_id: rule?.auto_publish_target?.resource_id ?? '',
         auto_publish_custom_resource: '',
-        publish_targets: rule.publish_targets || {}
       });
     });
   }
@@ -714,6 +700,18 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
     setSingleRuleForm({ ...singleRuleForm, [field]: value });
   }
 
+  function applyPreset(preset: AutomationPreset) {
+    if (!singleRuleForm) return;
+    const generateDiagram = preset === 'diagrams_only' || preset === 'docs_and_diagrams' || preset === 'full_auto_publish';
+    const autoPublish = preset === 'full_auto_publish';
+    setSingleRuleForm({
+      ...singleRuleForm,
+      generate_doc: preset !== 'diagrams_only' || autoPublish,
+      generate_diagram: generateDiagram,
+      auto_publish: autoPublish,
+    });
+  }
+
   function toggleExpandedRow(repoId: string) {
     setExpandedRows(prev => {
       const newSet = new Set(prev);
@@ -740,19 +738,11 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
       enabled: form.enabled,
       schedule: buildScheduleValue(form),
 
-      // Smart automation fields
-      action_preset: form.action_preset,
-      significance_analysis: {
-        sensitivity: form.significance_sensitivity,
-        minimum_confidence: form.significance_minimum_confidence,
-      },
-      target_documents: form.target_documents || [],
+      // Individual behavior fields (stored in DB)
+      generate_doc: form.generate_doc,
+      generate_diagram: form.generate_diagram,
+      auto_publish: form.auto_publish,
       target_diagrams: form.target_diagrams || [],
-      notifications: {
-        email_enabled: form.notifications_email_enabled,
-        include_preview_links: form.notifications_include_preview_links,
-      },
-      publish_targets: form.publish_targets || {},
     };
 
     // Save provider and resource selections for persistence
@@ -770,10 +760,6 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
 
     // LEGACY: Keep for backward compatibility during migration
     rule.detect_changes = true; // Always true for smart automation
-    rule.generate_doc = ['docs_only', 'docs_and_diagrams', 'full_auto_publish'].includes(form.action_preset);
-    rule.generate_diagram = ['diagrams_only', 'docs_and_diagrams'].includes(form.action_preset);
-    rule.auto_publish = form.action_preset === 'full_auto_publish';
-    rule.auto_publish_new_docs = false; // Never auto-publish new docs in smart automation
 
     // Default architecture diagrams when diagram generation is selected and no explicit target provided
     if (rule.generate_diagram && (!rule.target_diagrams || rule.target_diagrams.length === 0)) {
@@ -1119,227 +1105,227 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
             ) : (
               <Card className="overflow-hidden">
                 <CardContent className="p-0">
-            <table className="w-full">
-              <thead className="border-b border-white/10 bg-white/5">
-                <tr>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-white/90 w-8"></th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-white/90">Repository</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-white/90">Branch</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-white/90">Automation</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-white/90">Next Run</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-white/90">Last Run</th>
-                  <th className="px-4 py-3 text-left text-sm font-semibold text-white/90">Added</th>
-                  <th className="px-4 py-3 text-right text-sm font-semibold text-white/90">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/10">
-                {reposList.map((repo) => {
-                  const repoInfo = parseRepoUrl(repo.repo_url);
-                  const repoRules = allRules.filter((r) => r.repoId === repo.id);
-                  const hasRules = repoRules.length > 0;
-                  const activeRules = repoRules.filter((r) => r.enabled).length;
-                  const isExpanded = expandedRows.has(repo.id);
-
-                  return (
-                    <React.Fragment key={repo.id}>
-                      {/* Main Repository Row */}
-                      <tr className="hover:bg-white/5 transition-colors cursor-pointer" onClick={() => toggleExpandedRow(repo.id)}>
-                        <td className="px-4 py-3 w-8">
-                          <ChevronDown
-                            className={`h-4 w-4 text-white/60 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                          />
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            <Github className="h-4 w-4 text-white/60" />
-                            <div>
-                              <div className="font-semibold text-white">{repo.name}</div>
-                              <div className="text-xs text-white/50 font-mono">
-                                {repo.repo_url}
-                              </div>
-                              {repo.settings?.subdir && (
-                                <div className="text-xs text-white/40 mt-0.5">
-                                  Path: {repo.settings.subdir}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-1 text-sm text-white/70">
-                            <GitBranch className="h-3 w-3" />
-                            {repo.default_branch}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          {hasRules ? (
-                            <div className="flex items-center gap-2">
-                              {(() => {
-                                const enhancedStatus = getEnhancedStatus(repoRules[0]);
-                                return (
-                                  <div className="flex flex-col items-start gap-0.5">
-                                    <div className={`rounded-full px-2 py-0.5 text-xs font-medium ${enhancedStatus.color} flex items-center gap-1.5 w-fit`}>
-                                      <span>{enhancedStatus.icon}</span>
-                                      <span className="font-semibold">{enhancedStatus.title}</span>
-                                    </div>
-                                    <span className="text-xs text-white/60 max-w-32 truncate">{enhancedStatus.description}</span>
-                                  </div>
-                                );
-                              })()}
-                            </div>
-                          ) : (
-                            <span className="text-xs text-white/40">No rules</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-white/70">
-                          {hasRules && repoRules[0] && repoRules[0].schedule ? calculateNextRun(repoRules[0].schedule) : '—'}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-white/70">
-                          {hasRules && repoRules[0]?.lastRunAt ? formatDate(repoRules[0].lastRunAt) : 'Never'}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-white/70">
-                          {new Date(repo.created_at).toLocaleDateString()}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center justify-end gap-2">
-                            {hasRules && (
-                              <>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    toggleAllRulesEnabled(repo.id);
-                                  }}
-                                  className={`relative inline-flex h-6 w-10 items-center rounded-full transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${activeRules > 0
-                                    ? 'bg-emerald-500 hover:bg-emerald-600 shadow-lg shadow-emerald-500/30'
-                                    : 'bg-gray-600 hover:bg-gray-500'
-                                    }`}
-                                  title={activeRules > 0 ? 'Disable all rules' : 'Enable all rules'}
-                                >
-                                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ${activeRules > 0 ? 'translate-x-5' : 'translate-x-1'
-                                    }`} />
-                                </button>
-                              </>
-                            )}
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openAutomationModal(repo.id);
-                              }}
-                              className="inline-flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-sm font-medium text-white/80 transition-all duration-200 hover:bg-white/20 hover:border-white/30 hover:shadow-lg hover:shadow-blue-500/20"
-                              title="Configure automation rules"
-                            >
-                              <Zap className="h-3 w-3" />
-                              {hasRules ? 'Manage' : 'Setup'}
-                            </button>
-                            {repoInfo && (
-                              <a
-                                href={repo.repo_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                onClick={(e) => e.stopPropagation()}
-                                className="inline-flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-sm font-medium text-white/90 transition-all duration-200 hover:bg-white/20 hover:border-white/30 hover:shadow-lg hover:shadow-purple-500/20"
-                                title="Open repository on GitHub"
-                              >
-                                <ExternalLink className="h-3 w-3" />
-                              </a>
-                            )}
-                          </div>
-                        </td>
+                  <table className="w-full">
+                    <thead className="border-b border-white/10 bg-white/5">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-white/90 w-8"></th>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-white/90">Repository</th>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-white/90">Branch</th>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-white/90">Automation</th>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-white/90">Next Run</th>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-white/90">Last Run</th>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-white/90">Added</th>
+                        <th className="px-4 py-3 text-right text-sm font-semibold text-white/90">Actions</th>
                       </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/10">
+                      {reposList.map((repo) => {
+                        const repoInfo = parseRepoUrl(repo.repo_url);
+                        const repoRules = allRules.filter((r) => r.repoId === repo.id);
+                        const hasRules = repoRules.length > 0;
+                        const activeRules = repoRules.filter((r) => r.enabled).length;
+                        const isExpanded = expandedRows.has(repo.id);
 
-                      {/* Expanded Automation Rules Row */}
-                      {isExpanded && (
-                        <tr>
-                          <td colSpan={8} className="px-0 py-0">
-                            <div className="border-t border-white/10 bg-white/5">
-                              <div className="p-6">
-                                {/* Automation Rules Content */}
-                                {repoRules.length > 0 ? (
-                                  <div className="space-y-4">
-                                    {repoRules.map((rule) => (
-                                      <div key={rule.ruleId} className="rounded-lg border border-white/10 bg-black/40 p-4">
-                                        <div className="flex items-start justify-between gap-3 mb-3">
-                                          <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-2 mb-1">
-                                              <div className="flex-1 min-w-0">
-                                                <h4 className="font-semibold text-white">{rule.ruleName}</h4>
-                                                <p className="text-xs text-white/50">ID: {rule.ruleId}</p>
-                                              </div>
-                                              {(() => {
-                                                const enhancedStatus = getEnhancedStatus(rule);
-                                                return (
-                                                  <div className={`rounded-full px-2 py-0.5 text-xs flex items-center gap-1 ${enhancedStatus.color}`}>
-                                                    <span>{enhancedStatus.icon}</span>
-                                                    <span>{enhancedStatus.title}</span>
-                                                  </div>
-                                                );
-                                              })()}
-                                            </div>
-                                            <p className="text-sm text-white/70 mb-2">
-                                              {rule.action_preset === 'docs_only' && '📄 Generates documentation only'}
-                                              {rule.action_preset === 'full_auto_publish' && '🚀 Auto-generates and publishes'}
-                                            </p>
-                                            <div className="flex items-center gap-4 text-xs text-white/60">
-                                              <span>Schedule: {rule.schedule ? getCronDescription(rule.schedule) : 'Not set'}</span>
-                                              {rule.lastRunAt && (
-                                                <span>Last run: {formatDate(rule.lastRunAt)}</span>
-                                              )}
-                                            </div>
-                                          </div>
-                                        </div>
-
-                                        <div className="flex items-center gap-2">
-                                          <button
-                                            onClick={() => toggleRuleEnabled(repo.id, rule.ruleId)}
-                                            className={`relative inline-flex h-6 w-10 items-center rounded-full transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${rule.enabled
-                                              ? 'bg-emerald-500 hover:bg-emerald-600 shadow-lg shadow-emerald-500/30'
-                                              : 'bg-gray-600 hover:bg-gray-500'
-                                              }`}
-                                            title={rule.enabled ? 'Disable rule' : 'Enable rule'}
-                                          >
-                                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ${rule.enabled ? 'translate-x-5' : 'translate-x-1'
-                                              }`} />
-                                          </button>
-                                          <button
-                                            onClick={() => setDeleteRuleModal({
-                                              open: true,
-                                              repoId: repo.id,
-                                              ruleId: rule.ruleId,
-                                              ruleName: rule.ruleName
-                                            })}
-                                            className="rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-red-400 transition-colors hover:bg-red-500/20 hover:border-red-500/50"
-                                            title="Delete rule"
-                                          >
-                                            <Trash2 className="h-4 w-4" />
-                                          </button>
-                                        </div>
+                        return (
+                          <React.Fragment key={repo.id}>
+                            {/* Main Repository Row */}
+                            <tr className="hover:bg-white/5 transition-colors cursor-pointer" onClick={() => toggleExpandedRow(repo.id)}>
+                              <td className="px-4 py-3 w-8">
+                                <ChevronDown
+                                  className={`h-4 w-4 text-white/60 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                                />
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-2">
+                                  <Github className="h-4 w-4 text-white/60" />
+                                  <div>
+                                    <div className="font-semibold text-white">{repo.name}</div>
+                                    <div className="text-xs text-white/50 font-mono">
+                                      {repo.repo_url}
+                                    </div>
+                                    {repo.settings?.subdir && (
+                                      <div className="text-xs text-white/40 mt-0.5">
+                                        Path: {repo.settings.subdir}
                                       </div>
-                                    ))}
+                                    )}
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-1 text-sm text-white/70">
+                                  <GitBranch className="h-3 w-3" />
+                                  {repo.default_branch}
+                                </div>
+                              </td>
+                              <td className="px-4 py-3">
+                                {hasRules ? (
+                                  <div className="flex items-center gap-2">
+                                    {(() => {
+                                      const enhancedStatus = getEnhancedStatus(repoRules[0]);
+                                      return (
+                                        <div className="flex flex-col items-start gap-0.5">
+                                          <div className={`rounded-full px-2 py-0.5 text-xs font-medium ${enhancedStatus.color} flex items-center gap-1.5 w-fit`}>
+                                            <span>{enhancedStatus.icon}</span>
+                                            <span className="font-semibold">{enhancedStatus.title}</span>
+                                          </div>
+                                          <span className="text-xs text-white/60 max-w-32 truncate">{enhancedStatus.description}</span>
+                                        </div>
+                                      );
+                                    })()}
                                   </div>
                                 ) : (
-                                  <div
-                                    onClick={() => openAutomationModal(repo.id)}
-                                    className="rounded-lg border-2 border-dashed border-white/20 bg-white/5 p-8 text-center cursor-pointer hover:bg-white/10 transition-colors"
-                                  >
-                                    <Plus className="h-8 w-8 text-white/40 mx-auto mb-2" />
-                                    <p className="text-sm text-white/60 mb-1">No automation rule configured</p>
-                                    <p className="text-xs text-white/40">Click to add a rule</p>
-                                  </div>
+                                  <span className="text-xs text-white/40">No rules</span>
                                 )}
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </React.Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
+                              </td>
+                              <td className="px-4 py-3 text-sm text-white/70">
+                                {hasRules && repoRules[0] && repoRules[0].schedule ? calculateNextRun(repoRules[0].schedule) : '—'}
+                              </td>
+                              <td className="px-4 py-3 text-sm text-white/70">
+                                {hasRules && repoRules[0]?.lastRunAt ? formatDate(repoRules[0].lastRunAt) : 'Never'}
+                              </td>
+                              <td className="px-4 py-3 text-sm text-white/70">
+                                {new Date(repo.created_at).toLocaleDateString()}
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center justify-end gap-2">
+                                  {hasRules && (
+                                    <>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          toggleAllRulesEnabled(repo.id);
+                                        }}
+                                        className={`relative inline-flex h-6 w-10 items-center rounded-full transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${activeRules > 0
+                                          ? 'bg-emerald-500 hover:bg-emerald-600 shadow-lg shadow-emerald-500/30'
+                                          : 'bg-gray-600 hover:bg-gray-500'
+                                          }`}
+                                        title={activeRules > 0 ? 'Disable all rules' : 'Enable all rules'}
+                                      >
+                                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ${activeRules > 0 ? 'translate-x-5' : 'translate-x-1'
+                                          }`} />
+                                      </button>
+                                    </>
+                                  )}
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openAutomationModal(repo.id);
+                                    }}
+                                    className="inline-flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-sm font-medium text-white/80 transition-all duration-200 hover:bg-white/20 hover:border-white/30 hover:shadow-lg hover:shadow-blue-500/20"
+                                    title="Configure automation rules"
+                                  >
+                                    <Zap className="h-3 w-3" />
+                                    {hasRules ? 'Manage' : 'Setup'}
+                                  </button>
+                                  {repoInfo && (
+                                    <a
+                                      href={repo.repo_url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="inline-flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-sm font-medium text-white/90 transition-all duration-200 hover:bg-white/20 hover:border-white/30 hover:shadow-lg hover:shadow-purple-500/20"
+                                      title="Open repository on GitHub"
+                                    >
+                                      <ExternalLink className="h-3 w-3" />
+                                    </a>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+
+                            {/* Expanded Automation Rules Row */}
+                            {isExpanded && (
+                              <tr>
+                                <td colSpan={8} className="px-0 py-0">
+                                  <div className="border-t border-white/10 bg-white/5">
+                                    <div className="p-6">
+                                      {/* Automation Rules Content */}
+                                      {repoRules.length > 0 ? (
+                                        <div className="space-y-4">
+                                          {repoRules.map((rule) => (
+                                            <div key={rule.ruleId} className="rounded-lg border border-white/10 bg-black/40 p-4">
+                                              <div className="flex items-start justify-between gap-3 mb-3">
+                                                <div className="flex-1 min-w-0">
+                                                  <div className="flex items-center gap-2 mb-1">
+                                                    <div className="flex-1 min-w-0">
+                                                      <h4 className="font-semibold text-white">{rule.ruleName}</h4>
+                                                      <p className="text-xs text-white/50">ID: {rule.ruleId}</p>
+                                                    </div>
+                                                    {(() => {
+                                                      const enhancedStatus = getEnhancedStatus(rule);
+                                                      return (
+                                                        <div className={`rounded-full px-2 py-0.5 text-xs flex items-center gap-1 ${enhancedStatus.color}`}>
+                                                          <span>{enhancedStatus.icon}</span>
+                                                          <span>{enhancedStatus.title}</span>
+                                                        </div>
+                                                      );
+                                                    })()}
+                                                  </div>
+                                                  <p className="text-sm text-white/70 mb-2">
+                                                    {presetFromFlags(rule) === 'docs_only' && '📄 Generates documentation only'}
+                                                    {presetFromFlags(rule) === 'full_auto_publish' && '🚀 Auto-generates and publishes'}
+                                                  </p>
+                                                  <div className="flex items-center gap-4 text-xs text-white/60">
+                                                    <span>Schedule: {rule.schedule ? getCronDescription(rule.schedule) : 'Not set'}</span>
+                                                    {rule.lastRunAt && (
+                                                      <span>Last run: {formatDate(rule.lastRunAt)}</span>
+                                                    )}
+                                                  </div>
+                                                </div>
+                                              </div>
+
+                                              <div className="flex items-center gap-2">
+                                                <button
+                                                  onClick={() => toggleRuleEnabled(repo.id, rule.ruleId)}
+                                                  className={`relative inline-flex h-6 w-10 items-center rounded-full transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${rule.enabled
+                                                    ? 'bg-emerald-500 hover:bg-emerald-600 shadow-lg shadow-emerald-500/30'
+                                                    : 'bg-gray-600 hover:bg-gray-500'
+                                                    }`}
+                                                  title={rule.enabled ? 'Disable rule' : 'Enable rule'}
+                                                >
+                                                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ${rule.enabled ? 'translate-x-5' : 'translate-x-1'
+                                                    }`} />
+                                                </button>
+                                                <button
+                                                  onClick={() => setDeleteRuleModal({
+                                                    open: true,
+                                                    repoId: repo.id,
+                                                    ruleId: rule.ruleId,
+                                                    ruleName: rule.ruleName
+                                                  })}
+                                                  className="rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-red-400 transition-colors hover:bg-red-500/20 hover:border-red-500/50"
+                                                  title="Delete rule"
+                                                >
+                                                  <Trash2 className="h-4 w-4" />
+                                                </button>
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        <div
+                                          onClick={() => openAutomationModal(repo.id)}
+                                          className="rounded-lg border-2 border-dashed border-white/20 bg-white/5 p-8 text-center cursor-pointer hover:bg-white/10 transition-colors"
+                                        >
+                                          <Plus className="h-8 w-8 text-white/40 mx-auto mb-2" />
+                                          <p className="text-sm text-white/60 mb-1">No automation rule configured</p>
+                                          <p className="text-xs text-white/40">Click to add a rule</p>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </CardContent>
               </Card>
             )}
-            
+
             {/* Error/Success Messages */}
             {(repoError || repoSuccess) && (
               <div className="mt-4 space-y-2">
@@ -1361,399 +1347,364 @@ export function AutomationPageClient({ repos, connections: initialConnections, a
 
 
 
-      {/* Delete Rule Confirmation Modal */}
-      <Dialog open={deleteRuleModal.open} onOpenChange={(open) => !open && !deleting && setDeleteRuleModal({ open: false, repoId: null, ruleId: null, ruleName: '' })}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete Automation Rule</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete the rule <span className="font-semibold">{deleteRuleModal.ruleName}</span>? This action cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex justify-end gap-3">
-            <Button
-              variant="secondary"
-              onClick={() => setDeleteRuleModal({ open: false, repoId: null, ruleId: null, ruleName: '' })}
-              disabled={deleting}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => deleteRuleModal.repoId && deleteRuleModal.ruleId && handleDeleteRule(deleteRuleModal.repoId, deleteRuleModal.ruleId)}
-              disabled={deleting}
-            >
-              {deleting ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Deleting...
-                </>
-              ) : (
-                'Delete'
-              )}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+        {/* Delete Rule Confirmation Modal */}
+        <Dialog open={deleteRuleModal.open} onOpenChange={(open) => !open && !deleting && setDeleteRuleModal({ open: false, repoId: null, ruleId: null, ruleName: '' })}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Delete Automation Rule</DialogTitle>
+              <DialogDescription>
+                Are you sure you want to delete the rule <span className="font-semibold">{deleteRuleModal.ruleName}</span>? This action cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex justify-end gap-3">
+              <Button
+                variant="secondary"
+                onClick={() => setDeleteRuleModal({ open: false, repoId: null, ruleId: null, ruleName: '' })}
+                disabled={deleting}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => deleteRuleModal.repoId && deleteRuleModal.ruleId && handleDeleteRule(deleteRuleModal.repoId, deleteRuleModal.ruleId)}
+                disabled={deleting}
+              >
+                {deleting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  'Delete'
+                )}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
 
-      {/* Automation Configuration Modal */}
-      <Dialog open={!!activeAutomationRepo} onOpenChange={(open) => !open && closeAutomationModal()}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Automation Rules</DialogTitle>
-            <DialogDescription>
-              Schedule documentation updates for {activeAutomationRepo?.name} with clear triggers and publishing behavior.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-6">
-                {activeAutomationRepo && automationLoading[activeAutomationRepo.id] ? (
-                  <Card>
-                    <CardContent className="flex items-center justify-center py-12">
-                      <Loader2 className="h-5 w-5 animate-spin mr-2" />
-                      <span className="text-sm text-white/60">Loading automation rule...</span>
-                    </CardContent>
-                  </Card>
-                ) : singleRuleForm ? (
-                  <div className="space-y-6 overflow-y-auto px-6 py-6" style={{ maxHeight: 'calc(90vh - 140px)' }}>
-                    <div className="space-y-5 rounded-2xl border border-white/10 bg-black/40 p-5">
-                      <div className="flex flex-col gap-2">
-                        <div className="flex items-center justify-between">
-                          <p className="text-sm font-semibold text-white">Configure Automation Rule</p>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Button
-                            type="button"
-                            variant={singleRuleForm.enabled ? 'default' : 'secondary'}
-                            size="sm"
-                            onClick={() => updateSingleRuleField('enabled', !singleRuleForm.enabled)}
-                          >
-                            {singleRuleForm.enabled ? 'Enabled' : 'Disabled'}
-                          </Button>
-                          <p className="text-xs text-white/60">When off, the rule is ignored. Rules are automatically enabled when saved.</p>
-                        </div>
+        {/* Automation Configuration Modal */}
+        <Dialog open={!!activeAutomationRepo} onOpenChange={(open) => !open && closeAutomationModal()}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Automation Rules</DialogTitle>
+              <DialogDescription>
+                Schedule documentation updates for {activeAutomationRepo?.name} with clear triggers and publishing behavior.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-6">
+              {activeAutomationRepo && automationLoading[activeAutomationRepo.id] ? (
+                <Card>
+                  <CardContent className="flex items-center justify-center py-12">
+                    <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                    <span className="text-sm text-white/60">Loading automation rule...</span>
+                  </CardContent>
+                </Card>
+              ) : singleRuleForm ? (
+                <div className="space-y-6 overflow-y-auto px-6 py-6" style={{ maxHeight: 'calc(90vh - 140px)' }}>
+                  <div className="space-y-5 rounded-2xl border border-white/10 bg-black/40 p-5">
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-semibold text-white">Configure Automation Rule</p>
                       </div>
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <label className="text-sm text-white/80">
-                          Rule label
-                          <input
-                            type="text"
-                            value={singleRuleForm.name}
-                            onChange={(event) => updateSingleRuleField('name', event.target.value)}
-                            className="mt-1 w-full rounded-lg border border-white/20 bg-black/60 px-3 py-2 text-sm text-white outline-none focus:border-blue-500"
-                            placeholder="e.g., Nightly documentation"
-                          />
-                        </label>
-                        <div>
-                          <label className="text-sm text-white/80">
-                            Schedule (Cron Expression)
-                          </label>
-
-                          {/* Cron Expression Input */}
-                          <input
-                            type="text"
-                            value={singleRuleForm.customCron}
-                            onChange={(event) => updateSingleRuleField('customCron', event.target.value)}
-                            placeholder="0 2 * * * (daily at 2 AM UTC)"
-                            className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm text-white outline-none focus:border-blue-500 font-mono ${singleRuleForm.customCron && !isValidCron(singleRuleForm.customCron)
-                              ? 'border-red-500/50 bg-red-900/20'
-                              : 'border-white/20 bg-black/60'
-                              }`}
-                          />
-
-                          {/* Quick Preset Buttons */}
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            <button
-                              type="button"
-                              onClick={() => updateSingleRuleField('customCron', '0 2 * * *')}
-                              className="px-2 py-1 text-xs bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 rounded border border-blue-600/30 transition-colors"
-                            >
-                              Daily 2 AM
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => updateSingleRuleField('customCron', '0 9 * * *')}
-                              className="px-2 py-1 text-xs bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 rounded border border-blue-600/30 transition-colors"
-                            >
-                              Daily 9 AM
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => updateSingleRuleField('customCron', '0 */6 * * *')}
-                              className="px-2 py-1 text-xs bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 rounded border border-blue-600/30 transition-colors"
-                            >
-                              Every 6 hours
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => updateSingleRuleField('customCron', '*/30 * * * *')}
-                              className="px-2 py-1 text-xs bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 rounded border border-blue-600/30 transition-colors"
-                            >
-                              Every 30 min
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => updateSingleRuleField('customCron', '0 9 * * 1')}
-                              className="px-2 py-1 text-xs bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 rounded border border-blue-600/30 transition-colors"
-                            >
-                              Weekly Monday 9 AM
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => updateSingleRuleField('customCron', '0 0 * * 1')}
-                              className="px-2 py-1 text-xs bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 rounded border border-blue-600/30 transition-colors"
-                            >
-                              Weekly Monday
-                            </button>
-                          </div>
-
-                          {/* Help Text */}
-                          <div className="mt-2 space-y-1">
-                            <p className="text-xs text-white/50">
-                              Format: <code className="bg-black/40 px-1 rounded font-mono">minute hour day month weekday</code>
-                            </p>
-                            <div className="text-xs text-white/40 space-y-1">
-                              <div>• <code className="bg-black/40 px-1 rounded font-mono">*</code> = any value</div>
-                              <div>• <code className="bg-black/40 px-1 rounded font-mono">*/5</code> = every 5 units</div>
-                              <div>• <code className="bg-black/40 px-1 rounded font-mono">1,3,5</code> = specific values</div>
-                              <div>• <code className="bg-black/40 px-1 rounded font-mono">1-5</code> = range</div>
-                            </div>
-                          </div>
-
-                          {/* Validation and Description */}
-                          {singleRuleForm.customCron && (
-                            <div className={`mt-2 p-2 rounded border ${isValidCron(singleRuleForm.customCron)
-                              ? 'bg-black/20 border-white/10'
-                              : 'bg-red-900/20 border-red-500/30'
-                              }`}>
-                              <p className={`text-xs ${isValidCron(singleRuleForm.customCron)
-                                ? 'text-white/70'
-                                : 'text-red-300'
-                                }`}>
-                                <span className="font-medium">
-                                  {isValidCron(singleRuleForm.customCron) ? 'Current:' : 'Error:'}
-                                </span>{' '}
-                                {isValidCron(singleRuleForm.customCron)
-                                  ? getCronDescription(singleRuleForm.customCron)
-                                  : 'Invalid cron expression format'}
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Action Presets - Simplified UI */}
-                      <div className="space-y-4">
-                        <div>
-                          <div className="flex items-center justify-between mb-3">
-                            <label className="block text-sm font-medium text-white/90">
-                              What should this automation do?
-                            </label>
-                            {singleRuleForm.action_preset && (
-                              <div className="text-xs text-green-400 font-medium flex items-center gap-1">
-                                <div className="w-2 h-2 bg-green-400 rounded-full"></div>
-                                Active: {
-                                  singleRuleForm.action_preset === 'docs_only' ? '📄 Docs Only' :
-                                    singleRuleForm.action_preset === 'diagrams_only' ? '🏛 Architecture Diagrams' :
-                                      singleRuleForm.action_preset === 'docs_and_diagrams' ? '📄 + 🏛 Docs & Diagrams' :
-                                        singleRuleForm.action_preset === 'full_auto_publish' ? '🚀 Auto-Publish' :
-                                          'Not selected'
-                                }
-                              </div>
-                            )}
-                          </div>
-                          <div className="grid gap-3 md:grid-cols-2">
-                            {[
-                              {
-                                value: 'docs_only',
-                                label: '📄 Update Documentation Only',
-                                description: 'Regenerate documentation when files change significantly'
-                              },
-                              {
-                                value: 'diagrams_only',
-                                label: '🏛 Keep Architecture Diagram Updated',
-                                description: 'Regenerate the architecture diagram when code changes'
-                              },
-                              {
-                                value: 'docs_and_diagrams',
-                                label: '📄 + 🏛 Docs & Diagrams',
-                                description: 'Regenerate both docs and architecture diagrams automatically'
-                              },
-                              {
-                                value: 'full_auto_publish',
-                                label: '🚀 Full Auto-Publish',
-                                description: 'Update content and publish to configured knowledge bases'
-                              }
-                            ].map((preset) => {
-                              const isSelected = singleRuleForm.action_preset === preset.value;
-                              return (
-                                <button
-                                  key={preset.value}
-                                  type="button"
-                                  onClick={() => updateSingleRuleField('action_preset', preset.value)}
-                                  className={`relative p-4 rounded-lg border-2 text-left transition-all ${isSelected
-                                    ? 'border-green-500 bg-green-500/15 text-green-100 shadow-lg shadow-green-500/20'
-                                    : 'border-white/20 bg-white/5 hover:bg-white/10 hover:border-white/30 text-white/80'
-                                    }`}
-                                >
-                                  {isSelected && (
-                                    <div className="absolute top-2 right-2">
-                                      <div className="w-5 h-5 bg-green-500 rounded-full flex items-center justify-center">
-                                        <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                        </svg>
-                                      </div>
-                                    </div>
-                                  )}
-                                  <div className={`font-semibold text-sm mb-1 ${isSelected ? 'text-green-100' : ''}`}>
-                                    {preset.label}
-                                  </div>
-                                  <div className={`text-xs ${isSelected ? 'text-green-200/80' : 'text-white/60'}`}>
-                                    {preset.description}
-                                  </div>
-                                  {isSelected && (
-                                    <div className="mt-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-500/20 text-green-200">
-                                      Selected
-                                    </div>
-                                  )}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-
-                        {/* Smart Analysis Settings */}
-                        <div className="rounded-lg border border-white/20 bg-white/5 p-4">
-                          <h4 className="text-sm font-semibold text-white/90 mb-3">🎯 Smart Analysis</h4>
-                          <p className="text-xs text-white/60 mb-3">
-                            Automation only runs when changes are significant enough to warrant documentation updates.
-                          </p>
-                          <div className="space-y-3">
-                            <div>
-                              <label className="block text-xs font-medium text-white/70 mb-1">Change Sensitivity</label>
-                              <select
-                                value={singleRuleForm.significance_sensitivity}
-                                onChange={(e) => updateSingleRuleField('significance_sensitivity', e.target.value)}
-                                className="w-full rounded border border-white/20 bg-white/10 px-3 py-2 text-sm text-white"
-                              >
-                                <option value="strict">Strict - Only major changes</option>
-                                <option value="balanced">Balanced - Recommended</option>
-                                <option value="lenient">Lenient - Catch more changes</option>
-                              </select>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Notifications */}
-                        <div className="rounded-lg border border-white/20 bg-white/5 p-4">
-                          <h4 className="text-sm font-semibold text-white/90 mb-3">📧 Notifications</h4>
-                          <label className="flex items-center gap-2 text-sm">
-                            <input
-                              type="checkbox"
-                              checked={singleRuleForm.notifications_email_enabled}
-                              onChange={(e) => updateSingleRuleField('notifications_email_enabled', (e.target as HTMLInputElement).checked)}
-                              className="h-4 w-4 rounded border-white/30 bg-black/60 text-blue-500"
-                            />
-                            Send email notifications when automation completes
-                          </label>
-                        </div>
-                      </div>
-
-
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <label className="text-sm text-white/80">
-                          Target provider
-                          <select
-                            value={
-                              singleRuleForm.auto_publish_target_connection_id ||
-                              (singleRuleForm.auto_publish_target_provider ? `provider:${singleRuleForm.auto_publish_target_provider}` : '')
-                            }
-                            onChange={(event) => {
-                              const selectedValue = event.target.value;
-                              if (!selectedValue) {
-                                setRuleConnection('', '');
-                                return;
-                              }
-                              if (selectedValue.startsWith('provider:')) {
-                                const provider = selectedValue.replace('provider:', '');
-                                setRuleConnection('', provider);
-                                return;
-                              }
-                              const selectedConn = connections.find(
-                                (c) => c.connection_id === selectedValue || c.id === selectedValue
-                              );
-                              setRuleConnection(selectedValue, selectedConn?.provider ?? '');
-                            }}
-                            className="mt-1 w-full rounded-lg border border-white/20 bg-black/60 px-3 py-2 text-sm text-white outline-none focus:border-blue-500"
-                          >
-                            <option value="">Select a knowledge base provider or connection</option>
-                            <optgroup label="Connected providers">
-                              {knowledgeBaseConnections.map((connection) => (
-                                <option key={connection.connection_id} value={connection.connection_id}>
-                                  {getProviderDisplayName(connection.provider)}
-                                </option>
-                              ))}
-                            </optgroup>
-                          </select>
-                        </label>
-                        <label className="text-sm text-white/80">
-                          Target resource
-                          <select
-                            value={singleRuleForm.auto_publish_target_resource_id || ''}
-                            onChange={(event) => updateSingleRuleField('auto_publish_target_resource_id', event.target.value)}
-                            className="mt-1 w-full rounded-lg border border-white/20 bg-black/60 px-3 py-2 text-sm text-white outline-none focus:border-blue-500"
-                          >
-                            <option value="">{defaultOptionLabel}</option>
-                            {/* Show saved resource_id as option if not in list */}
-                            {singleRuleForm.auto_publish_target_resource_id &&
-                              !resourceOptions.some(r => r.id === singleRuleForm.auto_publish_target_resource_id) && (
-                                <option value={singleRuleForm.auto_publish_target_resource_id}>
-                                  {singleRuleForm.auto_publish_target_resource_id} (saved)
-                                </option>
-                              )}
-                            {resourceOptions.map((resource) => (
-                              <option key={resource.id} value={resource.id}>
-                                {resource.name}
-                              </option>
-                            ))}
-                          </select>
-                          <p className="text-xs text-white/50 mt-1">{helperText}</p>
-                        </label>
-                      </div>
-
-                      <div className="flex justify-end">
+                      <div className="flex flex-wrap items-center gap-2">
                         <Button
                           type="button"
-                          onClick={() => activeAutomationRepoId && handleSaveAutomationRules(activeAutomationRepoId)}
-                          disabled={Boolean(activeAutomationRepoId && automationSaving[activeAutomationRepoId])}
+                          variant={singleRuleForm.enabled ? 'default' : 'secondary'}
+                          size="sm"
+                          onClick={() => updateSingleRuleField('enabled', !singleRuleForm.enabled)}
                         >
-                          {activeAutomationRepoId && automationSaving[activeAutomationRepoId] ? (
-                            <>
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                              Saving...
-                            </>
-                          ) : (
-                            'Save Rule'
-                          )}
+                          {singleRuleForm.enabled ? 'Enabled' : 'Disabled'}
                         </Button>
+                        <p className="text-xs text-white/60">When off, the rule is ignored. Rules are automatically enabled when saved.</p>
+                      </div>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <label className="text-sm text-white/80">
+                        Rule label
+                        <input
+                          type="text"
+                          value={singleRuleForm.name}
+                          onChange={(event) => updateSingleRuleField('name', event.target.value)}
+                          className="mt-1 w-full rounded-lg border border-white/20 bg-black/60 px-3 py-2 text-sm text-white outline-none focus:border-blue-500"
+                          placeholder="e.g., Nightly documentation"
+                        />
+                      </label>
+                      <div>
+                        <label className="text-sm text-white/80">
+                          Schedule (Cron Expression)
+                        </label>
+
+                        {/* Cron Expression Input */}
+                        <input
+                          type="text"
+                          value={singleRuleForm.customCron}
+                          onChange={(event) => updateSingleRuleField('customCron', event.target.value)}
+                          placeholder="0 2 * * * (daily at 2 AM UTC)"
+                          className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm text-white outline-none focus:border-blue-500 font-mono ${singleRuleForm.customCron && !isValidCron(singleRuleForm.customCron)
+                            ? 'border-red-500/50 bg-red-900/20'
+                            : 'border-white/20 bg-black/60'
+                            }`}
+                        />
+
+                        {/* Quick Preset Buttons */}
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => updateSingleRuleField('customCron', '0 2 * * *')}
+                            className="px-2 py-1 text-xs bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 rounded border border-blue-600/30 transition-colors"
+                          >
+                            Daily 2 AM
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateSingleRuleField('customCron', '0 9 * * *')}
+                            className="px-2 py-1 text-xs bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 rounded border border-blue-600/30 transition-colors"
+                          >
+                            Daily 9 AM
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateSingleRuleField('customCron', '0 */6 * * *')}
+                            className="px-2 py-1 text-xs bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 rounded border border-blue-600/30 transition-colors"
+                          >
+                            Every 6 hours
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateSingleRuleField('customCron', '*/30 * * * *')}
+                            className="px-2 py-1 text-xs bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 rounded border border-blue-600/30 transition-colors"
+                          >
+                            Every 30 min
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateSingleRuleField('customCron', '0 9 * * 1')}
+                            className="px-2 py-1 text-xs bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 rounded border border-blue-600/30 transition-colors"
+                          >
+                            Weekly Monday 9 AM
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateSingleRuleField('customCron', '0 0 * * 1')}
+                            className="px-2 py-1 text-xs bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 rounded border border-blue-600/30 transition-colors"
+                          >
+                            Weekly Monday
+                          </button>
+                        </div>
+
+                        {/* Help Text */}
+                        <div className="mt-2 space-y-1">
+                          <p className="text-xs text-white/50">
+                            Format: <code className="bg-black/40 px-1 rounded font-mono">minute hour day month weekday</code>
+                          </p>
+                          <div className="text-xs text-white/40 space-y-1">
+                            <div>• <code className="bg-black/40 px-1 rounded font-mono">*</code> = any value</div>
+                            <div>• <code className="bg-black/40 px-1 rounded font-mono">*/5</code> = every 5 units</div>
+                            <div>• <code className="bg-black/40 px-1 rounded font-mono">1,3,5</code> = specific values</div>
+                            <div>• <code className="bg-black/40 px-1 rounded font-mono">1-5</code> = range</div>
+                          </div>
+                        </div>
+
+                        {/* Validation and Description */}
+                        {singleRuleForm.customCron && (
+                          <div className={`mt-2 p-2 rounded border ${isValidCron(singleRuleForm.customCron)
+                            ? 'bg-black/20 border-white/10'
+                            : 'bg-red-900/20 border-red-500/30'
+                            }`}>
+                            <p className={`text-xs ${isValidCron(singleRuleForm.customCron)
+                              ? 'text-white/70'
+                              : 'text-red-300'
+                              }`}>
+                              <span className="font-medium">
+                                {isValidCron(singleRuleForm.customCron) ? 'Current:' : 'Error:'}
+                              </span>{' '}
+                              {isValidCron(singleRuleForm.customCron)
+                                ? getCronDescription(singleRuleForm.customCron)
+                                : 'Invalid cron expression format'}
+                            </p>
+                          </div>
+                        )}
                       </div>
                     </div>
 
-                    {activeAutomationRepoId && automationAlerts[activeAutomationRepoId] && (
-                      <Alert variant={automationAlerts[activeAutomationRepoId]?.type === 'error' ? 'destructive' : 'success'} className="mt-2">
-                        <AlertDescription>{automationAlerts[activeAutomationRepoId]?.message}</AlertDescription>
-                      </Alert>
-                    )}
+                    {/* Action Presets - Simplified UI */}
+                    <div className="space-y-4">
+                      <div>
+                        <div className="flex items-center justify-between mb-3">
+                          <label className="block text-sm font-medium text-white/90">
+                            What should this automation do?
+                          </label>
+                          {singleRuleForm && (
+                            <div className="text-xs text-green-400 font-medium flex items-center gap-1">
+                              <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                              Active: {
+                                presetFromFlags(singleRuleForm) === 'docs_only' ? '📄 Docs Only' :
+                                  presetFromFlags(singleRuleForm) === 'diagrams_only' ? '🏛 Architecture Diagrams' :
+                                    presetFromFlags(singleRuleForm) === 'docs_and_diagrams' ? '📄 + 🏛 Docs & Diagrams' :
+                                      presetFromFlags(singleRuleForm) === 'full_auto_publish' ? '🚀 Auto-Publish' :
+                                        'Not selected'
+                              }
+                            </div>
+                          )}
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-2">
+                          {[
+                            {
+                              value: 'docs_only',
+                              label: '📄 Update Documentation Only',
+                              description: 'Regenerate documentation when files change significantly'
+                            },
+                            {
+                              value: 'diagrams_only',
+                              label: '🏛 Keep Architecture Diagram Updated',
+                              description: 'Regenerate the architecture diagram when code changes'
+                            },
+                            {
+                              value: 'docs_and_diagrams',
+                              label: '📄 + 🏛 Docs & Diagrams',
+                              description: 'Regenerate both docs and architecture diagrams automatically'
+                            },
+                            {
+                              value: 'full_auto_publish',
+                              label: '🚀 Full Auto-Publish',
+                              description: 'Update content and publish to configured knowledge bases'
+                            }
+                          ].map((preset) => {
+                            const isSelected = presetFromFlags(singleRuleForm) === preset.value;
+                            return (
+                              <button
+                                key={preset.value}
+                                type="button"
+                                onClick={() => applyPreset(preset.value as AutomationPreset)}
+                                className={`relative p-4 rounded-lg border-2 text-left transition-all ${isSelected
+                                  ? 'border-green-500 bg-green-500/15 text-green-100 shadow-lg shadow-green-500/20'
+                                  : 'border-white/20 bg-white/5 hover:bg-white/10 hover:border-white/30 text-white/80'
+                                  }`}
+                              >
+                                {isSelected && (
+                                  <div className="absolute top-2 right-2">
+                                    <div className="w-5 h-5 bg-green-500 rounded-full flex items-center justify-center">
+                                      <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                      </svg>
+                                    </div>
+                                  </div>
+                                )}
+                                <div className={`font-semibold text-sm mb-1 ${isSelected ? 'text-green-100' : ''}`}>
+                                  {preset.label}
+                                </div>
+                                <div className={`text-xs ${isSelected ? 'text-green-200/80' : 'text-white/60'}`}>
+                                  {preset.description}
+                                </div>
+                                {isSelected && (
+                                  <div className="mt-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-500/20 text-green-200">
+                                    Selected
+                                  </div>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                    </div>
+
+
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <label className="text-sm text-white/80">
+                        Target provider
+                        <select
+                          value={
+                            singleRuleForm.auto_publish_target_connection_id ||
+                            (singleRuleForm.auto_publish_target_provider ? `provider:${singleRuleForm.auto_publish_target_provider}` : '')
+                          }
+                          onChange={(event) => {
+                            const selectedValue = event.target.value;
+                            if (!selectedValue) {
+                              setRuleConnection('', '');
+                              return;
+                            }
+                            if (selectedValue.startsWith('provider:')) {
+                              const provider = selectedValue.replace('provider:', '');
+                              setRuleConnection('', provider);
+                              return;
+                            }
+                            const selectedConn = connections.find(
+                              (c) => c.connection_id === selectedValue || c.id === selectedValue
+                            );
+                            setRuleConnection(selectedValue, selectedConn?.provider ?? '');
+                          }}
+                          className="mt-1 w-full rounded-lg border border-white/20 bg-black/60 px-3 py-2 text-sm text-white outline-none focus:border-blue-500"
+                        >
+                          <option value="">Select a knowledge base provider or connection</option>
+                          <optgroup label="Connected providers">
+                            {knowledgeBaseConnections.map((connection) => (
+                              <option key={connection.connection_id} value={connection.connection_id}>
+                                {getProviderDisplayName(connection.provider)}
+                              </option>
+                            ))}
+                          </optgroup>
+                        </select>
+                      </label>
+                      <label className="text-sm text-white/80">
+                        Target resource
+                        <select
+                          value={singleRuleForm.auto_publish_target_resource_id || ''}
+                          onChange={(event) => updateSingleRuleField('auto_publish_target_resource_id', event.target.value)}
+                          className="mt-1 w-full rounded-lg border border-white/20 bg-black/60 px-3 py-2 text-sm text-white outline-none focus:border-blue-500"
+                        >
+                          <option value="">{defaultOptionLabel}</option>
+                          {/* Show saved resource_id as option if not in list */}
+                          {singleRuleForm.auto_publish_target_resource_id &&
+                            !resourceOptions.some(r => r.id === singleRuleForm.auto_publish_target_resource_id) && (
+                              <option value={singleRuleForm.auto_publish_target_resource_id}>
+                                {singleRuleForm.auto_publish_target_resource_id} (saved)
+                              </option>
+                            )}
+                          {resourceOptions.map((resource) => (
+                            <option key={resource.id} value={resource.id}>
+                              {resource.name}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="text-xs text-white/50 mt-1">{helperText}</p>
+                      </label>
+                    </div>
+
+                    <div className="flex justify-end">
+                      <Button
+                        type="button"
+                        onClick={() => activeAutomationRepoId && handleSaveAutomationRules(activeAutomationRepoId)}
+                        disabled={Boolean(activeAutomationRepoId && automationSaving[activeAutomationRepoId])}
+                      >
+                        {activeAutomationRepoId && automationSaving[activeAutomationRepoId] ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Saving...
+                          </>
+                        ) : (
+                          'Save Rule'
+                        )}
+                      </Button>
+                    </div>
                   </div>
-                ) : (
-                  <Card>
-                    <CardContent className="flex items-center justify-center py-12">
-                      <p className="text-sm text-white/60">No rule form available</p>
-                    </CardContent>
-                  </Card>
-                )}
-          </div>
-        </DialogContent>
-      </Dialog>
+
+                  {activeAutomationRepoId && automationAlerts[activeAutomationRepoId] && (
+                    <Alert variant={automationAlerts[activeAutomationRepoId]?.type === 'error' ? 'destructive' : 'success'} className="mt-2">
+                      <AlertDescription>{automationAlerts[activeAutomationRepoId]?.message}</AlertDescription>
+                    </Alert>
+                  )}
+                </div>
+              ) : (
+                <Card>
+                  <CardContent className="flex items-center justify-center py-12">
+                    <p className="text-sm text-white/60">No rule form available</p>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );

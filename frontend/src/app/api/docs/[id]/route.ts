@@ -30,11 +30,11 @@ export async function GET(
     // Verify user has access via workspace_repos
     const { data: repo } = await supabase
       .from('workspace_repos')
-      .select('workspace_id')
+      .select('user_id')
       .eq('id', document.repo_id)
       .single();
 
-    if (!repo || repo.workspace_id !== user.id) {
+    if (!repo || repo.user_id !== user.id) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -108,11 +108,11 @@ export async function DELETE(
 
     const { data: repo } = await supabase
       .from('workspace_repos')
-      .select('workspace_id, repo_url')
+      .select('user_id, repo_url')
       .eq('id', document.repo_id)
       .single();
 
-    if (!repo || repo.workspace_id !== user.id) {
+    if (!repo || repo.user_id !== user.id) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 

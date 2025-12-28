@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { analyzeRepository } from './analyzeRepository';
 import { generateDocumentation } from './docGenerator';
-import { trackArchitectureDiagram, trackDocGenerated, trackPushToKb } from './usageTracking';
+import { trackArchitectureDiagram, trackAutomationRun, trackDocGenerated, trackPushToKb } from './usageTracking';
 import { LLMGateway } from './llmGateway';
 import { FileSummaryManager } from './fileSummaryManager';
 import { parseRepoUrl } from '../github/github';
@@ -139,22 +139,18 @@ export async function executeAutomationRule({
 		publishResourceId: undefined as string | undefined,
 		filesProcessed: 0,
 		documentsUpdated: 0,
-	};
+		};
 
-	const actionPreset = rule.action_preset || 'docs_only';
-	const targetDiagramTypes = Array.isArray(rule.target_diagrams) ? rule.target_diagrams.filter(Boolean) : [];
-	const shouldGenerateDiagrams =
-		rule.generate_diagram === true ||
-		targetDiagramTypes.length > 0 ||
-		actionPreset === 'diagrams_only' ||
-		actionPreset === 'docs_and_diagrams' ||
-		actionPreset === 'full_auto_publish';
-	const shouldGenerateDocs = actionPreset !== 'diagrams_only' && rule.generate_doc !== false;
-	const desiredDiagramTypes = targetDiagramTypes.length > 0 ? targetDiagramTypes : ['architecture'];
-	const generatedDiagrams: Array<{ id: string; type: string; title?: string; isNew?: boolean; updatedAt?: string }> = [];
-	let diagramGenerated = false;
-	const shouldAutoPublish = actionPreset === 'full_auto_publish' || rule.auto_publish === true;
-	const autoPublishTarget = rule.auto_publish_target || null;
+		const targetDiagramTypes = Array.isArray(rule.target_diagrams) ? rule.target_diagrams.filter(Boolean) : [];
+		const shouldGenerateDiagrams = rule.generate_diagram === true || targetDiagramTypes.length > 0;
+		const shouldGenerateDocs = rule.generate_doc === true || rule.auto_publish === true;
+		const desiredDiagramTypes =
+			targetDiagramTypes.length > 0 ? targetDiagramTypes : shouldGenerateDiagrams ? ['architecture'] : [];
+		const generatedDocuments: Array<{ id: string; title?: string; updatedAt?: string; isNew?: boolean }> = [];
+		const generatedDiagrams: Array<{ id: string; type: string; title?: string; isNew?: boolean; updatedAt?: string }> = [];
+		let diagramGenerated = false;
+		const shouldAutoPublish = rule.auto_publish === true;
+		const autoPublishTarget = rule.auto_publish_target || null;
 
 	try {
 		// 🔍 Pre-flight checks
@@ -164,19 +160,23 @@ export async function executeAutomationRule({
 		} catch (error: any) {
 			console.error(`❌ [ERROR] AI service unavailable: ${error.message}`);
 			result.errors.push(`AI service configuration error: ${error.message}`);
-			await insertAutomationRun(supabase, {
-				repoId: repo.id,
-				ruleId: rule.rule_id || rule.id || ruleName,
-				workspaceId: userId,
-				triggerType,
-				success: false,
-				skipped: false,
-				actions: result.actions,
-				executionTimeMs: Date.now() - startTime,
-				filesProcessed: 0,
-				documentsUpdated: 0,
-				errors: result.errors,
-			});
+				await insertAutomationRun(supabase, {
+					repoId: repo.id,
+					repoUrl: repo.repo_url ?? null,
+					automationRuleId: rule.id || null,
+					userId,
+					triggerType,
+					status: 'failed',
+					actions: result.actions,
+					executionTimeMs: Date.now() - startTime,
+					filesProcessed: 0,
+					documentsUpdated: 0,
+					errors: result.errors,
+					docId: result.docId,
+					diagramId: result.diagramId,
+					generatedDocuments,
+					generatedDiagrams,
+				});
 			return result;
 		}
 
@@ -192,19 +192,23 @@ export async function executeAutomationRule({
 			result.skipped = true;
 			result.skipReason = 'Repository not set up for automation. Please run repository setup first.';
 			result.success = true;
-			await insertAutomationRun(supabase, {
-				repoId: repo.id,
-				ruleId: rule.rule_id || rule.id || ruleName,
-				workspaceId: userId,
-				triggerType,
-				success: true,
-				skipped: true,
-				skipReason: result.skipReason,
-				actions: result.actions,
-				executionTimeMs: Date.now() - startTime,
-				filesProcessed: 0,
-				documentsUpdated: 0,
+				await insertAutomationRun(supabase, {
+					repoId: repo.id,
+					repoUrl: repo.repo_url ?? null,
+					automationRuleId: rule.id || null,
+					userId,
+					triggerType,
+					status: 'skipped',
+					skipReason: result.skipReason,
+					actions: result.actions,
+					executionTimeMs: Date.now() - startTime,
+					filesProcessed: 0,
+					documentsUpdated: 0,
 				errors: result.errors,
+					docId: result.docId,
+					diagramId: result.diagramId,
+					generatedDocuments,
+					generatedDiagrams,
 			});
 			return result;
 		}
@@ -238,19 +242,23 @@ export async function executeAutomationRule({
 		if (!analysis.success || !analysis.rawFiles) {
 			console.error(`❌ [ERROR] Failed to analyze repository:`, analysis.message);
 			result.errors.push('Failed to analyze repository for file processing');
-			await insertAutomationRun(supabase, {
-				repoId: repo.id,
-				ruleId: rule.rule_id || rule.id || ruleName,
-				workspaceId: userId,
-				triggerType,
-				success: false,
-				skipped: false,
-				actions: result.actions,
-				executionTimeMs: Date.now() - startTime,
-				filesProcessed: 0,
-				documentsUpdated: 0,
-				errors: result.errors,
-			});
+				await insertAutomationRun(supabase, {
+					repoId: repo.id,
+					repoUrl: repo.repo_url ?? null,
+					automationRuleId: rule.id || null,
+					userId,
+					triggerType,
+					status: 'failed',
+					actions: result.actions,
+					executionTimeMs: Date.now() - startTime,
+					filesProcessed: 0,
+					documentsUpdated: 0,
+					errors: result.errors,
+					docId: result.docId,
+					diagramId: result.diagramId,
+					generatedDocuments,
+					generatedDiagrams,
+				});
 			return result;
 		}
 
@@ -433,26 +441,24 @@ export async function executeAutomationRule({
 				result.skipReason = 'No architecture diagram changes detected';
 			}
 
-			await insertAutomationRun(supabase, {
-				repoId: repo.id,
-				ruleId: rule.rule_id || rule.id || ruleName,
-				workspaceId: userId,
-				triggerType,
-				success: result.success,
-				skipped: result.skipped,
-				skipReason: result.skipReason,
-				actions: result.actions,
-				docId: result.docId,
-				diagramId: result.diagramId,
-				publishStatus: result.publishStatus,
-				publishProvider: result.publishProvider,
-				publishResourceId: result.publishResourceId,
-				executionTimeMs: Date.now() - startTime,
-				filesProcessed: result.filesProcessed,
-				documentsUpdated: result.documentsUpdated,
-				errors: result.errors,
-				generatedDiagrams,
-			});
+				await insertAutomationRun(supabase, {
+					repoId: repo.id,
+					repoUrl: repo.repo_url ?? null,
+					automationRuleId: rule.id || null,
+					userId,
+					triggerType,
+					status: result.skipped ? 'skipped' : result.success ? 'succeeded' : 'failed',
+					skipReason: result.skipReason,
+					actions: result.actions,
+					executionTimeMs: Date.now() - startTime,
+					filesProcessed: result.filesProcessed,
+					documentsUpdated: result.documentsUpdated,
+					errors: result.errors,
+					docId: result.docId,
+					diagramId: result.diagramId,
+					generatedDocuments,
+					generatedDiagrams,
+				});
 
 			return result;
 		}
@@ -470,22 +476,23 @@ export async function executeAutomationRule({
 			console.error(`❌ [ERROR] Failed to get documents:`, docsError);
 			result.errors.push('Failed to identify affected documents');
 			result.filesProcessed = summaryResult?.processed || 0;
-			await insertAutomationRun(supabase, {
-				repoId: repo.id,
-				ruleId: rule.rule_id || rule.id || ruleName,
-				workspaceId: userId,
-				triggerType,
-				success: false,
-				skipped: false,
-				actions: result.actions,
-				docId: result.docId,
-				diagramId: result.diagramId,
-				executionTimeMs: Date.now() - startTime,
-				filesProcessed: result.filesProcessed,
-				documentsUpdated: 0,
-				errors: result.errors,
-				generatedDiagrams,
-			});
+				await insertAutomationRun(supabase, {
+					repoId: repo.id,
+					repoUrl: repo.repo_url ?? null,
+					automationRuleId: rule.id || null,
+					userId,
+					triggerType,
+					status: 'failed',
+					actions: result.actions,
+					executionTimeMs: Date.now() - startTime,
+					filesProcessed: result.filesProcessed,
+					documentsUpdated: 0,
+					errors: result.errors,
+					docId: result.docId,
+					diagramId: result.diagramId,
+					generatedDocuments,
+					generatedDiagrams,
+				});
 			return result;
 		}
 
@@ -503,22 +510,23 @@ export async function executeAutomationRule({
 			console.error(`❌ [ERROR] Failed to get document files:`, filesError);
 			result.errors.push('Failed to identify affected documents');
 			result.filesProcessed = summaryResult?.processed || 0;
-			await insertAutomationRun(supabase, {
-				repoId: repo.id,
-				ruleId: rule.rule_id || rule.id || ruleName,
-				workspaceId: userId,
-				triggerType,
-				success: false,
-				skipped: false,
-				actions: result.actions,
-				docId: result.docId,
-				diagramId: result.diagramId,
-				executionTimeMs: Date.now() - startTime,
-				filesProcessed: result.filesProcessed,
-				documentsUpdated: 0,
-				errors: result.errors,
-				generatedDiagrams,
-			});
+				await insertAutomationRun(supabase, {
+					repoId: repo.id,
+					repoUrl: repo.repo_url ?? null,
+					automationRuleId: rule.id || null,
+					userId,
+					triggerType,
+					status: 'failed',
+					actions: result.actions,
+					executionTimeMs: Date.now() - startTime,
+					filesProcessed: result.filesProcessed,
+					documentsUpdated: 0,
+					errors: result.errors,
+					docId: result.docId,
+					diagramId: result.diagramId,
+					generatedDocuments,
+					generatedDiagrams,
+				});
 			return result;
 		}
 
@@ -553,23 +561,24 @@ export async function executeAutomationRule({
 				result.skipReason = 'No documents affected by file updates';
 			}
 
-			await insertAutomationRun(supabase, {
-				repoId: repo.id,
-				ruleId: rule.rule_id || rule.id || ruleName,
-				workspaceId: userId,
-				triggerType,
-				success: result.success,
-				skipped: result.skipped,
-				skipReason: result.skipReason,
-				actions: result.actions,
-				docId: result.docId,
-				diagramId: result.diagramId,
-				executionTimeMs: Date.now() - startTime,
-				filesProcessed: result.filesProcessed,
-				documentsUpdated: result.documentsUpdated,
-				errors: result.errors,
-				generatedDiagrams,
-			});
+				await insertAutomationRun(supabase, {
+					repoId: repo.id,
+					repoUrl: repo.repo_url ?? null,
+					automationRuleId: rule.id || null,
+					userId,
+					triggerType,
+					status: result.skipped ? 'skipped' : result.success ? 'succeeded' : 'failed',
+					skipReason: result.skipReason,
+					actions: result.actions,
+					executionTimeMs: Date.now() - startTime,
+					filesProcessed: result.filesProcessed,
+					documentsUpdated: result.documentsUpdated,
+					errors: result.errors,
+					docId: result.docId,
+					diagramId: result.diagramId,
+					generatedDocuments,
+					generatedDiagrams,
+				});
 			return result;
 		}
 
@@ -706,6 +715,13 @@ export async function executeAutomationRule({
 					const completionTimestamp = new Date().toISOString();
 					console.log(`[${completionTimestamp}]  ✅ Updated: ${docInfo.title}`);
 
+					generatedDocuments.push({
+						id: docId,
+						title: docInfo.title,
+						updatedAt: completionTimestamp,
+						isNew: false,
+					});
+
 					await trackDocGenerated(supabase, userId, docId, repo.id, false);
 
 					if (shouldAutoPublish) {
@@ -800,36 +816,33 @@ export async function executeAutomationRule({
 		result.filesProcessed = summaryResult?.processed || 0;
 		result.documentsUpdated = docsUpdated;
 
-		// Store the first updated doc ID if any were updated
-		if (docsUpdated > 0 && affectedDocs.size > 0) {
-			const firstDocId = Array.from(affectedDocs.keys())[0];
-			result.docId = firstDocId;
+		// Store the first successfully updated doc ID (if any)
+		if (generatedDocuments.length > 0) {
+			result.docId = generatedDocuments[0].id;
 		}
 
 		const duration = ((Date.now() - startTime) / 1000).toFixed(1);
 		console.log(`✅ [COMPLETE] Automation finished in ${duration}s`);
 
 		// Insert into automation_runs table
-		await insertAutomationRun(supabase, {
-			repoId: repo.id,
-			ruleId: rule.rule_id || rule.id || ruleName,
-			workspaceId: userId,
-			triggerType,
-			success: result.success,
-			skipped: result.skipped,
-			skipReason: result.skipReason,
-			actions: result.actions,
-			docId: result.docId,
-			diagramId: result.diagramId,
-			publishStatus: result.publishStatus,
-			publishProvider: result.publishProvider,
-			publishResourceId: result.publishResourceId,
-			executionTimeMs: Date.now() - startTime,
-			filesProcessed: result.filesProcessed,
-			documentsUpdated: result.documentsUpdated,
-			errors: result.errors,
-			generatedDiagrams,
-		});
+			await insertAutomationRun(supabase, {
+				repoId: repo.id,
+				repoUrl: repo.repo_url ?? null,
+				automationRuleId: rule.id || null,
+				userId,
+				triggerType,
+				status: result.skipped ? 'skipped' : result.success ? 'succeeded' : 'failed',
+				skipReason: result.skipReason,
+				actions: result.actions,
+				executionTimeMs: Date.now() - startTime,
+				filesProcessed: result.filesProcessed,
+				documentsUpdated: result.documentsUpdated,
+				errors: result.errors,
+				docId: result.docId,
+				diagramId: result.diagramId,
+				generatedDocuments,
+				generatedDiagrams,
+			});
 
 		return result;
 	} catch (error: any) {
@@ -859,26 +872,24 @@ export async function executeAutomationRule({
 	}
 
 	// Insert into automation_runs table even on error/skip
-	await insertAutomationRun(supabase, {
-		repoId: repo.id,
-		ruleId: rule.rule_id || rule.id || ruleName,
-		workspaceId: userId,
-		triggerType,
-		success: result.success,
-		skipped: result.skipped,
-		skipReason: result.skipReason,
-		actions: result.actions,
-		docId: result.docId,
-		diagramId: result.diagramId,
-		publishStatus: result.publishStatus,
-		publishProvider: result.publishProvider,
-		publishResourceId: result.publishResourceId,
-		executionTimeMs: Date.now() - startTime,
-		filesProcessed: result.filesProcessed,
-		documentsUpdated: result.documentsUpdated,
-		errors: result.errors,
-		generatedDiagrams,
-	});
+		await insertAutomationRun(supabase, {
+			repoId: repo.id,
+			repoUrl: repo.repo_url ?? null,
+			automationRuleId: rule.id || null,
+			userId,
+			triggerType,
+			status: result.skipped ? 'skipped' : result.success ? 'succeeded' : 'failed',
+			skipReason: result.skipReason,
+			actions: result.actions,
+			executionTimeMs: Date.now() - startTime,
+			filesProcessed: result.filesProcessed,
+			documentsUpdated: result.documentsUpdated,
+			errors: result.errors,
+			docId: result.docId,
+			diagramId: result.diagramId,
+			generatedDocuments,
+			generatedDiagrams,
+		});
 
 	return result;
 }
@@ -886,66 +897,82 @@ export async function executeAutomationRule({
 /**
  * Insert a record into the automation_runs table
  */
-async function insertAutomationRun(
-	supabase: SupabaseClient,
-	data: {
-		repoId: string;
-		ruleId: string;
-		workspaceId: string;
-		triggerType: 'scheduled' | 'manual';
-		success: boolean;
-		skipped?: boolean;
-		skipReason?: string;
-		actions: string[];
-		docId?: string | null;
-		diagramId?: string | null;
-		publishStatus?: string;
-		publishProvider?: string;
-		publishResourceId?: string;
-		executionTimeMs: number;
-		filesProcessed: number;
-		documentsUpdated: number;
-		errors: string[];
-		significanceAnalysis?: any;
-		generatedDocuments?: any[];
-		generatedDiagrams?: any[];
-		previewUrl?: string;
-	}
-): Promise<void> {
-	try {
-		const { error } = await supabase
-			.from('automation_runs')
-			.insert({
-				repo_id: data.repoId,
-				rule_id: data.ruleId,
-				workspace_id: data.workspaceId,
-				executed_at: new Date().toISOString(),
-				trigger_type: data.triggerType,
-				success: data.success,
-				skipped: data.skipped || false,
-				skip_reason: data.skipReason || null,
-				actions: data.actions,
-				doc_id: data.docId || null,
-				diagram_id: data.diagramId || null,
-				publish_status: data.publishStatus || null,
-				publish_provider: data.publishProvider || null,
-				publish_resource_id: data.publishResourceId || null,
-				execution_time_ms: data.executionTimeMs,
-				files_processed: data.filesProcessed,
-				documents_updated: data.documentsUpdated,
-				errors: data.errors.length > 0 ? data.errors : [],
-				significance_analysis: data.significanceAnalysis || null,
-				generated_documents: data.generatedDocuments || [],
-				generated_diagrams: data.generatedDiagrams || [],
-				preview_url: data.previewUrl || null,
-			});
-
-		if (error) {
-			console.error(`❌ [ERROR] Failed to insert automation run:`, error);
-		} else {
-			console.log(`✅ [TRACKING] Automation run recorded in database`);
+	async function insertAutomationRun(
+		supabase: SupabaseClient,
+		data: {
+			repoId: string;
+			repoUrl?: string | null;
+			userId: string;
+			automationRuleId?: string | null;
+			triggerType: 'scheduled' | 'manual';
+			status: 'succeeded' | 'failed' | 'skipped';
+			skipReason?: string;
+			actions: string[];
+			executionTimeMs: number;
+			filesProcessed: number;
+			documentsUpdated: number;
+			errors: string[];
+			docId?: string | null;
+			diagramId?: string | null;
+			generatedDocuments?: any[];
+			generatedDiagrams?: any[];
 		}
-	} catch (error: any) {
-		console.error(`❌ [ERROR] Exception inserting automation run:`, error);
+	): Promise<void> {
+		let dbRecorded = false;
+		let dbError: string | null = null;
+		try {
+			const { error } = await supabase
+				.from('automation_runs')
+				.insert({
+					repo_id: data.repoId,
+					user_id: data.userId,
+					automation_rule_id: data.automationRuleId || null,
+					executed_at: new Date().toISOString(),
+					trigger_type: data.triggerType,
+					status: data.status,
+					skip_reason: data.skipReason || null,
+					actions: data.actions,
+					execution_time_ms: data.executionTimeMs,
+					files_processed: data.filesProcessed,
+					documents_updated: data.documentsUpdated,
+					errors: data.errors.length > 0 ? data.errors : [],
+					generated_documents: data.generatedDocuments || [],
+					generated_diagrams: data.generatedDiagrams || [],
+				});
+
+			if (error) {
+				dbError = error.message || error.code || String(error);
+				console.error(`❌ [ERROR] Failed to insert automation run:`, error);
+			} else {
+				dbRecorded = true;
+				console.log(`✅ [TRACKING] Automation run recorded in database`);
+			}
+		} catch (error: any) {
+			dbError = error?.message || String(error);
+			console.error(`❌ [ERROR] Exception inserting automation run:`, error);
+		} finally {
+			try {
+				await trackAutomationRun(supabase, data.userId, {
+					repoId: data.repoId,
+					repoUrl: data.repoUrl ?? null,
+					automationRuleId: data.automationRuleId ?? null,
+					triggerType: data.triggerType,
+					status: data.status,
+					skipReason: data.skipReason ?? null,
+					actions: data.actions,
+					executionTimeMs: data.executionTimeMs,
+					filesProcessed: data.filesProcessed,
+					documentsUpdated: data.documentsUpdated,
+					docId: data.docId ?? null,
+					diagramId: data.diagramId ?? null,
+					errors: data.errors,
+					generatedDocuments: data.generatedDocuments,
+					generatedDiagrams: data.generatedDiagrams,
+					dbRecorded,
+					dbError,
+				});
+			} catch (eventError: any) {
+				console.warn(`⚠️ [TRACKING] Failed to emit automation_run usage_event:`, eventError);
+			}
+		}
 	}
-}

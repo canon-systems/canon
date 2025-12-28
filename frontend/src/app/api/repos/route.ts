@@ -28,7 +28,7 @@ export async function GET() {
     const { data, error } = await supabase
       .from('workspace_repos')
       .select('*')
-      .eq('workspace_id', user.id)
+      .eq('user_id', user.id)
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
     }
 
     const insert = {
-      workspace_id: user.id,
+      user_id: user.id,
       name,
       provider: provider || 'github',
       repo_url,
@@ -109,4 +109,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
             .from('workspace_repos')
             .select('*')
             .eq('id', repoId)
-            .eq('workspace_id', user.id)
+            .eq('user_id', user.id)
             .single();
 
         if (repoError || !repo) {

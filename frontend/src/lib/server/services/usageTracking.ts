@@ -7,7 +7,7 @@ async function trackUsageEvent(
 	metadata: Record<string, unknown> = {}
 ) {
 	await supabase.from('usage_events').insert({
-		workspace_id: workspaceId,
+		user_id: workspaceId,
 		event_type: eventType,
 		metadata,
 		created_at: new Date().toISOString(),
@@ -37,6 +37,54 @@ export async function trackRepoScan(
 	await trackUsageEvent(supabase, workspaceId, 'repo_scan_run', {
 		repo_id: repoId,
 		repo_url: repoUrl,
+	});
+}
+
+export async function trackAutomationRun(
+	supabase: SupabaseClient,
+	workspaceId: string,
+	data: {
+		repoId: string;
+		repoUrl?: string | null;
+		automationRuleId?: string | null;
+		triggerType: 'scheduled' | 'manual';
+		status: 'succeeded' | 'failed' | 'skipped';
+		skipReason?: string | null;
+		actions?: string[] | null;
+		executionTimeMs?: number | null;
+		filesProcessed?: number | null;
+		documentsUpdated?: number | null;
+		docId?: string | null;
+		diagramId?: string | null;
+		errors?: string[] | null;
+		generatedDocuments?: unknown[] | null;
+		generatedDiagrams?: unknown[] | null;
+		dbRecorded?: boolean;
+		dbError?: string | null;
+	}
+) {
+	const errors = Array.isArray(data.errors) ? data.errors.filter(Boolean) : [];
+	const actions = Array.isArray(data.actions) ? data.actions.filter(Boolean) : [];
+
+	await trackUsageEvent(supabase, workspaceId, 'automation_run', {
+		repo_id: data.repoId,
+		repo_url: data.repoUrl ?? null,
+		automation_rule_id: data.automationRuleId ?? null,
+		trigger_type: data.triggerType,
+		status: data.status,
+		skip_reason: data.skipReason ?? null,
+		actions,
+		execution_time_ms: data.executionTimeMs ?? null,
+		files_processed: data.filesProcessed ?? null,
+		documents_updated: data.documentsUpdated ?? null,
+		doc_id: data.docId ?? null,
+		diagram_id: data.diagramId ?? null,
+		errors_count: errors.length,
+		errors: errors.slice(0, 5),
+		generated_documents_count: Array.isArray(data.generatedDocuments) ? data.generatedDocuments.length : null,
+		generated_diagrams_count: Array.isArray(data.generatedDiagrams) ? data.generatedDiagrams.length : null,
+		db_recorded: typeof data.dbRecorded === 'boolean' ? data.dbRecorded : undefined,
+		db_error: data.dbError ?? null,
 	});
 }
 

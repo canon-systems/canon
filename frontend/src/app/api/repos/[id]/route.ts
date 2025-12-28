@@ -23,7 +23,7 @@ export async function GET(
       .from('workspace_repos')
       .select('*')
       .eq('id', id)
-      .eq('workspace_id', user.id)
+      .eq('user_id', user.id)
       .single();
 
     if (error || !data) {
@@ -78,7 +78,7 @@ export async function PATCH(
       .from('workspace_repos')
       .update(filteredUpdates)
       .eq('id', id)
-      .eq('workspace_id', user.id)
+      .eq('user_id', user.id)
       .select()
       .single();
 
@@ -123,7 +123,7 @@ export async function DELETE(
       .from('workspace_repos')
       .select('*')
       .eq('id', id)
-      .eq('workspace_id', user.id)
+      .eq('user_id', user.id)
       .single();
 
     if (repoError || !repo) {
@@ -134,7 +134,7 @@ export async function DELETE(
       .from('workspace_repos')
       .delete()
       .eq('id', id)
-      .eq('workspace_id', user.id);
+      .eq('user_id', user.id);
 
     if (error) {
       throw error;
@@ -165,4 +165,3 @@ export async function DELETE(
     );
   }
 }
-

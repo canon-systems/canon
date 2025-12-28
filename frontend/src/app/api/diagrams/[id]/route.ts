@@ -30,11 +30,11 @@ export async function DELETE(
 		// Verify user owns the repo
 		const { data: repo, error: repoError } = await supabase
 			.from('workspace_repos')
-			.select('workspace_id, repo_url')
+			.select('user_id, repo_url')
 			.eq('id', diagram.repo_id)
 			.single();
 
-		if (repoError || !repo || repo.workspace_id !== user.id) {
+		if (repoError || !repo || repo.user_id !== user.id) {
 			return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 		}
 

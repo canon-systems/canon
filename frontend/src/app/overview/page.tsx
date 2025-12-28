@@ -15,17 +15,17 @@ export default async function OverviewPage() {
   const { data: usageEvents, error: usageEventsError } = await supabase
     .from('usage_events')
     .select('id, event_type, metadata, created_at')
-    .eq('workspace_id', user.id)
+    .eq('user_id', user.id)
     .order('created_at', { ascending: false });
 
 
-  // Get automation rules from the new table
   const { data: rulesData, error: reposError } = await supabase
     .from('automation_rules')
     .select(`
       *,
       workspace_repos!inner(id, name, repo_url)
-    `);
+    `)
+    .eq('user_id', user.id);
 
   // Extract automation rules
   const automationRules: Array<{
@@ -45,8 +45,8 @@ export default async function OverviewPage() {
       repoId: rule.repo_id,
       repoName: rule.workspace_repos.name || 'Untitled Repo',
       repoUrl: rule.workspace_repos.repo_url || '',
-      ruleId: rule.rule_id,
-      ruleName: rule.name || rule.rule_id,
+      ruleId: rule.id,
+      ruleName: rule.name || rule.id,
       enabled: Boolean(rule.enabled),
       lastRunAt: rule.last_run_at,
       lastRunStatus: rule.last_run_status,

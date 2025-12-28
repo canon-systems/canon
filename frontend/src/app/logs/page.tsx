@@ -16,23 +16,15 @@ export default async function LogsPage() {
   const { data: userRepos } = await supabase
     .from('workspace_repos')
     .select('id, repo_url, name, default_branch, settings')
-    .eq('workspace_id', user.id);
+    .eq('user_id', user.id);
 
   // Get usage events as the source of truth for activity
   const { data: usageEvents, error: eventsError } = await supabase
     .from('usage_events')
     .select('id, event_type, metadata, created_at')
-    .eq('workspace_id', user.id)
+    .eq('user_id', user.id)
     .order('created_at', { ascending: false })
     .limit(200);
-
-  // Get automation runs
-  const { data: automationRuns, error: automationError } = await supabase
-    .from('automation_runs')
-    .select('id, repo_id, rule_id, executed_at, trigger_type, success, skipped, skip_reason, actions, doc_id, errors')
-    .eq('workspace_id', user.id)
-    .order('executed_at', { ascending: false })
-    .limit(100);
 
 
   // Build activity log entries
@@ -63,7 +55,7 @@ export default async function LogsPage() {
   const { data: allReposData } = await supabase
     .from('workspace_repos')
     .select('id, repo_url, default_branch, name, created_at')
-    .eq('workspace_id', user.id)
+    .eq('user_id', user.id)
     .order('created_at', { ascending: false });
   
   if (allReposData) {
@@ -184,34 +176,80 @@ export default async function LogsPage() {
           status: 'completed',
           link: '/repos',
         };
+      case 'automation_run': {
+        const rawStatus = typeof meta.status === 'string' ? meta.status : null;
+        const triggerType = typeof meta.trigger_type === 'string' ? meta.trigger_type : null;
+        const skipReason = typeof meta.skip_reason === 'string' ? meta.skip_reason : null;
+        const filesProcessed =
+          typeof meta.files_processed === 'number'
+            ? meta.files_processed
+            : typeof meta.files_processed === 'string'
+              ? Number(meta.files_processed)
+              : null;
+        const documentsUpdated =
+          typeof meta.documents_updated === 'number'
+            ? meta.documents_updated
+            : typeof meta.documents_updated === 'string'
+              ? Number(meta.documents_updated)
+              : null;
+        const executionTimeMs =
+          typeof meta.execution_time_ms === 'number'
+            ? meta.execution_time_ms
+            : typeof meta.execution_time_ms === 'string'
+              ? Number(meta.execution_time_ms)
+              : null;
+        const errorsCount =
+          typeof meta.errors_count === 'number'
+            ? meta.errors_count
+            : typeof meta.errors_count === 'string'
+              ? Number(meta.errors_count)
+              : null;
+
+        const status = rawStatus === 'failed' ? 'failed' : 'completed';
+        const durationLabel =
+          typeof executionTimeMs === 'number' && Number.isFinite(executionTimeMs)
+            ? `${(executionTimeMs / 1000).toFixed(1)}s`
+            : null;
+
+        const detailsParts = [
+          rawStatus === 'skipped'
+            ? skipReason
+              ? `Skipped: ${skipReason}`
+              : 'Skipped'
+            : rawStatus === 'failed'
+              ? errorsCount && errorsCount > 0
+                ? `Failed (${errorsCount} error${errorsCount === 1 ? '' : 's'})`
+                : 'Failed'
+              : 'Completed',
+          triggerType ? `Trigger: ${triggerType}` : null,
+          typeof filesProcessed === 'number' && Number.isFinite(filesProcessed) ? `${filesProcessed} file(s)` : null,
+          typeof documentsUpdated === 'number' && Number.isFinite(documentsUpdated) ? `${documentsUpdated} doc(s)` : null,
+          durationLabel,
+        ].filter(Boolean);
+
+        const link =
+          meta.doc_id ? `/edit/${meta.doc_id}` : meta.diagram_id ? `/architecture-diagrams/view/${meta.diagram_id}` : '/automation';
+
+        return {
+          ...base,
+          type: 'automation_execution' as const,
+          title: repoName ? `Automation: ${repoName}` : 'Automation',
+          message: detailsParts.join(' • '),
+          status,
+          link,
+          metadata: {
+            ...(base as any).metadata,
+            automationRuleId: meta.automation_rule_id || undefined,
+            isAutomation: true,
+          },
+        };
+      }
       default:
         return null;
     }
   }).filter(Boolean) as typeof logEntries;
 
   logEntries.push(...entriesFromEvents);
-
-  // Add automation runs
-  const entriesFromRuns = (automationRuns || []).map(run => {
-    const repo = run.repo_id ? repoMap.get(run.repo_id) : null;
-    const repoName = repo?.name || undefined;
-
-    return {
-      id: run.id,
-      type: 'automation_execution' as const,
-      timestamp: run.executed_at,
-      title: repoName ? `Automation run: ${repoName}` : 'Automation run',
-      message: run.rule_id ? `Rule ${run.rule_id}` : 'Automation executed',
-      status: run.success ? 'completed' : run.skipped ? 'processing' : 'failed',
-      link: run.doc_id ? `/edit/${run.doc_id}` : '/automation',
-      metadata: {
-        repoUrl: repo?.repo_url,
-        branch: repo?.default_branch,
-      },
-    };
-  }) as typeof logEntries;
-
-  logEntries.push(...entriesFromRuns);
 
 
   // Sort by timestamp (most recent first)
@@ -233,18 +271,12 @@ export default async function LogsPage() {
   if (eventsError && !isTableNotFoundError(eventsError)) {
     console.error('Logs page - usage_events error:', eventsError);
   }
-  if (automationError && !isTableNotFoundError(automationError)) {
-    console.error('Logs page - automation_runs error:', automationError);
-  }
 
   const logs = {
     entries: logEntries.slice(0, 100), // Limit to 100 most recent
     errors: {
       usageEvents: eventsError && !isTableNotFoundError(eventsError)
         ? (eventsError.message || eventsError.code)
-        : undefined,
-      automationRuns: automationError && !isTableNotFoundError(automationError)
-        ? (automationError.message || automationError.code)
         : undefined,
     },
   };

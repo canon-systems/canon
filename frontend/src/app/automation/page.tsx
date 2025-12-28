@@ -60,7 +60,8 @@ export default async function AutomationPage() {
     .select(`
       *,
       workspace_repos!inner(id, name, repo_url)
-    `);
+    `)
+    .eq('user_id', user.id);
 
   // Extract automation rules (stats will be calculated client-side from API)
   const allRules: Array<{
@@ -70,7 +71,9 @@ export default async function AutomationPage() {
     ruleId: string;
     ruleName: string;
     enabled: boolean;
-    action_preset?: string;
+    generate_doc?: boolean;
+    generate_diagram?: boolean;
+    auto_publish?: boolean;
     schedule?: string;
     lastRunAt?: string;
     lastRunStatus?: string;
@@ -86,18 +89,20 @@ export default async function AutomationPage() {
       totalRules++;
       if (enabled) activeRules++;
 
-      allRules.push({
-      repoId: rule.repo_id,
-      repoName: rule.workspace_repos.name || 'Untitled Repo',
-      repoUrl: rule.workspace_repos.repo_url || '',
-      ruleId: rule.rule_id,
-      ruleName: rule.name || rule.rule_id,
-        enabled,
-      action_preset: rule.action_preset,
-      schedule: rule.schedule,
-      lastRunAt: rule.last_run_at,
-      lastRunStatus: rule.last_run_status,
-    });
+	      allRules.push({
+	      repoId: rule.repo_id,
+	      repoName: rule.workspace_repos.name || 'Untitled Repo',
+	      repoUrl: rule.workspace_repos.repo_url || '',
+	      ruleId: rule.id,
+	      ruleName: rule.name || rule.id,
+	        enabled,
+	      generate_doc: rule.generate_doc,
+	      generate_diagram: rule.generate_diagram,
+	      auto_publish: rule.auto_publish,
+	      schedule: rule.schedule,
+	      lastRunAt: rule.last_run_at,
+	      lastRunStatus: rule.last_run_status,
+	    });
   });
 
   return (
