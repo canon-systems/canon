@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { NANGO_CONFIG } from '@/lib/server/nango/config';
 import { trackIntegrationDisconnected } from '@/lib/server/services/usageTracking';
 
@@ -18,8 +18,38 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing connectionId or provider' }, { status: 400 });
     }
 
+    const supabase = await createClient();
+
+    let skipNangoDeletion = false;
+    if (connectionId && provider === 'github') {
+      const { data: existing } = await supabase
+        .from('oauth_connections')
+        .select('metadata')
+        .eq('user_id', user.id)
+        .eq('provider', 'github')
+        .eq('connection_id', connectionId)
+        .maybeSingle();
+
+      const meta: any = existing?.metadata || {};
+      skipNangoDeletion = meta?.source === 'native';
+    }
+
+    // Always delete server-side stored tokens if present for this connection.
+    if (connectionId) {
+      try {
+        const admin = createServiceRoleClient();
+        await admin
+          .from('oauth_provider_tokens')
+          .delete()
+          .eq('connection_id', connectionId)
+          .eq('user_id', user.id);
+      } catch (tokenDeleteError) {
+        console.warn('Failed to delete oauth_provider_tokens row:', tokenDeleteError);
+      }
+    }
+
     // Delete from Nango - this is required to properly disconnect
-    if (connectionId && provider) {
+    if (connectionId && provider && !skipNangoDeletion) {
       try {
         // Get the provider config to determine the correct provider_config_key
         const providerConfig = NANGO_CONFIG.providers[provider as keyof typeof NANGO_CONFIG.providers];
@@ -71,8 +101,6 @@ export async function POST(request: NextRequest) {
     }
 
     // Remove from database (and capture details for logging)
-    const supabase = await createClient();
-
     let providerForLog = provider;
     if (!providerForLog && connectionId) {
       const { data: existingConnection } = await supabase

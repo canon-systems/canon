@@ -13,7 +13,7 @@ interface Connection {
   provider: string;
   connection_id: string;
   status: string;
-  metadata: any;
+  metadata?: any;
   created_at: string;
   updated_at: string;
 }
@@ -116,6 +116,11 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     setSuccess('');
 
     try {
+      if (providerName === 'github') {
+        window.location.href = '/api/oauth/github/start';
+        return;
+      }
+
       const response = await fetch('/api/integrations/connect', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },

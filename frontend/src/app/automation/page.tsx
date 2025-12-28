@@ -12,6 +12,30 @@ export default async function AutomationPage() {
 
   const supabase = await createClient();
 
+  function stripOauthFromMetadata(metadata: unknown) {
+    if (!metadata) return metadata;
+
+    const strip = (obj: any) => {
+      if (!obj || typeof obj !== 'object') return obj;
+      if ('oauth' in obj) {
+        const { oauth: _oauth, ...rest } = obj;
+        return rest;
+      }
+      return obj;
+    };
+
+    if (typeof metadata === 'string') {
+      try {
+        const parsed = JSON.parse(metadata);
+        return strip(parsed);
+      } catch {
+        return metadata;
+      }
+    }
+
+    return strip(metadata as any);
+  }
+
   // Get all repos (not just ones with automation rules)
   const { data: repos } = await supabase
     .from('workspace_repos')
@@ -24,6 +48,11 @@ export default async function AutomationPage() {
     .select('id, provider, connection_id, status, metadata, created_at, updated_at')
     .eq('status', 'active')
     .order('created_at', { ascending: false });
+
+  const safeConnections = (connections || []).map((connection: any) => ({
+    ...connection,
+    metadata: stripOauthFromMetadata(connection.metadata),
+  }));
 
   // Get automation rules from the new table
   const { data: rules } = await supabase
@@ -75,7 +104,7 @@ export default async function AutomationPage() {
     <AutomationPageClient
       user={user}
       repos={repos || []}
-      connections={connections || []}
+      connections={safeConnections}
       allRules={allRules}
       stats={{
         totalRules,
@@ -86,4 +115,3 @@ export default async function AutomationPage() {
     />
   );
 }
-
