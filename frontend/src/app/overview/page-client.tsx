@@ -368,7 +368,7 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
               <Badge variant="outline" className="border-amber-400/50 text-amber-200">
                 Overview
               </Badge>
-              <CardTitle className="text-3xl text-white">Welcome to Sync</CardTitle>
+              <CardTitle className="text-3xl text-white">Welcome to Canon</CardTitle>
               <CardDescription className="text-white/70">
                 Your AI-powered documentation platform for software teams
               </CardDescription>
@@ -419,7 +419,7 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-white/10 text-white">
               <Github className="h-6 w-6" />
             </div>
-            <CardTitle className="mt-4 text-2xl text-white">Get Started with Sync</CardTitle>
+            <CardTitle className="mt-4 text-2xl text-white">Get Started with Canon</CardTitle>
             <CardDescription className="mt-2 text-white/70">
               Transform your codebase into clear, comprehensive documentation with AI-powered analysis. Connect your first repository to begin generating professional documentation automatically.
             </CardDescription>

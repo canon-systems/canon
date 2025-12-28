@@ -12,7 +12,7 @@ export default function LandingPage() {
               <Code2 className="h-6 w-6 text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-white">Sync</h1>
+              <h1 className="text-xl font-bold text-white">Canon</h1>
               <p className="text-xs text-gray-200">Automated Documentation</p>
             </div>
           </div>
@@ -53,7 +53,7 @@ export default function LandingPage() {
           </h1>
 
           <p className="mb-8 text-xl text-white/80 max-w-3xl mx-auto leading-relaxed">
-            Sync automatically generates and keeps your documentation up-to-date. Connect your
+            Canon automatically generates and keeps your documentation up-to-date. Connect your
             code repository, and every code change automatically triggers smart updates to your
             docs and diagrams. When needed, you can step in to review, edit, and ensure quality.
           </p>
@@ -83,7 +83,7 @@ export default function LandingPage() {
               Everything You Need for Perfect Documentation
             </h2>
             <p className="text-xl text-white/70 max-w-3xl mx-auto">
-              From smart code analysis to automatic publishing, Sync eliminates documentation headaches
+              From smart code analysis to automatic publishing, Canon eliminates documentation headaches
               and keeps your team's knowledge always up-to-date and accurate.
             </p>
           </div>
@@ -327,16 +327,16 @@ export default function LandingPage() {
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-r from-gray-500 to-gray-600">
                 <Code2 className="h-5 w-5 text-white" />
               </div>
-              <span className="text-white font-semibold">Sync</span>
+              <span className="text-white font-semibold">Canon</span>
             </div>
 
             <div className="flex items-center gap-6 text-sm text-white/60">
-              <a href="mailto:support@Sync.app" className="hover:text-white transition-colors">Contact</a>
+              <a href="mailto:support@usecanon.com" className="hover:text-white transition-colors">Contact</a>
             </div>
           </div>
 
           <div className="mt-8 pt-8 border-t border-white/10 text-center text-sm text-white/40">
-            © 2024 Sync. All rights reserved.
+            © 2024 Canon. All rights reserved.
           </div>
         </div>
       </footer>

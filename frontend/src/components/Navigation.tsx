@@ -89,7 +89,7 @@ export function Navigation({ user, session, onLogout }: NavigationProps) {
           <div>
             <div className="flex items-center gap-2">
               <Link href="/" className="text-lg font-semibold text-white">
-                Sync
+                Canon
               </Link>
             </div>
             <p className="text-xs text-white/60">AI docs & automation</p>

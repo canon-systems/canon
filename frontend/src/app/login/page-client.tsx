@@ -285,7 +285,7 @@ export function LoginPageClient() {
           <div className="text-center space-y-6 max-w-md">
             <div className="space-y-4">
               <h2 className="text-4xl font-bold text-white/90">
-                Sync
+                Canon
               </h2>
               <p className="text-lg text-white/70">
                 Automated Knowledge Infrastructure
