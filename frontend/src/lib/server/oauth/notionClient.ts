@@ -1,7 +1,14 @@
-import { Issuer } from 'openid-client';
+import { Issuer, custom } from 'openid-client';
 
 const NOTION_AUTHORIZATION_ENDPOINT = 'https://api.notion.com/v1/oauth/authorize';
 const NOTION_TOKEN_ENDPOINT = 'https://api.notion.com/v1/oauth/token';
+
+// Notion returns JSON; ensure we request it consistently.
+custom.setHttpOptionsDefaults({
+  headers: {
+    accept: 'application/json',
+  },
+});
 
 export function createNotionOAuthClient(redirectUri?: string) {
   const clientId = process.env.NOTION_OAUTH_CLIENT_ID;

@@ -10,8 +10,6 @@
     "setup:tree-sitter": "node ../../setup-tree-sitter.js"
   },
   "dependencies": {
-    "@nangohq/frontend": "^0.69.13",
-    "@nangohq/node": "^0.69.13",
     "@octokit/rest": "^22.0.1",
     "@radix-ui/react-dialog": "^1.1.1",
     "@radix-ui/react-dropdown-menu": "^2.1.1",

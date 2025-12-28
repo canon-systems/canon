@@ -7,7 +7,6 @@ import { createNotionOAuthClient } from '@/lib/server/oauth/notionClient';
 export const runtime = 'nodejs';
 
 const STATE_COOKIE = 'notion_oauth_state';
-const VERIFIER_COOKIE = 'notion_oauth_verifier';
 
 export async function GET(request: NextRequest) {
   const { user } = await getSession();
@@ -19,20 +18,10 @@ export async function GET(request: NextRequest) {
   const client = createNotionOAuthClient(redirectUri);
 
   const state = generators.state();
-  const codeVerifier = generators.codeVerifier();
-  const codeChallenge = generators.codeChallenge(codeVerifier);
-
   const cookieStore = await cookies();
   const secure = process.env.NODE_ENV === 'production';
 
   cookieStore.set(STATE_COOKIE, state, {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure,
-    path: '/',
-    maxAge: 10 * 60,
-  });
-  cookieStore.set(VERIFIER_COOKIE, codeVerifier, {
     httpOnly: true,
     sameSite: 'lax',
     secure,
@@ -44,8 +33,6 @@ export async function GET(request: NextRequest) {
   const authorizationUrl = client.authorizationUrl({
     owner: 'user',
     state,
-    code_challenge: codeChallenge,
-    code_challenge_method: 'S256',
   } as any);
 
   return NextResponse.redirect(authorizationUrl);

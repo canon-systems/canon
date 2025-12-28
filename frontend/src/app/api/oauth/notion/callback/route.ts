@@ -9,7 +9,6 @@ import { trackIntegrationConnected } from '@/lib/server/services/usageTracking';
 export const runtime = 'nodejs';
 
 const STATE_COOKIE = 'notion_oauth_state';
-const VERIFIER_COOKIE = 'notion_oauth_verifier';
 
 function redirectToSettings(origin: string, params: Record<string, string>) {
   const url = new URL('/settings', origin);
@@ -37,12 +36,9 @@ export async function GET(request: NextRequest) {
 
   const cookieStore = await cookies();
   const expectedState = cookieStore.get(STATE_COOKIE)?.value;
-  const codeVerifier = cookieStore.get(VERIFIER_COOKIE)?.value;
-
   cookieStore.delete(STATE_COOKIE);
-  cookieStore.delete(VERIFIER_COOKIE);
 
-  if (!code || !returnedState || !expectedState || !codeVerifier) {
+  if (!code || !returnedState || !expectedState) {
     return redirectToSettings(request.nextUrl.origin, { error: 'Missing OAuth callback parameters.' });
   }
 
@@ -54,16 +50,20 @@ export async function GET(request: NextRequest) {
     const redirectUri = new URL('/api/oauth/notion/callback', request.nextUrl.origin).toString();
     const client = createNotionOAuthClient(redirectUri);
 
+    // Notion is OAuth2 (not OIDC) so use oauthCallback (no id_token expected).
     const tokenSet = await client.oauthCallback(
       redirectUri,
       { code, state: returnedState },
-      { state: expectedState, code_verifier: codeVerifier }
+      { state: expectedState }
     );
 
     const accessToken = tokenSet.access_token;
     if (!accessToken) {
       return redirectToSettings(request.nextUrl.origin, { error: 'Notion token exchange did not return an access token.' });
     }
+
+    const raw: any = tokenSet as any;
+    const providerAccountId = raw?.bot_id || raw?.owner?.user?.id || raw?.owner?.workspace?.id || null;
 
     const supabase = await createClient();
     const { data: existingConnection } = await supabase
@@ -74,12 +74,10 @@ export async function GET(request: NextRequest) {
       .maybeSingle();
 
     const connectionId = existingConnection?.connection_id || crypto.randomUUID();
-    const existingMetadata = (existingConnection?.metadata && typeof existingConnection.metadata === 'object')
-      ? existingConnection.metadata
-      : {};
-
-    const raw: any = tokenSet as any;
-    const providerAccountId = raw?.bot_id || raw?.owner?.user?.id || raw?.owner?.workspace?.id || null;
+    const existingMetadata =
+      existingConnection?.metadata && typeof existingConnection.metadata === 'object'
+        ? existingConnection.metadata
+        : {};
 
     const { error: connectionError } = await supabase
       .from('oauth_connections')
@@ -91,7 +89,7 @@ export async function GET(request: NextRequest) {
           status: 'active',
           metadata: {
             ...existingMetadata,
-            source: 'native',
+            source: 'oauth',
             connected_at: new Date().toISOString(),
             provider_account_id: providerAccountId,
             workspace_id: raw?.workspace_id || null,

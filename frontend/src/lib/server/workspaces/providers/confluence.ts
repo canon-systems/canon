@@ -3,7 +3,6 @@
  */
 
 import type { WorkspaceProvider, WorkspaceInfo, WorkspaceContent } from '../base';
-import { NANGO_CONFIG } from '../../nango/config';
 import { marked } from 'marked';
 
 function convertHtmlToConfluenceStorage(html: string): string {
@@ -25,29 +24,6 @@ function convertHtmlToConfluenceStorage(html: string): string {
 		.replace(/<br\s*\/?>/gi, '<br />');
 }
 
-async function getCloudId(connectionId: string): Promise<string | null> {
-	try {
-		const accessibleResourcesUrl = new URL('/proxy/oauth/token/accessible-resources', NANGO_CONFIG.host);
-		const resourcesResponse = await fetch(accessibleResourcesUrl.toString(), {
-			method: 'GET',
-			headers: {
-				'Authorization': `Bearer ${NANGO_CONFIG.secretKey}`,
-				'Content-Type': 'application/json',
-				'Provider-Config-Key': 'confluence',
-				'Connection-Id': connectionId,
-				'Base-Url-Override': 'https://api.atlassian.com'
-			}
-		});
-
-		if (!resourcesResponse.ok) return null;
-
-		const resourcesData = await resourcesResponse.json();
-		return resourcesData[0]?.id || resourcesData.id || null;
-	} catch {
-		return null;
-	}
-}
-
 export class ConfluenceProvider implements WorkspaceProvider {
 	name = 'confluence';
 
@@ -64,61 +40,11 @@ export class ConfluenceProvider implements WorkspaceProvider {
 		connectionId: string,
 		_createNew = true
 	): Promise<WorkspaceInfo | null> {
-		try {
-			const cloudId = await getCloudId(connectionId);
-			if (!cloudId) return null;
-
-			const spaceKey = workspaceInfo.metadata?.spaceKey || workspaceInfo.resourceId;
-			const parentPageId = workspaceInfo.metadata?.parentPageId;
-			const html = content.html || marked.parse(content.markdown) as string;
-			const confluenceBody = convertHtmlToConfluenceStorage(html);
-
-			const endpoint = `/ex/confluence/${cloudId}/wiki/rest/api/content`;
-			const createUrl = new URL(`/proxy${endpoint}`, NANGO_CONFIG.host);
-
-			const pageData: any = {
-				type: 'page',
-				title: content.title,
-				space: { key: spaceKey },
-				body: {
-					storage: {
-						value: confluenceBody,
-						representation: 'storage'
-					}
-				}
-			};
-
-			if (parentPageId) {
-				pageData.ancestors = [{ id: parentPageId }];
-			}
-
-			const createResponse = await fetch(createUrl.toString(), {
-				method: 'POST',
-				headers: {
-					'Authorization': `Bearer ${NANGO_CONFIG.secretKey}`,
-					'Content-Type': 'application/json',
-					'Provider-Config-Key': 'confluence',
-					'Connection-Id': connectionId,
-					'Base-Url-Override': 'https://api.atlassian.com'
-				},
-				body: JSON.stringify(pageData)
-			});
-
-			if (!createResponse.ok) return null;
-
-			const createData = await createResponse.json();
-			return {
-				provider: 'confluence',
-				resourceId: createData.id,
-				metadata: {
-					spaceKey,
-					cloudId
-				}
-			};
-		} catch (err) {
-			console.error('Confluence push error:', err);
-			return null;
-		}
+		void workspaceInfo;
+		void content;
+		void connectionId;
+		console.warn('Confluence integration is not implemented.');
+		return null;
 	}
 
 	async updateContent(
@@ -126,9 +52,7 @@ export class ConfluenceProvider implements WorkspaceProvider {
 		_content: WorkspaceContent,
 		_connectionId: string
 	): Promise<boolean> {
-		// TODO: Implement Confluence update
-		console.warn('Confluence update not yet implemented');
+		console.warn('Confluence integration is not implemented.');
 		return false;
 	}
 }
-

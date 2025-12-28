@@ -16,7 +16,7 @@ export function getGitHubOAuthScopes(): string[] {
     return configured.split(/\s+/).filter(Boolean);
   }
 
-  // Matches prior Nango scopes (+ user:email for email lookup).
+  // Defaults (includes user:email for email lookup).
   return ['repo', 'read:user', 'user:email'];
 }
 
