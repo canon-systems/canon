@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
     // Verify user has access to this repository
     const { data: repo, error: repoError } = await supabase
       .from('workspace_repos')
-      .select('id, workspace_id, default_branch, repo_url')
+      .select('id, user_id, default_branch, repo_url')
       .eq('id', repoId)
       .single();
 
@@ -154,7 +154,7 @@ export async function POST(request: NextRequest) {
         setup.id,
         repoUrl,
         repo.default_branch || 'main',
-        repo.workspace_id,
+        repo.user_id,
         'gpt-4o-mini'
       ).catch((error) => {
         console.error('[repo-setup] Background setup failed:', error);

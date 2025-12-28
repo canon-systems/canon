@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
 import { generateDocumentation } from '@/lib/server/services/docGenerator';
+import { trackDocGenerated } from '@/lib/server/services/usageTracking';
 import type { PromptConfig } from '@/lib/server/prompts/buildSystemPrompt';
 import { prepareFileSummaries } from '@/lib/server/services/prepareSummaries';
 import { getDocument } from '@/lib/server/services/documentService';
@@ -45,11 +46,11 @@ export async function POST(request: NextRequest) {
         // Verify user has access
         const { data: repo } = await supabase
             .from('workspace_repos')
-            .select('workspace_id, repo_url, default_branch')
+            .select('user_id, repo_url, default_branch')
             .eq('id', document.repo_id)
             .single();
 
-        if (!repo || repo.workspace_id !== user?.id) {
+        if (!repo || repo.user_id !== user?.id) {
             return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
         }
 
@@ -103,6 +104,10 @@ export async function POST(request: NextRequest) {
             useSummaries: true, // Always use summaries for previews
             submissionId,
         });
+
+        if (user?.id) {
+            await trackDocGenerated(supabase, user.id, submissionId, document.repo_id, false);
+        }
 
         // Analyze significance of changes
         const significanceAnalysis = await analyzeSignificance(

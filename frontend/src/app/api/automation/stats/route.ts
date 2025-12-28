@@ -18,8 +18,8 @@ export async function GET(request: NextRequest) {
     // Query automation_runs for the last 24 hours
     const { data: runs, error } = await supabase
       .from('automation_runs')
-      .select('success')
-      .eq('workspace_id', user.id)
+      .select('status')
+      .eq('user_id', user.id)
       .gte('executed_at', twentyFourHoursAgo.toISOString())
       .order('executed_at', { ascending: false });
 
@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
 
     // Calculate statistics
     const executions24h = runs?.length || 0;
-    const successfulExecutions = runs?.filter(run => run.success).length || 0;
+    const successfulExecutions = runs?.filter(run => run.status === 'succeeded').length || 0;
 
     return NextResponse.json({
       executions24h,

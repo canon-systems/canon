@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
-import { createClient } from '@/lib/supabase/server';
-import { NANGO_CONFIG } from '@/lib/server/nango/config';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { trackIntegrationDisconnected } from '@/lib/server/services/usageTracking';
 
 export async function POST(request: NextRequest) {
   try {
@@ -17,25 +17,34 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing connectionId or provider' }, { status: 400 });
     }
 
-    // Delete from Nango (optional - you may want to keep it for reconnection)
+    const supabase = await createClient();
+
+    // Always delete server-side stored tokens if present for this connection.
     if (connectionId) {
       try {
-        const nangoUrl = new URL(`/connection/${connectionId}`, NANGO_CONFIG.host);
-        await fetch(nangoUrl.toString(), {
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${NANGO_CONFIG.secretKey}`,
-            'Content-Type': 'application/json'
-          }
-        });
-      } catch (err) {
-        console.warn('Failed to delete from Nango (may not exist):', err);
-        // Continue anyway
+        const admin = createServiceRoleClient();
+        await admin
+          .from('oauth_provider_tokens')
+          .delete()
+          .eq('connection_id', connectionId)
+          .eq('user_id', user.id);
+      } catch (tokenDeleteError) {
+        console.warn('Failed to delete oauth_provider_tokens row:', tokenDeleteError);
       }
     }
 
-    // Remove from database
-    const supabase = await createClient();
+    // Remove from database (and capture details for logging)
+    let providerForLog = provider;
+    if (!providerForLog && connectionId) {
+      const { data: existingConnection } = await supabase
+        .from('oauth_connections')
+        .select('provider')
+        .eq('user_id', user.id)
+        .eq('connection_id', connectionId)
+        .single();
+      providerForLog = existingConnection?.provider || providerForLog;
+    }
+
     let query = supabase
       .from('oauth_connections')
       .delete()
@@ -54,6 +63,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to disconnect' }, { status: 500 });
     }
 
+    try {
+      await trackIntegrationDisconnected(supabase, user.id, providerForLog || 'unknown', connectionId);
+    } catch (logError) {
+      console.warn('Failed to track integration disconnect:', logError);
+    }
+
     return NextResponse.json({ success: true });
   } catch (err: any) {
     console.error('Disconnect error:', err);
@@ -66,4 +81,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

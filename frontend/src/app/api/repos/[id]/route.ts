@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
+import { trackRepoDisconnected } from '@/lib/server/services/usageTracking';
 
 /**
  * GET: Get a single repository configuration
@@ -22,7 +23,7 @@ export async function GET(
       .from('workspace_repos')
       .select('*')
       .eq('id', id)
-      .eq('workspace_id', user.id)
+      .eq('user_id', user.id)
       .single();
 
     if (error || !data) {
@@ -77,7 +78,7 @@ export async function PATCH(
       .from('workspace_repos')
       .update(filteredUpdates)
       .eq('id', id)
-      .eq('workspace_id', user.id)
+      .eq('user_id', user.id)
       .select()
       .single();
 
@@ -118,14 +119,38 @@ export async function DELETE(
     const supabase = await createClient();
     const { id } = await params;
 
+    const { data: repo, error: repoError } = await supabase
+      .from('workspace_repos')
+      .select('*')
+      .eq('id', id)
+      .eq('user_id', user.id)
+      .single();
+
+    if (repoError || !repo) {
+      return NextResponse.json({ error: 'Repository not found' }, { status: 404 });
+    }
+
     const { error } = await supabase
       .from('workspace_repos')
       .delete()
       .eq('id', id)
-      .eq('workspace_id', user.id);
+      .eq('user_id', user.id);
 
     if (error) {
       throw error;
+    }
+
+    try {
+      await trackRepoDisconnected(
+        supabase,
+        user.id,
+        id,
+        repo.repo_url,
+        repo.default_branch,
+        repo.provider
+      );
+    } catch (logError) {
+      console.warn('Failed to track repo disconnect:', logError);
     }
 
     return NextResponse.json({ success: true }, { status: 200 });
@@ -140,5 +165,3 @@ export async function DELETE(
     );
   }
 }
-
-

@@ -12,6 +12,7 @@ import {
   Layers3,
   LogOut,
   Menu,
+  ScrollText,
   Settings,
   Sparkles,
   Zap,
@@ -41,6 +42,7 @@ const primaryNav: NavItem[] = [
   { href: '/documentation', label: 'Docs', icon: FileText },
   { href: '/architecture-diagrams', label: 'Architecture', icon: Layers3 },
   { href: '/automation', label: 'Automation', icon: Zap },
+  { href: '/logs', label: 'Logs', icon: ScrollText },
 ];
 
 const secondaryNav: NavItem[] = [
@@ -80,19 +82,13 @@ export function Navigation({ user, session, onLogout }: NavigationProps) {
     <div className="sticky top-0 z-40" ref={containerRef}>
       <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-slate-900/60 to-black/70 backdrop-blur-xl border-b border-white/10" />
       <nav className="relative mx-auto flex max-w-screen-2xl items-center justify-between px-4 py-4 lg:px-8">
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400/60 via-amber-500/40 to-orange-500/50 text-black shadow-lg shadow-amber-500/25">
-            <Code2 className="h-5 w-5" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <Link href="/" className="text-lg font-semibold text-white">
-                Sync
-              </Link>
-            </div>
-            <p className="text-xs text-white/60">AI docs & automation</p>
-          </div>
-        </div>
+        <Link href="/" className="flex items-center gap-3">
+          <img
+            src="/web-app-manifest-512x512.png"
+            alt="Canon AI docs & automation"
+            className="h-20 w-auto"
+          />
+        </Link>
 
         <div className="hidden items-center gap-2 rounded-full border border-white/10 bg-white/5 px-2 py-2 shadow-inner shadow-black/30 lg:flex">
           {primaryNav.map((item) => {

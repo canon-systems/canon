@@ -12,6 +12,30 @@ export default async function AutomationPage() {
 
   const supabase = await createClient();
 
+  function stripOauthFromMetadata(metadata: unknown) {
+    if (!metadata) return metadata;
+
+    const strip = (obj: any) => {
+      if (!obj || typeof obj !== 'object') return obj;
+      if ('oauth' in obj) {
+        const { oauth: _oauth, ...rest } = obj;
+        return rest;
+      }
+      return obj;
+    };
+
+    if (typeof metadata === 'string') {
+      try {
+        const parsed = JSON.parse(metadata);
+        return strip(parsed);
+      } catch {
+        return metadata;
+      }
+    }
+
+    return strip(metadata as any);
+  }
+
   // Get all repos (not just ones with automation rules)
   const { data: repos } = await supabase
     .from('workspace_repos')
@@ -25,13 +49,19 @@ export default async function AutomationPage() {
     .eq('status', 'active')
     .order('created_at', { ascending: false });
 
+  const safeConnections = (connections || []).map((connection: any) => ({
+    ...connection,
+    metadata: stripOauthFromMetadata(connection.metadata),
+  }));
+
   // Get automation rules from the new table
   const { data: rules } = await supabase
     .from('automation_rules')
     .select(`
       *,
       workspace_repos!inner(id, name, repo_url)
-    `);
+    `)
+    .eq('user_id', user.id);
 
   // Extract automation rules (stats will be calculated client-side from API)
   const allRules: Array<{
@@ -41,7 +71,9 @@ export default async function AutomationPage() {
     ruleId: string;
     ruleName: string;
     enabled: boolean;
-    action_preset?: string;
+    generate_doc?: boolean;
+    generate_diagram?: boolean;
+    auto_publish?: boolean;
     schedule?: string;
     lastRunAt?: string;
     lastRunStatus?: string;
@@ -57,25 +89,27 @@ export default async function AutomationPage() {
       totalRules++;
       if (enabled) activeRules++;
 
-      allRules.push({
-      repoId: rule.repo_id,
-      repoName: rule.workspace_repos.name || 'Untitled Repo',
-      repoUrl: rule.workspace_repos.repo_url || '',
-      ruleId: rule.rule_id,
-      ruleName: rule.name || rule.rule_id,
-        enabled,
-      action_preset: rule.action_preset,
-      schedule: rule.schedule,
-      lastRunAt: rule.last_run_at,
-      lastRunStatus: rule.last_run_status,
-    });
+	      allRules.push({
+	      repoId: rule.repo_id,
+	      repoName: rule.workspace_repos.name || 'Untitled Repo',
+	      repoUrl: rule.workspace_repos.repo_url || '',
+	      ruleId: rule.id,
+	      ruleName: rule.name || rule.id,
+	        enabled,
+	      generate_doc: rule.generate_doc,
+	      generate_diagram: rule.generate_diagram,
+	      auto_publish: rule.auto_publish,
+	      schedule: rule.schedule,
+	      lastRunAt: rule.last_run_at,
+	      lastRunStatus: rule.last_run_status,
+	    });
   });
 
   return (
     <AutomationPageClient
       user={user}
       repos={repos || []}
-      connections={connections || []}
+      connections={safeConnections}
       allRules={allRules}
       stats={{
         totalRules,
@@ -86,4 +120,3 @@ export default async function AutomationPage() {
     />
   );
 }
-

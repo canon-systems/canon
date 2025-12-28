@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
 import { TreeSitterAnalyzer } from '@/lib/server/services/treeSitterAnalyzer';
+import { trackArchitectureDiagram } from '@/lib/server/services/usageTracking';
 
 export async function POST(request: NextRequest) {
     try {
@@ -12,7 +13,7 @@ export async function POST(request: NextRequest) {
 
         const supabase = await createClient();
         const body = await request.json().catch(() => ({}));
-        const { repoId } = body;
+        const { repoId, forceCreate } = body;
 
         if (!repoId) {
             return NextResponse.json({ error: 'repoId is required' }, { status: 400 });
@@ -23,7 +24,7 @@ export async function POST(request: NextRequest) {
             .from('workspace_repos')
             .select('*')
             .eq('id', repoId)
-            .eq('workspace_id', user.id)
+            .eq('user_id', user.id)
             .single();
 
         if (repoError || !repo) {
@@ -98,32 +99,87 @@ export async function POST(request: NextRequest) {
         // Analyze architecture using Tree-sitter only
         const architectureAnalysis = await analyzer.analyzeRepository(supabase, repoId, codeFiles, manifestFiles);
 
-        // Store the diagram
-        const { data: diagram, error: insertError } = await supabase
-            .from('diagrams')
-            .insert({
-                repo_id: repoId,
-                title: `Architecture Diagram - ${repo.name}`,
-                diagram_type: 'architecture',
-                content: architectureAnalysis.mermaid,
-                analysis_data: architectureAnalysis
-            })
-            .select()
-            .single();
+        // Check if a diagram already exists for this repository
+        let existingDiagram = null;
+        if (!forceCreate) {
+            const { data: existing, error: findError } = await supabase
+                .from('diagrams')
+                .select('id')
+                .eq('repo_id', repoId)
+                .eq('diagram_type', 'architecture')
+                .single();
 
-        if (insertError) {
-            console.error('Failed to store diagram:', insertError);
-            return NextResponse.json({
-                error: 'Failed to save diagram'
-            }, { status: 500 });
+            if (!findError && existing) {
+                existingDiagram = existing;
+            }
         }
+
+        let diagram;
+        let isNew = false;
+
+        if (existingDiagram && !forceCreate) {
+            // Update existing diagram
+            const { data: updated, error: updateError } = await supabase
+                .from('diagrams')
+                .update({
+                    title: `Architecture Diagram - ${repo.name}`,
+                    content: architectureAnalysis.mermaid,
+                    analysis_data: architectureAnalysis,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', existingDiagram.id)
+                .select()
+                .single();
+
+            if (updateError) {
+                console.error('Failed to update diagram:', updateError);
+                return NextResponse.json({
+                    error: 'Failed to update diagram'
+                }, { status: 500 });
+            }
+
+            diagram = updated;
+            isNew = false;
+        } else {
+            // Create new diagram
+            const { data: inserted, error: insertError } = await supabase
+                .from('diagrams')
+                .insert({
+                    repo_id: repoId,
+                    title: `Architecture Diagram - ${repo.name}`,
+                    diagram_type: 'architecture',
+                    content: architectureAnalysis.mermaid,
+                    analysis_data: architectureAnalysis
+                })
+                .select()
+                .single();
+
+            if (insertError) {
+                console.error('Failed to store diagram:', insertError);
+                return NextResponse.json({
+                    error: 'Failed to save diagram'
+                }, { status: 500 });
+            }
+
+            diagram = inserted;
+            isNew = true;
+        }
+
+        await trackArchitectureDiagram(
+            supabase,
+            user.id,
+            repoId,
+            diagram.id,
+            isNew,
+            repo.repo_url,
+            repoSetup?.branch || repo.default_branch
+        );
 
         return NextResponse.json({
             success: true,
             diagramId: diagram.id,
             diagram: architectureAnalysis.mermaid,
-            components: architectureAnalysis.components.length,
-            relationships: architectureAnalysis.relationships.length
+            isNew
         });
 
     } catch (error: any) {

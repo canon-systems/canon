@@ -173,7 +173,7 @@ export class FileSummaryManager {
       model?: string;
     } = {}
   ): Promise<UpdateResult> {
-    const { force = false, batchSize = 5, onProgress, model = 'gpt-4o-mini' } = options;
+    const { force = false, batchSize = 20, onProgress, model = 'gpt-4o-mini' } = options;
 
     let processed = 0;
     let skipped = 0;

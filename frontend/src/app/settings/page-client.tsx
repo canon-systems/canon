@@ -4,7 +4,6 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Settings, User, Link2, Sliders, Mail, Check, X, Loader2, Github, CheckCircle2, Wrench, RefreshCw } from 'lucide-react';
 import { IntegrationLogos } from '@/components/IntegrationLogos';
-import Nango from '@nangohq/frontend';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
@@ -13,7 +12,7 @@ interface Connection {
   provider: string;
   connection_id: string;
   status: string;
-  metadata: any;
+  metadata?: any;
   created_at: string;
   updated_at: string;
 }
@@ -116,75 +115,23 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     setSuccess('');
 
     try {
-      const response = await fetch('/api/integrations/connect', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ provider: providerName })
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        const errorMsg = data.detail || data.error || 'Failed to initiate connection';
-        console.error('Connection error details:', data);
-        throw new Error(errorMsg);
+      if (providerName === 'github') {
+        window.location.href = '/api/oauth/github/start';
+        return;
+      }
+      if (providerName === 'notion') {
+        window.location.href = '/api/oauth/notion/start';
+        return;
       }
 
-      const { sessionToken, provider } = await response.json();
-
-      if (!sessionToken) {
-        throw new Error('No session token returned');
-      }
-
-      // Initialize Nango frontend SDK and open Connect UI
-      const nango = new Nango();
-      const connect = nango.openConnectUI({
-        onEvent: async (event) => {
-          if (event.type === 'close') {
-            setConnecting(false);
-          } else if (event.type === 'connect') {
-            const connectionId = event.payload?.connectionId;
-            const providerConfigKey = event.payload?.providerConfigKey || provider;
-
-            if (connectionId) {
-              try {
-                const saveResponse = await fetch('/api/integrations/save', {
-                  method: 'POST',
-                  headers: { 'content-type': 'application/json' },
-                  body: JSON.stringify({
-                    connectionId,
-                    provider: providerConfigKey
-                  })
-                });
-
-                if (!saveResponse.ok) {
-                  const errorData = await saveResponse.json();
-                  console.error('Failed to save connection:', errorData);
-                }
-              } catch (saveErr) {
-                console.error('Error saving connection:', saveErr);
-              }
-            }
-
-            const providerDisplayName = getProviderDisplayName(providerName);
-            setSuccess(`Successfully connected to ${providerDisplayName}!`);
-            setConnecting(false);
-
-            await loadConnections();
-
-            setTimeout(() => {
-              setSuccess('');
-            }, 5000);
-          }
-        }
-      });
-
-      connect.setSessionToken(sessionToken);
+      throw new Error(`${getProviderDisplayName(providerName)} integration is not available yet.`);
     } catch (err: any) {
       setError(err.message || 'Failed to connect');
       console.error('Connection error:', err);
       setConnecting(false);
     }
   }
+
 
   function openDisconnectModal(connectionId: string, provider: string) {
     setConnectionToDisconnect({ connectionId, provider });
@@ -676,6 +623,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
           </div>
         </div>
       )}
+
     </>
   );
 }

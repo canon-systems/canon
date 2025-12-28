@@ -187,9 +187,11 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
     setDeleteError(null);
 
     try {
-      const { error } = await supabase.from('documents').delete().eq('id', idToDelete);
-
-      if (error) throw error;
+      const response = await fetch(`/api/docs/${idToDelete}`, { method: 'DELETE' });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to delete document');
+      }
 
       setItems(items.filter(item => item.id !== idToDelete));
       setShowDeleteModal(false);

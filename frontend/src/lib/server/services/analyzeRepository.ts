@@ -98,7 +98,6 @@ type AnalyzeRepositoryParams = {
 	filters?: Record<string, unknown> | null;
 	// New options for optimization
 	useZipFetch?: boolean; // Force ZIP fetch (default: auto-decide based on file count)
-	maxFiles?: number; // Maximum files to fetch (default: 500)
 };
 
 type FileEntry = {
@@ -127,7 +126,6 @@ export async function analyzeRepository({
 	branch,
 	subdir,
 	useZipFetch,
-	maxFiles = 500,
 }: AnalyzeRepositoryParams): Promise<AnalyzeRepositoryResult> {
 	if (!repoUrl) {
 		throw new Error('repoUrl is required for repository analysis');
@@ -192,8 +190,7 @@ export async function analyzeRepository({
 		? relevantFiles.filter((item) => item.path === bySubdir || item.path.startsWith(`${bySubdir}/`))
 		: relevantFiles;
 
-	const limitedFiles = finalFiles.slice(0, maxFiles);
-	const filePaths = limitedFiles.map(f => f.path);
+	const filePaths = finalFiles.map(f => f.path);
 
 	// Decide whether to use ZIP or individual fetches
 	// ZIP is more efficient for large numbers of files (1 API call vs N)
@@ -213,7 +210,7 @@ export async function analyzeRepository({
 			repo,
 			commitSha,
 			filePaths,
-			{ maxFileSize: 1024 * 1024, maxFiles }
+			{ maxFileSize: 1024 * 1024 }
 		);
 
 		files = zipFiles.map(f => ({

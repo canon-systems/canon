@@ -12,7 +12,7 @@ export async function GET() {
     const supabase = await createClient();
     const { data: connections, error } = await supabase
       .from('oauth_connections')
-      .select('*')
+      .select('id, provider, connection_id, status, created_at, updated_at')
       .eq('user_id', user.id)
       .eq('status', 'active')
       .order('updated_at', { ascending: false });
@@ -37,4 +37,3 @@ export async function GET() {
     );
   }
 }
-

@@ -3,7 +3,6 @@
  */
 
 import type { WorkspaceProvider, WorkspaceInfo, WorkspaceContent } from '../base';
-import { NANGO_CONFIG } from '../../nango/config';
 import { marked } from 'marked';
 import { parse } from 'node-html-parser';
 
@@ -75,55 +74,12 @@ export class GoogleDocsProvider implements WorkspaceProvider {
 		createNew = true
 	): Promise<WorkspaceInfo | null> {
 		try {
-			const html = content.html || marked.parse(content.markdown) as string;
-			const requests = convertHtmlToGoogleDocsRequests(html, content.title);
-
-			if (createNew) {
-				// Create new document
-				const createUrl = new URL('/proxy/v1/documents', NANGO_CONFIG.host);
-				const createResponse = await fetch(createUrl.toString(), {
-					method: 'POST',
-					headers: {
-						'Authorization': `Bearer ${NANGO_CONFIG.secretKey}`,
-						'Content-Type': 'application/json',
-						'Provider-Config-Key': 'google-docs',
-						'Connection-Id': connectionId
-					},
-					body: JSON.stringify({
-						title: content.title
-					})
-				});
-
-				if (!createResponse.ok) return null;
-
-				const createData = await createResponse.json();
-				const documentId = createData.documentId || createData.document?.documentId;
-				if (!documentId) return null;
-
-				// Insert content
-				const insertUrl = new URL(`/proxy/v1/documents/${documentId}:batchUpdate`, NANGO_CONFIG.host);
-				const insertResponse = await fetch(insertUrl.toString(), {
-					method: 'POST',
-					headers: {
-						'Authorization': `Bearer ${NANGO_CONFIG.secretKey}`,
-						'Content-Type': 'application/json',
-						'Provider-Config-Key': 'google-docs',
-						'Connection-Id': connectionId
-					},
-					body: JSON.stringify({ requests })
-				});
-
-				if (!insertResponse.ok) return null;
-
-				return {
-					provider: 'googledocs',
-					resourceId: documentId,
-					metadata: workspaceInfo.metadata
-				};
-			} else {
-				const success = await this.updateContent(workspaceInfo, content, connectionId);
-				return success ? workspaceInfo : null;
-			}
+			void workspaceInfo;
+			void content;
+			void connectionId;
+			void createNew;
+			console.warn('Google Docs integration is not implemented.');
+			return null;
 		} catch (err) {
 			console.error('Google Docs push error:', err);
 			return null;
@@ -136,27 +92,14 @@ export class GoogleDocsProvider implements WorkspaceProvider {
 		connectionId: string
 	): Promise<boolean> {
 		try {
-			const documentId = workspaceInfo.resourceId;
-			const html = content.html || marked.parse(content.markdown) as string;
-			const requests = convertHtmlToGoogleDocsRequests(html, content.title);
-
-			const updateUrl = new URL(`/proxy/v1/documents/${documentId}:batchUpdate`, NANGO_CONFIG.host);
-			const updateResponse = await fetch(updateUrl.toString(), {
-				method: 'POST',
-				headers: {
-					'Authorization': `Bearer ${NANGO_CONFIG.secretKey}`,
-					'Content-Type': 'application/json',
-					'Provider-Config-Key': 'google-docs',
-					'Connection-Id': connectionId
-				},
-				body: JSON.stringify({ requests })
-			});
-
-			return updateResponse.ok;
+			void workspaceInfo;
+			void content;
+			void connectionId;
+			console.warn('Google Docs integration is not implemented.');
+			return false;
 		} catch (err) {
 			console.error('Google Docs update error:', err);
 			return false;
 		}
 	}
 }
-

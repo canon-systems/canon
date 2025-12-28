@@ -24,11 +24,11 @@ export default async function RegeneratePage({ params }: { params: Promise<{ id:
   // Verify user has access and get repo settings
   const { data: repo } = await supabase
     .from('workspace_repos')
-    .select('workspace_id, settings')
+    .select('user_id, settings')
     .eq('id', document.repo_id)
     .single();
 
-  if (!repo || repo.workspace_id !== user.id) {
+  if (!repo || repo.user_id !== user.id) {
     notFound();
   }
 
@@ -64,4 +64,3 @@ export default async function RegeneratePage({ params }: { params: Promise<{ id:
 
   return <RegeneratePageClient submission={submission} />;
 }
-

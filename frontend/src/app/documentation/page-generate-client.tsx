@@ -948,9 +948,11 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
     setDeletingId(id);
     setDeleteError(null);
     try {
-      const { error } = await supabase.from('documents').delete().eq('id', id);
-
-      if (error) throw error;
+      const response = await fetch(`/api/docs/${id}`, { method: 'DELETE' });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to delete document');
+      }
 
       await loadEditItems();
       setShowDeleteModal(false);
@@ -1246,10 +1248,10 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
                             )}
                             {pickerFiles.length > 0 && (
                               <>
-                                <Button variant="secondary" onClick={selectAll} className="text-sm">
+                                <Button type="button" variant="secondary" onClick={selectAll} className="text-sm">
                                   Select all{fileSearchQuery ? ` (${filteredFiles.length})` : ''}
                                 </Button>
-                                <Button variant="secondary" onClick={clearAll} className="text-sm">
+                                <Button type="button" variant="secondary" onClick={clearAll} className="text-sm">
                                   Clear{fileSearchQuery ? ` (${filteredFiles.length})` : ''}
                                 </Button>
                               </>
@@ -1513,7 +1515,7 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
                                   <MoreVertical className="h-4 w-4" />
                                 </Button>
                               </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="border-white/10 bg-black/90">
+                              <DropdownMenuContent align="end" className="border-white/10 bg-black/90 z-[100]">
                                 <DropdownMenuItem asChild>
                                   <Link href={`/edit/${item.id}`} className="flex items-center gap-2">
                                     <FileText className="h-4 w-4" />
@@ -1529,7 +1531,8 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
                                   </DropdownMenuItem>
                                 )}
                                 <DropdownMenuItem
-                                  onClick={() => {
+                                  onClick={(e) => {
+                                    e.stopPropagation();
                                     setItemToDelete({ id: item.id, title: item.title });
                                     setShowDeleteModal(true);
                                   }}

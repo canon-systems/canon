@@ -31,7 +31,7 @@ export async function fetchFilesViaZip(
 		filterFn?: (path: string) => boolean; // Custom filter function
 	}
 ): Promise<Array<{ path: string; content: string; size: number }>> {
-	const { maxFileSize = 1024 * 1024, maxFiles = 500, filterFn } = options || {};
+	const { maxFileSize = 1024 * 1024, maxFiles, filterFn } = options || {};
 
 	// Download repo as ZIP (1 API call)
 	const response = await octokit.repos.downloadZipballArchive({
@@ -59,7 +59,7 @@ export async function fetchFilesViaZip(
 
 	for (const [zipPath, zipEntry] of Object.entries(zip.files)) {
 		if (zipEntry.dir) continue;
-		if (files.length >= maxFiles) break;
+		if (maxFiles && files.length >= maxFiles) break;
 
 		// Strip the root folder GitHub adds (e.g., "owner-repo-sha/")
 		const relativePath = zipPath.startsWith(rootPrefix)

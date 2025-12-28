@@ -99,8 +99,8 @@ async function handleListRequest(repoUrl: string, branch: string, subdirRaw: str
   // Verify user has access to this repository (including specific branch)
   const { data: userRepos, error: repoError } = await supabase
     .from('workspace_repos')
-    .select('id, workspace_id, repo_url, default_branch, name')
-    .eq('workspace_id', user.id)
+    .select('id, user_id, repo_url, default_branch, name')
+    .eq('user_id', user.id)
     .eq('repo_url', repoUrl)
     .eq('default_branch', branch);
 
@@ -116,7 +116,7 @@ async function handleListRequest(repoUrl: string, branch: string, subdirRaw: str
     const { data: allReposForUrl, error: allReposError } = await supabase
       .from('workspace_repos')
       .select('default_branch, name')
-      .eq('workspace_id', user.id)
+      .eq('user_id', user.id)
       .eq('repo_url', repoUrl);
 
     if (!allReposError && allReposForUrl && allReposForUrl.length > 0) {
@@ -241,4 +241,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Sync - AI-Powered Code Documentation',
-  description: 'Transform your codebase into business intelligence with AI-powered documentation, architecture diagrams, and automated insights.',
+  title: 'Canon — Automated Knowledge Infrastructure',
+  description: 'Keep service pages, runbooks, and system maps in sync with your codebase.',
 };
 
 export default function RootLayout({
@@ -12,8 +12,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className="antialiased">{children}</body>
+    <html lang="en" className="dark">
+      <body className="min-h-screen bg-black text-white antialiased">{children}</body>
     </html>
   );
 }

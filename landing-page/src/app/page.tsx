@@ -1,343 +1,191 @@
-import { ArrowRight, Code2, GitBranch, Zap, Layers3, FileText, BarChart3, ExternalLink, Shield, Users, Clock, CheckCircle } from 'lucide-react';
-import Link from 'next/link';
+import { ArrowRight } from 'lucide-react';
+
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Separator } from '@/components/ui/separator';
 
 export default function LandingPage() {
+  const appHref = 'https://sync-swart.vercel.app/login';
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-gray-900 to-slate-900">
-      {/* Header */}
-      <header className="relative z-10 px-4 py-6 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-7xl flex items-center justify-between">
+    <div className="relative min-h-screen bg-black text-white">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(255,255,255,0.10),transparent_55%)]" />
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.05)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.05)_1px,transparent_1px)] bg-[size:72px_72px] [mask-image:radial-gradient(ellipse_at_center,black,transparent_70%)]" />
+
+      <header className="relative">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-6 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-r from-gray-500 to-gray-600">
-              <Code2 className="h-6 w-6 text-white" />
-            </div>
+            <img
+              src="/web-app-manifest-512x512.png"
+              alt="Canon"
+              className="h-10 w-10 rounded-xl border border-white/10"
+            />
             <div>
-              <h1 className="text-xl font-bold text-white">Sync</h1>
-              <p className="text-xs text-gray-200">Automated Documentation</p>
+              <p className="text-base font-semibold text-white">Canon</p>
+              <p className="text-xs text-white/60">Automated Knowledge Infrastructure</p>
             </div>
           </div>
-          <div className="flex items-center gap-4">
-            <a
-              href="https://sync-swart.vercel.app/login"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-white/80 hover:text-white transition-colors"
-            >
-              Sign In
-            </a>
-            <a
-              href="https://sync-swart.vercel.app/login"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-4 py-2 bg-gradient-to-r from-gray-500 to-gray-600 text-white rounded-lg hover:from-gray-600 hover:to-gray-700 transition-all font-medium"
-            >
-              Get Started
-            </a>
-          </div>
+
+          <nav className="flex items-center gap-3">
+            <Button variant="ghost" asChild>
+              <a href={appHref} target="_blank" rel="noopener noreferrer">
+                Sign In
+              </a>
+            </Button>
+            <Button asChild>
+              <a href={appHref} target="_blank" rel="noopener noreferrer">
+                Get Started
+                <ArrowRight className="h-4 w-4" />
+              </a>
+            </Button>
+          </nav>
         </div>
       </header>
 
-      {/* Hero Section */}
-      <section className="relative px-4 py-20 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-7xl text-center">
-          <div className="mb-8 inline-flex items-center gap-2 px-4 py-2 bg-gray-500/10 border border-gray-500/20 rounded-full">
-            <Zap className="h-4 w-4 text-gray-400" />
-            <span className="text-sm text-gray-300 font-medium">Set It & Forget It Documentation</span>
-          </div>
+      <main className="relative">
+        <section className="mx-auto max-w-7xl px-4 pb-16 pt-10 sm:px-6 lg:px-8 lg:pb-24 lg:pt-16">
+          <div>
+            <Badge className="mb-6">Less drift. More shared context.</Badge>
 
-          <h1 className="mb-6 text-5xl sm:text-6xl lg:text-7xl font-bold text-white leading-tight">
-            Docs That Write Themselves
-            <span className="block bg-gradient-to-r from-gray-300 via-gray-400 to-gray-500 bg-clip-text text-transparent">
-              Always Accurate, Always Current
-            </span>
-          </h1>
+            <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">
+              An automated knowledge layer
+              <span className="block text-white/60">that keeps pace with your code.</span>
+            </h1>
 
-          <p className="mb-8 text-xl text-white/80 max-w-3xl mx-auto leading-relaxed">
-            Sync automatically generates and keeps your documentation up-to-date. Connect your
-            code repository, and every code change automatically triggers smart updates to your
-            docs and diagrams. When needed, you can step in to review, edit, and ensure quality.
-          </p>
-
-          <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
-            <a
-              href="https://sync-swart.vercel.app/login"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-8 py-4 bg-gradient-to-r from-gray-500 to-gray-600 text-white rounded-xl hover:from-gray-600 hover:to-gray-700 transition-all font-semibold text-lg shadow-lg hover:shadow-xl flex items-center gap-2 group"
-            >
-              Connect Your Code Repository
-              <ArrowRight className="h-5 w-5 group-hover:translate-x-1 transition-transform" />
-            </a>
-            <button className="px-8 py-4 border border-white/20 text-white rounded-xl hover:bg-white/10 transition-all font-semibold text-lg backdrop-blur-sm">
-              Watch Demo
-            </button>
-          </div>
-        </div>
-      </section>
-
-      {/* Core Features */}
-      <section className="px-4 py-20 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-7xl">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4">
-              Everything You Need for Perfect Documentation
-            </h2>
-            <p className="text-xl text-white/70 max-w-3xl mx-auto">
-              From smart code analysis to automatic publishing, Sync eliminates documentation headaches
-              and keeps your team's knowledge always up-to-date and accurate.
+            <p className="mt-6 text-lg leading-relaxed text-white/70">
+              Canon connects to your repositories, watches change, and drafts the missing context your team depends on —
+              service pages, runbooks, system maps, and decision notes. You review what matters, and the knowledge stays
+              current without a separate doc project.
             </p>
-          </div>
 
-          <div className="space-y-16">
-            {/* Primary Feature - Automation */}
-            <div className="glass-panel p-12 hover:border-gray-500/30 transition-all">
-              <div className="grid lg:grid-cols-2 gap-12 items-center">
-                <div>
-                  <div className="mb-6 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-r from-gray-400 to-gray-500">
-                    <Zap className="h-8 w-8 text-white" />
-                  </div>
-                  <h3 className="text-3xl font-bold text-white mb-4">
-                    Zero-Maintenance Documentation
-                  </h3>
-                  <p className="text-xl text-white/80 mb-6 leading-relaxed">
-                    Set it and forget it. Every code change automatically triggers intelligent documentation
-                    regeneration, ensuring your docs are always accurate and comprehensive. When needed,
-                    you can step in for final review and quality control.
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
+              <Button size="lg" asChild>
+                <a href={appHref} target="_blank" rel="noopener noreferrer">
+                  Connect a Repository
+                  <ArrowRight className="h-4 w-4" />
+                </a>
+              </Button>
+              <Button size="lg" variant="secondary" asChild>
+                <a href="#workflow">See the workflow</a>
+              </Button>
+            </div>
+
+            <div className="mt-10 grid gap-4 sm:grid-cols-3">
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                <p className="text-sm font-medium text-white">Grounded</p>
+                <p className="mt-1 text-sm text-white/60">Links back to diffs and owners.</p>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                <p className="text-sm font-medium text-white">Current</p>
+                <p className="mt-1 text-sm text-white/60">Updates follow code changes.</p>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                <p className="text-sm font-medium text-white">Reviewable</p>
+                <p className="mt-1 text-sm text-white/60">You approve what is canonical.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8" id="workflow">
+          <div className="grid gap-8 lg:grid-cols-[0.9fr_1.1fr] lg:gap-12">
+            <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-8">
+              <h2 className="text-2xl font-semibold text-white sm:text-3xl">How Canon keeps knowledge alive</h2>
+              <p className="mt-4 text-white/70">
+                Canon is the layer between what engineers do and what everyone needs to know. It captures context at the
+                moment of change and keeps it tied to the source.
+              </p>
+              <div className="mt-6 space-y-4 text-sm text-white/70">
+                <p>1. Watch file changes.</p>
+                <p>2. Draft updates in plain language, linked to code.</p>
+                <p>3. Route changes for review, then publish where your team works.</p>
+              </div>
+            </div>
+
+            <div className="grid gap-6 sm:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Service pages</CardTitle>
+                  <CardDescription>Owners, health, dependencies, and how to operate.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-white/70">
+                    Every page stays linked to code paths and on-call rotations so it stays trustworthy.
                   </p>
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-3">
-                      <CheckCircle className="h-5 w-5 text-green-400 flex-shrink-0" />
-                      <span className="text-white/80">Automatic change detection and analysis</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <CheckCircle className="h-5 w-5 text-green-400 flex-shrink-0" />
-                      <span className="text-white/80">Smart regeneration of docs and diagrams</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <CheckCircle className="h-5 w-5 text-green-400 flex-shrink-0" />
-                      <span className="text-white/80">Scheduled updates and maintenance</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="lg:text-right">
-                  <div className="inline-flex items-center gap-2 px-6 py-3 bg-gray-500/20 border border-gray-500/30 rounded-full">
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-pulse"></div>
-                    <span className="text-sm font-medium text-gray-300">Always Up-to-Date</span>
-                  </div>
-                </div>
-              </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Runbooks</CardTitle>
+                  <CardDescription>Step-by-step guidance that matches reality.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-white/70">
+                    Canon updates checks and playbooks as systems evolve, before incidents happen.
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>System maps</CardTitle>
+                  <CardDescription>Views that reflect how services interact.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-white/70">
+                    Dependency views stay in sync without anyone redrawing diagrams.
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Change narratives</CardTitle>
+                  <CardDescription>Decisions captured while they’re fresh.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-white/70">
+                    Summaries connect the “why” behind a change to the “what” in the repo.
+                  </p>
+                </CardContent>
+              </Card>
             </div>
+          </div>
+        </section>
 
-            {/* Feature Grid - Detailed & Modern */}
-            <div className="grid md:grid-cols-2 gap-8">
-              {/* Code Analysis That Actually Understands */}
-              <div className="glass-panel p-12 hover:border-gray-600/30 transition-all">
-                <div className="grid lg:grid-cols-2 gap-8 items-center">
-                  <div>
-                    <div className="mb-6 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-r from-gray-500 to-gray-600">
-                      <GitBranch className="h-8 w-8 text-white" />
-                    </div>
-                    <h3 className="text-2xl font-bold text-white mb-4">
-                      Code Analysis That Actually Understands
-                    </h3>
-                    <p className="text-xl text-white/80 mb-6 leading-relaxed">
-                      Stop wasting time on basic code scanning. Our AI dives deep into your code repositories
-                      to understand frameworks, libraries, and how everything connects together.
-                    </p>
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-3">
-                        <CheckCircle className="h-5 w-5 text-green-400 flex-shrink-0" />
-                        <span className="text-white/80">Automatic framework and tool detection</span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <CheckCircle className="h-5 w-5 text-green-400 flex-shrink-0" />
-                        <span className="text-white/80">Dependency relationship mapping</span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <CheckCircle className="h-5 w-5 text-green-400 flex-shrink-0" />
-                        <span className="text-white/80">Architecture pattern recognition</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="lg:text-right">
-                    <div className="inline-flex items-center gap-2 px-6 py-3 bg-gray-600/20 border border-gray-600/30 rounded-full">
-                      <div className="w-2 h-2 bg-gray-500 rounded-full animate-pulse"></div>
-                      <span className="text-sm font-medium text-gray-400">Deep Understanding</span>
-                    </div>
-                  </div>
-                </div>
+        <section className="mx-auto max-w-7xl px-4 pb-20 sm:px-6 lg:px-8">
+          <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-8 sm:p-10">
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <h2 className="text-2xl font-semibold text-white sm:text-3xl">Stop losing context</h2>
+                <p className="mt-2 max-w-2xl text-white/70">
+                  Start small: connect a repo and let Canon draft the first pages your team will reuse.
+                </p>
               </div>
-
-              {/* AI-Powered Documentation */}
-              <div className="glass-panel p-12 hover:border-gray-700/30 transition-all">
-                <div className="grid lg:grid-cols-2 gap-8 items-center">
-                  <div>
-                    <div className="mb-6 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-r from-gray-600 to-gray-700">
-                      <FileText className="h-8 w-8 text-white" />
-                    </div>
-                    <h3 className="text-2xl font-bold text-white mb-4">
-                      AI-Powered Documentation
-                    </h3>
-                    <p className="text-xl text-white/80 mb-6 leading-relaxed">
-                      Generate professional documentation that explains what your code does,
-                      why it matters, and how it all fits together. You can review and edit AI-generated
-                      content to ensure it meets your standards and captures your team's expertise.
-                    </p>
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-3">
-                        <CheckCircle className="h-5 w-5 text-green-400 flex-shrink-0" />
-                        <span className="text-white/80">Business logic and purpose explanation</span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <CheckCircle className="h-5 w-5 text-green-400 flex-shrink-0" />
-                        <span className="text-white/80">Multiple LLMs (GPT-4, Claude, etc.)</span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <CheckCircle className="h-5 w-5 text-green-400 flex-shrink-0" />
-                        <span className="text-white/80">Human review and editing capabilities</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="lg:text-right">
-                    <div className="inline-flex items-center gap-2 px-6 py-3 bg-gray-700/20 border border-gray-700/30 rounded-full">
-                      <div className="w-2 h-2 bg-gray-600 rounded-full animate-pulse"></div>
-                      <span className="text-sm font-medium text-gray-500">Crystal Clear</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Visual Architecture Diagrams */}
-              <div className="glass-panel p-12 hover:border-gray-800/30 transition-all">
-                <div className="grid lg:grid-cols-2 gap-8 items-center">
-                  <div>
-                    <div className="mb-6 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-r from-gray-700 to-gray-800">
-                      <Layers3 className="h-8 w-8 text-white" />
-                    </div>
-                    <h3 className="text-2xl font-bold text-white mb-4">
-                      Visual Architecture Diagrams
-                    </h3>
-                    <p className="text-xl text-white/80 mb-6 leading-relaxed">
-                      Transform complex system architecture into beautiful, interactive diagrams
-                      that anyone can understand. See how your services connect and data flows.
-                      Review and customize generated diagrams to match your architectural vision.
-                    </p>
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-3">
-                        <CheckCircle className="h-5 w-5 text-green-400 flex-shrink-0" />
-                        <span className="text-white/80">Interactive Mermaid diagrams</span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <CheckCircle className="h-5 w-5 text-green-400 flex-shrink-0" />
-                        <span className="text-white/80">Auto-updating with code changes</span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <CheckCircle className="h-5 w-5 text-green-400 flex-shrink-0" />
-                        <span className="text-white/80">Human review and customization options</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="lg:text-right">
-                    <div className="inline-flex items-center gap-2 px-6 py-3 bg-gray-800/20 border border-gray-800/30 rounded-full">
-                      <div className="w-2 h-2 bg-gray-700 rounded-full animate-pulse"></div>
-                      <span className="text-sm font-medium text-gray-600">Visual Clarity</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* One-Click Publishing */}
-              <div className="glass-panel p-12 hover:border-gray-500/30 transition-all">
-                <div className="grid lg:grid-cols-2 gap-8 items-center">
-                  <div>
-                    <div className="mb-6 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-r from-gray-300 to-gray-400">
-                      <ExternalLink className="h-8 w-8 text-white" />
-                    </div>
-                    <h3 className="text-2xl font-bold text-white mb-4">
-                      One-Click Publishing
-                    </h3>
-                    <p className="text-xl text-white/80 mb-6 leading-relaxed">
-                      Stop manually copying docs to different tools. Publish directly to your team's
-                      favorite platforms with a single click. Keep everyone in sync automatically.
-                    </p>
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-3">
-                        <CheckCircle className="h-5 w-5 text-green-400 flex-shrink-0" />
-                        <span className="text-white/80">Direct publishing to Notion, Confluence, Coda</span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <CheckCircle className="h-5 w-5 text-green-400 flex-shrink-0" />
-                        <span className="text-white/80">Automated publishing workflows</span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <CheckCircle className="h-5 w-5 text-green-400 flex-shrink-0" />
-                        <span className="text-white/80">Team collaboration integration</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="lg:text-right">
-                    <div className="inline-flex items-center gap-2 px-6 py-3 bg-gray-500/20 border border-gray-500/30 rounded-full">
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-pulse"></div>
-                      <span className="text-sm font-medium text-gray-300">Zero Friction</span>
-                    </div>
-                  </div>
-                </div>
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <Button size="lg" asChild>
+                  <a href={appHref} target="_blank" rel="noopener noreferrer">
+                    Get Started
+                    <ArrowRight className="h-4 w-4" />
+                  </a>
+                </Button>
+                <Button size="lg" variant="secondary" asChild>
+                  <a href="mailto:sellers.e.john@gmail.com">Ask a Question</a>
+                </Button>
               </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
+      </main>
 
-      {/* CTA Section */}
-      <section className="px-4 py-20 sm:px-6 lg:px-8 bg-gradient-to-r from-gray-600/20 to-gray-700/20">
-        <div className="mx-auto max-w-4xl text-center">
-          <h2 className="text-3xl sm:text-4xl font-bold text-white mb-6">
-            Ready to Transform Your Codebase?
-          </h2>
-          <p className="text-xl text-white/80 mb-8">
-            Be among the first to experience the future of automated technical documentation.
-          </p>
-
-          <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
-            <a
-              href="https://sync-swart.vercel.app/login"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-8 py-4 bg-gradient-to-r from-gray-500 to-gray-600 text-white rounded-xl hover:from-gray-600 hover:to-gray-700 transition-all font-semibold text-lg shadow-lg hover:shadow-xl flex items-center gap-2 group"
-            >
-              Start Free Trial
-              <ArrowRight className="h-5 w-5 group-hover:translate-x-1 transition-transform" />
-            </a>
-            <button className="px-8 py-4 border border-white/20 text-white rounded-xl hover:bg-white/10 transition-all font-semibold text-lg backdrop-blur-sm">
-              Learn More
-            </button>
-          </div>
-
-          <p className="mt-6 text-sm text-white/60">
-            No credit card required • Full access to all features • Cancel anytime
-          </p>
-        </div>
-      </section>
-
-      {/* Footer */}
-      <footer className="px-4 py-12 sm:px-6 lg:px-8 border-t border-white/10">
-        <div className="mx-auto max-w-7xl">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-            <div className="flex items-center gap-3">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-r from-gray-500 to-gray-600">
-                <Code2 className="h-5 w-5 text-white" />
-              </div>
-              <span className="text-white font-semibold">Sync</span>
-            </div>
-
-            <div className="flex items-center gap-6 text-sm text-white/60">
-              <a href="mailto:support@Sync.app" className="hover:text-white transition-colors">Contact</a>
-            </div>
-          </div>
-
-          <div className="mt-8 pt-8 border-t border-white/10 text-center text-sm text-white/40">
-            © 2024 Sync. All rights reserved.
-          </div>
+      <footer className="relative border-t border-white/10">
+        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-10 text-sm text-white/60 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
+          <p>© 2025 Canon</p>
+          <a href="mailto:sellers.e.john@gmail.com" className="transition hover:text-white">
+            Contact
+          </a>
         </div>
       </footer>
     </div>

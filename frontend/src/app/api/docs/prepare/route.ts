@@ -39,9 +39,9 @@ export async function POST(request: NextRequest) {
 		// Verify user has access to the repo
 		const { data: repo, error: repoError } = await supabase
 			.from('workspace_repos')
-			.select('workspace_id')
+			.select('user_id')
 			.eq('id', document.repo_id)
-			.eq('workspace_id', user.id)
+			.eq('user_id', user.id)
 			.single();
 
 		if (repoError || !repo) {
@@ -71,4 +71,3 @@ export async function POST(request: NextRequest) {
 		);
 	}
 }
-

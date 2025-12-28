@@ -19,7 +19,8 @@ export async function GET(
     const { data: rules, error } = await supabase
       .from('automation_rules')
       .select('*')
-      .eq('repo_id', id);
+      .eq('repo_id', id)
+      .eq('user_id', user.id);
 
     if (error) {
       console.error('Automation GET error:', error);
@@ -28,23 +29,15 @@ export async function GET(
 
     // Convert to the expected response format
     const automationRules = (rules || []).map(rule => ({
-      id: rule.rule_id,
+      id: rule.id,
       name: rule.name,
       enabled: rule.enabled,
       schedule: rule.schedule,
-      action_preset: rule.action_preset,
-      significance_analysis: rule.significance_analysis,
-      target_documents: rule.target_documents,
-      target_diagrams: rule.target_diagrams,
-      notifications: rule.notifications,
-      publish_targets: rule.publish_targets,
-      // Legacy fields
       generate_doc: rule.generate_doc,
       generate_diagram: rule.generate_diagram,
       auto_publish: rule.auto_publish,
-      auto_publish_new_docs: rule.auto_publish_new_docs,
-      auto_publish_max_changes: rule.auto_publish_max_changes,
-      auto_publish_max_change_percentage: rule.auto_publish_max_change_percentage,
+      target_diagrams: rule.target_diagrams,
+      // Legacy fields
       auto_publish_target: rule.auto_publish_target,
     }));
 
@@ -94,44 +87,85 @@ export async function PATCH(
 
     const supabase = await createSupabaseClient();
 
-    // Delete existing rules for this repo
-    await supabase
-      .from('automation_rules')
-      .delete()
-      .eq('repo_id', id);
+    if (body.automation_rules.length === 0) {
+      await supabase
+        .from('automation_rules')
+        .delete()
+        .eq('repo_id', id)
+        .eq('user_id', user.id);
 
-    // Insert new rules (without next_run_at)
-    const rulesToInsert = body.automation_rules.map(rule => ({
-      workspace_id: user.id,
+      return NextResponse.json(
+        {
+          automation_rules: [],
+          automation_metadata: {},
+          scheduling_results: [],
+        },
+        { status: 200 }
+      );
+    }
+
+    const incomingRule = body.automation_rules[0] || {};
+    const actionPreset = typeof (incomingRule as any)?.action_preset === 'string' ? String((incomingRule as any).action_preset) : null;
+    const generateDoc =
+      typeof incomingRule.generate_doc === 'boolean'
+        ? incomingRule.generate_doc
+        : actionPreset
+          ? actionPreset !== 'diagrams_only'
+          : true;
+    const generateDiagram =
+      typeof incomingRule.generate_diagram === 'boolean'
+        ? incomingRule.generate_diagram
+        : actionPreset
+          ? actionPreset === 'diagrams_only' || actionPreset === 'docs_and_diagrams' || actionPreset === 'full_auto_publish'
+          : false;
+    const autoPublish =
+      typeof incomingRule.auto_publish === 'boolean'
+        ? incomingRule.auto_publish
+        : actionPreset
+          ? actionPreset === 'full_auto_publish'
+          : false;
+
+    const { data: existingRule, error: existingError } = await supabase
+      .from('automation_rules')
+      .select('id')
+      .eq('repo_id', id)
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (existingError) {
+      console.error('Automation PATCH fetch existing rule error:', existingError);
+      throw existingError;
+    }
+
+    const writePayload = {
+      user_id: user.id,
       repo_id: id,
-      rule_id: rule.id || rule.name || 'default',
-      name: rule.name,
-      enabled: rule.enabled ?? true,
-      schedule: rule.schedule,
-      action_preset: rule.action_preset,
-      significance_analysis: rule.significance_analysis,
-      target_documents: rule.target_documents || [],
-      target_diagrams: rule.target_diagrams || [],
-      notifications: rule.notifications,
-      publish_targets: rule.publish_targets,
-      // Legacy fields
-      generate_doc: rule.generate_doc,
-      generate_diagram: rule.generate_diagram,
-      auto_publish: rule.auto_publish,
-      auto_publish_new_docs: rule.auto_publish_new_docs,
-      auto_publish_max_changes: rule.auto_publish_max_changes,
-      auto_publish_max_change_percentage: rule.auto_publish_max_change_percentage,
-      auto_publish_target: rule.auto_publish_target,
-    }));
+      name: incomingRule.name,
+      enabled: incomingRule.enabled ?? true,
+      schedule: incomingRule.schedule,
+      generate_doc: generateDoc,
+      generate_diagram: generateDiagram,
+      auto_publish: autoPublish,
+      target_diagrams: Array.isArray(incomingRule.target_diagrams) ? incomingRule.target_diagrams : [],
+      auto_publish_target: incomingRule.auto_publish_target ?? null,
+    };
 
-    const { data: insertedRules, error: insertError } = await supabase
-      .from('automation_rules')
-      .insert(rulesToInsert)
-      .select();
+    const { data: savedRule, error: saveError } = existingRule?.id
+      ? await supabase
+          .from('automation_rules')
+          .update(writePayload)
+          .eq('id', existingRule.id)
+          .select()
+          .single()
+      : await supabase
+          .from('automation_rules')
+          .insert(writePayload)
+          .select()
+          .single();
 
-    if (insertError) {
-      console.error('Automation PATCH insert error:', insertError);
-      throw insertError;
+    if (saveError) {
+      console.error('Automation PATCH save error:', saveError);
+      throw saveError;
     }
 
     // Note: Schedules are handled by the checkAndRunAutomations function
@@ -139,7 +173,19 @@ export async function PATCH(
 
     return NextResponse.json(
       {
-        automation_rules: body.automation_rules,
+        automation_rules: [
+          {
+            id: savedRule.id,
+            name: savedRule.name,
+            enabled: savedRule.enabled,
+            schedule: savedRule.schedule,
+            generate_doc: savedRule.generate_doc,
+            generate_diagram: savedRule.generate_diagram,
+            auto_publish: savedRule.auto_publish,
+            target_diagrams: savedRule.target_diagrams,
+            auto_publish_target: savedRule.auto_publish_target,
+          },
+        ],
         automation_metadata: {}, // Will be migrated separately
         scheduling_results: [], // TODO: Implement GitHub Actions scheduling
       },
@@ -156,4 +202,3 @@ export async function PATCH(
     );
   }
 }
-

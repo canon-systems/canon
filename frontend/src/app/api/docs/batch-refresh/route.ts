@@ -17,7 +17,7 @@ export async function POST() {
     const { data: userRepos } = await supabase
       .from('workspace_repos')
       .select('id')
-      .eq('workspace_id', user.id);
+      .eq('user_id', user.id);
 
     const repoIds = userRepos?.map(r => r.id) || [];
 
@@ -59,4 +59,3 @@ export async function POST() {
     return NextResponse.json({ error: 'Batch refresh failed', details: message }, { status: 500 });
   }
 }
-

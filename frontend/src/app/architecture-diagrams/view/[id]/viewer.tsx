@@ -105,17 +105,6 @@ function buildMermaid(nodes: any[], edges: any[]): string {
         mermaidText += '    end\n';
     }
 
-    if (externalNodes.length) {
-        mermaidText += '    subgraph External["External Services"]\n';
-        mermaidText += '    direction LR\n';
-        for (const node of externalNodes) {
-            const cls = node.needsReview ? 'unknown' : (categories[node.category || ''] || 'external');
-            mermaidText += `        ${node.id}["${formatLabel(node)}"]:::external\n`;
-            classAssignments.push({ id: node.id, cls });
-        }
-        mermaidText += '    end\n';
-    }
-
     const linkStyles: string[] = [];
     edges.forEach((edge: any, index: number) => {
         const arrowStyle = edge.kind === 'external' ? '-.->' : '-->';
@@ -139,9 +128,6 @@ function buildMermaid(nodes: any[], edges: any[]): string {
 
 // Fallback diagram generator for when Mermaid fails
 function generateFallbackDiagram(mermaidContent: string, analysisData?: any): string {
-    const components = analysisData?.components || [];
-    const relationships = analysisData?.relationships || [];
-
     // Parse basic component info from Mermaid content
     const componentLines = mermaidContent.split('\n').filter(line =>
         line.trim() && !line.includes('graph TD') && !line.includes('graph LR') && !line.includes('-->')
@@ -163,7 +149,7 @@ function generateFallbackDiagram(mermaidContent: string, analysisData?: any): st
             Architecture Diagram (Fallback)
         </text>
         <text x="50%" y="50" text-anchor="middle" fill="#94a3b8" font-family="Arial" font-size="12">
-            ${components.length} components, ${relationships.length} relationships
+            Mermaid rendering failed
         </text>`;
 
     // Draw components
@@ -188,22 +174,10 @@ function generateFallbackDiagram(mermaidContent: string, analysisData?: any): st
         </text>`;
     });
 
-    // Draw basic relationship lines (simplified)
-    if (relationships.length > 0 && componentLines.length >= 2) {
-        for (let i = 0; i < Math.min(relationships.length, 3); i++) {
-            const startX = 150 + (i % 3) * 200;
-            const startY = 100 + Math.floor(i / 3) * 120 + 20;
-            const endX = 150 + ((i + 1) % 3) * 200;
-            const endY = 100 + Math.floor((i + 1) / 3) * 120 - 20;
-
-            svg += `<line x1="${startX}" y1="${startY}" x2="${endX}" y2="${endY}" stroke="#94a3b8" stroke-width="2" marker-end="url(#arrowhead)"/>`;
-        }
-    }
-
     svg += `
         <!-- Footer message -->
         <text x="50%" y="${height - 30}" text-anchor="middle" fill="#64748b" font-family="Arial" font-size="11">
-            This is a fallback diagram. Mermaid rendering failed - check debug info above.
+            This is a fallback diagram. Mermaid rendering failed.
         </text>
     </svg>`;
 
@@ -577,10 +551,6 @@ export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagram
                                 <CardHeader>
                                     <div className="flex items-center justify-between">
                                         <CardTitle className="text-lg font-semibold text-white">Architecture Overview</CardTitle>
-                                        <div className="text-sm text-white/60">
-                                            {diagram.analysis_data?.components?.length || 0} components •
-                                            {diagram.analysis_data?.relationships?.length || 0} relationships
-                                        </div>
                                     </div>
                                 </CardHeader>
                                 <CardContent>
@@ -683,69 +653,6 @@ export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagram
                                 </CardContent>
                             </Card>
                         </div>
-
-                        {/* Analysis Details */}
-                        {diagram.analysis_data && (
-                            <Card className="mt-6">
-                                <CardHeader>
-                                    <CardTitle className="text-lg font-semibold text-white">Analysis Details</CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                    <div className="grid md:grid-cols-2 gap-6">
-                                        <div>
-                                            <h4 className="text-white font-medium mb-3">Components Found</h4>
-                                            <div className="space-y-2">
-                                                {diagram.analysis_data.components?.map((component: any, index: number) => (
-                                                    <div key={index} className="flex items-center justify-between p-2 bg-white/5 rounded">
-                                                        <span className="text-white/80">{component.name}</span>
-                                                        <span className="text-white/60 text-sm">{component.files?.length || 0} files</span>
-                                                    </div>
-                                                )) || <p className="text-white/60">No component data available</p>}
-                                            </div>
-                                        </div>
-
-                                        <div>
-                                            <h4 className="text-white font-medium mb-3">Architecture Insights</h4>
-                                            <div className="space-y-3 text-white/80">
-                                                <div className="flex justify-between">
-                                                    <span>Total Files Analyzed:</span>
-                                                    <span>{diagram.analysis_data.components?.reduce((sum: number, c: any) => sum + (c.files?.length || 0), 0) || 0}</span>
-                                                </div>
-                                                <div className="flex justify-between">
-                                                    <span>Component Types:</span>
-                                                    <span>{new Set(diagram.analysis_data.components?.map((c: any) => c.type)).size || 0}</span>
-                                                </div>
-                                                <div className="flex justify-between">
-                                                    <span>Analysis Method:</span>
-                                                    <span className="text-blue-400">Tree-sitter AST Parsing</span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        )}
-
-                        {/* Mermaid Source */}
-                        <Card className="mt-6">
-                            <CardHeader>
-                                <div className="flex items-center justify-between">
-                                    <CardTitle className="text-lg font-semibold text-white">Mermaid Source</CardTitle>
-                                    <Button
-                                        variant="secondary"
-                                        size="sm"
-                                        onClick={() => navigator.clipboard.writeText(mermaidSource)}
-                                    >
-                                        Copy
-                                    </Button>
-                                </div>
-                            </CardHeader>
-                            <CardContent>
-                                <pre className="bg-slate-800/50 p-4 rounded-lg overflow-x-auto text-sm text-white/80">
-                                    <code>{mermaidSource}</code>
-                                </pre>
-                            </CardContent>
-                        </Card>
                     </CardContent>
                 </Card>
             </div>

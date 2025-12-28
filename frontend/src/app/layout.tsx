@@ -18,7 +18,7 @@ const spaceGrotesk = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: "Sync - Business Intelligence",
+  title: "Canon - Automated Knowledge Infrastructure",
   description: "Automatically generate clear, non-technical summaries that explain the business purpose and value of any code.",
 };
 

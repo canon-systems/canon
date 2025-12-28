@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
 import { getDocument, getDocumentFiles } from '@/lib/server/services/documentService';
+import { trackDocDeleted } from '@/lib/server/services/usageTracking';
 
 /**
  * GET: Retrieve a document by ID
@@ -29,11 +30,11 @@ export async function GET(
     // Verify user has access via workspace_repos
     const { data: repo } = await supabase
       .from('workspace_repos')
-      .select('workspace_id')
+      .select('user_id')
       .eq('id', document.repo_id)
       .single();
 
-    if (!repo || repo.workspace_id !== user.id) {
+    if (!repo || repo.user_id !== user.id) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -82,3 +83,65 @@ export async function GET(
   }
 }
 
+/**
+ * DELETE: Delete a document by ID
+ */
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { user } = await getSession();
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const supabase = await createClient();
+    const { id } = await params;
+
+    // Get document and repo to verify ownership and capture metadata
+    const document = await getDocument(supabase, id);
+
+    if (!document) {
+      return NextResponse.json({ error: 'Document not found' }, { status: 404 });
+    }
+
+    const { data: repo } = await supabase
+      .from('workspace_repos')
+      .select('user_id, repo_url')
+      .eq('id', document.repo_id)
+      .single();
+
+    if (!repo || repo.user_id !== user.id) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    // Track deletion before removing the record
+    try {
+      await trackDocDeleted(supabase, user.id, id, document.title, document.repo_id, repo.repo_url);
+    } catch (logError) {
+      console.warn('Failed to track doc deletion:', logError);
+    }
+
+    const { error } = await supabase
+      .from('documents')
+      .delete()
+      .eq('id', id)
+      .eq('repo_id', document.repo_id);
+
+    if (error) {
+      throw error;
+    }
+
+    return NextResponse.json({ success: true }, { status: 200 });
+  } catch (err: any) {
+    console.error('Delete doc error:', err);
+    return NextResponse.json(
+      {
+        error: 'Failed to delete document',
+        detail: err.message || String(err),
+      },
+      { status: 500 }
+    );
+  }
+}

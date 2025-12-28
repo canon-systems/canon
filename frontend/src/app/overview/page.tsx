@@ -12,39 +12,20 @@ export default async function OverviewPage() {
 
   const supabase = await createClient();
 
-  // Get all documents (replaced submissions)
-  const { data: userRepos } = await supabase
-    .from('workspace_repos')
-    .select('id')
-    .eq('workspace_id', user.id);
-
-  const repoIds = userRepos?.map(r => r.id) || [];
-  const { data: documents, error: documentsError } = repoIds.length > 0
-    ? await supabase
-      .from('documents')
-      .select('id, created_at, updated_at')
-      .in('repo_id', repoIds)
-      .order('created_at', { ascending: false })
-    : { data: null, error: null };
-
-  // Get architecture diagrams
-  const { data: architectureDiagrams, error: diagramsError } = repoIds.length > 0
-    ? await supabase
-      .from('diagrams')
-      .select('id, created_at, updated_at')
-      .eq('diagram_type', 'architecture')
-      .in('repo_id', repoIds)
-      .order('created_at', { ascending: false })
-    : { data: null, error: null };
+  const { data: usageEvents, error: usageEventsError } = await supabase
+    .from('usage_events')
+    .select('id, event_type, metadata, created_at')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: false });
 
 
-  // Get automation rules from the new table
   const { data: rulesData, error: reposError } = await supabase
     .from('automation_rules')
     .select(`
       *,
       workspace_repos!inner(id, name, repo_url)
-    `);
+    `)
+    .eq('user_id', user.id);
 
   // Extract automation rules
   const automationRules: Array<{
@@ -64,75 +45,67 @@ export default async function OverviewPage() {
       repoId: rule.repo_id,
       repoName: rule.workspace_repos.name || 'Untitled Repo',
       repoUrl: rule.workspace_repos.repo_url || '',
-      ruleId: rule.rule_id,
-      ruleName: rule.name || rule.rule_id,
+      ruleId: rule.id,
+      ruleName: rule.name || rule.id,
       enabled: Boolean(rule.enabled),
       lastRunAt: rule.last_run_at,
       lastRunStatus: rule.last_run_status,
     });
   });
 
-  // Calculate statistics
-  const totalDocuments = documents?.length || 0;
+  const events = usageEvents ?? [];
 
-  // Count regenerated documents (updated_at is significantly different from created_at)
-  const regeneratedCount = documents?.filter((doc) => {
-    if (!doc.updated_at) return false;
-    const created = new Date(doc.created_at);
-    const updated = new Date(doc.updated_at);
-    // More than 1 minute difference indicates regeneration
-    return updated.getTime() - created.getTime() > 60000;
-  }).length || 0;
+  const docGeneratedEvents = events.filter((event) => event.event_type === 'doc_generated');
+  const docAutoPublishedEvents = events.filter((event) => event.event_type === 'doc_auto_published');
+  const diagramGeneratedEvents = events.filter((event) => event.event_type === 'architecture_diagram_generated');
+  const diagramRegeneratedEvents = events.filter((event) => event.event_type === 'architecture_diagram_regenerated');
 
-  // Calculate architecture diagram statistics
-  const totalArchitectureDiagrams = architectureDiagrams?.length || 0;
+  const getMetadataId = (event: (typeof events)[number], key: string) => {
+    const metadata = event.metadata as Record<string, unknown> | null;
+    const value = metadata?.[key];
+    return typeof value === 'string' ? value : null;
+  };
 
-  // Count regenerated architecture diagrams
-  const architectureRegeneratedCount = architectureDiagrams?.filter((diagram) => {
-    if (!diagram.updated_at) return false;
-    const created = new Date(diagram.created_at);
-    const updated = new Date(diagram.updated_at);
-    // More than 1 minute difference indicates regeneration
-    return updated.getTime() - created.getTime() > 60000;
-  }).length || 0;
+  const totalDocuments = docGeneratedEvents.length;
+  const totalArchitectureDiagrams = diagramGeneratedEvents.length;
 
-  // Get recent activity (last 10 items)
-  const recentDocuments = documents?.slice(0, 10) || [];
+  const repoConnectionState = new Map<string, { connected: boolean; timestamp: number }>();
+  events.forEach((event) => {
+    if (event.event_type !== 'repo_connected' && event.event_type !== 'repo_disconnected') return;
+    const repoId = getMetadataId(event, 'repo_id');
+    if (!repoId) return;
+    const timestamp = new Date(event.created_at).getTime();
+    const existing = repoConnectionState.get(repoId);
+    if (!existing || timestamp > existing.timestamp) {
+      repoConnectionState.set(repoId, {
+        connected: event.event_type === 'repo_connected',
+        timestamp,
+      });
+    }
+  });
+
+  const connectedReposCount = Array.from(repoConnectionState.values()).filter((entry) => entry.connected).length;
 
   const stats = {
-    totalDocuments: totalDocuments,
+    totalDocuments,
     totalSubmissions: totalDocuments, // Keep for backward compatibility with client
-    processingDocuments: 0, // Documents don't have processing state
-    failedDocuments: 0, // Documents don't have failed state
-    outdatedDocuments: 0, // Documents don't have outdated state
-    totalRegenerated: regeneratedCount,
+    processingDocuments: 0,
+    failedDocuments: 0,
+    outdatedDocuments: 0,
+    totalRegenerated: docAutoPublishedEvents.length,
     autoUpdateEnabled: 0,
-    totalArchitectureDiagrams: totalArchitectureDiagrams,
-    totalArchitectureRegenerated: architectureRegeneratedCount,
-    inputTypeBreakdown: {}, // Documents don't have input_type
-    rawData: {
-      submissions: documents?.map((doc) => ({
-        created_at: doc.created_at,
-        last_checked_at: doc.updated_at, // Use updated_at as proxy
-        status: 'completed', // All documents are considered completed
-        is_outdated: false, // Documents don't track outdated status
-        input_type: null, // Documents don't have input_type
-      })) || [],
-    },
+    totalArchitectureDiagrams,
+    totalArchitectureRegenerated: diagramRegeneratedEvents.length,
+    usageEvents: events,
     recentActivity: {
-      submissions: recentDocuments.map(doc => ({
-        id: doc.id,
-        created_at: doc.created_at,
-        status: 'completed', // All documents are considered completed
-        is_outdated: false, // Documents don't track outdated status
-      })),
+      events: events.slice(0, 10),
     },
     errors: {
-      submissions: documentsError?.message,
+      usageEvents: usageEventsError?.message,
       repos: reposError?.message,
     },
     automationRules,
-    connectedReposCount: repoIds.length,
+    connectedReposCount,
   };
 
   return (
@@ -142,4 +115,3 @@ export default async function OverviewPage() {
     />
   );
 }
-

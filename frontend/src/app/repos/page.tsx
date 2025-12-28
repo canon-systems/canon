@@ -16,7 +16,7 @@ export default async function RepositoriesPage() {
   const { data: repositories, error: repoError } = await supabase
     .from('workspace_repos')
     .select('*')
-    .eq('workspace_id', user.id)
+    .eq('user_id', user.id)
     .order('created_at', { ascending: false });
 
   if (repoError) {
@@ -51,7 +51,7 @@ export default async function RepositoriesPage() {
           .eq('repo_id', repo.id)
           .single();
 
-        if (error && error.code !== 'PGRST116') { // PGRST116 is "not found"
+        if (error && error.code && error.code !== 'PGRST116') { // PGRST116 is "not found"
           console.error(`Error fetching setup for repo ${repo.id}:`, error);
         }
 

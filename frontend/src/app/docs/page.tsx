@@ -14,7 +14,7 @@ const tutorials: VideoTutorial[] = [
   {
     id: 'github-connection',
     title: 'Connect to Code Repository Provider',
-    description: 'Learn how to connect your repository provider account to Sync to enable repository access and automated documentation generation.',
+    description: 'Learn how to connect your repository provider account to Canon to enable repository access and automated documentation generation.',
     duration: '2 min',
     loomUrl: 'https://www.loom.com/share/d4e9e616b6c8418f8017992ddab28fed',
     embedUrl: 'https://www.loom.com/embed/d4e9e616b6c8418f8017992ddab28fed',
@@ -22,8 +22,8 @@ const tutorials: VideoTutorial[] = [
       'Navigate to the Settings page',
       'Select the "Integrations" tab',
       'Find the repository connection and select "Connect"',
-      'Follow the prompts to authorize Sync to access your repository provider account',
-      'Once redirected back to Sync, you can start setting up your repository',
+      'Follow the prompts to authorize Canon to access your repository provider account',
+      'Once redirected back to Canon, you can start setting up your repository',
     ]
   },
   {
@@ -36,7 +36,7 @@ const tutorials: VideoTutorial[] = [
     steps: [
       'Navigate to the "Connect Repo" page',
       'Click the "Connect Your First Repository" button. If not already connected, you will be prompted to connect to your repository provider.',
-      'Enter the name of your repository ("sync", "first-app", etc.) and click the search button',
+      'Enter the name of your repository ("canon", "first-app", etc.) and click the search button',
       'Choose the repository you want to set up and then click the "Continue" button',
       'Choose the branch and then click the "Connect Repository" button',
       'Once redirected to the repository setup page, click the "Start Repository Setup" button',
@@ -104,7 +104,7 @@ export default function DocumentationPage() {
           </div>
 
           <h1 className="mb-4 text-4xl font-bold text-white">Video Tutorials</h1>
-          <p className="text-xl text-white/80">Master Sync with our comprehensive video guides and step-by-step instructions.</p>
+          <p className="text-xl text-white/80">Master Canon with our comprehensive video guides and step-by-step instructions.</p>
         </div>
 
         <div className="space-y-8">
@@ -175,7 +175,7 @@ export default function DocumentationPage() {
               Can't find what you're looking for? Our support team is here to help.
             </p>
             <a
-              href="mailto:support@Sync.app"
+              href="mailto:sellers.e.john@gmail.com"
               className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-gray-500 to-gray-600 text-white rounded-lg hover:from-gray-600 hover:to-gray-700 transition-all font-medium"
             >
               Contact Support

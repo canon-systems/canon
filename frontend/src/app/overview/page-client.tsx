@@ -9,12 +9,10 @@ import {
   Layers3,
   Activity,
   Calendar,
-  AlertCircle,
   Clock,
   CheckCircle2,
   XCircle,
   Zap,
-  TrendingUp,
   Link as LinkIcon,
   Github,
   BookOpen,
@@ -22,8 +20,6 @@ import {
 import {
   Area,
   AreaChart,
-  Bar,
-  BarChart,
   CartesianGrid,
   Cell,
   Legend,
@@ -40,11 +36,17 @@ import {
   Card,
   CardContent,
   CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+
+interface UsageEvent {
+  id: string;
+  event_type: string;
+  created_at: string;
+  metadata: Record<string, unknown> | null;
+}
 
 interface OverviewStats {
   totalDocuments: number;
@@ -56,25 +58,12 @@ interface OverviewStats {
   autoUpdateEnabled: number;
   totalArchitectureDiagrams: number;
   totalArchitectureRegenerated: number;
-  rawData: {
-    submissions: Array<{
-      created_at: string;
-      last_checked_at: string | null;
-      status: string;
-      is_outdated: boolean;
-      input_type: string | null;
-    }>;
-  };
+  usageEvents: UsageEvent[];
   recentActivity: {
-    submissions: Array<{
-      id: string;
-      created_at: string;
-      status: string;
-      is_outdated: boolean;
-    }>;
+    events: UsageEvent[];
   };
   errors: {
-    submissions?: string;
+    usageEvents?: string;
     repos?: string;
   };
   automationRules?: Array<{
@@ -92,7 +81,64 @@ interface OverviewStats {
 }
 
 type TimeFilter = '24h' | '3d' | '7d' | '14d' | '30d' | '90d' | '180d' | '1y' | 'all';
-type StatusFilter = 'all' | 'completed' | 'processing' | 'failed' | 'outdated';
+type ActivityFilter = 'all' | 'documents' | 'diagrams' | 'automation' | 'repos' | 'integrations' | 'knowledge-base' | 'other';
+
+const EVENT_CATEGORY_MAP: Record<string, ActivityFilter> = {
+  doc_generated: 'documents',
+  doc_auto_published: 'documents',
+  doc_deleted: 'documents',
+  architecture_diagram_generated: 'diagrams',
+  architecture_diagram_regenerated: 'diagrams',
+  architecture_diagram_deleted: 'diagrams',
+  repo_scan_run: 'automation',
+  repo_connected: 'repos',
+  repo_disconnected: 'repos',
+  integration_connected: 'integrations',
+  integration_disconnected: 'integrations',
+  push_to_kb: 'knowledge-base',
+};
+
+const EVENT_TYPE_LABELS: Record<string, string> = {
+  doc_generated: 'Doc generated',
+  doc_auto_published: 'Doc auto-published',
+  doc_deleted: 'Doc deleted',
+  architecture_diagram_generated: 'Diagram generated',
+  architecture_diagram_regenerated: 'Diagram regenerated',
+  architecture_diagram_deleted: 'Diagram deleted',
+  repo_scan_run: 'Repo scan',
+  repo_connected: 'Repo connected',
+  repo_disconnected: 'Repo disconnected',
+  integration_connected: 'Integration connected',
+  integration_disconnected: 'Integration disconnected',
+  push_to_kb: 'Pushed to KB',
+};
+
+const EVENT_TYPE_COLORS: Record<string, string> = {
+  doc_generated: '#10b981',
+  doc_auto_published: '#f59e0b',
+  doc_deleted: '#ef4444',
+  architecture_diagram_generated: '#a855f7',
+  architecture_diagram_regenerated: '#f59e0b',
+  architecture_diagram_deleted: '#ef4444',
+  repo_scan_run: '#38bdf8',
+  repo_connected: '#22c55e',
+  repo_disconnected: '#f87171',
+  integration_connected: '#60a5fa',
+  integration_disconnected: '#f87171',
+  push_to_kb: '#fbbf24',
+};
+
+const TIME_FILTER_LABELS: Record<TimeFilter, string> = {
+  all: 'All time',
+  '24h': 'Last 24 hours',
+  '3d': 'Last 3 days',
+  '7d': 'Last 7 days',
+  '14d': 'Last 2 weeks',
+  '30d': 'Last 30 days',
+  '90d': 'Last 3 months',
+  '180d': 'Last 6 months',
+  '1y': 'Last year',
+};
 
 interface OverviewPageClientProps {
   user: User | null;
@@ -148,7 +194,7 @@ function ChartNoDataOverlay({ message }: { message: string }) {
 
 export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [activityFilter, setActivityFilter] = useState<ActivityFilter>('all');
 
   const filteredStats = useMemo(() => {
     const now = new Date();
@@ -189,66 +235,64 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
       return new Date(dateString) >= cutoffDate;
     };
 
-    const filteredSubmissions = stats.rawData.submissions.filter((sub) => {
-      if (!filterByDate(sub.created_at)) return false;
+    const getEventCategory = (eventType: string): ActivityFilter => EVENT_CATEGORY_MAP[eventType] ?? 'other';
 
-      if (statusFilter !== 'all') {
-        if (statusFilter === 'outdated') {
-          if (!sub.is_outdated) return false;
-        } else {
-          if (sub.status !== statusFilter) return false;
-        }
-      }
+    const dateFilteredEvents = stats.usageEvents.filter((event) => filterByDate(event.created_at));
+    const filteredEvents = activityFilter === 'all'
+      ? dateFilteredEvents
+      : dateFilteredEvents.filter((event) => getEventCategory(event.event_type) === activityFilter);
 
-      return true;
-    });
+    const activityByDay: Record<string, { events: number; date: string }> = {};
 
-    const filteredRegenerated = filteredSubmissions.filter((sub) => {
-      if (!sub.last_checked_at) return false;
-      const created = new Date(sub.created_at);
-      const checked = new Date(sub.last_checked_at);
-      return checked.getTime() - created.getTime() > 60000;
-    });
-
-    const completed = filteredSubmissions.filter((s) => s.status === 'completed').length;
-    const processing = filteredSubmissions.filter((s) => s.status === 'processing').length;
-    const failed = filteredSubmissions.filter((s) => s.status === 'failed').length;
-    const outdated = filteredSubmissions.filter((s) => s.is_outdated).length;
-
-    const activityByDay: Record<string, { documents: number; date: string }> = {};
-
-    filteredSubmissions.forEach((sub) => {
-      const date = new Date(sub.created_at).toISOString().split('T')[0];
+    filteredEvents.forEach((event) => {
+      const date = new Date(event.created_at).toISOString().split('T')[0];
       if (!activityByDay[date]) {
-        activityByDay[date] = { documents: 0, date };
+        activityByDay[date] = { events: 0, date };
       }
-      activityByDay[date].documents++;
+      activityByDay[date].events += 1;
     });
 
     const activityData = Object.values(activityByDay)
       .sort((a, b) => a.date.localeCompare(b.date))
       .slice(-30);
 
+    const eventTypeCounts = new Map<string, { value: number; color: string }>();
+    filteredEvents.forEach((event) => {
+      const label = EVENT_TYPE_LABELS[event.event_type] ?? 'Other';
+      const color = EVENT_TYPE_COLORS[event.event_type] ?? '#6b7280';
+      const existing = eventTypeCounts.get(label);
+      if (existing) {
+        existing.value += 1;
+      } else {
+        eventTypeCounts.set(label, { value: 1, color });
+      }
+    });
 
-    const statusData = [
-      { name: 'Completed', value: completed, color: '#10b981' },
-      { name: 'Processing', value: processing, color: '#f59e0b' },
-      { name: 'Failed', value: failed, color: '#ef4444' },
-      { name: 'Outdated', value: outdated, color: '#8b5cf6' },
-    ].filter((item) => item.value > 0);
+    const statusData = Array.from(eventTypeCounts.entries())
+      .map(([name, data]) => ({ name, value: data.value, color: data.color }))
+      .sort((a, b) => b.value - a.value);
 
     const activityHasData = activityData.length > 0;
     const statusHasData = statusData.length > 0;
 
+    const docGeneratedEvents = dateFilteredEvents.filter((event) => event.event_type === 'doc_generated');
+    const docAutoPublishedEvents = dateFilteredEvents.filter((event) => event.event_type === 'doc_auto_published');
+    const diagramGeneratedEvents = dateFilteredEvents.filter((event) => event.event_type === 'architecture_diagram_generated');
+    const diagramRegeneratedEvents = dateFilteredEvents.filter((event) => event.event_type === 'architecture_diagram_regenerated');
+    const totalDocuments = docGeneratedEvents.length;
+    const totalArchitectureDiagrams = diagramGeneratedEvents.length;
+
     return {
-      totalDocuments: filteredSubmissions.filter((s) => s.status === 'completed').length,
-      totalRegenerated: filteredRegenerated.length,
+      totalDocuments,
+      totalRegenerated: docAutoPublishedEvents.length,
+      totalArchitectureDiagrams,
+      totalArchitectureRegenerated: diagramRegeneratedEvents.length,
       activityData: activityHasData
         ? activityData
         : [
           {
             date: new Date().toISOString().split('T')[0],
-            documents: 0,
+            events: 0,
           },
         ],
       statusData: statusHasData
@@ -262,15 +306,58 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
         ],
       hasActivityData: activityHasData,
       hasStatusData: statusHasData,
-      completed,
-      processing,
-      failed,
-      outdated,
     };
-  }, [timeFilter, statusFilter, stats.rawData]);
+  }, [timeFilter, activityFilter, stats.usageEvents]);
 
   const hasAutomationRules = Boolean(stats.automationRules?.length);
   const enabledAutomationRules = stats.automationRules?.filter((rule) => rule.enabled) ?? [];
+
+  const getRepoName = (repoUrl?: string) => {
+    if (!repoUrl) return undefined;
+    const trimmed = repoUrl.replace(/\/$/, '');
+    const name = trimmed.split('/').pop();
+    return name?.replace('.git', '');
+  };
+
+  const getEventDisplay = (event: UsageEvent) => {
+    const metadata = event.metadata ?? {};
+    const docId = typeof metadata['doc_id'] === 'string' ? metadata['doc_id'] : undefined;
+    const diagramId = typeof metadata['diagram_id'] === 'string' ? metadata['diagram_id'] : undefined;
+    const repoUrl = typeof metadata['repo_url'] === 'string' ? metadata['repo_url'] : undefined;
+    const provider = typeof metadata['provider'] === 'string' ? metadata['provider'] : undefined;
+    const repoName = getRepoName(repoUrl);
+    const baseTitle = EVENT_TYPE_LABELS[event.event_type] ?? 'Activity';
+    const title = repoName ? `${baseTitle} • ${repoName}` : provider ? `${baseTitle} • ${provider}` : baseTitle;
+
+    switch (event.event_type) {
+      case 'doc_generated':
+        return { title, icon: CheckCircle2, colorClass: 'bg-emerald-500/20 text-emerald-300', link: docId ? `/edit/${docId}` : undefined };
+      case 'doc_auto_published':
+        return { title, icon: RefreshCw, colorClass: 'bg-amber-500/20 text-amber-300', link: docId ? `/edit/${docId}` : undefined };
+      case 'doc_deleted':
+        return { title, icon: XCircle, colorClass: 'bg-red-500/20 text-red-300', link: undefined };
+      case 'architecture_diagram_generated':
+        return { title, icon: Layers3, colorClass: 'bg-purple-500/20 text-purple-300', link: diagramId ? `/architecture-diagrams/view/${diagramId}` : '/architecture-diagrams' };
+      case 'architecture_diagram_regenerated':
+        return { title, icon: RefreshCw, colorClass: 'bg-amber-500/20 text-amber-300', link: diagramId ? `/architecture-diagrams/view/${diagramId}` : '/architecture-diagrams' };
+      case 'architecture_diagram_deleted':
+        return { title, icon: XCircle, colorClass: 'bg-red-500/20 text-red-300', link: '/architecture-diagrams' };
+      case 'repo_connected':
+        return { title, icon: Github, colorClass: 'bg-emerald-500/20 text-emerald-300', link: '/repos' };
+      case 'repo_disconnected':
+        return { title, icon: Github, colorClass: 'bg-red-500/20 text-red-300', link: '/repos' };
+      case 'integration_connected':
+        return { title, icon: LinkIcon, colorClass: 'bg-blue-500/20 text-blue-300', link: '/integrations' };
+      case 'integration_disconnected':
+        return { title, icon: LinkIcon, colorClass: 'bg-red-500/20 text-red-300', link: '/integrations' };
+      case 'repo_scan_run':
+        return { title, icon: Activity, colorClass: 'bg-sky-500/20 text-sky-300', link: '/repos' };
+      case 'push_to_kb':
+        return { title, icon: BookOpen, colorClass: 'bg-amber-500/20 text-amber-300', link: docId ? `/edit/${docId}` : '/documentation' };
+      default:
+        return { title, icon: Activity, colorClass: 'bg-white/10 text-white/70', link: undefined };
+    }
+  };
 
   return (
     <div className="space-y-8 px-1 sm:px-2 md:px-0">
@@ -281,7 +368,7 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
               <Badge variant="outline" className="border-amber-400/50 text-amber-200">
                 Overview
               </Badge>
-              <CardTitle className="text-3xl text-white">Welcome to Sync</CardTitle>
+              <CardTitle className="text-3xl text-white">Welcome to Canon</CardTitle>
               <CardDescription className="text-white/70">
                 Your AI-powered documentation platform for software teams
               </CardDescription>
@@ -306,16 +393,19 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
                   </SelectContent>
                 </Select>
               </div>
-              <Select value={statusFilter} onValueChange={(v) => setStatusFilter((v as StatusFilter) ?? 'all')}>
+              <Select value={activityFilter} onValueChange={(v) => setActivityFilter((v as ActivityFilter) ?? 'all')}>
                 <SelectTrigger className="w-36 bg-white/5 text-white">
-                  <SelectValue placeholder="Status" />
+                  <SelectValue placeholder="Activity" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All statuses</SelectItem>
-                  <SelectItem value="completed">Completed</SelectItem>
-                  <SelectItem value="processing">Processing</SelectItem>
-                  <SelectItem value="failed">Failed</SelectItem>
-                  <SelectItem value="outdated">Outdated</SelectItem>
+                  <SelectItem value="all">All activity</SelectItem>
+                  <SelectItem value="documents">Documents</SelectItem>
+                  <SelectItem value="diagrams">Diagrams</SelectItem>
+                  <SelectItem value="automation">Automation</SelectItem>
+                  <SelectItem value="repos">Repositories</SelectItem>
+                  <SelectItem value="integrations">Integrations</SelectItem>
+                  <SelectItem value="knowledge-base">Knowledge base</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -329,7 +419,7 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-white/10 text-white">
               <Github className="h-6 w-6" />
             </div>
-            <CardTitle className="mt-4 text-2xl text-white">Get Started with Sync</CardTitle>
+            <CardTitle className="mt-4 text-2xl text-white">Get Started with Canon</CardTitle>
             <CardDescription className="mt-2 text-white/70">
               Transform your codebase into clear, comprehensive documentation with AI-powered analysis. Connect your first repository to begin generating professional documentation automatically.
             </CardDescription>
@@ -352,28 +442,21 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatCard title="Documents Generated" value={filteredStats.totalDocuments} icon={FileText} description="Total completed documents" accent="indigo" />
         <StatCard title="Documents Regenerated" value={filteredStats.totalRegenerated} icon={RefreshCw} description="Updated after initial creation" accent="emerald" />
-        <StatCard title="Architecture Diagrams Generated" value={stats.totalArchitectureDiagrams} icon={Layers3} description="Total completed diagrams" accent="purple" />
-        <StatCard title="Architecture Diagrams Regenerated" value={stats.totalArchitectureRegenerated} icon={RefreshCw} description="Updated after initial creation" accent="amber" />
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <StatCard title="Processing" value={stats.processingDocuments} icon={Clock} description="Currently processing" accent="amber" />
-        <StatCard title="Failed" value={stats.failedDocuments} icon={XCircle} description="Failed documents" accent="red" />
-        <StatCard title="Outdated" value={stats.outdatedDocuments} icon={AlertCircle} description="Need regeneration" accent="purple" />
-        <StatCard title="Auto-Update" value={stats.autoUpdateEnabled} icon={Zap} description="Documents with auto-update" accent="emerald" />
+        <StatCard title="Architecture Diagrams Generated" value={filteredStats.totalArchitectureDiagrams} icon={Layers3} description="Total completed diagrams" accent="purple" />
+        <StatCard title="Architecture Diagrams Regenerated" value={filteredStats.totalArchitectureRegenerated} icon={RefreshCw} description="Updated after initial creation" accent="amber" />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card className="border-white/10 bg-white/5 relative">
           <CardHeader className="pb-2">
             <CardTitle className="text-white">Activity Over Time</CardTitle>
-            <CardDescription className="text-white/70">Last 30 days</CardDescription>
+            <CardDescription className="text-white/70">{TIME_FILTER_LABELS[timeFilter]}</CardDescription>
           </CardHeader>
           <CardContent className="relative h-[320px]">
             <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
               <AreaChart data={filteredStats.activityData}>
                 <defs>
-                  <linearGradient id="colorDocuments" x1="0" y1="0" x2="0" y2="1">
+                  <linearGradient id="colorEvents" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#fbbf24" stopOpacity={0.8} />
                     <stop offset="95%" stopColor="#fbbf24" stopOpacity={0} />
                   </linearGradient>
@@ -402,7 +485,7 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
                   }}
                 />
                 <Legend wrapperStyle={{ color: 'rgba(255,255,255,0.8)' }} />
-                <Area type="monotone" dataKey="documents" stackId="1" stroke="#fbbf24" fill="url(#colorDocuments)" name="Documents" />
+                <Area type="monotone" dataKey="events" stackId="1" stroke="#fbbf24" fill="url(#colorEvents)" name="Events" />
               </AreaChart>
             </ResponsiveContainer>
             {!filteredStats.hasActivityData && <ChartNoDataOverlay message="No activity data for the selected period" />}
@@ -411,8 +494,8 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
 
         <Card className="border-white/10 bg-white/5 relative">
           <CardHeader className="pb-2">
-            <CardTitle className="text-white">Document Status</CardTitle>
-            <CardDescription className="text-white/70">Latest snapshot</CardDescription>
+            <CardTitle className="text-white">Activity Breakdown</CardTitle>
+            <CardDescription className="text-white/70">By event type</CardDescription>
           </CardHeader>
           <CardContent className="relative h-[320px]">
             <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
@@ -441,7 +524,7 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
                 />
               </PieChart>
             </ResponsiveContainer>
-            {!filteredStats.hasStatusData && <ChartNoDataOverlay message="No status data available" />}
+            {!filteredStats.hasStatusData && <ChartNoDataOverlay message="No activity data available" />}
           </CardContent>
         </Card>
       </div>
@@ -611,35 +694,29 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
         </CardHeader>
         <CardContent>
           <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
-            {stats.recentActivity.submissions.slice(0, 5).map((sub) => (
-              <Card key={sub.id} className="border-white/10 bg-white/5">
-                <CardContent className="flex items-center gap-3 p-3">
-                  <div
-                    className={`
-                      flex h-9 w-9 items-center justify-center rounded-full
-                      ${sub.status === 'completed'
-                        ? 'bg-emerald-500/20 text-emerald-300'
-                        : sub.status === 'processing'
-                          ? 'bg-amber-500/20 text-amber-300'
-                          : 'bg-red-500/20 text-red-300'}
-                    `}
-                  >
-                    {sub.status === 'completed' ? <CheckCircle2 className="h-5 w-5" /> : sub.status === 'processing' ? <Clock className="h-5 w-5" /> : <XCircle className="h-5 w-5" />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-white truncate">
-                      Document {sub.status === 'completed' ? 'completed' : sub.status}
-                      {sub.is_outdated && <span className="text-amber-300 ml-2">(Outdated)</span>}
-                    </p>
-                    <p className="text-xs text-white/60">{new Date(sub.created_at).toLocaleString()}</p>
-                  </div>
-                  <Link href={`/edit/${sub.id}`} className="text-white/60 hover:text-white">
-                    <LinkIcon className="h-4 w-4" />
-                  </Link>
-                </CardContent>
-              </Card>
-            ))}
-            {stats.recentActivity.submissions.length === 0 && (
+            {stats.recentActivity.events.slice(0, 5).map((event) => {
+              const display = getEventDisplay(event);
+              const Icon = display.icon;
+              return (
+                <Card key={event.id} className="border-white/10 bg-white/5">
+                  <CardContent className="flex items-center gap-3 p-3">
+                    <div className={`flex h-9 w-9 items-center justify-center rounded-full ${display.colorClass}`}>
+                      <Icon className="h-5 w-5" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-white truncate">{display.title}</p>
+                      <p className="text-xs text-white/60">{new Date(event.created_at).toLocaleString()}</p>
+                    </div>
+                    {display.link && (
+                      <Link href={display.link} className="text-white/60 hover:text-white">
+                        <LinkIcon className="h-4 w-4" />
+                      </Link>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+            {stats.recentActivity.events.length === 0 && (
               <div className="text-center py-8 text-white/60">
                 <Activity className="h-8 w-8 mx-auto mb-2 opacity-50" />
                 <p className="text-sm">No recent activity</p>
@@ -649,7 +726,7 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
         </CardContent>
       </Card>
 
-      {stats.errors.submissions && (
+      {stats.errors.usageEvents && (
         <Card className="border-red-500/20 bg-red-500/10">
           <CardContent className="p-4">
             <p className="text-red-400 text-sm">Some data could not be loaded. Please refresh the page.</p>

@@ -59,11 +59,11 @@ export async function POST(request: NextRequest) {
     // Verify user has access
     const { data: repo } = await supabase
       .from('workspace_repos')
-      .select('workspace_id, repo_url, default_branch')
+      .select('user_id, repo_url, default_branch')
       .eq('id', document.repo_id)
       .single();
 
-    if (!repo || repo.workspace_id !== user.id) {
+    if (!repo || repo.user_id !== user.id) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -188,4 +188,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Update failed', detail: String(err) }, { status: 500 });
   }
 }
-

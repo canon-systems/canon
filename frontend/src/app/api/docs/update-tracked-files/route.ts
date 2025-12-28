@@ -7,6 +7,7 @@ import { analyzeRepository } from '@/lib/server/services/analyzeRepository';
 import { generateDocumentation } from '@/lib/server/services/docGenerator';
 import { prepareFileSummaries } from '@/lib/server/services/prepareSummaries';
 import { createOrUpdateDocument } from '@/lib/server/services/documentService';
+import { trackDocGenerated } from '@/lib/server/services/usageTracking';
 
 export const runtime = 'nodejs';
 
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest) {
     // Get repo details
     const { data: repo, error: repoError } = await supabase
       .from('workspace_repos')
-      .select('repo_url, default_branch, workspace_id, settings')
+      .select('repo_url, default_branch, user_id, settings')
       .eq('id', document.repo_id)
       .single();
 
@@ -60,7 +61,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify user has access
-    if (repo.workspace_id !== user.id) {
+    if (repo.user_id !== user.id) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 403 }
@@ -233,6 +234,8 @@ export async function POST(request: NextRequest) {
           change_summary: 'Regenerated with updated tracked files'
         });
 
+        await trackDocGenerated(supabase, user.id, documentId, document.repo_id, false);
+
         const timestamp2 = new Date().toISOString();
         console.log(`[${timestamp2}] [update-tracked-files] ✅ Successfully regenerated document: ${document.title}`);
 
@@ -274,4 +277,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

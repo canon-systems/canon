@@ -29,7 +29,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { RepositoryConnectionWizard } from '@/components/RepositoryConnectionWizard';
@@ -322,7 +322,10 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           className="text-red-300 focus:bg-red-500/10"
-                          onClick={() => handleDeleteRepository(repo.id, repo.name)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteRepository(repo.id, repo.name);
+                          }}
                         >
                           <Trash2 className="mr-2 h-4 w-4" />
                           Disconnect
@@ -386,7 +389,10 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
                   <Button
                     variant="ghost"
                     className="text-red-300 hover:text-red-200"
-                    onClick={() => handleDeleteRepository(repo.id, repo.name)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteRepository(repo.id, repo.name);
+                    }}
                     disabled={deletingRepoId === repo.id}
                   >
                     <Trash2 className="h-4 w-4" />
@@ -402,6 +408,7 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
 
       <Dialog open={showConnectionWizard} onOpenChange={setShowConnectionWizard}>
         <DialogContent className="p-0">
+          <DialogTitle className="sr-only">Connect Repository</DialogTitle>
           <RepositoryConnectionWizard
             onComplete={handleConnectionComplete}
             onCancel={() => setShowConnectionWizard(false)}

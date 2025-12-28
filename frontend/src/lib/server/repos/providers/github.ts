@@ -14,7 +14,7 @@ import { getGitHubTokenForUser } from '../../github/getUserToken';
 export class GitHubProvider implements RepoProvider {
     /**
      * Get an Octokit instance for a user's GitHub connection
-     * If connectionId is provided, fetches token from Nango
+     * If connectionId is provided, fetches the user's stored token
      * If no connectionId, returns Octokit without auth (for public repos only)
      */
     private async getOctokit(connectionId?: string): Promise<Octokit> {

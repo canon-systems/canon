@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
     // Get repo details
     const { data: repo, error: repoErr } = await supabase
       .from('workspace_repos')
-      .select('repo_url, default_branch, workspace_id')
+      .select('repo_url, default_branch, user_id')
       .eq('id', document.repo_id)
       .single();
 
@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify user has access
-    if (repo.workspace_id !== user?.id) {
+    if (repo.user_id !== user?.id) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 403 }
@@ -303,4 +303,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

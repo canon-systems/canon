@@ -41,7 +41,7 @@ export const checkAndRunAutomations = inngest.createFunction(
     retries: 3,
   },
   {
-    cron: "*/5 * * * *", // Run every 5 minutes for responsive automation
+    cron: "*/5 * * * *", // Run every 5 minutes for responsive automation 
   },
   async ({ event, step }) => {
     console.log(`🎯 [SMART] Starting smart summary management cycle at ${new Date().toISOString()}`);
@@ -79,7 +79,7 @@ export const checkAndRunAutomations = inngest.createFunction(
           continue; // Skip this rule
         }
 
-        console.log(`🚀 [SMART] Executing automation rule: ${rule.rule_id}`);
+        console.log(`🚀 [SMART] Executing automation rule: ${rule.id}`);
 
         // Get repo data
         const { data: repo, error: repoError } = await supabase
@@ -98,7 +98,8 @@ export const checkAndRunAutomations = inngest.createFunction(
           supabase,
           repo,
           rule,
-          userId: rule.workspace_id,
+          userId: rule.user_id,
+          triggerType: 'scheduled',
         });
 
         // Update last run status
@@ -114,14 +115,14 @@ export const checkAndRunAutomations = inngest.createFunction(
         await supabase
           .from('automation_rules')
           .update(updateData)
-          .eq('rule_id', rule.rule_id);
+          .eq('id', rule.id);
 
-        console.log(`✅ [SMART] Completed: ${rule.rule_id} (Success: ${result.success}, Actions: ${result.actions?.length || 0}, Errors: ${result.errors?.length || 0})`);
+        console.log(`✅ [SMART] Completed: ${rule.id} (Success: ${result.success}, Actions: ${result.actions?.length || 0}, Errors: ${result.errors?.length || 0})`);
 
         executed++;
 
       } catch (error: any) {
-        console.error(`❌ [SMART] Failed: ${rule.rule_id} - ${error.message || String(error)}`);
+        console.error(`❌ [SMART] Failed: ${rule.id} - ${error.message || String(error)}`);
 
         // Update with failure status
         await supabase
@@ -131,7 +132,7 @@ export const checkAndRunAutomations = inngest.createFunction(
             last_run_status: 'failed',
             last_run_error: error.message || String(error),
           })
-          .eq('rule_id', rule.rule_id);
+          .eq('id', rule.id);
       }
     }
 
@@ -142,5 +143,3 @@ export const checkAndRunAutomations = inngest.createFunction(
     };
   }
 );
-
-
