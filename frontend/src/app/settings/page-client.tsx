@@ -120,6 +120,10 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
         window.location.href = '/api/oauth/github/start';
         return;
       }
+      if (providerName === 'notion') {
+        window.location.href = '/api/oauth/notion/start';
+        return;
+      }
 
       const response = await fetch('/api/integrations/connect', {
         method: 'POST',

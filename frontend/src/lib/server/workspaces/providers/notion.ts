@@ -3,10 +3,21 @@
  */
 
 import type { WorkspaceProvider, WorkspaceInfo, WorkspaceContent } from '../base';
-import { NANGO_CONFIG } from '../../nango/config';
 import { htmlToNotionBlocks, NotionBlock } from '../../notion/htmlToBlocks';
 import { markdownToNotionBlocks } from '../../notion/markdownToBlocks';
 import { marked } from 'marked';
+import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
+
+const NOTION_API_BASE = 'https://api.notion.com/v1';
+const NOTION_VERSION = '2022-06-28';
+
+function notionHeaders(accessToken: string) {
+	return {
+		Authorization: `Bearer ${accessToken}`,
+		'Content-Type': 'application/json',
+		'Notion-Version': NOTION_VERSION,
+	} as const;
+}
 
 /**
  * Convert Notion blocks to markdown
@@ -78,8 +89,8 @@ function extractRichText(richText: any[]): string {
 		.join('');
 }
 
-async function fetchAllBlocks(pageId: string, connectionId: string): Promise<any[]> {
-	const blocksUrl = new URL(`/proxy/v1/blocks/${pageId}/children`, NANGO_CONFIG.host);
+async function fetchAllBlocks(pageId: string, accessToken: string): Promise<any[]> {
+	const blocksUrl = new URL(`${NOTION_API_BASE}/blocks/${pageId}/children`);
 	let allBlocks: any[] = [];
 	let nextCursor: string | undefined;
 
@@ -91,12 +102,7 @@ async function fetchAllBlocks(pageId: string, connectionId: string): Promise<any
 
 		const response = await fetch(url.toString(), {
 			method: 'GET',
-			headers: {
-				'Authorization': `Bearer ${NANGO_CONFIG.secretKey}`,
-				'Content-Type': 'application/json',
-				'Provider-Config-Key': 'notion',
-				'Connection-Id': connectionId
-			}
+			headers: notionHeaders(accessToken),
 		});
 
 		if (!response.ok) break;
@@ -108,7 +114,7 @@ async function fetchAllBlocks(pageId: string, connectionId: string): Promise<any
 		// Fetch children for each block
 		for (const block of data.results || []) {
 			if (block.has_children && block.id) {
-				const children = await fetchAllBlocks(block.id, connectionId);
+				const children = await fetchAllBlocks(block.id, accessToken);
 				block.children = children;
 			}
 		}
@@ -134,20 +140,15 @@ function chunkBlocks(blocks: NotionBlock[], chunkSize: number = 100): NotionBloc
 async function appendBlocksInChunks(
 	pageId: string,
 	blocks: NotionBlock[],
-	connectionId: string
+	accessToken: string
 ): Promise<boolean> {
 	const chunks = chunkBlocks(blocks, 100);
 	
 	for (const chunk of chunks) {
-		const appendUrl = new URL(`/proxy/v1/blocks/${pageId}/children`, NANGO_CONFIG.host);
+		const appendUrl = new URL(`${NOTION_API_BASE}/blocks/${pageId}/children`);
 		const appendResponse = await fetch(appendUrl.toString(), {
 			method: 'PATCH',
-			headers: {
-				'Authorization': `Bearer ${NANGO_CONFIG.secretKey}`,
-				'Content-Type': 'application/json',
-				'Provider-Config-Key': 'notion',
-				'Connection-Id': connectionId
-			},
+			headers: notionHeaders(accessToken),
 			body: JSON.stringify({
 				children: chunk
 			})
@@ -168,18 +169,19 @@ export class NotionProvider implements WorkspaceProvider {
 
 	async pullContent(workspaceInfo: WorkspaceInfo, connectionId: string): Promise<WorkspaceContent | null> {
 		try {
+			const accessToken = await getProviderAccessToken({ provider: 'notion', connectionId });
+			if (!accessToken) {
+				console.error('Notion pull error: missing Notion token (please reconnect Notion)');
+				return null;
+			}
+
 			const pageId = workspaceInfo.resourceId;
 
 			// Fetch page properties
-			const pageUrl = new URL(`/proxy/v1/pages/${pageId}`, NANGO_CONFIG.host);
+			const pageUrl = new URL(`${NOTION_API_BASE}/pages/${pageId}`);
 			const pageResponse = await fetch(pageUrl.toString(), {
 				method: 'GET',
-				headers: {
-					'Authorization': `Bearer ${NANGO_CONFIG.secretKey}`,
-					'Content-Type': 'application/json',
-					'Provider-Config-Key': 'notion',
-					'Connection-Id': connectionId
-				}
+				headers: notionHeaders(accessToken),
 			});
 
 			if (!pageResponse.ok) return null;
@@ -194,7 +196,7 @@ export class NotionProvider implements WorkspaceProvider {
 			}
 
 			// Fetch all blocks
-			const blocks = await fetchAllBlocks(pageId, connectionId);
+			const blocks = await fetchAllBlocks(pageId, accessToken);
 
 			// Convert to markdown
 			const markdown = blocksToMarkdown(blocks);
@@ -220,6 +222,12 @@ export class NotionProvider implements WorkspaceProvider {
 		createNew = true
 	): Promise<WorkspaceInfo | null> {
 		try {
+			const accessToken = await getProviderAccessToken({ provider: 'notion', connectionId });
+			if (!accessToken) {
+				console.error('Notion push error: missing Notion token (please reconnect Notion)');
+				return null;
+			}
+
 			// Try HTML conversion first, fall back to markdown if it produces poor results
 			let blocks: NotionBlock[] = [];
 			
@@ -295,7 +303,7 @@ export class NotionProvider implements WorkspaceProvider {
 							}
 					  };
 
-				const createUrl = new URL('/proxy/v1/pages', NANGO_CONFIG.host);
+				const createUrl = new URL(`${NOTION_API_BASE}/pages`);
 
 				// Split blocks into chunks - Notion allows max 100 children in create request
 				const blockChunks = chunkBlocks(blocks, 100);
@@ -304,12 +312,7 @@ export class NotionProvider implements WorkspaceProvider {
 
 				const createResponse = await fetch(createUrl.toString(), {
 					method: 'POST',
-					headers: {
-						Authorization: `Bearer ${NANGO_CONFIG.secretKey}`,
-						'Content-Type': 'application/json',
-						'Provider-Config-Key': 'notion',
-						'Connection-Id': connectionId
-					},
+					headers: notionHeaders(accessToken),
 					body: JSON.stringify({
 						parent: parentPayload,
 						properties: titleProperty,
@@ -329,7 +332,7 @@ export class NotionProvider implements WorkspaceProvider {
 				// Append remaining chunks if any
 				if (remainingChunks.length > 0) {
 					const allRemainingBlocks = remainingChunks.flat();
-					const appendSuccess = await appendBlocksInChunks(pageId, allRemainingBlocks, connectionId);
+					const appendSuccess = await appendBlocksInChunks(pageId, allRemainingBlocks, accessToken);
 					if (!appendSuccess) {
 						console.warn(`[Notion] Failed to append some blocks to page ${pageId}, but page was created`);
 					}
@@ -357,6 +360,12 @@ export class NotionProvider implements WorkspaceProvider {
 		connectionId: string
 	): Promise<boolean> {
 		try {
+			const accessToken = await getProviderAccessToken({ provider: 'notion', connectionId });
+			if (!accessToken) {
+				console.error('Notion update error: missing Notion token (please reconnect Notion)');
+				return false;
+			}
+
 			const pageId = workspaceInfo.resourceId;
 			
 			// Try HTML conversion first, fall back to markdown if it produces poor results
@@ -384,43 +393,28 @@ export class NotionProvider implements WorkspaceProvider {
 			}
 
 			// Delete existing blocks
-			const blocksUrl = new URL(`/proxy/v1/blocks/${pageId}/children`, NANGO_CONFIG.host);
+			const blocksUrl = new URL(`${NOTION_API_BASE}/blocks/${pageId}/children`);
 			const getBlocksResponse = await fetch(blocksUrl.toString(), {
 				method: 'GET',
-				headers: {
-					'Authorization': `Bearer ${NANGO_CONFIG.secretKey}`,
-					'Content-Type': 'application/json',
-					'Provider-Config-Key': 'notion',
-					'Connection-Id': connectionId
-				}
+				headers: notionHeaders(accessToken),
 			});
 
 			if (getBlocksResponse.ok) {
 				const blocksData = await getBlocksResponse.json();
 				for (const block of blocksData.results || []) {
-					const deleteUrl = new URL(`/proxy/v1/blocks/${block.id}`, NANGO_CONFIG.host);
+					const deleteUrl = new URL(`${NOTION_API_BASE}/blocks/${block.id}`);
 					await fetch(deleteUrl.toString(), {
 						method: 'DELETE',
-						headers: {
-							'Authorization': `Bearer ${NANGO_CONFIG.secretKey}`,
-							'Content-Type': 'application/json',
-							'Provider-Config-Key': 'notion',
-							'Connection-Id': connectionId
-						}
+						headers: notionHeaders(accessToken),
 					});
 				}
 			}
 
 			// Update title
-			const updatePageUrl = new URL(`/proxy/v1/pages/${pageId}`, NANGO_CONFIG.host);
+			const updatePageUrl = new URL(`${NOTION_API_BASE}/pages/${pageId}`);
 			await fetch(updatePageUrl.toString(), {
 				method: 'PATCH',
-				headers: {
-					'Authorization': `Bearer ${NANGO_CONFIG.secretKey}`,
-					'Content-Type': 'application/json',
-					'Provider-Config-Key': 'notion',
-					'Connection-Id': connectionId
-				},
+				headers: notionHeaders(accessToken),
 				body: JSON.stringify({
 					properties: {
 						title: {
@@ -438,7 +432,7 @@ export class NotionProvider implements WorkspaceProvider {
 
 			// Add new blocks in chunks (Notion allows max 100 children per request)
 			if (blocks.length > 0) {
-				const success = await appendBlocksInChunks(pageId, blocks, connectionId);
+				const success = await appendBlocksInChunks(pageId, blocks, accessToken);
 				return success;
 			}
 
@@ -449,4 +443,3 @@ export class NotionProvider implements WorkspaceProvider {
 		}
 	}
 }
-

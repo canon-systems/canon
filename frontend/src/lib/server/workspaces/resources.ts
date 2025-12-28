@@ -1,4 +1,5 @@
 import { NANGO_CONFIG } from '../nango/config';
+import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
 
 export type WorkspaceResource = {
   id: string;
@@ -8,14 +9,18 @@ export type WorkspaceResource = {
 };
 
 async function notionSearch(connectionId: string, objectValue: 'page' | 'database') {
-  const url = new URL('/proxy/v1/search', NANGO_CONFIG.host);
+  const token = await getProviderAccessToken({ provider: 'notion', connectionId });
+  if (!token) {
+    return [];
+  }
+
+  const url = new URL('https://api.notion.com/v1/search');
   const response = await fetch(url.toString(), {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${NANGO_CONFIG.secretKey}`,
+      Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
-      'Provider-Config-Key': 'notion',
-      'Connection-Id': connectionId,
+      'Notion-Version': '2022-06-28',
     },
     body: JSON.stringify({
       filter: {
@@ -154,4 +159,3 @@ export async function listResources(provider: string, connectionId: string): Pro
       return [];
   }
 }
-

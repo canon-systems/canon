@@ -21,12 +21,12 @@ export async function POST(request: NextRequest) {
     const supabase = await createClient();
 
     let skipNangoDeletion = false;
-    if (connectionId && provider === 'github') {
+    if (connectionId && provider) {
       const { data: existing } = await supabase
         .from('oauth_connections')
         .select('metadata')
         .eq('user_id', user.id)
-        .eq('provider', 'github')
+        .eq('provider', provider)
         .eq('connection_id', connectionId)
         .maybeSingle();
 
