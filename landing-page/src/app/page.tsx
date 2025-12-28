@@ -82,7 +82,7 @@ export default function LandingPage() {
               </div>
               <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                 <p className="text-sm font-medium text-white">Reviewable</p>
-                <p className="mt-1 text-sm text-white/60">You approve what ships.</p>
+                <p className="mt-1 text-sm text-white/60">You approve what is canonical.</p>
               </div>
             </div>
           </div>
@@ -97,7 +97,7 @@ export default function LandingPage() {
                 moment of change and keeps it tied to the source.
               </p>
               <div className="mt-6 space-y-4 text-sm text-white/70">
-                <p>1. Watch commits, pull requests, and releases.</p>
+                <p>1. Watch file changes.</p>
                 <p>2. Draft updates in plain language, linked to code.</p>
                 <p>3. Route changes for review, then publish where your team works.</p>
               </div>
@@ -172,7 +172,7 @@ export default function LandingPage() {
                   </a>
                 </Button>
                 <Button size="lg" variant="secondary" asChild>
-                  <a href="mailto:support@usecanon.com">Ask a Question</a>
+                  <a href="mailto:sellers.e.john@gmail.com">Ask a Question</a>
                 </Button>
               </div>
             </div>
@@ -182,7 +182,7 @@ export default function LandingPage() {
 
       <footer className="relative border-t border-white/10">
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-10 text-sm text-white/60 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
-          <p>© 2024 Canon.</p>
+          <p>© 2025 Canon</p>
           <a href="mailto:sellers.e.john@gmail.com" className="transition hover:text-white">
             Contact
           </a>
