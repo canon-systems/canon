@@ -49,9 +49,10 @@ interface TabsTriggerProps {
   value: string
   children: React.ReactNode
   className?: string
+  disabled?: boolean
 }
 
-const TabsTrigger = ({ value, children, className }: TabsTriggerProps) => {
+const TabsTrigger = ({ value, children, className, disabled = false }: TabsTriggerProps) => {
   const context = React.useContext(TabsContext)
   if (!context) {
     throw new Error("TabsTrigger must be used within Tabs")
@@ -62,7 +63,8 @@ const TabsTrigger = ({ value, children, className }: TabsTriggerProps) => {
 
   return (
     <button
-      onClick={() => onValueChange(value)}
+      onClick={() => !disabled && onValueChange(value)}
+      disabled={disabled}
       className={cn(
         "inline-flex items-center justify-center whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:ring-offset-2 focus-visible:ring-offset-black disabled:pointer-events-none disabled:opacity-50",
         isActive
