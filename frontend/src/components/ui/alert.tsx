@@ -9,11 +9,11 @@ const alertVariants = cva(
       variant: {
         default: "bg-white/10 text-white border-white/20",
         destructive:
-          "border-red-500/30 bg-red-500/10 text-red-200 [&>svg]:text-red-200",
+          "border-white/25 bg-white/10 text-white [&>svg]:text-white/80",
         warning:
-          "border-amber-500/40 bg-amber-500/15 text-amber-100 [&>svg]:text-amber-100",
+          "border-white/20 bg-white/10 text-white [&>svg]:text-white/80",
         success:
-          "border-emerald-500/30 bg-emerald-500/10 text-emerald-200 [&>svg]:text-emerald-200",
+          "border-white/20 bg-white/10 text-white [&>svg]:text-white/80",
       },
     },
     defaultVariants: {
@@ -63,4 +63,3 @@ const AlertDescription = React.forwardRef<
 AlertDescription.displayName = "AlertDescription";
 
 export { Alert, AlertTitle, AlertDescription };
-

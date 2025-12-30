@@ -120,7 +120,7 @@ export function SearchableSelect({
               <div className="px-3 py-2 text-sm text-white/60">No matches found</div>
             ) : (
               filteredOptions.map((option) => (
-                <button
+                <Button
                   key={option.value}
                   type="button"
                   onClick={(e) => {
@@ -138,7 +138,7 @@ export function SearchableSelect({
                     <Check className="absolute left-3 h-4 w-4 text-emerald-400" />
                   )}
                   <span className={cn(value === option.value && 'pl-7')}>{option.label}</span>
-                </button>
+                </Button>
               ))
             )}
           </div>
@@ -147,4 +147,3 @@ export function SearchableSelect({
     </div>
   );
 }
-

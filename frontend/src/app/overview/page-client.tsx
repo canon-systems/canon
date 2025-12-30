@@ -114,18 +114,18 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
 };
 
 const EVENT_TYPE_COLORS: Record<string, string> = {
-  doc_generated: '#10b981',
-  doc_auto_published: '#f59e0b',
-  doc_deleted: '#ef4444',
-  architecture_diagram_generated: '#a855f7',
-  architecture_diagram_regenerated: '#f59e0b',
-  architecture_diagram_deleted: '#ef4444',
-  repo_scan_run: '#38bdf8',
-  repo_connected: '#22c55e',
-  repo_disconnected: '#f87171',
-  integration_connected: '#60a5fa',
-  integration_disconnected: '#f87171',
-  push_to_kb: '#fbbf24',
+  doc_generated: '#f5f5f5',
+  doc_auto_published: '#e5e7eb',
+  doc_deleted: '#d4d4d8',
+  architecture_diagram_generated: '#cfcfcf',
+  architecture_diagram_regenerated: '#bfbfbf',
+  architecture_diagram_deleted: '#a3a3a3',
+  repo_scan_run: '#d1d5db',
+  repo_connected: '#e7e7e7',
+  repo_disconnected: '#b0b0b0',
+  integration_connected: '#d6d6d6',
+  integration_disconnected: '#9f9f9f',
+  push_to_kb: '#ededed',
 };
 
 const TIME_FILTER_LABELS: Record<TimeFilter, string> = {
@@ -159,12 +159,12 @@ function StatCard({
   accent?: 'indigo' | 'emerald' | 'purple' | 'amber' | 'red' | 'blue';
 }) {
   const accentMap: Record<string, string> = {
-    indigo: 'from-indigo-500/20 to-cyan-400/15 border-indigo-400/30',
-    emerald: 'from-emerald-500/20 to-lime-400/15 border-emerald-400/30',
-    purple: 'from-purple-500/20 to-pink-400/15 border-purple-400/30',
-    amber: 'from-amber-500/20 to-orange-400/15 border-amber-400/30',
-    red: 'from-red-500/20 to-pink-500/15 border-red-400/30',
-    blue: 'from-blue-500/20 to-cyan-400/15 border-blue-400/30',
+    indigo: 'from-white/10 to-white/0 border-white/20',
+    emerald: 'from-white/10 to-white/0 border-white/20',
+    purple: 'from-white/10 to-white/0 border-white/20',
+    amber: 'from-white/10 to-white/0 border-white/20',
+    red: 'from-white/10 to-white/0 border-white/20',
+    blue: 'from-white/10 to-white/0 border-white/20',
   };
   return (
     <Card className={`border ${accentMap[accent]} bg-white/5`}>
@@ -331,29 +331,29 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
 
     switch (event.event_type) {
       case 'doc_generated':
-        return { title, icon: CheckCircle2, colorClass: 'bg-emerald-500/20 text-emerald-300', link: docId ? `/edit/${docId}` : undefined };
+        return { title, icon: CheckCircle2, colorClass: 'bg-white/10 text-white/80', link: docId ? `/edit/${docId}` : undefined };
       case 'doc_auto_published':
-        return { title, icon: RefreshCw, colorClass: 'bg-amber-500/20 text-amber-300', link: docId ? `/edit/${docId}` : undefined };
+        return { title, icon: RefreshCw, colorClass: 'bg-white/10 text-white/70', link: docId ? `/edit/${docId}` : undefined };
       case 'doc_deleted':
-        return { title, icon: XCircle, colorClass: 'bg-red-500/20 text-red-300', link: undefined };
+        return { title, icon: XCircle, colorClass: 'bg-white/5 text-white/70', link: undefined };
       case 'architecture_diagram_generated':
-        return { title, icon: Layers3, colorClass: 'bg-purple-500/20 text-purple-300', link: diagramId ? `/architecture-diagrams/view/${diagramId}` : '/architecture-diagrams' };
+        return { title, icon: Layers3, colorClass: 'bg-white/10 text-white/80', link: diagramId ? `/architecture-diagrams/view/${diagramId}` : '/architecture-diagrams' };
       case 'architecture_diagram_regenerated':
-        return { title, icon: RefreshCw, colorClass: 'bg-amber-500/20 text-amber-300', link: diagramId ? `/architecture-diagrams/view/${diagramId}` : '/architecture-diagrams' };
+        return { title, icon: RefreshCw, colorClass: 'bg-white/10 text-white/70', link: diagramId ? `/architecture-diagrams/view/${diagramId}` : '/architecture-diagrams' };
       case 'architecture_diagram_deleted':
-        return { title, icon: XCircle, colorClass: 'bg-red-500/20 text-red-300', link: '/architecture-diagrams' };
+        return { title, icon: XCircle, colorClass: 'bg-white/5 text-white/70', link: '/architecture-diagrams' };
       case 'repo_connected':
-        return { title, icon: Github, colorClass: 'bg-emerald-500/20 text-emerald-300', link: '/repos' };
+        return { title, icon: Github, colorClass: 'bg-white/10 text-white/80', link: '/repos' };
       case 'repo_disconnected':
-        return { title, icon: Github, colorClass: 'bg-red-500/20 text-red-300', link: '/repos' };
+        return { title, icon: Github, colorClass: 'bg-white/5 text-white/70', link: '/repos' };
       case 'integration_connected':
-        return { title, icon: LinkIcon, colorClass: 'bg-blue-500/20 text-blue-300', link: '/integrations' };
+        return { title, icon: LinkIcon, colorClass: 'bg-white/10 text-white/80', link: '/integrations' };
       case 'integration_disconnected':
-        return { title, icon: LinkIcon, colorClass: 'bg-red-500/20 text-red-300', link: '/integrations' };
+        return { title, icon: LinkIcon, colorClass: 'bg-white/5 text-white/70', link: '/integrations' };
       case 'repo_scan_run':
-        return { title, icon: Activity, colorClass: 'bg-sky-500/20 text-sky-300', link: '/repos' };
+        return { title, icon: Activity, colorClass: 'bg-white/10 text-white/70', link: '/repos' };
       case 'push_to_kb':
-        return { title, icon: BookOpen, colorClass: 'bg-amber-500/20 text-amber-300', link: docId ? `/edit/${docId}` : '/documentation' };
+        return { title, icon: BookOpen, colorClass: 'bg-white/10 text-white/70', link: docId ? `/edit/${docId}` : '/documentation' };
       default:
         return { title, icon: Activity, colorClass: 'bg-white/10 text-white/70', link: undefined };
     }
@@ -365,7 +365,7 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
         <CardHeader className="p-8 pb-4 md:p-10 md:pb-6">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div className="space-y-2">
-              <Badge variant="outline" className="border-amber-400/50 text-amber-200">
+              <Badge variant="outline" className="border-white/30 text-white/80">
                 Overview
               </Badge>
               <CardTitle className="text-3xl text-white">Welcome to Canon</CardTitle>
@@ -457,8 +457,8 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
               <AreaChart data={filteredStats.activityData}>
                 <defs>
                   <linearGradient id="colorEvents" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#fbbf24" stopOpacity={0.8} />
-                    <stop offset="95%" stopColor="#fbbf24" stopOpacity={0} />
+                    <stop offset="5%" stopColor="#f97316" stopOpacity={0.8} />
+                    <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
@@ -485,7 +485,7 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
                   }}
                 />
                 <Legend wrapperStyle={{ color: 'rgba(255,255,255,0.8)' }} />
-                <Area type="monotone" dataKey="events" stackId="1" stroke="#fbbf24" fill="url(#colorEvents)" name="Events" />
+                <Area type="monotone" dataKey="events" stackId="1" stroke="#f97316" fill="url(#colorEvents)" name="Events" />
               </AreaChart>
             </ResponsiveContainer>
             {!filteredStats.hasActivityData && <ChartNoDataOverlay message="No activity data for the selected period" />}
@@ -534,13 +534,13 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
           <Card className="border-white/10 bg-white/5">
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
-                <CardTitle className="text-white flex items-center gap-2">
-                  <Github className="h-5 w-5 text-blue-300" />
-                  Repositories
-                </CardTitle>
+              <CardTitle className="text-white flex items-center gap-2">
+                <Github className="h-5 w-5 text-white/70" />
+                Repositories
+              </CardTitle>
                 <CardDescription className="text-white/70">Repository setup and automation status</CardDescription>
               </div>
-              <Link href="/repos" className="text-sm text-amber-200 hover:text-amber-100 flex items-center gap-1">
+              <Link href="/repos" className="text-sm text-white/80 hover:text-white flex items-center gap-1">
                 Manage repos
                 <LinkIcon className="h-3 w-3" />
               </Link>
@@ -606,10 +606,10 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
           <Card className="border-white/10 bg-white/5">
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-white flex items-center gap-2">
-                <Zap className="h-5 w-5 text-purple-300" />
+                <Zap className="h-5 w-5 text-white/70" />
                 Automation Status
               </CardTitle>
-              <Link href="/settings" className="text-sm text-amber-200 hover:text-amber-100 flex items-center gap-1">
+              <Link href="/settings" className="text-sm text-white/80 hover:text-white flex items-center gap-1">
                 Manage rules
                 <LinkIcon className="h-3 w-3" />
               </Link>
@@ -663,7 +663,7 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
                           <p className="text-xs text-white/60 truncate">{rule.repoName}</p>
                           <p className="text-xs text-white/50 mt-1">Last run: {formatDate(rule.lastRunAt)}</p>
                           {rule.lastExecution?.doc_id && (
-                            <Link href={`/edit/${rule.lastExecution.doc_id}`} className="text-xs text-amber-200 hover:text-amber-100 mt-1 inline-block">
+                            <Link href={`/edit/${rule.lastExecution.doc_id}`} className="text-xs text-white/75 hover:text-white mt-1 inline-block">
                               View generated doc →
                             </Link>
                           )}
@@ -687,7 +687,7 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
       <Card className="border-white/10 bg-white/5">
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-white">Recent Activity</CardTitle>
-          <Link href="/logs" className="text-sm text-amber-200 hover:text-amber-100 flex items-center gap-1">
+          <Link href="/logs" className="text-sm text-white/80 hover:text-white flex items-center gap-1">
             View all logs
             <LinkIcon className="h-3 w-3" />
           </Link>
@@ -727,9 +727,9 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
       </Card>
 
       {stats.errors.usageEvents && (
-        <Card className="border-red-500/20 bg-red-500/10">
+        <Card className="border-white/20 bg-white/5">
           <CardContent className="p-4">
-            <p className="text-red-400 text-sm">Some data could not be loaded. Please refresh the page.</p>
+            <p className="text-white/80 text-sm">Some data could not be loaded. Please refresh the page.</p>
           </CardContent>
         </Card>
       )}

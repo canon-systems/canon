@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronRight, CheckCircle2, Github, FileText, Loader2, AlertCircle, X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 interface RepositorySetupWizardProps {
   repoId: string;
@@ -472,12 +473,12 @@ export function RepositorySetupWizard({ repoId, onComplete: _onComplete }: Repos
     return (
       <div className="text-center py-12">
         <p className="text-red-400 mb-4">{error}</p>
-        <button
+        <Button
           onClick={() => loadRepositoryData()}
-          className="btn btn-secondary"
+          variant="secondary"
         >
           Try Again
-        </button>
+        </Button>
       </div>
     );
   }
@@ -707,7 +708,7 @@ export function RepositorySetupWizard({ repoId, onComplete: _onComplete }: Repos
                       You can cancel this setup process at any time. The setup will stop and you can restart it later.
                     </p>
                   </div>
-                  <button
+                  <Button
                     onClick={async () => {
                       if (window.confirm('Are you sure you want to cancel the repository setup? This will stop the analysis process.')) {
                         try {
@@ -738,10 +739,11 @@ export function RepositorySetupWizard({ repoId, onComplete: _onComplete }: Repos
                       }
                     }}
                     disabled={isLoading}
-                    className="ml-4 px-4 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-white text-sm font-medium transition-colors"
+                    className="ml-4 bg-red-600 text-white hover:bg-red-700"
+                    variant="secondary"
                   >
                     {isLoading ? 'Cancelling...' : 'Cancel Setup'}
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
@@ -962,7 +964,9 @@ export function RepositorySetupWizard({ repoId, onComplete: _onComplete }: Repos
               <h1 className="text-3xl font-bold text-white mb-2">Repository Setup</h1>
               <p className="text-white/70">Transform your repository into an efficient documentation system</p>
             </div>
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={() => {
                 if (setupProgress) {
                   if (window.confirm('Repository setup is in progress. Are you sure you want to leave? The process will continue in the background.')) {
@@ -972,10 +976,9 @@ export function RepositorySetupWizard({ repoId, onComplete: _onComplete }: Repos
                   router.push('/repos');
                 }
               }}
-              className="p-2 text-white/60 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
             >
               <X className="w-5 h-5" />
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -1031,19 +1034,19 @@ export function RepositorySetupWizard({ repoId, onComplete: _onComplete }: Repos
 
         {/* Navigation */}
         <div className="flex items-center justify-between">
-          <button
+          <Button
+            variant="ghost"
             onClick={() => router.push('/repos')}
-            className="px-6 py-3 text-white/70 hover:text-white transition-colors"
+            className="px-6 py-3 text-white/70 hover:text-white"
           >
             Cancel
-          </button>
+          </Button>
 
           <div className="flex items-center space-x-4">
             {currentStep === 'connect' && setupStatus?.status !== 'ready' && (
-              <button
+              <Button
                 onClick={handleStartSetup}
                 disabled={isLoading}
-                className="flex items-center space-x-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-white transition-colors"
               >
                 {isLoading ? (
                   <>
@@ -1056,7 +1059,7 @@ export function RepositorySetupWizard({ repoId, onComplete: _onComplete }: Repos
                     <ChevronRight className="w-4 h-4" />
                   </>
                 )}
-              </button>
+              </Button>
             )}
           </div>
         </div>

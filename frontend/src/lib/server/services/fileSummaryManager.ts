@@ -219,16 +219,25 @@ export class FileSummaryManager {
             const fileHash = file.hash || this.calculateFileHash(file.content);
             const summary = await generateFileSummary(file.content, file.path, model);
 
-            // Save to database
-            const { error } = await this.supabase.rpc('upsert_repo_file_summary', {
-              p_repo_id: this.repoId,
-              p_file_path: this.normalizeFilePath(file.path),
-              p_file_hash: fileHash,
-              p_summary_text: summary.summary_text,
-              p_summary_model: model,
-              p_user_id: null, // Will be set by RLS
-              p_branch: this.branch,
-            });
+            // Save to database using direct SQL to avoid last_regenerated column reference
+            const { error } = await this.supabase
+              .from('repo_file_summaries')
+              .upsert(
+                {
+                  repo_id: this.repoId,
+                  file_path: this.normalizeFilePath(file.path),
+                  file_hash: fileHash,
+                  summary_text: summary.summary_text,
+                  summary_model: model,
+                  branch: this.branch,
+                  regeneration_reason: 'file_changed',
+                  updated_at: new Date().toISOString(),
+                },
+                {
+                  onConflict: 'repo_id,file_path,branch',
+                  ignoreDuplicates: false
+                }
+              );
 
             if (error) {
               console.error(`Failed to save summary for ${file.path}:`, error);

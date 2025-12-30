@@ -9,6 +9,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Switch } from '@/components/ui/switch';
+import { Input } from '@/components/ui/input';
 
 // Import all the automation types and interfaces from settings
 interface Connection {
@@ -1190,44 +1192,44 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
                                 <div className="flex items-center justify-end gap-2">
                                   {hasRules && (
                                     <>
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          toggleAllRulesEnabled(repo.id);
-                                        }}
-                                        className={`relative inline-flex h-6 w-10 items-center rounded-full transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${activeRules > 0
-                                          ? 'bg-emerald-500 hover:bg-emerald-600 shadow-lg shadow-emerald-500/30'
-                                          : 'bg-gray-600 hover:bg-gray-500'
-                                          }`}
-                                        title={activeRules > 0 ? 'Disable all rules' : 'Enable all rules'}
-                                      >
-                                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ${activeRules > 0 ? 'translate-x-5' : 'translate-x-1'
-                                          }`} />
-                                      </button>
+                                      <Switch
+                                        checked={activeRules > 0}
+                                        onCheckedChange={() => toggleAllRulesEnabled(repo.id)}
+                                        aria-label={activeRules > 0 ? 'Disable all rules' : 'Enable all rules'}
+                                        className="scale-90"
+                                      />
                                     </>
                                   )}
-                                  <button
+                                  <Button
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       openAutomationModal(repo.id);
                                     }}
-                                    className="inline-flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-sm font-medium text-white/80 transition-all duration-200 hover:bg-white/20 hover:border-white/30 hover:shadow-lg hover:shadow-blue-500/20"
+                                    variant="secondary"
+                                    size="sm"
+                                    className="gap-2 border-white/20 bg-white/10 text-white/80 hover:bg-white/15"
                                     title="Configure automation rules"
                                   >
                                     <Zap className="h-3 w-3" />
                                     {hasRules ? 'Manage' : 'Setup'}
-                                  </button>
+                                  </Button>
                                   {repoInfo && (
-                                    <a
-                                      href={repo.repo_url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      onClick={(e) => e.stopPropagation()}
-                                      className="inline-flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-sm font-medium text-white/90 transition-all duration-200 hover:bg-white/20 hover:border-white/30 hover:shadow-lg hover:shadow-purple-500/20"
+                                    <Button
+                                      asChild
+                                      variant="secondary"
+                                      size="sm"
+                                      className="gap-2 border-white/20 bg-white/10 text-white/90 hover:bg-white/15"
                                       title="Open repository on GitHub"
                                     >
-                                      <ExternalLink className="h-3 w-3" />
-                                    </a>
+                                      <a
+                                        href={repo.repo_url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        onClick={(e) => e.stopPropagation()}
+                                      >
+                                        <ExternalLink className="h-3 w-3" />
+                                      </a>
+                                    </Button>
                                   )}
                                 </div>
                               </td>
@@ -1275,29 +1277,26 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
                                               </div>
 
                                               <div className="flex items-center gap-2">
-                                                <button
-                                                  onClick={() => toggleRuleEnabled(repo.id, rule.ruleId)}
-                                                  className={`relative inline-flex h-6 w-10 items-center rounded-full transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${rule.enabled
-                                                    ? 'bg-emerald-500 hover:bg-emerald-600 shadow-lg shadow-emerald-500/30'
-                                                    : 'bg-gray-600 hover:bg-gray-500'
-                                                    }`}
-                                                  title={rule.enabled ? 'Disable rule' : 'Enable rule'}
-                                                >
-                                                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ${rule.enabled ? 'translate-x-5' : 'translate-x-1'
-                                                    }`} />
-                                                </button>
-                                                <button
+                                                <Switch
+                                                  checked={rule.enabled}
+                                                  onCheckedChange={() => toggleRuleEnabled(repo.id, rule.ruleId)}
+                                                  aria-label={rule.enabled ? 'Disable rule' : 'Enable rule'}
+                                                  className="scale-90"
+                                                />
+                                                <Button
+                                                  variant="secondary"
+                                                  size="icon"
                                                   onClick={() => setDeleteRuleModal({
                                                     open: true,
                                                     repoId: repo.id,
                                                     ruleId: rule.ruleId,
                                                     ruleName: rule.ruleName
                                                   })}
-                                                  className="rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-red-400 transition-colors hover:bg-red-500/20 hover:border-red-500/50"
+                                                  className="border-red-500/40 bg-red-500/10 text-red-200 hover:bg-red-500/20"
                                                   title="Delete rule"
                                                 >
                                                   <Trash2 className="h-4 w-4" />
-                                                </button>
+                                                </Button>
                                               </div>
                                             </div>
                                           ))}
@@ -1421,11 +1420,10 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
                     <div className="grid gap-3 md:grid-cols-2">
                       <label className="text-sm text-white/80">
                         Rule label
-                        <input
-                          type="text"
+                        <Input
                           value={singleRuleForm.name}
                           onChange={(event) => updateSingleRuleField('name', event.target.value)}
-                          className="mt-1 w-full rounded-lg border border-white/20 bg-black/60 px-3 py-2 text-sm text-white outline-none focus:border-blue-500"
+                          className="mt-1 w-full border border-white/20 bg-black/60 text-sm text-white"
                           placeholder="e.g., Nightly documentation"
                         />
                       </label>
@@ -1435,12 +1433,11 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
                         </label>
 
                         {/* Cron Expression Input */}
-                        <input
-                          type="text"
+                        <Input
                           value={singleRuleForm.customCron}
                           onChange={(event) => updateSingleRuleField('customCron', event.target.value)}
                           placeholder="0 2 * * * (daily at 2 AM UTC)"
-                          className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm text-white outline-none focus:border-blue-500 font-mono ${singleRuleForm.customCron && !isValidCron(singleRuleForm.customCron)
+                          className={`mt-1 w-full border px-3 py-2 text-sm text-white font-mono ${singleRuleForm.customCron && !isValidCron(singleRuleForm.customCron)
                             ? 'border-red-500/50 bg-red-900/20'
                             : 'border-white/20 bg-black/60'
                             }`}
@@ -1448,48 +1445,60 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
 
                         {/* Quick Preset Buttons */}
                         <div className="mt-2 flex flex-wrap gap-2">
-                          <button
+                          <Button
                             type="button"
+                            variant="secondary"
+                            size="sm"
                             onClick={() => updateSingleRuleField('customCron', '0 2 * * *')}
-                            className="px-2 py-1 text-xs bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 rounded border border-blue-600/30 transition-colors"
+                            className="text-xs bg-blue-600/20 text-blue-100 hover:bg-blue-600/30"
                           >
                             Daily 2 AM
-                          </button>
-                          <button
+                          </Button>
+                          <Button
                             type="button"
+                            variant="secondary"
+                            size="sm"
                             onClick={() => updateSingleRuleField('customCron', '0 9 * * *')}
-                            className="px-2 py-1 text-xs bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 rounded border border-blue-600/30 transition-colors"
+                            className="text-xs bg-blue-600/20 text-blue-100 hover:bg-blue-600/30"
                           >
                             Daily 9 AM
-                          </button>
-                          <button
+                          </Button>
+                          <Button
                             type="button"
+                            variant="secondary"
+                            size="sm"
                             onClick={() => updateSingleRuleField('customCron', '0 */6 * * *')}
-                            className="px-2 py-1 text-xs bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 rounded border border-blue-600/30 transition-colors"
+                            className="text-xs bg-blue-600/20 text-blue-100 hover:bg-blue-600/30"
                           >
                             Every 6 hours
-                          </button>
-                          <button
+                          </Button>
+                          <Button
                             type="button"
+                            variant="secondary"
+                            size="sm"
                             onClick={() => updateSingleRuleField('customCron', '*/30 * * * *')}
-                            className="px-2 py-1 text-xs bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 rounded border border-blue-600/30 transition-colors"
+                            className="text-xs bg-blue-600/20 text-blue-100 hover:bg-blue-600/30"
                           >
                             Every 30 min
-                          </button>
-                          <button
+                          </Button>
+                          <Button
                             type="button"
+                            variant="secondary"
+                            size="sm"
                             onClick={() => updateSingleRuleField('customCron', '0 9 * * 1')}
-                            className="px-2 py-1 text-xs bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 rounded border border-blue-600/30 transition-colors"
+                            className="text-xs bg-blue-600/20 text-blue-100 hover:bg-blue-600/30"
                           >
                             Weekly Monday 9 AM
-                          </button>
-                          <button
+                          </Button>
+                          <Button
                             type="button"
+                            variant="secondary"
+                            size="sm"
                             onClick={() => updateSingleRuleField('customCron', '0 0 * * 1')}
-                            className="px-2 py-1 text-xs bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 rounded border border-blue-600/30 transition-colors"
+                            className="text-xs bg-blue-600/20 text-blue-100 hover:bg-blue-600/30"
                           >
                             Weekly Monday
-                          </button>
+                          </Button>
                         </div>
 
                         {/* Help Text */}
@@ -1564,22 +1573,24 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
                               label: '📄 + 🏛 Docs & Diagrams',
                               description: 'Regenerate both docs and architecture diagrams automatically'
                             },
-                            {
-                              value: 'full_auto_publish',
-                              label: '🚀 Full Auto-Publish',
-                              description: 'Update content and publish to configured knowledge bases'
-                            }
-                          ].map((preset) => {
-                            const isSelected = presetFromFlags(singleRuleForm) === preset.value;
-                            return (
-                              <button
+                          {
+                            value: 'full_auto_publish',
+                            label: '🚀 Full Auto-Publish',
+                            description: 'Update content and publish to configured knowledge bases'
+                          }
+                        ].map((preset) => {
+                          const isSelected = presetFromFlags(singleRuleForm) === preset.value;
+                          return (
+                              <Button
                                 key={preset.value}
                                 type="button"
+                                variant="outline"
+                                className={`relative flex w-full flex-col items-start gap-1 rounded-lg border-2 p-4 text-left transition-all ${
+                                  isSelected
+                                    ? 'border-green-500 bg-green-500/15 text-green-100 shadow-lg shadow-green-500/20'
+                                    : 'border-white/20 bg-white/5 text-white/80 hover:border-white/30 hover:bg-white/10'
+                                }`}
                                 onClick={() => applyPreset(preset.value as AutomationPreset)}
-                                className={`relative p-4 rounded-lg border-2 text-left transition-all ${isSelected
-                                  ? 'border-green-500 bg-green-500/15 text-green-100 shadow-lg shadow-green-500/20'
-                                  : 'border-white/20 bg-white/5 hover:bg-white/10 hover:border-white/30 text-white/80'
-                                  }`}
                               >
                                 {isSelected && (
                                   <div className="absolute top-2 right-2">
@@ -1601,9 +1612,9 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
                                     Selected
                                   </div>
                                 )}
-                              </button>
-                            );
-                          })}
+                              </Button>
+                          );
+                        })}
                         </div>
                       </div>
 

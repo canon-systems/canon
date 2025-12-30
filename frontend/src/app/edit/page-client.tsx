@@ -644,13 +644,14 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
                               >
                                 Open Editor
                               </Link>
-                              <button
+                              <Button
                                 type="button"
-                                className="edit-menu-button flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-red-400 transition-colors border-0 bg-transparent text-left outline-none focus:outline-none"
+                                variant="ghost"
+                                className="edit-menu-button flex w-full items-center gap-2 justify-start rounded-md px-3 py-2 text-sm text-red-300 hover:bg-red-500/10"
                                 onClick={(e) => openDeleteModal(item, e)}
                               >
                                 Delete
-                              </button>
+                              </Button>
                             </div>
                           )}
                         </td>
@@ -790,13 +791,14 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
                           >
                             Open Editor
                           </Link>
-                          <button
+                          <Button
                             type="button"
-                            className="edit-menu-button flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-red-400 transition-colors border-0 bg-transparent text-left outline-none focus:outline-none"
+                            variant="ghost"
+                            className="edit-menu-button flex w-full items-center gap-2 justify-start rounded-md px-3 py-2 text-sm text-red-300 hover:bg-red-500/10"
                             onClick={(e) => openDeleteModal(item, e)}
                           >
                             Delete
-                          </button>
+                          </Button>
                         </div>
                       )}
                     </div>

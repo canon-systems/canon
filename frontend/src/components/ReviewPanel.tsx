@@ -1,7 +1,9 @@
 'use client';
 
-import { Send, FileText, Code, Edit, Loader2, GitCompare } from 'lucide-react';
+import { Send, FileText, Code, Edit, GitCompare } from 'lucide-react';
 import { TemplateSelector } from '@/components/TemplateSelector';
+import { Button } from '@/components/ui/button';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export type ViewMode = 'rendered' | 'raw' | 'editor' | 'diff';
 
@@ -24,6 +26,10 @@ export function ReviewPanel({
   onViewDiff
 }: ReviewPanelProps) {
 
+  const handleViewChange = (view: ViewMode) => {
+    onViewChange(view);
+  };
+
   return (
     <div className="space-y-4">
       {/* Template and Diff Actions */}
@@ -39,78 +45,52 @@ export function ReviewPanel({
           )}
           <div className="flex flex-col gap-2">
             {onViewDiff && (
-              <button
+              <Button
+                variant={currentView === 'diff' ? 'secondary' : 'outline'}
                 onClick={() => {
-                  onViewChange('diff');
+                  handleViewChange('diff');
                   onViewDiff?.();
                 }}
                 disabled={isProcessing}
-                className={`w-full inline-flex items-center justify-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-all hover:shadow-lg hover:-translate-y-0.5 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-none ${
-                  currentView === 'diff'
-                    ? 'border-blue-500/70 bg-blue-500/30 text-blue-200 shadow-lg shadow-blue-500/20'
-                    : 'border-blue-500/50 bg-blue-500/20 text-blue-200 hover:bg-blue-500/30 hover:border-blue-500/70 hover:shadow-blue-500/20'
-                }`}
+                className="w-full justify-center border-blue-400/40 bg-white/5 text-white hover:bg-white/10"
               >
                 <GitCompare className="h-4 w-4" />
                 View Diff
-              </button>
+              </Button>
             )}
           </div>
         </div>
       )}
 
       {/* View Switcher */}
-      <div className="flex items-center gap-1 border-b border-white/10 bg-white/5 rounded-t-lg p-1">
-        <button
-          onClick={() => onViewChange('rendered')}
-          disabled={isProcessing}
-          className={`flex items-center gap-2 px-3 py-2 text-sm font-medium transition-all rounded-md ${
-            currentView === 'rendered'
-              ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40 shadow-lg shadow-purple-500/10'
-              : 'border border-transparent text-white/60 hover:text-white/90 hover:bg-white/10 hover:border-white/20'
-          } disabled:opacity-50 disabled:cursor-not-allowed`}
-        >
-          <FileText className="h-4 w-4" />
-          Rendered
-        </button>
-        <button
-          onClick={() => onViewChange('raw')}
-          disabled={isProcessing}
-          className={`flex items-center gap-2 px-3 py-2 text-sm font-medium transition-all rounded-md ${
-            currentView === 'raw'
-              ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40 shadow-lg shadow-purple-500/10'
-              : 'border border-transparent text-white/60 hover:text-white/90 hover:bg-white/10 hover:border-white/20'
-          } disabled:opacity-50 disabled:cursor-not-allowed`}
-        >
-          <Code className="h-4 w-4" />
-          Raw
-        </button>
-        <button
-          onClick={() => onViewChange('editor')}
-          disabled={isProcessing}
-          className={`flex items-center gap-2 px-3 py-2 text-sm font-medium transition-all rounded-md ${
-            currentView === 'editor'
-              ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40 shadow-lg shadow-purple-500/10'
-              : 'border border-transparent text-white/60 hover:text-white/90 hover:bg-white/10 hover:border-white/20'
-          } disabled:opacity-50 disabled:cursor-not-allowed`}
-        >
-          <Edit className="h-4 w-4" />
-          Editor
-        </button>
-      </div>
+      <Tabs value={currentView} onValueChange={(value) => handleViewChange(value as ViewMode)}>
+        <TabsList className="w-full justify-start rounded-full border border-white/10 bg-white/5 p-1">
+          <TabsTrigger value="rendered" disabled={isProcessing} className="flex items-center gap-2 rounded-full">
+            <FileText className="h-4 w-4" />
+            Rendered
+          </TabsTrigger>
+          <TabsTrigger value="raw" disabled={isProcessing} className="flex items-center gap-2 rounded-full">
+            <Code className="h-4 w-4" />
+            Raw
+          </TabsTrigger>
+          <TabsTrigger value="editor" disabled={isProcessing} className="flex items-center gap-2 rounded-full">
+            <Edit className="h-4 w-4" />
+            Editor
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
 
       {/* Publish Button */}
       <div className="flex flex-col gap-3 pt-4 border-t border-white/10">
-        <button
+        <Button
           onClick={onOpenPublishModal}
           disabled={isProcessing}
-          className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-purple-500 to-pink-500 px-4 py-2.5 text-sm font-semibold text-white transition-all hover:from-purple-600 hover:to-pink-600 hover:shadow-lg hover:shadow-purple-500/30 hover:-translate-y-0.5 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-none shadow-lg shadow-purple-500/20"
+          className="w-full gap-2 rounded-lg bg-gradient-to-r from-purple-500 to-pink-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-purple-500/20 transition-all hover:from-purple-600 hover:to-pink-600 hover:-translate-y-0.5 hover:shadow-purple-500/30 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0 disabled:hover:shadow-none"
         >
           <Send className="h-4 w-4" />
           Publish
-        </button>
+        </Button>
       </div>
     </div>
   );
 }
-
