@@ -47,7 +47,7 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
     const supabase = createClient();
 
     // Tab management
-    const [activeTab, setActiveTab] = useState<TabId>('generate');
+    const [activeTab, setActiveTab] = useState<TabId>('view');
 
     const [availableRepos, setAvailableRepos] = useState<RepoWithSetup[]>(initialRepos);
     const [loadingRepos, setLoadingRepos] = useState(false);
@@ -109,7 +109,7 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
     // Tab initialization
     useEffect(() => {
         const tabParam = searchParams.get('tab');
-        const validTabs: TabId[] = ['generate', 'view'];
+        const validTabs: TabId[] = ['view', 'generate'];
         if (tabParam && validTabs.includes(tabParam as TabId)) {
             setActiveTab(tabParam as TabId);
         }
@@ -368,8 +368,8 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
     }
 
     const tabs: Array<{ id: TabId; name: string; icon: any }> = [
-        { id: 'generate', name: 'Generate', icon: Layers3 },
-        { id: 'view', name: 'View', icon: Eye }
+        { id: 'view', name: 'View', icon: Eye },
+        { id: 'generate', name: 'Generate', icon: Layers3 }
     ];
 
     return (

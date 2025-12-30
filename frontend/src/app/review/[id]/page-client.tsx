@@ -16,6 +16,8 @@ type PendingReview = {
   model: string;
   changeSummary: string;
   affectedFiles: string[];
+  status: 'pending' | 'rejected';
+  rejectedAt?: string;
 };
 
 interface ReviewPageClientProps {
@@ -27,10 +29,11 @@ interface ReviewPageClientProps {
 
 export function ReviewPageClient({ documentId, title, currentContent, pending }: ReviewPageClientProps) {
   const router = useRouter();
-  const [saving, setSaving] = useState<'approve' | 'reject' | null>(null);
+  const [saving, setSaving] = useState<'approve' | 'reject' | 'delete' | null>(null);
   const [error, setError] = useState('');
+  const isRejected = pending?.status === 'rejected';
 
-  async function handleReview(action: 'approve' | 'reject') {
+  async function handleReview(action: 'approve' | 'reject' | 'delete') {
     if (!pending) return;
     setSaving(action);
     setError('');
@@ -51,7 +54,8 @@ export function ReviewPageClient({ documentId, title, currentContent, pending }:
         throw new Error(result?.error || result?.detail || `Review failed (${res.status})`);
       }
 
-      router.push(`/edit/${documentId}`);
+      const nextRoute = action === 'approve' ? `/edit/${documentId}` : '/review';
+      router.push(nextRoute);
     } catch (err: any) {
       setError(err.message || 'Failed to process review');
     } finally {
@@ -68,7 +72,14 @@ export function ReviewPageClient({ documentId, title, currentContent, pending }:
               <ArrowLeft className="h-4 w-4" />
               Back to document
             </Link>
-            <h1 className="mt-2 text-2xl font-semibold text-white">Review Update</h1>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <h1 className="text-2xl font-semibold text-white">Review Update</h1>
+              {isRejected && (
+                <span className="rounded-full border border-red-400/30 bg-red-500/10 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-red-200">
+                  Rejected
+                </span>
+              )}
+            </div>
             <p className="text-sm text-white/60">
               {title}
             </p>
@@ -102,6 +113,16 @@ export function ReviewPageClient({ documentId, title, currentContent, pending }:
           </Card>
         ) : (
           <>
+            {isRejected && (
+              <Alert>
+                <AlertDescription>
+                  This update was previously rejected
+                  {pending.rejectedAt ? ` on ${new Date(pending.rejectedAt).toLocaleString()}` : ''}.
+                  You can apply it as the new canonical document or delete it from the review backlog.
+                </AlertDescription>
+              </Alert>
+            )}
+
             {pending.changeSummary && (
               <Alert>
                 <AlertDescription>{pending.changeSummary}</AlertDescription>
@@ -127,19 +148,23 @@ export function ReviewPageClient({ documentId, title, currentContent, pending }:
                 className="inline-flex items-center gap-2"
               >
                 <CheckCircle2 className="h-4 w-4" />
-                {saving === 'approve' ? 'Applying...' : 'Approve & Apply'}
+                {saving === 'approve' ? 'Applying...' : isRejected ? 'Apply as Canonical' : 'Approve & Apply'}
               </Button>
               <Button
                 variant="secondary"
-                onClick={() => handleReview('reject')}
+                onClick={() => handleReview(isRejected ? 'delete' : 'reject')}
                 disabled={saving !== null}
                 className="inline-flex items-center gap-2"
               >
                 <XCircle className="h-4 w-4" />
-                {saving === 'reject' ? 'Rejecting...' : 'Reject Update'}
+                {isRejected
+                  ? (saving === 'delete' ? 'Deleting...' : 'Delete Update')
+                  : (saving === 'reject' ? 'Rejecting...' : 'Reject Update')}
               </Button>
               <div className="text-sm text-white/50">
-                Review required before changes are applied.
+                {isRejected
+                  ? 'Previously rejected update. Apply it to replace the current document or delete it.'
+                  : 'Review required before changes are applied.'}
               </div>
             </div>
           </>

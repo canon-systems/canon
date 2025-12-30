@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/server';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 
-type PendingItem = {
+type ReviewItem = {
   id: string;
   documentId: string;
   title: string;
@@ -50,6 +50,29 @@ export default async function ReviewQueuePage() {
   const documentIds = (documents || []).map(doc => doc.id);
   const documentMap = new Map((documents || []).map(doc => [doc.id, doc]));
 
+  const buildReviewItem = (version: any, fallbackSummary: string): ReviewItem | null => {
+    const document = documentMap.get(version.document_id);
+    if (!document) return null;
+    const repo = repoMap.get(document.repo_id);
+    const metadata = version.metadata || {};
+    const affectedFiles = Array.isArray(metadata.affected_files)
+      ? metadata.affected_files
+      : Array.isArray(metadata.updated_files)
+        ? metadata.updated_files
+        : [];
+
+    return {
+      id: version.id,
+      documentId: version.document_id,
+      title: document.title || 'Untitled',
+      repoName: repo?.name || 'Unknown repo',
+      repoUrl: repo?.repo_url || '',
+      createdAt: version.created_at,
+      changeSummary: version.change_summary || fallbackSummary,
+      affectedFiles,
+    };
+  };
+
   const { data: pendingVersions } = documentIds.length > 0
     ? await supabase
         .from('document_versions')
@@ -59,30 +82,26 @@ export default async function ReviewQueuePage() {
         .order('created_at', { ascending: false })
     : { data: [] };
 
-  const pendingItems: PendingItem[] = (pendingVersions || [])
-    .map((version: any) => {
-      const document = documentMap.get(version.document_id);
-      if (!document) return null;
-      const repo = repoMap.get(document.repo_id);
-      const metadata = version.metadata || {};
-      const affectedFiles = Array.isArray(metadata.affected_files)
-        ? metadata.affected_files
-        : Array.isArray(metadata.updated_files)
-          ? metadata.updated_files
-          : [];
+  const { data: rejectedVersions } = documentIds.length > 0
+    ? await supabase
+        .from('document_versions')
+        .select('id, document_id, created_at, change_summary, metadata')
+        .in('document_id', documentIds)
+        .eq('status', 'rejected')
+        .order('created_at', { ascending: false })
+    : { data: [] };
 
-      return {
-        id: version.id,
-        documentId: version.document_id,
-        title: document.title || 'Untitled',
-        repoName: repo?.name || 'Unknown repo',
-        repoUrl: repo?.repo_url || '',
-        createdAt: version.created_at,
-        changeSummary: version.change_summary || 'Automated update pending review',
-        affectedFiles,
-      };
-    })
-    .filter(Boolean) as PendingItem[];
+  const pendingItems = (pendingVersions || [])
+    .map((version: any) => buildReviewItem(version, 'Automated update pending review'))
+    .filter(Boolean) as ReviewItem[];
+
+  const rejectedItems = (rejectedVersions || [])
+    .map((version: any) => buildReviewItem(version, 'Previously rejected update'))
+    .filter(Boolean) as ReviewItem[];
+
+  const hasPending = pendingItems.length > 0;
+  const hasRejected = rejectedItems.length > 0;
+  const hasAny = hasPending || hasRejected;
 
   return (
     <div className="min-h-screen px-4 py-8 sm:px-6 lg:px-8">
@@ -94,17 +113,17 @@ export default async function ReviewQueuePage() {
               <CardTitle className="text-2xl font-semibold text-white">Review Queue</CardTitle>
             </div>
             <CardDescription className="text-white/70">
-              Approve or reject automated documentation updates before they replace live content.
+              Approve or reject automated documentation updates before they replace live content. Rejected updates stay available for later review.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="text-sm text-white/60">
-              {pendingItems.length} item{pendingItems.length === 1 ? '' : 's'} waiting for review
+              {pendingItems.length} pending / {rejectedItems.length} rejected
             </div>
           </CardContent>
         </Card>
 
-        {pendingItems.length === 0 ? (
+        {!hasAny ? (
           <Card className="border border-white/10 bg-white/5">
             <CardContent className="p-8 text-center text-white/70">
               <p>No pending reviews right now.</p>
@@ -116,40 +135,122 @@ export default async function ReviewQueuePage() {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid gap-4">
-            {pendingItems.map((item) => (
-              <Card key={item.id} className="border border-white/10 bg-white/5">
-                <CardContent className="flex flex-col gap-4 p-6 md:flex-row md:items-center md:justify-between">
-                  <div className="space-y-2">
-                    <div className="text-lg font-semibold text-white">{item.title}</div>
-                    <div className="flex flex-wrap items-center gap-3 text-sm text-white/60">
-                      <div className="flex items-center gap-2">
-                        <Github className="h-4 w-4 text-white/50" />
-                        <span>{item.repoUrl ? item.repoUrl.replace('https://github.com/', '') : item.repoName}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Clock className="h-4 w-4 text-white/50" />
-                        <span>{formatDate(item.createdAt)}</span>
-                      </div>
+          <div className="space-y-8">
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-white">Pending reviews</h2>
+                <span className="text-sm text-white/60">{pendingItems.length}</span>
+              </div>
+              {!hasPending ? (
+                <Card className="border border-white/10 bg-white/5">
+                  <CardContent className="p-6 text-center text-white/70">
+                    <p>No pending reviews right now.</p>
+                    <div className="mt-4">
+                      <Button asChild>
+                        <Link href="/documentation">Generate Documentation</Link>
+                      </Button>
                     </div>
-                    <p className="text-sm text-white/70">{item.changeSummary}</p>
-                    {item.affectedFiles.length > 0 && (
-                      <div className="text-xs text-white/50">
-                        {item.affectedFiles.length} file{item.affectedFiles.length === 1 ? '' : 's'} changed
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-3">
-                    <Button asChild variant="secondary">
-                      <Link href={`/review/${item.documentId}`}>Review</Link>
-                    </Button>
-                    <Button asChild variant="ghost">
-                      <Link href={`/edit/${item.documentId}`}>Open Document</Link>
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="grid gap-4">
+                  {pendingItems.map((item) => {
+                    const reviewHref = `/review/${item.documentId}?review=${encodeURIComponent(item.id)}`;
+                    return (
+                      <Card key={item.id} className="border border-white/10 bg-white/5">
+                        <CardContent className="flex flex-col gap-4 p-6 md:flex-row md:items-center md:justify-between">
+                          <div className="space-y-2">
+                            <div className="text-lg font-semibold text-white">{item.title}</div>
+                            <div className="flex flex-wrap items-center gap-3 text-sm text-white/60">
+                              <div className="flex items-center gap-2">
+                                <Github className="h-4 w-4 text-white/50" />
+                                <span>{item.repoUrl ? item.repoUrl.replace('https://github.com/', '') : item.repoName}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Clock className="h-4 w-4 text-white/50" />
+                                <span>{formatDate(item.createdAt)}</span>
+                              </div>
+                            </div>
+                            <p className="text-sm text-white/70">{item.changeSummary}</p>
+                            {item.affectedFiles.length > 0 && (
+                              <div className="text-xs text-white/50">
+                                {item.affectedFiles.length} file{item.affectedFiles.length === 1 ? '' : 's'} changed
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-3">
+                            <Button asChild variant="secondary">
+                              <Link href={reviewHref}>Review</Link>
+                            </Button>
+                            <Button asChild variant="ghost">
+                              <Link href={`/edit/${item.documentId}`}>Open Document</Link>
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-white">Rejected updates</h2>
+                <span className="text-sm text-white/60">{rejectedItems.length}</span>
+              </div>
+              {!hasRejected ? (
+                <Card className="border border-white/10 bg-white/5">
+                  <CardContent className="p-6 text-center text-white/70">
+                    <p>No rejected updates.</p>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="grid gap-4">
+                  {rejectedItems.map((item) => {
+                    const reviewHref = `/review/${item.documentId}?review=${encodeURIComponent(item.id)}`;
+                    return (
+                      <Card key={item.id} className="border border-white/10 bg-white/5">
+                        <CardContent className="flex flex-col gap-4 p-6 md:flex-row md:items-center md:justify-between">
+                          <div className="space-y-2">
+                            <div className="flex flex-wrap items-center gap-2 text-lg font-semibold text-white">
+                              <span>{item.title}</span>
+                              <span className="rounded-full border border-red-400/30 bg-red-500/10 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-red-200">
+                                Rejected
+                              </span>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-3 text-sm text-white/60">
+                              <div className="flex items-center gap-2">
+                                <Github className="h-4 w-4 text-white/50" />
+                                <span>{item.repoUrl ? item.repoUrl.replace('https://github.com/', '') : item.repoName}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Clock className="h-4 w-4 text-white/50" />
+                                <span>{formatDate(item.createdAt)}</span>
+                              </div>
+                            </div>
+                            <p className="text-sm text-white/70">{item.changeSummary}</p>
+                            {item.affectedFiles.length > 0 && (
+                              <div className="text-xs text-white/50">
+                                {item.affectedFiles.length} file{item.affectedFiles.length === 1 ? '' : 's'} changed
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-3">
+                            <Button asChild variant="secondary">
+                              <Link href={reviewHref}>Review Again</Link>
+                            </Button>
+                            <Button asChild variant="ghost">
+                              <Link href={`/edit/${item.documentId}`}>Open Document</Link>
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
 
-type ReviewAction = 'approve' | 'reject';
+type ReviewAction = 'approve' | 'reject' | 'delete';
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,14 +16,28 @@ export async function POST(request: NextRequest) {
     const action = body.action as ReviewAction | undefined;
     const requestId = body.requestId as string | undefined;
 
-    if (!documentId || (action !== 'approve' && action !== 'reject')) {
+    if (!documentId || (action !== 'approve' && action !== 'reject' && action !== 'delete')) {
       return NextResponse.json(
-        { error: 'documentId and action (approve/reject) are required' },
+        { error: 'documentId and action (approve/reject/delete) are required' },
+        { status: 400 }
+      );
+    }
+
+    if (action === 'delete' && !requestId) {
+      return NextResponse.json(
+        { error: 'requestId is required to delete a review' },
         { status: 400 }
       );
     }
 
     const supabase = await createClient();
+    let versionClient = supabase;
+
+    try {
+      versionClient = createServiceRoleClient();
+    } catch (err) {
+      console.warn('Review updates using user client (service role unavailable).', err);
+    }
 
     const { data: document, error: docError } = await supabase
       .from('documents')
@@ -45,11 +59,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
+    const statusFilter = action === 'reject'
+      ? ['pending']
+      : action === 'delete'
+        ? ['rejected']
+        : ['pending', 'rejected'];
+
     let pendingQuery = supabase
       .from('document_versions')
-      .select('id, content, metadata, change_summary')
+      .select('id, content, metadata, change_summary, status')
       .eq('document_id', documentId)
-      .eq('status', 'pending')
+      .in('status', statusFilter)
       .order('created_at', { ascending: false })
       .limit(1);
 
@@ -60,7 +80,7 @@ export async function POST(request: NextRequest) {
     const { data: pending, error: pendingError } = await pendingQuery.maybeSingle();
 
     if (pendingError || !pending) {
-      return NextResponse.json({ error: 'No pending review found' }, { status: 404 });
+      return NextResponse.json({ error: 'No review found' }, { status: 404 });
     }
 
     if (action === 'approve') {
@@ -79,7 +99,7 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      await supabase
+      const { error: versionError } = await versionClient
         .from('document_versions')
         .update({
           status: 'approved',
@@ -89,8 +109,15 @@ export async function POST(request: NextRequest) {
           },
         })
         .eq('id', pending.id);
-    } else {
-      await supabase
+
+      if (versionError) {
+        return NextResponse.json(
+          { error: 'Failed to update review status', detail: versionError.message },
+          { status: 500 }
+        );
+      }
+    } else if (action === 'reject') {
+      const { error: versionError } = await versionClient
         .from('document_versions')
         .update({
           status: 'rejected',
@@ -100,6 +127,25 @@ export async function POST(request: NextRequest) {
           },
         })
         .eq('id', pending.id);
+
+      if (versionError) {
+        return NextResponse.json(
+          { error: 'Failed to update review status', detail: versionError.message },
+          { status: 500 }
+        );
+      }
+    } else {
+      const { error: deleteError } = await versionClient
+        .from('document_versions')
+        .delete()
+        .eq('id', pending.id);
+
+      if (deleteError) {
+        return NextResponse.json(
+          { error: 'Failed to delete review', detail: deleteError.message },
+          { status: 500 }
+        );
+      }
     }
 
     return NextResponse.json({ success: true });

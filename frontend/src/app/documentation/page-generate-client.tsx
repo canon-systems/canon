@@ -241,7 +241,7 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
   const modelDropdownRef = useRef<HTMLDivElement>(null);
 
   // Tab management
-  const [activeTab, setActiveTab] = useState<TabId>('generate');
+  const [activeTab, setActiveTab] = useState<TabId>('edit');
 
   // Generate tab state
   const [method, setMethod] = useState<InputType>('github_repo');
@@ -973,8 +973,8 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
   }
 
   const tabs: Array<{ id: TabId; name: string; icon: any }> = [
-    { id: 'generate', name: 'Generate', icon: FileText },
-    { id: 'edit', name: 'Edit', icon: BookOpen }
+    { id: 'edit', name: 'Edit', icon: BookOpen },
+    { id: 'generate', name: 'Generate', icon: FileText }
   ];
 
   return (

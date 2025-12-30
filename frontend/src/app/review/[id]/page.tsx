@@ -4,7 +4,14 @@ import { createClient } from '@/lib/supabase/server';
 import { getDocument } from '@/lib/server/services/documentService';
 import { ReviewPageClient } from './page-client';
 
-export default async function ReviewPage({ params }: { params: Promise<{ id: string }> }) {
+interface ReviewPageProps {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{
+    review?: string;
+  }>;
+}
+
+export default async function ReviewPage({ params, searchParams }: ReviewPageProps) {
   const { session, user } = await getSession();
 
   if (!session) {
@@ -12,6 +19,8 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
   }
 
   const { id } = await params;
+  const resolvedSearchParams = await searchParams;
+  const reviewId = resolvedSearchParams?.review;
   const supabase = await createClient();
 
   const document = await getDocument(supabase, id);
@@ -29,16 +38,30 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
     redirect('/documentation?tab=edit');
   }
 
-  const { data: pending } = await supabase
+  let pendingQuery = supabase
     .from('document_versions')
-    .select('id, content, created_at, change_summary, metadata')
-    .eq('document_id', id)
-    .eq('status', 'pending')
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .select('id, content, created_at, change_summary, metadata, status')
+    .eq('document_id', id);
+
+  if (reviewId) {
+    pendingQuery = pendingQuery
+      .eq('id', reviewId)
+      .in('status', ['pending', 'rejected']);
+  } else {
+    pendingQuery = pendingQuery
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false })
+      .limit(1);
+  }
+
+  const { data: pending } = await pendingQuery.maybeSingle();
 
   const pendingMetadata = (pending as any)?.metadata || {};
+  const rejectedAt = typeof pendingMetadata.rejected_at === 'string' ? pendingMetadata.rejected_at : '';
+
+  if (!pending) {
+    redirect('/review');
+  }
 
   return (
     <ReviewPageClient
@@ -52,6 +75,8 @@ export default async function ReviewPage({ params }: { params: Promise<{ id: str
         model: pendingMetadata.model || '',
         changeSummary: pending.change_summary || '',
         affectedFiles: Array.isArray(pendingMetadata.affected_files) ? pendingMetadata.affected_files : [],
+        status: pending.status === 'rejected' ? 'rejected' : 'pending',
+        rejectedAt,
       } : null}
     />
   );
