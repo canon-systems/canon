@@ -21,7 +21,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 interface DocItem {
   id: string;
   title: string;
-  status: 'published';
+  status: 'published' | 'pending_review';
   repo: string;
   branch: string;
   path: string;
@@ -33,6 +33,9 @@ interface DocItem {
   lastPushedUrl?: string | null;
   processingStatus: 'processing' | 'completed' | 'failed';
   isOutdated: boolean;
+  needsReview?: boolean;
+  reviewId?: string | null;
+  reviewCreatedAt?: string | null;
 }
 
 interface EditListPageClientProps {
@@ -58,6 +61,7 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
   const [total, setTotal] = useState(0);
   const [repoFilter, setRepoFilter] = useState<string>('');
   const [repos, setRepos] = useState<Array<{ id: string; name: string; repo_url: string }>>([]);
+  const [pendingTotal, setPendingTotal] = useState(0);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<{ id: string; title: string } | null>(null);
@@ -150,6 +154,7 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
       setItems(data.items || []);
       setTotal(data.pagination.total);
       setTotalPages(Math.ceil(data.pagination.total / data.pagination.pageSize));
+      setPendingTotal(data.pendingTotal || 0);
 
       // Debug: Log first item to check push metadata
       if (data.items && data.items.length > 0) {
@@ -389,6 +394,15 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
 
               <Separator />
 
+              {pendingTotal > 0 && (
+                <Alert>
+                  <AlertDescription>
+                    <span className="font-medium text-white">Review needed:</span>{' '}
+                    {pendingTotal} document{pendingTotal === 1 ? '' : 's'} have automated updates waiting for approval.
+                  </AlertDescription>
+                </Alert>
+              )}
+
               {/* Filters */}
               <div className="space-y-4">
                 <div>
@@ -555,6 +569,12 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
                         </td>
                         <td className="px-4 py-3">
                           {getStatusBadge(item.status)}
+                          {item.needsReview && (
+                            <span className="ml-2 inline-flex items-center gap-1 rounded border border-purple-400/30 bg-purple-500/20 px-2 py-1 text-xs text-purple-200">
+                              <AlertCircle className="h-3 w-3" />
+                              Needs review
+                            </span>
+                          )}
                           {item.isOutdated && (
                             <span className="ml-2 inline-flex items-center gap-1 text-xs text-orange-300">
                               <AlertCircle className="h-3 w-3" />
@@ -637,6 +657,15 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
                               className="absolute right-4 z-[100] mt-1 min-w-[160px] rounded-lg border border-white/20 bg-black/95 p-1 shadow-xl backdrop-blur-md"
                               onClick={(e) => e.stopPropagation()}
                             >
+                              {item.needsReview && (
+                                <Link
+                                  href={`/review/${item.id}`}
+                                  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-purple-200 transition-colors hover:bg-purple-500/10"
+                                  onClick={() => setOpenMenuId(null)}
+                                >
+                                  Review Update
+                                </Link>
+                              )}
                               <Link
                                 href={`/edit/${item.id}`}
                                 className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-white/90 transition-colors hover:bg-white/10"
@@ -730,6 +759,12 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
                     )}
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       {getStatusBadge(item.status)}
+                      {item.needsReview && (
+                        <span className="inline-flex items-center gap-1 rounded border border-purple-400/30 bg-purple-500/20 px-2 py-0.5 text-xs text-purple-200">
+                          <AlertCircle className="h-3 w-3" />
+                          Needs review
+                        </span>
+                      )}
                       {item.isOutdated && (
                         <span className="inline-flex items-center gap-1 rounded border border-orange-400/30 bg-orange-500/20 px-2 py-0.5 text-xs text-orange-200">
                           <AlertCircle className="h-3 w-3" />
@@ -784,6 +819,15 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
                           className="absolute right-0 top-full z-[100] mt-1 min-w-[160px] rounded-lg border border-white/20 bg-black/95 p-1 shadow-xl backdrop-blur-md"
                           onClick={(e) => e.stopPropagation()}
                         >
+                          {item.needsReview && (
+                            <Link
+                              href={`/review/${item.id}`}
+                              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-purple-200 transition-colors hover:bg-purple-500/10"
+                              onClick={() => setOpenMenuId(null)}
+                            >
+                              Review Update
+                            </Link>
+                          )}
                           <Link
                             href={`/edit/${item.id}`}
                             className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-white/90 transition-colors hover:bg-white/10"

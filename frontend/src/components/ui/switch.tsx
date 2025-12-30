@@ -19,9 +19,9 @@ const Switch = React.forwardRef<HTMLInputElement, SwitchProps>(
       />
       <span
         aria-hidden="true"
-        className="relative inline-flex h-6 w-11 items-center rounded-full border border-white/10 bg-white/10 transition peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-white/40 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-black peer-checked:bg-white/20"
+        className="relative inline-flex h-6 w-11 items-center justify-start rounded-full border border-white/10 bg-white/10 transition peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-white/40 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-black peer-checked:justify-end peer-checked:border-emerald-400/60 peer-checked:bg-emerald-500/40"
       >
-        <span className="inline-block h-5 w-5 translate-x-0.5 rounded-full bg-white/80 shadow transition peer-checked:translate-x-5" />
+        <span className="inline-block h-5 w-5 rounded-full bg-white/85 shadow transition peer-checked:bg-white" />
       </span>
     </label>
   )

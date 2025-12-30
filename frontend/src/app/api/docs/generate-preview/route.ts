@@ -60,7 +60,11 @@ export async function POST(request: NextRequest) {
         // Use persisted settings as defaults, override with request body if provided
         const defaultModel = configuration.model || model;
         const defaultPromptConfig = promptConfig || configuration;
-        const defaultDocumentStructure = documentStructure || configuration.documentStructure;
+        const defaultDocumentStructure =
+            documentStructure ||
+            configuration.documentStructure ||
+            configuration.document_structure ||
+            null;
 
         // Get tracked files for this document
         const { data: documentFiles } = await supabase
@@ -87,7 +91,7 @@ export async function POST(request: NextRequest) {
         // Build the prompt config with document structure
         const fullPromptConfig = {
             ...defaultPromptConfig,
-            document_structure: defaultDocumentStructure
+            document_structure: defaultDocumentStructure || (defaultPromptConfig as any)?.document_structure || null
         };
 
         // Generate preview documentation
@@ -103,6 +107,8 @@ export async function POST(request: NextRequest) {
             promptConfig: fullPromptConfig,
             useSummaries: true, // Always use summaries for previews
             submissionId,
+            existingMarkdown: document.content || '',
+            isUpdate: true,
         });
 
         if (user?.id) {

@@ -74,6 +74,7 @@ export default async function AutomationPage() {
     generate_doc?: boolean;
     generate_diagram?: boolean;
     auto_publish?: boolean;
+    auto_approve?: boolean;
     schedule?: string;
     lastRunAt?: string;
     lastRunStatus?: string;
@@ -84,25 +85,26 @@ export default async function AutomationPage() {
   let activeRules = 0;
 
   rules?.forEach((rule: any) => {
-      const enabled = Boolean(rule.enabled);
+    const enabled = Boolean(rule.enabled);
 
-      totalRules++;
-      if (enabled) activeRules++;
+    totalRules++;
+    if (enabled) activeRules++;
 
-	      allRules.push({
-	      repoId: rule.repo_id,
-	      repoName: rule.workspace_repos.name || 'Untitled Repo',
-	      repoUrl: rule.workspace_repos.repo_url || '',
-	      ruleId: rule.id,
-	      ruleName: rule.name || rule.id,
-	        enabled,
-	      generate_doc: rule.generate_doc,
-	      generate_diagram: rule.generate_diagram,
-	      auto_publish: rule.auto_publish,
-	      schedule: rule.schedule,
-	      lastRunAt: rule.last_run_at,
-	      lastRunStatus: rule.last_run_status,
-	    });
+    allRules.push({
+      repoId: rule.repo_id,
+      repoName: rule.workspace_repos.name || 'Untitled Repo',
+      repoUrl: rule.workspace_repos.repo_url || '',
+      ruleId: rule.id,
+      ruleName: rule.name || rule.id,
+      enabled,
+      generate_doc: rule.generate_doc,
+      generate_diagram: rule.generate_diagram,
+      auto_publish: rule.auto_publish,
+      auto_approve: rule.auto_approve,
+      schedule: rule.schedule,
+      lastRunAt: rule.last_run_at,
+      lastRunStatus: rule.last_run_status,
+    });
   });
 
   return (

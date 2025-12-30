@@ -146,10 +146,12 @@ export async function executeAutomationRule({
 		const shouldGenerateDocs = rule.generate_doc === true || rule.auto_publish === true;
 		const desiredDiagramTypes =
 			targetDiagramTypes.length > 0 ? targetDiagramTypes : shouldGenerateDiagrams ? ['architecture'] : [];
-		const generatedDocuments: Array<{ id: string; title?: string; updatedAt?: string; isNew?: boolean }> = [];
+		const generatedDocuments: Array<{ id: string; title?: string; updatedAt?: string; isNew?: boolean; status?: string; reviewUrl?: string }> = [];
 		const generatedDiagrams: Array<{ id: string; type: string; title?: string; isNew?: boolean; updatedAt?: string }> = [];
 		let diagramGenerated = false;
-		const shouldAutoPublish = rule.auto_publish === true;
+		const shouldAutoApprove = rule.auto_approve === true;
+		const requestedAutoPublish = rule.auto_publish === true;
+		const shouldAutoPublish = requestedAutoPublish && shouldAutoApprove;
 		const autoPublishTarget = rule.auto_publish_target || null;
 
 	try {
@@ -217,9 +219,10 @@ export async function executeAutomationRule({
 		const repoBranch = repoSetup?.branch || repo.default_branch;
 
 		const settings = repo.settings || {};
+		const repoPromptConfig = settings.llm_prompt_config || settings.prompt_config || null;
+		const repoDocumentStructure = settings.document_structure || null;
 		const subdir = settings.subdir || null;
 		const filters = settings.filters || null;
-		const promptConfig = settings.prompt_config || null;
 
 		// Always proceed with file processing - let FileSummaryManager handle efficiency
 		result.actions.push('scan_repository');
@@ -469,7 +472,7 @@ export async function executeAutomationRule({
 		// Get all documents for this repo
 		const { data: repoDocs, error: docsError } = await supabase
 			.from('documents')
-			.select('id, title, repo_id')
+			.select('id, title, repo_id, content, configuration')
 			.eq('repo_id', repo.id);
 
 		if (docsError) {
@@ -544,6 +547,8 @@ export async function executeAutomationRule({
 					status: 'completed',
 					sourceMeta: { repoId: doc.repo_id },
 					affectedFiles,
+					configuration: (doc as any).configuration || {},
+					content: (doc as any).content || '',
 				});
 			}
 		});
@@ -628,27 +633,107 @@ export async function executeAutomationRule({
 					continue;
 				}
 
+				const docConfig = docInfo.configuration || {};
+				const resolvedDocumentStructure =
+					docConfig.documentStructure ||
+					docConfig.document_structure ||
+					repoDocumentStructure ||
+					repoPromptConfig?.document_structure ||
+					repoPromptConfig?.documentStructure ||
+					null;
+
+				const resolvedPromptConfig = {
+					personality: docConfig.personality ?? repoPromptConfig?.personality,
+					style: docConfig.style ?? repoPromptConfig?.style,
+					perspective: docConfig.perspective ?? repoPromptConfig?.perspective,
+					customInstructions: docConfig.customInstructions ?? repoPromptConfig?.customInstructions,
+					temperature: docConfig.temperature ?? repoPromptConfig?.temperature,
+					document_structure: resolvedDocumentStructure || undefined,
+				};
+
+				const selectedModel = docConfig.model || rule.model || 'gpt-4o';
+
 				// Generate updated documentation
 				const docResult = await generateDocumentation({
 					supabase,
 					userId,
-					projectName: repo.name,
-					model: rule.model || 'gpt-4o',
+					projectName: docInfo.title || repo.name,
+					model: selectedModel,
 					files: filesToUse,
 					repoUrl: repo.repo_url,
 					branch: repoBranch,
 					subdir,
-					promptConfig,
+					promptConfig: resolvedPromptConfig,
 					useSummaries: true,
+					submissionId: docId,
+					existingMarkdown: docInfo.content || '',
+					isUpdate: true,
 				});
 
-				// Update the existing document
+				const changeSummary = `Automated update: ${docInfo.affectedFiles.length} file(s) changed`;
+				const reviewUrl = `/review/${docId}`;
 				const { data: versionData } = await supabase.rpc('get_next_document_version', {
 					doc_id: docId
 				});
-
 				const versionNumber = versionData || 1;
 
+				if (!shouldAutoApprove) {
+					if (requestedAutoPublish) {
+						console.warn(`⚠️ [DOCS] Auto-publish skipped: auto-approve is disabled for ${docInfo.title}`);
+					}
+
+					const { error: clearPendingError } = await supabase
+						.from('document_versions')
+						.update({ status: 'superseded' })
+						.eq('document_id', docId)
+						.eq('status', 'pending');
+
+					if (clearPendingError) {
+						console.warn(`[${timestamp}] Failed to clear pending review for doc ${docId}:`, clearPendingError);
+					}
+
+					const { error: pendingError } = await supabase
+						.from('document_versions')
+						.insert({
+							document_id: docId,
+							version_number: versionNumber,
+							content: docResult.markdown,
+							change_summary: changeSummary,
+							status: 'pending',
+							metadata: {
+								model: docResult.model,
+								prompt_config: resolvedPromptConfig,
+								affected_files: relatedFiles,
+								rule_id: rule.id || null,
+								rule_name: rule.name || null,
+								updated_files: docInfo.affectedFiles.map((f: { path: string }) => f.path),
+								reason,
+							},
+						});
+
+					if (pendingError) {
+						console.error(`[${timestamp}] Failed to store pending review for doc ${docId}:`, pendingError);
+						docsFailed++;
+						continue;
+					}
+
+					const completionTimestamp = new Date().toISOString();
+					console.log(`[${completionTimestamp}]  🕒 Pending review: ${docInfo.title}`);
+
+					generatedDocuments.push({
+						id: docId,
+						title: docInfo.title,
+						updatedAt: completionTimestamp,
+						isNew: false,
+						status: 'pending_review',
+						reviewUrl,
+					});
+
+					result.actions.push('pending_review');
+					continue;
+				}
+
+				// Update the existing document
 				const { error: updateError } = await supabase
 					.from('documents')
 					.update({
@@ -666,7 +751,18 @@ export async function executeAutomationRule({
 						document_id: docId,
 						version_number: versionNumber,
 						content: docResult.markdown,
-						change_summary: `Automated update: ${docInfo.affectedFiles.length} file(s) changed`
+						change_summary: changeSummary,
+						status: 'approved',
+						metadata: {
+							model: docResult.model,
+							prompt_config: resolvedPromptConfig,
+							affected_files: relatedFiles,
+							rule_id: rule.id || null,
+							rule_name: rule.name || null,
+							updated_files: docInfo.affectedFiles.map((f: { path: string }) => f.path),
+							reason,
+							auto_approved: true,
+						},
 					});
 
 					// Update document_files table with the files that were actually used in regeneration

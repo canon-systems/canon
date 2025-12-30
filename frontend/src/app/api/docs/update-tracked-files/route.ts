@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
     // Get existing document
     const { data: document, error: docError } = await supabase
       .from('documents')
-      .select('id, repo_id, title')
+      .select('id, repo_id, title, configuration, content')
       .eq('id', documentId)
       .single();
 
@@ -162,11 +162,28 @@ export async function POST(request: NextRequest) {
           // Continue anyway - will fallback to full content
         }
 
-        // Get repo settings if available
+        // Get repo and document settings if available
         const repoSettings = repo.settings || {};
         const subdir = repoSettings.subdir || null;
         const filters = repoSettings.filters || null;
-        const promptConfig = repoSettings.prompt_config || null;
+        const repoPromptConfig = repoSettings.llm_prompt_config || repoSettings.prompt_config || null;
+        const docConfig = (document as any).configuration || {};
+        const resolvedDocumentStructure =
+          docConfig.documentStructure ||
+          docConfig.document_structure ||
+          repoSettings.document_structure ||
+          repoPromptConfig?.document_structure ||
+          repoPromptConfig?.documentStructure ||
+          null;
+        const resolvedPromptConfig = {
+          personality: docConfig.personality ?? repoPromptConfig?.personality,
+          style: docConfig.style ?? repoPromptConfig?.style,
+          perspective: docConfig.perspective ?? repoPromptConfig?.perspective,
+          customInstructions: docConfig.customInstructions ?? repoPromptConfig?.customInstructions,
+          temperature: docConfig.temperature ?? repoPromptConfig?.temperature,
+          document_structure: resolvedDocumentStructure || undefined,
+        };
+        const selectedModel = docConfig.model || repoSettings.model || 'gpt-4o';
 
         // Analyze repository with new file set
         const analysis = await analyzeRepository({
@@ -197,14 +214,16 @@ export async function POST(request: NextRequest) {
           supabase,
           userId: user.id,
           projectName: document.title || 'Project',
-          model: 'gpt-4o',
+          model: selectedModel,
           files: selectedFileEntries,
           repoUrl,
           branch,
           subdir,
-          promptConfig,
+          promptConfig: resolvedPromptConfig,
           useSummaries: true,
           submissionId: documentId, // Pass documentId for backward compatibility
+          existingMarkdown: document.content || '',
+          isUpdate: true,
         });
 
         // Update document with new content

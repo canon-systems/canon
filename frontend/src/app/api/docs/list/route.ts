@@ -105,9 +105,42 @@ export async function GET(request: NextRequest) {
     const start = (page - 1) * pageSize;
     const paginated = filtered.slice(start, start + pageSize);
 
+    const paginatedIds = paginated.map((doc: any) => doc.id);
+    const pendingMap = new Map<string, { id: string; created_at?: string | null }>();
+
+    if (paginatedIds.length > 0) {
+      const { data: pendingRequests } = await supabase
+        .from('document_versions')
+        .select('id, document_id, created_at')
+        .in('document_id', paginatedIds)
+        .eq('status', 'pending');
+
+      for (const request of pendingRequests || []) {
+        const existing = pendingMap.get(request.document_id);
+        if (!existing || (request.created_at && existing.created_at && request.created_at > existing.created_at)) {
+          pendingMap.set(request.document_id, {
+            id: request.id,
+            created_at: request.created_at,
+          });
+        }
+      }
+    }
+
+    let pendingTotal = 0;
+    const filteredIds = filtered.map((doc: any) => doc.id);
+    if (filteredIds.length > 0) {
+      const { count } = await supabase
+        .from('document_versions')
+        .select('id', { count: 'exact', head: true })
+        .in('document_id', filteredIds)
+        .eq('status', 'pending');
+      pendingTotal = count || 0;
+    }
+
     // Return list immediately with stored values
     const items = paginated.map((doc: any) => {
       const repo = repoMap.get(doc.repo_id);
+      const pending = pendingMap.get(doc.id);
 
       return {
         id: doc.id,
@@ -124,6 +157,9 @@ export async function GET(request: NextRequest) {
         lastPushedUrl: null,
         processingStatus: 'completed',
         isOutdated: false,
+        needsReview: Boolean(pending),
+        reviewId: pending?.id || null,
+        reviewCreatedAt: pending?.created_at || null,
       };
     });
 
@@ -138,6 +174,7 @@ export async function GET(request: NextRequest) {
           pageSize,
           total,
         },
+        pendingTotal,
       },
       { status: 200 }
     );

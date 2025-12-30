@@ -15,29 +15,59 @@ export async function GET(request: NextRequest) {
     const now = new Date();
     const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-    // Query automation_runs for the last 24 hours
-    const { data: runs, error } = await supabase
-      .from('automation_runs')
-      .select('status')
-      .eq('user_id', user.id)
-      .gte('executed_at', twentyFourHoursAgo.toISOString())
-      .order('executed_at', { ascending: false });
+    const [
+      { count: executions24h, error: last24Error },
+      { count: successfulExecutions24h, error: last24SuccessError },
+      { count: executionsTotal, error: totalError },
+      { count: successfulExecutionsTotal, error: totalSuccessError },
+    ] = await Promise.all([
+      supabase
+        .from('automation_runs')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .gte('executed_at', twentyFourHoursAgo.toISOString()),
+      supabase
+        .from('automation_runs')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .eq('status', 'succeeded')
+        .gte('executed_at', twentyFourHoursAgo.toISOString()),
+      supabase
+        .from('automation_runs')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id),
+      supabase
+        .from('automation_runs')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .eq('status', 'succeeded'),
+    ]);
 
-    if (error) {
-      console.error('Error fetching automation runs:', error);
+    if (last24Error || last24SuccessError || totalError || totalSuccessError) {
+      console.error('Error fetching automation runs:', {
+        last24Error,
+        last24SuccessError,
+        totalError,
+        totalSuccessError,
+      });
       return NextResponse.json(
         { error: 'Failed to fetch automation statistics' },
         { status: 500 }
       );
     }
 
-    // Calculate statistics
-    const executions24h = runs?.length || 0;
-    const successfulExecutions = runs?.filter(run => run.status === 'succeeded').length || 0;
+    const totalRuns = executionsTotal || 0;
+    const totalSuccesses = successfulExecutionsTotal || 0;
+    const successRate = totalRuns > 0
+      ? Math.round((totalSuccesses / totalRuns) * 100)
+      : 0;
 
     return NextResponse.json({
-      executions24h,
-      successfulExecutions,
+      executions24h: executions24h || 0,
+      successfulExecutions24h: successfulExecutions24h || 0,
+      executionsTotal: totalRuns,
+      successfulExecutionsTotal: totalSuccesses,
+      successRate,
     });
   } catch (err: any) {
     console.error('Automation stats error:', err);

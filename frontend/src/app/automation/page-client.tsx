@@ -52,6 +52,7 @@ interface AutomationRuleForm {
   generate_doc: boolean;
   generate_diagram: boolean;
   auto_publish: boolean;
+  auto_approve: boolean;
 
   // NEW: Scope targeting
   target_diagrams: string[];  // Empty = all diagrams of selected types
@@ -87,6 +88,7 @@ interface AutomationPageClientProps {
     generate_doc?: boolean;
     generate_diagram?: boolean;
     auto_publish?: boolean;
+    auto_approve?: boolean;
     schedule?: string;
     lastRunAt?: string;
     lastRunStatus?: string;
@@ -416,22 +418,30 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
 
       // Fetch execution statistics from automation_runs table
       let totalExecutions24h = 0;
-      let successfulExecutions = 0;
+      let successfulExecutions24h = 0;
+      let successRate = 0;
 
       try {
         const response = await fetch('/api/automation/stats');
         if (response.ok) {
           const stats = await response.json();
           totalExecutions24h = stats.executions24h || 0;
-          successfulExecutions = stats.successfulExecutions || 0;
+          successfulExecutions24h = stats.successfulExecutions24h || 0;
+          if (typeof stats.successRate === 'number') {
+            successRate = stats.successRate;
+          } else {
+            const totalRuns = stats.executionsTotal || 0;
+            const totalSuccesses = stats.successfulExecutionsTotal || 0;
+            successRate = totalRuns > 0 ? Math.round((totalSuccesses / totalRuns) * 100) : 0;
+          }
         }
       } catch (error) {
         console.error('Failed to fetch automation stats:', error);
       }
 
-      const successRate = totalExecutions24h > 0
-        ? Math.round((successfulExecutions / totalExecutions24h) * 100)
-        : 0;
+      if (successRate === 0 && totalExecutions24h > 0) {
+        successRate = Math.round((successfulExecutions24h / totalExecutions24h) * 100);
+      }
 
       setStats({
         totalRules,
@@ -547,7 +557,8 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
       // Individual behavior defaults (docs-only)
       generate_doc: overrides.generate_doc ?? true,
       generate_diagram: overrides.generate_diagram ?? false,
-      auto_publish: overrides.auto_publish ?? false,
+  auto_publish: overrides.auto_publish ?? false,
+  auto_approve: overrides.auto_approve ?? false,
       target_diagrams: overrides.target_diagrams ?? [],
 
       // LEGACY: Keep for backward compatibility (not displayed in UI)
@@ -581,6 +592,7 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
       let generate_doc = rule.generate_doc;
       let generate_diagram = rule.generate_diagram;
       let auto_publish = rule.auto_publish;
+      let auto_approve = typeof rule.auto_approve === 'boolean' ? rule.auto_approve : Boolean(rule.auto_publish);
 
       // Backward-compat: infer from action_preset if present
       const actionPreset = typeof rule.action_preset === 'string' ? rule.action_preset : null;
@@ -588,6 +600,9 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
         generate_doc = actionPreset !== 'diagrams_only';
         generate_diagram = actionPreset === 'diagrams_only' || actionPreset === 'docs_and_diagrams' || actionPreset === 'full_auto_publish';
         auto_publish = actionPreset === 'full_auto_publish';
+        if (actionPreset === 'full_auto_publish' && typeof rule.auto_approve !== 'boolean') {
+          auto_approve = true;
+        }
       }
 
       const targetDiagrams = (rule.target_diagrams && rule.target_diagrams.length > 0)
@@ -604,6 +619,7 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
         generate_doc: generate_doc ?? true,
         generate_diagram: generate_diagram ?? false,
         auto_publish: auto_publish ?? false,
+        auto_approve: auto_approve ?? false,
         target_diagrams: targetDiagrams,
 
         // LEGACY: Keep for backward compatibility (not displayed in UI)
@@ -706,11 +722,13 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
     if (!singleRuleForm) return;
     const generateDiagram = preset === 'diagrams_only' || preset === 'docs_and_diagrams' || preset === 'full_auto_publish';
     const autoPublish = preset === 'full_auto_publish';
+    const autoApprove = autoPublish ? true : singleRuleForm.auto_approve;
     setSingleRuleForm({
       ...singleRuleForm,
       generate_doc: preset !== 'diagrams_only' || autoPublish,
       generate_diagram: generateDiagram,
       auto_publish: autoPublish,
+      auto_approve: autoApprove,
     });
   }
 
@@ -744,6 +762,7 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
       generate_doc: form.generate_doc,
       generate_diagram: form.generate_diagram,
       auto_publish: form.auto_publish,
+      auto_approve: form.auto_approve,
       target_diagrams: form.target_diagrams || [],
     };
 
@@ -1620,6 +1639,23 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
 
                     </div>
 
+
+                    <div className="rounded-lg border border-white/10 bg-white/5 p-4">
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-medium text-white/90">Auto-approve doc updates</p>
+                          <p className="text-xs text-white/60">
+                            Apply regenerated documentation automatically without manual review.
+                          </p>
+                        </div>
+                        <Switch
+                          checked={Boolean(singleRuleForm?.auto_approve)}
+                          onCheckedChange={(value) => updateSingleRuleField('auto_approve', value)}
+                          aria-label={singleRuleForm?.auto_approve ? 'Disable auto-approve' : 'Enable auto-approve'}
+                          className="scale-90"
+                        />
+                      </div>
+                    </div>
 
                     <div className="grid gap-3 md:grid-cols-2">
                       <label className="text-sm text-white/80">

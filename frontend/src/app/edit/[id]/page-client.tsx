@@ -32,6 +32,7 @@ interface Submission {
   code_snapshot?: any;
   is_outdated: boolean;
   selected_files?: string[] | null;
+  pending_review?: { id: string; created_at?: string | null } | null;
 }
 
 interface EditDetailPageClientProps {
@@ -75,6 +76,7 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
   const [showChangedFiles, setShowChangedFiles] = useState(false);
   const [dismissedBanner, setDismissedBanner] = useState(false);
   const [dismissedRenameBanner, setDismissedRenameBanner] = useState(false);
+  const [dismissedPendingReview, setDismissedPendingReview] = useState(false);
 
   // Tracked files management state
   const [trackedFiles, setTrackedFiles] = useState<string[]>(
@@ -861,6 +863,60 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                     size="icon"
                     className="flex-shrink-0 rounded-lg p-1.5 text-blue-200/70 hover:bg-blue-500/20 hover:text-blue-100"
                     onClick={() => setDismissedRenameBanner(true)}
+                    aria-label="Dismiss"
+                  >
+                    <X className="h-5 w-5" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {initialSubmission.pending_review && !dismissedPendingReview && (
+            <div className="glass-panel mt-4 border-purple-500/30 bg-gradient-to-br from-purple-500/10 to-indigo-600/10 p-6 relative overflow-hidden">
+              <div className="absolute inset-0 opacity-5">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-purple-400 rounded-full blur-3xl"></div>
+                <div className="absolute bottom-0 left-0 w-24 h-24 bg-indigo-500 rounded-full blur-2xl"></div>
+              </div>
+
+              <div className="relative">
+                <div className="mb-4 flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-4 flex-1">
+                    <div className="rounded-xl bg-purple-500/20 p-3 border border-purple-500/30">
+                      <GitCompare className="h-6 w-6 text-purple-300" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-lg font-semibold text-purple-100 mb-1">
+                        Automated update ready for review
+                      </h3>
+                      <p className="text-sm text-purple-200/90 mb-3">
+                        A regenerated draft is waiting for your approval before it replaces the current document.
+                      </p>
+                      {initialSubmission.pending_review?.created_at && (
+                        <p className="text-xs text-purple-200/60 mb-4">
+                          Generated {new Date(initialSubmission.pending_review.created_at).toLocaleString()}
+                        </p>
+                      )}
+
+                      <div className="flex flex-wrap items-center gap-3">
+                        <Button
+                          asChild
+                          variant="secondary"
+                          className="inline-flex items-center gap-2 border border-purple-500/50 bg-purple-500/30 px-5 text-purple-50 hover:bg-purple-500/40"
+                        >
+                          <Link href={`/review/${initialSubmission.id}`}>
+                            <GitCompare className="h-4 w-4" />
+                            <span>Review Update</span>
+                          </Link>
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="flex-shrink-0 rounded-lg p-1.5 text-purple-200/70 hover:bg-purple-500/20 hover:text-purple-100"
+                    onClick={() => setDismissedPendingReview(true)}
                     aria-label="Dismiss"
                   >
                     <X className="h-5 w-5" />

@@ -69,6 +69,8 @@ export type GenerateDocParams = {
 	promptConfig?: PromptConfigType | null;
 	useSummaries?: boolean;
 	submissionId?: string;
+	existingMarkdown?: string | null;
+	isUpdate?: boolean;
 };
 
 export type GenerateDocResult = {
@@ -90,6 +92,8 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 		promptConfig,
 		useSummaries = false,
 		submissionId,
+		existingMarkdown,
+		isUpdate = false,
 	} = params;
 
 	if (!model) {
@@ -187,7 +191,12 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 		);
 	}
 
-	const systemPrompt = buildSystemPrompt(promptConfig ?? null, false);
+	function truncateForPrompt(text: string, maxChars: number): string {
+		if (text.length <= maxChars) return text;
+		return `${text.slice(0, maxChars)}\n\n[...truncated...]`;
+	}
+
+	const systemPrompt = buildSystemPrompt(promptConfig ?? null, isUpdate);
 
 	// Build file content - MUST use summaries if useSummaries is true
 	const fileContentParts: string[] = [];
@@ -274,7 +283,16 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 	}
 
 	const fileContent = fileContentParts.join('\n\n');
-	const userPrompt = `Project: ${projectName}\n\nFiles (${fileEntries.length}):\n${fileContent}`;
+	const existingDocBlock =
+		isUpdate && typeof existingMarkdown === 'string' && existingMarkdown.trim()
+			? `Existing documentation (preserve structure and non-code context where possible):\n\n${truncateForPrompt(existingMarkdown.trim(), 12000)}\n\n---\n\n`
+			: '';
+
+	const updateTaskBlock = isUpdate
+		? '\n\nTask: Update the existing documentation to reflect the files below. Preserve headings and section order where possible, and only change what is necessary.'
+		: '';
+
+	const userPrompt = `Project: ${projectName}\n\n${existingDocBlock}Files (${fileEntries.length}):\n${fileContent}${updateTaskBlock}`;
 
 	// Estimate token count and select appropriate model
 	const systemTokens = estimateTokenCount(systemPrompt);
@@ -307,4 +325,3 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 		promptConfig,
 	};
 }
-
