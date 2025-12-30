@@ -124,6 +124,10 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
         window.location.href = '/api/oauth/notion/start';
         return;
       }
+      if (providerName === 'confluence') {
+        window.location.href = '/api/oauth/confluence/start';
+        return;
+      }
 
       throw new Error(`${getProviderDisplayName(providerName)} integration is not available yet.`);
     } catch (err: any) {
@@ -429,24 +433,24 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                       >
                         Disconnect
                       </Button>
-                    ) : (<p>Connect Confluence (Coming Soon)</p>
-                      // <button
-                      //   onClick={() => connectToProvider('confluence')}
-                      //   disabled={connecting}
-                      //   className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                      // >
-                      //   {connecting ? (
-                      //     <span className="flex items-center justify-center gap-2">
-                      //       <Loader2 className="h-4 w-4 animate-spin" />
-                      //       Connecting...
-                      //     </span>
-                      //   ) : (
-                      //     <span className="flex items-center justify-center gap-2">
-                      //       <Link2 className="h-4 w-4" />
-                      //       Connect Confluence (Coming Soon)
-                      //     </span>
-                      //   )}
-                      // </button>
+                    ) : (
+                      <Button
+                        onClick={() => connectToProvider('confluence')}
+                        disabled={connecting}
+                        className="w-full bg-blue-600 text-white hover:bg-blue-700"
+                      >
+                        {connecting ? (
+                          <span className="flex items-center justify-center gap-2">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Connecting...
+                          </span>
+                        ) : (
+                          <span className="flex items-center justify-center gap-2">
+                            <Link2 className="h-4 w-4" />
+                            Connect Confluence
+                          </span>
+                        )}
+                      </Button>
                     )}
                   </div>
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type DragEvent } from 'react';
 import { Plus, X, GripVertical, FileText, Sparkles, Layers, BookOpen, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -41,7 +41,8 @@ const defaultSections: DocumentSection[] = [
 
 export function DocumentStructure({ config, onChange, onSave, saving = false, saveMessage, saveError }: DocumentStructureProps) {
   const [expanded, setExpanded] = useState(false);
-  const [, setDraggedIndex] = useState<number | null>(null);
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [activePreset, setActivePreset] = useState<'minimal' | 'default' | 'comprehensive' | null>(null);
 
   const hasCustomStructure = config.sections.length > 0 || config.customStructure;
@@ -75,6 +76,42 @@ export function DocumentStructure({ config, onChange, onSave, saving = false, sa
 
   function toggleRequired(id: string) {
     updateSection(id, { required: !config.sections.find(s => s.id === id)?.required });
+  }
+
+  function moveSection(fromIndex: number, toIndex: number) {
+    if (fromIndex === toIndex) return;
+    const next = [...config.sections];
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, moved);
+    onChange({ ...config, sections: next });
+  }
+
+  function handleDragStart(event: DragEvent<HTMLButtonElement>, index: number) {
+    setDraggedIndex(index);
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', String(index));
+  }
+
+  function handleDragOver(event: DragEvent<HTMLDivElement>, index: number) {
+    event.preventDefault();
+    if (dragOverIndex !== index) {
+      setDragOverIndex(index);
+    }
+    event.dataTransfer.dropEffect = 'move';
+  }
+
+  function handleDrop(event: DragEvent<HTMLDivElement>, index: number) {
+    event.preventDefault();
+    const fromIndex = draggedIndex ?? Number(event.dataTransfer.getData('text/plain'));
+    if (Number.isNaN(fromIndex)) return;
+    moveSection(fromIndex, index);
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+  }
+
+  function handleDragEnd() {
+    setDraggedIndex(null);
+    setDragOverIndex(null);
   }
 
   function usePreset(preset: 'default' | 'minimal' | 'comprehensive') {
@@ -268,15 +305,22 @@ export function DocumentStructure({ config, onChange, onSave, saving = false, sa
                 {config.sections.map((section, index) => (
                   <div
                     key={section.id}
-                    className="group relative flex items-start gap-3 rounded-lg border-2 border-white/20 bg-gradient-to-br from-white/5 to-white/[0.02] p-4 shadow-sm hover:border-white/30 hover:bg-white/10 hover:shadow-md transition-all duration-200"
+                    className={cn(
+                      "group relative flex items-start gap-3 rounded-lg border-2 border-white/20 bg-gradient-to-br from-white/5 to-white/[0.02] p-4 shadow-sm hover:border-white/30 hover:bg-white/10 hover:shadow-md transition-all duration-200",
+                      dragOverIndex === index ? 'border-blue-400/60 bg-blue-500/10' : ''
+                    )}
+                    onDragOver={(event) => handleDragOver(event, index)}
+                    onDrop={(event) => handleDrop(event, index)}
+                    onDragLeave={() => setDragOverIndex((current) => (current === index ? null : current))}
                   >
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon"
                       className="mt-1.5 flex-shrink-0 cursor-move text-white/40 hover:text-white/70 active:cursor-grabbing"
-                      onMouseDown={() => setDraggedIndex(index)}
-                      onMouseUp={() => setDraggedIndex(null)}
+                      draggable
+                      onDragStart={(event) => handleDragStart(event, index)}
+                      onDragEnd={handleDragEnd}
                       title="Drag to reorder"
                     >
                       <GripVertical className="h-5 w-5" />

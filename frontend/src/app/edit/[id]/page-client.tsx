@@ -169,9 +169,20 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
   // Push configuration state
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const [pushTitle, setPushTitle] = useState(title || 'Untitled');
-  const [selectedParent, setSelectedParent] = useState<{ id: string; type: string; title: string } | null>(null);
-  const [availableResources, setAvailableResources] = useState<Array<{ id: string; type: string; title: string; url?: string }>>([]);
+  const [selectedParent, setSelectedParent] = useState<{
+    id: string;
+    type: string;
+    title: string;
+    url?: string;
+    metadata?: Record<string, any>;
+  } | null>(null);
+  const [availableResources, setAvailableResources] = useState<
+    Array<{ id: string; type: string; title: string; url?: string; metadata?: Record<string, any> }>
+  >([]);
   const [loadingResources, setLoadingResources] = useState(false);
+  const [confluencePages, setConfluencePages] = useState<Array<{ id: string; title: string }>>([]);
+  const [selectedConfluenceParent, setSelectedConfluenceParent] = useState<{ id: string; title: string } | null>(null);
+  const [loadingConfluencePages, setLoadingConfluencePages] = useState(false);
 
   // Review panel state
   const [viewMode, setViewMode] = useState<ViewMode>('editor');
@@ -463,6 +474,8 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
     setPushTitle(title || 'Untitled');
     setSelectedParent(null);
     setAvailableResources([]);
+    setConfluencePages([]);
+    setSelectedConfluenceParent(null);
     loadConnections();
   }
 
@@ -474,6 +487,8 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
     setPushTitle(title || 'Untitled');
     setSelectedParent(null);
     setAvailableResources([]);
+    setConfluencePages([]);
+    setSelectedConfluenceParent(null);
   }
 
   function closeRegenerateModal() {
@@ -490,6 +505,8 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
     setLoadingResources(true);
     setAvailableResources([]);
     setSelectedParent(null);
+    setConfluencePages([]);
+    setSelectedConfluenceParent(null);
 
     try {
       const { data: sessionData } = await supabase.auth.getSession();
@@ -522,9 +539,65 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
     }
   }
 
+  async function loadConfluencePagesForSpace(spaceResourceId: string) {
+    setLoadingConfluencePages(true);
+    setConfluencePages([]);
+    setSelectedConfluenceParent(null);
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+
+      if (!token) {
+        throw new Error('Not authenticated');
+      }
+
+      const [cloudId, ...spaceParts] = spaceResourceId.split(':');
+      const spaceId = spaceParts.join(':');
+      if (!cloudId || !spaceId) {
+        throw new Error('Invalid Confluence space selection');
+      }
+
+      const params = new URLSearchParams({
+        provider: 'confluence',
+        cloudId,
+        spaceId,
+        resourceType: 'pages',
+      });
+
+      const response = await fetch(`/api/push/resources?${params.toString()}`, {
+        method: 'GET',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${token}`
+        }
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || result.detail || 'Failed to load Confluence pages');
+      }
+
+      setConfluencePages(
+        (result.resources || []).map((page: any) => ({
+          id: page.id,
+          title: page.title || page.name || page.id,
+        }))
+      );
+    } catch (err: any) {
+      console.error('Failed to load Confluence pages:', err);
+      setPushError(`Failed to load Confluence pages: ${err.message}`);
+    } finally {
+      setLoadingConfluencePages(false);
+    }
+  }
+
   function handleProviderSelect(provider: string) {
     setSelectedProvider(provider);
     setSelectedParent(null);
+    setConfluencePages([]);
+    setSelectedConfluenceParent(null);
     loadResourcesForProvider(provider);
   }
 
@@ -564,10 +637,24 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
             }
           };
         } else if (selectedProvider === 'confluence') {
+          const spaceId = selectedParent.metadata?.spaceId
+            || (selectedParent.id.includes(':')
+              ? selectedParent.id.split(':').slice(1).join(':')
+              : selectedParent.id);
+          const spaceKey = selectedParent.metadata?.spaceKey || null;
+          const parentId = selectedConfluenceParent?.id
+            ? (selectedConfluenceParent.id.includes(':')
+              ? selectedConfluenceParent.id.split(':').slice(1).join(':')
+              : selectedConfluenceParent.id)
+            : null;
           workspaceInfo = {
             provider: selectedProvider,
-            resourceId: selectedParent.id, // space key
-            metadata: { spaceKey: selectedParent.id }
+            resourceId: selectedParent.id, // cloudId:spaceId
+            metadata: {
+              spaceId,
+              spaceKey,
+              parentId,
+            }
           };
         } else if (selectedProvider === 'coda') {
           workspaceInfo = {
@@ -1788,6 +1875,8 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                           setSelectedProvider(null);
                           setSelectedParent(null);
                           setAvailableResources([]);
+                          setConfluencePages([]);
+                          setSelectedConfluenceParent(null);
                         }}
                         variant="ghost"
                         className="text-sm text-white/70 hover:text-white flex items-center gap-2"
@@ -1822,7 +1911,8 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                           </div>
                         ) : availableResources.length === 0 ? (
                           <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-yellow-200 text-sm">
-                            No resources found. Please ensure your {getProviderDisplayName(selectedProvider)} workspace has pages or databases.
+                            No resources found. Please ensure your {getProviderDisplayName(selectedProvider)} workspace has{' '}
+                            {selectedProvider === 'confluence' ? 'spaces' : 'pages or databases'}.
                           </div>
                         ) : (
                           <div className="relative">
@@ -1830,8 +1920,16 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                               value={selectedParent?.id || ''}
                               onChange={(e) => {
                                 const resource = availableResources.find(r => r.id === e.target.value);
-                                if (resource) {
-                                  setSelectedParent(resource);
+                                if (!resource) {
+                                  setSelectedParent(null);
+                                  setConfluencePages([]);
+                                  setSelectedConfluenceParent(null);
+                                  return;
+                                }
+
+                                setSelectedParent(resource);
+                                if (selectedProvider === 'confluence') {
+                                  loadConfluencePagesForSpace(resource.id);
                                 }
                               }}
                               className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-white focus:border-blue-500/50 focus:outline-none focus:ring-2 focus:ring-blue-500/20 appearance-none pr-10"
@@ -1850,6 +1948,41 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                           <p className="mt-1 text-xs text-white/50">
                             Select a page or database where the new documentation will be created
                           </p>
+                        )}
+                        {selectedProvider === 'confluence' && selectedParent && (
+                          <div className="mt-4">
+                            <label className="block text-sm font-medium text-white/80 mb-2">
+                              Parent Page (optional)
+                            </label>
+                            {loadingConfluencePages ? (
+                              <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-3">
+                                <Loader2 className="h-4 w-4 animate-spin text-white/50" />
+                                <span className="text-white/60">Loading pages...</span>
+                              </div>
+                            ) : (
+                              <div className="relative">
+                                <select
+                                  value={selectedConfluenceParent?.id || ''}
+                                  onChange={(e) => {
+                                    const page = confluencePages.find((entry) => entry.id === e.target.value);
+                                    setSelectedConfluenceParent(page || null);
+                                  }}
+                                  className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-white focus:border-blue-500/50 focus:outline-none focus:ring-2 focus:ring-blue-500/20 appearance-none pr-10"
+                                >
+                                  <option value="">No parent page (top-level)</option>
+                                  {confluencePages.map((page) => (
+                                    <option key={page.id} value={page.id} className="bg-gray-800">
+                                      {page.title}
+                                    </option>
+                                  ))}
+                                </select>
+                                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/60 pointer-events-none" />
+                              </div>
+                            )}
+                            <p className="mt-1 text-xs text-white/50">
+                              Choose a parent page to place this document in the page tree.
+                            </p>
+                          </div>
                         )}
                       </div>
 
