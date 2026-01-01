@@ -73,6 +73,7 @@ type AutomationAlert = {
 } | null;
 
 type AutomationPreset = 'docs_only' | 'diagrams_only' | 'docs_and_diagrams' | 'full_auto_publish';
+type StatsRange = 'all' | '24h' | '7d' | '30d';
 
 interface AutomationPageClientProps {
   user: SupabaseUser | null;
@@ -97,12 +98,18 @@ interface AutomationPageClientProps {
   stats: {
     totalRules: number;
     activeRules: number;
-    executions24h: number;
+    executions: number;
     successRate: number;
   };
 }
 
 const KNOWLEDGE_BASE_PROVIDERS = new Set<string>(['notion', 'confluence', 'coda']);
+const STATS_RANGE_OPTIONS: Array<{ value: StatsRange; label: string; description: string }> = [
+  { value: 'all', label: 'All time', description: 'all time' },
+  { value: '24h', label: '24h', description: 'last 24 hours' },
+  { value: '7d', label: '7d', description: 'last 7 days' },
+  { value: '30d', label: '30d', description: 'last 30 days' },
+];
 
 function presetFromFlags(flags: { generate_doc?: boolean; generate_diagram?: boolean; auto_publish?: boolean }): AutomationPreset {
   const generateDoc = Boolean(flags.generate_doc);
@@ -338,6 +345,7 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
   const [connections, setConnections] = useState<Connection[]>(initialConnections);
   const [allRules, setAllRules] = useState(initialAllRules);
   const [stats, setStats] = useState(initialStats);
+  const [statsRange, setStatsRange] = useState<StatsRange>('all');
   const [activeAutomationRepoId, setActiveAutomationRepoId] = useState<string | null>(null);
   const [automationLoading, setAutomationLoading] = useState<Record<string, boolean>>({});
   const [automationSaving, setAutomationSaving] = useState<Record<string, boolean>>({});
@@ -369,8 +377,12 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
     loadConnections();
   }, []);
 
+  useEffect(() => {
+    updateStatsFromRules();
+  }, [statsRange]);
+
   // Update stats by fetching fresh data from server
-  async function updateStatsFromRules() {
+  async function updateStatsFromRules(range: StatsRange = statsRange) {
     try {
       // Fetch fresh automation rules from all repos
       let query = supabase
@@ -417,36 +429,38 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
       setAllRules(freshAllRules);
 
       // Fetch execution statistics from automation_runs table
-      let totalExecutions24h = 0;
-      let successfulExecutions24h = 0;
+      let executions = 0;
+      let successfulExecutions = 0;
+      let failedExecutions = 0;
       let successRate = 0;
 
       try {
-        const response = await fetch('/api/automation/stats');
+        const response = await fetch(`/api/automation/stats?range=${encodeURIComponent(range)}`);
         if (response.ok) {
           const stats = await response.json();
-          totalExecutions24h = stats.executions24h || 0;
-          successfulExecutions24h = stats.successfulExecutions24h || 0;
+          executions = stats.executions || 0;
+          successfulExecutions = stats.successfulExecutions || 0;
+          failedExecutions = stats.failedExecutions || 0;
           if (typeof stats.successRate === 'number') {
             successRate = stats.successRate;
           } else {
-            const totalRuns = stats.executionsTotal || 0;
-            const totalSuccesses = stats.successfulExecutionsTotal || 0;
-            successRate = totalRuns > 0 ? Math.round((totalSuccesses / totalRuns) * 100) : 0;
+            const totalRuns = successfulExecutions + failedExecutions;
+            successRate = totalRuns > 0 ? Math.round((successfulExecutions / totalRuns) * 100) : 0;
           }
         }
       } catch (error) {
         console.error('Failed to fetch automation stats:', error);
       }
 
-      if (successRate === 0 && totalExecutions24h > 0) {
-        successRate = Math.round((successfulExecutions24h / totalExecutions24h) * 100);
+      const totalRunsForRate = successfulExecutions + failedExecutions;
+      if (successRate === 0 && totalRunsForRate > 0) {
+        successRate = Math.round((successfulExecutions / totalRunsForRate) * 100);
       }
 
       setStats({
         totalRules,
         activeRules,
-        executions24h: totalExecutions24h,
+        executions,
         successRate,
       });
     } catch (error) {
@@ -461,8 +475,6 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
       if (!response.ok) throw new Error('Failed to load repositories');
       const data = await response.json();
       setReposList(data || []);
-      // Recalculate rules and stats from the fetched repos data
-      updateStatsFromRules();
     } catch (err: any) {
       setRepoError(err.message || 'Failed to load repositories');
       setTimeout(() => setRepoError(''), 5000);
@@ -1006,10 +1018,11 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
         ? `Loading ${providerDisplayName || 'resources'}...`
         : resourceError
           ? resourceError
-          : resourceOptions.length === 0
-            ? `No resources found for ${providerDisplayName || 'this provider'} yet.`
-            : `Choose a resource to publish to ${providerDisplayName || 'this provider'}.`;
+        : resourceOptions.length === 0
+          ? `No resources found for ${providerDisplayName || 'this provider'} yet.`
+          : `Choose a resource to publish to ${providerDisplayName || 'this provider'}.`;
   const defaultOptionLabel = resourceLoading ? `Loading ${providerDisplayName || 'resources'}...` : 'Select a resource';
+  const statsRangeMeta = STATS_RANGE_OPTIONS.find((option) => option.value === statsRange) || STATS_RANGE_OPTIONS[0];
 
   // Helper functions for UI
 
@@ -1049,6 +1062,23 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
             </CardDescription>
           </CardHeader>
           <CardContent>
+            <div className="flex flex-col gap-3 pb-4 md:flex-row md:items-center md:justify-between">
+              <p className="text-sm text-white/60">Stats range</p>
+              <div className="flex flex-wrap gap-2">
+                {STATS_RANGE_OPTIONS.map((option) => (
+                  <Button
+                    key={option.value}
+                    type="button"
+                    size="sm"
+                    radius="full"
+                    variant={statsRange === option.value ? 'secondary' : 'ghost'}
+                    onClick={() => setStatsRange(option.value)}
+                  >
+                    {option.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
             {/* Summary Cards */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <Card>
@@ -1076,11 +1106,11 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
               <Card>
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between mb-2">
-                    <p className="text-sm text-white/60">Last 24h</p>
+                    <p className="text-sm text-white/60">Executions</p>
                     <TrendingUp className="h-5 w-5 text-blue-400" />
                   </div>
-                  <p className="text-3xl font-semibold text-white">{stats.executions24h}</p>
-                  <p className="text-xs text-white/50 mt-1">executions</p>
+                  <p className="text-3xl font-semibold text-white">{stats.executions}</p>
+                  <p className="text-xs text-white/50 mt-1">{statsRangeMeta.description}</p>
                 </CardContent>
               </Card>
 
@@ -1091,7 +1121,7 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
                     <CheckCircle2 className="h-5 w-5 text-emerald-400" />
                   </div>
                   <p className="text-3xl font-semibold text-white">{stats.successRate}%</p>
-                  <p className="text-xs text-white/50 mt-1">last 24 hours</p>
+                  <p className="text-xs text-white/50 mt-1">{statsRangeMeta.description}</p>
                 </CardContent>
               </Card>
             </div>

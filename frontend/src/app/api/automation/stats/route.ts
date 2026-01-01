@@ -11,44 +11,70 @@ export async function GET(request: NextRequest) {
 
     const supabase = await createSupabaseClient();
 
-    // Get current time and 24 hours ago
+    const url = new URL(request.url);
+    const rangeParam = (url.searchParams.get('range') || 'all').toLowerCase();
+    const range = ['all', '24h', '7d', '30d'].includes(rangeParam) ? rangeParam : 'all';
+
+    // Get current time and range start (if needed)
     const now = new Date();
-    const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const rangeStart = range === '24h'
+      ? new Date(now.getTime() - 24 * 60 * 60 * 1000)
+      : range === '7d'
+        ? new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+        : range === '30d'
+          ? new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+          : null;
 
     const [
-      { count: executions24h, error: last24Error },
-      { count: successfulExecutions24h, error: last24SuccessError },
-      { count: executionsTotal, error: totalError },
-      { count: successfulExecutionsTotal, error: totalSuccessError },
+      { count: executions, error: executionsError },
+      { count: successfulExecutions, error: successError },
+      { count: failedExecutions, error: failedError },
     ] = await Promise.all([
-      supabase
-        .from('automation_runs')
-        .select('id', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .gte('executed_at', twentyFourHoursAgo.toISOString()),
-      supabase
-        .from('automation_runs')
-        .select('id', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .eq('status', 'succeeded')
-        .gte('executed_at', twentyFourHoursAgo.toISOString()),
-      supabase
-        .from('automation_runs')
-        .select('id', { count: 'exact', head: true })
-        .eq('user_id', user.id),
-      supabase
-        .from('automation_runs')
-        .select('id', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .eq('status', 'succeeded'),
+      (rangeStart
+        ? supabase
+          .from('automation_runs')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .gte('executed_at', rangeStart.toISOString())
+        : supabase
+          .from('automation_runs')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+      ),
+      (rangeStart
+        ? supabase
+          .from('automation_runs')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .eq('status', 'succeeded')
+          .gte('executed_at', rangeStart.toISOString())
+        : supabase
+          .from('automation_runs')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .eq('status', 'succeeded')
+      ),
+      (rangeStart
+        ? supabase
+          .from('automation_runs')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .eq('status', 'failed')
+          .gte('executed_at', rangeStart.toISOString())
+        : supabase
+          .from('automation_runs')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .eq('status', 'failed')
+      ),
     ]);
 
-    if (last24Error || last24SuccessError || totalError || totalSuccessError) {
+    if (executionsError || successError || failedError) {
       console.error('Error fetching automation runs:', {
-        last24Error,
-        last24SuccessError,
-        totalError,
-        totalSuccessError,
+        executionsError,
+        successError,
+        failedError,
+        range,
       });
       return NextResponse.json(
         { error: 'Failed to fetch automation statistics' },
@@ -56,17 +82,18 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const totalRuns = executionsTotal || 0;
-    const totalSuccesses = successfulExecutionsTotal || 0;
-    const successRate = totalRuns > 0
-      ? Math.round((totalSuccesses / totalRuns) * 100)
+    const totalSuccesses = successfulExecutions || 0;
+    const totalFailures = failedExecutions || 0;
+    const totalRunsForRate = totalSuccesses + totalFailures;
+    const successRate = totalRunsForRate > 0
+      ? Math.round((totalSuccesses / totalRunsForRate) * 100)
       : 0;
 
     return NextResponse.json({
-      executions24h: executions24h || 0,
-      successfulExecutions24h: successfulExecutions24h || 0,
-      executionsTotal: totalRuns,
-      successfulExecutionsTotal: totalSuccesses,
+      range,
+      executions: executions || 0,
+      successfulExecutions: totalSuccesses,
+      failedExecutions: totalFailures,
       successRate,
     });
   } catch (err: any) {

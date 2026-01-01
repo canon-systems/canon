@@ -116,7 +116,7 @@ export default async function AutomationPage() {
       stats={{
         totalRules,
         activeRules,
-        executions24h: 0, // Will be calculated client-side from API
+        executions: 0, // Will be calculated client-side from API
         successRate: 0,   // Will be calculated client-side from API
       }}
     />
