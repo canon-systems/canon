@@ -98,8 +98,8 @@ export function LoginPageClient() {
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(255,255,255,0.08),transparent_55%)]" />
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.05)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.05)_1px,transparent_1px)] bg-[size:72px_72px] [mask-image:radial-gradient(ellipse_at_center,black,transparent_70%)]" />
 
-      <div className="relative z-10 mx-auto flex w-full max-w-5xl flex-col gap-8 lg:flex-row lg:items-start lg:gap-12">
-        <div className="w-full space-y-6 lg:w-7/12">
+      <div className="relative z-10 mx-auto flex w-full max-w-xl flex-col items-center gap-8">
+        <div className="w-full space-y-6">
           <div className="space-y-3">
             <Badge>Automated Knowledge Infrastructure</Badge>
             <h1 className="text-3xl font-semibold sm:text-4xl">
@@ -240,29 +240,6 @@ export function LoginPageClient() {
               <AlertDescription>{infoMsg}</AlertDescription>
             </Alert>
           )}
-        </div>
-
-        <div className="w-full space-y-4 lg:w-5/12">
-          <Card className="h-full">
-            <CardHeader>
-              <CardTitle className="text-white">Canon keeps your docs alive</CardTitle>
-              <CardDescription>
-                Minimal, reviewable updates grounded in your code so every page stays trustworthy.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {[
-                { title: 'Grounded changes', body: 'Every draft links back to the relevant diffs and owners.' },
-                { title: 'Architecture ready', body: 'Auto-generated system views stay in sync with your repos.' },
-                { title: 'Review, then publish', body: 'You control what ships while Canon keeps things current.' },
-              ].map((item) => (
-                <div key={item.title} className="rounded-xl border border-white/10 bg-white/5 p-3">
-                  <p className="text-sm font-semibold text-white">{item.title}</p>
-                  <p className="text-sm text-white/70">{item.body}</p>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
         </div>
       </div>
     </div>
