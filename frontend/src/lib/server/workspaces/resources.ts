@@ -9,60 +9,71 @@ export type WorkspaceResource = {
 };
 
 async function notionSearch(connectionId: string, objectValue: 'page' | 'database') {
-  const token = await getProviderAccessToken({ provider: 'notion', connectionId });
-  if (!token) {
-    return [];
-  }
-
-  const url = new URL('https://api.notion.com/v1/search');
-  const response = await fetch(url.toString(), {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      'Notion-Version': '2022-06-28',
-    },
-    body: JSON.stringify({
-      filter: {
-        property: 'object',
-        value: objectValue,
-      },
-      page_size: 100,
-    }),
-  });
-
-  if (!response.ok) {
-    return [];
-  }
-
-  const payload = await response.json().catch(() => null);
-  if (!payload || !Array.isArray(payload.results)) {
-    return [];
-  }
-
-  return payload.results.map((item: any) => {
-    let title = 'Untitled';
-    const props = item.properties || {};
-    const titleProp = props.title || props.Name;
-    if (Array.isArray(titleProp?.title)) {
-      title = titleProp.title.map((t: any) => t.text?.content || '').join('').trim() || title;
-    } else if (Array.isArray(item.title)) {
-      title = item.title.map((t: any) => t.text?.content || '').join('').trim() || title;
+  try {
+    const token = await getProviderAccessToken({ provider: 'notion', connectionId });
+    if (!token) {
+      return [];
     }
 
-    return {
-      id: item.id,
-      type: objectValue === 'page' ? 'page' : 'database',
-      title,
-      url: item.url,
-    };
-  });
+    const url = new URL('https://api.notion.com/v1/search');
+    const response = await fetch(url.toString(), {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'Notion-Version': '2022-06-28',
+      },
+      body: JSON.stringify({
+        filter: {
+          property: 'object',
+          value: objectValue,
+        },
+        page_size: 100,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      throw new Error(`Notion API error (${response.status}): ${errorText || response.statusText}`);
+    }
+
+    const payload = await response.json().catch(() => null);
+    if (!payload || !Array.isArray(payload.results)) {
+      return [];
+    }
+
+    return payload.results.map((item: any) => {
+      let title = 'Untitled';
+      const props = item.properties || {};
+      const titleProp = props.title || props.Name;
+      if (Array.isArray(titleProp?.title)) {
+        title = titleProp.title.map((t: any) => t.text?.content || '').join('').trim() || title;
+      } else if (Array.isArray(item.title)) {
+        title = item.title.map((t: any) => t.text?.content || '').join('').trim() || title;
+      }
+
+      return {
+        id: item.id,
+        type: objectValue === 'page' ? 'page' : 'database',
+        title,
+        url: item.url,
+      };
+    });
+  } catch (error) {
+    console.error(`Notion search error (${objectValue}):`, error);
+    throw error;
+  }
 }
 
 async function getNotionResources(connectionId: string): Promise<WorkspaceResource[]> {
-  const pages = await notionSearch(connectionId, 'page');
-  const databases = await notionSearch(connectionId, 'database');
-  return [...pages, ...databases];
+  try {
+    const pages = await notionSearch(connectionId, 'page');
+    const databases = await notionSearch(connectionId, 'database');
+    return [...pages, ...databases];
+  } catch (error) {
+    console.error('Failed to get Notion resources:', error);
+    throw error;
+  }
 }
 
 async function getConfluenceResources(connectionId: string): Promise<WorkspaceResource[]> {
