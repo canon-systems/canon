@@ -42,9 +42,9 @@ export default async function ReviewQueuePage() {
 
   const { data: documents } = repoIds.length > 0
     ? await supabase
-        .from('documents')
-        .select('id, title, repo_id')
-        .in('repo_id', repoIds)
+      .from('documents')
+      .select('id, title, repo_id')
+      .in('repo_id', repoIds)
     : { data: [] };
 
   const documentIds = (documents || []).map(doc => doc.id);
@@ -75,20 +75,20 @@ export default async function ReviewQueuePage() {
 
   const { data: pendingVersions } = documentIds.length > 0
     ? await supabase
-        .from('document_versions')
-        .select('id, document_id, created_at, change_summary, metadata')
-        .in('document_id', documentIds)
-        .eq('status', 'pending')
-        .order('created_at', { ascending: false })
+      .from('document_versions')
+      .select('id, document_id, created_at, change_summary, metadata')
+      .in('document_id', documentIds)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false })
     : { data: [] };
 
   const { data: rejectedVersions } = documentIds.length > 0
     ? await supabase
-        .from('document_versions')
-        .select('id, document_id, created_at, change_summary, metadata')
-        .in('document_id', documentIds)
-        .eq('status', 'rejected')
-        .order('created_at', { ascending: false })
+      .from('document_versions')
+      .select('id, document_id, created_at, change_summary, metadata')
+      .in('document_id', documentIds)
+      .eq('status', 'rejected')
+      .order('created_at', { ascending: false })
     : { data: [] };
 
   const pendingItems = (pendingVersions || [])
@@ -110,7 +110,7 @@ export default async function ReviewQueuePage() {
           <CardHeader className="space-y-1 pb-4">
             <div className="inline-flex items-center gap-2 text-white/80">
               <GitCompare className="h-5 w-5" />
-              <CardTitle className="text-2xl font-semibold text-white">Review Queue</CardTitle>
+              <CardTitle className="text-2xl font-semibold text-white">Review</CardTitle>
             </div>
             <CardDescription className="text-white/70">
               Approve or reject automated documentation updates before they replace live content. Rejected updates stay available for later review.
