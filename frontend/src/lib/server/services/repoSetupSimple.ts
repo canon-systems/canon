@@ -180,16 +180,24 @@ async function saveFileSummary(
 		summaryText += `\n\nResources: ${summary.resources}`;
 	}
 
-	const { error } = await supabase.rpc('upsert_repo_file_summary', {
-		p_repo_id: repoId,
-		p_file_path: normalizedPath,
-		p_file_hash: fileHash,
-		p_summary_text: summaryText,
-		p_summary_model: model,
-		p_user_id: userId,
-		// p_submission_id is omitted - not used and submissions table no longer exists
-		p_branch: branch,
-	});
+	const { error } = await supabase
+		.from('repo_file_summaries')
+		.upsert(
+			{
+				repo_id: repoId,
+				file_path: normalizedPath,
+				file_hash: fileHash,
+				summary_text: summaryText,
+				summary_model: model,
+				branch: branch,
+				regeneration_reason: 'initial',
+				updated_at: new Date().toISOString(),
+			},
+			{
+				onConflict: 'repo_id,file_path,branch',
+				ignoreDuplicates: false
+			}
+		);
 
 	if (error) {
 		throw new Error(`Failed to save summary: ${error.message}`);

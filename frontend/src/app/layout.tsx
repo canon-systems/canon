@@ -30,8 +30,8 @@ export default async function RootLayout({
   const { user, session } = await getSession();
 
   return (
-    <html lang="en">
-      <body className={`${inter.variable} ${spaceGrotesk.variable}`}>
+    <html lang="en" className="dark">
+      <body className={`min-h-screen bg-black text-white antialiased ${inter.variable} ${spaceGrotesk.variable}`}>
         <RootLayoutClient user={user} session={session}>
           {children}
         </RootLayoutClient>

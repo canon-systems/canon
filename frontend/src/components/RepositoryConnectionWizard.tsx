@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Github, Search, Loader2, CheckCircle2, AlertCircle, ExternalLink, Plus, ChevronRight, X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 
 interface RepositoryConnectionWizardProps {
   onComplete?: (repoId: string) => void;
@@ -221,20 +223,16 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
           To connect repositories, you need to connect your GitHub account. This allows access to both public and private repositories.
         </p>
         <div className="flex justify-center gap-4">
-          <a
-            href="/settings?tab=integrations"
-            className="btn btn-primary inline-flex items-center gap-2"
-          >
-            <Github className="h-4 w-4" />
-            Connect GitHub
-          </a>
+          <Button asChild>
+            <a href="/settings?tab=integrations" className="inline-flex items-center gap-2">
+              <Github className="h-4 w-4" />
+              Connect GitHub
+            </a>
+          </Button>
           {onCancel && (
-            <button
-              onClick={onCancel}
-              className="btn btn-secondary"
-            >
+            <Button variant="secondary" onClick={onCancel}>
               Cancel
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -250,12 +248,9 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
             <p className="text-white/60">Search for and connect a GitHub repository to start generating documentation.</p>
           </div>
           {onCancel && (
-            <button
-              onClick={onCancel}
-              className="btn btn-secondary"
-            >
+            <Button variant="secondary" onClick={onCancel}>
               Cancel
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -277,31 +272,30 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
           <div className="field-group">
             <span className="field-label">GitHub Owner/Organization</span>
             <div className="flex gap-3">
-              <input
-                type="text"
+              <Input
                 className="field-input flex-1"
                 placeholder="Enter username or organization (e.g., 'facebook', 'github', or @me for yours')"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onKeyPress={handleKeyPress}
               />
-              <button
+              <Button
                 onClick={() => searchRepositories()}
                 disabled={!searchQuery.trim() || isSearching}
-                className="btn btn-primary flex items-center gap-2"
+                className="flex items-center gap-2"
               >
-                {isSearching ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Search className="h-4 w-4" />
-                )}
-                {isSearching ? 'Searching...' : 'Search'}
-              </button>
-            </div>
-            <p className="field-note">
-              Tip: use <code className="px-1 rounded bg-white/10">@me</code> to list all repositories (public and private) you can access with your connected GitHub account.
-            </p>
-          </div>
+            {isSearching ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Search className="h-4 w-4" />
+            )}
+            {isSearching ? 'Searching...' : 'Search'}
+          </Button>
+        </div>
+        <p className="field-note">
+          Tip: use <code className="px-1 rounded bg-white/10">@me</code> to list all repositories (public and private) you can access with your connected GitHub account.
+        </p>
+      </div>
         </div>
       )}
 
@@ -309,12 +303,14 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
         <div className="space-y-6">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold text-white">Select Repository</h3>
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => setStep('search')}
-              className="text-sm text-white/60 hover:text-white"
+              className="h-auto text-sm text-white/70 hover:text-white"
             >
               ← Back to search
-            </button>
+            </Button>
           </div>
 
           {/* Repository Filter Search */}
@@ -322,20 +318,22 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
             <span className="field-label">Filter Repositories</span>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-white/40" />
-              <input
-                type="text"
+              <Input
                 className="field-input pl-10"
                 placeholder="Search repositories by name, description..."
                 value={repoFilterQuery}
                 onChange={(e) => setRepoFilterQuery(e.target.value)}
               />
               {repoFilterQuery && (
-                <button
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
                   onClick={() => setRepoFilterQuery('')}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-white/40 hover:text-white/60"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-white/60 hover:text-white"
                 >
                   <X className="h-4 w-4" />
-                </button>
+                </Button>
               )}
             </div>
             <p className="field-note">
@@ -406,16 +404,13 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
 
           {selectedRepo && (
             <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
-              <button
-                onClick={() => setStep('search')}
-                className="btn btn-secondary"
-              >
+              <Button variant="secondary" onClick={() => setStep('search')}>
                 Back
-              </button>
-              <button
+              </Button>
+              <Button
                 onClick={() => fetchBranches(selectedRepo)}
                 disabled={isLoadingBranches}
-                className="btn btn-primary flex items-center gap-2"
+                className="flex items-center gap-2"
               >
                 {isLoadingBranches ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -423,7 +418,7 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
                   <ChevronRight className="h-4 w-4" />
                 )}
                 {isLoadingBranches ? 'Loading Branches...' : 'Continue'}
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -433,12 +428,14 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
         <div className="space-y-6">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold text-white">Select Branch</h3>
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => setStep('select')}
-              className="text-sm text-white/60 hover:text-white"
+              className="h-auto text-sm text-white/70 hover:text-white"
             >
               ← Back to repositories
-            </button>
+            </Button>
           </div>
 
           {/* Branch Filter Search */}
@@ -446,20 +443,22 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
             <span className="field-label">Filter Branches</span>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-white/40" />
-              <input
-                type="text"
+              <Input
                 className="field-input pl-10"
                 placeholder="Search branches..."
                 value={branchFilterQuery}
                 onChange={(e) => setBranchFilterQuery(e.target.value)}
               />
               {branchFilterQuery && (
-                <button
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
                   onClick={() => setBranchFilterQuery('')}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-white/40 hover:text-white/60"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-white/60 hover:text-white"
                 >
                   <X className="h-4 w-4" />
-                </button>
+                </Button>
               )}
             </div>
             <p className="field-note">
@@ -531,16 +530,13 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
 
           {selectedBranch && (
             <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
-              <button
-                onClick={() => setStep('select')}
-                className="btn btn-secondary"
-              >
+              <Button variant="secondary" onClick={() => setStep('select')}>
                 Back
-              </button>
-              <button
+              </Button>
+              <Button
                 onClick={connectRepository}
                 disabled={isConnecting}
-                className="btn btn-primary flex items-center gap-2"
+                className="flex items-center gap-2"
               >
                 {isConnecting ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -548,7 +544,7 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
                   <Plus className="h-4 w-4" />
                 )}
                 {isConnecting ? 'Connecting...' : 'Connect Repository'}
-              </button>
+              </Button>
             </div>
           )}
         </div>

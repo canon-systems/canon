@@ -36,6 +36,7 @@ export async function GET(
       generate_doc: rule.generate_doc,
       generate_diagram: rule.generate_diagram,
       auto_publish: rule.auto_publish,
+      auto_approve: rule.auto_approve,
       target_diagrams: rule.target_diagrams,
       // Legacy fields
       auto_publish_target: rule.auto_publish_target,
@@ -124,6 +125,12 @@ export async function PATCH(
         : actionPreset
           ? actionPreset === 'full_auto_publish'
           : false;
+    const autoApprove =
+      typeof incomingRule.auto_approve === 'boolean'
+        ? incomingRule.auto_approve
+        : actionPreset
+          ? actionPreset === 'full_auto_publish'
+          : autoPublish;
 
     const { data: existingRule, error: existingError } = await supabase
       .from('automation_rules')
@@ -146,6 +153,7 @@ export async function PATCH(
       generate_doc: generateDoc,
       generate_diagram: generateDiagram,
       auto_publish: autoPublish,
+      auto_approve: autoApprove,
       target_diagrams: Array.isArray(incomingRule.target_diagrams) ? incomingRule.target_diagrams : [],
       auto_publish_target: incomingRule.auto_publish_target ?? null,
     };
@@ -182,6 +190,7 @@ export async function PATCH(
             generate_doc: savedRule.generate_doc,
             generate_diagram: savedRule.generate_diagram,
             auto_publish: savedRule.auto_publish,
+            auto_approve: savedRule.auto_approve,
             target_diagrams: savedRule.target_diagrams,
             auto_publish_target: savedRule.auto_publish_target,
           },

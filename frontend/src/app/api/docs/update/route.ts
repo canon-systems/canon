@@ -150,15 +150,24 @@ export async function POST(request: NextRequest) {
                   .single();
 
                 // Update hash in repo_file_summaries (preserve existing summaries)
-                const { error: hashUpdateError } = await supabase.rpc('upsert_repo_file_summary', {
-                  p_repo_id: normalizeRepoId(repo.repo_url),
-                  p_file_path: filePath,
-                  p_file_hash: currentHash,
-                  p_summary_text: existingSummary?.summary_text || '', // Preserve existing or use empty string
-                  p_summary_model: existingSummary?.summary_model || 'unknown', // Preserve existing or use default
-                  p_user_id: user.id,
-                  p_branch: branch,
-                });
+                const { error: hashUpdateError } = await supabase
+                  .from('repo_file_summaries')
+                  .upsert(
+                    {
+                      repo_id: normalizeRepoId(repo.repo_url),
+                      file_path: filePath,
+                      file_hash: currentHash,
+                      summary_text: existingSummary?.summary_text || '', // Preserve existing or use empty string
+                      summary_model: existingSummary?.summary_model || 'unknown', // Preserve existing or use default
+                      branch: branch,
+                      regeneration_reason: 'file_changed',
+                      updated_at: new Date().toISOString(),
+                    },
+                    {
+                      onConflict: 'repo_id,file_path,branch',
+                      ignoreDuplicates: false
+                    }
+                  );
 
                 if (hashUpdateError) {
                   console.warn(`Failed to update hash for ${filePath}:`, hashUpdateError);

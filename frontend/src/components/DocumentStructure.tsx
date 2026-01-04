@@ -1,7 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type DragEvent } from 'react';
 import { Plus, X, GripVertical, FileText, Sparkles, Layers, BookOpen, Loader2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Switch } from '@/components/ui/switch';
+import { cn } from '@/components/ui/utils';
 
 export interface DocumentSection {
   id: string;
@@ -36,7 +41,8 @@ const defaultSections: DocumentSection[] = [
 
 export function DocumentStructure({ config, onChange, onSave, saving = false, saveMessage, saveError }: DocumentStructureProps) {
   const [expanded, setExpanded] = useState(false);
-  const [, setDraggedIndex] = useState<number | null>(null);
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [activePreset, setActivePreset] = useState<'minimal' | 'default' | 'comprehensive' | null>(null);
 
   const hasCustomStructure = config.sections.length > 0 || config.customStructure;
@@ -70,6 +76,42 @@ export function DocumentStructure({ config, onChange, onSave, saving = false, sa
 
   function toggleRequired(id: string) {
     updateSection(id, { required: !config.sections.find(s => s.id === id)?.required });
+  }
+
+  function moveSection(fromIndex: number, toIndex: number) {
+    if (fromIndex === toIndex) return;
+    const next = [...config.sections];
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, moved);
+    onChange({ ...config, sections: next });
+  }
+
+  function handleDragStart(event: DragEvent<HTMLButtonElement>, index: number) {
+    setDraggedIndex(index);
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', String(index));
+  }
+
+  function handleDragOver(event: DragEvent<HTMLDivElement>, index: number) {
+    event.preventDefault();
+    if (dragOverIndex !== index) {
+      setDragOverIndex(index);
+    }
+    event.dataTransfer.dropEffect = 'move';
+  }
+
+  function handleDrop(event: DragEvent<HTMLDivElement>, index: number) {
+    event.preventDefault();
+    const fromIndex = draggedIndex ?? Number(event.dataTransfer.getData('text/plain'));
+    if (Number.isNaN(fromIndex)) return;
+    moveSection(fromIndex, index);
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+  }
+
+  function handleDragEnd() {
+    setDraggedIndex(null);
+    setDragOverIndex(null);
   }
 
   function usePreset(preset: 'default' | 'minimal' | 'comprehensive') {
@@ -118,9 +160,11 @@ export function DocumentStructure({ config, onChange, onSave, saving = false, sa
             <span className="text-xs text-white/50">(Default structure)</span>
           )}
         </div>
-        <button
+        <Button
           type="button"
-          className="flex items-center gap-1 text-xs text-white/60 hover:text-white/80 transition-colors"
+          variant="ghost"
+          size="sm"
+          className="h-auto gap-1 px-2 text-xs text-white/70 hover:text-white"
           onClick={() => setExpanded(!expanded)}
           title={expanded ? 'Hide structure options' : 'Customize document structure'}
         >
@@ -128,7 +172,7 @@ export function DocumentStructure({ config, onChange, onSave, saving = false, sa
           <span className={`transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}>
             <Plus className="h-3 w-3" />
           </span>
-        </button>
+        </Button>
       </div>
 
       {/* Quick preview when collapsed */}
@@ -150,69 +194,72 @@ export function DocumentStructure({ config, onChange, onSave, saving = false, sa
           <div>
             <label className="mb-3 block text-xs font-medium text-white/80 uppercase tracking-wide">Quick Presets</label>
             <div className="grid grid-cols-3 gap-3">
-              <button
+              <Button
                 type="button"
+                variant="outline"
                 onClick={() => usePreset('minimal')}
-                className={`group relative flex flex-col items-center gap-2 rounded-lg border-2 px-4 py-3 transition-all duration-200 ${
+                className={cn(
+                  "group relative flex flex-col items-center gap-2 border-2 px-4 py-3 text-xs font-medium",
                   activePreset === 'minimal'
-                    ? 'border-blue-400/60 bg-blue-500/20 shadow-lg shadow-blue-500/10'
-                    : 'border-white/20 bg-white/5 hover:border-white/30 hover:bg-white/10'
-                }`}
+                    ? 'border-blue-400/60 bg-blue-500/20 text-blue-200 shadow-lg shadow-blue-500/10'
+                    : 'border-white/20 bg-white/5 text-white/70 hover:border-white/30 hover:bg-white/10'
+                )}
               >
-                <Sparkles className={`h-4 w-4 transition-colors ${
+                <Sparkles className={cn(
+                  "h-4 w-4 transition-colors",
                   activePreset === 'minimal' ? 'text-blue-300' : 'text-white/50 group-hover:text-white/70'
-                }`} />
-                <span className={`text-xs font-medium transition-colors ${
-                  activePreset === 'minimal' ? 'text-blue-200' : 'text-white/70 group-hover:text-white'
-                }`}>
+                )} />
+                <span className="transition-colors">
                   Minimal
                 </span>
                 {activePreset === 'minimal' && (
                   <div className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-blue-400"></div>
                 )}
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
+                variant="outline"
                 onClick={() => usePreset('default')}
-                className={`group relative flex flex-col items-center gap-2 rounded-lg border-2 px-4 py-3 transition-all duration-200 ${
+                className={cn(
+                  "group relative flex flex-col items-center gap-2 border-2 px-4 py-3 text-xs font-medium",
                   activePreset === 'default'
-                    ? 'border-purple-400/60 bg-purple-500/20 shadow-lg shadow-purple-500/10'
-                    : 'border-white/20 bg-white/5 hover:border-white/30 hover:bg-white/10'
-                }`}
+                    ? 'border-purple-400/60 bg-purple-500/20 text-purple-200 shadow-lg shadow-purple-500/10'
+                    : 'border-white/20 bg-white/5 text-white/70 hover:border-white/30 hover:bg-white/10'
+                )}
               >
-                <Layers className={`h-4 w-4 transition-colors ${
+                <Layers className={cn(
+                  "h-4 w-4 transition-colors",
                   activePreset === 'default' ? 'text-purple-300' : 'text-white/50 group-hover:text-white/70'
-                }`} />
-                <span className={`text-xs font-medium transition-colors ${
-                  activePreset === 'default' ? 'text-purple-200' : 'text-white/70 group-hover:text-white'
-                }`}>
+                )} />
+                <span className="transition-colors">
                   Default
                 </span>
                 {activePreset === 'default' && (
                   <div className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-purple-400"></div>
                 )}
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
+                variant="outline"
                 onClick={() => usePreset('comprehensive')}
-                className={`group relative flex flex-col items-center gap-2 rounded-lg border-2 px-4 py-3 transition-all duration-200 ${
+                className={cn(
+                  "group relative flex flex-col items-center gap-2 border-2 px-4 py-3 text-xs font-medium",
                   activePreset === 'comprehensive'
-                    ? 'border-green-400/60 bg-green-500/20 shadow-lg shadow-green-500/10'
-                    : 'border-white/20 bg-white/5 hover:border-white/30 hover:bg-white/10'
-                }`}
+                    ? 'border-green-400/60 bg-green-500/20 text-green-200 shadow-lg shadow-green-500/10'
+                    : 'border-white/20 bg-white/5 text-white/70 hover:border-white/30 hover:bg-white/10'
+                )}
               >
-                <BookOpen className={`h-4 w-4 transition-colors ${
+                <BookOpen className={cn(
+                  "h-4 w-4 transition-colors",
                   activePreset === 'comprehensive' ? 'text-green-300' : 'text-white/50 group-hover:text-white/70'
-                }`} />
-                <span className={`text-xs font-medium transition-colors ${
-                  activePreset === 'comprehensive' ? 'text-green-200' : 'text-white/70 group-hover:text-white'
-                }`}>
+                )} />
+                <span className="transition-colors">
                   Comprehensive
                 </span>
                 {activePreset === 'comprehensive' && (
                   <div className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-green-400"></div>
                 )}
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -222,20 +269,11 @@ export function DocumentStructure({ config, onChange, onSave, saving = false, sa
               <label className="text-xs font-medium text-white/90">Include Table of Contents</label>
               <p className="text-xs text-white/50">Add a TOC at the beginning of the document</p>
             </div>
-            <button
-              type="button"
-              onClick={() => onChange({ ...config, includeTableOfContents: !config.includeTableOfContents })}
-              className={`toggle-switch relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-white/30 focus:ring-offset-2 focus:ring-offset-black`}
-              role="switch"
-              aria-checked={config.includeTableOfContents}
+            <Switch
+              checked={config.includeTableOfContents}
+              onCheckedChange={(checked) => onChange({ ...config, includeTableOfContents: checked })}
               aria-label="Include Table of Contents"
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform duration-200 ease-in-out ${
-                  config.includeTableOfContents ? 'translate-x-6' : 'translate-x-1'
-                }`}
-              />
-            </button>
+            />
           </div>
 
           {/* Custom Sections */}
@@ -244,14 +282,16 @@ export function DocumentStructure({ config, onChange, onSave, saving = false, sa
               <label className="block text-xs font-medium text-white/80 uppercase tracking-wide">
                 Sections ({config.sections.length})
               </label>
-              <button
+              <Button
                 type="button"
+                variant="secondary"
+                size="sm"
                 onClick={addSection}
-                className="flex items-center gap-2 rounded-lg border-2 border-blue-400/40 bg-blue-500/10 px-3 py-1.5 text-xs font-medium text-blue-200 transition-all hover:border-blue-400/60 hover:bg-blue-500/20 hover:shadow-lg hover:shadow-blue-500/10"
+                className="flex items-center gap-2 border-2 border-blue-400/40 bg-blue-500/10 text-xs font-medium text-blue-100 hover:border-blue-400/60 hover:bg-blue-500/20"
               >
                 <Plus className="h-3.5 w-3.5" />
                 New Section
-              </button>
+              </Button>
             </div>
 
             {config.sections.length === 0 ? (
@@ -265,54 +305,65 @@ export function DocumentStructure({ config, onChange, onSave, saving = false, sa
                 {config.sections.map((section, index) => (
                   <div
                     key={section.id}
-                    className="group relative flex items-start gap-3 rounded-lg border-2 border-white/20 bg-gradient-to-br from-white/5 to-white/[0.02] p-4 shadow-sm hover:border-white/30 hover:bg-white/10 hover:shadow-md transition-all duration-200"
+                    className={cn(
+                      "group relative flex items-start gap-3 rounded-lg border-2 border-white/20 bg-gradient-to-br from-white/5 to-white/[0.02] p-4 shadow-sm hover:border-white/30 hover:bg-white/10 hover:shadow-md transition-all duration-200",
+                      dragOverIndex === index ? 'border-blue-400/60 bg-blue-500/10' : ''
+                    )}
+                    onDragOver={(event) => handleDragOver(event, index)}
+                    onDrop={(event) => handleDrop(event, index)}
+                    onDragLeave={() => setDragOverIndex((current) => (current === index ? null : current))}
                   >
-                    <button
+                    <Button
                       type="button"
-                      className="mt-1.5 flex-shrink-0 text-white/30 hover:text-white/60 transition-colors cursor-move active:cursor-grabbing"
-                      onMouseDown={() => setDraggedIndex(index)}
-                      onMouseUp={() => setDraggedIndex(null)}
+                      variant="ghost"
+                      size="icon"
+                      className="mt-1.5 flex-shrink-0 cursor-move text-white/40 hover:text-white/70 active:cursor-grabbing"
+                      draggable
+                      onDragStart={(event) => handleDragStart(event, index)}
+                      onDragEnd={handleDragEnd}
                       title="Drag to reorder"
                     >
                       <GripVertical className="h-5 w-5" />
-                    </button>
+                    </Button>
                     
                     <div className="flex-1 space-y-3 min-w-0">
                       <div className="flex items-center gap-2">
-                        <input
-                          type="text"
+                        <Input
                           value={section.title}
                           onChange={(e) => updateSection(section.id, { title: e.target.value })}
                           placeholder="Section title"
-                          className="flex-1 rounded-lg border-2 border-white/20 bg-white/10 px-3 py-2 text-sm font-medium text-white placeholder-white/40 outline-none transition-all focus:border-blue-400/50 focus:bg-white/15 focus:ring-2 focus:ring-blue-500/20"
+                          className="flex-1 border-2 border-white/20 bg-white/10 text-sm font-medium"
                         />
-                        <button
+                        <Button
                           type="button"
+                          variant={section.required ? 'secondary' : 'outline'}
                           onClick={() => toggleRequired(section.id)}
-                          className={`flex-shrink-0 rounded-lg border-2 px-3 py-2 text-xs font-medium transition-all ${
+                          className={cn(
+                            "flex-shrink-0 border-2 text-xs font-medium",
                             section.required
-                              ? 'border-green-400/50 bg-green-500/20 text-green-200 shadow-sm shadow-green-500/10'
-                              : 'border-white/20 bg-white/10 text-white/60 hover:border-white/30 hover:bg-white/15 hover:text-white/80'
-                          }`}
+                              ? 'border-green-400/50 bg-green-500/20 text-green-100'
+                              : 'border-white/20 text-white/70 hover:border-white/30 hover:bg-white/10'
+                          )}
                           title={section.required ? 'Required section' : 'Optional section'}
                         >
                           {section.required ? 'Required' : 'Optional'}
-                        </button>
-                        <button
+                        </Button>
+                        <Button
                           type="button"
+                          variant="ghost"
+                          size="icon"
                           onClick={() => removeSection(section.id)}
-                          className="flex-shrink-0 rounded-lg p-2 text-white/40 transition-all hover:text-red-300 hover:bg-red-500/10 hover:border-red-500/30 border-2 border-transparent"
+                          className="flex-shrink-0 border border-transparent text-white/60 hover:text-red-300"
                           title="Remove section"
                         >
                           <X className="h-4 w-4" />
-                        </button>
+                        </Button>
                       </div>
-                      <input
-                        type="text"
+                      <Input
                         value={section.description || ''}
                         onChange={(e) => updateSection(section.id, { description: e.target.value })}
                         placeholder="Section description (optional)"
-                        className="w-full rounded-lg border-2 border-white/20 bg-white/10 px-3 py-2 text-xs text-white/80 placeholder-white/40 outline-none transition-all focus:border-blue-400/50 focus:bg-white/15 focus:ring-2 focus:ring-blue-500/20"
+                        className="w-full border-2 border-white/20 bg-white/10 text-xs text-white/80"
                       />
                     </div>
                   </div>
@@ -330,12 +381,11 @@ export function DocumentStructure({ config, onChange, onSave, saving = false, sa
               </label>
               <span className="rounded-full bg-purple-500/20 px-2 py-0.5 text-xs text-purple-300">Optional</span>
             </div>
-            <textarea
+            <Textarea
               value={config.customStructure || ''}
               onChange={(e) => onChange({ ...config, customStructure: e.target.value })}
               placeholder="e.g., 'Start with a quick start guide, then detailed API docs, end with troubleshooting'"
               rows={3}
-              className="w-full rounded-lg border-2 border-white/20 bg-white/10 px-3 py-2.5 text-sm text-white placeholder-white/40 outline-none transition-all focus:border-purple-400/50 focus:bg-white/15 focus:ring-2 focus:ring-purple-500/20 resize-none"
             />
             <p className="mt-2 text-xs text-white/50 leading-relaxed">
               Provide additional instructions for how sections should be organized and structured in the documentation.
@@ -343,12 +393,13 @@ export function DocumentStructure({ config, onChange, onSave, saving = false, sa
           </div>
 
           {hasCustomStructure && (
-            <button
-              className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-xs text-white/70 hover:bg-white/20"
+            <Button
+              variant="outline"
+              className="w-full border-white/20 bg-white/5 text-xs text-white/80 hover:bg-white/10"
               onClick={() => onChange({ sections: [], includeTableOfContents: false, customStructure: undefined })}
             >
               Clear Structure
-            </button>
+            </Button>
           )}
         </div>
       )}
@@ -365,9 +416,9 @@ export function DocumentStructure({ config, onChange, onSave, saving = false, sa
                 <div className="text-xs text-red-300">{saveError}</div>
               )}
             </div>
-            <button
+            <Button
               type="button"
-              className="flex items-center gap-2 rounded-lg bg-purple-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-purple-700 disabled:opacity-60 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 bg-purple-600 text-xs font-medium text-white hover:bg-purple-700"
               onClick={onSave}
               disabled={saving}
             >
@@ -379,11 +430,10 @@ export function DocumentStructure({ config, onChange, onSave, saving = false, sa
               ) : (
                 'Save Structure'
               )}
-            </button>
+            </Button>
           </div>
         </div>
       )}
     </div>
   );
 }
-

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { PromptCustomizer } from '@/components/PromptCustomizer';
 import { DocumentStructure, type DocumentStructureConfig } from '@/components/DocumentStructure';
+import { Button } from '@/components/ui/button';
 
 interface PromptConfig {
   personality?: string;
@@ -82,9 +83,9 @@ export function DocumentConfiguration({
                 <div className="text-xs text-red-300">{saveError}</div>
               )}
             </div>
-            <button
+            <Button
               type="button"
-              className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-purple-700 disabled:opacity-60 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 bg-purple-600 text-sm font-medium text-white hover:bg-purple-700"
               onClick={onSave}
               disabled={saving}
             >
@@ -96,7 +97,7 @@ export function DocumentConfiguration({
               ) : (
                 'Save Configuration'
               )}
-            </button>
+            </Button>
           </div>
         </div>
       )}

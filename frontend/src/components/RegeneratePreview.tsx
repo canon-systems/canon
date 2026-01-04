@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react';
 import { marked } from 'marked';
 import { FileText, Eye, GitCompare, Columns } from 'lucide-react';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 interface RegeneratePreviewProps {
   originalText: string;
@@ -123,52 +124,26 @@ export function RegeneratePreview({ originalText, newText }: RegeneratePreviewPr
   return (
     <div className="space-y-4">
       {/* View Mode Tabs */}
-      <div className="flex items-center gap-2 border-b border-white/10">
-        <button
-          onClick={() => setViewMode('side-by-side')}
-          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
-            viewMode === 'side-by-side'
-              ? 'border-purple-500 text-purple-300 bg-purple-500/10'
-              : 'border-transparent text-white/60 hover:text-white/80 hover:bg-white/5'
-          }`}
-        >
-          <Columns className="h-4 w-4" />
-          Side by Side
-        </button>
-        <button
-          onClick={() => setViewMode('diff')}
-          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
-            viewMode === 'diff'
-              ? 'border-purple-500 text-purple-300 bg-purple-500/10'
-              : 'border-transparent text-white/60 hover:text-white/80 hover:bg-white/5'
-          }`}
-        >
-          <GitCompare className="h-4 w-4" />
-          Line Diff
-        </button>
-        <button
-          onClick={() => setViewMode('original')}
-          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
-            viewMode === 'original'
-              ? 'border-orange-500 text-orange-300 bg-orange-500/10'
-              : 'border-transparent text-white/60 hover:text-white/80 hover:bg-white/5'
-          }`}
-        >
-          <FileText className="h-4 w-4" />
-          Original
-        </button>
-        <button
-          onClick={() => setViewMode('new')}
-          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
-            viewMode === 'new'
-              ? 'border-green-500 text-green-300 bg-green-500/10'
-              : 'border-transparent text-white/60 hover:text-white/80 hover:bg-white/5'
-          }`}
-        >
-          <Eye className="h-4 w-4" />
-          Preview
-        </button>
-      </div>
+      <Tabs value={viewMode} onValueChange={(value) => setViewMode(value as ViewMode)}>
+        <TabsList className="flex w-full flex-wrap justify-start gap-2 rounded-full border border-white/10 bg-white/5 p-1">
+          <TabsTrigger value="side-by-side" className="flex items-center gap-2 rounded-full">
+            <Columns className="h-4 w-4" />
+            Side by Side
+          </TabsTrigger>
+          <TabsTrigger value="diff" className="flex items-center gap-2 rounded-full">
+            <GitCompare className="h-4 w-4" />
+            Line Diff
+          </TabsTrigger>
+          <TabsTrigger value="original" className="flex items-center gap-2 rounded-full">
+            <FileText className="h-4 w-4" />
+            Original
+          </TabsTrigger>
+          <TabsTrigger value="new" className="flex items-center gap-2 rounded-full">
+            <Eye className="h-4 w-4" />
+            Preview
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
 
       {/* Content Area */}
       <div className="rounded-lg border border-white/20 bg-black/40 overflow-hidden">
@@ -278,4 +253,3 @@ export function RegeneratePreview({ originalText, newText }: RegeneratePreviewPr
     </div>
   );
 }
-

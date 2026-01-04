@@ -32,6 +32,8 @@ import {
   Image as ImageIcon,
   X
 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 
 interface RichTextEditorProps {
   initialHTML?: string;
@@ -268,7 +270,7 @@ export function RichTextEditor({
         <div className="flex flex-wrap items-center gap-2 border-b border-white/10 bg-black/30 p-3 backdrop-blur-sm">
           {/* Undo / Redo */}
           <div className="flex items-center gap-2">
-            <button
+            <Button
               type="button"
               className={btn(false, !editor.can().undo())}
               title="Undo (Ctrl+Z / Cmd+Z)"
@@ -276,8 +278,8 @@ export function RichTextEditor({
               disabled={!editor.can().undo()}
             >
               <RotateCcw className="h-4 w-4" />
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               className={btn(false, !editor.can().redo())}
               title="Redo (Ctrl+Shift+Z / Cmd+Shift+Z)"
@@ -285,197 +287,197 @@ export function RichTextEditor({
               disabled={!editor.can().redo()}
             >
               <RotateCw className="h-4 w-4" />
-            </button>
+            </Button>
           </div>
 
           <div className="mx-1 h-6 w-px bg-white/10"></div>
 
           {/* Paragraph + Headings */}
           <div className="flex items-center gap-2">
-            <button
+            <Button
               type="button"
               className={btn(editor.isActive('paragraph'), false)}
               title="Paragraph (Ctrl+Alt+0)"
               onClick={() => editor.chain().focus().setParagraph().run()}
             >
               <Pilcrow className="h-4 w-4" />
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               className={btn(editor.isActive('heading', { level: 1 }), false)}
               title="Heading 1 (Ctrl+1 / Cmd+1)"
               onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
             >
               <Heading1 className="h-4 w-4" />
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               className={btn(editor.isActive('heading', { level: 2 }), false)}
               title="Heading 2 (Ctrl+2 / Cmd+2)"
               onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
             >
               <Heading2 className="h-4 w-4" />
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               className={btn(editor.isActive('heading', { level: 3 }), false)}
               title="Heading 3 (Ctrl+3 / Cmd+3)"
               onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
             >
               <Heading3 className="h-4 w-4" />
-            </button>
+            </Button>
           </div>
 
           <div className="mx-1 h-6 w-px bg-white/10"></div>
 
           {/* Inline formatting */}
           <div className="flex items-center gap-2">
-            <button
+            <Button
               type="button"
               className={btn(editor.isActive('bold'), false)}
               title="Bold (Ctrl+B / Cmd+B)"
               onClick={() => editor.chain().focus().toggleBold().run()}
             >
               <Bold className="h-4 w-4" />
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               className={btn(editor.isActive('italic'), false)}
               title="Italic (Ctrl+I / Cmd+I)"
               onClick={() => editor.chain().focus().toggleItalic().run()}
             >
               <Italic className="h-4 w-4" />
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               className={btn(editor.isActive('underline'), false)}
               title="Underline (Ctrl+U / Cmd+U)"
               onClick={() => editor.chain().focus().toggleUnderline().run()}
             >
               <UnderlineIcon className="h-4 w-4" />
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               className={btn(editor.isActive('strike'), false)}
               title="Strikethrough (Ctrl+Shift+S / Cmd+Shift+S)"
               onClick={() => editor.chain().focus().toggleStrike().run()}
             >
               <Strikethrough className="h-4 w-4" />
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               className={btn(editor.isActive('code'), false)}
               title="Inline code (Ctrl+E / Cmd+E)"
               onClick={() => editor.chain().focus().toggleCode().run()}
             >
               <CodeIcon className="h-4 w-4" />
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               className={btn(editor.isActive('link'), false)}
               title="Insert or edit link (Ctrl+K / Cmd+K)"
               onClick={setLink}
             >
               <LinkIcon className="h-4 w-4" />
-            </button>
+            </Button>
           </div>
 
           <div className="mx-1 h-6 w-px bg-white/10"></div>
 
           {/* Lists and blocks */}
           <div className="flex items-center gap-2">
-            <button
+            <Button
               type="button"
               className={btn(editor.isActive('bulletList'), false)}
               title="Bullet list (Ctrl+Shift+8 / Cmd+Shift+8)"
               onClick={() => editor.chain().focus().toggleBulletList().run()}
             >
               <ListBullets className="h-4 w-4" />
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               className={btn(editor.isActive('orderedList'), false)}
               title="Numbered list (Ctrl+Shift+7 / Cmd+Shift+7)"
               onClick={() => editor.chain().focus().toggleOrderedList().run()}
             >
               <ListOrdered className="h-4 w-4" />
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               className={btn(editor.isActive('blockquote'), false)}
               title="Blockquote (Ctrl+Shift+B / Cmd+Shift+B)"
               onClick={() => editor.chain().focus().toggleBlockquote().run()}
             >
               <Quote className="h-4 w-4" />
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               className={btn(editor.isActive('codeBlock'), false)}
               title="Code block (Ctrl+Shift+C / Cmd+Shift+C)"
               onClick={() => editor.chain().focus().toggleCodeBlock().run()}
             >
               <SquareCode className="h-4 w-4" />
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               className={btn(false, false)}
               title="Horizontal rule (Ctrl+Shift+H / Cmd+Shift+H)"
               onClick={() => editor.chain().focus().setHorizontalRule().run()}
             >
               <Minus className="h-4 w-4" />
-            </button>
+            </Button>
           </div>
 
           <div className="mx-1 h-6 w-px bg-white/10"></div>
 
           {/* Alignment */}
           <div className="flex items-center gap-2">
-            <button
+            <Button
               type="button"
               className={btn(editor.isActive({ textAlign: 'left' }), false)}
               title="Align left"
               onClick={() => editor.chain().focus().setTextAlign('left').run()}
             >
               <AlignLeft className="h-4 w-4" />
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               className={btn(editor.isActive({ textAlign: 'center' }), false)}
               title="Align center"
               onClick={() => editor.chain().focus().setTextAlign('center').run()}
             >
               <AlignCenter className="h-4 w-4" />
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               className={btn(editor.isActive({ textAlign: 'right' }), false)}
               title="Align right"
               onClick={() => editor.chain().focus().setTextAlign('right').run()}
             >
               <AlignRight className="h-4 w-4" />
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               className={btn(editor.isActive({ textAlign: 'justify' }), false)}
               title="Justify"
               onClick={() => editor.chain().focus().setTextAlign('justify').run()}
             >
               <AlignJustify className="h-4 w-4" />
-            </button>
+            </Button>
           </div>
 
           <div className="mx-1 h-6 w-px bg-white/10"></div>
 
           {/* Images */}
           <div className="flex items-center gap-2">
-            <button
+            <Button
               type="button"
               className={btn(false, false)}
               title="Insert image (URL)"
               onClick={insertImage}
             >
               <ImageIcon className="h-4 w-4" />
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -505,20 +507,20 @@ export function RichTextEditor({
               <h2 className="text-xl font-semibold text-white">
                 {isEditingLink ? 'Edit Link' : 'Insert Link'}
               </h2>
-              <button
+              <Button
                 className="rounded-lg p-1 text-white/60 hover:bg-white/10 hover:text-white"
                 onClick={() => setLinkModalOpen(false)}
               >
                 <X className="h-5 w-5" />
-              </button>
+              </Button>
             </div>
             <label className="mb-2 block text-sm text-white/70">URL</label>
-            <input
+            <Input
               type="url"
               value={linkUrl}
               onChange={(e) => setLinkUrl(e.target.value)}
               placeholder="https://example.com"
-              className="mb-4 w-full rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-white placeholder:text-white/40 focus:border-white/40 focus:outline-none focus:ring-2 focus:ring-white/20"
+              className="mb-4 border-white/20 bg-white/5 text-white placeholder:text-white/40"
               onKeyDown={(e) => {
                 if (e.key === 'Enter') confirmLink();
                 if (e.key === 'Escape') setLinkModalOpen(false);
@@ -526,20 +528,20 @@ export function RichTextEditor({
               autoFocus
             />
             <div className="flex justify-end gap-3">
-              <button
+              <Button
                 className="rounded-lg border border-white/20 px-4 py-2 text-white/80 hover:bg-white/10"
                 onClick={() => setLinkModalOpen(false)}
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
                 className="rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
                 onClick={confirmLink}
               >
                 {isEditingLink ? 'Update' : 'Insert'}
-              </button>
+              </Button>
               {isEditingLink && (
-                <button
+                <Button
                   className="rounded-lg border border-red-500/50 bg-red-500/10 px-4 py-2 text-red-300 hover:bg-red-500/20"
                   onClick={() => {
                     if (editor) {
@@ -551,7 +553,7 @@ export function RichTextEditor({
                   }}
                 >
                   Remove
-                </button>
+                </Button>
               )}
             </div>
           </div>
@@ -573,20 +575,20 @@ export function RichTextEditor({
           >
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-xl font-semibold text-white">Insert Image</h2>
-              <button
+              <Button
                 className="rounded-lg p-1 text-white/60 hover:bg-white/10 hover:text-white"
                 onClick={() => setImageModalOpen(false)}
               >
                 <X className="h-5 w-5" />
-              </button>
+              </Button>
             </div>
             <label className="mb-2 block text-sm text-white/70">Image URL</label>
-            <input
+            <Input
               type="url"
               value={imageUrl}
               onChange={(e) => setImageUrl(e.target.value)}
               placeholder="https://example.com/image.jpg"
-              className="mb-4 w-full rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-white placeholder:text-white/40 focus:border-white/40 focus:outline-none focus:ring-2 focus:ring-white/20"
+              className="mb-4 w-full border border-white/20 bg-white/5 text-white placeholder:text-white/40"
               onKeyDown={(e) => {
                 if (e.key === 'Enter') confirmImage();
                 if (e.key === 'Escape') setImageModalOpen(false);
@@ -594,19 +596,19 @@ export function RichTextEditor({
               autoFocus
             />
             <div className="flex justify-end gap-3">
-              <button
+              <Button
                 className="rounded-lg border border-white/20 px-4 py-2 text-white/80 hover:bg-white/10"
                 onClick={() => setImageModalOpen(false)}
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
                 className="rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
                 onClick={confirmImage}
                 disabled={!imageUrl.trim()}
               >
                 Insert
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -758,4 +760,3 @@ export function RichTextEditor({
     </>
   );
 }
-

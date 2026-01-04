@@ -28,6 +28,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Checkbox } from '@/components/ui/checkbox';
 
 type InputType = 'github_repo' | 'github_repo_directory';
 type TabId = 'generate' | 'edit';
@@ -240,7 +241,7 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
   const modelDropdownRef = useRef<HTMLDivElement>(null);
 
   // Tab management
-  const [activeTab, setActiveTab] = useState<TabId>('generate');
+  const [activeTab, setActiveTab] = useState<TabId>('edit');
 
   // Generate tab state
   const [method, setMethod] = useState<InputType>('github_repo');
@@ -972,8 +973,8 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
   }
 
   const tabs: Array<{ id: TabId; name: string; icon: any }> = [
-    { id: 'generate', name: 'Generate', icon: FileText },
-    { id: 'edit', name: 'Edit', icon: BookOpen }
+    { id: 'edit', name: 'Edit', icon: BookOpen },
+    { id: 'generate', name: 'Generate', icon: FileText }
   ];
 
   return (
@@ -1080,10 +1081,11 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
                           {showModelDropdown && (
                             <div className="absolute z-[100] mt-2 max-h-96 w-full overflow-auto rounded-xl border border-white/10 bg-black/90 shadow-2xl backdrop-blur">
                               {availableModels.map((model) => (
-                                <button
+                                <Button
                                   key={model.value}
                                   type="button"
-                                  className={`w-full px-4 py-3 text-left transition hover:bg-white/5 ${selectedModel === model.value ? 'bg-white/10' : ''}`}
+                                  variant="ghost"
+                                  className={`w-full justify-start px-4 py-3 text-left hover:bg-white/5 ${selectedModel === model.value ? 'bg-white/10' : ''}`}
                                   onClick={() => {
                                     setSelectedModel(model.value);
                                     setShowModelDropdown(false);
@@ -1101,7 +1103,7 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
                                     </div>
                                     {selectedModel === model.value && <Check className="h-5 w-5 shrink-0 text-emerald-400" />}
                                   </div>
-                                </button>
+                                </Button>
                               ))}
                             </div>
                           )}
@@ -1269,13 +1271,16 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
                               onChange={(e) => setFileSearchQuery(e.target.value)}
                             />
                             {fileSearchQuery && (
-                              <button
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
                                 onClick={() => setFileSearchQuery('')}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/60"
+                                className="absolute right-2 top-1/2 -translate-y-1/2 text-white/60 hover:text-white"
                                 aria-label="Clear search"
                               >
                                 <X className="h-4 w-4" />
-                              </button>
+                              </Button>
                             )}
                             {fileSearchQuery && (
                               <p className="mt-1 text-xs text-white/60">
@@ -1291,11 +1296,10 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
                               <ul className="divide-y divide-white/10">
                                 {filteredFiles.map((f) => (
                                   <li key={f.path} className="flex items-center gap-3 px-3 py-2 text-sm transition-colors hover:bg-white/5">
-                                    <input
-                                      type="checkbox"
+                                    <Checkbox
                                       checked={selectedPaths.has(f.path)}
-                                      onChange={() => togglePick(f.path)}
-                                      className="h-4 w-4 rounded border-white/30 bg-white/5 text-amber-500 focus:ring-2 focus:ring-amber-500/50 focus:ring-offset-2 focus:ring-offset-black"
+                                      onCheckedChange={() => togglePick(f.path)}
+                                      className="border-amber-400/60"
                                     />
                                     <span className="flex-1 font-mono text-white/90">{f.path}</span>
                                     <span className="text-xs text-white/50">{f.size ? `${f.size} bytes` : '—'}</span>
@@ -1503,7 +1507,6 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
                             </div>
                           </div>
                           <div className="flex items-center gap-1 ml-2">
-                            <div className={`w-2 h-2 rounded-full ${item.processingStatus === 'completed' ? 'bg-green-500' : item.processingStatus === 'processing' ? 'bg-yellow-500' : 'bg-red-500'}`} />
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                 <Button

@@ -13,6 +13,7 @@ import { ReviewPanel, ViewMode } from '@/components/ReviewPanel';
 import { EnhancedDiffViewer } from '@/components/EnhancedDiffViewer';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { marked } from 'marked';
 import TurndownService from 'turndown';
 import { buildFileChangeUrl } from '@/lib/utils/repoUrls';
@@ -31,6 +32,7 @@ interface Submission {
   code_snapshot?: any;
   is_outdated: boolean;
   selected_files?: string[] | null;
+  pending_review?: { id: string; created_at?: string | null } | null;
 }
 
 interface EditDetailPageClientProps {
@@ -74,6 +76,7 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
   const [showChangedFiles, setShowChangedFiles] = useState(false);
   const [dismissedBanner, setDismissedBanner] = useState(false);
   const [dismissedRenameBanner, setDismissedRenameBanner] = useState(false);
+  const [dismissedPendingReview, setDismissedPendingReview] = useState(false);
 
   // Tracked files management state
   const [trackedFiles, setTrackedFiles] = useState<string[]>(
@@ -166,9 +169,20 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
   // Push configuration state
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const [pushTitle, setPushTitle] = useState(title || 'Untitled');
-  const [selectedParent, setSelectedParent] = useState<{ id: string; type: string; title: string } | null>(null);
-  const [availableResources, setAvailableResources] = useState<Array<{ id: string; type: string; title: string; url?: string }>>([]);
+  const [selectedParent, setSelectedParent] = useState<{
+    id: string;
+    type: string;
+    title: string;
+    url?: string;
+    metadata?: Record<string, any>;
+  } | null>(null);
+  const [availableResources, setAvailableResources] = useState<
+    Array<{ id: string; type: string; title: string; url?: string; metadata?: Record<string, any> }>
+  >([]);
   const [loadingResources, setLoadingResources] = useState(false);
+  const [confluencePages, setConfluencePages] = useState<Array<{ id: string; title: string }>>([]);
+  const [selectedConfluenceParent, setSelectedConfluenceParent] = useState<{ id: string; title: string } | null>(null);
+  const [loadingConfluencePages, setLoadingConfluencePages] = useState(false);
 
   // Review panel state
   const [viewMode, setViewMode] = useState<ViewMode>('editor');
@@ -460,6 +474,8 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
     setPushTitle(title || 'Untitled');
     setSelectedParent(null);
     setAvailableResources([]);
+    setConfluencePages([]);
+    setSelectedConfluenceParent(null);
     loadConnections();
   }
 
@@ -471,6 +487,8 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
     setPushTitle(title || 'Untitled');
     setSelectedParent(null);
     setAvailableResources([]);
+    setConfluencePages([]);
+    setSelectedConfluenceParent(null);
   }
 
   function closeRegenerateModal() {
@@ -487,6 +505,8 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
     setLoadingResources(true);
     setAvailableResources([]);
     setSelectedParent(null);
+    setConfluencePages([]);
+    setSelectedConfluenceParent(null);
 
     try {
       const { data: sessionData } = await supabase.auth.getSession();
@@ -519,9 +539,65 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
     }
   }
 
+  async function loadConfluencePagesForSpace(spaceResourceId: string) {
+    setLoadingConfluencePages(true);
+    setConfluencePages([]);
+    setSelectedConfluenceParent(null);
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+
+      if (!token) {
+        throw new Error('Not authenticated');
+      }
+
+      const [cloudId, ...spaceParts] = spaceResourceId.split(':');
+      const spaceId = spaceParts.join(':');
+      if (!cloudId || !spaceId) {
+        throw new Error('Invalid Confluence space selection');
+      }
+
+      const params = new URLSearchParams({
+        provider: 'confluence',
+        cloudId,
+        spaceId,
+        resourceType: 'pages',
+      });
+
+      const response = await fetch(`/api/push/resources?${params.toString()}`, {
+        method: 'GET',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${token}`
+        }
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || result.detail || 'Failed to load Confluence pages');
+      }
+
+      setConfluencePages(
+        (result.resources || []).map((page: any) => ({
+          id: page.id,
+          title: page.title || page.name || page.id,
+        }))
+      );
+    } catch (err: any) {
+      console.error('Failed to load Confluence pages:', err);
+      setPushError(`Failed to load Confluence pages: ${err.message}`);
+    } finally {
+      setLoadingConfluencePages(false);
+    }
+  }
+
   function handleProviderSelect(provider: string) {
     setSelectedProvider(provider);
     setSelectedParent(null);
+    setConfluencePages([]);
+    setSelectedConfluenceParent(null);
     loadResourcesForProvider(provider);
   }
 
@@ -561,10 +637,24 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
             }
           };
         } else if (selectedProvider === 'confluence') {
+          const spaceId = selectedParent.metadata?.spaceId
+            || (selectedParent.id.includes(':')
+              ? selectedParent.id.split(':').slice(1).join(':')
+              : selectedParent.id);
+          const spaceKey = selectedParent.metadata?.spaceKey || null;
+          const parentId = selectedConfluenceParent?.id
+            ? (selectedConfluenceParent.id.includes(':')
+              ? selectedConfluenceParent.id.split(':').slice(1).join(':')
+              : selectedConfluenceParent.id)
+            : null;
           workspaceInfo = {
             provider: selectedProvider,
-            resourceId: selectedParent.id, // space key
-            metadata: { spaceKey: selectedParent.id }
+            resourceId: selectedParent.id, // cloudId:spaceId
+            metadata: {
+              spaceId,
+              spaceKey,
+              parentId,
+            }
           };
         } else if (selectedProvider === 'coda') {
           workspaceInfo = {
@@ -855,13 +945,69 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                       </p>
                     </div>
                   </div>
-                  <button
-                    className="rounded-lg p-1.5 text-blue-200/60 hover:bg-blue-500/20 hover:text-blue-100 transition-colors flex-shrink-0"
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="flex-shrink-0 rounded-lg p-1.5 text-blue-200/70 hover:bg-blue-500/20 hover:text-blue-100"
                     onClick={() => setDismissedRenameBanner(true)}
                     aria-label="Dismiss"
                   >
                     <X className="h-5 w-5" />
-                  </button>
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {initialSubmission.pending_review && !dismissedPendingReview && (
+            <div className="glass-panel mt-4 border-purple-500/30 bg-gradient-to-br from-purple-500/10 to-indigo-600/10 p-6 relative overflow-hidden">
+              <div className="absolute inset-0 opacity-5">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-purple-400 rounded-full blur-3xl"></div>
+                <div className="absolute bottom-0 left-0 w-24 h-24 bg-indigo-500 rounded-full blur-2xl"></div>
+              </div>
+
+              <div className="relative">
+                <div className="mb-4 flex items-start justify-between gap-4">
+                  <div className="flex items-start gap-4 flex-1">
+                    <div className="rounded-xl bg-purple-500/20 p-3 border border-purple-500/30">
+                      <GitCompare className="h-6 w-6 text-purple-300" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-lg font-semibold text-purple-100 mb-1">
+                        Automated update ready for review
+                      </h3>
+                      <p className="text-sm text-purple-200/90 mb-3">
+                        A regenerated draft is waiting for your approval before it replaces the current document.
+                      </p>
+                      {initialSubmission.pending_review?.created_at && (
+                        <p className="text-xs text-purple-200/60 mb-4">
+                          Generated {new Date(initialSubmission.pending_review.created_at).toLocaleString()}
+                        </p>
+                      )}
+
+                      <div className="flex flex-wrap items-center gap-3">
+                        <Button
+                          asChild
+                          variant="secondary"
+                          className="inline-flex items-center gap-2 border border-purple-500/50 bg-purple-500/30 px-5 text-purple-50 hover:bg-purple-500/40"
+                        >
+                          <Link href={`/review/${initialSubmission.id}`}>
+                            <GitCompare className="h-4 w-4" />
+                            <span>Review Update</span>
+                          </Link>
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="flex-shrink-0 rounded-lg p-1.5 text-purple-200/70 hover:bg-purple-500/20 hover:text-purple-100"
+                    onClick={() => setDismissedPendingReview(true)}
+                    aria-label="Dismiss"
+                  >
+                    <X className="h-5 w-5" />
+                  </Button>
                 </div>
               </div>
             </div>
@@ -917,30 +1063,36 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                       )}
 
                       <div className="flex flex-wrap items-center gap-3">
-                        <button
-                          className="inline-flex items-center gap-2 rounded-lg border border-orange-500/40 bg-orange-500/20 px-4 py-2 text-sm font-medium text-orange-100 transition-all hover:bg-orange-500/30 hover:border-orange-500/60 hover:shadow-lg hover:shadow-orange-500/20"
+                        <Button
+                          variant="secondary"
+                          className="inline-flex items-center gap-2 border border-orange-500/40 bg-orange-500/20 text-orange-100 hover:bg-orange-500/30"
                           onClick={() => setShowChangedFiles(true)}
                         >
                           <FileText className="h-4 w-4" />
                           <span>View changed files ({outdatedFiles.length})</span>
-                        </button>
-                        <Link
-                          href={`/edit/${initialSubmission.id}/regenerate`}
-                          className="inline-flex items-center gap-2 rounded-lg border border-orange-500/50 bg-orange-500/30 px-5 py-2 text-sm font-semibold text-orange-50 transition-all hover:bg-orange-500/40 hover:border-orange-500/70 hover:shadow-lg hover:shadow-orange-500/30 hover:-translate-y-0.5"
+                        </Button>
+                        <Button
+                          asChild
+                          variant="secondary"
+                          className="inline-flex items-center gap-2 border border-orange-500/50 bg-orange-500/30 px-5 text-orange-50 hover:bg-orange-500/40"
                         >
-                          <RefreshCw className="h-4 w-4" />
-                          <span>Update Documentation</span>
-                        </Link>
+                          <Link href={`/edit/${initialSubmission.id}/regenerate`}>
+                            <RefreshCw className="h-4 w-4" />
+                            <span>Update Documentation</span>
+                          </Link>
+                        </Button>
                       </div>
                     </div>
                   </div>
-                  <button
-                    className="rounded-lg p-1.5 text-orange-200/60 hover:bg-orange-500/20 hover:text-orange-100 transition-colors flex-shrink-0"
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="flex-shrink-0 rounded-lg p-1.5 text-orange-200/70 hover:bg-orange-500/20 hover:text-orange-100"
                     onClick={() => setDismissedBanner(true)}
                     aria-label="Dismiss"
                   >
                     <X className="h-5 w-5" />
-                  </button>
+                  </Button>
                 </div>
               </div>
             </div>
@@ -959,8 +1111,10 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                   </p>
                 )}
               </div>
-              <button
-                className="inline-flex items-center gap-2 rounded-lg border border-green-500/40 bg-green-500/20 px-3 py-1.5 text-xs font-medium text-green-200 transition-all hover:bg-green-500/30 hover:border-green-500/60 disabled:opacity-60 disabled:cursor-not-allowed"
+              <Button
+                variant="secondary"
+                size="sm"
+                className="inline-flex items-center gap-2 border border-green-500/40 bg-green-500/20 text-green-100 hover:bg-green-500/30"
                 onClick={checkForUpdates}
                 disabled={checkingUpdates}
                 title="Check for updates"
@@ -976,7 +1130,7 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                     Check Now
                   </>
                 )}
-              </button>
+              </Button>
             </div>
           )}
         </header>
@@ -985,8 +1139,8 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
         {/* Title input */}
         <label className="block">
           <div className="mb-1 text-sm text-white/70">Title</div>
-          <input
-            className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white placeholder-white/60 outline-none focus:border-white/40 transition-all hover:border-white/30"
+          <Input
+            className="w-full border border-white/20 bg-white/10 text-white placeholder-white/60 hover:border-white/30"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Untitled"
@@ -1045,15 +1199,17 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
               <div className="space-y-2">
                 <div className="mb-1 flex items-center justify-between">
                   <div className="text-sm text-white/70">Document Diff</div>
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="icon"
                     onClick={() => {
                       setViewMode('editor');
                       setShowDiff(false);
                     }}
-                    className="rounded-lg p-1.5 text-white/60 hover:bg-white/10 hover:text-white transition-all"
+                    className="rounded-lg p-1.5 text-white/70 hover:bg-white/10"
                   >
                     <X className="h-4 w-4" />
-                  </button>
+                  </Button>
                 </div>
                 <div className="rounded-lg border border-white/10 bg-black/20 p-6">
                   {showDiff && diffData ? (
@@ -1161,17 +1317,19 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                                   ⚠
                                 </span>
                               )}
-                              <button
+                              <Button
+                                variant="ghost"
+                                size="icon"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   const newFiles = trackedFiles.filter((_, i) => i !== idx);
                                   handleUpdateTrackedFiles(newFiles);
                                 }}
-                                className="rounded p-1 text-white/40 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                                className="rounded text-white/60 hover:bg-red-500/10 hover:text-red-300"
                                 title="Remove file"
                               >
                                 <X className="h-3.5 w-3.5" />
-                              </button>
+                              </Button>
                             </div>
                           );
                         })
@@ -1179,14 +1337,15 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                     </div>
 
                     {/* Add File Button */}
-                    <button
+                    <Button
                       onClick={async () => {
                         setFileSearchQuery('');
                         setSelectedFilesToAdd(new Set());
                         setShowFileBrowser(true);
                         await loadAvailableRepoFiles();
                       }}
-                      className="w-full rounded-lg border border-blue-500/40 bg-blue-500/20 px-3 py-2 text-sm font-medium text-blue-200 transition-all hover:bg-blue-500/30 hover:border-blue-500/60 disabled:opacity-60 disabled:cursor-not-allowed"
+                      variant="secondary"
+                      className="w-full border-blue-500/40 bg-blue-500/20 text-sm font-medium text-blue-100 hover:bg-blue-500/30"
                       disabled={updatingFiles || loadingRepoFiles}
                     >
                       {loadingRepoFiles ? (
@@ -1197,7 +1356,7 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                       ) : (
                         <>+ Add File</>
                       )}
-                    </button>
+                    </Button>
 
                     {fileUpdateMsg && (
                       <p className="text-xs text-green-300">{fileUpdateMsg}</p>
@@ -1228,10 +1387,10 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
 
         {/* Save controls */}
         <div className="flex items-center gap-3">
-          <button
-            className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 px-5 py-2.5 text-white shadow-lg shadow-purple-500/20 transition-all hover:from-purple-600 hover:to-pink-600 hover:shadow-xl hover:shadow-purple-500/30 hover:-translate-y-0.5 disabled:opacity-60 disabled:hover:translate-y-0 disabled:hover:shadow-lg"
+          <Button
             onClick={saveChanges}
             disabled={saving}
+            className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 px-5 py-2.5 text-white shadow-lg shadow-purple-500/20 transition-all hover:from-purple-600 hover:to-pink-600 hover:shadow-xl hover:shadow-purple-500/30 hover:-translate-y-0.5 disabled:opacity-60"
           >
             {saving ? (
               <>
@@ -1241,14 +1400,11 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
             ) : (
               <span>Save</span>
             )}
-          </button>
+          </Button>
 
-          <Link
-            href="/documentation?tab=edit"
-            className="rounded-xl border border-white/20 px-4 py-2 text-white/80 hover:bg-white/10"
-          >
-            Back to Edit
-          </Link>
+          <Button asChild variant="outline" className="rounded-xl border-white/20 text-white/80 hover:bg-white/10">
+            <Link href="/documentation?tab=edit">Back to Edit</Link>
+          </Button>
         </div>
 
         {/* Save messages */}
@@ -1286,12 +1442,14 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                   Select files from the repository to include in documentation generation
                 </p>
               </div>
-              <button
-                className="rounded-lg p-1.5 text-white/60 hover:bg-white/10 hover:text-white transition-colors"
+              <Button
+                variant="ghost"
+                size="icon"
+                className="rounded-lg p-1.5 text-white/70 hover:bg-white/10"
                 onClick={() => setShowFileBrowser(false)}
               >
                 <X className="h-5 w-5" />
-              </button>
+              </Button>
             </div>
 
             <div className="flex-1 overflow-y-auto p-6">
@@ -1311,42 +1469,48 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                     {/* Search Input */}
                     <div className="relative">
                       <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" />
-                      <input
-                        type="text"
+                      <Input
                         value={fileSearchQuery}
                         onChange={(e) => setFileSearchQuery(e.target.value)}
                         placeholder="Search files..."
-                        className="w-full rounded-lg border border-white/10 bg-white/5 px-10 py-2 text-sm text-white placeholder-white/40 outline-none focus:border-white/20 focus:bg-white/10"
+                        className="w-full border border-white/10 bg-white/5 px-10 py-2 text-sm text-white placeholder-white/40"
                       />
                       {fileSearchQuery && (
-                        <button
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
                           onClick={() => setFileSearchQuery('')}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/60"
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-white/60 hover:text-white"
                         >
                           <X className="h-4 w-4" />
-                        </button>
+                        </Button>
                       )}
                     </div>
 
                     {/* Multi-select Controls */}
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <button
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           onClick={selectAllFiltered}
-                          className="text-xs text-white/60 hover:text-white underline"
+                          className="h-auto px-1 text-xs text-white/70 hover:text-white"
                           disabled={filteredFiles.length === 0}
                         >
                           Select all{fileSearchQuery ? ` (${filteredFiles.length})` : ''}
-                        </button>
+                        </Button>
                         {selectedFilesToAdd.size > 0 && (
                           <>
                             <span className="text-white/40">|</span>
-                            <button
+                            <Button
+                              variant="ghost"
+                              size="sm"
                               onClick={clearAllFiltered}
-                              className="text-xs text-white/60 hover:text-white underline"
+                              className="h-auto px-1 text-xs text-white/70 hover:text-white"
                             >
                               Clear{fileSearchQuery ? ` (${filteredFiles.length})` : ''}
-                            </button>
+                            </Button>
                           </>
                         )}
                       </div>
@@ -1370,10 +1534,11 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                       filteredFiles.map((filePath) => {
                         const isSelected = selectedFilesToAdd.has(filePath);
                         return (
-                          <button
+                          <Button
                             key={filePath}
                             onClick={() => toggleFileSelection(filePath)}
-                            className={`w-full text-left flex items-center gap-3 rounded-lg border p-3 transition-all ${isSelected
+                            variant="secondary"
+                            className={`w-full justify-start gap-3 border p-3 text-left ${isSelected
                               ? 'border-white/30 bg-white/10'
                               : 'border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10'
                               }`}
@@ -1388,7 +1553,7 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                             <span className="flex-1 text-sm font-mono text-white/80 truncate" title={filePath}>
                               {filePath}
                             </span>
-                          </button>
+                          </Button>
                         );
                       })
                     )}
@@ -1397,13 +1562,13 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                   {/* Add Selected Files Button */}
                   {selectedFilesToAdd.size > 0 && (
                     <div className="pt-4 border-t border-white/10">
-                      <button
+                      <Button
                         onClick={addSelectedFiles}
                         className="w-full flex items-center justify-center gap-2 rounded-lg bg-white text-black px-4 py-2 text-sm font-medium hover:bg-white/90 transition-colors"
                       >
                         <Check className="h-4 w-4" />
                         Add {selectedFilesToAdd.size} file{selectedFilesToAdd.size !== 1 ? 's' : ''}
-                      </button>
+                      </Button>
                     </div>
                   )}
                 </div>
@@ -1450,13 +1615,15 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                   </p>
                 </div>
               </div>
-              <button
-                className="rounded-lg p-1.5 text-white/60 hover:bg-white/10 hover:text-white transition-colors"
+              <Button
+                variant="ghost"
+                size="icon"
+                className="rounded-lg p-1.5 text-white/70 hover:bg-white/10"
                 onClick={() => setShowChangedFiles(false)}
                 aria-label="Close"
               >
                 <X className="h-5 w-5" />
-              </button>
+              </Button>
             </div>
 
             {/* File List */}
@@ -1531,20 +1698,24 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
 
             {/* Footer */}
             <div className="border-t border-white/10 p-4 flex items-center justify-end gap-3">
-              <button
-                className="rounded-lg border border-white/20 px-4 py-2 text-sm font-medium text-white/80 hover:bg-white/10 transition-colors"
+              <Button
+                variant="outline"
+                className="border-white/20 text-white/80 hover:bg-white/10"
                 onClick={() => setShowChangedFiles(false)}
               >
                 Close
-              </button>
-              <Link
-                href={`/edit/${initialSubmission.id}/regenerate`}
-                className="inline-flex items-center gap-2 rounded-lg bg-orange-500/20 px-4 py-2 text-sm font-medium text-orange-200 hover:bg-orange-500/30 transition-colors"
+              </Button>
+              <Button
+                asChild
+                variant="secondary"
+                className="inline-flex items-center gap-2 bg-orange-500/20 text-orange-100 hover:bg-orange-500/30"
                 onClick={() => setShowChangedFiles(false)}
               >
-                <RefreshCw className="h-4 w-4" />
-                Update Documentation
-              </Link>
+                <Link href={`/edit/${initialSubmission.id}/regenerate`}>
+                  <RefreshCw className="h-4 w-4" />
+                  Update Documentation
+                </Link>
+              </Button>
             </div>
           </div>
         </div>
@@ -1581,13 +1752,15 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                   </p>
                 </div>
               </div>
-              <button
-                className="rounded-lg p-1.5 text-white/60 hover:bg-white/10 hover:text-white transition-colors"
+              <Button
+                variant="ghost"
+                size="icon"
+                className="rounded-lg p-1.5 text-white/70 hover:bg-white/10"
                 onClick={closePushModal}
                 aria-label="Close"
               >
                 <X className="h-5 w-5" />
-              </button>
+              </Button>
             </div>
 
             {/* Content */}
@@ -1664,10 +1837,11 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                         {connections.map((connection) => {
                           const provider = connection.provider as 'notion' | 'confluence' | 'coda';
                           return (
-                            <button
+                            <Button
                               key={connection.connection_id}
                               onClick={() => handleProviderSelect(provider)}
-                              className="rounded-xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm text-left hover:border-white/20 hover:bg-white/10 transition-all"
+                              variant="secondary"
+                              className="rounded-xl border border-white/10 bg-white/5 p-6 text-left hover:border-white/20 hover:bg-white/10"
                             >
                               <div className="flex items-start justify-between mb-4">
                                 <div className="flex items-center gap-3">
@@ -1688,7 +1862,7 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                                   Connected
                                 </span>
                               </div>
-                            </button>
+                            </Button>
                           );
                         })}
                       </div>
@@ -1696,27 +1870,29 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                   ) : (
                     <div className="space-y-4">
                       {/* Back button */}
-                      <button
+                      <Button
                         onClick={() => {
                           setSelectedProvider(null);
                           setSelectedParent(null);
                           setAvailableResources([]);
+                          setConfluencePages([]);
+                          setSelectedConfluenceParent(null);
                         }}
-                        className="text-sm text-white/60 hover:text-white/80 flex items-center gap-2"
+                        variant="ghost"
+                        className="text-sm text-white/70 hover:text-white flex items-center gap-2"
                       >
                         ← Back to provider selection
-                      </button>
+                      </Button>
 
                       {/* File Name Input */}
                       <div>
                         <label className="block text-sm font-medium text-white/80 mb-2">
                           Document Title
                         </label>
-                        <input
-                          type="text"
+                        <Input
                           value={pushTitle}
                           onChange={(e) => setPushTitle(e.target.value)}
-                          className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-white placeholder-white/40 focus:border-blue-500/50 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                          className="w-full border-white/10 bg-white/5 text-white placeholder-white/40 focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20"
                           placeholder="Enter document title"
                         />
                       </div>
@@ -1735,7 +1911,8 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                           </div>
                         ) : availableResources.length === 0 ? (
                           <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-yellow-200 text-sm">
-                            No resources found. Please ensure your {getProviderDisplayName(selectedProvider)} workspace has pages or databases.
+                            No resources found. Please ensure your {getProviderDisplayName(selectedProvider)} workspace has{' '}
+                            {selectedProvider === 'confluence' ? 'spaces' : 'pages or databases'}.
                           </div>
                         ) : (
                           <div className="relative">
@@ -1743,8 +1920,16 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                               value={selectedParent?.id || ''}
                               onChange={(e) => {
                                 const resource = availableResources.find(r => r.id === e.target.value);
-                                if (resource) {
-                                  setSelectedParent(resource);
+                                if (!resource) {
+                                  setSelectedParent(null);
+                                  setConfluencePages([]);
+                                  setSelectedConfluenceParent(null);
+                                  return;
+                                }
+
+                                setSelectedParent(resource);
+                                if (selectedProvider === 'confluence') {
+                                  loadConfluencePagesForSpace(resource.id);
                                 }
                               }}
                               className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-white focus:border-blue-500/50 focus:outline-none focus:ring-2 focus:ring-blue-500/20 appearance-none pr-10"
@@ -1764,13 +1949,48 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                             Select a page or database where the new documentation will be created
                           </p>
                         )}
+                        {selectedProvider === 'confluence' && selectedParent && (
+                          <div className="mt-4">
+                            <label className="block text-sm font-medium text-white/80 mb-2">
+                              Parent Page (optional)
+                            </label>
+                            {loadingConfluencePages ? (
+                              <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-3">
+                                <Loader2 className="h-4 w-4 animate-spin text-white/50" />
+                                <span className="text-white/60">Loading pages...</span>
+                              </div>
+                            ) : (
+                              <div className="relative">
+                                <select
+                                  value={selectedConfluenceParent?.id || ''}
+                                  onChange={(e) => {
+                                    const page = confluencePages.find((entry) => entry.id === e.target.value);
+                                    setSelectedConfluenceParent(page || null);
+                                  }}
+                                  className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-white focus:border-blue-500/50 focus:outline-none focus:ring-2 focus:ring-blue-500/20 appearance-none pr-10"
+                                >
+                                  <option value="">No parent page (top-level)</option>
+                                  {confluencePages.map((page) => (
+                                    <option key={page.id} value={page.id} className="bg-gray-800">
+                                      {page.title}
+                                    </option>
+                                  ))}
+                                </select>
+                                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/60 pointer-events-none" />
+                              </div>
+                            )}
+                            <p className="mt-1 text-xs text-white/50">
+                              Choose a parent page to place this document in the page tree.
+                            </p>
+                          </div>
+                        )}
                       </div>
 
                       {/* Push Button */}
-                      <button
+                      <Button
                         onClick={pushToKnowledgeBase}
                         disabled={pushing || !selectedParent || !pushTitle.trim()}
-                        className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="w-full bg-blue-600 text-white hover:bg-blue-700"
                       >
                         {pushing ? (
                           <span className="flex items-center justify-center gap-2">
@@ -1783,7 +2003,7 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                             Push to {getProviderDisplayName(selectedProvider)}
                           </span>
                         )}
-                      </button>
+                      </Button>
                     </div>
                   )}
                 </div>
@@ -1792,12 +2012,13 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
 
             {/* Footer */}
             <div className="border-t border-white/10 p-4 flex items-center justify-end gap-3">
-              <button
-                className="rounded-lg border border-white/20 px-4 py-2 text-sm font-medium text-white/80 hover:bg-white/10 transition-colors"
+              <Button
+                variant="outline"
+                className="border-white/20 text-white/80 hover:bg-white/10"
                 onClick={closePushModal}
               >
                 Close
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -1834,13 +2055,15 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                   </p>
                 </div>
               </div>
-              <button
-                className="rounded-lg p-1.5 text-white/60 hover:bg-white/10 hover:text-white transition-colors"
+              <Button
+                variant="ghost"
+                size="icon"
+                className="rounded-lg p-1.5 text-white/70 hover:bg-white/10"
                 onClick={closeRegenerateModal}
                 aria-label="Close"
               >
                 <X className="h-5 w-5" />
-              </button>
+              </Button>
             </div>
 
             {/* Content */}
@@ -1909,19 +2132,20 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
 
             {/* Footer */}
             <div className="border-t border-white/10 p-4 flex items-center justify-end gap-3">
-              <button
-                className="rounded-lg border border-white/20 px-4 py-2 text-sm font-medium text-white/80 hover:bg-white/10 transition-colors"
+              <Button
+                variant="outline"
+                className="border-white/20 text-white/80 hover:bg-white/10"
                 onClick={closeRegenerateModal}
               >
                 Later
-              </button>
-              <button
-                className="rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-purple-700 flex items-center gap-2"
+              </Button>
+              <Button
+                className="bg-purple-600 text-white hover:bg-purple-700 flex items-center gap-2"
                 onClick={handleRegenerate}
               >
                 <RefreshCw className="h-4 w-4" />
                 Regenerate Now
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -1964,4 +2188,3 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
     </div>
   );
 }
-

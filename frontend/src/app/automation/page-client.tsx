@@ -9,6 +9,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Switch } from '@/components/ui/switch';
+import { Input } from '@/components/ui/input';
 
 // Import all the automation types and interfaces from settings
 interface Connection {
@@ -50,6 +52,7 @@ interface AutomationRuleForm {
   generate_doc: boolean;
   generate_diagram: boolean;
   auto_publish: boolean;
+  auto_approve: boolean;
 
   // NEW: Scope targeting
   target_diagrams: string[];  // Empty = all diagrams of selected types
@@ -70,6 +73,7 @@ type AutomationAlert = {
 } | null;
 
 type AutomationPreset = 'docs_only' | 'diagrams_only' | 'docs_and_diagrams' | 'full_auto_publish';
+type StatsRange = 'all' | '24h' | '7d' | '30d';
 
 interface AutomationPageClientProps {
   user: SupabaseUser | null;
@@ -85,6 +89,7 @@ interface AutomationPageClientProps {
     generate_doc?: boolean;
     generate_diagram?: boolean;
     auto_publish?: boolean;
+    auto_approve?: boolean;
     schedule?: string;
     lastRunAt?: string;
     lastRunStatus?: string;
@@ -93,12 +98,18 @@ interface AutomationPageClientProps {
   stats: {
     totalRules: number;
     activeRules: number;
-    executions24h: number;
+    executions: number;
     successRate: number;
   };
 }
 
 const KNOWLEDGE_BASE_PROVIDERS = new Set<string>(['notion', 'confluence', 'coda']);
+const STATS_RANGE_OPTIONS: Array<{ value: StatsRange; label: string; description: string }> = [
+  { value: 'all', label: 'All time', description: 'all time' },
+  { value: '24h', label: '24h', description: 'last 24 hours' },
+  { value: '7d', label: '7d', description: 'last 7 days' },
+  { value: '30d', label: '30d', description: 'last 30 days' },
+];
 
 function presetFromFlags(flags: { generate_doc?: boolean; generate_diagram?: boolean; auto_publish?: boolean }): AutomationPreset {
   const generateDoc = Boolean(flags.generate_doc);
@@ -334,6 +345,7 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
   const [connections, setConnections] = useState<Connection[]>(initialConnections);
   const [allRules, setAllRules] = useState(initialAllRules);
   const [stats, setStats] = useState(initialStats);
+  const [statsRange, setStatsRange] = useState<StatsRange>('all');
   const [activeAutomationRepoId, setActiveAutomationRepoId] = useState<string | null>(null);
   const [automationLoading, setAutomationLoading] = useState<Record<string, boolean>>({});
   const [automationSaving, setAutomationSaving] = useState<Record<string, boolean>>({});
@@ -365,8 +377,12 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
     loadConnections();
   }, []);
 
+  useEffect(() => {
+    updateStatsFromRules();
+  }, [statsRange]);
+
   // Update stats by fetching fresh data from server
-  async function updateStatsFromRules() {
+  async function updateStatsFromRules(range: StatsRange = statsRange) {
     try {
       // Fetch fresh automation rules from all repos
       let query = supabase
@@ -413,28 +429,38 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
       setAllRules(freshAllRules);
 
       // Fetch execution statistics from automation_runs table
-      let totalExecutions24h = 0;
+      let executions = 0;
       let successfulExecutions = 0;
+      let failedExecutions = 0;
+      let successRate = 0;
 
       try {
-        const response = await fetch('/api/automation/stats');
+        const response = await fetch(`/api/automation/stats?range=${encodeURIComponent(range)}`);
         if (response.ok) {
           const stats = await response.json();
-          totalExecutions24h = stats.executions24h || 0;
+          executions = stats.executions || 0;
           successfulExecutions = stats.successfulExecutions || 0;
+          failedExecutions = stats.failedExecutions || 0;
+          if (typeof stats.successRate === 'number') {
+            successRate = stats.successRate;
+          } else {
+            const totalRuns = successfulExecutions + failedExecutions;
+            successRate = totalRuns > 0 ? Math.round((successfulExecutions / totalRuns) * 100) : 0;
+          }
         }
       } catch (error) {
         console.error('Failed to fetch automation stats:', error);
       }
 
-      const successRate = totalExecutions24h > 0
-        ? Math.round((successfulExecutions / totalExecutions24h) * 100)
-        : 0;
+      const totalRunsForRate = successfulExecutions + failedExecutions;
+      if (successRate === 0 && totalRunsForRate > 0) {
+        successRate = Math.round((successfulExecutions / totalRunsForRate) * 100);
+      }
 
       setStats({
         totalRules,
         activeRules,
-        executions24h: totalExecutions24h,
+        executions,
         successRate,
       });
     } catch (error) {
@@ -449,8 +475,6 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
       if (!response.ok) throw new Error('Failed to load repositories');
       const data = await response.json();
       setReposList(data || []);
-      // Recalculate rules and stats from the fetched repos data
-      updateStatsFromRules();
     } catch (err: any) {
       setRepoError(err.message || 'Failed to load repositories');
       setTimeout(() => setRepoError(''), 5000);
@@ -545,7 +569,8 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
       // Individual behavior defaults (docs-only)
       generate_doc: overrides.generate_doc ?? true,
       generate_diagram: overrides.generate_diagram ?? false,
-      auto_publish: overrides.auto_publish ?? false,
+  auto_publish: overrides.auto_publish ?? false,
+  auto_approve: overrides.auto_approve ?? false,
       target_diagrams: overrides.target_diagrams ?? [],
 
       // LEGACY: Keep for backward compatibility (not displayed in UI)
@@ -579,6 +604,7 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
       let generate_doc = rule.generate_doc;
       let generate_diagram = rule.generate_diagram;
       let auto_publish = rule.auto_publish;
+      let auto_approve = typeof rule.auto_approve === 'boolean' ? rule.auto_approve : Boolean(rule.auto_publish);
 
       // Backward-compat: infer from action_preset if present
       const actionPreset = typeof rule.action_preset === 'string' ? rule.action_preset : null;
@@ -586,6 +612,9 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
         generate_doc = actionPreset !== 'diagrams_only';
         generate_diagram = actionPreset === 'diagrams_only' || actionPreset === 'docs_and_diagrams' || actionPreset === 'full_auto_publish';
         auto_publish = actionPreset === 'full_auto_publish';
+        if (actionPreset === 'full_auto_publish' && typeof rule.auto_approve !== 'boolean') {
+          auto_approve = true;
+        }
       }
 
       const targetDiagrams = (rule.target_diagrams && rule.target_diagrams.length > 0)
@@ -602,6 +631,7 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
         generate_doc: generate_doc ?? true,
         generate_diagram: generate_diagram ?? false,
         auto_publish: auto_publish ?? false,
+        auto_approve: auto_approve ?? false,
         target_diagrams: targetDiagrams,
 
         // LEGACY: Keep for backward compatibility (not displayed in UI)
@@ -704,11 +734,13 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
     if (!singleRuleForm) return;
     const generateDiagram = preset === 'diagrams_only' || preset === 'docs_and_diagrams' || preset === 'full_auto_publish';
     const autoPublish = preset === 'full_auto_publish';
+    const autoApprove = autoPublish ? true : singleRuleForm.auto_approve;
     setSingleRuleForm({
       ...singleRuleForm,
       generate_doc: preset !== 'diagrams_only' || autoPublish,
       generate_diagram: generateDiagram,
       auto_publish: autoPublish,
+      auto_approve: autoApprove,
     });
   }
 
@@ -742,6 +774,7 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
       generate_doc: form.generate_doc,
       generate_diagram: form.generate_diagram,
       auto_publish: form.auto_publish,
+      auto_approve: form.auto_approve,
       target_diagrams: form.target_diagrams || [],
     };
 
@@ -985,10 +1018,11 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
         ? `Loading ${providerDisplayName || 'resources'}...`
         : resourceError
           ? resourceError
-          : resourceOptions.length === 0
-            ? `No resources found for ${providerDisplayName || 'this provider'} yet.`
-            : `Choose a resource to publish to ${providerDisplayName || 'this provider'}.`;
+        : resourceOptions.length === 0
+          ? `No resources found for ${providerDisplayName || 'this provider'} yet.`
+          : `Choose a resource to publish to ${providerDisplayName || 'this provider'}.`;
   const defaultOptionLabel = resourceLoading ? `Loading ${providerDisplayName || 'resources'}...` : 'Select a resource';
+  const statsRangeMeta = STATS_RANGE_OPTIONS.find((option) => option.value === statsRange) || STATS_RANGE_OPTIONS[0];
 
   // Helper functions for UI
 
@@ -1028,6 +1062,23 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
             </CardDescription>
           </CardHeader>
           <CardContent>
+            <div className="flex flex-col gap-3 pb-4 md:flex-row md:items-center md:justify-between">
+              <p className="text-sm text-white/60">Stats range</p>
+              <div className="flex flex-wrap gap-2">
+                {STATS_RANGE_OPTIONS.map((option) => (
+                  <Button
+                    key={option.value}
+                    type="button"
+                    size="sm"
+                    radius="full"
+                    variant={statsRange === option.value ? 'secondary' : 'ghost'}
+                    onClick={() => setStatsRange(option.value)}
+                  >
+                    {option.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
             {/* Summary Cards */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <Card>
@@ -1055,11 +1106,11 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
               <Card>
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between mb-2">
-                    <p className="text-sm text-white/60">Last 24h</p>
+                    <p className="text-sm text-white/60">Executions</p>
                     <TrendingUp className="h-5 w-5 text-blue-400" />
                   </div>
-                  <p className="text-3xl font-semibold text-white">{stats.executions24h}</p>
-                  <p className="text-xs text-white/50 mt-1">executions</p>
+                  <p className="text-3xl font-semibold text-white">{stats.executions}</p>
+                  <p className="text-xs text-white/50 mt-1">{statsRangeMeta.description}</p>
                 </CardContent>
               </Card>
 
@@ -1070,7 +1121,7 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
                     <CheckCircle2 className="h-5 w-5 text-emerald-400" />
                   </div>
                   <p className="text-3xl font-semibold text-white">{stats.successRate}%</p>
-                  <p className="text-xs text-white/50 mt-1">last 24 hours</p>
+                  <p className="text-xs text-white/50 mt-1">{statsRangeMeta.description}</p>
                 </CardContent>
               </Card>
             </div>
@@ -1190,44 +1241,44 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
                                 <div className="flex items-center justify-end gap-2">
                                   {hasRules && (
                                     <>
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          toggleAllRulesEnabled(repo.id);
-                                        }}
-                                        className={`relative inline-flex h-6 w-10 items-center rounded-full transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${activeRules > 0
-                                          ? 'bg-emerald-500 hover:bg-emerald-600 shadow-lg shadow-emerald-500/30'
-                                          : 'bg-gray-600 hover:bg-gray-500'
-                                          }`}
-                                        title={activeRules > 0 ? 'Disable all rules' : 'Enable all rules'}
-                                      >
-                                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ${activeRules > 0 ? 'translate-x-5' : 'translate-x-1'
-                                          }`} />
-                                      </button>
+                                      <Switch
+                                        checked={activeRules > 0}
+                                        onCheckedChange={() => toggleAllRulesEnabled(repo.id)}
+                                        aria-label={activeRules > 0 ? 'Disable all rules' : 'Enable all rules'}
+                                        className="scale-90"
+                                      />
                                     </>
                                   )}
-                                  <button
+                                  <Button
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       openAutomationModal(repo.id);
                                     }}
-                                    className="inline-flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-sm font-medium text-white/80 transition-all duration-200 hover:bg-white/20 hover:border-white/30 hover:shadow-lg hover:shadow-blue-500/20"
+                                    variant="secondary"
+                                    size="sm"
+                                    className="gap-2 border-white/20 bg-white/10 text-white/80 hover:bg-white/15"
                                     title="Configure automation rules"
                                   >
                                     <Zap className="h-3 w-3" />
                                     {hasRules ? 'Manage' : 'Setup'}
-                                  </button>
+                                  </Button>
                                   {repoInfo && (
-                                    <a
-                                      href={repo.repo_url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      onClick={(e) => e.stopPropagation()}
-                                      className="inline-flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-sm font-medium text-white/90 transition-all duration-200 hover:bg-white/20 hover:border-white/30 hover:shadow-lg hover:shadow-purple-500/20"
+                                    <Button
+                                      asChild
+                                      variant="secondary"
+                                      size="sm"
+                                      className="gap-2 border-white/20 bg-white/10 text-white/90 hover:bg-white/15"
                                       title="Open repository on GitHub"
                                     >
-                                      <ExternalLink className="h-3 w-3" />
-                                    </a>
+                                      <a
+                                        href={repo.repo_url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        onClick={(e) => e.stopPropagation()}
+                                      >
+                                        <ExternalLink className="h-3 w-3" />
+                                      </a>
+                                    </Button>
                                   )}
                                 </div>
                               </td>
@@ -1275,29 +1326,26 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
                                               </div>
 
                                               <div className="flex items-center gap-2">
-                                                <button
-                                                  onClick={() => toggleRuleEnabled(repo.id, rule.ruleId)}
-                                                  className={`relative inline-flex h-6 w-10 items-center rounded-full transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${rule.enabled
-                                                    ? 'bg-emerald-500 hover:bg-emerald-600 shadow-lg shadow-emerald-500/30'
-                                                    : 'bg-gray-600 hover:bg-gray-500'
-                                                    }`}
-                                                  title={rule.enabled ? 'Disable rule' : 'Enable rule'}
-                                                >
-                                                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ${rule.enabled ? 'translate-x-5' : 'translate-x-1'
-                                                    }`} />
-                                                </button>
-                                                <button
+                                                <Switch
+                                                  checked={rule.enabled}
+                                                  onCheckedChange={() => toggleRuleEnabled(repo.id, rule.ruleId)}
+                                                  aria-label={rule.enabled ? 'Disable rule' : 'Enable rule'}
+                                                  className="scale-90"
+                                                />
+                                                <Button
+                                                  variant="secondary"
+                                                  size="icon"
                                                   onClick={() => setDeleteRuleModal({
                                                     open: true,
                                                     repoId: repo.id,
                                                     ruleId: rule.ruleId,
                                                     ruleName: rule.ruleName
                                                   })}
-                                                  className="rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-red-400 transition-colors hover:bg-red-500/20 hover:border-red-500/50"
+                                                  className="border-red-500/40 bg-red-500/10 text-red-200 hover:bg-red-500/20"
                                                   title="Delete rule"
                                                 >
                                                   <Trash2 className="h-4 w-4" />
-                                                </button>
+                                                </Button>
                                               </div>
                                             </div>
                                           ))}
@@ -1421,11 +1469,10 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
                     <div className="grid gap-3 md:grid-cols-2">
                       <label className="text-sm text-white/80">
                         Rule label
-                        <input
-                          type="text"
+                        <Input
                           value={singleRuleForm.name}
                           onChange={(event) => updateSingleRuleField('name', event.target.value)}
-                          className="mt-1 w-full rounded-lg border border-white/20 bg-black/60 px-3 py-2 text-sm text-white outline-none focus:border-blue-500"
+                          className="mt-1 w-full border border-white/20 bg-black/60 text-sm text-white"
                           placeholder="e.g., Nightly documentation"
                         />
                       </label>
@@ -1435,12 +1482,11 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
                         </label>
 
                         {/* Cron Expression Input */}
-                        <input
-                          type="text"
+                        <Input
                           value={singleRuleForm.customCron}
                           onChange={(event) => updateSingleRuleField('customCron', event.target.value)}
                           placeholder="0 2 * * * (daily at 2 AM UTC)"
-                          className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm text-white outline-none focus:border-blue-500 font-mono ${singleRuleForm.customCron && !isValidCron(singleRuleForm.customCron)
+                          className={`mt-1 w-full border px-3 py-2 text-sm text-white font-mono ${singleRuleForm.customCron && !isValidCron(singleRuleForm.customCron)
                             ? 'border-red-500/50 bg-red-900/20'
                             : 'border-white/20 bg-black/60'
                             }`}
@@ -1448,48 +1494,60 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
 
                         {/* Quick Preset Buttons */}
                         <div className="mt-2 flex flex-wrap gap-2">
-                          <button
+                          <Button
                             type="button"
+                            variant="secondary"
+                            size="sm"
                             onClick={() => updateSingleRuleField('customCron', '0 2 * * *')}
-                            className="px-2 py-1 text-xs bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 rounded border border-blue-600/30 transition-colors"
+                            className="text-xs bg-blue-600/20 text-blue-100 hover:bg-blue-600/30"
                           >
                             Daily 2 AM
-                          </button>
-                          <button
+                          </Button>
+                          <Button
                             type="button"
+                            variant="secondary"
+                            size="sm"
                             onClick={() => updateSingleRuleField('customCron', '0 9 * * *')}
-                            className="px-2 py-1 text-xs bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 rounded border border-blue-600/30 transition-colors"
+                            className="text-xs bg-blue-600/20 text-blue-100 hover:bg-blue-600/30"
                           >
                             Daily 9 AM
-                          </button>
-                          <button
+                          </Button>
+                          <Button
                             type="button"
+                            variant="secondary"
+                            size="sm"
                             onClick={() => updateSingleRuleField('customCron', '0 */6 * * *')}
-                            className="px-2 py-1 text-xs bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 rounded border border-blue-600/30 transition-colors"
+                            className="text-xs bg-blue-600/20 text-blue-100 hover:bg-blue-600/30"
                           >
                             Every 6 hours
-                          </button>
-                          <button
+                          </Button>
+                          <Button
                             type="button"
+                            variant="secondary"
+                            size="sm"
                             onClick={() => updateSingleRuleField('customCron', '*/30 * * * *')}
-                            className="px-2 py-1 text-xs bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 rounded border border-blue-600/30 transition-colors"
+                            className="text-xs bg-blue-600/20 text-blue-100 hover:bg-blue-600/30"
                           >
                             Every 30 min
-                          </button>
-                          <button
+                          </Button>
+                          <Button
                             type="button"
+                            variant="secondary"
+                            size="sm"
                             onClick={() => updateSingleRuleField('customCron', '0 9 * * 1')}
-                            className="px-2 py-1 text-xs bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 rounded border border-blue-600/30 transition-colors"
+                            className="text-xs bg-blue-600/20 text-blue-100 hover:bg-blue-600/30"
                           >
                             Weekly Monday 9 AM
-                          </button>
-                          <button
+                          </Button>
+                          <Button
                             type="button"
+                            variant="secondary"
+                            size="sm"
                             onClick={() => updateSingleRuleField('customCron', '0 0 * * 1')}
-                            className="px-2 py-1 text-xs bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 rounded border border-blue-600/30 transition-colors"
+                            className="text-xs bg-blue-600/20 text-blue-100 hover:bg-blue-600/30"
                           >
                             Weekly Monday
-                          </button>
+                          </Button>
                         </div>
 
                         {/* Help Text */}
@@ -1564,22 +1622,24 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
                               label: '📄 + 🏛 Docs & Diagrams',
                               description: 'Regenerate both docs and architecture diagrams automatically'
                             },
-                            {
-                              value: 'full_auto_publish',
-                              label: '🚀 Full Auto-Publish',
-                              description: 'Update content and publish to configured knowledge bases'
-                            }
-                          ].map((preset) => {
-                            const isSelected = presetFromFlags(singleRuleForm) === preset.value;
-                            return (
-                              <button
+                          {
+                            value: 'full_auto_publish',
+                            label: '🚀 Full Auto-Publish',
+                            description: 'Update content and publish to configured knowledge bases'
+                          }
+                        ].map((preset) => {
+                          const isSelected = presetFromFlags(singleRuleForm) === preset.value;
+                          return (
+                              <Button
                                 key={preset.value}
                                 type="button"
+                                variant="outline"
+                                className={`relative flex w-full flex-col items-start gap-1 rounded-lg border-2 p-4 text-left transition-all ${
+                                  isSelected
+                                    ? 'border-green-500 bg-green-500/15 text-green-100 shadow-lg shadow-green-500/20'
+                                    : 'border-white/20 bg-white/5 text-white/80 hover:border-white/30 hover:bg-white/10'
+                                }`}
                                 onClick={() => applyPreset(preset.value as AutomationPreset)}
-                                className={`relative p-4 rounded-lg border-2 text-left transition-all ${isSelected
-                                  ? 'border-green-500 bg-green-500/15 text-green-100 shadow-lg shadow-green-500/20'
-                                  : 'border-white/20 bg-white/5 hover:bg-white/10 hover:border-white/30 text-white/80'
-                                  }`}
                               >
                                 {isSelected && (
                                   <div className="absolute top-2 right-2">
@@ -1601,14 +1661,31 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
                                     Selected
                                   </div>
                                 )}
-                              </button>
-                            );
-                          })}
+                              </Button>
+                          );
+                        })}
                         </div>
                       </div>
 
                     </div>
 
+
+                    <div className="rounded-lg border border-white/10 bg-white/5 p-4">
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-medium text-white/90">Auto-approve doc updates</p>
+                          <p className="text-xs text-white/60">
+                            Apply regenerated documentation automatically without manual review.
+                          </p>
+                        </div>
+                        <Switch
+                          checked={Boolean(singleRuleForm?.auto_approve)}
+                          onCheckedChange={(value) => updateSingleRuleField('auto_approve', value)}
+                          aria-label={singleRuleForm?.auto_approve ? 'Disable auto-approve' : 'Enable auto-approve'}
+                          className="scale-90"
+                        />
+                      </div>
+                    </div>
 
                     <div className="grid gap-3 md:grid-cols-2">
                       <label className="text-sm text-white/80">

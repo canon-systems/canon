@@ -6,6 +6,7 @@ import { Settings, User, Link2, Sliders, Mail, Check, X, Loader2, Github, CheckC
 import { IntegrationLogos } from '@/components/IntegrationLogos';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Button } from '@/components/ui/button';
 
 interface Connection {
   id: string;
@@ -121,6 +122,10 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
       }
       if (providerName === 'notion') {
         window.location.href = '/api/oauth/notion/start';
+        return;
+      }
+      if (providerName === 'confluence') {
+        window.location.href = '/api/oauth/confluence/start';
         return;
       }
 
@@ -316,20 +321,21 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                       )}
                     </div>
                     {isGitHubConnected ? (
-                      <button
+                      <Button
                         onClick={() => {
                           const conn = connections.find(c => c.provider === 'github');
                           if (conn) openDisconnectModal(conn.connection_id, 'github');
                         }}
-                        className="w-full rounded-lg border border-red-500/50 bg-red-500/10 px-4 py-2 text-sm text-red-300 transition-colors hover:bg-red-500/20"
+                        variant="secondary"
+                        className="w-full border-red-500/50 bg-red-500/10 text-red-200 hover:bg-red-500/20"
                       >
                         Disconnect
-                      </button>
+                      </Button>
                     ) : (
-                      <button
+                      <Button
                         onClick={() => connectToProvider('github')}
                         disabled={connecting}
-                        className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="w-full bg-blue-600 text-white hover:bg-blue-700"
                       >
                         {connecting ? (
                           <span className="flex items-center justify-center gap-2">
@@ -342,7 +348,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                             Connect GitHub
                           </span>
                         )}
-                      </button>
+                      </Button>
                     )}
                   </div>
 
@@ -366,20 +372,21 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                       )}
                     </div>
                     {isNotionConnected ? (
-                      <button
+                      <Button
                         onClick={() => {
                           const conn = connections.find(c => c.provider === 'notion');
                           if (conn) openDisconnectModal(conn.connection_id, 'notion');
                         }}
-                        className="w-full rounded-lg border border-red-500/50 bg-red-500/10 px-4 py-2 text-sm text-red-300 transition-colors hover:bg-red-500/20"
+                        variant="secondary"
+                        className="w-full border-red-500/50 bg-red-500/10 text-red-200 hover:bg-red-500/20"
                       >
                         Disconnect
-                      </button>
+                      </Button>
                     ) : (
-                      <button
+                      <Button
                         onClick={() => connectToProvider('notion')}
                         disabled={connecting}
-                        className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="w-full bg-blue-600 text-white hover:bg-blue-700"
                       >
                         {connecting ? (
                           <span className="flex items-center justify-center gap-2">
@@ -392,7 +399,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                             Connect Notion
                           </span>
                         )}
-                      </button>
+                      </Button>
                     )}
                   </div>
 
@@ -416,33 +423,34 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                       )}
                     </div>
                     {isConfluenceConnected ? (
-                      <button
+                      <Button
                         onClick={() => {
                           const conn = connections.find(c => c.provider === 'confluence');
                           if (conn) openDisconnectModal(conn.connection_id, 'confluence');
                         }}
-                        className="w-full rounded-lg border border-red-500/50 bg-red-500/10 px-4 py-2 text-sm text-red-300 transition-colors hover:bg-red-500/20"
+                        variant="secondary"
+                        className="w-full border-red-500/50 bg-red-500/10 text-red-200 hover:bg-red-500/20"
                       >
                         Disconnect
-                      </button>
-                    ) : (<p>Connect Confluence (Coming Soon)</p>
-                      // <button
-                      //   onClick={() => connectToProvider('confluence')}
-                      //   disabled={connecting}
-                      //   className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                      // >
-                      //   {connecting ? (
-                      //     <span className="flex items-center justify-center gap-2">
-                      //       <Loader2 className="h-4 w-4 animate-spin" />
-                      //       Connecting...
-                      //     </span>
-                      //   ) : (
-                      //     <span className="flex items-center justify-center gap-2">
-                      //       <Link2 className="h-4 w-4" />
-                      //       Connect Confluence (Coming Soon)
-                      //     </span>
-                      //   )}
-                      // </button>
+                      </Button>
+                    ) : (
+                      <Button
+                        onClick={() => connectToProvider('confluence')}
+                        disabled={connecting}
+                        className="w-full bg-blue-600 text-white hover:bg-blue-700"
+                      >
+                        {connecting ? (
+                          <span className="flex items-center justify-center gap-2">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Connecting...
+                          </span>
+                        ) : (
+                          <span className="flex items-center justify-center gap-2">
+                            <Link2 className="h-4 w-4" />
+                            Connect Confluence
+                          </span>
+                        )}
+                      </Button>
                     )}
                   </div>
 
@@ -466,15 +474,16 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                       )}
                     </div>
                     {isGoogleDocsConnected ? (
-                      <button
+                      <Button
                         onClick={() => {
                           const conn = connections.find(c => c.provider === 'googledocs');
                           if (conn) openDisconnectModal(conn.connection_id, 'googledocs');
                         }}
-                        className="w-full rounded-lg border border-red-500/50 bg-red-500/10 px-4 py-2 text-sm text-red-300 transition-colors hover:bg-red-500/20"
+                        variant="secondary"
+                        className="w-full border-red-500/50 bg-red-500/10 text-red-200 hover:bg-red-500/20"
                       >
                         Disconnect
-                      </button>
+                      </Button>
                     ) : (<p>Connect Google Docs (Coming Soon)</p>
                       // <button
                       //   onClick={() => connectToProvider('google-docs')}
@@ -542,12 +551,14 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                                 Active
                               </span>
                             )}
-                            <button
+                            <Button
+                              variant="secondary"
+                              size="icon"
                               onClick={() => openDisconnectModal(connection.connection_id, connection.provider)}
-                              className="rounded-lg border border-red-500/50 bg-red-500/10 px-3 py-1.5 text-sm text-red-300 transition-colors hover:bg-red-500/20"
+                              className="border-red-500/50 bg-red-500/10 text-red-200 hover:bg-red-500/20"
                             >
                               <X className="h-4 w-4" />
-                            </button>
+                            </Button>
                           </div>
                         </div>
                       </div>
@@ -602,14 +613,16 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
               </span>? This action cannot be undone.
             </p>
             <div className="flex justify-end gap-3">
-              <button
-                className="rounded-lg border border-white/20 px-4 py-2 text-white/80 hover:bg-white/10"
+              <Button
+                variant="outline"
                 onClick={closeDisconnectModal}
+                className="border-white/20 text-white/80 hover:bg-white/10"
               >
                 Cancel
-              </button>
-              <button
-                className="rounded-lg border border-red-500/50 bg-red-500/10 px-4 py-2 text-red-300 transition-colors hover:bg-red-500/20"
+              </Button>
+              <Button
+                variant="secondary"
+                className="border-red-500/50 bg-red-500/10 text-red-200 hover:bg-red-500/20"
                 onClick={async () => {
                   if (connectionToDisconnect) {
                     await disconnect(connectionToDisconnect.connectionId, connectionToDisconnect.provider);
@@ -618,7 +631,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                 }}
               >
                 Disconnect
-              </button>
+              </Button>
             </div>
           </div>
         </div>

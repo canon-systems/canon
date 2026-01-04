@@ -2,6 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { ChevronDown, Sparkles, Loader2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 
 interface PromptConfig {
   personality?: string;
@@ -152,9 +155,11 @@ export function PromptCustomizer({ promptConfig, onChange, onSave, saving = fals
             <span className="text-xs text-white/50">(Default settings)</span>
           )}
         </div>
-        <button
+        <Button
           type="button"
-          className="flex items-center gap-1 text-xs text-white/60 hover:text-white/80 transition-colors"
+          variant="ghost"
+          size="sm"
+          className="h-auto gap-1 text-xs text-white/70 hover:text-white"
           onClick={() => setExpanded(!expanded)}
           title={expanded ? 'Hide customization options' : 'Customize how the AI writes documentation'}
         >
@@ -162,7 +167,7 @@ export function PromptCustomizer({ promptConfig, onChange, onSave, saving = fals
           <span className={`transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}>
             <ChevronDown className="h-3 w-3" />
           </span>
-        </button>
+        </Button>
       </div>
 
       {/* Quick preview when collapsed */}
@@ -207,9 +212,11 @@ export function PromptCustomizer({ promptConfig, onChange, onSave, saving = fals
           <div>
             <div className="mb-1.5 flex items-center justify-between">
               <label className="block text-xs font-medium text-white/70">Personality</label>
-              <button
+              <Button
                 type="button"
-                className="text-xs text-purple-400 hover:text-purple-300 transition-colors"
+                variant="ghost"
+                size="sm"
+                className="h-auto px-2 text-xs text-purple-300 hover:text-purple-200"
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -224,18 +231,17 @@ export function PromptCustomizer({ promptConfig, onChange, onSave, saving = fals
                 }}
               >
                 {useCustomPersonality ? 'Use Preset' : 'Use Custom'}
-              </button>
+              </Button>
             </div>
             {useCustomPersonality ? (
-              <input
-                type="text"
+              <Input
                 value={customPersonalityText}
                 onChange={(e) => {
                   setCustomPersonalityText(e.target.value);
                   updateConfig({ personality: e.target.value });
                 }}
                 placeholder="e.g., 'Witty and engaging', 'Serious and authoritative', 'Casual and friendly'"
-                className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white placeholder-white/40 outline-none focus:border-white/40"
+                className="w-full border-white/20 bg-white/10 text-sm text-white placeholder-white/40"
               />
             ) : (
               <select
@@ -255,9 +261,11 @@ export function PromptCustomizer({ promptConfig, onChange, onSave, saving = fals
           <div>
             <div className="mb-1.5 flex items-center justify-between">
               <label className="block text-xs font-medium text-white/70">Writing Style</label>
-              <button
+              <Button
                 type="button"
-                className="text-xs text-purple-400 hover:text-purple-300 transition-colors"
+                variant="ghost"
+                size="sm"
+                className="h-auto px-2 text-xs text-purple-300 hover:text-purple-200"
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -272,18 +280,17 @@ export function PromptCustomizer({ promptConfig, onChange, onSave, saving = fals
                 }}
               >
                 {useCustomStyle ? 'Use Preset' : 'Use Custom'}
-              </button>
+              </Button>
             </div>
             {useCustomStyle ? (
-              <input
-                type="text"
+              <Input
                 value={customStyleText}
                 onChange={(e) => {
                   setCustomStyleText(e.target.value);
                   updateConfig({ style: e.target.value });
                 }}
                 placeholder="e.g., 'Step-by-step tutorials with screenshots', 'API reference with code samples', 'Visual diagrams and examples'"
-                className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white placeholder-white/40 outline-none focus:border-white/40"
+                className="w-full border-white/20 bg-white/10 text-sm text-white placeholder-white/40"
               />
             ) : (
               <select
@@ -348,7 +355,7 @@ export function PromptCustomizer({ promptConfig, onChange, onSave, saving = fals
               Temperature: {(promptConfig.temperature || 0.3).toFixed(1)}
             </label>
             <div className="space-y-2">
-              <input
+              <Input
                 type="range"
                 min="0"
                 max="1"
@@ -361,9 +368,10 @@ export function PromptCustomizer({ promptConfig, onChange, onSave, saving = fals
                 {temperaturePresets.map(preset => {
                   const isSelected = (promptConfig.temperature || 0.3) === preset.value;
                   return (
-                    <button
+                    <Button
                       key={preset.value}
                       type="button"
+                      variant="secondary"
                       className={`rounded-lg border px-2 py-1.5 transition-colors ${
                         isSelected
                           ? 'bg-purple-500/20 text-purple-300 border-purple-400/50'
@@ -373,7 +381,7 @@ export function PromptCustomizer({ promptConfig, onChange, onSave, saving = fals
                     >
                       <div className="font-medium">{preset.label}</div>
                       <div className="text-xs text-white/50">{preset.description}</div>
-                    </button>
+                    </Button>
                   );
                 })}
               </div>
@@ -382,19 +390,20 @@ export function PromptCustomizer({ promptConfig, onChange, onSave, saving = fals
           </div>
 
           {hasCustomization && (
-            <button
-              className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-xs text-white/70 hover:bg-white/20"
+            <Button
+              variant="secondary"
+              className="w-full border-white/20 bg-white/10 text-xs text-white/80 hover:bg-white/20"
               onClick={resetToDefault}
             >
               Reset to Default
-            </button>
+            </Button>
           )}
 
           {/* Save button and messages */}
           {onSave && (
             <div className="pt-2 border-t border-white/10">
-              <button
-                className="inline-flex items-center gap-2 rounded-lg bg-purple-500/20 px-3 py-1.5 text-xs font-medium text-purple-200 hover:bg-purple-500/30 disabled:opacity-60 disabled:cursor-not-allowed w-full justify-center"
+              <Button
+                className="inline-flex w-full items-center justify-center gap-2 bg-purple-500/20 text-xs font-medium text-purple-200 hover:bg-purple-500/30"
                 onClick={onSave}
                 disabled={saving}
               >
@@ -406,7 +415,7 @@ export function PromptCustomizer({ promptConfig, onChange, onSave, saving = fals
                 ) : (
                   <span>Save Prompt Settings</span>
                 )}
-              </button>
+              </Button>
               {saveMessage && (
                 <p className="mt-2 text-xs text-green-300 text-center">{saveMessage}</p>
               )}
@@ -420,4 +429,3 @@ export function PromptCustomizer({ promptConfig, onChange, onSave, saving = fals
     </div>
   );
 }
-

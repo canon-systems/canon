@@ -214,17 +214,25 @@ export async function prepareFileSummaries(
 					// Generate summary
 					const summary = await generateFileSummary(fileContent, filePath, 'gpt-4o-mini');
 
-					// Upsert into repo_file_summaries
-					const { error: upsertError } = await supabase.rpc('upsert_repo_file_summary', {
-						p_repo_id: repoId,
-						p_file_path: filePath,
-						p_file_hash: currentHash,
-						p_summary_text: summary.summary_text,
-						p_summary_model: 'gpt-4o-mini',
-						p_user_id: userId || null,
-						// p_submission_id omitted - submissions table no longer exists
-						p_branch: branch,
-					});
+					// Upsert into repo_file_summaries using direct SQL to avoid last_regenerated column reference
+					const { error: upsertError } = await supabase
+						.from('repo_file_summaries')
+						.upsert(
+							{
+								repo_id: repoId,
+								file_path: filePath,
+								file_hash: currentHash,
+								summary_text: summary.summary_text,
+								summary_model: 'gpt-4o-mini',
+								branch: branch,
+								regeneration_reason: 'file_changed',
+								updated_at: new Date().toISOString(),
+							},
+							{
+								onConflict: 'repo_id,file_path,branch',
+								ignoreDuplicates: false
+							}
+						);
 
 					if (upsertError) {
 						throw new Error(`Failed to upsert: ${upsertError.message}`);
@@ -443,17 +451,25 @@ export async function generateAndSaveFileSummaries(
 					// Calculate hash if not provided using SHA-256
 					const finalHash = fileHash || createHash('sha256').update(fileContent).digest('hex');
 
-					// Upsert into repo_file_summaries using RPC function to bypass RLS
-					const { error: upsertError } = await serviceClient.rpc('upsert_repo_file_summary', {
-						p_repo_id: repoId,
-						p_file_path: filePath,
-						p_file_hash: finalHash,
-						p_summary_text: summary.summary_text,
-						p_summary_model: model,
-						p_user_id: userId || null,
-						// p_submission_id omitted - submissions table no longer exists
-						p_branch: branch,
-					});
+					// Upsert into repo_file_summaries using direct SQL to bypass RLS and avoid last_regenerated column reference
+					const { error: upsertError } = await serviceClient
+						.from('repo_file_summaries')
+						.upsert(
+							{
+								repo_id: repoId,
+								file_path: filePath,
+								file_hash: finalHash,
+								summary_text: summary.summary_text,
+								summary_model: model,
+								branch: branch,
+								regeneration_reason: 'file_changed',
+								updated_at: new Date().toISOString(),
+							},
+							{
+								onConflict: 'repo_id,file_path,branch',
+								ignoreDuplicates: false
+							}
+						);
 
 					if (upsertError) {
 						console.error(`Failed to upsert summary for ${filePath}:`, upsertError);

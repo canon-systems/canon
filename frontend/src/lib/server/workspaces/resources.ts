@@ -5,68 +5,206 @@ export type WorkspaceResource = {
   type: string;
   title: string;
   url?: string;
+  metadata?: Record<string, unknown>;
 };
 
 async function notionSearch(connectionId: string, objectValue: 'page' | 'database') {
-  const token = await getProviderAccessToken({ provider: 'notion', connectionId });
+  try {
+    const token = await getProviderAccessToken({ provider: 'notion', connectionId });
+    if (!token) {
+      return [];
+    }
+
+    const url = new URL('https://api.notion.com/v1/search');
+    const response = await fetch(url.toString(), {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'Notion-Version': '2022-06-28',
+      },
+      body: JSON.stringify({
+        filter: {
+          property: 'object',
+          value: objectValue,
+        },
+        page_size: 100,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      throw new Error(`Notion API error (${response.status}): ${errorText || response.statusText}`);
+    }
+
+    const payload = await response.json().catch(() => null);
+    if (!payload || !Array.isArray(payload.results)) {
+      return [];
+    }
+
+    return payload.results.map((item: any) => {
+      let title = 'Untitled';
+      const props = item.properties || {};
+      const titleProp = props.title || props.Name;
+      if (Array.isArray(titleProp?.title)) {
+        title = titleProp.title.map((t: any) => t.text?.content || '').join('').trim() || title;
+      } else if (Array.isArray(item.title)) {
+        title = item.title.map((t: any) => t.text?.content || '').join('').trim() || title;
+      }
+
+      return {
+        id: item.id,
+        type: objectValue === 'page' ? 'page' : 'database',
+        title,
+        url: item.url,
+      };
+    });
+  } catch (error) {
+    console.error(`Notion search error (${objectValue}):`, error);
+    throw error;
+  }
+}
+
+async function getNotionResources(connectionId: string): Promise<WorkspaceResource[]> {
+  try {
+    const pages = await notionSearch(connectionId, 'page');
+    const databases = await notionSearch(connectionId, 'database');
+    return [...pages, ...databases];
+  } catch (error) {
+    console.error('Failed to get Notion resources:', error);
+    throw error;
+  }
+}
+
+async function getConfluenceResources(connectionId: string): Promise<WorkspaceResource[]> {
+  const token = await getProviderAccessToken({ provider: 'confluence', connectionId });
   if (!token) {
     return [];
   }
 
-  const url = new URL('https://api.notion.com/v1/search');
-  const response = await fetch(url.toString(), {
-    method: 'POST',
+  const resourcesResponse = await fetch('https://api.atlassian.com/oauth/token/accessible-resources', {
     headers: {
       Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      'Notion-Version': '2022-06-28',
+      Accept: 'application/json',
     },
-    body: JSON.stringify({
-      filter: {
-        property: 'object',
-        value: objectValue,
-      },
-      page_size: 100,
-    }),
   });
 
-  if (!response.ok) {
+  if (!resourcesResponse.ok) {
     return [];
   }
 
-  const payload = await response.json().catch(() => null);
-  if (!payload || !Array.isArray(payload.results)) {
+  const resourcesPayload = await resourcesResponse.json().catch(() => []);
+  const resources = Array.isArray(resourcesPayload) ? resourcesPayload : [];
+
+  const allSpaces: WorkspaceResource[] = [];
+
+  for (const resource of resources) {
+    const cloudId = resource?.id;
+    const siteUrl = resource?.url;
+    if (!cloudId) continue;
+
+    let nextUrl: string | null = `https://api.atlassian.com/ex/confluence/${cloudId}/wiki/api/v2/spaces?limit=200`;
+    while (nextUrl) {
+      const spacesResponse: Response = await fetch(nextUrl, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json',
+        },
+      });
+
+      if (!spacesResponse.ok) {
+        break;
+      }
+
+      const payload = await spacesResponse.json().catch(() => null);
+      const spaces = Array.isArray(payload?.results) ? payload.results : [];
+
+      for (const space of spaces) {
+        const spaceId = space?.id ? String(space.id) : null;
+        const spaceKey = space?.key ? String(space.key) : null;
+        if (!spaceId) continue;
+        const spaceUrl = siteUrl && spaceKey ? `${siteUrl}/wiki/spaces/${spaceKey}` : undefined;
+        allSpaces.push({
+          id: `${cloudId}:${spaceId}`,
+          type: 'space',
+          title: space.name || spaceKey || `Space ${spaceId}`,
+          url: spaceUrl,
+          metadata: {
+            cloudId,
+            spaceId,
+            spaceKey,
+          },
+        });
+      }
+
+      const nextLink = payload?._links?.next || payload?.next;
+      if (nextLink) {
+        nextUrl = nextLink.startsWith('http')
+          ? nextLink
+          : `https://api.atlassian.com/ex/confluence/${cloudId}${nextLink.startsWith('/') ? '' : '/'}${nextLink}`;
+      } else {
+        nextUrl = null;
+      }
+    }
+  }
+
+  return allSpaces;
+}
+
+async function getConfluencePages(params: {
+  connectionId: string;
+  cloudId: string;
+  spaceId: string;
+}): Promise<WorkspaceResource[]> {
+  const { connectionId, cloudId, spaceId } = params;
+  const token = await getProviderAccessToken({ provider: 'confluence', connectionId });
+  if (!token) {
     return [];
   }
 
-  return payload.results.map((item: any) => {
-    let title = 'Untitled';
-    const props = item.properties || {};
-    const titleProp = props.title || props.Name;
-    if (Array.isArray(titleProp?.title)) {
-      title = titleProp.title.map((t: any) => t.text?.content || '').join('').trim() || title;
-    } else if (Array.isArray(item.title)) {
-      title = item.title.map((t: any) => t.text?.content || '').join('').trim() || title;
+  const pages: WorkspaceResource[] = [];
+  let nextUrl: string | null = `https://api.atlassian.com/ex/confluence/${cloudId}/wiki/api/v2/pages?limit=200&space-id=${encodeURIComponent(spaceId)}`;
+
+  while (nextUrl) {
+    const response: Response = await fetch(nextUrl, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      break;
     }
 
-    return {
-      id: item.id,
-      type: objectValue === 'page' ? 'page' : 'database',
-      title,
-      url: item.url,
-    };
-  });
-}
+    const payload = await response.json().catch(() => null);
+    const results = Array.isArray(payload?.results) ? payload.results : [];
 
-async function getNotionResources(connectionId: string): Promise<WorkspaceResource[]> {
-  const pages = await notionSearch(connectionId, 'page');
-  const databases = await notionSearch(connectionId, 'database');
-  return [...pages, ...databases];
-}
+    for (const page of results) {
+      if (!page?.id) continue;
+      pages.push({
+        id: `${cloudId}:${page.id}`,
+        type: 'page',
+        title: page.title || `Page ${page.id}`,
+        url: page?._links?.webui || page?.links?.webui || undefined,
+        metadata: {
+          cloudId,
+          spaceId,
+        },
+      });
+    }
 
-async function getConfluenceResources(connectionId: string): Promise<WorkspaceResource[]> {
-  void connectionId;
-  return [];
+    const nextLink = payload?._links?.next || payload?.next;
+    if (nextLink) {
+      nextUrl = nextLink.startsWith('http')
+        ? nextLink
+        : `https://api.atlassian.com/ex/confluence/${cloudId}${nextLink.startsWith('/') ? '' : '/'}${nextLink}`;
+    } else {
+      nextUrl = null;
+    }
+  }
+
+  return pages;
 }
 
 async function getCodaResources(connectionId: string): Promise<WorkspaceResource[]> {
@@ -85,4 +223,12 @@ export async function listResources(provider: string, connectionId: string): Pro
     default:
       return [];
   }
+}
+
+export async function listConfluencePages(params: {
+  connectionId: string;
+  cloudId: string;
+  spaceId: string;
+}): Promise<WorkspaceResource[]> {
+  return getConfluencePages(params);
 }

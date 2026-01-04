@@ -36,7 +36,7 @@ const TabsList = ({ children, className }: TabsListProps) => {
   return (
     <div
       className={cn(
-        "inline-flex h-10 items-center justify-center rounded-md bg-white/5 p-1 text-white/60",
+        "inline-flex h-10 items-center justify-center gap-1 rounded-full border border-white/10 bg-white/5 p-1 text-white/70",
         className
       )}
     >
@@ -49,9 +49,10 @@ interface TabsTriggerProps {
   value: string
   children: React.ReactNode
   className?: string
+  disabled?: boolean
 }
 
-const TabsTrigger = ({ value, children, className }: TabsTriggerProps) => {
+const TabsTrigger = ({ value, children, className, disabled = false }: TabsTriggerProps) => {
   const context = React.useContext(TabsContext)
   if (!context) {
     throw new Error("TabsTrigger must be used within Tabs")
@@ -62,12 +63,13 @@ const TabsTrigger = ({ value, children, className }: TabsTriggerProps) => {
 
   return (
     <button
-      onClick={() => onValueChange(value)}
+      onClick={() => !disabled && onValueChange(value)}
+      disabled={disabled}
       className={cn(
-        "inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:ring-offset-2 focus-visible:ring-offset-black disabled:pointer-events-none disabled:opacity-50",
+        "inline-flex items-center justify-center whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:ring-offset-2 focus-visible:ring-offset-black disabled:pointer-events-none disabled:opacity-50",
         isActive
-          ? "bg-white/10 text-white shadow-sm"
-          : "text-white/60 hover:text-white hover:bg-white/5",
+          ? "bg-white text-black shadow-[0_10px_30px_rgba(255,255,255,0.12)]"
+          : "text-white/70 hover:text-white hover:bg-white/10",
         className
       )}
       data-state={isActive ? "active" : "inactive"}

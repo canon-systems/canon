@@ -190,27 +190,27 @@ export function LogsPageClient({ user, logs, repos = [] }: LogsPageClientProps) 
   const getTypeColor = (type: LogEntry['type']) => {
     switch (type) {
       case 'document':
-        return 'bg-blue-500/20 text-blue-400';
+        return 'bg-[#f97316]/15 text-white';
       case 'automation_execution':
-        return 'bg-purple-500/20 text-purple-400';
+        return 'bg-[#f97316]/20 text-white';
       case 'document_error':
-        return 'bg-red-500/20 text-red-400';
+        return 'bg-white/10 text-white/80';
       case 'document_regenerated':
-        return 'bg-gradient-to-br from-purple-500/30 to-pink-500/30 text-purple-200 border border-purple-500/50';
+        return 'bg-[#f97316]/20 text-white border border-[#f97316]/40';
       case 'document_deleted':
-        return 'bg-red-500/20 text-red-200';
+        return 'bg-white/8 text-white/70';
       case 'repo_connection':
-        return 'bg-indigo-500/20 text-indigo-400';
+        return 'bg-white/10 text-white/80';
       case 'integration_connection':
-        return 'bg-emerald-500/20 text-emerald-300';
+        return 'bg-white/10 text-white/80';
       case 'integration_disconnected':
-        return 'bg-amber-500/20 text-amber-300';
+        return 'bg-white/8 text-white/70';
       case 'diagram':
-        return 'bg-sky-500/20 text-sky-300';
+        return 'bg-white/10 text-white/80';
       case 'kb_push':
-        return 'bg-cyan-500/20 text-cyan-300';
+        return 'bg-white/10 text-white/80';
       default:
-        return 'bg-gray-500/20 text-gray-400';
+        return 'bg-white/8 text-white/70';
     }
   };
 
@@ -218,13 +218,13 @@ export function LogsPageClient({ user, logs, repos = [] }: LogsPageClientProps) 
     if (!status) return null;
 
     const statusColors: Record<string, string> = {
-      completed: 'bg-green-500/20 text-green-400',
-      processing: 'bg-yellow-500/20 text-yellow-400',
-      failed: 'bg-red-500/20 text-red-400',
+      completed: 'bg-[#f97316]/15 text-white',
+      processing: 'bg-white/10 text-white/80',
+      failed: 'bg-white/8 text-white/70',
     };
 
     return (
-      <span className={`inline-block px-2 py-0.5 rounded text-xs ${statusColors[status] || 'bg-gray-500/20 text-gray-400'}`}>
+      <span className={`inline-block px-2 py-0.5 rounded text-xs ${statusColors[status] || 'bg-white/8 text-white/70'}`}>
         {status}
       </span>
     );
@@ -297,12 +297,12 @@ export function LogsPageClient({ user, logs, repos = [] }: LogsPageClientProps) 
         </div>
 
         {(logs.errors.usageEvents || logs.errors.automationRuns) && (
-          <Card className="border-red-500/20 bg-red-500/10">
+          <Card className="border-white/15 bg-white/5">
             <CardContent className="p-4">
-              <p className="text-red-400 text-sm font-medium mb-2">
+              <p className="text-white/85 text-sm font-medium mb-2">
                 Some logs could not be loaded:
               </p>
-              <ul className="text-red-300 text-xs space-y-1">
+              <ul className="text-white/70 text-xs space-y-1">
                 {logs.errors.usageEvents && <li>• Usage events: {logs.errors.usageEvents}</li>}
                 {logs.errors.automationRuns && <li>• Automation runs: {logs.errors.automationRuns}</li>}
               </ul>
@@ -314,38 +314,39 @@ export function LogsPageClient({ user, logs, repos = [] }: LogsPageClientProps) 
           <CardContent className="p-6">
             <div className="relative">
               {hasEntries && (
-                <div className="max-h-[70vh] overflow-y-auto pr-2 space-y-3">
-                  {filteredEntries.map((entry) => {
+                <div className="max-h-[70vh] overflow-y-auto pr-2 space-y-2">
+                  {filteredEntries.map((entry, idx) => {
                     const Icon = getIcon(entry.type);
                     const isRegenerated = entry.type === 'document_regenerated';
+                    const rowTone = idx % 2 === 0 ? 'bg-white/5' : 'bg-white/0';
                     const content = (
                       <div className={`flex items-start gap-4 p-4 rounded-xl border transition-all ${isRegenerated
-                        ? 'border-purple-500/50 bg-gradient-to-br from-purple-500/10 to-pink-500/10 hover:border-purple-500/70 hover:from-purple-500/15 hover:to-pink-500/15 shadow-lg shadow-purple-500/10'
-                        : 'border-white/10 hover:border-white/20'
+                        ? 'border-[#f97316]/50 bg-gradient-to-br from-[#f97316]/10 to-white/5 hover:border-[#f97316]/70 hover:from-[#f97316]/15 hover:to-white/10 shadow-lg shadow-black/30'
+                        : `border-white/10 hover:border-white/20 ${rowTone}`
                         }`}>
                         <div className={`rounded-lg p-2 ${getTypeColor(entry.type)} flex-shrink-0 ${isRegenerated ? 'animate-pulse' : ''}`}>
-                          <Icon className={`h-4 w-4 ${isRegenerated ? 'text-purple-200' : ''}`} />
+                          <Icon className={`h-4 w-4`} />
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-4 mb-2">
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 mb-1">
-                                <h3 className={`font-medium truncate ${isRegenerated ? 'text-purple-200' : 'text-white'}`}>{entry.title}</h3>
+                                <h3 className={`font-medium truncate ${isRegenerated ? 'text-white' : 'text-white'}`}>{entry.title}</h3>
                                 {isRegenerated && (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-500/30 text-purple-200 text-xs font-semibold border border-purple-500/50">
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#f97316]/20 text-white text-xs font-semibold border border-[#f97316]/40">
                                     <RefreshCw className="h-3 w-3" />
                                     Regenerated
                                   </span>
                                 )}
                               </div>
-                              <p className={`text-sm ${isRegenerated ? 'text-purple-100/90' : 'text-white/70'}`}>{entry.message}</p>
+                              <p className="text-sm text-white/75">{entry.message}</p>
                             </div>
                             <div className="flex flex-col items-end gap-1 flex-shrink-0">
                               <span className="text-xs text-white/50 whitespace-nowrap">
                                 {formatDate(entry.timestamp)}
                               </span>
                               {entry.metadata?.isOutdated && (
-                                <span className="text-xs text-yellow-400 flex items-center gap-1">
+                                <span className="text-xs text-white/70 flex items-center gap-1">
                                   <Clock className="h-3 w-3" />
                                   Outdated
                                 </span>
@@ -360,7 +361,7 @@ export function LogsPageClient({ user, logs, repos = [] }: LogsPageClientProps) 
                                 <span className="text-xs">{entry.id}</span>
                               </div>
                               {entry.metadata?.automationRuleId && (
-                                <div className="flex items-center gap-1.5 text-purple-300">
+                                <div className="flex items-center gap-1.5 text-white/75">
                                   <Zap className="h-3 w-3" />
                                   <span>Rule: {entry.metadata.automationRuleId}</span>
                                 </div>

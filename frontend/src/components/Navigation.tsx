@@ -1,25 +1,23 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   Activity,
   BookOpen,
-  Code2,
   FileText,
   Github,
+  GitCompare,
   Layers3,
   LogOut,
   Menu,
   ScrollText,
   Settings,
-  Sparkles,
   Zap,
 } from 'lucide-react';
 import type { Session, User } from '@supabase/supabase-js';
 import { Button } from './ui/button';
-import { Badge } from './ui/badge';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { cn } from './ui/utils';
 
@@ -40,6 +38,7 @@ const primaryNav: NavItem[] = [
   { href: '/overview', label: 'Overview', icon: Activity },
   { href: '/repos', label: 'Repos', icon: Github },
   { href: '/documentation', label: 'Docs', icon: FileText },
+  { href: '/review', label: 'Review', icon: GitCompare, matchPrefix: true },
   { href: '/architecture-diagrams', label: 'Architecture', icon: Layers3 },
   { href: '/automation', label: 'Automation', icon: Zap },
   { href: '/logs', label: 'Logs', icon: ScrollText },
@@ -53,7 +52,6 @@ const secondaryNav: NavItem[] = [
 
 export function Navigation({ user, session, onLogout }: NavigationProps) {
   const pathname = usePathname();
-  const [isMobile, setIsMobile] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -64,30 +62,28 @@ export function Navigation({ user, session, onLogout }: NavigationProps) {
     return pathname === item.href;
   };
 
-  useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 1024);
-    handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
   const navLinkClass = (active: boolean) =>
     cn(
-      'flex items-center gap-2 rounded-xl px-3 py-2 text-sm transition',
-      'border border-transparent bg-white/0 hover:bg-white/5 hover:border-white/10',
-      active && 'bg-white/10 border-white/15 text-white shadow-[0_8px_30px_rgba(0,0,0,0.35)]'
+      'flex items-center gap-2 rounded-full px-3 py-2 text-sm transition border border-transparent',
+      active
+        ? 'bg-white text-black shadow-[0_10px_30px_rgba(255,255,255,0.12)]'
+        : 'bg-white/0 text-white/80 hover:bg-white/10 hover:border-white/10 hover:text-white'
     );
 
   return (
-    <div className="sticky top-0 z-40" ref={containerRef}>
-      <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-slate-900/60 to-black/70 backdrop-blur-xl border-b border-white/10" />
-      <nav className="relative mx-auto flex max-w-screen-2xl items-center justify-between px-4 py-4 lg:px-8">
-        <Link href="/" className="flex items-center gap-3">
+    <div className="sticky top-0 z-40 border-b border-white/10 bg-black/70 backdrop-blur-xl" ref={containerRef}>
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(255,255,255,0.08),transparent_60%)]" />
+      <nav className="relative mx-auto flex max-w-7xl items-center justify-between px-4 py-4 md:px-6 lg:px-8">
+        <Link href="/" className="flex items-center gap-3 rounded-xl border border-white/5 bg-white/5 px-3 py-2 transition hover:border-white/10 hover:bg-white/10">
           <img
             src="/web-app-manifest-512x512.png"
             alt="Canon AI docs & automation"
-            className="h-20 w-auto"
+            className="h-10 w-10 rounded-lg border border-white/10"
           />
+          <div className="flex flex-col leading-tight">
+            <span className="text-sm font-semibold text-white">Canon</span>
+            <span className="text-[11px] uppercase tracking-[0.2em] text-white/60">Workspace</span>
+          </div>
         </Link>
 
         <div className="hidden items-center gap-2 rounded-full border border-white/10 bg-white/5 px-2 py-2 shadow-inner shadow-black/30 lg:flex">
@@ -96,8 +92,8 @@ export function Navigation({ user, session, onLogout }: NavigationProps) {
             const Icon = item.icon;
             return (
               <Link key={item.href} href={item.href} className={navLinkClass(active)}>
-                <Icon className="h-4 w-4 text-amber-300/80" />
-                <span className="text-white/90">{item.label}</span>
+                <Icon className={cn('h-4 w-4', active ? 'text-black/70' : 'text-white/70')} />
+                <span className={active ? 'text-black/80' : 'text-white/90'}>{item.label}</span>
               </Link>
             );
           })}
@@ -106,17 +102,20 @@ export function Navigation({ user, session, onLogout }: NavigationProps) {
         <div className="hidden items-center gap-3 lg:flex">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="flex items-center gap-3 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-left text-sm text-white/80 transition hover:bg-white/10">
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white">
+              <Button
+                variant="secondary"
+                className="flex items-center gap-3 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-left text-sm text-white/80 transition hover:border-white/20 hover:bg-white/10"
+              >
+                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-black font-semibold">
                   {initials}
                 </div>
                 <div className="flex flex-col leading-tight">
                   <span className="text-white font-semibold">{user?.user_metadata?.full_name ?? 'Workspace Member'}</span>
                   <span className="text-xs text-white/60">{user?.email}</span>
                 </div>
-              </button>
+              </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="border-white/10 bg-[#0c0c0c]">
+            <DropdownMenuContent align="end" className="border-white/10 bg-black/90 backdrop-blur-xl">
               <DropdownMenuItem asChild>
                 <Link href="/settings">
                   <Settings className="mr-2 h-4 w-4" />
@@ -148,7 +147,7 @@ export function Navigation({ user, session, onLogout }: NavigationProps) {
       </nav>
 
       {mobileOpen && (
-        <div className="relative border-t border-white/10 bg-black/80 px-4 py-4 backdrop-blur-xl lg:hidden">
+        <div className="relative border-t border-white/10 bg-black/85 px-4 py-4 backdrop-blur-xl lg:hidden">
           <div className="grid gap-2">
             {primaryNav.map((item) => {
               const active = isActive(item);
@@ -163,7 +162,7 @@ export function Navigation({ user, session, onLogout }: NavigationProps) {
                   )}
                   onClick={() => setMobileOpen(false)}
                 >
-                  <Icon className="h-4 w-4 text-amber-300/80" />
+                  <Icon className="h-4 w-4 text-white/70" />
                   {item.label}
                 </Link>
               );
@@ -192,7 +191,7 @@ export function Navigation({ user, session, onLogout }: NavigationProps) {
           {session && user && (
             <div className="mt-4 flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-white/80">
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-black font-semibold">
                   {initials}
                 </div>
                 <div className="flex flex-col">
