@@ -5,6 +5,15 @@ export type FileSummary = {
 	resources: string;
 };
 
+let cachedGateway: LLMGateway | null = null;
+
+function getGateway(): LLMGateway {
+	if (!cachedGateway) {
+		cachedGateway = new LLMGateway();
+	}
+	return cachedGateway;
+}
+
 // Files that should be skipped entirely
 const SKIP_FILE_PATTERNS = [
 	/package-lock\.json$/i,
@@ -43,7 +52,7 @@ export async function generateFileSummary(
 
 	let gateway: LLMGateway;
 	try {
-		gateway = new LLMGateway();
+		gateway = getGateway();
 	} catch (error: any) {
 		console.error(`[fileSummarizer] ❌ LLM gateway initialization failed for ${filePath}: ${error.message}`);
 		throw new Error(`AI service unavailable: ${error.message}`);
@@ -123,8 +132,7 @@ Follow the system prompt requirements exactly. Analyze the entire file content t
 			};
 		}
 	} catch (error: any) {
-		console.error(`[fileSummarizer] ❌ LLM gateway initialization failed for ${filePath}: ${error.message}`);
+		console.error(`[fileSummarizer] ❌ LLM gateway call failed for ${filePath}: ${error.message}`);
 		throw new Error(`AI service unavailable: ${error.message}`);
 	}
 }
-
