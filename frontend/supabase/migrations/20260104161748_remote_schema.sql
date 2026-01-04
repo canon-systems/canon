@@ -88,22 +88,6 @@ $$;
 ALTER FUNCTION "public"."cleanup_old_automation_runs"("days_to_keep" integer) OWNER TO "postgres";
 
 
-CREATE OR REPLACE FUNCTION "public"."compute_next_run_at"("schedule_text" "text", "from_time" timestamp with time zone DEFAULT "now"()) RETURNS timestamp with time zone
-    LANGUAGE "plpgsql"
-    AS $$
-DECLARE
-    result TIMESTAMPTZ;
-BEGIN
-    -- This would need to implement the same logic as calculateDelayUntilNextRun
-    -- For now, return a default (this function would need to be implemented)
-    RETURN from_time + interval '1 day';
-END;
-$$;
-
-
-ALTER FUNCTION "public"."compute_next_run_at"("schedule_text" "text", "from_time" timestamp with time zone) OWNER TO "postgres";
-
-
 CREATE OR REPLACE FUNCTION "public"."create_diagram_version"("p_diagram_id" "uuid", "p_diagram_markdown" "text", "p_commit_sha" "text" DEFAULT NULL::"text", "p_change_summary" "text" DEFAULT NULL::"text") RETURNS "uuid"
     LANGUAGE "plpgsql"
     AS $$
@@ -473,22 +457,6 @@ $$;
 ALTER FUNCTION "public"."schema_with_samples"("sample_size" integer) OWNER TO "postgres";
 
 
-CREATE OR REPLACE FUNCTION "public"."update_automation_rule_next_run"() RETURNS "trigger"
-    LANGUAGE "plpgsql"
-    AS $$
-BEGIN
-    IF (TG_OP = 'INSERT' OR TG_OP = 'UPDATE') AND NEW.schedule IS NOT NULL AND NEW.enabled = true THEN
-        NEW.next_run_at := compute_next_run_at(NEW.schedule, COALESCE(NEW.last_run_at, now()));
-    END IF;
-    NEW.updated_at := now();
-    RETURN NEW;
-END;
-$$;
-
-
-ALTER FUNCTION "public"."update_automation_rule_next_run"() OWNER TO "postgres";
-
-
 CREATE OR REPLACE FUNCTION "public"."update_repo_file_summaries_updated_at"() RETURNS "trigger"
     LANGUAGE "plpgsql"
     AS $$
@@ -570,51 +538,35 @@ ALTER FUNCTION "public"."upsert_repo_file_summary"("p_repo_id" "text", "p_file_p
 CREATE OR REPLACE FUNCTION "public"."user_owns_repo"("repo_id_to_check" "text") RETURNS boolean
     LANGUAGE "plpgsql" SECURITY DEFINER
     AS $$
-DECLARE
-  current_user_id UUID;
-BEGIN
-  -- Get current user ID - try multiple methods for compatibility
+declare
+  current_user_id uuid;
+begin
   current_user_id := auth.uid();
-  
-  -- If auth.uid() is null, try to get from JWT claims
-  IF current_user_id IS NULL THEN
-    BEGIN
+
+  if current_user_id is null then
+    begin
       current_user_id := (current_setting('request.jwt.claims', true)::json->>'sub')::uuid;
-    EXCEPTION
-      WHEN OTHERS THEN
-        current_user_id := NULL;
-    END;
-  END IF;
+    exception
+      when others then
+        current_user_id := null;
+    end;
+  end if;
 
-  -- If still no user ID, deny access
-  IF current_user_id IS NULL THEN
-    RETURN FALSE;
-  END IF;
+  if current_user_id is null then
+    return false;
+  end if;
 
-  -- Check if repo is in workspace_repos
-  IF EXISTS (
-    SELECT 1
-    FROM workspace_repos
-    WHERE workspace_id = current_user_id
-      AND normalize_repo_url_to_id(repo_url) = repo_id_to_check
-  ) THEN
-    RETURN TRUE;
-  END IF;
+  if exists (
+    select 1
+    from public.workspace_repos
+    where user_id = current_user_id
+      and public.normalize_repo_url_to_id(repo_url) = repo_id_to_check
+  ) then
+    return true;
+  end if;
 
-  -- Removed submissions check - users now only access repos via workspace_repos
-  -- If you need to check documents, you can add:
-  -- IF EXISTS (
-  --   SELECT 1
-  --   FROM documents d
-  --   JOIN workspace_repos wr ON wr.id = d.repo_id
-  --   WHERE wr.workspace_id = current_user_id
-  --     AND normalize_repo_url_to_id(wr.repo_url) = repo_id_to_check
-  -- ) THEN
-  --   RETURN TRUE;
-  -- END IF;
-
-  RETURN FALSE;
-END;
+  return false;
+end;
 $$;
 
 
@@ -625,83 +577,52 @@ SET default_tablespace = '';
 SET default_table_access_method = "heap";
 
 
-CREATE TABLE IF NOT EXISTS "public"."automation_results" (
-    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
-    "rule_id" "text" NOT NULL,
-    "repo_id" "text" NOT NULL,
-    "user_id" "uuid" NOT NULL,
-    "status" "text" DEFAULT 'pending'::"text",
-    "significance_analysis" "jsonb",
-    "generated_documents" "jsonb" DEFAULT '[]'::"jsonb",
-    "generated_diagrams" "jsonb" DEFAULT '[]'::"jsonb",
-    "actions_taken" "jsonb" DEFAULT '[]'::"jsonb",
-    "errors" "jsonb" DEFAULT '[]'::"jsonb",
-    "preview_url" "text",
-    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
-    "updated_at" timestamp with time zone DEFAULT "now"()
-);
-
-
-ALTER TABLE "public"."automation_results" OWNER TO "postgres";
-
-
 CREATE TABLE IF NOT EXISTS "public"."automation_rules" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
-    "workspace_id" "uuid" NOT NULL,
+    "user_id" "uuid" NOT NULL,
     "repo_id" "uuid" NOT NULL,
-    "rule_id" "text" NOT NULL,
     "name" "text",
     "enabled" boolean DEFAULT true,
     "schedule" "text",
-    "action_preset" "text",
-    "significance_analysis" "jsonb" DEFAULT '{"sensitivity": "balanced", "minimum_confidence": "medium", "require_business_changes": false, "require_technical_changes": false}'::"jsonb" NOT NULL,
-    "target_documents" "text"[] DEFAULT '{}'::"text"[],
     "target_diagrams" "text"[] DEFAULT '{}'::"text"[],
-    "notifications" "jsonb" DEFAULT '{"email_enabled": true, "include_preview_links": true}'::"jsonb" NOT NULL,
-    "publish_targets" "jsonb" DEFAULT 'null'::"jsonb",
-    "next_run_at" timestamp with time zone,
     "last_run_at" timestamp with time zone,
     "last_run_status" "text",
     "last_run_error" "text",
     "generate_doc" boolean DEFAULT false,
     "generate_diagram" boolean DEFAULT false,
     "auto_publish" boolean DEFAULT false,
-    "auto_publish_new_docs" boolean DEFAULT false,
-    "auto_publish_max_changes" integer,
-    "auto_publish_max_change_percentage" numeric(5,2),
     "auto_publish_target" "jsonb",
     "created_at" timestamp with time zone DEFAULT "now"(),
     "updated_at" timestamp with time zone DEFAULT "now"(),
-    "last_commit_sha" "text" DEFAULT ''::"text" NOT NULL,
-    CONSTRAINT "automation_rules_action_preset_check" CHECK (("action_preset" = ANY (ARRAY['docs_only'::"text", 'diagrams_only'::"text", 'docs_and_diagrams'::"text", 'full_auto_publish'::"text"])))
+    "auto_approve" boolean DEFAULT false
 );
 
 
 ALTER TABLE "public"."automation_rules" OWNER TO "postgres";
 
 
+COMMENT ON COLUMN "public"."automation_rules"."auto_approve" IS 'Automatically apply regenerated docs without manual review';
+
+
+
 CREATE TABLE IF NOT EXISTS "public"."automation_runs" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "repo_id" "uuid" NOT NULL,
-    "rule_id" "text" NOT NULL,
-    "workspace_id" "uuid" NOT NULL,
+    "user_id" "uuid" NOT NULL,
     "executed_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     "trigger_type" "text" DEFAULT 'scheduled'::"text",
-    "success" boolean NOT NULL,
-    "skipped" boolean DEFAULT false,
     "skip_reason" "text",
     "actions" "text"[] DEFAULT '{}'::"text"[],
-    "doc_id" "uuid",
-    "diagram_id" "uuid",
-    "publish_status" "text",
-    "publish_provider" "text",
-    "publish_resource_id" "text",
     "execution_time_ms" integer,
     "files_processed" integer DEFAULT 0,
     "documents_updated" integer DEFAULT 0,
     "errors" "jsonb" DEFAULT '[]'::"jsonb",
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
-    "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "generated_documents" "jsonb" DEFAULT '[]'::"jsonb",
+    "generated_diagrams" "jsonb" DEFAULT '[]'::"jsonb",
+    "status" "text" NOT NULL,
+    "automation_rule_id" "uuid",
+    CONSTRAINT "automation_runs_status_check" CHECK (("status" = ANY (ARRAY['succeeded'::"text", 'failed'::"text", 'skipped'::"text"]))),
     CONSTRAINT "automation_runs_trigger_type_check" CHECK (("trigger_type" = ANY (ARRAY['manual'::"text", 'scheduled'::"text"])))
 );
 
@@ -744,7 +665,9 @@ CREATE TABLE IF NOT EXISTS "public"."document_versions" (
     "version_number" integer NOT NULL,
     "content" "text" NOT NULL,
     "change_summary" "text",
-    "created_at" timestamp with time zone DEFAULT "now"()
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    "status" "text" DEFAULT 'approved'::"text" NOT NULL,
+    "metadata" "jsonb" DEFAULT '{}'::"jsonb" NOT NULL
 );
 
 
@@ -752,6 +675,14 @@ ALTER TABLE "public"."document_versions" OWNER TO "postgres";
 
 
 COMMENT ON TABLE "public"."document_versions" IS 'Version history for documents';
+
+
+
+COMMENT ON COLUMN "public"."document_versions"."status" IS 'approved, pending, rejected, or superseded';
+
+
+
+COMMENT ON COLUMN "public"."document_versions"."metadata" IS 'Automation metadata for version previews';
 
 
 
@@ -779,22 +710,6 @@ COMMENT ON COLUMN "public"."documents"."configuration" IS 'What personality and 
 
 
 
-CREATE TABLE IF NOT EXISTS "public"."system_nodes" (
-    "id" "text" NOT NULL,
-    "label" "text" NOT NULL,
-    "category" "text" NOT NULL,
-    "package_names" "text"[] DEFAULT '{}'::"text"[],
-    "package_prefixes" "text"[] DEFAULT '{}'::"text"[],
-    "enabled" boolean DEFAULT true,
-    "priority" integer DEFAULT 100,
-    "needs_review" boolean DEFAULT false,
-    "created_at" timestamp with time zone DEFAULT "now"()
-);
-
-
-ALTER TABLE "public"."system_nodes" OWNER TO "postgres";
-
-
 CREATE TABLE IF NOT EXISTS "public"."oauth_connections" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "user_id" "uuid" NOT NULL,
@@ -810,6 +725,25 @@ CREATE TABLE IF NOT EXISTS "public"."oauth_connections" (
 ALTER TABLE "public"."oauth_connections" OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."oauth_provider_tokens" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "connection_id" "text" NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "provider" "text" NOT NULL,
+    "provider_account_id" "text",
+    "access_token" "jsonb" NOT NULL,
+    "refresh_token" "jsonb",
+    "token_type" "text",
+    "scope" "text",
+    "expires_at" timestamp with time zone,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."oauth_provider_tokens" OWNER TO "postgres";
+
+
 CREATE TABLE IF NOT EXISTS "public"."repo_file_summaries" (
     "id" "uuid" DEFAULT "extensions"."uuid_generate_v4"() NOT NULL,
     "repo_id" "text" NOT NULL,
@@ -820,7 +754,6 @@ CREATE TABLE IF NOT EXISTS "public"."repo_file_summaries" (
     "created_at" timestamp without time zone DEFAULT "now"(),
     "updated_at" timestamp without time zone DEFAULT "now"(),
     "branch" "text",
-    "last_regenerated" timestamp with time zone DEFAULT "now"(),
     "regeneration_reason" "text" DEFAULT 'initial'::"text",
     CONSTRAINT "repo_file_summaries_regeneration_reason_check" CHECK (("regeneration_reason" = ANY (ARRAY['initial'::"text", 'file_changed'::"text", 'manual'::"text"])))
 );
@@ -884,9 +817,28 @@ COMMENT ON COLUMN "public"."repository_setup"."last_progress_update" IS 'Timesta
 
 
 
+CREATE TABLE IF NOT EXISTS "public"."system_nodes" (
+    "id" "text" NOT NULL,
+    "label" "text" NOT NULL,
+    "category" "text" NOT NULL,
+    "package_names" "text"[] DEFAULT '{}'::"text"[],
+    "package_prefixes" "text"[] DEFAULT '{}'::"text"[],
+    "enabled" boolean DEFAULT true,
+    "needs_review" boolean DEFAULT false,
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    "protocol_schemes" "text"[] DEFAULT ARRAY[]::"text"[] NOT NULL,
+    "service_host_patterns" "text"[] DEFAULT ARRAY[]::"text"[] NOT NULL,
+    "surfaces" "jsonb" DEFAULT '[]'::"jsonb" NOT NULL,
+    "provider" "text"
+);
+
+
+ALTER TABLE "public"."system_nodes" OWNER TO "postgres";
+
+
 CREATE TABLE IF NOT EXISTS "public"."usage_events" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
-    "workspace_id" "uuid" NOT NULL,
+    "user_id" "uuid" NOT NULL,
     "event_type" "text" NOT NULL,
     "metadata" "jsonb" DEFAULT '{}'::"jsonb",
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
@@ -898,7 +850,7 @@ ALTER TABLE "public"."usage_events" OWNER TO "postgres";
 
 CREATE TABLE IF NOT EXISTS "public"."workspace_repos" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
-    "workspace_id" "uuid" NOT NULL,
+    "user_id" "uuid" NOT NULL,
     "name" "text" NOT NULL,
     "provider" "text" DEFAULT 'github'::"text" NOT NULL,
     "repo_url" "text" NOT NULL,
@@ -914,18 +866,13 @@ CREATE TABLE IF NOT EXISTS "public"."workspace_repos" (
 ALTER TABLE "public"."workspace_repos" OWNER TO "postgres";
 
 
-ALTER TABLE ONLY "public"."automation_results"
-    ADD CONSTRAINT "automation_results_pkey" PRIMARY KEY ("id");
-
-
-
 ALTER TABLE ONLY "public"."automation_rules"
     ADD CONSTRAINT "automation_rules_pkey" PRIMARY KEY ("id");
 
 
 
 ALTER TABLE ONLY "public"."automation_rules"
-    ADD CONSTRAINT "automation_rules_workspace_id_repo_id_rule_id_key" UNIQUE ("workspace_id", "repo_id", "rule_id");
+    ADD CONSTRAINT "automation_rules_user_id_repo_id_key" UNIQUE ("user_id", "repo_id");
 
 
 
@@ -965,7 +912,7 @@ ALTER TABLE ONLY "public"."documents"
 
 
 ALTER TABLE ONLY "public"."system_nodes"
-    ADD CONSTRAINT "system_nodes_pkey" PRIMARY KEY ("id");
+    ADD CONSTRAINT "external_targets_pkey" PRIMARY KEY ("id");
 
 
 
@@ -981,6 +928,16 @@ ALTER TABLE ONLY "public"."oauth_connections"
 
 ALTER TABLE ONLY "public"."oauth_connections"
     ADD CONSTRAINT "oauth_connections_user_id_provider_key" UNIQUE ("user_id", "provider");
+
+
+
+ALTER TABLE ONLY "public"."oauth_provider_tokens"
+    ADD CONSTRAINT "oauth_provider_tokens_connection_id_key" UNIQUE ("connection_id");
+
+
+
+ALTER TABLE ONLY "public"."oauth_provider_tokens"
+    ADD CONSTRAINT "oauth_provider_tokens_pkey" PRIMARY KEY ("id");
 
 
 
@@ -1014,39 +971,15 @@ ALTER TABLE ONLY "public"."workspace_repos"
 
 
 
-CREATE INDEX "automation_results_created_at_idx" ON "public"."automation_results" USING "btree" ("created_at");
+CREATE INDEX "idx_automation_rules_workspace_enabled" ON "public"."automation_rules" USING "btree" ("user_id", "enabled");
 
 
 
-CREATE INDEX "automation_results_repo_id_idx" ON "public"."automation_results" USING "btree" ("repo_id");
+CREATE INDEX "idx_automation_rules_workspace_repo" ON "public"."automation_rules" USING "btree" ("user_id", "repo_id");
 
 
 
-CREATE INDEX "automation_results_rule_id_idx" ON "public"."automation_results" USING "btree" ("rule_id");
-
-
-
-CREATE INDEX "automation_results_user_id_idx" ON "public"."automation_results" USING "btree" ("user_id");
-
-
-
-CREATE INDEX "system_nodes_enabled_idx" ON "public"."system_nodes" USING "btree" ("enabled");
-
-
-
-CREATE INDEX "idx_automation_rules_due" ON "public"."automation_rules" USING "btree" ("next_run_at") WHERE ("enabled" = true);
-
-
-
-CREATE INDEX "idx_automation_rules_enabled_next_run" ON "public"."automation_rules" USING "btree" ("enabled", "next_run_at") WHERE ("enabled" = true);
-
-
-
-CREATE INDEX "idx_automation_rules_workspace_enabled" ON "public"."automation_rules" USING "btree" ("workspace_id", "enabled");
-
-
-
-CREATE INDEX "idx_automation_rules_workspace_repo" ON "public"."automation_rules" USING "btree" ("workspace_id", "repo_id");
+CREATE INDEX "idx_automation_runs_automation_rule_id_executed_at" ON "public"."automation_runs" USING "btree" ("automation_rule_id", "executed_at" DESC);
 
 
 
@@ -1058,15 +991,11 @@ CREATE INDEX "idx_automation_runs_repo_id_executed_at" ON "public"."automation_r
 
 
 
-CREATE INDEX "idx_automation_runs_rule_id_executed_at" ON "public"."automation_runs" USING "btree" ("rule_id", "executed_at" DESC);
-
-
-
 CREATE INDEX "idx_automation_runs_trigger_type" ON "public"."automation_runs" USING "btree" ("trigger_type");
 
 
 
-CREATE INDEX "idx_automation_runs_workspace_id_executed_at" ON "public"."automation_runs" USING "btree" ("workspace_id", "executed_at" DESC);
+CREATE INDEX "idx_automation_runs_workspace_id_executed_at" ON "public"."automation_runs" USING "btree" ("user_id", "executed_at" DESC);
 
 
 
@@ -1095,6 +1024,10 @@ CREATE INDEX "idx_document_versions_created_at" ON "public"."document_versions" 
 
 
 CREATE INDEX "idx_document_versions_document_id" ON "public"."document_versions" USING "btree" ("document_id");
+
+
+
+CREATE INDEX "idx_document_versions_document_status" ON "public"."document_versions" USING "btree" ("document_id", "status");
 
 
 
@@ -1158,11 +1091,11 @@ CREATE INDEX "idx_usage_events_event_type" ON "public"."usage_events" USING "btr
 
 
 
-CREATE INDEX "idx_usage_events_workspace_id" ON "public"."usage_events" USING "btree" ("workspace_id");
+CREATE INDEX "idx_usage_events_user_id" ON "public"."usage_events" USING "btree" ("user_id");
 
 
 
-CREATE INDEX "idx_usage_events_workspace_type" ON "public"."usage_events" USING "btree" ("workspace_id", "event_type");
+CREATE INDEX "idx_usage_events_user_type" ON "public"."usage_events" USING "btree" ("user_id", "event_type");
 
 
 
@@ -1170,7 +1103,7 @@ CREATE INDEX "idx_workspace_repos_repo_url" ON "public"."workspace_repos" USING 
 
 
 
-CREATE INDEX "idx_workspace_repos_workspace_id" ON "public"."workspace_repos" USING "btree" ("workspace_id");
+CREATE INDEX "idx_workspace_repos_user_id" ON "public"."workspace_repos" USING "btree" ("user_id");
 
 
 
@@ -1182,15 +1115,23 @@ CREATE INDEX "oauth_connections_user_id_idx" ON "public"."oauth_connections" USI
 
 
 
-CREATE OR REPLACE TRIGGER "trigger_update_automation_rule_next_run" BEFORE INSERT OR UPDATE ON "public"."automation_rules" FOR EACH ROW EXECUTE FUNCTION "public"."update_automation_rule_next_run"();
+CREATE INDEX "oauth_provider_tokens_user_provider_idx" ON "public"."oauth_provider_tokens" USING "btree" ("user_id", "provider");
+
+
+
+CREATE INDEX "system_nodes_enabled_idx" ON "public"."system_nodes" USING "btree" ("enabled");
+
+
+
+CREATE INDEX "system_nodes_provider_idx" ON "public"."system_nodes" USING "btree" ("provider");
+
+
+
+CREATE INDEX "system_nodes_surfaces_gin_idx" ON "public"."system_nodes" USING "gin" ("surfaces" "jsonb_path_ops");
 
 
 
 CREATE OR REPLACE TRIGGER "trigger_update_repo_file_summaries_updated_at" BEFORE UPDATE ON "public"."repo_file_summaries" FOR EACH ROW EXECUTE FUNCTION "public"."update_repo_file_summaries_updated_at"();
-
-
-
-CREATE OR REPLACE TRIGGER "update_automation_runs_updated_at" BEFORE UPDATE ON "public"."automation_runs" FOR EACH ROW EXECUTE FUNCTION "public"."update_updated_at_column"();
 
 
 
@@ -1202,18 +1143,18 @@ CREATE OR REPLACE TRIGGER "update_repository_setup_updated_at" BEFORE UPDATE ON 
 
 
 
-ALTER TABLE ONLY "public"."automation_results"
-    ADD CONSTRAINT "automation_results_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
-
-
-
 ALTER TABLE ONLY "public"."automation_rules"
     ADD CONSTRAINT "automation_rules_repo_id_fkey" FOREIGN KEY ("repo_id") REFERENCES "public"."workspace_repos"("id") ON DELETE CASCADE;
 
 
 
 ALTER TABLE ONLY "public"."automation_rules"
-    ADD CONSTRAINT "automation_rules_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
+    ADD CONSTRAINT "automation_rules_workspace_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."automation_runs"
+    ADD CONSTRAINT "automation_runs_automation_rule_id_fkey" FOREIGN KEY ("automation_rule_id") REFERENCES "public"."automation_rules"("id") ON DELETE SET NULL;
 
 
 
@@ -1223,7 +1164,7 @@ ALTER TABLE ONLY "public"."automation_runs"
 
 
 ALTER TABLE ONLY "public"."automation_runs"
-    ADD CONSTRAINT "automation_runs_workspace_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
+    ADD CONSTRAINT "automation_runs_workspace_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
 
 
 
@@ -1248,17 +1189,22 @@ ALTER TABLE ONLY "public"."documents"
 
 
 ALTER TABLE ONLY "public"."usage_events"
-    ADD CONSTRAINT "fk_workspace" FOREIGN KEY ("workspace_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
+    ADD CONSTRAINT "fk_workspace" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
 
 
 
 ALTER TABLE ONLY "public"."workspace_repos"
-    ADD CONSTRAINT "fk_workspace" FOREIGN KEY ("workspace_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
+    ADD CONSTRAINT "fk_workspace" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
 
 
 
 ALTER TABLE ONLY "public"."oauth_connections"
     ADD CONSTRAINT "oauth_connections_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."oauth_provider_tokens"
+    ADD CONSTRAINT "oauth_provider_tokens_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
 
 
 
@@ -1279,7 +1225,7 @@ CREATE POLICY "Service role can manage file summaries" ON "public"."repo_file_su
 
 
 
-CREATE POLICY "User can access everything" ON "public"."workspace_repos" USING (("workspace_id" = "auth"."uid"())) WITH CHECK (("workspace_id" = "auth"."uid"()));
+CREATE POLICY "User can access everything" ON "public"."workspace_repos" USING (("user_id" = "auth"."uid"())) WITH CHECK (("user_id" = "auth"."uid"()));
 
 
 
@@ -1289,34 +1235,30 @@ CREATE POLICY "User full permissions" ON "public"."oauth_connections" USING (("a
 
 CREATE POLICY "Users can create diagrams for their repos" ON "public"."diagrams" FOR INSERT WITH CHECK ((EXISTS ( SELECT 1
    FROM "public"."workspace_repos"
-  WHERE (("workspace_repos"."id" = "diagrams"."repo_id") AND ("workspace_repos"."workspace_id" = "auth"."uid"())))));
+  WHERE (("workspace_repos"."id" = "diagrams"."repo_id") AND ("workspace_repos"."user_id" = "auth"."uid"())))));
 
 
 
 CREATE POLICY "Users can delete document files for their documents" ON "public"."document_files" FOR DELETE USING ((EXISTS ( SELECT 1
    FROM ("public"."documents" "d"
      JOIN "public"."workspace_repos" "wr" ON (("wr"."id" = "d"."repo_id")))
-  WHERE (("d"."id" = "document_files"."document_id") AND ("wr"."workspace_id" = "auth"."uid"())))));
+  WHERE (("d"."id" = "document_files"."document_id") AND ("wr"."user_id" = "auth"."uid"())))));
 
 
 
-CREATE POLICY "Users can delete their own automation results" ON "public"."automation_results" FOR DELETE USING (("user_id" = "auth"."uid"()));
-
-
-
-CREATE POLICY "Users can delete their own automation rules" ON "public"."automation_rules" FOR DELETE USING (("workspace_id" = "auth"."uid"()));
+CREATE POLICY "Users can delete their own automation rules" ON "public"."automation_rules" FOR DELETE USING (("user_id" = "auth"."uid"()));
 
 
 
 CREATE POLICY "Users can delete their own diagrams" ON "public"."diagrams" FOR DELETE USING ((EXISTS ( SELECT 1
    FROM "public"."workspace_repos"
-  WHERE (("workspace_repos"."id" = "diagrams"."repo_id") AND ("workspace_repos"."workspace_id" = "auth"."uid"())))));
+  WHERE (("workspace_repos"."id" = "diagrams"."repo_id") AND ("workspace_repos"."user_id" = "auth"."uid"())))));
 
 
 
 CREATE POLICY "Users can delete their own documents" ON "public"."documents" FOR DELETE USING ((EXISTS ( SELECT 1
    FROM "public"."workspace_repos" "wr"
-  WHERE (("wr"."id" = "documents"."repo_id") AND ("wr"."workspace_id" = "auth"."uid"())))));
+  WHERE (("wr"."id" = "documents"."repo_id") AND ("wr"."user_id" = "auth"."uid"())))));
 
 
 
@@ -1324,45 +1266,41 @@ CREATE POLICY "Users can delete their own repo file summaries" ON "public"."repo
 
 
 
-CREATE POLICY "Users can delete their own workspace repos" ON "public"."workspace_repos" FOR DELETE USING (("workspace_id" = "auth"."uid"()));
+CREATE POLICY "Users can delete their own workspace repos" ON "public"."workspace_repos" FOR DELETE USING (("user_id" = "auth"."uid"()));
 
 
 
 CREATE POLICY "Users can insert document files for their documents" ON "public"."document_files" FOR INSERT WITH CHECK ((EXISTS ( SELECT 1
    FROM ("public"."documents" "d"
      JOIN "public"."workspace_repos" "wr" ON (("wr"."id" = "d"."repo_id")))
-  WHERE (("d"."id" = "document_files"."document_id") AND ("wr"."workspace_id" = "auth"."uid"())))));
+  WHERE (("d"."id" = "document_files"."document_id") AND ("wr"."user_id" = "auth"."uid"())))));
 
 
 
 CREATE POLICY "Users can insert document versions for their documents" ON "public"."document_versions" FOR INSERT WITH CHECK ((EXISTS ( SELECT 1
    FROM ("public"."documents" "d"
      JOIN "public"."workspace_repos" "wr" ON (("wr"."id" = "d"."repo_id")))
-  WHERE (("d"."id" = "document_versions"."document_id") AND ("wr"."workspace_id" = "auth"."uid"())))));
+  WHERE (("d"."id" = "document_versions"."document_id") AND ("wr"."user_id" = "auth"."uid"())))));
 
 
 
 CREATE POLICY "Users can insert repository setup for their repos" ON "public"."repository_setup" FOR INSERT WITH CHECK ((EXISTS ( SELECT 1
    FROM "public"."workspace_repos" "wr"
-  WHERE (("wr"."id" = "repository_setup"."repo_id") AND ("wr"."workspace_id" = "auth"."uid"())))));
+  WHERE (("wr"."id" = "repository_setup"."repo_id") AND ("wr"."user_id" = "auth"."uid"())))));
 
 
 
-CREATE POLICY "Users can insert their own automation results" ON "public"."automation_results" FOR INSERT WITH CHECK (("user_id" = "auth"."uid"()));
+CREATE POLICY "Users can insert their own automation rules" ON "public"."automation_rules" FOR INSERT WITH CHECK (("user_id" = "auth"."uid"()));
 
 
 
-CREATE POLICY "Users can insert their own automation rules" ON "public"."automation_rules" FOR INSERT WITH CHECK (("workspace_id" = "auth"."uid"()));
-
-
-
-CREATE POLICY "Users can insert their own automation runs" ON "public"."automation_runs" FOR INSERT WITH CHECK (("workspace_id" = "auth"."uid"()));
+CREATE POLICY "Users can insert their own automation runs" ON "public"."automation_runs" FOR INSERT WITH CHECK (("user_id" = "auth"."uid"()));
 
 
 
 CREATE POLICY "Users can insert their own documents" ON "public"."documents" FOR INSERT WITH CHECK ((EXISTS ( SELECT 1
    FROM "public"."workspace_repos" "wr"
-  WHERE (("wr"."id" = "documents"."repo_id") AND ("wr"."workspace_id" = "auth"."uid"())))));
+  WHERE (("wr"."id" = "documents"."repo_id") AND ("wr"."user_id" = "auth"."uid"())))));
 
 
 
@@ -1372,44 +1310,40 @@ CREATE POLICY "Users can insert their own repo file summaries" ON "public"."repo
 
 CREATE POLICY "Users can insert their own repository setup" ON "public"."repository_setup" FOR INSERT WITH CHECK (("repo_id" IN ( SELECT "workspace_repos"."id"
    FROM "public"."workspace_repos"
-  WHERE ("workspace_repos"."workspace_id" = "auth"."uid"()))));
+  WHERE ("workspace_repos"."user_id" = "auth"."uid"()))));
 
 
 
-CREATE POLICY "Users can insert their own workspace repos" ON "public"."workspace_repos" FOR INSERT WITH CHECK (("workspace_id" = "auth"."uid"()));
+CREATE POLICY "Users can insert their own workspace repos" ON "public"."workspace_repos" FOR INSERT WITH CHECK (("user_id" = "auth"."uid"()));
 
 
 
 CREATE POLICY "Users can update document files for their documents" ON "public"."document_files" FOR UPDATE USING ((EXISTS ( SELECT 1
    FROM ("public"."documents" "d"
      JOIN "public"."workspace_repos" "wr" ON (("wr"."id" = "d"."repo_id")))
-  WHERE (("d"."id" = "document_files"."document_id") AND ("wr"."workspace_id" = "auth"."uid"())))));
+  WHERE (("d"."id" = "document_files"."document_id") AND ("wr"."user_id" = "auth"."uid"())))));
 
 
 
 CREATE POLICY "Users can update repository setup for their repos" ON "public"."repository_setup" FOR UPDATE USING ((EXISTS ( SELECT 1
    FROM "public"."workspace_repos" "wr"
-  WHERE (("wr"."id" = "repository_setup"."repo_id") AND ("wr"."workspace_id" = "auth"."uid"())))));
+  WHERE (("wr"."id" = "repository_setup"."repo_id") AND ("wr"."user_id" = "auth"."uid"())))));
 
 
 
-CREATE POLICY "Users can update their own automation results" ON "public"."automation_results" FOR UPDATE USING (("user_id" = "auth"."uid"()));
-
-
-
-CREATE POLICY "Users can update their own automation rules" ON "public"."automation_rules" FOR UPDATE USING (("workspace_id" = "auth"."uid"())) WITH CHECK (("workspace_id" = "auth"."uid"()));
+CREATE POLICY "Users can update their own automation rules" ON "public"."automation_rules" FOR UPDATE USING (("user_id" = "auth"."uid"())) WITH CHECK (("user_id" = "auth"."uid"()));
 
 
 
 CREATE POLICY "Users can update their own diagrams" ON "public"."diagrams" FOR UPDATE USING ((EXISTS ( SELECT 1
    FROM "public"."workspace_repos"
-  WHERE (("workspace_repos"."id" = "diagrams"."repo_id") AND ("workspace_repos"."workspace_id" = "auth"."uid"())))));
+  WHERE (("workspace_repos"."id" = "diagrams"."repo_id") AND ("workspace_repos"."user_id" = "auth"."uid"())))));
 
 
 
 CREATE POLICY "Users can update their own documents" ON "public"."documents" FOR UPDATE USING ((EXISTS ( SELECT 1
    FROM "public"."workspace_repos" "wr"
-  WHERE (("wr"."id" = "documents"."repo_id") AND ("wr"."workspace_id" = "auth"."uid"())))));
+  WHERE (("wr"."id" = "documents"."repo_id") AND ("wr"."user_id" = "auth"."uid"())))));
 
 
 
@@ -1419,65 +1353,61 @@ CREATE POLICY "Users can update their own repo file summaries" ON "public"."repo
 
 CREATE POLICY "Users can update their own repository setup" ON "public"."repository_setup" FOR UPDATE USING (("repo_id" IN ( SELECT "workspace_repos"."id"
    FROM "public"."workspace_repos"
-  WHERE ("workspace_repos"."workspace_id" = "auth"."uid"()))));
+  WHERE ("workspace_repos"."user_id" = "auth"."uid"()))));
 
 
 
-CREATE POLICY "Users can update their own workspace repos" ON "public"."workspace_repos" FOR UPDATE USING (("workspace_id" = "auth"."uid"()));
+CREATE POLICY "Users can update their own workspace repos" ON "public"."workspace_repos" FOR UPDATE USING (("user_id" = "auth"."uid"()));
 
 
 
 CREATE POLICY "Users can view document files for their documents" ON "public"."document_files" FOR SELECT USING ((EXISTS ( SELECT 1
    FROM ("public"."documents" "d"
      JOIN "public"."workspace_repos" "wr" ON (("wr"."id" = "d"."repo_id")))
-  WHERE (("d"."id" = "document_files"."document_id") AND ("wr"."workspace_id" = "auth"."uid"())))));
+  WHERE (("d"."id" = "document_files"."document_id") AND ("wr"."user_id" = "auth"."uid"())))));
 
 
 
 CREATE POLICY "Users can view document versions for their documents" ON "public"."document_versions" FOR SELECT USING ((EXISTS ( SELECT 1
    FROM ("public"."documents" "d"
      JOIN "public"."workspace_repos" "wr" ON (("wr"."id" = "d"."repo_id")))
-  WHERE (("d"."id" = "document_versions"."document_id") AND ("wr"."workspace_id" = "auth"."uid"())))));
+  WHERE (("d"."id" = "document_versions"."document_id") AND ("wr"."user_id" = "auth"."uid"())))));
 
 
 
 CREATE POLICY "Users can view file summaries for their repos" ON "public"."repo_file_summaries" FOR SELECT USING ((EXISTS ( SELECT 1
    FROM "public"."workspace_repos" "wr"
-  WHERE (("wr"."repo_url" ~~ (('%'::"text" || "repo_file_summaries"."repo_id") || '%'::"text")) AND ("wr"."workspace_id" = "auth"."uid"())))));
+  WHERE (("wr"."repo_url" ~~ (('%'::"text" || "repo_file_summaries"."repo_id") || '%'::"text")) AND ("wr"."user_id" = "auth"."uid"())))));
 
 
 
 CREATE POLICY "Users can view repository setup for their repos" ON "public"."repository_setup" FOR SELECT USING ((EXISTS ( SELECT 1
    FROM "public"."workspace_repos" "wr"
-  WHERE (("wr"."id" = "repository_setup"."repo_id") AND ("wr"."workspace_id" = "auth"."uid"())))));
+  WHERE (("wr"."id" = "repository_setup"."repo_id") AND ("wr"."user_id" = "auth"."uid"())))));
 
 
 
-CREATE POLICY "Users can view their own automation results" ON "public"."automation_results" FOR SELECT USING (("user_id" = "auth"."uid"()));
+CREATE POLICY "Users can view their own automation rules" ON "public"."automation_rules" FOR SELECT USING (("user_id" = "auth"."uid"()));
 
 
 
-CREATE POLICY "Users can view their own automation rules" ON "public"."automation_rules" FOR SELECT USING (("workspace_id" = "auth"."uid"()));
-
-
-
-CREATE POLICY "Users can view their own automation runs" ON "public"."automation_runs" FOR SELECT USING (("workspace_id" = "auth"."uid"()));
+CREATE POLICY "Users can view their own automation runs" ON "public"."automation_runs" FOR SELECT USING (("user_id" = "auth"."uid"()));
 
 
 
 CREATE POLICY "Users can view their own diagrams" ON "public"."diagrams" FOR SELECT USING ((EXISTS ( SELECT 1
    FROM "public"."workspace_repos"
-  WHERE (("workspace_repos"."id" = "diagrams"."repo_id") AND ("workspace_repos"."workspace_id" = "auth"."uid"())))));
+  WHERE (("workspace_repos"."id" = "diagrams"."repo_id") AND ("workspace_repos"."user_id" = "auth"."uid"())))));
 
 
 
 CREATE POLICY "Users can view their own documents" ON "public"."documents" FOR SELECT USING ((EXISTS ( SELECT 1
    FROM "public"."workspace_repos" "wr"
-  WHERE (("wr"."id" = "documents"."repo_id") AND ("wr"."workspace_id" = "auth"."uid"())))));
+  WHERE (("wr"."id" = "documents"."repo_id") AND ("wr"."user_id" = "auth"."uid"())))));
 
 
 
-CREATE POLICY "Users can view their own events" ON "public"."usage_events" FOR SELECT USING (("workspace_id" = "auth"."uid"()));
+CREATE POLICY "Users can view their own events" ON "public"."usage_events" FOR SELECT USING (("user_id" = "auth"."uid"()));
 
 
 
@@ -1487,15 +1417,12 @@ CREATE POLICY "Users can view their own repo file summaries" ON "public"."repo_f
 
 CREATE POLICY "Users can view their own repository setup" ON "public"."repository_setup" FOR SELECT USING (("repo_id" IN ( SELECT "workspace_repos"."id"
    FROM "public"."workspace_repos"
-  WHERE ("workspace_repos"."workspace_id" = "auth"."uid"()))));
+  WHERE ("workspace_repos"."user_id" = "auth"."uid"()))));
 
 
 
-CREATE POLICY "Users can view their own workspace repos" ON "public"."workspace_repos" FOR SELECT USING (("workspace_id" = "auth"."uid"()));
+CREATE POLICY "Users can view their own workspace repos" ON "public"."workspace_repos" FOR SELECT USING (("user_id" = "auth"."uid"()));
 
-
-
-ALTER TABLE "public"."automation_results" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."automation_rules" ENABLE ROW LEVEL SECURITY;
@@ -1519,10 +1446,16 @@ ALTER TABLE "public"."documents" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."oauth_connections" ENABLE ROW LEVEL SECURITY;
 
 
+ALTER TABLE "public"."oauth_provider_tokens" ENABLE ROW LEVEL SECURITY;
+
+
 ALTER TABLE "public"."repo_file_summaries" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."repository_setup" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."system_nodes" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."usage_events" ENABLE ROW LEVEL SECURITY;
@@ -2003,12 +1936,6 @@ GRANT ALL ON FUNCTION "public"."cleanup_old_automation_runs"("days_to_keep" inte
 
 
 
-GRANT ALL ON FUNCTION "public"."compute_next_run_at"("schedule_text" "text", "from_time" timestamp with time zone) TO "anon";
-GRANT ALL ON FUNCTION "public"."compute_next_run_at"("schedule_text" "text", "from_time" timestamp with time zone) TO "authenticated";
-GRANT ALL ON FUNCTION "public"."compute_next_run_at"("schedule_text" "text", "from_time" timestamp with time zone) TO "service_role";
-
-
-
 GRANT ALL ON FUNCTION "public"."cosine_distance"("public"."halfvec", "public"."halfvec") TO "postgres";
 GRANT ALL ON FUNCTION "public"."cosine_distance"("public"."halfvec", "public"."halfvec") TO "anon";
 GRANT ALL ON FUNCTION "public"."cosine_distance"("public"."halfvec", "public"."halfvec") TO "authenticated";
@@ -2447,12 +2374,6 @@ GRANT ALL ON FUNCTION "public"."subvector"("public"."vector", integer, integer) 
 
 
 
-GRANT ALL ON FUNCTION "public"."update_automation_rule_next_run"() TO "anon";
-GRANT ALL ON FUNCTION "public"."update_automation_rule_next_run"() TO "authenticated";
-GRANT ALL ON FUNCTION "public"."update_automation_rule_next_run"() TO "service_role";
-
-
-
 GRANT ALL ON FUNCTION "public"."update_repo_file_summaries_updated_at"() TO "anon";
 GRANT ALL ON FUNCTION "public"."update_repo_file_summaries_updated_at"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."update_repo_file_summaries_updated_at"() TO "service_role";
@@ -2666,12 +2587,6 @@ GRANT ALL ON FUNCTION "public"."sum"("public"."vector") TO "service_role";
 
 
 
-GRANT ALL ON TABLE "public"."automation_results" TO "anon";
-GRANT ALL ON TABLE "public"."automation_results" TO "authenticated";
-GRANT ALL ON TABLE "public"."automation_results" TO "service_role";
-
-
-
 GRANT ALL ON TABLE "public"."automation_rules" TO "anon";
 GRANT ALL ON TABLE "public"."automation_rules" TO "authenticated";
 GRANT ALL ON TABLE "public"."automation_rules" TO "service_role";
@@ -2708,15 +2623,13 @@ GRANT ALL ON TABLE "public"."documents" TO "service_role";
 
 
 
-GRANT ALL ON TABLE "public"."system_nodes" TO "anon";
-GRANT ALL ON TABLE "public"."system_nodes" TO "authenticated";
-GRANT ALL ON TABLE "public"."system_nodes" TO "service_role";
-
-
-
 GRANT ALL ON TABLE "public"."oauth_connections" TO "anon";
 GRANT ALL ON TABLE "public"."oauth_connections" TO "authenticated";
 GRANT ALL ON TABLE "public"."oauth_connections" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."oauth_provider_tokens" TO "service_role";
 
 
 
@@ -2729,6 +2642,12 @@ GRANT ALL ON TABLE "public"."repo_file_summaries" TO "service_role";
 GRANT ALL ON TABLE "public"."repository_setup" TO "anon";
 GRANT ALL ON TABLE "public"."repository_setup" TO "authenticated";
 GRANT ALL ON TABLE "public"."repository_setup" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."system_nodes" TO "anon";
+GRANT ALL ON TABLE "public"."system_nodes" TO "authenticated";
+GRANT ALL ON TABLE "public"."system_nodes" TO "service_role";
 
 
 
@@ -2806,5 +2725,33 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 
 
 drop extension if exists "pg_net";
+
+revoke delete on table "public"."oauth_provider_tokens" from "anon";
+
+revoke insert on table "public"."oauth_provider_tokens" from "anon";
+
+revoke references on table "public"."oauth_provider_tokens" from "anon";
+
+revoke select on table "public"."oauth_provider_tokens" from "anon";
+
+revoke trigger on table "public"."oauth_provider_tokens" from "anon";
+
+revoke truncate on table "public"."oauth_provider_tokens" from "anon";
+
+revoke update on table "public"."oauth_provider_tokens" from "anon";
+
+revoke delete on table "public"."oauth_provider_tokens" from "authenticated";
+
+revoke insert on table "public"."oauth_provider_tokens" from "authenticated";
+
+revoke references on table "public"."oauth_provider_tokens" from "authenticated";
+
+revoke select on table "public"."oauth_provider_tokens" from "authenticated";
+
+revoke trigger on table "public"."oauth_provider_tokens" from "authenticated";
+
+revoke truncate on table "public"."oauth_provider_tokens" from "authenticated";
+
+revoke update on table "public"."oauth_provider_tokens" from "authenticated";
 
 

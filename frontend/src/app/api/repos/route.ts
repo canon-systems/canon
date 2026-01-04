@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
-import { trackRepoConnected } from '@/lib/server/services/usageTracking';
 
 type CreateRepoBody = {
   name: string;
@@ -86,16 +85,6 @@ export async function POST(request: NextRequest) {
       console.error('Failed to create repository:', error);
       throw error || new Error('Failed to create repository');
     }
-
-    await trackRepoConnected(
-      supabase,
-      user.id,
-      data.id,
-      data.repo_url,
-      data.provider,
-      data.default_branch,
-      data.auth_type
-    );
 
     return NextResponse.json(data, { status: 200 });
   } catch (err: any) {

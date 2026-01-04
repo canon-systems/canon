@@ -35,6 +35,7 @@ export function unregisterSetupCancellation(setupId: string) {
 }
 import { analyzeRepository } from './analyzeRepository';
 import { createServiceRoleClient } from '../../supabase/server';
+import { trackRepoConnected } from './usageTracking';
 import { parseRepoUrl } from '../github/github';
 
 /**
@@ -236,9 +237,22 @@ export async function setupRepositorySimple(
 	repoUrl: string,
 	branch: string,
 	userId: string,
-	model: string = 'gpt-4o-mini'
+	model: string = 'gpt-4o-mini',
+	_accessToken?: string
 ): Promise<{ success: boolean; totalFiles: number; processedFiles: number; cachedFiles: number }> {
 	const repoId = normalizeRepoId(repoUrl);
+
+	const db = createServiceRoleClient();
+	const { data: ownedRepo, error: ownershipError } = await db
+		.from('workspace_repos')
+		.select('id, provider, default_branch, auth_type')
+		.eq('user_id', userId)
+		.eq('repo_url', repoUrl)
+		.single();
+
+	if (ownershipError || !ownedRepo) {
+		throw new Error('User does not have access to this repository.');
+	}
 
 	// Create AbortController for cancelling ongoing operations
 	const abortController = new AbortController();
@@ -248,7 +262,7 @@ export async function setupRepositorySimple(
 
 	// Verify we can access the setup record at startup
 	try {
-		const { data: initialSetup, error: initialError } = await supabase
+		const { data: initialSetup, error: initialError } = await db
 			.from('repository_setup')
 			.select('setup_status, repo_id')
 			.eq('id', setupId)
@@ -281,7 +295,7 @@ export async function setupRepositorySimple(
 	try {
 		// Phase 1: Scan repository
 		console.log(`[repoSetupSimple] Phase 1: Scanning repository ${repoId}...`);
-		await updateProgress(supabase, setupId, { phase: 'scanning', currentFile: null });
+		await updateProgress(db, setupId, { phase: 'scanning', currentFile: null });
 
 		const analysis = await analyzeRepository({
 			supabase,
@@ -300,7 +314,7 @@ export async function setupRepositorySimple(
 		progress.startTime = Date.now();
 		console.log(`[repoSetupSimple] Found ${progress.totalFiles} files to process`);
 
-		await updateProgress(supabase, setupId, {
+		await updateProgress(db, setupId, {
 			phase: 'analyzing',
 			totalFiles: progress.totalFiles,
 			processedFiles: 0,
@@ -359,7 +373,7 @@ export async function setupRepositorySimple(
 					}
 
 					// Check cache
-					const cached = await getCachedSummary(supabase, repoId, filePath, fileHash, branch);
+					const cached = await getCachedSummary(db, repoId, filePath, fileHash, branch);
 
 					if (cached.exists && cached.hash === fileHash) {
 						// File is cached and up-to-date
@@ -372,7 +386,7 @@ export async function setupRepositorySimple(
 					} else {
 						// Generate summary with abort signal
 						const summary = await generateFileSummary(fileContent, filePath, model);
-						await saveFileSummary(supabase, repoId, filePath, fileHash, summary, branch, userId, model);
+						await saveFileSummary(db, repoId, filePath, fileHash, summary, branch, userId, model);
 						progress.processedFiles++;
 						const fileIndex = progress.recentFiles.findIndex(f => f.path === filePath);
 						if (fileIndex >= 0) {
@@ -435,7 +449,7 @@ export async function setupRepositorySimple(
 			progress.estimatedTimeRemaining = estimatedSeconds;
 			progress.lastUpdateTime = Date.now();
 
-			await updateProgress(supabase, setupId, {
+			await updateProgress(db, setupId, {
 				phase: 'analyzing',
 				totalFiles: progress.totalFiles,
 				processedFiles: progress.processedFiles,
@@ -450,7 +464,7 @@ export async function setupRepositorySimple(
 		// Check if operations were cancelled during processing
 		if (abortController.signal.aborted) {
 			console.log(`[repoSetupSimple] Operations were cancelled during processing, exiting`);
-			await updateProgress(supabase, setupId, {
+			await updateProgress(db, setupId, {
 				phase: 'failed',
 				currentFile: null
 			});
@@ -459,10 +473,10 @@ export async function setupRepositorySimple(
 
 		// Phase 3: Validate
 		console.log(`[repoSetupSimple] Phase 3: Validating summaries...`);
-		await updateProgress(supabase, setupId, { phase: 'validating', currentFile: null });
+		await updateProgress(db, setupId, { phase: 'validating', currentFile: null });
 
 		// Verify all files have summaries
-		const { count, error: countError } = await supabase
+		const { count, error: countError } = await db
 			.from('repo_file_summaries')
 			.select('*', { count: 'exact', head: true })
 			.ilike('repo_id', repoId)
@@ -476,7 +490,7 @@ export async function setupRepositorySimple(
 
 		// Phase 4: Complete
 		console.log(`[repoSetupSimple] ✅ Setup complete!`);
-		await updateProgress(supabase, setupId, {
+		await updateProgress(db, setupId, {
 			phase: 'ready',
 			totalFiles: progress.totalFiles,
 			processedFiles: progress.processedFiles,
@@ -486,13 +500,23 @@ export async function setupRepositorySimple(
 			estimatedTimeRemaining: 0,
 		});
 
-		await supabase
+		await db
 			.from('repository_setup')
 			.update({
 				setup_status: 'ready',
 				setup_completed_at: new Date().toISOString(),
 			})
 			.eq('id', setupId);
+
+		await trackRepoConnected(
+			db,
+			userId,
+			ownedRepo.id,
+			repoUrl,
+			ownedRepo.provider,
+			ownedRepo.default_branch,
+			ownedRepo.auth_type
+		);
 
 		// Unregister cancellation on successful completion
 		unregisterSetupCancellation(setupId);
@@ -506,12 +530,12 @@ export async function setupRepositorySimple(
 	} catch (error: any) {
 		console.error(`[repoSetupSimple] ❌ Setup failed:`, error);
 
-		await updateProgress(supabase, setupId, {
+		await updateProgress(db, setupId, {
 			phase: 'failed',
 			currentFile: null,
 		});
 
-		await supabase
+		await db
 			.from('repository_setup')
 			.update({
 				setup_status: 'failed',
@@ -524,7 +548,7 @@ export async function setupRepositorySimple(
 		console.log(`[repoSetupSimple] Aborting operations and removing failed/cancelled repository ${repoId} from workspace_repos`);
 		abortController.abort();
 		unregisterSetupCancellation(setupId);
-		await supabase
+		await db
 			.from('workspace_repos')
 			.delete()
 			.eq('id', repoId);
@@ -532,4 +556,3 @@ export async function setupRepositorySimple(
 		throw error;
 	}
 }
-

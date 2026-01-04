@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { getSession } from '@/lib/auth';
 import { setupRepositorySimple, cancelSetupImmediately } from '@/lib/server/services/repoSetupSimple';
 import { parseRepoUrl } from '@/lib/server/github/github';
 
@@ -15,6 +16,10 @@ function normalizeRepoId(repoUrl: string): string {
 
 export async function POST(request: NextRequest) {
   const { repoId } = await request.json();
+  const { user, session } = await getSession();
+  if (!user || !session?.access_token) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
   const supabase = await createClient();
 
   try {
@@ -44,11 +49,13 @@ export async function POST(request: NextRequest) {
     console.log(`[repo-setup] Using repo URL from database: ${repoUrl}`);
 
     // Check if setup already exists
-    const { data: existingSetup, error: existingSetupError } = await supabase
+    const { data: existingSetupList, error: existingSetupError } = await supabase
       .from('repository_setup')
       .select('*')
       .eq('repo_id', repoId)
-      .single();
+      .order('created_at', { ascending: false })
+      .limit(1);
+    const existingSetup = existingSetupList?.[0] ?? null;
 
     console.log(`[repo-setup] Existing setup check for repo ${repoId}:`, {
       exists: !!existingSetup,
@@ -155,7 +162,8 @@ export async function POST(request: NextRequest) {
         repoUrl,
         repo.default_branch || 'main',
         repo.user_id,
-        'gpt-4o-mini'
+        'gpt-4o-mini',
+        session.access_token
       ).catch((error) => {
         console.error('[repo-setup] Background setup failed:', error);
         // Error handling is done inside setupRepositorySimple
