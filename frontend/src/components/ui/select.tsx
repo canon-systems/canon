@@ -34,7 +34,7 @@ const SelectContent = React.forwardRef<
     <SelectPrimitive.Content
       ref={ref}
       className={cn(
-        "relative z-50 min-w-[8rem] overflow-hidden rounded-xl border border-white/10 bg-black/90 text-white shadow-xl backdrop-blur",
+        "relative z-50 min-w-[8rem] w-[var(--radix-select-trigger-width)] overflow-hidden rounded-xl border border-white/10 bg-black/90 text-white shadow-xl backdrop-blur",
         className
       )}
       position={position}
