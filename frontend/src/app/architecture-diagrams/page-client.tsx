@@ -3,15 +3,21 @@
 import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Github, Loader2, AlertTriangle, Info, Search, X, FileText, GitBranch, Eye, Calendar, Layers3, Trash2 } from 'lucide-react';
+import { Github, Loader2, AlertTriangle, Info, FileText, GitBranch, Eye, Calendar, Layers3, Trash2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu';
 
 interface RepoWithSetup {
     id: string;
@@ -51,7 +57,7 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
 
     const [availableRepos, setAvailableRepos] = useState<RepoWithSetup[]>(initialRepos);
     const [loadingRepos, setLoadingRepos] = useState(false);
-    const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
+    const [selectedRepoIds, setSelectedRepoIds] = useState<string[]>([]);
     const [generating, setGenerating] = useState(false);
     const [errorMsg, setErrorMsg] = useState('');
     const [successMsg, setSuccessMsg] = useState('');
@@ -181,10 +187,11 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
         loadDiagrams();
     }, [supabase]);
 
-    // Check for existing diagram when repo is selected
+    // Check for existing diagram when primary repo is selected
     useEffect(() => {
         async function checkExistingDiagram() {
-            if (!selectedRepoId) {
+            const primaryRepoId = selectedRepoIds[0];
+            if (!primaryRepoId) {
                 setExistingDiagram(null);
                 setForceCreate(false);
                 return;
@@ -194,7 +201,7 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
                 const { data, error } = await supabase
                     .from('diagrams')
                     .select('id, title, created_at')
-                    .eq('repo_id', selectedRepoId)
+                    .eq('repo_id', primaryRepoId)
                     .eq('diagram_type', 'architecture')
                     .single();
 
@@ -223,7 +230,7 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
         }
 
         checkExistingDiagram();
-    }, [selectedRepoId, supabase]);
+    }, [selectedRepoIds, supabase]);
 
     function formatDate(dateString: string) {
         return new Date(dateString).toLocaleDateString('en-US', {
@@ -272,11 +279,21 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
         }
     }
 
-    const selectedRepo = availableRepos.find(r => r.id === selectedRepoId);
+    const selectedRepo = availableRepos.find(r => r.id === selectedRepoIds[0]);
+
+    const toggleRepoSelection = (id: string) => {
+        setSelectedRepoIds(prev => {
+            if (prev.includes(id)) {
+                const next = prev.filter(rid => rid !== id);
+                return next;
+            }
+            return [...prev, id];
+        });
+    };
 
     async function generateDiagram() {
-        if (!selectedRepoId) {
-            setErrorMsg('Please select a repository');
+        if (!selectedRepoIds.length) {
+            setErrorMsg('Please select at least one repository');
             return;
         }
 
@@ -289,7 +306,7 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({
-                    repoId: selectedRepoId,
+                    repoIds: selectedRepoIds,
                     forceCreate: forceCreate
                 })
             });
@@ -301,7 +318,7 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
             }
 
             const action = data.isNew ? 'generated' : 'updated';
-            setSuccessMsg(`Architecture diagram ${action} successfully!`);
+            setSuccessMsg(`Architecture diagram ${action} successfully for ${selectedRepoIds.length} repo(s)!`);
 
             // Update existing diagram state if it was updated
             if (!data.isNew && existingDiagram) {
@@ -432,8 +449,8 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
                                 {/* Repository Selection */}
                                 <div className="space-y-4">
                                     <div>
-                                        <h2 className="text-base font-medium text-white">Select Repository</h2>
-                                        <p className="text-sm text-white/60">Choose a repository to generate an architecture diagram from.</p>
+                                        <h2 className="text-base font-medium text-white">Select Repositories</h2>
+                                        <p className="text-sm text-white/60">Choose one or more repositories to generate a combined architecture diagram. The first selected will be treated as primary for updates.</p>
                                     </div>
 
                                     {loadingRepos ? (
@@ -458,30 +475,69 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
                                             </CardContent>
                                         </Card>
                                     ) : (
-                                        <RadioGroup value={selectedRepoId || ''} onValueChange={setSelectedRepoId}>
-                                            {availableRepos.map(repo => (
-                                                <RadioGroupItem key={repo.id} value={repo.id}>
-                                                    <div className="flex items-center justify-between w-full">
-                                                        <div className="flex items-center gap-3">
-                                                            <Github className="w-5 h-5 text-white/70" />
-                                                            <div>
-                                                                <div className="text-white font-medium">{repo.name}</div>
-                                                                <div className="text-white/60 text-sm">{repo.repo_url}</div>
-                                                            </div>
-                                                        </div>
-                                                        <div className="flex items-center gap-2">
-                                                            <GitBranch className="w-4 h-4 text-white/50" />
-                                                            <span className="text-white/50 text-sm">{repo.setup_branch}</span>
-                                                        </div>
-                                                    </div>
-                                                </RadioGroupItem>
-                                            ))}
-                                        </RadioGroup>
+                                        <DropdownMenu>
+                                            <DropdownMenuTrigger asChild>
+                                                <Button
+                                                    variant="outline"
+                                                    className="w-full justify-between border-white/20 text-white bg-slate-900/60 hover:bg-slate-800/80"
+                                                >
+                                                    <span>
+                                                        {selectedRepoIds.length
+                                                            ? `${selectedRepoIds.length} repo${selectedRepoIds.length > 1 ? 's' : ''} selected`
+                                                            : 'Select repositories'}
+                                                    </span>
+                                                    <span className="text-white/60 text-xs">
+                                                        (primary = first selected)
+                                                    </span>
+                                                </Button>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent
+                                                align="start"
+                                                className="max-h-96 overflow-auto border-white/10 bg-black/90"
+                                                style={{ width: 'var(--radix-dropdown-menu-trigger-width)' }}
+                                            >
+                                                {availableRepos.map((repo) => {
+                                                    const checked = selectedRepoIds.includes(repo.id);
+                                                    const isPrimary = selectedRepoIds[0] === repo.id;
+                                                    return (
+                                                        <DropdownMenuItem
+                                                            key={repo.id}
+                                                            className="p-0 focus:bg-transparent"
+                                                            onSelect={(e) => e.preventDefault()}
+                                                        >
+                                                            <label className="flex items-start gap-3 w-full rounded-lg border border-white/5 bg-white/5 p-3 hover:bg-white/10 cursor-pointer">
+                                                                <Checkbox
+                                                                    checked={checked}
+                                                                    onCheckedChange={() => toggleRepoSelection(repo.id)}
+                                                                    className="mt-1"
+                                                                />
+                                                                <div className="flex-1">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <Github className="w-5 h-5 text-white/70" />
+                                                                        <div className="text-white font-medium">{repo.name}</div>
+                                                                        {isPrimary && (
+                                                                            <span className="text-xs text-emerald-300 bg-emerald-500/10 px-2 py-0.5 rounded">
+                                                                                Primary
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                    <div className="text-white/60 text-sm">{repo.repo_url}</div>
+                                                                    <div className="flex items-center gap-2 text-white/50 text-xs mt-1">
+                                                                        <GitBranch className="w-4 h-4" />
+                                                                        <span>{repo.setup_branch}</span>
+                                                                    </div>
+                                                                </div>
+                                                            </label>
+                                                        </DropdownMenuItem>
+                                                    );
+                                                })}
+                                            </DropdownMenuContent>
+                                        </DropdownMenu>
                                     )}
                                 </div>
 
                                 {/* Generate Button */}
-                                {selectedRepoId && (
+                                {selectedRepoIds.length > 0 && (
                                     <>
                                         <Separator />
                                         <div className="space-y-4">
@@ -491,13 +547,9 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
                                                 </h3>
                                                 <p className="text-sm text-white/60">
                                                     {existingDiagram && !forceCreate ? (
-                                                        <>
-                                                            Update the existing architecture diagram for {selectedRepo?.name} with the latest code analysis.
-                                                        </>
+                                                        <>Update the existing architecture diagram for the primary repo with the latest analysis. Additional selected repos will be merged into the same diagram.</>
                                                     ) : (
-                                                        <>
-                                                            Analyze {selectedRepo?.name} and create a visual architecture diagram using Tree-sitter AST parsing.
-                                                        </>
+                                                        <>Analyze the selected repos and create a combined architecture diagram using Tree-sitter AST parsing.</>
                                                     )}
                                                 </p>
                                             </div>
@@ -510,7 +562,7 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
                                                         <AlertTitle>Existing Diagram Found</AlertTitle>
                                                         <AlertDescription className="flex items-center justify-between">
                                                             <span>
-                                                                A diagram already exists for this repository (created {formatDate(existingDiagram.created_at)}).
+                                                                A diagram already exists for the primary repository (created {formatDate(existingDiagram.created_at)}).
                                                                 It will be updated with the latest analysis.
                                                             </span>
                                                             <Button
