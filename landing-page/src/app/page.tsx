@@ -23,7 +23,6 @@ export default function LandingPage() {
             />
             <div>
               <p className="text-base font-semibold text-white">Canon</p>
-              <p className="text-xs text-white/60">Automated Knowledge Infrastructure</p>
             </div>
           </div>
 
@@ -45,109 +44,160 @@ export default function LandingPage() {
 
       <main className="relative">
         <section className="mx-auto max-w-7xl px-4 pb-16 pt-10 sm:px-6 lg:px-8 lg:pb-24 lg:pt-16">
-          <div>
-            <Badge className="mb-6">Less drift. More shared context.</Badge>
+          <div className="grid gap-12 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
+            <div className="animate-rise space-y-6">
 
-            <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">
-              An automated knowledge layer
-              <span className="block text-white/60">that keeps pace with your code.</span>
-            </h1>
+              <h1 className="font-display text-4xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">
+                Keep shared understanding aligned with reality.
+              </h1>
 
-            <p className="mt-6 text-lg leading-relaxed text-white/70">
-              Canon connects to your repositories, watches change, and drafts the missing context your team depends on —
-              service pages, runbooks, system maps, and decision notes. You review what matters, and the knowledge stays
-              current without a separate doc project.
-            </p>
+              <p className="text-lg leading-relaxed text-white/70">
+                Systems change continuously. Canon observes your systems of record, detects drift, and refreshes
+                addressable knowledge units, then projects the right view for every audience.
+              </p>
 
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
-              <Button size="lg" asChild>
-                <a href={appHref} target="_blank" rel="noopener noreferrer">
-                  Connect a Repository
-                  <ArrowRight className="h-4 w-4" />
-                </a>
-              </Button>
-              <Button size="lg" variant="secondary" asChild>
-                <a href="#workflow">See the workflow</a>
-              </Button>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <Button size="lg" asChild>
+                  <a href={appHref} target="_blank" rel="noopener noreferrer">
+                    Start Aligning Knowledge
+                    <ArrowRight className="h-4 w-4" />
+                  </a>
+                </Button>
+                <Button size="lg" variant="secondary" asChild>
+                  <a href="#workflow">See the alignment loop</a>
+                </Button>
+              </div>
+
+              <div className="mt-10 grid gap-4 sm:grid-cols-3">
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                  <p className="text-sm font-medium text-white">Reality-linked</p>
+                  <p className="mt-1 text-sm text-white/60">Every unit traces to code and behavior.</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                  <p className="text-sm font-medium text-white">Audience-aware</p>
+                  <p className="mt-1 text-sm text-white/60">One truth, many projections.</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                  <p className="text-sm font-medium text-white">In-flow</p>
+                  <p className="mt-1 text-sm text-white/60">Updates land where teams already work.</p>
+                </div>
+              </div>
             </div>
 
-            <div className="mt-10 grid gap-4 sm:grid-cols-3">
-              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                <p className="text-sm font-medium text-white">Grounded</p>
-                <p className="mt-1 text-sm text-white/60">Links back to diffs and owners.</p>
+            <div className="animate-rise animate-rise-delay-1 space-y-6">
+              <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6 shadow-[0_20px_80px_rgba(0,0,0,0.6)]">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-[0.3em] text-white/60">
+                    Alignment signal
+                  </p>
+                  <Badge variant="secondary">Live</Badge>
+                </div>
+                <Separator className="my-4" />
+                <div className="space-y-4 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-white/60">Engineering view</span>
+                    <span className="font-medium text-white/80">In sync</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-white/60">Sales enablement</span>
+                    <span className="font-medium text-white/70">Review queued</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-white/60">Customer view</span>
+                    <span className="font-medium text-white">Drift detected</span>
+                  </div>
+                </div>
+                <Separator className="my-4" />
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-sm text-white/60">
+                  Canon watches reality, not narratives. Drift gets surfaced before trust erodes.
+                </div>
               </div>
-              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                <p className="text-sm font-medium text-white">Current</p>
-                <p className="mt-1 text-sm text-white/60">Updates follow code changes.</p>
-              </div>
-              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                <p className="text-sm font-medium text-white">Reviewable</p>
-                <p className="mt-1 text-sm text-white/60">You approve what is canonical.</p>
+            </div>
+          </div>
+        </section>
+
+        <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8">
+          <div className="grid gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:gap-12">
+            <div className="space-y-6">
+              <Badge variant="secondary">The drift problem</Badge>
+              <h2 className="font-display text-2xl font-semibold text-white sm:text-3xl">
+                Systems change continuously. Shared understanding updates manually.
+              </h2>
+              <p className="text-white/70">
+                Reality lives in code, configs, infrastructure, and behavior. Knowledge lives in docs, pages, and tribal
+                memory. Without a causal link, teams drift, explanations repeat, and trust in shared context erodes.
+              </p>
+            </div>
+            <div className="space-y-4">
+              <Card className="animate-rise animate-rise-delay-1">
+                <CardHeader>
+                  <CardTitle className="font-display">Reality</CardTitle>
+                  <CardDescription>Code, configs, infra, and runtime behavior.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-white/70">Always moving. Always true.</p>
+                </CardContent>
+              </Card>
+              <Card className="animate-rise animate-rise-delay-2">
+                <CardHeader>
+                  <CardTitle className="font-display">Understanding</CardTitle>
+                  <CardDescription>Docs, mental models, and explanations.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-white/70">Updated episodically, if ever.</p>
+                </CardContent>
+              </Card>
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 text-sm text-white/70">
+                Drift is inevitable when humans are the only sensors and synchronizers.
               </div>
             </div>
           </div>
         </section>
 
         <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8" id="workflow">
-          <div className="grid gap-8 lg:grid-cols-[0.9fr_1.1fr] lg:gap-12">
-            <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-8">
-              <h2 className="text-2xl font-semibold text-white sm:text-3xl">How Canon keeps knowledge alive</h2>
-              <p className="mt-4 text-white/70">
-                Canon is the layer between what engineers do and what everyone needs to know. It captures context at the
-                moment of change and keeps it tied to the source.
+          <div className="flex flex-col gap-6">
+            <div>
+              <Badge variant="secondary">Canon alignment loop</Badge>
+              <h2 className="mt-4 font-display text-2xl font-semibold sm:text-3xl">
+                An automated knowledge infrastructure built for continuous change.
+              </h2>
+              <p className="mt-3 max-w-2xl text-white/70">
+                Canon sits between what changes and what people believe. It observes reality, forms addressable knowledge
+                units, and projects them to each audience with the right level of review.
               </p>
-              <div className="mt-6 space-y-4 text-sm text-white/70">
-                <p>1. Watch file changes.</p>
-                <p>2. Draft updates in plain language, linked to code.</p>
-                <p>3. Route changes for review, then publish where your team works.</p>
-              </div>
             </div>
 
-            <div className="grid gap-6 sm:grid-cols-2">
-              <Card>
+            <div className="grid gap-6 sm:grid-cols-3">
+              <Card className="animate-rise">
                 <CardHeader>
-                  <CardTitle>Service pages</CardTitle>
-                  <CardDescription>Owners, health, dependencies, and how to operate.</CardDescription>
+                  <CardTitle className="font-display">Observe reality</CardTitle>
+                  <CardDescription>Systems of record first, narratives second.</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <p className="text-sm text-white/70">
-                    Every page stays linked to code paths and on-call rotations so it stays trustworthy.
+                    Ingest broadly by default so importance can emerge from actual usage; teams opt out, not in.
                   </p>
                 </CardContent>
               </Card>
-
-              <Card>
+              <Card className="animate-rise animate-rise-delay-1">
                 <CardHeader>
-                  <CardTitle>Runbooks</CardTitle>
-                  <CardDescription>Step-by-step guidance that matches reality.</CardDescription>
+                  <CardTitle className="font-display">Addressable units</CardTitle>
+                  <CardDescription>Small, bounded chunks of truth.</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <p className="text-sm text-white/70">
-                    Canon updates checks and playbooks as systems evolve, before incidents happen.
+                    One unit answers one question, stays traceable, and refreshes without touching everything else.
                   </p>
                 </CardContent>
               </Card>
-
-              <Card>
+              <Card className="animate-rise animate-rise-delay-2">
                 <CardHeader>
-                  <CardTitle>System maps</CardTitle>
-                  <CardDescription>Views that reflect how services interact.</CardDescription>
+                  <CardTitle className="font-display">Audience projection</CardTitle>
+                  <CardDescription>Same truth, different views.</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <p className="text-sm text-white/70">
-                    Dependency views stay in sync without anyone redrawing diagrams.
-                  </p>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Change narratives</CardTitle>
-                  <CardDescription>Decisions captured while they’re fresh.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-white/70">
-                    Summaries connect the “why” behind a change to the “what” in the repo.
+                    Engineering, sales, marketing, leadership, and customers each get the right slice of reality.
                   </p>
                 </CardContent>
               </Card>
@@ -155,19 +205,77 @@ export default function LandingPage() {
           </div>
         </section>
 
-        <section className="mx-auto max-w-7xl px-4 pb-20 sm:px-6 lg:px-8">
+        <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8">
+          <div className="grid gap-8 lg:grid-cols-2">
+            <div className="glass-panel p-8">
+              <h3 className="font-display text-2xl font-semibold">Audience-aware by design</h3>
+              <p className="mt-3 text-white/70">
+                Reality is singular, but understanding is audience dependent. Canon captures truth once and projects it
+                differently for each group.
+              </p>
+              <div className="mt-6 flex flex-wrap gap-2">
+                <Badge variant="outline">Engineering</Badge>
+                <Badge variant="outline">Product</Badge>
+                <Badge variant="outline">Sales</Badge>
+                <Badge variant="outline">Marketing</Badge>
+                <Badge variant="outline">Leadership</Badge>
+                <Badge variant="outline">Customers</Badge>
+              </div>
+              <Separator className="my-6" />
+              <p className="text-sm text-white/70">
+                Audience affects level of detail, review requirements, and risk tolerance. Canon adapts the projection,
+                not the source of truth.
+              </p>
+            </div>
+
+            <div className="glass-panel p-8">
+              <h3 className="font-display text-2xl font-semibold">Review and control model</h3>
+              <p className="mt-3 text-white/70">
+                Canon does not blindly auto-update everything. It uses the right level of control for each unit.
+              </p>
+              <div className="mt-6 space-y-4 text-sm">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="font-medium text-white">Auto-update</p>
+                    <p className="text-white/70">Low-risk, mechanical changes.</p>
+                  </div>
+                  <Badge>Low risk</Badge>
+                </div>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="font-medium text-white">Suggest + queue</p>
+                    <p className="text-white/70">Most updates route for quick review.</p>
+                  </div>
+                  <Badge variant="secondary">Default</Badge>
+                </div>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="font-medium text-white">Flag for review</p>
+                    <p className="text-white/70">High-risk or customer-facing changes.</p>
+                  </div>
+                  <Badge variant="outline">High risk</Badge>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8">
           <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-8 sm:p-10">
             <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <h2 className="text-2xl font-semibold text-white sm:text-3xl">Stop losing context</h2>
+                <h2 className="font-display text-2xl font-semibold text-white sm:text-3xl">
+                  Stop losing context.
+                </h2>
                 <p className="mt-2 max-w-2xl text-white/70">
-                  Start small: connect a repo and let Canon draft the first pages your team will reuse.
+                  Canon keeps shared understanding aligned with reality as systems change, so every audience sees the
+                  right answer when they need it.
                 </p>
               </div>
               <div className="flex flex-col gap-3 sm:flex-row">
                 <Button size="lg" asChild>
                   <a href={appHref} target="_blank" rel="noopener noreferrer">
-                    Get Started
+                    See Canon in action
                     <ArrowRight className="h-4 w-4" />
                   </a>
                 </Button>
@@ -182,7 +290,7 @@ export default function LandingPage() {
 
       <footer className="relative border-t border-white/10">
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-10 text-sm text-white/60 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
-          <p>© 2025 Canon</p>
+          <p>© 2026 Canon</p>
           <a href="mailto:sellers.e.john@gmail.com" className="transition hover:text-white">
             Contact
           </a>

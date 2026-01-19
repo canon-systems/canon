@@ -2,6 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
+body {
+  font-family: var(--font-space-grotesk);
+}
+
 /* Custom styles for the landing page */
 .glass-panel {
   @apply bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl shadow-xl;
@@ -10,6 +14,52 @@
 /* Gradient text utility */
 .gradient-text {
   @apply bg-gradient-to-r from-blue-400 via-purple-400 to-cyan-400 bg-clip-text text-transparent;
+}
+
+.font-display {
+  font-family: var(--font-fraunces);
+}
+
+.animate-rise {
+  animation: rise 0.85s ease-out both;
+}
+
+.animate-rise-delay-1 {
+  animation-delay: 120ms;
+}
+
+.animate-rise-delay-2 {
+  animation-delay: 240ms;
+}
+
+.animate-rise-delay-3 {
+  animation-delay: 360ms;
+}
+
+.animate-drift {
+  animation: drift 16s ease-in-out infinite alternate;
+}
+
+@keyframes rise {
+  0% {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes drift {
+  0% {
+    transform: translate3d(-2%, -3%, 0) scale(1);
+    opacity: 0.55;
+  }
+  100% {
+    transform: translate3d(4%, 4%, 0) scale(1.06);
+    opacity: 0.85;
+  }
 }
 
 /* Smooth scrolling */
