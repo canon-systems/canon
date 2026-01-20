@@ -16,9 +16,10 @@ import { cn } from '@/lib/utils';
 const appHref = 'https://sync-swart.vercel.app/login';
 
 const navLinks = [
-    { title: 'Features', href: '#features' },
-    { title: 'How It Works', href: '#workflow' },
-    { title: 'Security', href: '#security' },
+  { title: 'Features', href: '#features' },
+  { title: 'How It Works', href: '#workflow' },
+  { title: 'Integrations', href: '#integrations' },
+  { title: 'Security', href: '#security' },
 ];
 
 export function Navigation() {

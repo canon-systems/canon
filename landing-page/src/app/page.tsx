@@ -1,5 +1,6 @@
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, Github } from 'lucide-react';
 
+import { IntegrationLogos } from '@/components/IntegrationLogos';
 import { Navigation } from '@/components/Navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -20,7 +21,6 @@ export default function LandingPage() {
         <section id="features" className="mx-auto max-w-7xl px-4 pb-16 pt-10 sm:px-6 lg:px-8 lg:pb-24 lg:pt-16 scroll-mt-[77px]">
           <div className="grid gap-12 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
             <div className="animate-rise space-y-6">
-              <Badge className="w-fit">Truth Alignment Layer</Badge>
 
               <h1 className="font-display text-4xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">
                 Keep Shared Understanding Aligned With Reality.
@@ -376,6 +376,87 @@ export default function LandingPage() {
                   <Badge variant="outline">High Risk</Badge>
                 </div>
               </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8 scroll-mt-[77px]" id="integrations">
+          <div className="flex flex-col gap-6">
+            <div className="space-y-3">
+              <Badge variant="secondary">Integrations</Badge>
+              <h2 className="font-display text-2xl font-semibold text-white sm:text-3xl">
+                Works Where Your Team Already Works.
+              </h2>
+              <p className="max-w-3xl text-white/70">
+                Canon connects to the tools your team uses every day, so knowledge updates appear where work happens—no
+                context switching required.
+              </p>
+            </div>
+
+            <div className="grid gap-6 sm:grid-cols-3">
+              <Card className="h-full bg-gradient-to-br from-white/[0.06] via-white/[0.03] to-white/[0.01]">
+                <CardHeader>
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white/5 border border-white/10">
+                      <Github className="h-6 w-6 text-white" />
+                    </div>
+                    <CardTitle className="text-white">GitHub</CardTitle>
+                  </div>
+                  <CardDescription className="text-white/70">
+                    Connect repositories and track code changes automatically.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-white/70">
+                    Canon watches your codebase, detects drift, and surfaces updates alongside your PRs and diffs.
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card className="h-full">
+                <CardHeader>
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white/5 border border-white/10">
+                      <IntegrationLogos provider="notion" size={24} />
+                    </div>
+                    <CardTitle className="text-white">Notion</CardTitle>
+                  </div>
+                  <CardDescription className="text-white/70">
+                    Push updates directly into your Notion workspace.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-white/70">
+                    Keep your Notion pages fresh with automated updates that reflect what actually shipped.
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card className="h-full">
+                <CardHeader>
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white/5 border border-white/10">
+                      <IntegrationLogos provider="confluence" size={24} />
+                    </div>
+                    <CardTitle className="text-white">Confluence</CardTitle>
+                  </div>
+                  <CardDescription className="text-white/70">
+                    Sync knowledge updates to your Confluence spaces.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-white/70">
+                    Maintain accurate documentation in Confluence without manual updates or stale pages.
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.03] p-6 text-sm text-white/70">
+              <p>
+                More integrations coming soon. Canon is designed to work with the tools your team already uses, so
+                knowledge stays aligned without disrupting workflows.
+              </p>
             </div>
           </div>
         </section>
