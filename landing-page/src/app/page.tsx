@@ -46,14 +46,15 @@ export default function LandingPage() {
         <section className="mx-auto max-w-7xl px-4 pb-16 pt-10 sm:px-6 lg:px-8 lg:pb-24 lg:pt-16">
           <div className="grid gap-12 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
             <div className="animate-rise space-y-6">
+              <Badge className="w-fit">Truth alignment layer</Badge>
 
               <h1 className="font-display text-4xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">
                 Keep shared understanding aligned with reality.
               </h1>
 
               <p className="text-lg leading-relaxed text-white/70">
-                Systems change continuously. Canon observes your systems of record, detects drift, and refreshes
-                addressable knowledge units, then projects the right view for every audience.
+                Canon observes what ships, detects drift, and refreshes small knowledge units. It projects the right view
+                for engineering, go-to-market, and customers—without another doc project.
               </p>
 
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -84,7 +85,7 @@ export default function LandingPage() {
               </div>
             </div>
 
-            <div className="animate-rise animate-rise-delay-1 space-y-6">
+            <div className="animate-rise animate-rise-delay-1 space-y-4">
               <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6 shadow-[0_20px_80px_rgba(0,0,0,0.6)]">
                 <div className="flex items-center justify-between">
                   <p className="text-xs font-semibold uppercase tracking-[0.3em] text-white/60">
@@ -110,6 +111,24 @@ export default function LandingPage() {
                 <Separator className="my-4" />
                 <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-sm text-white/60">
                   Canon watches reality, not narratives. Drift gets surfaced before trust erodes.
+                </div>
+              </div>
+
+              <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-white/[0.06] via-white/[0.03] to-white/[0.01] p-5 shadow-[0_20px_80px_rgba(0,0,0,0.45)]">
+                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-white/60">Projections</p>
+                <div className="mt-4 grid grid-cols-3 gap-3 text-sm">
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-3 text-center text-white">
+                    Eng
+                    <p className="text-xs text-white/60">Runbooks, deps</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-3 text-center text-white">
+                    GTM
+                    <p className="text-xs text-white/60">Launch notes</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-3 text-center text-white">
+                    Customers
+                    <p className="text-xs text-white/60">What changed</p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -199,6 +218,123 @@ export default function LandingPage() {
                   <p className="text-sm text-white/70">
                     Engineering, sales, marketing, leadership, and customers each get the right slice of reality.
                   </p>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </section>
+
+        <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8">
+          <div className="flex flex-col gap-6">
+            <div className="space-y-3">
+              <Badge variant="secondary">Visual flow</Badge>
+              <h2 className="font-display text-2xl font-semibold text-white sm:text-3xl">
+                How Canon moves from change to aligned understanding.
+              </h2>
+              <p className="max-w-3xl text-white/70">
+                One sweep: connect once, Canon tracks change, flags drift, drafts updates, and routes them where teams
+                actually work.
+              </p>
+            </div>
+
+            <div className="glass-panel p-6 sm:p-8">
+              <div className="grid gap-4 sm:grid-cols-5">
+                {[
+                  {
+                    title: 'Connect',
+                    body: 'Sign in and choose repos/spaces.',
+                    accent: 'from-cyan-400/30 via-blue-400/20 to-white/0',
+                  },
+                  {
+                    title: 'Observe',
+                    body: 'Watch diffs and updates.',
+                    accent: 'from-emerald-400/30 via-teal-400/20 to-white/0',
+                  },
+                  {
+                    title: 'Detect',
+                    body: 'Spot drift as it happens.',
+                    accent: 'from-amber-400/30 via-orange-400/20 to-white/0',
+                  },
+                  {
+                    title: 'Draft',
+                    body: 'Refresh small knowledge units.',
+                    accent: 'from-fuchsia-400/30 via-pink-400/20 to-white/0',
+                  },
+                  {
+                    title: 'Review & publish',
+                    body: 'Approve, then push to teams.',
+                    accent: 'from-violet-400/30 via-purple-400/20 to-white/0',
+                  },
+                ].map((step, idx) => (
+                  <div
+                    key={step.title}
+                    className="relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] p-4 shadow-[0_12px_50px_rgba(0,0,0,0.45)]"
+                  >
+                    <div className={`absolute inset-0 bg-gradient-to-br ${step.accent}`} aria-hidden />
+                    <div className="relative flex flex-col gap-2">
+                      <div className="flex items-center gap-2 text-xs uppercase tracking-[0.25em] text-white/60">
+                        <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-white/20 bg-white/10 text-[11px] font-semibold">
+                          {idx + 1}
+                        </span>
+                        {step.title}
+                      </div>
+                      <p className="text-sm text-white/80">{step.body}</p>
+                      {step.title === 'Review & publish' ? (
+                        <div className="mt-1 flex flex-wrap gap-1 text-[11px] font-medium text-white/70">
+                          <span className="rounded-full border border-white/20 px-2 py-1">Eng</span>
+                          <span className="rounded-full border border-white/20 px-2 py-1">GTM</span>
+                          <span className="rounded-full border border-white/20 px-2 py-1">Customers</span>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8">
+          <div className="flex flex-col gap-6">
+            <div className="space-y-3">
+              <Badge variant="secondary">Where it shows up</Badge>
+              <h2 className="font-display text-2xl font-semibold text-white sm:text-3xl">
+                Canon meets people in their flow, not just in docs.
+              </h2>
+              <p className="max-w-3xl text-white/70">
+                Updates arrive where work already happens—code reviews, knowledge bases, and briefings—so teams see what
+                changed without hunting.
+              </p>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-3">
+              <Card className="h-full bg-gradient-to-br from-white/[0.06] via-white/[0.03] to-white/[0.01]">
+                <CardHeader>
+                  <CardTitle className="text-white">Code & reviews</CardTitle>
+                  <CardDescription className="text-white/70">Surface drift alongside diffs and PRs.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-white/70">Stay grounded in what actually shipped.</p>
+                </CardContent>
+              </Card>
+
+              <Card className="h-full">
+                <CardHeader>
+                  <CardTitle className="text-white">Knowledge bases</CardTitle>
+                  <CardDescription className="text-white/70">Push updates into Notion or Confluence.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-white/70">Fresh context where everyone already looks.</p>
+                </CardContent>
+              </Card>
+
+              <Card className="h-full">
+                <CardHeader>
+                  <CardTitle className="text-white">Briefings</CardTitle>
+                  <CardDescription className="text-white/70">Short summaries for GTM and customers.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-white/70">One truth, sized for each audience.</p>
                 </CardContent>
               </Card>
             </div>
