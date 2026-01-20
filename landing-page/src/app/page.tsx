@@ -1,5 +1,6 @@
 import { ArrowRight } from 'lucide-react';
 
+import { Navigation } from '@/components/Navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -13,37 +14,10 @@ export default function LandingPage() {
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(255,255,255,0.10),transparent_55%)]" />
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.05)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.05)_1px,transparent_1px)] bg-[size:72px_72px] [mask-image:radial-gradient(ellipse_at_center,black,transparent_70%)]" />
 
-      <header className="relative">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-6 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-3">
-            <img
-              src="/web-app-manifest-512x512.png"
-              alt="Canon"
-              className="h-10 w-10 rounded-xl border border-white/10"
-            />
-            <div>
-              <p className="text-base font-semibold text-white">Canon</p>
-            </div>
-          </div>
-
-          <nav className="flex items-center gap-3">
-            <Button variant="ghost" asChild>
-              <a href={appHref} target="_blank" rel="noopener noreferrer">
-                Sign In
-              </a>
-            </Button>
-            <Button asChild>
-              <a href={appHref} target="_blank" rel="noopener noreferrer">
-                Get Started
-                <ArrowRight className="h-4 w-4" />
-              </a>
-            </Button>
-          </nav>
-        </div>
-      </header>
+      <Navigation />
 
       <main className="relative">
-        <section className="mx-auto max-w-7xl px-4 pb-16 pt-10 sm:px-6 lg:px-8 lg:pb-24 lg:pt-16">
+        <section id="features" className="mx-auto max-w-7xl px-4 pb-16 pt-10 sm:px-6 lg:px-8 lg:pb-24 lg:pt-16 scroll-mt-[77px]">
           <div className="grid gap-12 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
             <div className="animate-rise space-y-6">
               <Badge className="w-fit">Truth Alignment Layer</Badge>
@@ -173,7 +147,7 @@ export default function LandingPage() {
           </div>
         </section>
 
-        <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8" id="workflow">
+        <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8 scroll-mt-[77px]" id="workflow">
           <div className="flex flex-col gap-6">
             <div>
               <Badge variant="secondary">Canon Alignment Loop</Badge>
@@ -406,7 +380,7 @@ export default function LandingPage() {
           </div>
         </section>
 
-        <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8" id="security">
+        <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8 scroll-mt-[77px]" id="security">
           <div className="flex flex-col gap-6">
             <div className="space-y-3">
               <Badge variant="secondary">Security</Badge>
