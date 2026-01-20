@@ -5,6 +5,7 @@ import { ChevronDown, Sparkles, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 interface PromptConfig {
   personality?: string;
@@ -244,15 +245,21 @@ export function PromptCustomizer({ promptConfig, onChange, onSave, saving = fals
                 className="w-full border-white/20 bg-white/10 text-sm text-white placeholder-white/40"
               />
             ) : (
-              <select
+              <Select
                 value={promptConfig.personality || 'default'}
-                onChange={(e) => updateConfig({ personality: e.target.value })}
-                className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white outline-none focus:border-white/40"
+                onValueChange={(value) => updateConfig({ personality: value })}
               >
-                {personalityOptions.map(opt => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
+                <SelectTrigger className="w-full bg-white/5 border-white/10">
+                  <SelectValue placeholder="Select personality" />
+                </SelectTrigger>
+                <SelectContent className="w-[var(--radix-select-trigger-width)] bg-black/95 border-white/10 backdrop-blur-xl">
+                  {personalityOptions.map(opt => (
+                    <SelectItem key={opt.value} value={opt.value} className="text-white hover:bg-white/10 focus:bg-white/10">
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             )}
             <p className="mt-1 text-xs text-white/50">Sets the tone and voice of the documentation</p>
           </div>
@@ -293,15 +300,21 @@ export function PromptCustomizer({ promptConfig, onChange, onSave, saving = fals
                 className="w-full border-white/20 bg-white/10 text-sm text-white placeholder-white/40"
               />
             ) : (
-              <select
+              <Select
                 value={promptConfig.style || 'default'}
-                onChange={(e) => updateConfig({ style: e.target.value })}
-                className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white outline-none focus:border-white/40"
+                onValueChange={(value) => updateConfig({ style: value })}
               >
-                {styleOptions.map(opt => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
+                <SelectTrigger className="w-full bg-white/5 border-white/10">
+                  <SelectValue placeholder="Select style" />
+                </SelectTrigger>
+                <SelectContent className="w-[var(--radix-select-trigger-width)] bg-black/95 border-white/10 backdrop-blur-xl">
+                  {styleOptions.map(opt => (
+                    <SelectItem key={opt.value} value={opt.value} className="text-white hover:bg-white/10 focus:bg-white/10">
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             )}
             <p className="mt-1 text-xs text-white/50">Determines the technical level and format of the documentation</p>
           </div>
@@ -309,42 +322,54 @@ export function PromptCustomizer({ promptConfig, onChange, onSave, saving = fals
           {/* Perspective */}
           <div>
             <label className="mb-1.5 block text-xs font-medium text-white/70">Narrative Perspective</label>
-            <select
+            <Select
               value={promptConfig.perspective || 'default'}
-              onChange={(e) => updateConfig({ perspective: e.target.value })}
-              className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white outline-none focus:border-white/40"
+              onValueChange={(value) => updateConfig({ perspective: value })}
             >
-              {perspectiveOptions.map(opt => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
+              <SelectTrigger className="w-full bg-white/5 border-white/10">
+                <SelectValue placeholder="Select perspective" />
+              </SelectTrigger>
+              <SelectContent className="w-[var(--radix-select-trigger-width)] bg-black/95 border-white/10 backdrop-blur-xl">
+                {perspectiveOptions.map(opt => (
+                  <SelectItem key={opt.value} value={opt.value} className="text-white hover:bg-white/10 focus:bg-white/10">
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <p className="mt-1 text-xs text-white/50">Controls whether the documentation uses "I/we", "you", "it/they", or formal third person</p>
           </div>
 
           {/* Audience */}
           <div>
             <label className="mb-1.5 block text-xs font-medium text-white/70">Target Audience</label>
-            <select
+            <Select
               value={promptConfig.audience || 'technical'}
-              onChange={(e) => updateConfig({ audience: e.target.value })}
-              className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white outline-none focus:border-white/40"
+              onValueChange={(value) => updateConfig({ audience: value })}
             >
-              {audienceOptions.map(opt => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
+              <SelectTrigger className="w-full bg-white/5 border-white/10">
+                <SelectValue placeholder="Select audience" />
+              </SelectTrigger>
+              <SelectContent className="w-[var(--radix-select-trigger-width)] bg-black/95 border-white/10 backdrop-blur-xl">
+                {audienceOptions.map(opt => (
+                  <SelectItem key={opt.value} value={opt.value} className="text-white hover:bg-white/10 focus:bg-white/10">
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <p className="mt-1 text-xs text-white/50">Specifies the intended audience for the documentation</p>
           </div>
 
           {/* Custom Instructions */}
           <div>
             <label className="mb-1.5 block text-xs font-medium text-white/70">Custom Instructions (Optional)</label>
-            <textarea
+            <Textarea
               value={promptConfig.customInstructions || ''}
               onChange={(e) => updateConfig({ customInstructions: e.target.value })}
               placeholder="e.g., 'Focus on security best practices', 'Include code examples for each API endpoint', 'Use emojis sparingly'"
               rows={3}
-              className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white placeholder-white/40 outline-none focus:border-white/40"
+              className="w-full bg-white/5 border-white/10 text-white placeholder:text-white/40"
             />
             <p className="mt-1 text-xs text-white/50">Add specific instructions to customize the documentation output</p>
           </div>

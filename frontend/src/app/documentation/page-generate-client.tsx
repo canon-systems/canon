@@ -992,11 +992,15 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTabAndUpdateUrl} className="mb-8">
-          <TabsList className="bg-white/5 border border-white/10">
+          <TabsList className="bg-white/5 border border-white/10 backdrop-blur">
             {tabs.map(tab => {
               const Icon = tab.icon;
               return (
-                <TabsTrigger key={tab.id} value={tab.id} className="flex items-center gap-2 data-[state=active]:bg-white/10 data-[state=active]:text-white">
+                <TabsTrigger 
+                  key={tab.id} 
+                  value={tab.id} 
+                  className="flex items-center gap-2 text-white/70 data-[state=active]:bg-white/15 data-[state=active]:text-white data-[state=active]:border data-[state=active]:border-white/20 data-[state=inactive]:hover:text-white data-[state=inactive]:hover:bg-white/5"
+                >
                   <Icon className="h-4 w-4" />
                   {tab.name}
                 </TabsTrigger>
@@ -1005,7 +1009,7 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
           </TabsList>
 
           <TabsContent value="generate" className="mt-6">
-            <Card className="border border-white/10 bg-gradient-to-b from-white/5 to-white/0 shadow-lg">
+            <Card className="border border-white/10 bg-gradient-to-b from-white/5 to-white/0 shadow-lg backdrop-blur">
               <CardHeader className="space-y-1 pb-6">
                 <CardTitle className="text-2xl font-semibold text-white">Generate Documentation</CardTitle>
                 <CardDescription className="text-white/70">
@@ -1079,19 +1083,19 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
                             <ChevronDown className={`h-4 w-4 text-white/60 transition ${showModelDropdown ? 'rotate-180' : ''}`} />
                           </Button>
                           {showModelDropdown && (
-                            <div className="absolute z-[100] mt-2 max-h-96 w-full overflow-auto rounded-xl border border-white/10 bg-black/90 shadow-2xl backdrop-blur">
+                            <div className="absolute z-[100] mt-2 max-h-96 w-full overflow-auto rounded-xl border border-white/10 bg-black/95 shadow-2xl backdrop-blur-xl">
                               {availableModels.map((model) => (
                                 <Button
                                   key={model.value}
                                   type="button"
                                   variant="ghost"
-                                  className={`w-full justify-start px-4 py-3 text-left hover:bg-white/5 ${selectedModel === model.value ? 'bg-white/10' : ''}`}
+                                  className={`w-full justify-start px-4 py-3 text-left text-white hover:bg-white/10 focus:bg-white/10 ${selectedModel === model.value ? 'bg-white/15' : ''}`}
                                   onClick={() => {
                                     setSelectedModel(model.value);
                                     setShowModelDropdown(false);
                                   }}
                                 >
-                                  <div className="flex items-start justify-between gap-3">
+                                  <div className="flex items-start justify-between gap-3 w-full">
                                     <div className="min-w-0 flex-1 text-sm">
                                       <div className="mb-1 flex flex-wrap items-center gap-2">
                                         <span className="font-semibold text-white">{model.label}</span>
@@ -1448,19 +1452,19 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
                   <SelectTrigger className="w-full sm:w-[180px] bg-white/5 border-white/10">
                     <SelectValue placeholder="Filter by status" />
                   </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Status</SelectItem>
-                    <SelectItem value="published">Published</SelectItem>
+                  <SelectContent className="bg-black/95 border-white/10 backdrop-blur-xl">
+                    <SelectItem value="all" className="text-white hover:bg-white/10 focus:bg-white/10">All Status</SelectItem>
+                    <SelectItem value="published" className="text-white hover:bg-white/10 focus:bg-white/10">Published</SelectItem>
                   </SelectContent>
                 </Select>
                 <Select value={repoFilter} onValueChange={setRepoFilter}>
                   <SelectTrigger className="w-full sm:w-[200px] bg-white/5 border-white/10">
                     <SelectValue placeholder="Filter by repo" />
                   </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Repositories</SelectItem>
+                  <SelectContent className="bg-black/95 border-white/10 backdrop-blur-xl">
+                    <SelectItem value="all" className="text-white hover:bg-white/10 focus:bg-white/10">All Repositories</SelectItem>
                     {repos.map((repo) => (
-                      <SelectItem key={repo.id} value={repo.id}>
+                      <SelectItem key={repo.id} value={repo.id} className="text-white hover:bg-white/10 focus:bg-white/10">
                         {repo.name}
                       </SelectItem>
                     ))}
@@ -1485,7 +1489,7 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
                   {editItems.map((item) => (
                     <Card
                       key={item.id}
-                      className="cursor-pointer border border-white/10 bg-white/5 hover:bg-white/10 transition-colors"
+                      className="cursor-pointer border border-white/10 bg-white/5 hover:bg-white/10 hover:border-white/20 transition-colors backdrop-blur"
                       onClick={() => router.push(`/edit/${item.id}`)}
                       role="button"
                       tabIndex={0}
@@ -1518,15 +1522,15 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
                                   <MoreVertical className="h-4 w-4" />
                                 </Button>
                               </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="border-white/10 bg-black/90 z-[100]">
-                                <DropdownMenuItem asChild>
+                              <DropdownMenuContent align="end" className="border-white/10 bg-black/95 backdrop-blur-xl z-[100]">
+                                <DropdownMenuItem asChild className="text-white hover:bg-white/10 focus:bg-white/10">
                                   <Link href={`/edit/${item.id}`} className="flex items-center gap-2">
                                     <FileText className="h-4 w-4" />
                                     Edit Document
                                   </Link>
                                 </DropdownMenuItem>
                                 {item.lastPushedUrl && (
-                                  <DropdownMenuItem asChild>
+                                  <DropdownMenuItem asChild className="text-white hover:bg-white/10 focus:bg-white/10">
                                     <a href={item.lastPushedUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2">
                                       <ExternalLink className="h-4 w-4" />
                                       View Published
@@ -1539,7 +1543,7 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
                                     setItemToDelete({ id: item.id, title: item.title });
                                     setShowDeleteModal(true);
                                   }}
-                                  className="text-red-300 focus:bg-red-500/10"
+                                  className="text-red-300 hover:bg-red-500/10 focus:bg-red-500/10"
                                 >
                                   Delete
                                 </DropdownMenuItem>
@@ -1611,7 +1615,7 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
 
       {/* Delete Confirmation Modal */}
       <Dialog open={showDeleteModal} onOpenChange={setShowDeleteModal}>
-        <DialogContent className="border-white/20 bg-black/90">
+        <DialogContent className="border-white/20 bg-black/95 backdrop-blur-xl">
           <DialogHeader>
             <DialogTitle className="text-white">Delete Document</DialogTitle>
           </DialogHeader>

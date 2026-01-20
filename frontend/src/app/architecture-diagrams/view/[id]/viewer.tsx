@@ -1,188 +1,69 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Download, RefreshCw, Share2, ZoomIn, ZoomOut } from 'lucide-react';
-import mermaid from 'mermaid';
+import { useRouter } from 'next/navigation';
+import {
+    Background,
+    Controls,
+    MiniMap,
+    Handle,
+    Position,
+    ReactFlow,
+    useEdgesState,
+    useNodesState,
+    Node,
+    Edge,
+    ReactFlowInstance,
+    MarkerType
+} from 'reactflow';
+import ELK from 'elkjs/lib/elk.bundled.js';
+import { ArrowLeft, Filter, Search, Sparkles } from 'lucide-react';
+import 'reactflow/dist/style.css';
+
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 
-// Global Mermaid initialization flag (Mermaid best practice - initialize only once)
-let mermaidInitialized = false;
+const elk = new ELK();
 
-function buildMermaid(nodes: any[], edges: any[]): string {
-    let mermaidText = 'flowchart TB\n';
-    mermaidText += '    classDef lane fill:#111827,stroke:#1f2937,color:#e5e7eb,stroke-width:1px;\n';
-    mermaidText += '    classDef internal fill:#0f172a,stroke:#1d4ed8,color:#e2e8f0,stroke-width:1.5px,rx:4px,ry:4px;\n';
-    mermaidText += '    classDef external fill:#1f2937,stroke:#f59e0b,color:#ffedd5,stroke-width:1.5px,rx:4px,ry:4px;\n';
-    mermaidText += '    classDef unknown fill:#1f1f1f,stroke:#ef4444,color:#fecdd3,stroke-dasharray: 6 4;\n';
-    const categories: Record<string, string> = {
-        entry: 'cat-entry',
-        api: 'cat-api',
-        business: 'cat-business',
-        data: 'cat-data',
-        ui: 'cat-ui',
-        infra: 'cat-infra',
-        auth: 'cat-auth',
-        config: 'cat-config',
-        middleware: 'cat-middleware',
-        util: 'cat-util',
-        test: 'cat-test',
-        db: 'cat-db',
-        queue: 'cat-queue',
-        search: 'cat-search',
-        messaging: 'cat-messaging',
-        observability: 'cat-observability',
-        orchestration: 'cat-orchestration',
-        storage: 'cat-storage',
-        email: 'cat-email',
-        payments: 'cat-payments',
-        cdn: 'cat-cdn',
-        ai: 'cat-ai',
-        cloud: 'cat-cloud',
-        other: 'cat-other',
-        gateway: 'cat-gateway',
-        analytics: 'cat-analytics',
-        repo: 'cat-repo',
-        scheduler: 'cat-scheduler',
-        hosting: 'cat-hosting',
-        payment: 'cat-payments'
-    };
-    mermaidText += '    classDef cat-entry stroke:#22d3ee,color:#e0f2fe;\n';
-    mermaidText += '    classDef cat-api stroke:#38bdf8,color:#e0f2fe;\n';
-    mermaidText += '    classDef cat-business stroke:#a855f7,color:#f5f3ff;\n';
-    mermaidText += '    classDef cat-data stroke:#14b8a6,color:#ccfbf1;\n';
-    mermaidText += '    classDef cat-ui stroke:#c084fc,color:#faf5ff;\n';
-    mermaidText += '    classDef cat-infra stroke:#94a3b8,color:#e2e8f0;\n';
-    mermaidText += '    classDef cat-auth stroke:#f97316,color:#ffedd5;\n';
-    mermaidText += '    classDef cat-config stroke:#eab308,color:#fef9c3;\n';
-    mermaidText += '    classDef cat-middleware stroke:#22c55e,color:#dcfce7;\n';
-    mermaidText += '    classDef cat-util stroke:#3b82f6,color:#dbeafe;\n';
-    mermaidText += '    classDef cat-test stroke:#f472b6,color:#fce7f3;\n';
-    mermaidText += '    classDef cat-db stroke:#f59e0b,color:#fffbeb;\n';
-    mermaidText += '    classDef cat-queue stroke:#f97316,color:#ffedd5;\n';
-    mermaidText += '    classDef cat-search stroke:#8b5cf6,color:#ede9fe;\n';
-    mermaidText += '    classDef cat-messaging stroke:#06b6d4,color:#cffafe;\n';
-    mermaidText += '    classDef cat-observability stroke:#22d3ee,color:#e0f2fe;\n';
-    mermaidText += '    classDef cat-orchestration stroke:#38bdf8,color:#e0f2fe;\n';
-    mermaidText += '    classDef cat-storage stroke:#0ea5e9,color:#e0f2fe;\n';
-    mermaidText += '    classDef cat-email stroke:#f472b6,color:#fce7f3;\n';
-    mermaidText += '    classDef cat-payments stroke:#22c55e,color:#dcfce7;\n';
-    mermaidText += '    classDef cat-cdn stroke:#eab308,color:#fef9c3;\n';
-    mermaidText += '    classDef cat-ai stroke:#a855f7,color:#f5f3ff;\n';
-    mermaidText += '    classDef cat-cloud stroke:#94a3b8,color:#e2e8f0;\n';
-    mermaidText += '    classDef cat-other stroke:#6b7280,color:#e5e7eb;\n';
-    mermaidText += '    classDef cat-gateway stroke:#22d3ee,color:#e0f2fe;\n';
-    mermaidText += '    classDef cat-analytics stroke:#f472b6,color:#fce7f3;\n';
-    mermaidText += '    classDef cat-repo stroke:#3b82f6,color:#dbeafe;\n';
-    mermaidText += '    classDef cat-scheduler stroke:#38bdf8,color:#e0f2fe;\n';
-    mermaidText += '    classDef cat-hosting stroke:#c084fc,color:#faf5ff;\n';
+const repoPalette = ['#22c55e', '#38bdf8', '#f97316', '#a855f7', '#eab308', '#14b8a6', '#f472b6', '#94a3b8'];
 
-    const internalNodes = nodes.filter(n => n.type === 'internal');
-    const externalNodes = nodes.filter(n => n.type === 'external');
-    const classAssignments: Array<{ id: string; cls: string }> = [];
-
-    const formatLabel = (node: any) => {
-        const parts = [node.label];
-        if (node.fileCount !== undefined) parts.push(`${node.fileCount} files`);
-        if (node.packages && node.packages.length) {
-            const pkgLine = node.packages.slice(0, 2).join(', ') + (node.packages.length > 2 ? ` +${node.packages.length - 2} more` : '');
-            parts.push(pkgLine);
-        }
-        return parts.join('\\n').replace(/"/g, "'");
-    };
-
-    if (internalNodes.length) {
-        mermaidText += '    subgraph Internal["Internal Systems"]\n';
-        mermaidText += '    direction LR\n';
-        for (const node of internalNodes) {
-            const cls = categories[node.category || ''] || 'internal';
-            mermaidText += `        ${node.id}["${formatLabel(node)}"]:::internal\n`;
-            classAssignments.push({ id: node.id, cls });
-        }
-        mermaidText += '    end\n';
-    }
-
-    const linkStyles: string[] = [];
-    edges.forEach((edge: any, index: number) => {
-        const arrowStyle = edge.kind === 'external' ? '-.->' : '-->';
-        mermaidText += `    ${edge.from} ${arrowStyle} ${edge.to}\n`;
-        const strokeWidth = Math.min(6, 1.5 + Math.log((edge.strength || 1) + 1));
-        const dash = edge.kind === 'external' ? 'stroke-dasharray: 6 4,' : '';
-        const strokeColor = edge.kind === 'external' ? '#f59e0b' : '#7dd3fc';
-        linkStyles.push(`    linkStyle ${index} stroke:${strokeColor},stroke-width:${strokeWidth},${dash}opacity:0.9;`);
-    });
-
-    if (linkStyles.length) {
-        mermaidText += linkStyles.join('\n') + '\n';
-    }
-    if (classAssignments.length) {
-        for (const assignment of classAssignments) {
-            mermaidText += `    class ${assignment.id} ${assignment.cls};\n`;
-        }
-    }
-    return mermaidText;
-}
-
-// Fallback diagram generator for when Mermaid fails
-function generateFallbackDiagram(mermaidContent: string, analysisData?: any): string {
-    // Parse basic component info from Mermaid content
-    const componentLines = mermaidContent.split('\n').filter(line =>
-        line.trim() && !line.includes('graph TD') && !line.includes('graph LR') && !line.includes('-->')
-    );
-
-    const width = Math.max(600, componentLines.length * 200);
-    const height = Math.max(400, Math.ceil(componentLines.length / 3) * 150);
-
-    let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-        <defs>
-            <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                <polygon points="0 0, 10 3.5, 0 7" fill="#94a3b8" />
-            </marker>
-        </defs>
-        <rect width="100%" height="100%" fill="#1e293b" />
-
-        <!-- Header -->
-        <text x="50%" y="30" text-anchor="middle" fill="#ffffff" font-family="Arial" font-size="18" font-weight="bold">
-            Architecture Diagram (Fallback)
-        </text>
-        <text x="50%" y="50" text-anchor="middle" fill="#94a3b8" font-family="Arial" font-size="12">
-            Mermaid rendering failed
-        </text>`;
-
-    // Draw components
-    componentLines.forEach((line, index) => {
-        const col = index % 3;
-        const row = Math.floor(index / 3);
-        const x = 150 + col * 200;
-        const y = 100 + row * 120;
-
-        // Extract component name from Mermaid syntax
-        const nameMatch = line.match(/\[([^\]]+)\]/) || line.match(/\[\[([^\]]+)\]\]/) ||
-            line.match(/\(\(([^\)]+)\)\)/) || line.match(/\{\{([^\}]+)\}\}/) ||
-            line.match(/([^\[]+)\[/);
-
-        const componentName = nameMatch ? nameMatch[1] : `Component ${index + 1}`;
-
-        // Draw component box
-        svg += `
-        <rect x="${x - 80}" y="${y - 20}" width="160" height="40" fill="#3b82f6" stroke="#60a5fa" stroke-width="2" rx="5"/>
-        <text x="${x}" y="${y + 5}" text-anchor="middle" fill="#ffffff" font-family="Arial" font-size="12" font-weight="bold">
-            ${componentName.length > 15 ? componentName.substring(0, 12) + '...' : componentName}
-        </text>`;
-    });
-
-    svg += `
-        <!-- Footer message -->
-        <text x="50%" y="${height - 30}" text-anchor="middle" fill="#64748b" font-family="Arial" font-size="11">
-            This is a fallback diagram. Mermaid rendering failed.
-        </text>
-    </svg>`;
-
-    return svg;
-}
+const categoryColors: Record<string, string> = {
+    entry: '#22d3ee',
+    api: '#38bdf8',
+    business: '#a855f7',
+    data: '#14b8a6',
+    ui: '#c084fc',
+    infra: '#94a3b8',
+    auth: '#f97316',
+    config: '#eab308',
+    middleware: '#22c55e',
+    util: '#3b82f6',
+    test: '#f472b6',
+    db: '#f59e0b',
+    queue: '#f97316',
+    search: '#8b5cf6',
+    messaging: '#06b6d4',
+    observability: '#22d3ee',
+    orchestration: '#38bdf8',
+    storage: '#0ea5e9',
+    email: '#f472b6',
+    payments: '#22c55e',
+    cdn: '#eab308',
+    ai: '#a855f7',
+    cloud: '#94a3b8',
+    other: '#6b7280',
+    gateway: '#22d3ee',
+    analytics: '#f472b6',
+    repo: '#3b82f6',
+    scheduler: '#38bdf8',
+    hosting: '#c084fc',
+    payment: '#22c55e'
+};
 
 interface Diagram {
     id: string;
@@ -203,452 +84,602 @@ interface ArchitectureDiagramViewerProps {
     repo: Repo;
 }
 
-export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagramViewerProps) {
-    const router = useRouter();
-    const diagramRef = useRef<HTMLDivElement>(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [zoom, setZoom] = useState(1);
-    const [renderedSvg, setRenderedSvg] = useState<string>('');
-    const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+function extractRepoLabel(filePath?: string): string | null {
+    if (!filePath) return null;
+    const parts = filePath.split('/').filter(Boolean);
+    if (parts.length >= 2) return `${parts[0]}/${parts[1]}`;
+    return null;
+}
 
-    const initialNodes = (diagram.analysis_data?.highLevelNodes || []).length
-        ? diagram.analysis_data?.highLevelNodes
-        : (diagram.analysis_data?.fullNodes || []);
-    const initialEdges = (diagram.analysis_data?.highLevelEdges || []).length
-        ? diagram.analysis_data?.highLevelEdges
-        : (diagram.analysis_data?.fullEdges || []);
-    const fullNodes = diagram.analysis_data?.fullNodes || initialNodes;
-    const fullEdges = diagram.analysis_data?.fullEdges || initialEdges;
+function collectRepoLabels(node: any): string[] {
+    const labels = new Set<string>();
+    (node.files || []).forEach((fp: string) => {
+        const label = extractRepoLabel(fp);
+        if (label) labels.add(label);
+    });
+    return Array.from(labels);
+}
 
-    const [visibleNodes, setVisibleNodes] = useState<any[]>(initialNodes);
-    const [visibleEdges, setVisibleEdges] = useState<any[]>(initialEdges);
-    const [mermaidSource, setMermaidSource] = useState<string>(() => buildMermaid(initialNodes, initialEdges));
+function formatPackages(pkgs?: string[]): string {
+    if (!pkgs || !pkgs.length) return '';
+    if (pkgs.length <= 2) return pkgs.join(', ');
+    return `${pkgs.slice(0, 2).join(', ')} +${pkgs.length - 2} more`;
+}
 
-    const nodeMap = useMemo(() => {
-        const map = new Map<string, any>();
-        visibleNodes.forEach((node: any) => map.set(node.id, node));
-        return map;
-    }, [visibleNodes]);
+function makeReactFlowNodes(
+    nodes: any[],
+    repoClassMap: Map<string, number>,
+    repoFilter: Set<string>,
+    search: string
+): Node[] {
+    const term = search.trim().toLowerCase();
+    return nodes
+        .filter((n) => {
+            const repos = collectRepoLabels(n);
+            const matchesRepo =
+                repoFilter.size === 0 ||
+                repos.length === 0 ||
+                repos.some((r) => repoFilter.has(r));
+            const matchesSearch = term ? (n.label || '').toLowerCase().includes(term) : true;
+            return matchesRepo && matchesSearch;
+        })
+        .map((n) => {
+            const repos = collectRepoLabels(n);
+            const repoBadges = repos.map((r) => {
+                const idx = repoClassMap.get(r) ?? 0;
+                return {
+                    label: r,
+                    color: repoPalette[idx % repoPalette.length] || '#38bdf8'
+                };
+            });
 
-    const fullNodeMap = useMemo(() => {
-        const map = new Map<string, any>();
-        fullNodes.forEach((node: any) => map.set(node.id, node));
-        return map;
-    }, [fullNodes]);
-
-    const selectedNode = selectedNodeId ? nodeMap.get(selectedNodeId) : null;
-
-    const relatedEdges = useMemo(() => {
-        if (!selectedNode) return [];
-        return visibleEdges.filter((e: any) => e.from === selectedNode.id || e.to === selectedNode.id);
-    }, [visibleEdges, selectedNode]);
-
-    const neighborEntries = useMemo(() => {
-        if (!selectedNode) return [];
-        return relatedEdges.map((edge: any) => {
-            const otherId = edge.from === selectedNode.id ? edge.to : edge.from;
             return {
-                otherId,
-                other: nodeMap.get(otherId) || fullNodeMap.get(otherId),
-                strength: edge.strength,
-                kind: edge.kind
+                id: n.id,
+                type: 'systemNode',
+                data: {
+                    label: n.label,
+                    category: n.category,
+                    repoBadges,
+                    fileCount: n.fileCount,
+                    packages: formatPackages(n.packages),
+                    source: n.source
+                },
+                position: { x: 0, y: 0 },
+                width: 240,
+                height: 120
             };
         });
-    }, [relatedEdges, selectedNode, nodeMap, fullNodeMap]);
+}
 
-    const expandNode = (nodeId: string) => {
-        const ids = new Set<string>(visibleNodes.map(n => n.id));
-        ids.add(nodeId);
-        fullEdges.forEach((e: any) => {
-            if (e.from === nodeId || e.to === nodeId) {
-                ids.add(e.from);
-                ids.add(e.to);
-            }
+function makeReactFlowEdges(edges: any[], nodeIds: Set<string>): Edge[] {
+    return edges
+        .filter((e) => nodeIds.has(e.from) && nodeIds.has(e.to))
+        .map((e, idx) => ({
+            id: `e-${e.from}-${e.to}-${idx}`,
+            source: e.from,
+            target: e.to,
+            data: { kind: e.kind, strength: e.strength },
+            animated: false
+        }));
+}
+
+async function layoutWithElk(nodes: Node[], edges: Edge[]) {
+    const graph = {
+        id: 'root',
+        layoutOptions: {
+            'elk.algorithm': 'layered',
+            'elk.direction': 'RIGHT',
+            'elk.spacing.nodeNode': '60',
+            'elk.layered.spacing.nodeNodeBetweenLayers': '120',
+            'elk.layered.spacing.edgeNodeBetweenLayers': '60',
+            'elk.spacing.edgeEdge': '20'
+        },
+        children: nodes.map((n) => ({
+            id: n.id,
+            width: (n as any).measured?.width || (n as any).width || 240,
+            height: (n as any).measured?.height || (n as any).height || 120
+        })),
+        edges: edges.map((e) => ({
+            id: e.id,
+            sources: [e.source],
+            targets: [e.target]
+        }))
+    };
+
+    const layout = await elk.layout(graph);
+    const positions = new Map<string, { x: number; y: number }>();
+    layout.children?.forEach((c) => {
+        positions.set(c.id, { x: c.x || 0, y: c.y || 0 });
+    });
+
+    const laidOutNodes = nodes.map((n) => ({
+        ...n,
+        position: positions.get(n.id) || { x: 0, y: 0 }
+    }));
+
+    return { nodes: laidOutNodes, edges };
+}
+
+function SystemNode({ data, selected }: any) {
+    const border = selected ? '#22c55e' : '#1f2937';
+    const categoryColor = categoryColors[data.category || 'other'] || '#3b82f6';
+
+    return (
+        <div style={{ position: 'relative' }}>
+            <Handle type="target" position={Position.Left} style={{ background: '#22c55e' }} />
+            <Handle type="source" position={Position.Right} style={{ background: '#38bdf8' }} />
+            <div
+                style={{
+                    background: '#0b1220',
+                    border: `2px solid ${border}`,
+                    borderRadius: 10,
+                    padding: 12,
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
+                    color: '#e5e7eb',
+                    minWidth: 200
+                }}
+            >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                    <div style={{ fontWeight: 700, color: '#fff' }}>{data.label}</div>
+                    <div
+                        style={{
+                            background: categoryColor,
+                            color: '#0b1220',
+                            borderRadius: 12,
+                            padding: '2px 8px',
+                            fontSize: 11,
+                            fontWeight: 700
+                        }}
+                    >
+                        {data.category || 'other'}
+                    </div>
+                </div>
+                <div style={{ marginTop: 6, color: '#9ca3af', fontSize: 12 }}>
+                    {data.fileCount !== undefined ? `${data.fileCount} files` : 'files: n/a'}
+                </div>
+                {data.packages && (
+                    <div style={{ marginTop: 4, color: '#9ca3af', fontSize: 12 }}>{data.packages}</div>
+                )}
+                {data.repoBadges?.length ? (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 8 }}>
+                        {data.repoBadges.map((r: any) => (
+                            <span
+                                key={r.label}
+                                style={{
+                                    background: r.color,
+                                    color: '#0b1220',
+                                    padding: '2px 8px',
+                                    borderRadius: 12,
+                                    fontSize: 11,
+                                    fontWeight: 700
+                                }}
+                            >
+                                {r.label}
+                            </span>
+                        ))}
+                    </div>
+                ) : null}
+            </div>
+        </div>
+    );
+}
+
+const nodeTypes = { systemNode: SystemNode };
+
+const NO_REPO_LABEL = 'unattributed';
+
+function getRepoLabelsWithDefault(node: any): string[] {
+    const labels = collectRepoLabels(node);
+    if (labels.length === 0) return [NO_REPO_LABEL];
+    return labels;
+}
+
+function expandNodes(
+    nodes: any[],
+    repoClassMap: Map<string, number>
+): Node[] {
+    const expanded: Node[] = [];
+    nodes.forEach((n) => {
+        const repos = getRepoLabelsWithDefault(n);
+        repos.forEach((repoLabel) => {
+            const idx = repoClassMap.get(repoLabel) ?? 0;
+            const repoBadges = repoLabel === NO_REPO_LABEL
+                ? []
+                : [{
+                    label: repoLabel,
+                    color: repoPalette[idx % repoPalette.length] || '#38bdf8'
+                }];
+
+            expanded.push({
+                id: `${repoLabel}::${n.id}`,
+                type: 'systemNode',
+                data: {
+                    label: n.label,
+                    category: n.category,
+                    repoBadges,
+                    fileCount: n.fileCount,
+                    packages: formatPackages(n.packages),
+                    source: n.source,
+                    repoLabel
+                },
+                position: { x: 0, y: 0 },
+                width: 240,
+                height: 120
+            });
         });
-        const newNodes = fullNodes.filter((n: any) => ids.has(n.id));
-        const newEdges = fullEdges.filter((e: any) => ids.has(e.from) && ids.has(e.to));
-        setVisibleNodes(newNodes);
-        setVisibleEdges(newEdges);
-        setSelectedNodeId(nodeId);
-    };
+    });
+    return expanded;
+}
 
-    const resetView = () => {
-        setVisibleNodes(initialNodes);
-        setVisibleEdges(initialEdges);
-        setSelectedNodeId(null);
-    };
+function expandEdges(
+    edges: any[],
+    nodeRepoMap: Map<string, string[]>
+): Edge[] {
+    const result: Edge[] = [];
+    edges.forEach((edge, idx) => {
+        const fromRepos = nodeRepoMap.get(edge.from) || [NO_REPO_LABEL];
+        const toRepos = nodeRepoMap.get(edge.to) || [NO_REPO_LABEL];
+
+        const intersect = fromRepos.filter((r) => toRepos.includes(r));
+        const pairs = intersect.length
+            ? intersect.map((r) => [r, r] as [string, string])
+            : fromRepos.flatMap((fr) => toRepos.map((tr) => [fr, tr] as [string, string]));
+
+        pairs.forEach(([fr, tr], subIdx) => {
+            result.push({
+                id: `e-${fr}:${edge.from}-${tr}:${edge.to}-${idx}-${subIdx}`,
+                source: `${fr}::${edge.from}`,
+                target: `${tr}::${edge.to}`,
+                data: { kind: edge.kind, strength: edge.strength, repoFrom: fr, repoTo: tr },
+                animated: false
+            });
+        });
+    });
+    return result;
+}
+
+export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagramViewerProps) {
+    const router = useRouter();
+    const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
+
+    const initialNodesRaw = (diagram.analysis_data?.highLevelNodes || []).length
+        ? diagram.analysis_data?.highLevelNodes
+        : diagram.analysis_data?.fullNodes || [];
+    const fullNodesRaw = diagram.analysis_data?.fullNodes || initialNodesRaw;
+
+    const initialEdgesRaw = (diagram.analysis_data?.highLevelEdges || []).length
+        ? diagram.analysis_data?.highLevelEdges
+        : diagram.analysis_data?.fullEdges || [];
+    const fullEdgesRaw = diagram.analysis_data?.fullEdges || initialEdgesRaw;
+
+    const allRepoLabels = useMemo(() => {
+        const set = new Set<string>();
+        [...initialNodesRaw, ...fullNodesRaw].forEach((n) => {
+            const labels = collectRepoLabels(n);
+            if (labels.length === 0) set.add(NO_REPO_LABEL);
+            labels.forEach((r) => set.add(r));
+        });
+        return Array.from(set);
+    }, [initialNodesRaw, fullNodesRaw]);
+
+    const repoClassMap = useMemo(() => {
+        const map = new Map<string, number>();
+        allRepoLabels.forEach((label, idx) => map.set(label, idx));
+        return map;
+    }, [allRepoLabels]);
+
+    const [repoFilter, setRepoFilter] = useState<Set<string>>(new Set(allRepoLabels));
+    const [search, setSearch] = useState('');
+    const [showFullGraph, setShowFullGraph] = useState(false);
+    const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [layoutError, setLayoutError] = useState<string | null>(null);
+
+    const baseNodes = showFullGraph ? fullNodesRaw : initialNodesRaw;
+    const baseEdges = showFullGraph ? fullEdgesRaw : initialEdgesRaw;
+
+    const nodeRepoMap = useMemo(() => {
+        const map = new Map<string, string[]>();
+        baseNodes.forEach((n: any) => map.set(n.id, getRepoLabelsWithDefault(n)));
+        return map;
+    }, [baseNodes]);
+
+    const expandedNodes = useMemo(
+        () => expandNodes(baseNodes, repoClassMap),
+        [baseNodes, repoClassMap]
+    );
+    const expandedEdges = useMemo(
+        () => expandEdges(baseEdges, nodeRepoMap),
+        [baseEdges, nodeRepoMap]
+    );
+
+    const filteredNodes = useMemo(() => {
+        const term = search.trim().toLowerCase();
+        return expandedNodes.filter((n) => {
+            const repoLabel = (n.data as any)?.repoLabel;
+            const matchesRepo =
+                repoFilter.size === 0 ||
+                repoLabel === NO_REPO_LABEL ||
+                repoFilter.has(repoLabel);
+            const matchesSearch = term ? (n.data as any)?.label?.toLowerCase().includes(term) : true;
+            return matchesRepo && matchesSearch;
+        });
+    }, [expandedNodes, repoFilter, search]);
+
+    const filteredNodeIds = useMemo(() => new Set(filteredNodes.map((n) => n.id)), [filteredNodes]);
+    const filteredEdges = useMemo(
+        () => expandedEdges.filter((e) => filteredNodeIds.has(e.source) && filteredNodeIds.has(e.target)),
+        [expandedEdges, filteredNodeIds]
+    );
+
+    const [nodes, setNodes, onNodesChange] = useNodesState<Node[]>([]);
+    const [edges, setEdges, onEdgesChange] = useEdgesState<Edge[]>([]);
 
     useEffect(() => {
-        const source = buildMermaid(visibleNodes, visibleEdges);
-        setMermaidSource(source);
-    }, [visibleNodes, visibleEdges]);
-
-    useEffect(() => {
-        const renderDiagram = async () => {
+        let cancelled = false;
+        const runLayout = async () => {
             try {
-                if (!mermaidSource || mermaidSource.trim().length === 0) {
-                    throw new Error('Diagram content is empty');
-                }
-
-                if (!mermaidSource.includes('flowchart')) {
-                    throw new Error('Diagram content does not appear to be valid Mermaid syntax');
-                }
-
-                if (!mermaidInitialized) {
-                    try {
-                        mermaid.initialize({
-                            startOnLoad: false,
-                            theme: 'base',
-                            themeVariables: {
-                                background: '#1e293b',
-                                primaryColor: '#3b82f6',
-                                primaryTextColor: '#ffffff',
-                                primaryBorderColor: '#60a5fa',
-                                lineColor: '#94a3b8',
-                                secondaryColor: '#64748b',
-                                tertiaryColor: '#475569',
-                                textColor: '#ffffff',
-                                mainBkg: '#1e293b',
-                                secondBkg: '#334155',
-                                border1: '#475569',
-                                border2: '#64748b'
-                            },
-                            flowchart: {
-                                useMaxWidth: true,
-                                htmlLabels: true,
-                                curve: 'basis',
-                                padding: 20
-                            },
-                            securityLevel: 'loose'
-                        });
-                        mermaidInitialized = true;
-                    } catch (initError) {
-                        console.error('Mermaid initialization failed:', initError);
-                        throw new Error(`Mermaid initialization failed: ${initError instanceof Error ? initError.message : String(initError)}`);
-                    }
-                }
-
-                await new Promise(resolve => setTimeout(resolve, 0));
-                const uniqueId = `mermaid-diagram-${diagram.id}-${Date.now()}`;
-
-                let result;
-                try {
-                    result = await mermaid.render(uniqueId, mermaidSource);
-                } catch (renderError) {
-                    console.error('Mermaid render failed:', renderError);
-                    throw renderError;
-                }
-
-                let svgContent = '';
-                if (typeof result === 'string') {
-                    svgContent = result;
-                } else if (result && typeof result === 'object') {
-                    svgContent = (result as any).svg || String(result);
-                } else {
-                    throw new Error('Unexpected Mermaid render result format');
-                }
-
-                if (!svgContent || svgContent.length < 50) {
-                    throw new Error('SVG content is empty or too short');
-                }
-
-                setRenderedSvg(svgContent);
-                setError(null);
+                setLoading(true);
+                const { nodes: laidOut, edges: laidEdges } = await layoutWithElk(
+                    filteredNodes as unknown as Node[],
+                    filteredEdges as unknown as Edge[]
+                );
+                if (cancelled) return;
+                setNodes(laidOut);
+                setEdges(laidEdges);
+                setLayoutError(null);
                 setLoading(false);
+                if (rfInstance) {
+                    rfInstance.fitView({ padding: 0.12, includeHiddenNodes: true });
+                }
             } catch (err) {
-                console.error('Failed to render Mermaid diagram:', err);
-                console.error('Diagram content:', mermaidSource);
-                setError(`Failed to render diagram: ${err instanceof Error ? err.message : String(err)}`);
-                try {
-                    const fallbackSvg = generateFallbackDiagram(mermaidSource, diagram.analysis_data);
-                    setRenderedSvg(fallbackSvg);
-                } catch {
-                    // ignore
-                }
+                if (cancelled) return;
+                setLayoutError(err instanceof Error ? err.message : String(err));
                 setLoading(false);
             }
         };
-
-        renderDiagram();
-    }, [mermaidSource, diagram.id, diagram.analysis_data]);
-
-    // Attach click handlers for drill-down once SVG is rendered
-    useEffect(() => {
-        if (!renderedSvg) return;
-        const container = diagramRef.current;
-        const svg = container?.querySelector('svg');
-        if (!svg) return;
-
-        const handleClick = (event: Event) => {
-            const target = event.target as HTMLElement | null;
-            if (!target) return;
-            const group = target.closest('g[id]');
-            const nodeId = group?.getAttribute('id');
-            if (nodeId && (nodeMap.has(nodeId) || fullNodeMap.has(nodeId))) {
-                event.stopPropagation();
-                expandNode(nodeId);
-            }
-        };
-
-        svg.addEventListener('click', handleClick);
-        return () => {
-            svg.removeEventListener('click', handleClick);
-        };
-    }, [renderedSvg, nodeMap, fullNodeMap, expandNode]);
-
-    const handleDownload = () => {
-        if (renderedSvg) {
-            // Download as SVG
-            const element = document.createElement('a');
-            const file = new Blob([renderedSvg], { type: 'image/svg+xml' });
-            element.href = URL.createObjectURL(file);
-            element.download = `${diagram.title.replace(/[^a-zA-Z0-9]/g, '_')}.svg`;
-            element.click();
-        } else {
-            // Fallback to Mermaid source
-            const element = document.createElement('a');
-            const file = new Blob([mermaidSource], { type: 'text/plain' });
-            element.href = URL.createObjectURL(file);
-            element.download = `${diagram.title.replace(/[^a-zA-Z0-9]/g, '_')}.mmd`;
-            element.click();
+        if (filteredNodes.length) runLayout();
+        else {
+            setLoading(false);
+            setLayoutError('No nodes to layout');
         }
+        return () => {
+            cancelled = true;
+        };
+    }, [filteredNodes, filteredEdges, setNodes, setEdges, rfInstance]);
+
+    const selectedNode = useMemo(() => {
+        const node = nodes.find((n) => n.id === selectedNodeId);
+        return node?.data as any;
+    }, [nodes, selectedNodeId]);
+
+    const neighborIds = useMemo(() => {
+        if (!selectedNodeId) return new Set<string>();
+        const set = new Set<string>();
+        edges.forEach((e) => {
+            if (e.source === selectedNodeId) set.add(e.target);
+            if (e.target === selectedNodeId) set.add(e.source);
+        });
+        return set;
+    }, [edges, selectedNodeId]);
+
+    const decoratedEdges = useMemo(() => {
+        return edges.map((e: Edge) => {
+            const isHighlight =
+                selectedNodeId && (e.source === selectedNodeId || e.target === selectedNodeId);
+            const baseColor = (e.data as any)?.kind === 'external' ? '#f59e0b' : '#7dd3fc';
+            return {
+                ...e,
+                style: {
+                    stroke: isHighlight ? '#22c55e' : baseColor,
+                    strokeWidth: isHighlight ? 3.5 : 2,
+                    opacity: selectedNodeId ? (isHighlight ? 1 : 0.3) : 0.9
+                },
+                markerEnd: {
+                    type: MarkerType.ArrowClosed,
+                    color: isHighlight ? '#22c55e' : baseColor
+                },
+                interactionWidth: 12
+            };
+        });
+    }, [edges, selectedNodeId]);
+
+    const toggleRepo = (label: string) => {
+        const next = new Set(repoFilter);
+        if (next.has(label)) next.delete(label);
+        else next.add(label);
+        setRepoFilter(next);
     };
 
-    const regenerateDiagram = () => {
-        // Navigate back to generator with the repo pre-selected
-        router.push('/architecture-diagrams');
-    };
-
-    if (loading) {
-        return (
-            <Card>
-                <CardContent className="flex items-center justify-center py-12">
-                    <div className="text-center">
-                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-                        <p className="text-white/70">Rendering architecture diagram...</p>
-                    </div>
-                </CardContent>
-            </Card>
-        );
-    }
-
-    if (error) {
-        return (
-            <Card>
-                <CardContent className="p-12">
-                    <div className="text-center max-w-2xl mx-auto">
-                        <Alert variant="destructive" className="mb-6">
-                            <AlertDescription className="text-lg font-semibold mb-2">Diagram Render Error</AlertDescription>
-                            <AlertDescription>{error}</AlertDescription>
-                        </Alert>
-
-                        {/* Debug information */}
-                        <details className="mb-6 text-left bg-slate-800/50 p-4 rounded-lg">
-                            <summary className="text-white/80 cursor-pointer mb-2 font-medium">
-                                🔧 Mermaid Source & Debug Info (click to expand)
-                            </summary>
-                            <div className="text-xs text-white/60 mb-3 space-y-1">
-                                <div>Copy the content below to <a href="https://mermaid.live" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 underline">mermaid.live</a> to test the syntax manually</div>
-                                <div>Check browser console for detailed logs</div>
-                                <div>Rendered SVG length: {renderedSvg?.length || 0} characters</div>
-                            </div>
-                            <div className="space-y-4">
-                                <div>
-                                    <h5 className="text-white/90 font-medium mb-2">Mermaid Syntax:</h5>
-                                    <pre className="bg-slate-900 p-4 rounded text-sm text-white/80 overflow-x-auto max-h-64 whitespace-pre-wrap">
-                                        <code>{mermaidSource}</code>
-                                    </pre>
-                                </div>
-                                {renderedSvg && (
-                                    <div>
-                                        <h5 className="text-white/90 font-medium mb-2">Generated SVG (first 500 chars):</h5>
-                                        <pre className="bg-slate-900 p-4 rounded text-sm text-green-400 overflow-x-auto max-h-32 whitespace-pre-wrap">
-                                            <code>{renderedSvg.substring(0, 500)}{renderedSvg.length > 500 ? '...' : ''}</code>
-                                        </pre>
-                                    </div>
-                                )}
-                            </div>
-                        </details>
-
-                        <div className="flex items-center justify-center gap-4">
-                            <Button onClick={() => window.location.reload()}>
-                                Try Again
-                            </Button>
-                            <Button variant="secondary" asChild>
-                                <Link href="/architecture-diagrams">Generate New</Link>
-                            </Button>
-                        </div>
-                    </div>
-                </CardContent>
-            </Card>
-        );
-    }
+    const diagramMeta = `${repo.name} • Generated: ${new Date(diagram.created_at).toLocaleDateString()}`;
 
     return (
         <div className="min-h-screen px-4 py-8 sm:px-6 lg:px-8">
             <div className="mx-auto max-w-6xl space-y-6">
                 <Card className="border border-white/10 bg-gradient-to-b from-white/5 to-white/0 shadow-lg">
                     <CardHeader className="space-y-1 pb-6">
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between gap-2">
                             <Button variant="ghost" size="sm" asChild>
                                 <Link href="/architecture-diagrams?tab=view">
                                     <ArrowLeft className="w-4 h-4" />
                                     Back to Diagrams
                                 </Link>
                             </Button>
-                            <div className="flex items-center gap-2">
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() => setZoom(Math.min(zoom + 0.2, 2))}
-                                    title="Zoom In"
-                                >
-                                    <ZoomIn className="w-4 h-4" />
-                                </Button>
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() => setZoom(Math.max(zoom - 0.2, 0.5))}
-                                    title="Zoom Out"
-                                >
-                                    <ZoomOut className="w-4 h-4" />
-                                </Button>
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={resetView}
-                                    title="Reset View"
-                                >
-                                    Reset View
-                                </Button>
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={handleDownload}
-                                    title="Download Diagram"
-                                >
-                                    <Download className="w-4 h-4" />
-                                </Button>
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={regenerateDiagram}
-                                    title="Regenerate"
-                                >
-                                    <RefreshCw className="w-4 h-4" />
-                                </Button>
-                            </div>
                         </div>
                         <CardTitle className="text-2xl font-semibold text-white">{diagram.title}</CardTitle>
-                        <CardDescription className="text-white/70">
-                            Repository: {repo.name} • Generated: {new Date(diagram.created_at).toLocaleDateString()}
-                        </CardDescription>
+                        <CardDescription className="text-white/70">{diagramMeta}</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <div className="grid lg:grid-cols-[2fr_1fr] gap-6">
+                        <div className="space-y-6">
+                            {/* Details Panel - Horizontal above diagram */}
                             <Card className="border border-white/10 bg-white/5 shadow">
-                                <CardHeader>
-                                    <div className="flex items-center justify-between">
-                                        <CardTitle className="text-lg font-semibold text-white">Architecture Overview</CardTitle>
-                                    </div>
+                                <CardHeader className="pb-3">
+                                    <CardTitle className="text-lg font-semibold text-white">Details</CardTitle>
+                                    <CardDescription className="text-white/70">
+                                        Click any node to view drill-down info.
+                                    </CardDescription>
                                 </CardHeader>
                                 <CardContent>
-                                    <div
-                                        className="overflow-auto bg-slate-800/50 rounded-lg p-4"
-                                        style={{ transform: `scale(${zoom})`, transformOrigin: 'top left' }}
-                                    >
-                                        <div
-                                            ref={diagramRef}
-                                            className="mermaid-container flex justify-center items-center"
-                                            style={{
-                                                minWidth: '800px',
-                                                minHeight: '600px',
-                                                backgroundColor: '#1e293b'
-                                            }}
-                                            dangerouslySetInnerHTML={{ __html: renderedSvg }}
-                                        />
-                                    </div>
-
-                                    {zoom !== 1 && (
-                                        <div className="mt-4 text-center">
-                                            <Button variant="ghost" size="sm" onClick={() => setZoom(1)}>
-                                                Reset Zoom
-                                            </Button>
+                                    {layoutError && (
+                                        <Alert variant="destructive" className="mb-4">
+                                            <AlertDescription>{layoutError}</AlertDescription>
+                                        </Alert>
+                                    )}
+                                    {!selectedNode && (
+                                        <div className="text-white/60 text-sm">
+                                            Click a node to explore its details.
+                                        </div>
+                                    )}
+                                    {selectedNode && (
+                                        <div className="flex flex-wrap items-center gap-6 text-sm text-white/80">
+                                            <div>
+                                                <div className="text-lg font-semibold text-white mb-1">{selectedNode.label}</div>
+                                                <div className="text-white/60">Category: {selectedNode.category || 'other'}</div>
+                                            </div>
+                                            {selectedNode.fileCount !== undefined && (
+                                                <div>
+                                                    <div className="text-white/60 text-xs mb-1">Files</div>
+                                                    <div className="text-white font-medium">{selectedNode.fileCount}</div>
+                                                </div>
+                                            )}
+                                            {selectedNode.packages && (
+                                                <div>
+                                                    <div className="text-white/60 text-xs mb-1">Packages</div>
+                                                    <div className="text-white font-medium">{selectedNode.packages}</div>
+                                                </div>
+                                            )}
+                                            {selectedNode.repoBadges?.length ? (
+                                                <div>
+                                                    <div className="text-white/60 text-xs mb-2">Repositories</div>
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {selectedNode.repoBadges.map((r: any) => (
+                                                            <Badge
+                                                                key={r.label}
+                                                                style={{
+                                                                    background: r.color,
+                                                                    color: '#0b1220'
+                                                                }}
+                                                            >
+                                                                {r.label}
+                                                            </Badge>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div>
+                                                    <div className="text-white/60 text-xs mb-1">Repository</div>
+                                                    <div className="text-white/60">n/a</div>
+                                                </div>
+                                            )}
+                                            {neighborIds.size > 0 && (
+                                                <div>
+                                                    <div className="text-white/60 text-xs mb-1">Neighbors</div>
+                                                    <div className="text-white font-medium">{neighborIds.size}</div>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                 </CardContent>
                             </Card>
 
+                            {/* React Flow Diagram - Full width */}
                             <Card className="border border-white/10 bg-white/5 shadow">
-                                <CardHeader>
-                                    <CardTitle className="text-lg font-semibold text-white">Details</CardTitle>
-                                    <CardDescription className="text-white/70">
-                                        Click any node in the diagram to view drill-down info.
-                                    </CardDescription>
-                                </CardHeader>
-                                <CardContent className="space-y-4">
-                                    {selectedNode ? (
-                                        <div className="space-y-4">
-                                            <div className="space-y-1">
-                                                <div className="text-sm uppercase tracking-wide text-white/60">Selected</div>
-                                                <div className="text-white font-semibold">{selectedNode.label}</div>
-                                                <div className="text-white/60 text-sm">
-                                                    {selectedNode.role ? `Category: ${selectedNode.role}` : selectedNode.type === 'internal' ? 'Internal' : 'External'}
-                                                </div>
-                                                <div className="text-white/60 text-sm">
-                                                    Files: {selectedNode.fileCount ?? 0} • Source: {selectedNode.source || 'code'}
-                                                </div>
-                                            </div>
-
-                                            {selectedNode.packages && selectedNode.packages.length > 0 && (
-                                                <div>
-                                                    <div className="text-sm font-medium text-white mb-2">Packages</div>
-                                                    <div className="flex flex-wrap gap-2">
-                                                        {selectedNode.packages.slice(0, 12).map((pkg: string) => (
-                                                            <span key={pkg} className="px-2 py-1 rounded bg-white/10 text-xs text-white/80">
-                                                                {pkg}
-                                                            </span>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            )}
-
-                                            {neighborEntries.length > 0 && (
-                                                <div>
-                                                    <div className="text-sm font-medium text-white mb-2">Connections</div>
-                                                    <div className="space-y-1">
-                                                        {neighborEntries.map((entry, idx) => (
-                                                            <div key={idx} className="flex items-center justify-between text-sm text-white/80">
-                                                                <span>{entry.other?.label || entry.otherId}</span>
-                                                                <span className="text-white/60">{entry.strength} links</span>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            )}
-
-                                            {selectedNode.files && selectedNode.files.length > 0 && (
-                                                <div>
-                                                    <div className="text-sm font-medium text-white mb-2">Files referencing this</div>
-                                                    <div className="space-y-1 max-h-48 overflow-auto pr-1 text-xs text-white/70">
-                                                        {selectedNode.files.slice(0, 15).map((file: string) => (
-                                                            <div key={file} className="truncate">{file}</div>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            )}
-                                            <div className="flex gap-2">
-                                                <Button size="sm" onClick={() => expandNode(selectedNode.id)}>
-                                                    Expand neighbors
-                                                </Button>
-                                                <Button size="sm" variant="secondary" onClick={resetView}>
-                                                    Collapse
-                                                </Button>
-                                            </div>
+                                <CardHeader className="pb-3">
+                                    <div className="mt-3 flex flex-wrap items-center gap-3">
+                                        <div className="relative">
+                                            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-white/60" />
+                                            <Input
+                                                value={search}
+                                                onChange={(e) => setSearch(e.target.value)}
+                                                placeholder="Search nodes..."
+                                                className="pl-9 bg-slate-900/60 border-white/10 text-white"
+                                            />
                                         </div>
-                                    ) : (
-                                        <div className="text-white/60 text-sm">Click a node to explore its details.</div>
+                                        <div className="flex items-center gap-2">
+                                            <Checkbox
+                                                id="full-graph"
+                                                checked={showFullGraph}
+                                                onCheckedChange={(v) => setShowFullGraph(Boolean(v))}
+                                            />
+                                            <label htmlFor="full-graph" className="text-white/80 text-sm">
+                                                Show full graph
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                                        <Filter className="w-4 h-4 text-white/60" />
+                                        {allRepoLabels.length === 0 && (
+                                            <span className="text-white/60 text-sm">No repo attribution</span>
+                                        )}
+                                        {allRepoLabels.map((r, idx) => (
+                                            <Button
+                                                key={r}
+                                                size="sm"
+                                                variant={repoFilter.has(r) ? 'default' : 'outline'}
+                                                className="h-7"
+                                                style={{
+                                                    borderColor: repoPalette[idx % repoPalette.length],
+                                                    color: repoFilter.has(r) ? '#0b1220' : '#e5e7eb',
+                                                    background: repoFilter.has(r)
+                                                        ? repoPalette[idx % repoPalette.length]
+                                                        : 'transparent'
+                                                }}
+                                                onClick={() => toggleRepo(r)}
+                                            >
+                                                {r}
+                                            </Button>
+                                        ))}
+                                        {allRepoLabels.length > 0 && (
+                                            <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                onClick={() => setRepoFilter(new Set(allRepoLabels))}
+                                            >
+                                                Select all
+                                            </Button>
+                                        )}
+                                    </div>
+                                </CardHeader>
+                                <CardContent>
+                                    <div className="h-[700px] rounded-lg border border-white/10 bg-slate-900/60">
+                                        <ReactFlow
+                                            nodes={nodes as any}
+                                            edges={decoratedEdges as any}
+                                            onNodesChange={onNodesChange}
+                                            onEdgesChange={onEdgesChange}
+                                            onNodeClick={(_, n) => setSelectedNodeId(n.id)}
+                                            fitView
+                                            nodeTypes={nodeTypes}
+                                            fitViewOptions={{ padding: 0.1 }}
+                                            defaultEdgeOptions={{
+                                                type: 'smoothstep',
+                                                style: { stroke: '#7dd3fc', strokeWidth: 2, opacity: 0.9 },
+                                                markerEnd: { type: MarkerType.ArrowClosed, color: '#7dd3fc' }
+                                            }}
+                                            minZoom={0.2}
+                                            maxZoom={2}
+                                            style={{ background: '#0f172a' }}
+                                            onInit={(inst) => setRfInstance(inst)}
+                                        >
+                                            <MiniMap
+                                                nodeStrokeColor={(n) =>
+                                                    n.selected ? '#22c55e' : '#38bdf8'
+                                                }
+                                                nodeColor={() => '#0b1220'}
+                                                maskColor="rgba(15,23,42,0.6)"
+                                            />
+                                            <Controls />
+                                            <Background gap={20} color="#1f2937" />
+                                        </ReactFlow>
+                                    </div>
+                                    <div className="mt-3 text-xs text-white/60">
+                                        Nodes: {nodes.length} • Edges: {edges.length}{' '}
+                                        {layoutError && (
+                                            <span className="text-red-300">Layout error: {layoutError}</span>
+                                        )}
+                                    </div>
+                                    {loading && (
+                                        <div className="mt-2 text-sm text-white/70">Laying out graph with ELK…</div>
                                     )}
                                 </CardContent>
                             </Card>
