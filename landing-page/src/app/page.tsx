@@ -260,6 +260,77 @@ export default function LandingPage() {
           </div>
         </section>
 
+        <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8" id="security">
+          <div className="flex flex-col gap-6">
+            <div className="space-y-3">
+              <Badge variant="secondary">Security</Badge>
+              <h2 className="font-display text-2xl font-semibold text-white sm:text-3xl">Built to keep your data safe.</h2>
+              <p className="max-w-3xl text-white/70">
+                Canon aligns knowledge without overreaching access. Sign-ins stay protected, tokens stay encrypted, and
+                every data pull requires an authenticated session.
+              </p>
+            </div>
+
+            <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+              <div className="glass-panel p-6 sm:p-8">
+                <h3 className="font-display text-xl font-semibold text-white">Simple security promises</h3>
+                <ul className="mt-4 space-y-3 text-white/70">
+                  <li className="flex items-start gap-2">
+                    <span className="mt-1 h-1.5 w-1.5 rounded-full bg-white/70" />
+                    <span>OAuth sign-ins (GitHub, Confluence, Notion) include built-in tamper checks so tokens can’t be replayed.</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="mt-1 h-1.5 w-1.5 rounded-full bg-white/70" />
+                    <span>Tokens are encrypted before they’re stored, so raw credentials never sit in the database.</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="mt-1 h-1.5 w-1.5 rounded-full bg-white/70" />
+                    <span>Every connected-data request requires a valid session; unauthorized calls are rejected.</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="mt-1 h-1.5 w-1.5 rounded-full bg-white/70" />
+                    <span>Canon only reads the repositories and spaces you explicitly connect—nothing else.</span>
+                  </li>
+                </ul>
+              </div>
+
+              <div className="glass-panel p-6 sm:p-8">
+                <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-[0.25em] text-white/60">
+                  <span>How data flows</span>
+                  <span>At a glance</span>
+                </div>
+                <Separator className="my-4" />
+                <div className="space-y-4">
+                  <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:gap-4">
+                    <div className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-medium text-white">
+                      Connect
+                      <p className="text-xs font-normal text-white/60">OAuth to GitHub / Notion / Confluence</p>
+                    </div>
+                    <div className="hidden h-px flex-1 bg-white/10 sm:block" />
+                    <div className="text-xs uppercase tracking-[0.25em] text-white/60 sm:mr-2">Tamper checks</div>
+                  </div>
+                  <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:gap-4">
+                    <div className="rounded-xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-medium text-white">
+                      Canon
+                      <p className="text-xs font-normal text-white/60">Encrypt tokens → Read connected sources → Draft</p>
+                    </div>
+                    <div className="hidden h-px flex-1 bg-white/10 sm:block" />
+                    <div className="text-xs uppercase tracking-[0.25em] text-white/60 sm:mr-2">Session required</div>
+                  </div>
+                  <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:gap-4">
+                    <div className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-medium text-white">
+                      Outputs
+                      <p className="text-xs font-normal text-white/60">Pages, summaries, alerts</p>
+                    </div>
+                    <div className="hidden h-px flex-1 bg-white/10 sm:block" />
+                    <div className="text-xs uppercase tracking-[0.25em] text-white/60 sm:mr-2">Review + publish</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8">
           <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-8 sm:p-10">
             <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
