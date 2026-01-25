@@ -190,6 +190,7 @@ export async function createOrUpdateDocument(
 
 		const fileMappings = filePaths.map(filePath => ({
 			document_id: documentId,
+			repo_id: repoId,
 			file_path: filePath
 		}));
 
@@ -232,6 +233,7 @@ export async function createOrUpdateDocument(
 		// Save file mappings
 		const fileMappings = filePaths.map(filePath => ({
 			document_id: documentId,
+			repo_id: repoId,
 			file_path: filePath
 		}));
 
