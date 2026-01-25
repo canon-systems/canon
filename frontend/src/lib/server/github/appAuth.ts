@@ -12,15 +12,28 @@ const tokenCache = new Map<number, { token: string; expiresAt: string }>();
 
 function normalizePrivateKey(value: string): string {
 	const trimmed = value.trim();
-	const withNewlines = trimmed.replace(/\\n/g, '\n');
-	if (withNewlines.includes('BEGIN') && withNewlines.includes('PRIVATE KEY')) {
-		return withNewlines;
+	const unquoted = trimmed.startsWith('"') && trimmed.endsWith('"')
+		? trimmed.slice(1, -1)
+		: trimmed.startsWith("'") && trimmed.endsWith("'")
+			? trimmed.slice(1, -1)
+			: trimmed;
+	const withNewlines = unquoted.replace(/\\n/g, '\n');
+
+	const pemMatch = withNewlines.match(
+		/-----BEGIN (RSA )?PRIVATE KEY-----([\s\S]*?)-----END (RSA )?PRIVATE KEY-----/
+	);
+	if (pemMatch) {
+		const header = pemMatch[1] ? '-----BEGIN RSA PRIVATE KEY-----' : '-----BEGIN PRIVATE KEY-----';
+		const footer = pemMatch[3] ? '-----END RSA PRIVATE KEY-----' : '-----END PRIVATE KEY-----';
+		const body = pemMatch[2].replace(/\s+/g, '');
+		const wrapped = body.match(/.{1,64}/g)?.join('\n') ?? body;
+		return `${header}\n${wrapped}\n${footer}`;
 	}
 
 	try {
-		const decoded = Buffer.from(trimmed, 'base64').toString('utf8');
+		const decoded = Buffer.from(unquoted, 'base64').toString('utf8');
 		if (decoded.includes('BEGIN') && decoded.includes('PRIVATE KEY')) {
-			return decoded;
+			return normalizePrivateKey(decoded);
 		}
 	} catch {
 		// Fall through to newline-normalized value.
