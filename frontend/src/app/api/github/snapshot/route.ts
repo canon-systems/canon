@@ -29,14 +29,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'selectedFiles array is required' }, { status: 400 });
     }
 
-    const { user } = await getSession();
-    const supabase = await createClient();
-    const octokit = await getUserOctokit(supabase, user?.id || null);
-
     const parsed = parseRepoUrl(repoUrl);
     if (!parsed || !parsed.owner || !parsed.repo) {
       return NextResponse.json({ error: 'Invalid GitHub URL' }, { status: 400 });
     }
+
+    const { user } = await getSession();
+    const supabase = await createClient();
+    const octokit = await getUserOctokit(supabase, user?.id || null, parsed.owner, parsed.repo);
 
     // Get commit SHA
     let commitSha: string | null;
@@ -85,4 +85,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Snapshot failed', detail: String(err) }, { status: 500 });
   }
 }
-

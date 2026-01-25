@@ -1,120 +1,144 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getUserOctokit } from '@/lib/server/github/getUserOctokit';
-import { createClient } from '@/lib/supabase/server';
+import { getGitHubAppOctokit, getGitHubAppOctokitForApp } from '@/lib/server/github/appAuth';
 import { getSession } from '@/lib/auth';
+import { createClient } from '@/lib/supabase/server';
 
 /**
  * API endpoint to list repositories for a GitHub user or organization
- * Requires authenticated GitHub connection
+ * Uses GitHub App installation access
  */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}));
     const { owner, search } = body as { owner?: string; search?: string };
 
-    if (!owner) {
-      return NextResponse.json({ error: 'owner is required' }, { status: 400 });
-    }
-
-    // Require authentication and GitHub connection
+    // Require authentication for this API (not GitHub OAuth)
     const { user } = await getSession();
     if (!user) {
       return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
     }
-    const supabase = await createClient();
-    const octokit = await getUserOctokit(supabase, user.id);
 
-    // Get authenticated user's GitHub username if authenticated
-    // Try to get authenticated user - if this succeeds, user has GitHub connected
-    let authenticatedUsername: string | null = null;
-    try {
-      const { data: authUser } = await octokit.users.getAuthenticated();
-      authenticatedUsername = authUser.login;
-    } catch {
-      // User is not authenticated (no GitHub connection or anonymous access)
-      // Continue with public repos only
+    const supabase = await createClient();
+
+    const normalizedOwner = owner?.toLowerCase();
+    const shouldListInstallationRepos = !owner || (normalizedOwner && ['me', '@me', 'self', '@self'].includes(normalizedOwner));
+
+    // If owner is omitted or set to @me/self, list all repos available to the user's installed GitHub App
+    if (shouldListInstallationRepos) {
+      const { data: connection } = await supabase
+        .from('oauth_connections')
+        .select('connection_id, metadata')
+        .eq('user_id', user.id)
+        .eq('provider', 'github')
+        .eq('status', 'active')
+        .maybeSingle();
+
+      const installationId =
+        (connection?.metadata && typeof connection.metadata === 'object' && 'installation_id' in connection.metadata)
+          ? Number((connection.metadata as Record<string, unknown>).installation_id)
+          : Number(connection?.connection_id);
+
+      if (!installationId) {
+        return NextResponse.json(
+          {
+            error: 'GitHub App not installed',
+            detail: 'Install the GitHub App to select repositories.'
+          },
+          { status: 403 }
+        );
+      }
+
+      const octokit = getGitHubAppOctokit(installationId);
+      const { data: installRepos } = await octokit.apps.listReposAccessibleToInstallation({
+        per_page: 100
+      });
+      const repoList = Array.isArray((installRepos as any).repositories)
+        ? (installRepos as any).repositories
+        : (installRepos as any);
+
+      const repos = Array.isArray(repoList) ? repoList : [];
+
+      return NextResponse.json({
+        repos: repos.map((r) => ({
+          id: r.id,
+          name: r.name,
+          full_name: r.full_name,
+          html_url: r.html_url,
+          description: r.description,
+          private: r.private,
+          default_branch: r.default_branch,
+          language: r.language,
+          updated_at: r.updated_at
+        }))
+      });
     }
 
-    // Fetch repositories for the owner
-    // For authenticated users, this includes private repos they have access to
-    // For anonymous, this only returns public repos
+    const appOctokit = getGitHubAppOctokitForApp();
+
+    // Determine if owner is a user or org
+    let ownerType: 'User' | 'Organization';
+    try {
+      const { data: userOrOrg } = await appOctokit.users.getByUsername({ username: owner });
+      if (userOrOrg.type !== 'User' && userOrOrg.type !== 'Organization') {
+        return NextResponse.json(
+          { error: `Unexpected owner type: ${userOrOrg.type}` },
+          { status: 500 }
+        );
+      }
+      ownerType = userOrOrg.type;
+    } catch (error: any) {
+      if (error.status === 404) {
+        return NextResponse.json(
+          { error: `User or organization '${owner}' not found` },
+          { status: 404 }
+        );
+      }
+      throw error;
+    }
+
+    let installationId: number;
+    try {
+      if (ownerType === 'Organization') {
+        const { data } = await appOctokit.apps.getOrgInstallation({ org: owner });
+        installationId = data.id;
+      } else {
+        const { data } = await appOctokit.apps.getUserInstallation({ username: owner });
+        installationId = data.id;
+      }
+    } catch (error: any) {
+      if (error.status === 404) {
+        return NextResponse.json(
+          {
+            error: 'GitHub App not installed',
+            detail: `Install the GitHub App for ${owner} to access repositories.`
+          },
+          { status: 403 }
+        );
+      }
+      throw error;
+    }
+
+    const octokit = getGitHubAppOctokit(installationId);
     const repos: any[] = [];
 
     try {
-      // Special owner token to fetch everything the authenticated user can see (public + private)
-      if (['me', '@me', 'self', '@self'].includes(owner.toLowerCase())) {
-        const { data: allRepos } = await octokit.repos.listForAuthenticatedUser({
-          sort: 'updated',
-          per_page: 100,
-          affiliation: 'owner,collaborator,organization_member' // includes repos you can access (private + public)
-        });
-        if (Array.isArray(allRepos)) {
-          repos.push(...allRepos);
-        }
-      } else {
-        // Try to get repos for the owner (user or org)
-        const { data: userOrOrg } = await octokit.users.getByUsername({ username: owner });
-
-        if (userOrOrg.type === 'User') {
-          // If searching for authenticated user's own account, use listForAuthenticatedUser to get private repos
-          if (authenticatedUsername && authenticatedUsername.toLowerCase() === owner.toLowerCase()) {
-            // Get all repos the authenticated user OWNS (not collaborator repos)
-            const { data: allRepos } = await octokit.repos.listForAuthenticatedUser({
-              sort: 'updated',
-              per_page: 100,
-              affiliation: 'owner' // CRITICAL: Only repos owned by the user, not collaborator repos
-            });
-            if (Array.isArray(allRepos)) {
-              // Double-check: filter to ensure owner matches exactly (case-insensitive)
-              const ownerLower = owner.toLowerCase();
-              repos.push(...allRepos
-                .filter((r) => {
-                  const repoOwner = r.owner?.login?.toLowerCase();
-                  return repoOwner === ownerLower;
-                }));
-            }
-          } else {
-            // For other users, list their public repos only
-            // Note: listForUser only returns public repos for other users
-            const { data: userRepos } = await octokit.repos.listForUser({
-              username: owner,
-              sort: 'updated',
-              per_page: 100
-            });
-            if (Array.isArray(userRepos)) {
-              // Filter to ensure owner matches exactly (case-insensitive)
-              const ownerLower = owner.toLowerCase();
-              repos.push(...userRepos
-                .filter((r) => {
-                  const repoOwner = r.owner?.login?.toLowerCase();
-                  return repoOwner === ownerLower;
-                }));
-            }
-          }
-        } else if (userOrOrg.type === 'Organization') {
-          // List organization's repositories
-          // For authenticated users, this may include private org repos they have access to
-          const { data: orgRepos } = await octokit.repos.listForOrg({
-            org: owner,
-            sort: 'updated',
-            per_page: 100,
-            type: 'all' // Include all types (public, private, etc.)
-          });
-          if (Array.isArray(orgRepos)) {
-            // Filter to ensure owner matches exactly (case-insensitive)
-            const ownerLower = owner.toLowerCase();
-            repos.push(...orgRepos
-              .filter((r) => {
-                const repoOwner = r.owner?.login?.toLowerCase();
-                return repoOwner === ownerLower;
-              }));
-          }
-        }
+      const { data: installRepos } = await octokit.apps.listReposAccessibleToInstallation({
+        per_page: 100
+      });
+      const repoList = Array.isArray((installRepos as any).repositories)
+        ? (installRepos as any).repositories
+        : (installRepos as any);
+      if (Array.isArray(repoList)) {
+        const ownerLower = owner.toLowerCase();
+        repos.push(...repoList.filter((r) => r.owner?.login?.toLowerCase() === ownerLower));
       }
     } catch (error: any) {
       // If 404, owner doesn't exist or user doesn't have access
       if (error.status === 404) {
-        return NextResponse.json({ error: `User or organization '${owner}' not found or not accessible` }, { status: 404 });
+        return NextResponse.json(
+          { error: `Owner '${owner}' not found or not accessible via GitHub App` },
+          { status: 404 }
+        );
       }
       throw error;
     }
@@ -149,17 +173,6 @@ export async function POST(request: NextRequest) {
     });
   } catch (err: any) {
     console.error('Error fetching repositories:', err);
-
-    // Handle GitHub connection errors specifically
-    if (err.message?.includes('GitHub connection') || err.message?.includes('GitHub not connected')) {
-      return NextResponse.json(
-        {
-          error: 'GitHub connection required',
-          detail: err.message
-        },
-        { status: 403 }
-      );
-    }
 
     return NextResponse.json(
       {

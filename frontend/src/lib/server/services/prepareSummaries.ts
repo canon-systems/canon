@@ -157,14 +157,14 @@ export async function prepareFileSummaries(
 		};
 	}
 
-	// Get GitHub client
-	const octokit = await getUserOctokit(supabase, userId);
 	const parsed = parseRepoUrl(repoUrl);
 	if (!parsed) {
 		throw new Error(`Invalid repo URL: ${repoUrl}`);
 	}
 
 	const { owner, repo: repoName } = parsed;
+	// Get GitHub client
+	const octokit = await getUserOctokit(supabase, userId, owner, repoName);
 
 	// Get commit SHA from branch
 	let currentCommitSha: string;
@@ -509,4 +509,3 @@ export async function generateAndSaveFileSummaries(
 		filesSkipped,
 	};
 }
-

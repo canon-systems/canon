@@ -120,7 +120,7 @@ export async function POST(request: NextRequest) {
 
     const { user } = await getSession();
     const supabase = await createClient();
-    const octokit = await getUserOctokit(supabase, user?.id || null);
+    const octokit = await getUserOctokit(supabase, user?.id || null, owner, repo);
 
     const files: string[] = Array.isArray(selectedFiles)
       ? selectedFiles.map(String)
@@ -148,4 +148,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

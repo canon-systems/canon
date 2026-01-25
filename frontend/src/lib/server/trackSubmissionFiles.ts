@@ -6,7 +6,7 @@
 //   In the new schema, files are tracked when documents are created, but this
 //   function exists for backward compatibility and migration purposes.
 //
-//   NOTE: In the new schema, document_files only stores document_id and file_path.
+//   NOTE: In the new schema, document_files stores document_id, repo_id, and file_path.
 //   File hashes, sizes, and types are stored in repo_file_summaries.
 //
 //   This function is mainly for backward compatibility with old submission-based code.
@@ -96,8 +96,9 @@ export async function trackSubmissionFiles(params: {
     const filesToAdd = selectedFiles.filter(f => !existingPaths.has(f));
 
     if (filesToAdd.length > 0) {
-      const fileMappings = filesToAdd.map(filePath => ({
+    const fileMappings = filesToAdd.map(filePath => ({
         document_id: submission.id,
+        repo_id: document.repo_id,
         file_path: filePath
       }));
 
@@ -125,4 +126,3 @@ export async function trackSubmissionFiles(params: {
   // File hashes are stored in repo_file_summaries when summaries are generated
   // This function is mainly for backward compatibility
 }
-

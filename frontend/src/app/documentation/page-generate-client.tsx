@@ -583,20 +583,23 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) {
+        const detail = data?.detail || data?.error;
         if (r.status === 404) {
+          if (detail) throw new Error(detail);
           if (!hasGitHubConnection) {
-            throw new Error('Repository not found or is private. Connect your GitHub account in Settings to access private repositories.');
+            throw new Error('Repository not found or is private. Install the GitHub App in Settings to access repositories.');
           } else {
             throw new Error("Repository not found or you don't have access to it.");
           }
         } else if (r.status === 403) {
+          if (detail) throw new Error(detail);
           if (!hasGitHubConnection) {
-            throw new Error('Rate limit exceeded or access denied. Connect your GitHub account in Settings for higher rate limits (5,000/hr vs 60/hr).');
+            throw new Error('Access denied. Install the GitHub App in Settings to access repositories.');
           } else {
-            throw new Error('Access denied. Please check your GitHub connection in Settings.');
+            throw new Error('Access denied. Please check the GitHub App installation in Settings.');
           }
         }
-        throw new Error(data?.error || data?.detail || `Git list failed (${r.status})`);
+        throw new Error(detail || `Git list failed (${r.status})`);
       }
 
       setPickerFiles(Array.isArray(data.files) ? data.files : []);
@@ -721,6 +724,7 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
       // Save file mappings
       const fileMappings = filesForLog.map(filePath => ({
         document_id: documentId,
+        repo_id: repoId,
         file_path: filePath
       }));
 
@@ -751,15 +755,15 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
       if (!r.ok) {
         if (r.status === 404) {
           if (!hasGitHubConnection) {
-            throw new Error('Repository not found or is private. Connect your GitHub account in Settings to access private repositories.');
+            throw new Error('Repository not found or is private. Install the GitHub App in Settings to access repositories.');
           } else {
             throw new Error("Repository not found or you don't have access to it.");
           }
         } else if (r.status === 403) {
           if (!hasGitHubConnection) {
-            throw new Error('Rate limit exceeded or access denied. Connect your GitHub account in Settings for higher rate limits (5,000/hr vs 60/hr).');
+            throw new Error('Rate limit exceeded or access denied. Install the GitHub App in Settings to access repositories.');
           } else {
-            throw new Error('Access denied. Please check your GitHub connection in Settings.');
+            throw new Error('Access denied. Please check the GitHub App installation in Settings.');
           }
         }
         throw new Error(githubData?.error || githubData?.detail || `Git fetch failed (${r.status})`);
@@ -1136,11 +1140,11 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
                         <Alert variant="warning">
                           <AlertTriangle className="h-5 w-5" />
                           <div>
-                            <AlertTitle>GitHub connection recommended</AlertTitle>
+                            <AlertTitle>GitHub App required</AlertTitle>
                             <AlertDescription>
-                              Public repos work without a connection but with lower rate limits. Private repos require a connection.
+                              Install the GitHub App to access repositories and load files.
                               <a href="/settings?tab=integrations" className="ml-1 font-semibold underline">
-                                Connect GitHub →
+                                Install GitHub App →
                               </a>
                             </AlertDescription>
                           </div>

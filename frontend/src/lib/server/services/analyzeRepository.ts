@@ -140,7 +140,7 @@ export async function analyzeRepository({
 	const repo = parsed.repo;
 	const overrideBranch = branch?.trim() || parsed.branch || 'main';
 
-	const octokit = await getUserOctokit(supabase, userId);
+	const octokit = await getUserOctokit(supabase, userId, owner, repo);
 
 	// Use cached branch lookup (saves API calls on repeated requests)
 	const branchData = await getCachedBranch(octokit, owner, repo, overrideBranch);

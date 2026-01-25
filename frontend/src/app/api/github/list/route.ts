@@ -24,10 +24,10 @@ async function fetchContents(
       throw new Error(`GitHub 404: Path not found - ${path}`);
     }
     if (error.status === 403) {
-      throw new Error(`GitHub 403: Access denied - check repository permissions and token scope`);
+      throw new Error(`GitHub 403: Access denied - check GitHub App installation and permissions`);
     }
     if (error.status === 401) {
-      throw new Error(`GitHub 401: Authentication failed - please reconnect your GitHub account`);
+      throw new Error(`GitHub 401: Authentication failed - check GitHub App configuration`);
     }
     throw new Error(`GitHub ${error.status}: ${error.message || 'Unknown error'}`);
   }
@@ -88,7 +88,7 @@ async function handleListRequest(repoUrl: string, branch: string, subdirRaw: str
     return NextResponse.json({ error: 'repoUrl missing owner or repo' }, { status: 400 });
   }
 
-  // Get user's GitHub connection
+  // Require user session for this API
   const { user } = await getSession();
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -142,18 +142,18 @@ async function handleListRequest(repoUrl: string, branch: string, subdirRaw: str
   // Clean subdir (trim leading/trailing slashes)
   const subdir = subdirRaw.replace(/^\/+|\/+$/g, '');
 
-  // Check if user has GitHub connected before proceeding
+  // Check if GitHub App can access this repository
   const { hasGitHubConnection } = await import('@/lib/server/github/getUserOctokit');
-  const hasConnection = await hasGitHubConnection(supabase, user.id);
+  const hasConnection = await hasGitHubConnection(supabase, user.id, owner, repo);
 
   if (!hasConnection) {
     return NextResponse.json({
-      error: 'GitHub not connected',
-      detail: 'Please connect your GitHub account in Settings → Integrations to access private repositories'
+      error: 'GitHub App not installed',
+      detail: 'Install the GitHub App for this owner to access repositories.'
     }, { status: 403 });
   }
 
-  const octokit = await getUserOctokit(supabase, user.id);
+  const octokit = await getUserOctokit(supabase, user.id, owner, repo);
 
   // Grab all files (under subdir if given, otherwise repo root)
   const files = await listAllFiles(octokit, owner, repo, branch, subdir);
@@ -180,7 +180,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(
         {
           error: 'Repository access denied',
-          detail: 'You may not have permission to access this repository, or your GitHub token may need to be refreshed. Try reconnecting your GitHub account in Settings → Integrations.'
+          detail: 'The GitHub App may not be installed for this owner or lacks permission for this repository.'
         },
         { status: 403 }
       );
@@ -190,7 +190,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(
         {
           error: 'GitHub authentication failed',
-          detail: 'Your GitHub connection may have expired. Please reconnect your GitHub account in Settings → Integrations.'
+          detail: 'Check the GitHub App configuration and installation.'
         },
         { status: 401 }
       );
@@ -219,7 +219,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error: 'Repository access denied',
-          detail: 'You may not have permission to access this repository, or your GitHub token may need to be refreshed. Try reconnecting your GitHub account in Settings → Integrations.'
+          detail: 'The GitHub App may not be installed for this owner or lacks permission for this repository.'
         },
         { status: 403 }
       );
@@ -229,7 +229,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error: 'GitHub authentication failed',
-          detail: 'Your GitHub connection may have expired. Please reconnect your GitHub account in Settings → Integrations.'
+          detail: 'Check the GitHub App configuration and installation.'
         },
         { status: 401 }
       );

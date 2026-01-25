@@ -793,6 +793,7 @@ export async function executeAutomationRule({
 					if (filesToAdd.length > 0) {
 						const fileMappings = filesToAdd.map(filePath => ({
 							document_id: docId,
+							repo_id: repo.id,
 							file_path: filePath
 						}));
 

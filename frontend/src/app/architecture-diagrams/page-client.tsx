@@ -432,7 +432,7 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
                                         <div>
                                             <AlertTitle>GitHub Connection Required</AlertTitle>
                                             <AlertDescription>
-                                                Connect your GitHub account to analyze private repositories.
+                                                Install the GitHub App to analyze repositories you have access to.
                                                 <Button variant="secondary" size="sm" asChild className="ml-2 mt-2">
                                                     <Link href="/integrations">
                                                         <Github className="h-4 w-4" />

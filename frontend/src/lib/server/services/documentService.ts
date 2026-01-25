@@ -78,6 +78,7 @@ Be thorough and clear.`;
 	// 5. Save file mappings
 	const fileMappings = selectedFiles.map(filePath => ({
 		document_id: doc.id,
+		repo_id: repoId,
 		file_path: filePath
 	}));
 
@@ -255,4 +256,3 @@ export async function createOrUpdateDocument(
 
 	return { documentId, isNew };
 }
-

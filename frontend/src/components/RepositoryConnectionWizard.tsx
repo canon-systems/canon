@@ -118,7 +118,7 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
       } else {
         const errorData = await response.json().catch(() => ({}));
         if (response.status === 403 && !hasGitHubConnection) {
-          setError('GitHub connection required. Private repositories need a connected GitHub account.');
+          setError('GitHub App installation required. Install the app to access repositories.');
         } else {
           setError(errorData?.error || 'Failed to search repositories.');
         }
@@ -220,7 +220,7 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
         <Github className="h-16 w-16 text-white/20 mx-auto mb-4" />
         <h2 className="text-xl font-semibold text-white mb-4">GitHub Connection Required</h2>
         <p className="text-white/60 mb-6 max-w-md mx-auto">
-          To connect repositories, you need to connect your GitHub account. This allows access to both public and private repositories.
+          To connect repositories, install the GitHub App. This allows access to the repositories you select.
         </p>
         <div className="flex justify-center gap-4">
           <Button asChild>
@@ -274,7 +274,7 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
             <div className="flex gap-3">
               <Input
                 className="field-input flex-1"
-                placeholder="Enter username or organization (e.g., 'facebook', 'github', or @me for yours')"
+                placeholder="Enter username or organization (e.g., 'canon', 'github', or @me for yours')"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onKeyPress={handleKeyPress}
@@ -284,18 +284,18 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
                 disabled={!searchQuery.trim() || isSearching}
                 className="flex items-center gap-2"
               >
-            {isSearching ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Search className="h-4 w-4" />
-            )}
-            {isSearching ? 'Searching...' : 'Search'}
-          </Button>
-        </div>
-        <p className="field-note">
-          Tip: use <code className="px-1 rounded bg-white/10">@me</code> to list all repositories (public and private) you can access with your connected GitHub account.
-        </p>
-      </div>
+                {isSearching ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Search className="h-4 w-4" />
+                )}
+                {isSearching ? 'Searching...' : 'Search'}
+              </Button>
+            </div>
+            <p className="field-note">
+              Tip: use <code className="px-1 rounded bg-white/10">@me</code> to list all repositories the GitHub App installation can access.
+            </p>
+          </div>
         </div>
       )}
 
@@ -350,55 +350,54 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
               </div>
             ) : (
               filteredResults.map((repo) => (
-              <div
-                key={repo.id}
-                className={`p-4 rounded-lg border cursor-pointer transition-all ${
-                  selectedRepo?.id === repo.id
-                    ? 'border-blue-500/50 bg-blue-500/10'
-                    : 'border-white/10 bg-white/5 hover:bg-white/10'
-                }`}
-                onClick={() => setSelectedRepo(repo)}
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-3 mb-2">
-                      <div className="w-8 h-8 rounded-lg bg-gradient-to-r from-blue-500 to-purple-500 flex items-center justify-center">
-                        <Github className="w-4 h-4 text-white" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <h4 className="font-semibold text-white truncate">{repo.full_name}</h4>
-                        <div className="flex items-center gap-2 text-sm text-white/60">
-                          {repo.private && <span className="text-yellow-400">Private</span>}
-                          {repo.language && <span>{repo.language}</span>}
-                          <span>•</span>
-                          <span>Updated {new Date(repo.updated_at).toLocaleDateString()}</span>
+                <div
+                  key={repo.id}
+                  className={`p-4 rounded-lg border cursor-pointer transition-all ${selectedRepo?.id === repo.id
+                      ? 'border-blue-500/50 bg-blue-500/10'
+                      : 'border-white/10 bg-white/5 hover:bg-white/10'
+                    }`}
+                  onClick={() => setSelectedRepo(repo)}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-3 mb-2">
+                        <div className="w-8 h-8 rounded-lg bg-gradient-to-r from-blue-500 to-purple-500 flex items-center justify-center">
+                          <Github className="w-4 h-4 text-white" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <h4 className="font-semibold text-white truncate">{repo.full_name}</h4>
+                          <div className="flex items-center gap-2 text-sm text-white/60">
+                            {repo.private && <span className="text-yellow-400">Private</span>}
+                            {repo.language && <span>{repo.language}</span>}
+                            <span>•</span>
+                            <span>Updated {new Date(repo.updated_at).toLocaleDateString()}</span>
+                          </div>
                         </div>
                       </div>
+                      {repo.description && (
+                        <p className="text-sm text-white/70 mb-3 line-clamp-2">{repo.description}</p>
+                      )}
+                      <div className="flex items-center gap-4 text-xs text-white/50">
+                        <span>Branch: {repo.default_branch}</span>
+                        <a
+                          href={repo.html_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 hover:text-white/70"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          View on GitHub <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </div>
                     </div>
-                    {repo.description && (
-                      <p className="text-sm text-white/70 mb-3 line-clamp-2">{repo.description}</p>
-                    )}
-                    <div className="flex items-center gap-4 text-xs text-white/50">
-                      <span>Branch: {repo.default_branch}</span>
-                      <a
-                        href={repo.html_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-1 hover:text-white/70"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        View on GitHub <ExternalLink className="h-3 w-3" />
-                      </a>
+                    <div className="ml-4">
+                      {selectedRepo?.id === repo.id && (
+                        <CheckCircle2 className="h-6 w-6 text-green-400" />
+                      )}
                     </div>
-                  </div>
-                  <div className="ml-4">
-                    {selectedRepo?.id === repo.id && (
-                      <CheckCircle2 className="h-6 w-6 text-green-400" />
-                    )}
                   </div>
                 </div>
-              </div>
-            ))
+              ))
             )}
           </div>
 
@@ -491,32 +490,30 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
                     </div>
                   ) : (
                     filteredBranches.map((branch) => (
-                    <div
-                      key={branch}
-                      className={`p-3 rounded-lg border cursor-pointer transition-all ${
-                        selectedBranch === branch
-                          ? 'border-blue-500/50 bg-blue-500/10'
-                          : 'border-white/10 bg-white/5 hover:bg-white/10'
-                      }`}
-                      onClick={() => setSelectedBranch(branch)}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className={`font-medium ${
-                          selectedBranch === branch ? 'text-blue-300' : 'text-white'
-                        }`}>
-                          {branch}
-                        </span>
-                        {selectedBranch === branch && (
-                          <CheckCircle2 className="h-5 w-5 text-green-400" />
-                        )}
-                        {branch === selectedRepo.default_branch && (
-                          <span className="text-xs text-green-400 bg-green-400/10 px-2 py-1 rounded-full">
-                            default
+                      <div
+                        key={branch}
+                        className={`p-3 rounded-lg border cursor-pointer transition-all ${selectedBranch === branch
+                            ? 'border-blue-500/50 bg-blue-500/10'
+                            : 'border-white/10 bg-white/5 hover:bg-white/10'
+                          }`}
+                        onClick={() => setSelectedBranch(branch)}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className={`font-medium ${selectedBranch === branch ? 'text-blue-300' : 'text-white'
+                            }`}>
+                            {branch}
                           </span>
-                        )}
+                          {selectedBranch === branch && (
+                            <CheckCircle2 className="h-5 w-5 text-green-400" />
+                          )}
+                          {branch === selectedRepo.default_branch && (
+                            <span className="text-xs text-green-400 bg-green-400/10 px-2 py-1 rounded-full">
+                              default
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    ))
                   )}
                 </div>
               </div>

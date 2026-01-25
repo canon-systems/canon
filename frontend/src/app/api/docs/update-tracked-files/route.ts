@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
     // Get repo details
     const { data: repo, error: repoError } = await supabase
       .from('workspace_repos')
-      .select('repo_url, default_branch, user_id, settings')
+      .select('id, repo_url, default_branch, user_id, settings')
       .eq('id', document.repo_id)
       .single();
 
@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const octokit = await getUserOctokit(supabase, user.id);
+    const octokit = await getUserOctokit(supabase, user.id, parsed.owner, parsed.repo);
 
     // Get current commit SHA
     const { data: branchData } = await octokit.repos.getBranch({
@@ -123,6 +123,7 @@ export async function POST(request: NextRequest) {
     if (filesToAdd.length > 0) {
       const fileMappings = filesToAdd.map(filePath => ({
         document_id: documentId,
+        repo_id: repo.id,
         file_path: filePath
       }));
 

@@ -2,30 +2,21 @@
  * GitHub repository provider implementation
  * Uses GitHub API with Tree API for efficient batch SHA fetching
  * 
- * IMPORTANT: Never uses global GITHUB_TOKEN. Users must connect their own GitHub account.
- * For public repos, allows anonymous access (no token).
+ * IMPORTANT: GitHub App only. No OAuth or anonymous access is permitted.
  */
 
 import { Octokit } from '@octokit/rest';
 import type { RepoProvider } from './base';
 import type { RepoInfo, WebhookResult } from '../types';
-import { getGitHubTokenForUser } from '../../github/getUserToken';
+import { getGitHubAppOctokitForRepo } from '../../github/appAuth';
 
 export class GitHubProvider implements RepoProvider {
     /**
-     * Get an Octokit instance for a user's GitHub connection
-     * If connectionId is provided, fetches the user's stored token
-     * If no connectionId, returns Octokit without auth (for public repos only)
+     * Get an Octokit instance via GitHub App installation.
+     * OAuth and anonymous access are not supported.
      */
-    private async getOctokit(connectionId?: string): Promise<Octokit> {
-        if (connectionId) {
-            const token = await getGitHubTokenForUser(connectionId);
-            if (token) {
-                return new Octokit({ auth: token });
-            }
-        }
-        // No token - anonymous access (public repos only, lower rate limits)
-        return new Octokit();
+    private async getOctokit(repoInfo: RepoInfo, connectionId?: string): Promise<Octokit> {
+        return await getGitHubAppOctokitForRepo(repoInfo.owner, repoInfo.repo);
     }
 
     getName(): string {
@@ -72,7 +63,7 @@ export class GitHubProvider implements RepoProvider {
 
     async getBranchCommitSha(repoInfo: RepoInfo, branch: string, connectionId?: string): Promise<string | null> {
         try {
-            const octokit = await this.getOctokit(connectionId);
+            const octokit = await this.getOctokit(repoInfo, connectionId);
             const { data } = await octokit.repos.getBranch({
                 owner: repoInfo.owner,
                 repo: repoInfo.repo,
@@ -112,7 +103,7 @@ export class GitHubProvider implements RepoProvider {
                 return await this.fetchFileShasIndividual(repoInfo, branch, filePaths, connectionId);
             }
 
-            const octokit = await this.getOctokit(connectionId);
+            const octokit = await this.getOctokit(repoInfo, connectionId);
             // Get the tree recursively for the commit
             const { data: treeData } = await octokit.git.getTree({
                 owner: repoInfo.owner,
@@ -169,7 +160,7 @@ export class GitHubProvider implements RepoProvider {
             return result;
         }
 
-        const octokit = await this.getOctokit(connectionId);
+        const octokit = await this.getOctokit(repoInfo, connectionId);
         // Fetch each file individually
         for (const path of filePaths) {
             try {
@@ -200,7 +191,7 @@ export class GitHubProvider implements RepoProvider {
 
     async fetchFileContent(repoInfo: RepoInfo, branch: string, path: string, connectionId?: string): Promise<string | null> {
         try {
-            const octokit = await this.getOctokit(connectionId);
+            const octokit = await this.getOctokit(repoInfo, connectionId);
             const { data } = await octokit.repos.getContent({
                 owner: repoInfo.owner,
                 repo: repoInfo.repo,
