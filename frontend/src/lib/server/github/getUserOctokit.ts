@@ -1,90 +1,38 @@
 /**
- * Get Octokit instance for a user's GitHub connection
- * Returns Octokit with user's token if connected, or anonymous Octokit for public repos
- * NEVER uses global GITHUB_TOKEN
+ * Get Octokit instance for GitHub App installation
+ * OAuth user tokens are not used.
  */
 
 import { Octokit } from '@octokit/rest';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { getGitHubTokenForUser } from './getUserToken';
+import { getGitHubAppOctokitForRepo } from './appAuth';
 
 /**
- * Get user's GitHub connection ID from Supabase
- */
-async function getUserGitHubConnection(
-	supabase: SupabaseClient,
-	userId: string | null
-): Promise<string | null> {
-	if (!userId) {
-		return null;
-	}
-
-	try {
-		const { data, error } = await supabase
-			.from('oauth_connections')
-			.select('connection_id')
-			.eq('user_id', userId)
-			.eq('provider', 'github')
-			.eq('status', 'active')
-			.single();
-
-		if (error || !data) {
-			return null;
-		}
-
-		return data.connection_id;
-	} catch (error) {
-		console.error('Error fetching GitHub connection:', error);
-		return null;
-	}
-}
-
-/**
- * Get Octokit instance for a user
- * - If user has GitHub connected: returns authenticated Octokit
- * - If user doesn't have GitHub connected or userId is null: throws error (no anonymous access)
- * - NEVER uses global GITHUB_TOKEN
+ * Get Octokit instance for GitHub App installation
+ * - Resolves installation by repository (multi-tenant safe)
  */
 export async function getUserOctokit(
-	supabase: SupabaseClient,
-	userId: string | null
+	_supabase: SupabaseClient,
+	_userId: string | null,
+	owner: string,
+	repo: string
 ): Promise<Octokit> {
-	if (!userId) {
-		throw new Error('User not authenticated. Please log in to access GitHub repositories.');
-	}
-
-	const connectionId = await getUserGitHubConnection(supabase, userId);
-	if (!connectionId) {
-		throw new Error('GitHub not connected. Please connect your GitHub account to access repositories.');
-	}
-	
-		const token = await getGitHubTokenForUser(connectionId);
-	if (!token) {
-		// Mark connection as inactive since token fetch failed
-		await supabase
-			.from('oauth_connections')
-			.update({ status: 'inactive' })
-			.eq('connection_id', connectionId)
-			.eq('user_id', userId);
-
-		throw new Error('GitHub connection is invalid or expired. Please reconnect your GitHub account.');
-	}
-
-	return new Octokit({ auth: token });
+	return getGitHubAppOctokitForRepo(owner, repo);
 }
 
 /**
  * Check if user has valid GitHub connection (with working token)
  */
 export async function hasGitHubConnection(
-	supabase: SupabaseClient,
-	userId: string | null
+	_supabase: SupabaseClient,
+	_userId: string | null,
+	owner: string,
+	repo: string
 ): Promise<boolean> {
 	try {
-		await getUserOctokit(supabase, userId);
+		await getUserOctokit(_supabase, _userId, owner, repo);
 		return true;
 	} catch {
 		return false;
 	}
 }
-

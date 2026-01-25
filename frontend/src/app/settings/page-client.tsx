@@ -44,6 +44,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   const [success, setSuccess] = useState('');
   const [disconnectModalOpen, setDisconnectModalOpen] = useState(false);
   const [connectionToDisconnect, setConnectionToDisconnect] = useState<{ connectionId: string; provider: string } | null>(null);
+  const [uninstallOnDisconnect, setUninstallOnDisconnect] = useState(false);
 
   // Repository management moved to /automation page
 
@@ -117,7 +118,11 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
 
     try {
       if (providerName === 'github') {
-        window.location.href = '/api/oauth/github/start';
+        const installUrl = process.env.NEXT_PUBLIC_GITHUB_APP_INSTALL_URL;
+        if (!installUrl) {
+          throw new Error('GitHub App install URL is not configured.');
+        }
+        window.location.href = installUrl;
         return;
       }
       if (providerName === 'notion') {
@@ -140,12 +145,14 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
 
   function openDisconnectModal(connectionId: string, provider: string) {
     setConnectionToDisconnect({ connectionId, provider });
+    setUninstallOnDisconnect(provider === 'github');
     setDisconnectModalOpen(true);
   }
 
   function closeDisconnectModal() {
     setDisconnectModalOpen(false);
     setConnectionToDisconnect(null);
+    setUninstallOnDisconnect(false);
   }
 
   async function disconnect(connectionId: string, provider: string) {
@@ -208,6 +215,16 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   const isConfluenceConnected = connections.some(c => c.provider === 'confluence' && c.status === 'active');
   const isGoogleDocsConnected = connections.some(c => c.provider === 'googledocs' && c.status === 'active');
   const isGitHubConnected = connections.some(c => c.provider === 'github' && c.status === 'active');
+  const gitHubConnection = connections.find(c => c.provider === 'github' && c.status === 'active');
+  const githubInstallationId = (() => {
+    const meta = gitHubConnection?.metadata;
+    if (meta && typeof meta === 'object' && 'installation_id' in meta) {
+      const value = Number((meta as Record<string, unknown>).installation_id);
+      if (Number.isFinite(value) && value > 0) return value;
+    }
+    const fallback = Number(gitHubConnection?.connection_id);
+    return Number.isFinite(fallback) && fallback > 0 ? fallback : null;
+  })();
 
   return (
     <>
@@ -321,16 +338,36 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                       )}
                     </div>
                     {isGitHubConnected ? (
-                      <Button
-                        onClick={() => {
-                          const conn = connections.find(c => c.provider === 'github');
-                          if (conn) openDisconnectModal(conn.connection_id, 'github');
-                        }}
-                        variant="secondary"
-                        className="w-full border-red-500/50 bg-red-500/10 text-red-200 hover:bg-red-500/20"
-                      >
-                        Disconnect
-                      </Button>
+                      <div className="flex flex-col gap-3">
+                        <Button
+                          onClick={() => {
+                            if (githubInstallationId) {
+                              window.open(`https://github.com/settings/installations/${githubInstallationId}`, '_blank', 'noopener');
+                              return;
+                            }
+                            const installUrl = process.env.NEXT_PUBLIC_GITHUB_APP_INSTALL_URL;
+                            if (installUrl) {
+                              window.open(installUrl, '_blank', 'noopener');
+                            } else {
+                              setError('GitHub App install URL is not configured.');
+                            }
+                          }}
+                          variant="secondary"
+                          className="w-full border-white/20 bg-white/10 text-white hover:bg-white/20"
+                        >
+                          Manage installation
+                        </Button>
+                        <Button
+                          onClick={() => {
+                            const conn = connections.find(c => c.provider === 'github');
+                            if (conn) openDisconnectModal(conn.connection_id, 'github');
+                          }}
+                          variant="secondary"
+                          className="w-full border-red-500/50 bg-red-500/10 text-red-200 hover:bg-red-500/20"
+                        >
+                          Disconnect
+                        </Button>
+                      </div>
                     ) : (
                       <Button
                         onClick={() => connectToProvider('github')}
@@ -612,6 +649,19 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                 {getProviderName(connectionToDisconnect.provider)}
               </span>? This action cannot be undone.
             </p>
+            {connectionToDisconnect.provider === 'github' && (
+              <label className="mb-6 flex items-start gap-3 rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white/70">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4 accent-red-500"
+                  checked={uninstallOnDisconnect}
+                  onChange={(e) => setUninstallOnDisconnect(e.target.checked)}
+                />
+                <span>
+                  Also open GitHub to uninstall the app for this installation.
+                </span>
+              </label>
+            )}
             <div className="flex justify-end gap-3">
               <Button
                 variant="outline"
@@ -627,6 +677,18 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                   if (connectionToDisconnect) {
                     await disconnect(connectionToDisconnect.connectionId, connectionToDisconnect.provider);
                     closeDisconnectModal();
+                    if (connectionToDisconnect.provider === 'github' && uninstallOnDisconnect) {
+                      if (githubInstallationId) {
+                        window.open(`https://github.com/settings/installations/${githubInstallationId}`, '_blank', 'noopener');
+                      } else {
+                        const installUrl = process.env.NEXT_PUBLIC_GITHUB_APP_INSTALL_URL;
+                        if (installUrl) {
+                          window.open(installUrl, '_blank', 'noopener');
+                        } else {
+                          setError('GitHub App install URL is not configured.');
+                        }
+                      }
+                    }
                   }
                 }}
               >

@@ -107,7 +107,7 @@ export async function POST(request: NextRequest) {
     try {
       const repoInfo = parseRepoUrl(repo.repo_url);
       if (repoInfo) {
-        const octokit = await getUserOctokit(supabase, user.id);
+        const octokit = await getUserOctokit(supabase, user.id, repoInfo.owner, repoInfo.repo);
         const branch = repo.default_branch || 'main';
 
         // Get current tracked files

@@ -38,12 +38,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // For GitHub, use user's Octokit instance (or anonymous for public repos)
+    // For GitHub, use GitHub App installation access
     if (repoInfo && repoUrl.includes('github.com')) {
-      // Get user's GitHub connection (or anonymous if not connected)
       const { user } = await getSession();
       const supabase = await createClient();
-      const octokit = await getUserOctokit(supabase, user?.id || null);
+      const octokit = await getUserOctokit(supabase, user?.id || null, repoInfo.owner, repoInfo.repo);
 
       // Get latest commit SHA for the branch
       const { data: branchData } = await octokit.repos.getBranch({
@@ -148,4 +147,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

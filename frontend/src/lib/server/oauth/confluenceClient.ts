@@ -11,6 +11,7 @@ export function getConfluenceOAuthScopes(): string[] {
     'write:page:confluence',
     'read:space:confluence',
     'offline_access',
+    'read:jira-work'
   ];
 }
 

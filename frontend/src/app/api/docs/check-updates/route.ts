@@ -129,7 +129,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const octokit = await getUserOctokit(supabase, user?.id || null);
+    const octokit = await getUserOctokit(supabase, user?.id || null, repoInfo.owner, repoInfo.repo);
 
     // Get current commit SHA (needed to fetch current file hashes and detect renames)
     const { data: branchData } = await octokit.repos.getBranch({

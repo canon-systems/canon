@@ -25,10 +25,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'repoUrl missing owner or repo' }, { status: 400 });
     }
 
-    // Get user's GitHub connection (or anonymous if not connected)
+    // Use GitHub App installation access
     const { user } = await getSession();
     const supabase = await createClient();
-    const octokit = await getUserOctokit(supabase, user?.id || null);
+    const octokit = await getUserOctokit(supabase, user?.id || null, owner, repo);
 
     // Fetch branches from GitHub API
     const { data: branches } = await octokit.repos.listBranches({
@@ -50,4 +50,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-
