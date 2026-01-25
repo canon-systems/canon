@@ -237,7 +237,7 @@ export async function setupRepositorySimple(
 	repoUrl: string,
 	branch: string,
 	userId: string,
-	model: string = 'gpt-4o-mini',
+	model: string = 'openai/gpt-4o-mini',
 	_accessToken?: string
 ): Promise<{ success: boolean; totalFiles: number; processedFiles: number; cachedFiles: number }> {
 	const repoId = normalizeRepoId(repoUrl);

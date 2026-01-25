@@ -184,7 +184,7 @@ export async function POST(request: NextRequest) {
           temperature: docConfig.temperature ?? repoPromptConfig?.temperature,
           document_structure: resolvedDocumentStructure || undefined,
         };
-        const selectedModel = docConfig.model || repoSettings.model || 'gpt-4o';
+        const selectedModel = docConfig.model || repoSettings.model || 'openai/gpt-4o';
 
         // Analyze repository with new file set
         const analysis = await analyzeRepository({

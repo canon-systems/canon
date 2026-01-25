@@ -295,7 +295,7 @@ export async function executeAutomationRule({
 							console.log(`   Currently processing: ${progress.currentFile}`);
 						}
 					},
-					model: rule.model || 'gpt-4o-mini',
+					model: rule.model || 'openai/gpt-4o-mini',
 				}
 			);
 
@@ -651,7 +651,7 @@ export async function executeAutomationRule({
 					document_structure: resolvedDocumentStructure || undefined,
 				};
 
-				const selectedModel = docConfig.model || rule.model || 'gpt-4o';
+				const selectedModel = docConfig.model || rule.model || 'openai/gpt-4o';
 
 				// Generate updated documentation
 				const docResult = await generateDocumentation({

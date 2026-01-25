@@ -212,7 +212,7 @@ export async function prepareFileSummaries(
 					}
 
 					// Generate summary
-					const summary = await generateFileSummary(fileContent, filePath, 'gpt-4o-mini');
+					const summary = await generateFileSummary(fileContent, filePath, 'openai/gpt-4o-mini');
 
 					// Upsert into repo_file_summaries using direct SQL to avoid last_regenerated column reference
 					const { error: upsertError } = await supabase
@@ -223,7 +223,7 @@ export async function prepareFileSummaries(
 								file_path: filePath,
 								file_hash: currentHash,
 								summary_text: summary.summary_text,
-								summary_model: 'gpt-4o-mini',
+								summary_model: 'openai/gpt-4o-mini',
 								branch: branch,
 								regeneration_reason: 'file_changed',
 								updated_at: new Date().toISOString(),
@@ -304,7 +304,7 @@ export async function generateAndSaveFileSummaries(
 	repoUrl: string,
 	files: Array<{ path: string; content: string; hash?: string | null }>,
 	userId?: string | null,
-	model: string = 'gpt-4o-mini',
+	model: string = 'openai/gpt-4o-mini',
 	submissionId?: string | null,
 	branch: string = 'main',
 	onProgress?: (processed: number, total: number, currentFile?: string, status?: string, progressPercent?: number, processingRate?: number, estimatedTimeRemaining?: number, recentFiles?: any[]) => Promise<void>

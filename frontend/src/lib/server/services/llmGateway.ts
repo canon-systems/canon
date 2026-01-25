@@ -8,30 +8,31 @@ export type Message = { role: 'system' | 'user' | 'assistant'; content: string }
  * Note: These are conservative limits leaving room for output tokens
  */
 export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
-	'gpt-4o': 128000,
-	'gpt-4o-mini': 128000,
-	'gpt-4-turbo': 128000,
-	'gpt-4': 8192,
-	'claude-3-5-sonnet-20241022': 200000,
-	'claude-3-opus-20240229': 200000,
-	// Gemini 2.0 models - using google/ prefix for Vercel AI Gateway
-	'google/gemini-2.0-flash': 1000000,
-	'google/gemini-2.0-flash-lite': 1000000,
-	// Legacy Gemini 1.5 models (deprecated, kept for backward compatibility)
-	'google/gemini-1.5-pro-latest': 1000000,
-	'google/gemini-1.5-flash-latest': 1000000,
-	// Also support without prefix in case gateway handles it
-	'gemini-1.5-pro': 1000000,
-	'gemini-1.5-flash': 1000000,
-	'gemini-2.0-flash': 1000000,
-	'gemini-2.0-flash-lite': 1000000,
+	// OpenAI GPT-5 models
+	'openai/gpt-5.2': 400000,
+	'openai/gpt-5': 400000,
+	'openai/gpt-5-nano': 400000,
+	// OpenAI GPT-4 models
+	'openai/gpt-4o': 128000,
+	'openai/gpt-4.1-nano': 128000,
+	'gpt-4o': 128000, // Backward compatibility
+	// Anthropic Claude 4.x models
+	'anthropic/claude-sonnet-4': 200000,
+	'anthropic/claude-sonnet-4.5': 200000,
+	'anthropic/claude-opus-4': 200000,
+	'anthropic/claude-opus-4.5': 200000,
+	// Google Gemini models
+	'google/gemini-2.5-pro': 1000000,
+	'google/gemini-2.5-flash': 1000000,
+	'google/gemini-3-pro-preview': 1000000,
+	'google/gemini-3-flash': 1000000,
 };
 
 /**
  * Fallback model for when token limits are exceeded
- * Uses Gemini 2.0 Flash with 1M token context window
+ * Uses Gemini 3 Flash with 1M token context window
  */
-export const LARGE_CONTEXT_FALLBACK_MODEL = 'google/gemini-2.0-flash';
+export const LARGE_CONTEXT_FALLBACK_MODEL = 'google/gemini-3-flash';
 
 /**
  * Estimate token count from text

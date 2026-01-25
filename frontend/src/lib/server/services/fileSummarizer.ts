@@ -36,7 +36,7 @@ const SKIP_FILE_PATTERNS = [
 export async function generateFileSummary(
 	fileContent: string,
 	filePath: string,
-	model: string = 'gpt-4o-mini',
+	model: string = 'openai/gpt-4o-mini',
 	repoContext?: any
 ): Promise<FileSummary> {
 	// Skip excluded files
