@@ -162,7 +162,7 @@ export async function POST(request: NextRequest) {
         repoUrl,
         repo.default_branch || 'main',
         repo.user_id,
-        'gpt-4o-mini',
+        'openai/gpt-4o-mini',
         session.access_token
       ).catch((error) => {
         console.error('[repo-setup] Background setup failed:', error);

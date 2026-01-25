@@ -53,7 +53,7 @@ Be thorough and clear.`;
 	try {
 		documentContent = await gateway.call(
 			[{ role: 'user', content: prompt }],
-			'gpt-4o',
+			'openai/gpt-4o',
 			0.3
 		);
 	} catch (error: any) {

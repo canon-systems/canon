@@ -62,152 +62,112 @@ interface Model {
 }
 
 const availableModels: Model[] = [
-  // OpenLLMs
+  // OpenAI Models
   {
-    value: 'gpt-4o',
-    label: 'GPT-4o',
+    value: 'openai/gpt-5.2',
+    label: 'GPT-5.2',
+    provider: 'OpenAI',
+    cost: '$$$$$',
+    context: '400K tokens',
+    description: 'OpenAI\'s latest flagship model with enhanced capabilities and improved performance across all tasks.'
+  },
+  {
+    value: 'openai/gpt-5',
+    label: 'GPT-5',
+    provider: 'OpenAI',
+    cost: '$$$$$',
+    context: '400K tokens',
+    description: 'OpenAI\'s powerful GPT-5 model with advanced reasoning and multimodal capabilities.'
+  },
+  {
+    value: 'openai/gpt-5-nano',
+    label: 'GPT-5 Nano',
+    provider: 'OpenAI',
+    cost: '$$',
+    context: '400K tokens',
+    description: 'A compact, cost-effective GPT-5 variant optimized for efficiency.'
+  },
+  {
+    value: 'openai/gpt-4o',
+    label: 'GPT-4',
     provider: 'OpenAI',
     cost: '$$$$',
     context: '128K tokens',
-    description: 'Our most advanced, multimodal flagship model that\'s faster and 50% cheaper than GPT-4 Turbo. GPT-4o ("o" for "omni") is trained across text, vision, and audio.'
+    description: 'OpenAI\'s advanced multimodal flagship model that\'s faster and 50% cheaper than GPT-4 Turbo. GPT-4o ("o" for "omni") is trained across text, vision, and audio.'
   },
   {
-    value: 'gpt-4o-2024-11-20',
-    label: 'GPT-4o (Nov 2024)',
+    value: 'openai/gpt-4.1-nano',
+    label: 'GPT-4 Nano',
     provider: 'OpenAI',
-    cost: '$$$$',
+    cost: '$$',
     context: '128K tokens',
-    description: 'GPT-4o with November 2024 improvements. Enhanced performance and reliability.'
-  },
-  {
-    value: 'gpt-4o-mini',
-    label: 'GPT-4o Mini',
-    provider: 'OpenAI',
-    cost: '$',
-    context: '128K tokens',
-    description: 'A smaller, more affordable variant of GPT-4o. Fast, intelligent, and cost-effective for most tasks.'
-  },
-  {
-    value: 'gpt-4o-mini-2024-07-18',
-    label: 'GPT-4o Mini (Jul 2024)',
-    provider: 'OpenAI',
-    cost: '$',
-    context: '128K tokens',
-    description: 'GPT-4o Mini with July 2024 improvements. Optimized for speed and efficiency.'
-  },
-  {
-    value: 'o1-preview',
-    label: 'O1 Preview',
-    provider: 'OpenAI',
-    cost: '$$$$$',
-    context: '128K tokens',
-    description: 'Advanced reasoning model optimized for complex problem-solving and deep analysis. Uses a different architecture focused on reasoning capabilities.'
-  },
-  {
-    value: 'o1-2024-08-06',
-    label: 'O1 (Aug 2024)',
-    provider: 'OpenAI',
-    cost: '$$$$$',
-    context: '128K tokens',
-    description: 'O1 model with August 2024 improvements. Enhanced reasoning capabilities for complex tasks.'
-  },
-  {
-    value: 'o1-mini',
-    label: 'O1 Mini',
-    provider: 'OpenAI',
-    cost: '$$$',
-    context: '128K tokens',
-    description: 'A smaller, more affordable version of O1. Optimized for reasoning tasks with improved cost efficiency.'
-  },
-  {
-    value: 'o1-mini-2024-09-12',
-    label: 'O1 Mini (Sep 2024)',
-    provider: 'OpenAI',
-    cost: '$$$',
-    context: '128K tokens',
-    description: 'O1 Mini with September 2024 improvements. Better reasoning at a lower cost.'
-  },
-  {
-    value: 'gpt-4-turbo',
-    label: 'GPT-4 Turbo',
-    provider: 'OpenAI',
-    cost: '$$$$$',
-    context: '128K tokens',
-    description: 'A large multimodal model (accepting text or image inputs and outputting text) that can solve complex tasks with greater accuracy than any of our previous models.'
-  },
-  {
-    value: 'gpt-3.5-turbo',
-    label: 'GPT-3.5 Turbo',
-    provider: 'OpenAI',
-    cost: '$',
-    context: '16K tokens',
-    description: 'A high-performance, cost-effective model optimized for chat and text completion tasks. Fast and efficient for most use cases.'
+    description: 'A compact, cost-effective GPT-4 variant optimized for efficiency and speed.'
   },
   // Anthropic Models
   {
-    value: 'claude-3-7-sonnet-20250219',
-    label: 'Claude 3.7 Sonnet',
+    value: 'anthropic/claude-sonnet-4',
+    label: 'Claude Sonnet 4',
     provider: 'Anthropic',
     cost: '$$$$$',
     context: '200K tokens',
-    description: 'Anthropic\'s most advanced model with superior performance on complex reasoning, coding, and analysis tasks. Released February 2025.'
+    description: 'Anthropic\'s advanced Sonnet 4 model with superior performance on complex reasoning, coding, and analysis tasks.'
   },
   {
-    value: 'claude-3-5-sonnet-20241022',
-    label: 'Claude 3.5 Sonnet',
-    provider: 'Anthropic',
-    cost: '$$$$',
-    context: '200K tokens',
-    description: 'Our most intelligent model, with improved performance on coding tasks, math, and following complex, multi-step instructions. Excels at nuanced content creation and sophisticated Q&A.'
-  },
-  {
-    value: 'claude-3-5-haiku-20241022',
-    label: 'Claude 3.5 Haiku',
-    provider: 'Anthropic',
-    cost: '$$',
-    context: '200K tokens',
-    description: 'An improved version of Haiku with better performance while maintaining speed and cost efficiency. Great for general-purpose tasks.'
-  },
-  {
-    value: 'claude-3-opus-20240229',
-    label: 'Claude 3 Opus',
+    value: 'anthropic/claude-sonnet-4.5',
+    label: 'Claude Sonnet 4.5',
     provider: 'Anthropic',
     cost: '$$$$$',
     context: '200K tokens',
-    description: 'Our most powerful model for highly complex tasks. Best for tasks that require deep analysis, complex content creation, code generation, and research.'
+    description: 'Anthropic\'s most advanced Sonnet model with superior performance on complex reasoning, coding, and analysis tasks.'
   },
   {
-    value: 'claude-3-sonnet-20240229',
-    label: 'Claude 3 Sonnet',
+    value: 'anthropic/claude-opus-4',
+    label: 'Claude Opus 4',
     provider: 'Anthropic',
-    cost: '$$$',
+    cost: '$$$$$',
     context: '200K tokens',
-    description: 'A balanced model for enterprise workloads. Ideal for tasks requiring rapid responses, like knowledge retrieval or sales automation.'
+    description: 'Anthropic\'s powerful Opus 4 model for highly complex tasks requiring deep analysis, complex content creation, and research.'
   },
   {
-    value: 'claude-3-haiku-20240307',
-    label: 'Claude 3 Haiku',
+    value: 'anthropic/claude-opus-4.5',
+    label: 'Claude Opus 4.5',
     provider: 'Anthropic',
-    cost: '$',
+    cost: '$$$$$',
     context: '200K tokens',
-    description: 'Our fastest and most compact model for near-instant responsiveness. Perfect for simple queries, lightweight tasks, and high-volume use cases.'
+    description: 'Anthropic\'s most powerful model for highly complex tasks requiring deep analysis, complex content creation, and research.'
   },
   // Google Models
   {
-    value: 'google/gemini-2.0-flash',
-    label: 'Gemini 2.0 Flash',
+    value: 'google/gemini-2.5-pro',
+    label: 'Gemini 2.5 Pro',
+    provider: 'Google',
+    cost: '$$$$',
+    context: '1M tokens',
+    description: 'Google\'s powerful Gemini 2.5 Pro model with massive 1M token context window. Supports text, vision, audio, and function calling.'
+  },
+  {
+    value: 'google/gemini-2.5-flash',
+    label: 'Gemini 2.5 Flash',
     provider: 'Google',
     cost: '$$',
     context: '1M tokens',
-    description: 'Google\'s latest 2.0 Flash model with massive 1M token context window. Supports text, vision, audio, and function calling. Optimized for speed and efficiency.'
+    description: 'Google\'s Gemini 2.5 Flash model optimized for speed and efficiency with massive 1M token context window.'
   },
   {
-    value: 'google/gemini-2.0-flash-lite',
-    label: 'Gemini 2.0 Flash Lite',
+    value: 'google/gemini-3-pro-preview',
+    label: 'Gemini 3 Pro',
     provider: 'Google',
-    cost: '$',
+    cost: '$$$$$',
     context: '1M tokens',
-    description: 'A lighter, more cost-effective version of Gemini 2.0 Flash. Fast and efficient for most use cases with reduced cost.'
+    description: 'Google\'s latest Gemini 3 Pro model. Excels at reasoning, agentic workflows, multi-step function calling, and planning. Shows 17% improvement in correctness over Gemini 2.5 Pro.'
+  },
+  {
+    value: 'google/gemini-3-flash',
+    label: 'Gemini 3 Flash',
+    provider: 'Google',
+    cost: '$$',
+    context: '1M tokens',
+    description: 'Google\'s latest Gemini 3 Flash model optimized for speed and efficiency with massive 1M token context window.'
   }
 ];
 
@@ -246,7 +206,7 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
   // Generate tab state
   const [method, setMethod] = useState<InputType>('github_repo');
   const [docTitle, setDocTitle] = useState('Documentation Draft');
-  const [selectedModel, setSelectedModel] = useState('gpt-4o');
+  const [selectedModel, setSelectedModel] = useState('openai/gpt-4o');
   const [showModelDropdown, setShowModelDropdown] = useState(false);
 
   // Edit tab state
