@@ -1,0 +1,39 @@
+app:
+  id: ari:cloud:ecosystem::app/d9821f76-b9f1-4f25-b9ee-2f31b8d22fed
+  runtime:
+    name: nodejs24.x
+  licensing:
+    enabled: false
+modules:
+  webtrigger:
+    - key: diff-ingest-trigger
+      function: diff-ingest-function
+      response:
+        type: static
+        outputs:
+          - key: success
+            statusCode: 200
+            contentType: application/json
+            body: '{"ok": true}'
+          - key: bad-request
+            statusCode: 400
+            contentType: application/json
+            body: '{"error": "pageId is required"}'
+          - key: not-found
+            statusCode: 404
+            contentType: application/json
+            body: '{"error": "Failed to fetch page"}'
+          - key: server-error
+            statusCode: 500
+            contentType: application/json
+            body: '{"error": "Internal server error"}'
+  function:
+    - key: diff-ingest-function
+      handler: index.diffIngest
+permissions:
+  scopes:
+    - read:page:confluence
+    - write:page:confluence
+    - read:confluence-content.all
+    - write:confluence-content
+    - read:jira-work
