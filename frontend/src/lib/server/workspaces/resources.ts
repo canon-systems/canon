@@ -1,4 +1,4 @@
-import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
+import { getProviderAccessToken, withConfluenceAccessToken } from '@/lib/server/oauth/tokenStore';
 
 export type WorkspaceResource = {
   id: string;
@@ -82,11 +82,15 @@ async function getConfluenceResources(connectionId: string): Promise<WorkspaceRe
     return [];
   }
 
-  const resourcesResponse = await fetch('https://api.atlassian.com/oauth/token/accessible-resources', {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/json',
-    },
+  const resourcesResponse = await withConfluenceAccessToken({
+    connectionId,
+    run: async (accessToken) =>
+      fetch('https://api.atlassian.com/oauth/token/accessible-resources', {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/json',
+        },
+      }),
   });
 
   if (!resourcesResponse.ok) {
@@ -105,11 +109,16 @@ async function getConfluenceResources(connectionId: string): Promise<WorkspaceRe
 
     let nextUrl: string | null = `https://api.atlassian.com/ex/confluence/${cloudId}/wiki/api/v2/spaces?limit=200`;
     while (nextUrl) {
-      const spacesResponse: Response = await fetch(nextUrl, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/json',
-        },
+      const currentUrl = nextUrl; // Capture for TypeScript narrowing
+      const spacesResponse: Response = await withConfluenceAccessToken({
+        connectionId,
+        run: async (accessToken) =>
+          fetch(currentUrl, {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              Accept: 'application/json',
+            },
+          }),
       });
 
       if (!spacesResponse.ok) {
@@ -166,11 +175,16 @@ async function getConfluencePages(params: {
   let nextUrl: string | null = `https://api.atlassian.com/ex/confluence/${cloudId}/wiki/api/v2/pages?limit=200&space-id=${encodeURIComponent(spaceId)}`;
 
   while (nextUrl) {
-    const response: Response = await fetch(nextUrl, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/json',
-      },
+    const currentUrl = nextUrl; // Capture for TypeScript narrowing
+    const response: Response = await withConfluenceAccessToken({
+      connectionId,
+      run: async (accessToken) =>
+        fetch(currentUrl, {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: 'application/json',
+          },
+        }),
     });
 
     if (!response.ok) {

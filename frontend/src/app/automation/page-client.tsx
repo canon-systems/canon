@@ -53,6 +53,7 @@ interface AutomationRuleForm {
   generate_diagram: boolean;
   auto_publish: boolean;
   auto_approve: boolean;
+  run_diff?: boolean;
 
   // NEW: Scope targeting
   target_diagrams: string[];  // Empty = all diagrams of selected types
@@ -62,6 +63,9 @@ interface AutomationRuleForm {
   auto_publish_target_connection_id?: string;
   auto_publish_target_resource_id?: string;
   auto_publish_custom_resource?: string;
+  jira_project_key?: string;
+  diff_github_repo_id?: string;
+  diff_window_minutes?: string;
 
   // LEGACY: Keep for backward compatibility
   detect_changes?: boolean;
@@ -355,6 +359,10 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
   const [providerResources, setProviderResources] = useState<Record<string, Array<{ id: string; name: string }>>>({});
   const [providerResourceLoading, setProviderResourceLoading] = useState<Record<string, boolean>>({});
   const [providerResourceErrors, setProviderResourceErrors] = useState<Record<string, string>>({});
+  const [jiraProjects, setJiraProjects] = useState<Array<{ id: string; key: string; name: string }>>([]);
+  const [jiraProjectsLoading, setJiraProjectsLoading] = useState(false);
+  const [jiraProjectsError, setJiraProjectsError] = useState('');
+  const [jiraProjectsWarning, setJiraProjectsWarning] = useState('');
 
   // Repository management state
   const [loadingRepos, setLoadingRepos] = useState(false);
@@ -569,8 +577,9 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
       // Individual behavior defaults (docs-only)
       generate_doc: overrides.generate_doc ?? true,
       generate_diagram: overrides.generate_diagram ?? false,
-  auto_publish: overrides.auto_publish ?? false,
-  auto_approve: overrides.auto_approve ?? false,
+      auto_publish: overrides.auto_publish ?? false,
+      auto_approve: overrides.auto_approve ?? false,
+      run_diff: overrides.run_diff ?? false,
       target_diagrams: overrides.target_diagrams ?? [],
 
       // LEGACY: Keep for backward compatibility (not displayed in UI)
@@ -579,6 +588,9 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
       auto_publish_target_connection_id: overrides.auto_publish_target_connection_id ?? '',
       auto_publish_target_resource_id: overrides.auto_publish_target_resource_id ?? '',
       auto_publish_custom_resource: overrides.auto_publish_custom_resource ?? '',
+      jira_project_key: overrides.jira_project_key ?? '',
+      diff_github_repo_id: overrides.diff_github_repo_id ?? '',
+      diff_window_minutes: overrides.diff_window_minutes ?? '',
     };
   }
 
@@ -640,6 +652,10 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
         auto_publish_target_connection_id: rule?.auto_publish_target?.connection_id ?? '',
         auto_publish_target_resource_id: rule?.auto_publish_target?.resource_id ?? '',
         auto_publish_custom_resource: '',
+        jira_project_key: rule?.auto_publish_target?.jira_project_key ?? rule?.auto_publish_target?.jiraProjectKey ?? '',
+        run_diff: rule?.auto_publish_target?.mode === 'diff' || rule?.auto_publish_target?.diff === true,
+        diff_github_repo_id: rule?.auto_publish_target?.github_repo_id ?? rule?.auto_publish_target?.githubRepoId ?? '',
+        diff_window_minutes: rule?.auto_publish_target?.window_minutes ? String(rule.auto_publish_target.window_minutes) : '',
       });
     });
   }
@@ -710,6 +726,49 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
     }
   }
 
+  async function loadJiraProjects() {
+    if (jiraProjectsLoading) return;
+    if (jiraProjects.length > 0 && !jiraProjectsError) return;
+
+    setJiraProjectsLoading(true);
+    setJiraProjectsError('');
+    setJiraProjectsWarning('');
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      if (!token) throw new Error('Not authenticated');
+
+      const response = await fetch('/api/jira/projects', {
+        method: 'GET',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }
+      });
+
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || result.detail || 'Failed to load Jira projects');
+
+      const normalized = (result.projects || [])
+        .map((project: any) => {
+          const key = project.key || project.project_key;
+          const name = project.name || project.key;
+          const id = project.id || key;
+          if (!key || !name) return null;
+          return { id: String(id), key: String(key), name: String(name) };
+        })
+        .filter(Boolean) as Array<{ id: string; key: string; name: string }>;
+
+      setJiraProjects(normalized);
+      if (typeof result.warning === 'string' && result.warning.trim()) {
+        setJiraProjectsWarning(result.warning.trim());
+      }
+    } catch (err: any) {
+      console.error('Failed to load Jira projects', err);
+      setJiraProjectsError(err?.message || 'Failed to load Jira projects');
+    } finally {
+      setJiraProjectsLoading(false);
+    }
+  }
+
   function setRuleConnection(connectionId: string, provider: string) {
     if (!singleRuleForm) return;
     const normalizedProvider = normalizeProviderName(provider);
@@ -718,10 +777,14 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
       auto_publish_target_connection_id: connectionId,
       auto_publish_target_provider: normalizedProvider,
       auto_publish_target_resource_id: '',
-      auto_publish_custom_resource: ''
+      auto_publish_custom_resource: '',
+      jira_project_key: ''
     });
     if (normalizedProvider && isKnowledgeBaseProvider(normalizedProvider)) {
       loadResourcesForProvider(normalizedProvider);
+    }
+    if (normalizedProvider === 'confluence') {
+      loadJiraProjects();
     }
   }
 
@@ -779,11 +842,16 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
     };
 
     // Save provider and resource selections for persistence
-    if (form.auto_publish_target_provider || form.auto_publish_target_connection_id || form.auto_publish_target_resource_id) {
+    if (form.run_diff || form.auto_publish_target_provider || form.auto_publish_target_connection_id || form.auto_publish_target_resource_id) {
       rule.auto_publish_target = {
         provider: form.auto_publish_target_provider || undefined,
         connection_id: form.auto_publish_target_connection_id || undefined,
         resource_id: form.auto_publish_target_resource_id || undefined,
+        jira_project_key: form.jira_project_key || undefined,
+        mode: form.run_diff ? 'diff' : undefined,
+        diff: form.run_diff ? true : undefined,
+        github_repo_id: form.diff_github_repo_id || undefined,
+        window_minutes: form.diff_window_minutes ? Number(form.diff_window_minutes) : undefined,
       };
     }
 
@@ -994,6 +1062,9 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
     if (provider && isKnowledgeBaseProvider(provider)) {
       loadResourcesForProvider(provider);
     }
+    if (provider === 'confluence') {
+      loadJiraProjects();
+    }
   }, [singleRuleForm?.auto_publish_target_provider]);
 
   const activeAutomationRepo = reposList.find((repo) => repo.id === activeAutomationRepoId) || null;
@@ -1006,10 +1077,29 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
   const normalizedSelectedProvider = normalizeProviderName(selectedProvider || '');
   const providerSupportsResources = Boolean(normalizedSelectedProvider && isKnowledgeBaseProvider(normalizedSelectedProvider));
   const providerResourceList = normalizedSelectedProvider ? providerResources[normalizedSelectedProvider] || [] : [];
-  const resourceOptions = connectionId ? getResourcesForConnection(connectionId) : providerResourceList;
+  const rawResourceOptions = connectionId ? getResourcesForConnection(connectionId) : providerResourceList;
+  
+  // Deduplicate resources by id to prevent duplicate key errors
+  const resourceOptionsMap = new Map<string, { id: string; name: string }>();
+  for (const resource of rawResourceOptions) {
+    if (resource && resource.id && !resourceOptionsMap.has(resource.id)) {
+      resourceOptionsMap.set(resource.id, resource);
+    }
+  }
+  const resourceOptions = Array.from(resourceOptionsMap.values());
   const providerDisplayName = selectedProvider ? getProviderDisplayName(selectedProvider) : '';
   const resourceLoading = normalizedSelectedProvider ? providerResourceLoading[normalizedSelectedProvider] : false;
   const resourceError = normalizedSelectedProvider ? providerResourceErrors[normalizedSelectedProvider] : '';
+  const shouldShowJiraProject = normalizedSelectedProvider === 'confluence';
+  const jiraProjectHelper = jiraProjectsLoading
+    ? 'Loading Jira projects...'
+    : jiraProjectsError
+      ? jiraProjectsError
+      : jiraProjectsWarning
+        ? jiraProjectsWarning
+      : jiraProjects.length === 0
+        ? 'No Jira projects found for this connection.'
+        : 'Select the Jira project to include in daily diffs.';
   const helperText = !connectionId && !selectedProvider
     ? 'Resource list updates after you connect a provider.'
     : !providerSupportsResources
@@ -1596,11 +1686,12 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
                             <div className="text-xs text-green-400 font-medium flex items-center gap-1">
                               <div className="w-2 h-2 bg-green-400 rounded-full"></div>
                               Active: {
-                                presetFromFlags(singleRuleForm) === 'docs_only' ? '📄 Docs Only' :
-                                  presetFromFlags(singleRuleForm) === 'diagrams_only' ? '🏛 Architecture Diagrams' :
-                                    presetFromFlags(singleRuleForm) === 'docs_and_diagrams' ? '📄 + 🏛 Docs & Diagrams' :
-                                      presetFromFlags(singleRuleForm) === 'full_auto_publish' ? '🚀 Auto-Publish' :
-                                        'Not selected'
+                                singleRuleForm.run_diff ? '🫧 Daily Diff' :
+                                  presetFromFlags(singleRuleForm) === 'docs_only' ? '📄 Docs Only' :
+                                    presetFromFlags(singleRuleForm) === 'diagrams_only' ? '🏛 Architecture Diagrams' :
+                                      presetFromFlags(singleRuleForm) === 'docs_and_diagrams' ? '📄 + 🏛 Docs & Diagrams' :
+                                        presetFromFlags(singleRuleForm) === 'full_auto_publish' ? '🚀 Auto-Publish' :
+                                          'Not selected'
                               }
                             </div>
                           )}
@@ -1667,6 +1758,123 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
                         </div>
                       </div>
 
+                    </div>
+
+                    <div className="rounded-lg border border-white/10 bg-gradient-to-r from-slate-900/60 via-cyan-900/30 to-slate-900/60 p-4">
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-medium text-white/90">Send daily activity diff</p>
+                          <p className="text-xs text-white/60">
+                            Push a Jira + GitHub activity snapshot to your knowledge base on this schedule.
+                          </p>
+                        </div>
+                        <Switch
+                          checked={Boolean(singleRuleForm?.run_diff)}
+                          onCheckedChange={(value) => updateSingleRuleField('run_diff', value)}
+                          aria-label={singleRuleForm?.run_diff ? 'Disable daily diff' : 'Enable daily diff'}
+                          className="scale-90"
+                        />
+                      </div>
+                      {singleRuleForm?.run_diff && (
+                        <div className="mt-3 space-y-3">
+                          <p className="text-xs text-white/50">
+                            Note: Daily diff runs instead of document generation for this rule.
+                          </p>
+                          <div className="space-y-2">
+                            <label className="text-xs text-white/70">GitHub repository for diff</label>
+                            <select
+                              value={singleRuleForm.diff_github_repo_id || ''}
+                              onChange={(event) => updateSingleRuleField('diff_github_repo_id', event.target.value)}
+                              className="w-full rounded-lg border border-white/20 bg-black/60 px-3 py-2 text-sm text-white outline-none focus:border-blue-500"
+                            >
+                              <option value="">Use this repo (if GitHub)</option>
+                              {reposList
+                                .filter((r) => r.provider === 'github')
+                                .map((r) => (
+                                  <option key={r.id} value={r.id}>
+                                    {r.name}
+                                  </option>
+                                ))}
+                            </select>
+                            {activeAutomationRepo?.provider !== 'github' && !singleRuleForm.diff_github_repo_id && (
+                              <p className="text-xs text-amber-300">
+                                Select a GitHub repo for the diff.
+                              </p>
+                            )}
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-xs text-white/70">Diff window</label>
+                            <div className="flex flex-wrap gap-2">
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => updateSingleRuleField('diff_window_minutes', '10')}
+                                className="text-xs bg-blue-600/20 text-blue-100 hover:bg-blue-600/30"
+                              >
+                                Last 10 min
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => updateSingleRuleField('diff_window_minutes', '60')}
+                                className="text-xs bg-blue-600/20 text-blue-100 hover:bg-blue-600/30"
+                              >
+                                Last 1 hour
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => updateSingleRuleField('diff_window_minutes', '1440')}
+                                className="text-xs bg-blue-600/20 text-blue-100 hover:bg-blue-600/30"
+                              >
+                                Day over day
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => updateSingleRuleField('diff_window_minutes', '10080')}
+                                className="text-xs bg-blue-600/20 text-blue-100 hover:bg-blue-600/30"
+                              >
+                                Week over week
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => updateSingleRuleField('diff_window_minutes', '43200')}
+                                className="text-xs bg-blue-600/20 text-blue-100 hover:bg-blue-600/30"
+                              >
+                                Month over month
+                              </Button>
+                            </div>
+                            <Input
+                              value={singleRuleForm.diff_window_minutes || ''}
+                              onChange={(event) => updateSingleRuleField('diff_window_minutes', event.currentTarget.value.replace(/[^\d]/g, ''))}
+                              placeholder="10"
+                            />
+                            <p className="text-xs text-white/40">
+                              Minutes for the window. Presets above set this automatically.
+                            </p>
+                          </div>
+                          {singleRuleForm?.auto_publish_target_provider === 'confluence' && (
+                            <div className="space-y-2">
+                              <label className="text-xs text-white/70">Confluence page ID (cloudId:pageId)</label>
+                              <Input
+                                value={singleRuleForm.auto_publish_target_resource_id || ''}
+                                onChange={(event) => updateSingleRuleField('auto_publish_target_resource_id', event.currentTarget.value)}
+                                placeholder="cloudId:pageId"
+                              />
+                              <p className="text-xs text-white/40">
+                                Use a page ID to update one page. If you select a space above, a new page may be created instead.
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
 
 
@@ -1747,6 +1955,32 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
                         <p className="text-xs text-white/50 mt-1">{helperText}</p>
                       </label>
                     </div>
+                    {shouldShowJiraProject && (
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <label className="text-sm text-white/80">
+                          Jira project (optional)
+                          <select
+                            value={singleRuleForm.jira_project_key || ''}
+                            onChange={(event) => updateSingleRuleField('jira_project_key', event.target.value)}
+                            className="mt-1 w-full rounded-lg border border-white/20 bg-black/60 px-3 py-2 text-sm text-white outline-none focus:border-blue-500"
+                          >
+                            <option value="">No Jira project</option>
+                            {singleRuleForm.jira_project_key &&
+                              !jiraProjects.some((project) => project.key === singleRuleForm.jira_project_key) && (
+                                <option value={singleRuleForm.jira_project_key}>
+                                  {singleRuleForm.jira_project_key} (saved)
+                                </option>
+                              )}
+                            {jiraProjects.map((project) => (
+                              <option key={project.key} value={project.key}>
+                                {project.key} — {project.name}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="text-xs text-white/50 mt-1">{jiraProjectHelper}</p>
+                        </label>
+                      </div>
+                    )}
 
                     <div className="flex justify-end">
                       <Button

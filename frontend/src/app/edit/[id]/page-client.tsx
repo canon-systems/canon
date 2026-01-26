@@ -256,7 +256,7 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
         customInstructions: promptConfig.customInstructions,
         temperature: promptConfig.temperature,
         documentStructure: structureConfig,
-        model: initialSubmission.source_meta?.model || 'gpt-4o'
+        model: initialSubmission.source_meta?.model || 'openai/gpt-4o'
       };
 
       const { error } = await supabase
@@ -530,7 +530,15 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
         throw new Error(result.error || result.detail || 'Failed to load resources');
       }
 
-      setAvailableResources(result.resources || []);
+      const resources = result.resources || [];
+      // Deduplicate resources by id to prevent duplicate key errors
+      const uniqueResourcesMap = new Map<string, { id: string; type: string; title: string; url?: string; metadata?: Record<string, any> }>();
+      for (const resource of resources) {
+        if (resource && resource.id && !uniqueResourcesMap.has(resource.id)) {
+          uniqueResourcesMap.set(resource.id, resource);
+        }
+      }
+      setAvailableResources(Array.from(uniqueResourcesMap.values()));
     } catch (err: any) {
       console.error('Failed to load resources:', err);
       setPushError(`Failed to load ${getProviderDisplayName(provider)} resources: ${err.message}`);

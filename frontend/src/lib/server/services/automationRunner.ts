@@ -8,6 +8,10 @@ import { parseRepoUrl } from '../github/github';
 import { TreeSitterAnalyzer } from './treeSitterAnalyzer';
 import { getWorkspaceProvider } from '../workspaces/workspaceFactory';
 import type { WorkspaceInfo } from '../workspaces/base';
+import { getGitHubDiffForRepo } from '../diff/githubDiff';
+import { getJiraDiffForProject } from '../diff/jiraDiff';
+import { buildCanonDiff } from '../diff/canon';
+import { renderDiffMarkdown } from '../diff/renderers';
 
 const ARCHITECTURE_SUPPORTED_EXTENSIONS = new Set([
 	'js',
@@ -58,25 +62,53 @@ async function getProviderConnectionId(
 	provider: string,
 	desiredConnectionId?: string | null
 ): Promise<string | null> {
-	let query = supabase
-		.from('oauth_connections')
-		.select('connection_id, status')
-		.eq('user_id', workspaceId)
-		.eq('provider', provider)
-		.eq('status', 'active')
-		.limit(1);
+	const buildBaseQuery = () =>
+		supabase
+			.from('oauth_connections')
+			.select('connection_id, status, provider')
+			.eq('user_id', workspaceId)
+			.eq('provider', provider);
 
 	if (desiredConnectionId) {
-		query = query.eq('connection_id', desiredConnectionId);
+		const { data, error } = await buildBaseQuery()
+			.eq('connection_id', desiredConnectionId)
+			.maybeSingle();
+		if (error) {
+			console.error(`❌ [PUBLISH] Failed to load connection for ${provider}:`, error);
+			return null;
+		}
+		if (data?.connection_id) {
+			return data.connection_id;
+		}
+		// Fallback: connection was reconnected and id changed.
 	}
 
-	const { data, error } = await query.maybeSingle();
-	if (error) {
-		console.error(`❌ [PUBLISH] Failed to load connection for ${provider}:`, error);
+	const { data: active, error: activeError } = await buildBaseQuery()
+		.eq('status', 'active')
+		.limit(1)
+		.maybeSingle();
+	if (activeError) {
+		console.error(`❌ [PUBLISH] Failed to load active connection for ${provider}:`, activeError);
+	}
+	if (active?.connection_id) {
+		return active.connection_id;
+	}
+	// No active connection found; fall back to most recent connection regardless of status.
+
+	const { data: fallback, error: fallbackError } = await buildBaseQuery()
+		.order('created_at', { ascending: false })
+		.limit(1)
+		.maybeSingle();
+	if (fallbackError) {
+		console.error(`❌ [PUBLISH] Failed to load connection for ${provider}:`, fallbackError);
 		return null;
 	}
 
-	return data?.connection_id || null;
+	if (fallback?.connection_id) {
+		return fallback.connection_id;
+	}
+
+	return null;
 }
 
 /**
@@ -153,8 +185,208 @@ export async function executeAutomationRule({
 		const requestedAutoPublish = rule.auto_publish === true;
 		const shouldAutoPublish = requestedAutoPublish && shouldAutoApprove;
 		const autoPublishTarget = rule.auto_publish_target || null;
+		const isDiffMode = autoPublishTarget?.mode === 'diff' || autoPublishTarget?.diff === true;
 
 	try {
+		if (isDiffMode) {
+			result.actions.push('generate_diff');
+
+			try {
+				let githubRepoUrl = repo.repo_url;
+				if (autoPublishTarget?.github_repo_id) {
+					const { data: githubRepo, error: githubRepoError } = await supabase
+						.from('workspace_repos')
+						.select('id, repo_url, provider')
+						.eq('id', autoPublishTarget.github_repo_id)
+						.single();
+					if (githubRepoError || !githubRepo) {
+						throw new Error('Selected GitHub source not found.');
+					}
+					if (githubRepo.provider !== 'github') {
+						throw new Error('Selected source is not a GitHub repository.');
+					}
+					githubRepoUrl = githubRepo.repo_url;
+				} else if (repo.provider !== 'github') {
+					throw new Error('Select a GitHub repository for the diff.');
+				}
+
+				const parsed = parseRepoUrl(githubRepoUrl);
+				if (!parsed) {
+					throw new Error('Invalid GitHub repo URL for diff.');
+				}
+
+				const provider = autoPublishTarget?.provider;
+				const targetResourceId = autoPublishTarget?.resource_id || autoPublishTarget?.resourceId;
+				const connectionIdOverride = autoPublishTarget?.connection_id || autoPublishTarget?.connectionId;
+
+				if (!provider || !targetResourceId) {
+					throw new Error('Missing knowledge base target for diff delivery.');
+				}
+
+				const providerImpl = getWorkspaceProvider(provider);
+				if (!providerImpl) {
+					throw new Error(`Unsupported provider for diff: ${provider}`);
+				}
+
+				const connectionId = await getProviderConnectionId(
+					supabase,
+					userId,
+					provider,
+					connectionIdOverride
+				);
+
+				if (!connectionId) {
+					throw new Error(`No active connection found for provider ${provider}`);
+				}
+
+				const now = new Date();
+				const windowMinutes = typeof autoPublishTarget?.window_minutes === 'number' && autoPublishTarget.window_minutes > 0
+					? autoPublishTarget.window_minutes
+					: null;
+				const start = windowMinutes
+					? new Date(now.getTime() - windowMinutes * 60 * 1000).toISOString()
+					: rule.last_run_at
+						? new Date(rule.last_run_at).toISOString()
+						: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+				const end = now.toISOString();
+
+				let githubDiff;
+				try {
+					githubDiff = await getGitHubDiffForRepo({
+						owner: parsed.owner,
+						repo: parsed.repo,
+						start,
+						end,
+					});
+					console.log(`📊 [DIFF] GitHub ${parsed.owner}/${parsed.repo} window ${start} → ${end}`, {
+						opened: githubDiff.prs_opened.length,
+						merged: githubDiff.prs_merged.length,
+						closed_unmerged: githubDiff.prs_closed_unmerged.length,
+						commits: githubDiff.commits.length,
+					});
+				} catch (err: any) {
+					throw new Error(`GitHub diff failed: ${err?.message || String(err)}`);
+				}
+
+				const jiraProjectKey = autoPublishTarget?.jira_project_key || autoPublishTarget?.jiraProjectKey;
+				let jiraDiff;
+				if (jiraProjectKey) {
+					try {
+						jiraDiff = await getJiraDiffForProject({
+							userId,
+							projectKey: jiraProjectKey,
+							start,
+							end,
+						});
+						console.log(`📊 [DIFF] Jira ${jiraProjectKey} window ${start} → ${end}`, {
+							moved: jiraDiff.tickets_moved.length,
+							completed: jiraDiff.tickets_completed.length,
+							regressed: jiraDiff.tickets_regressed.length,
+							new: jiraDiff.tickets_new.length,
+						});
+					} catch (err: any) {
+						throw new Error(`Jira diff failed: ${err?.message || String(err)}`);
+					}
+				}
+
+				const canon = buildCanonDiff({
+					start,
+					end,
+					github: githubDiff,
+					jira: jiraDiff,
+				});
+
+				const diffTitle = autoPublishTarget?.title || rule.name || 'Daily Activity Diff';
+				const markdown = renderDiffMarkdown(canon, {
+					audiences: autoPublishTarget?.audiences,
+					title: diffTitle,
+				});
+
+				const workspaceInfo: WorkspaceInfo = {
+					provider,
+					resourceId: targetResourceId,
+					metadata: autoPublishTarget?.metadata || {},
+				};
+
+				let pushed = await providerImpl.pushContent(
+					workspaceInfo,
+					{ title: diffTitle, markdown },
+					connectionId,
+					false
+				);
+
+				if (!pushed && provider === 'confluence') {
+					// Fallback: resourceId might be a space id; create page once and persist page id.
+					pushed = await providerImpl.pushContent(
+						workspaceInfo,
+						{ title: diffTitle, markdown },
+						connectionId,
+						true
+					);
+
+					if (pushed?.resourceId && rule.id) {
+						const updatedTarget = {
+							...autoPublishTarget,
+							resource_id: pushed.resourceId,
+						};
+						await supabase
+							.from('automation_rules')
+							.update({ auto_publish_target: updatedTarget })
+							.eq('id', rule.id);
+						result.actions.push('create_diff_page');
+					}
+				}
+
+				if (pushed) {
+					result.publishStatus = 'success';
+					result.publishProvider = provider;
+					result.publishResourceId = pushed.resourceId || targetResourceId;
+					result.actions.push('push_diff');
+					if (pushed.metadata?.url) {
+						console.log(`✅ [DIFF] Updated page: ${pushed.metadata.url}`);
+					} else {
+						console.log(`✅ [DIFF] Updated resource: ${pushed.resourceId || targetResourceId}`);
+					}
+
+					await trackPushToKb(
+						supabase,
+						userId,
+						provider,
+						null,
+						pushed.resourceId || targetResourceId
+					);
+				} else {
+					throw new Error(`Failed to push diff to ${provider}`);
+				}
+			} catch (err: any) {
+				const message = err?.message || String(err);
+				console.error(`❌ [DIFF] ${message}`);
+				result.errors.push(message);
+			}
+
+			result.success = result.errors.length === 0;
+
+			await insertAutomationRun(supabase, {
+				repoId: repo.id,
+				repoUrl: repo.repo_url ?? null,
+				automationRuleId: rule.id || null,
+				userId,
+				triggerType,
+				status: result.success ? 'succeeded' : 'failed',
+				actions: result.actions,
+				executionTimeMs: Date.now() - startTime,
+				filesProcessed: 0,
+				documentsUpdated: 0,
+				errors: result.errors,
+				docId: result.docId,
+				diagramId: result.diagramId,
+				generatedDocuments,
+				generatedDiagrams,
+			});
+
+			return result;
+		}
+
 		// 🔍 Pre-flight checks
 		try {
 			new LLMGateway();

@@ -359,16 +359,9 @@ export function RepositorySetupWizard({ repoId, onComplete: _onComplete }: Repos
           }
           pollIntervalRef.current = null;
           setError(data.setup.errorMessage || 'Setup failed');
-
-          // Show recovery option after a brief delay
           setTimeout(() => {
-            if (window.confirm('Repository setup failed. Would you like to try again?')) {
-              // Reset state and allow restart
-              setError(null);
-              setSetupProgress(null);
-              loadSetupStatus(); // This will show the start button again
-            }
-          }, 3000);
+            router.push('/repos');
+          }, 2000);
 
         } else if (data.setup.status === 'analyzing') {
           // Set processing start time when we first see summarized files

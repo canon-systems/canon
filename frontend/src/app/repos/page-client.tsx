@@ -32,6 +32,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { RepositoryConnectionWizard } from '@/components/RepositoryConnectionWizard';
 
 interface Repository {
@@ -39,6 +40,8 @@ interface Repository {
   name: string;
   repo_url: string;
   default_branch: string;
+  provider?: string;
+  settings?: any;
   setup_status?: string | null;
   setup_branch?: string;
   file_summary_status?: 'complete' | 'partial' | 'none';
@@ -56,10 +59,23 @@ type StatusFilter = 'all' | 'ready' | 'processing' | 'failed' | 'not_started';
 
 export default function RepositoriesPageClient({ repositories }: RepositoriesPageClientProps) {
   const router = useRouter();
-  const [showConnectionWizard, setShowConnectionWizard] = useState(false);
+  const [showSourceDialog, setShowSourceDialog] = useState(false);
+  const [sourceMode, setSourceMode] = useState<'github' | 'jira'>('github');
   const [deletingRepoId, setDeletingRepoId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [jiraProjects, setJiraProjects] = useState<Array<{ id: string; key: string; name: string }>>([]);
+  const [jiraLoading, setJiraLoading] = useState(false);
+  const [jiraError, setJiraError] = useState('');
+  const [jiraWarning, setJiraWarning] = useState('');
+  const [jiraSites, setJiraSites] = useState<Array<{ id: string; name: string; url: string }>>([]);
+  const [jiraSitesLoading, setJiraSitesLoading] = useState(false);
+  const [jiraSitesError, setJiraSitesError] = useState('');
+  const [jiraCloudId, setJiraCloudId] = useState('');
+  const [jiraSiteUrl, setJiraSiteUrl] = useState('');
+  const [jiraSiteName, setJiraSiteName] = useState('');
+  const [jiraProjectKey, setJiraProjectKey] = useState('');
+  const [jiraName, setJiraName] = useState('');
 
   // Redirect to ongoing setup if found
   useEffect(() => {
@@ -82,10 +98,28 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
     if (repositories.length > 0) checkOngoingSetups();
   }, [repositories, router]);
 
-  const handleConnectRepository = () => setShowConnectionWizard(true);
+  const handleConnectRepository = () => {
+    setSourceMode('github');
+    setShowSourceDialog(true);
+  };
+  const handleConnectJira = () => {
+    setSourceMode('jira');
+    setShowSourceDialog(true);
+    loadJiraSites();
+  };
 
   const handleConnectionComplete = (repoId: string) => {
-    setShowConnectionWizard(false);
+    setShowSourceDialog(false);
+    router.push(`/repos/setup?repoId=${repoId}`);
+  };
+
+  const handleJiraCreated = (repoId: string) => {
+    setShowSourceDialog(false);
+    setJiraProjectKey('');
+    setJiraName('');
+    setJiraCloudId('');
+    setJiraSiteUrl('');
+    setJiraSiteName('');
     router.push(`/repos/setup?repoId=${repoId}`);
   };
 
@@ -153,6 +187,115 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
     return { label: 'Not started', color: 'outline', tone: 'text-white/70', icon: <Activity className="h-4 w-4" /> };
   };
 
+  async function loadJiraSites() {
+    if (jiraSitesLoading) return;
+    setJiraSitesLoading(true);
+    setJiraSitesError('');
+    try {
+      const response = await fetch('/api/jira/sites');
+      const data = await response.json();
+      if (!response.ok) {
+        const detail = data.error || data.detail || 'Failed to load Jira workspaces';
+        throw new Error(detail);
+      }
+      const sites: Array<{ id: string; name: string; url: string }> = Array.isArray(data.sites) 
+        ? (data.sites as Array<{ id: string; name: string; url: string }>)
+        : [];
+      
+      // Deduplicate by id as a safeguard (server should already do this)
+      const uniqueSitesMap = new Map<string, { id: string; name: string; url: string }>();
+      for (const site of sites) {
+        if (!uniqueSitesMap.has(site.id)) {
+          uniqueSitesMap.set(site.id, site);
+        }
+      }
+      const uniqueSites = Array.from(uniqueSitesMap.values());
+      
+      setJiraSites(uniqueSites);
+      if (uniqueSites.length === 1) {
+        selectJiraSite(uniqueSites[0]);
+      }
+    } catch (err: any) {
+      setJiraSitesError(err.message || 'Failed to load Jira workspaces');
+    } finally {
+      setJiraSitesLoading(false);
+    }
+  }
+
+  async function selectJiraSite(site: { id: string; name: string; url: string }) {
+    setJiraCloudId(site.id);
+    setJiraSiteUrl(site.url);
+    setJiraSiteName(site.name);
+    setJiraProjects([]);
+    setJiraProjectKey('');
+    setJiraWarning('');
+    setJiraError('');
+    await fetch('/api/jira/workspace', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        cloudId: site.id,
+        siteUrl: site.url,
+        siteName: site.name,
+      }),
+    }).catch(() => {});
+    await loadJiraProjects(site.id);
+  }
+
+  async function loadJiraProjects(cloudId?: string) {
+    if (jiraLoading) return;
+    setJiraLoading(true);
+    setJiraError('');
+    setJiraWarning('');
+    try {
+      if (!cloudId) {
+        throw new Error('Select a Jira workspace to load projects.');
+      }
+      const response = await fetch(`/api/jira/projects?cloudId=${encodeURIComponent(cloudId)}`);
+      const data = await response.json();
+      if (!response.ok) {
+        const detail = data.error || data.detail || 'Failed to load Jira projects';
+        throw new Error(`${detail}. Make sure Confluence is connected with read:jira-work and Jira is enabled for this site.`);
+      }
+      const projects = Array.isArray(data.projects) ? data.projects : [];
+      setJiraProjects(projects);
+      if (typeof data.warning === 'string' && data.warning.trim()) {
+        setJiraWarning(data.warning.trim());
+      }
+    } catch (err: any) {
+      setJiraError(err.message || 'Failed to load Jira projects');
+    } finally {
+      setJiraLoading(false);
+    }
+  }
+
+  async function createJiraSource() {
+    try {
+      setJiraError('');
+      if (!jiraCloudId) {
+        throw new Error('Select a Jira workspace before creating a source.');
+      }
+      const response = await fetch('/api/jira/source', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectKey: jiraProjectKey || undefined,
+          name: jiraName || undefined,
+          cloudId: jiraCloudId,
+          siteUrl: jiraSiteUrl || undefined,
+          siteName: jiraSiteName || undefined,
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || data.detail || 'Failed to create Jira source');
+      }
+      handleJiraCreated(data.id);
+    } catch (err: any) {
+      setJiraError(err.message || 'Failed to create Jira source');
+    }
+  }
+
   return (
     <div className="space-y-8 px-1 sm:px-2 md:px-0">
       <Card className="overflow-hidden border-white/10 bg-gradient-to-r from-indigo-900/40 via-slate-900/60 to-cyan-900/40 px-1 sm:px-2 md:px-0">
@@ -160,11 +303,11 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="space-y-2">
               <Badge variant="default" className="bg-white/10 text-white/80">
-                GitHub Repositories
+                Sources
               </Badge>
-              <CardTitle className="text-3xl text-white">Connect, analyze, and automate</CardTitle>
+              <CardTitle className="text-3xl text-white">Connect, index, and automate</CardTitle>
               <CardDescription className="text-white/70">
-                Link repos, track setup progress, and jump straight into documentation or automation.
+                Link GitHub and Jira sources, track setup progress, and jump straight into documentation or automation.
               </CardDescription>
               </div>
             <div className="grid grid-cols-2 gap-3 lg:w-[360px]">
@@ -213,7 +356,7 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
         <CardContent className="flex flex-col gap-3 p-5 lg:flex-row lg:items-center lg:justify-between md:px-6">
           <div className="flex flex-1 items-center gap-3">
             <Input
-              placeholder="Search by name or repo URL"
+              placeholder="Search by name or source URL"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.currentTarget.value)}
               className="max-w-lg"
@@ -231,15 +374,15 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
               </SelectContent>
             </Select>
           </div>
-          <div className="flex gap-2">
-            <Button variant="secondary" onClick={() => { setSearchQuery(''); setStatusFilter('all'); }}>
-              Clear filters
-            </Button>
-            <Button onClick={handleConnectRepository}>
-              <Plus className="h-4 w-4" />
-              Connect
-            </Button>
-          </div>
+            <div className="flex gap-2">
+              <Button variant="secondary" onClick={() => { setSearchQuery(''); setStatusFilter('all'); }}>
+                Clear filters
+              </Button>
+              <Button onClick={handleConnectRepository}>
+                <Plus className="h-4 w-4" />
+                Add Source
+              </Button>
+            </div>
         </CardContent>
       </Card>
 
@@ -248,14 +391,14 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-white/10">
             <Github className="h-6 w-6 text-white/70" />
           </div>
-          <CardTitle className="mt-4 text-xl text-white">No repositories match that view</CardTitle>
+          <CardTitle className="mt-4 text-xl text-white">No sources match that view</CardTitle>
           <CardDescription className="mt-2 text-white/70">
-            Try adjusting filters or connect a new repository.
+            Try adjusting filters or connect a new source.
           </CardDescription>
           <div className="mt-6 flex justify-center gap-3">
             <Button onClick={handleConnectRepository}>
               <Plus className="h-4 w-4" />
-              Connect repository
+              Add Source
             </Button>
             <Button variant="secondary" asChild>
               <Link href="/documentation">
@@ -276,6 +419,11 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
                   Math.round(((repo.file_summary_count || 0) / (repo.total_files || 1)) * 100)
                 )
               : 0;
+            const isJira = repo.provider === 'jira';
+            const sourceLabel = isJira
+              ? (repo.settings?.jira_project_key || repo.name)
+              : repo.repo_url.replace('https://github.com/', '');
+            const sourceLink = repo.repo_url.startsWith('http') ? repo.repo_url : null;
 
             return (
               <Card key={repo.id} className="border-white/10 bg-gradient-to-b from-white/8 to-black/60">
@@ -283,15 +431,17 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-3">
                       <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-md shadow-indigo-500/20">
-                        <Github className="h-5 w-5" />
+                        {isJira ? <Activity className="h-5 w-5" /> : <Github className="h-5 w-5" />}
                       </div>
                       <div>
                         <CardTitle className="text-white">{repo.name}</CardTitle>
                         <CardDescription className="flex items-center gap-2 text-white/70">
-                          {repo.repo_url.replace('https://github.com/', '')}
-                          <Link href={repo.repo_url} target="_blank" rel="noreferrer" className="text-white/50 hover:text-white/80">
-                            <ExternalLink className="h-4 w-4" />
-                          </Link>
+                          {sourceLabel}
+                          {sourceLink && (
+                            <Link href={sourceLink} target="_blank" rel="noreferrer" className="text-white/50 hover:text-white/80">
+                              <ExternalLink className="h-4 w-4" />
+                            </Link>
+                          )}
                         </CardDescription>
                       </div>
                     </div>
@@ -308,7 +458,7 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
                             Setup
                           </Link>
                         </DropdownMenuItem>
-                        <DropdownMenuItem asChild disabled={repo.setup_status !== 'ready'}>
+                        <DropdownMenuItem asChild disabled={repo.setup_status !== 'ready' || isJira}>
                           <Link href={`/documentation?repoId=${repo.id}`}>
                             <FileText className="mr-2 h-4 w-4" />
                             Generate Docs
@@ -342,7 +492,9 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
                       {statusMeta.label}
                     </Badge>
                     <Badge variant="outline" className="text-white/80">
-                      Branch: {repo.setup_branch || repo.default_branch || 'main'}
+                      {isJira
+                        ? `Scope: ${repo.settings?.jira_project_key || 'Jira'}`
+                        : `Branch: ${repo.setup_branch || repo.default_branch || 'main'}`}
                     </Badge>
                     {repo.setup_status === 'ready' && (
                       <Badge variant="success" className="text-emerald-200">
@@ -371,7 +523,7 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
                     </Button>
                     <Button
                       variant="secondary"
-                      disabled={repo.setup_status !== 'ready'}
+                      disabled={repo.setup_status !== 'ready' || isJira}
                       asChild
                     >
                       <Link href={`/documentation?repoId=${repo.id}`}>
@@ -406,13 +558,115 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
       )}
 
 
-      <Dialog open={showConnectionWizard} onOpenChange={setShowConnectionWizard}>
-        <DialogContent className="p-0">
-          <DialogTitle className="sr-only">Connect Repository</DialogTitle>
-          <RepositoryConnectionWizard
-            onComplete={handleConnectionComplete}
-            onCancel={() => setShowConnectionWizard(false)}
-          />
+      <Dialog open={showSourceDialog} onOpenChange={setShowSourceDialog}>
+        <DialogContent className={sourceMode === 'github' ? 'p-0' : 'max-w-lg border-white/10 bg-black/95'}>
+          <DialogTitle className="sr-only">
+            {sourceMode === 'github' ? 'Add GitHub Source' : 'Add Jira Source'}
+          </DialogTitle>
+          <div className="flex items-center gap-2 border-b border-white/10 bg-black/80 px-4 py-3">
+            <Button
+              type="button"
+              variant={sourceMode === 'github' ? 'secondary' : 'ghost'}
+              onClick={() => setSourceMode('github')}
+            >
+              <Github className="h-4 w-4" />
+              GitHub
+            </Button>
+            <Button
+              type="button"
+              variant={sourceMode === 'jira' ? 'secondary' : 'ghost'}
+              onClick={() => { setSourceMode('jira'); loadJiraSites(); }}
+            >
+              <Activity className="h-4 w-4" />
+              Jira
+            </Button>
+          </div>
+
+          {sourceMode === 'github' ? (
+            <RepositoryConnectionWizard
+              onComplete={handleConnectionComplete}
+              onCancel={() => setShowSourceDialog(false)}
+            />
+          ) : (
+            <div className="space-y-4 p-6">
+              <div className="space-y-2">
+                <label className="text-sm text-white/80">Workspace</label>
+                <select
+                  value={jiraCloudId}
+                  onChange={(e) => {
+                    const selected = jiraSites.find((site) => site.id === e.target.value);
+                    if (selected) void selectJiraSite(selected);
+                  }}
+                  className="w-full rounded-lg border border-white/20 bg-black/60 px-3 py-2 text-sm text-white outline-none focus:border-blue-500"
+                >
+                  <option value="">Select a Jira workspace</option>
+                  {jiraSites.map((site) => (
+                    <option key={site.id} value={site.id}>
+                      {site.name || site.url}
+                    </option>
+                  ))}
+                </select>
+                {jiraSitesLoading && <p className="text-xs text-white/60">Loading Jira workspaces…</p>}
+                {jiraSitesError && <p className="text-xs text-red-300">{jiraSitesError}</p>}
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm text-white/80">Project</label>
+                <select
+                  value={jiraProjectKey}
+                  onChange={(e) => setJiraProjectKey(e.target.value)}
+                  className="w-full rounded-lg border border-white/20 bg-black/60 px-3 py-2 text-sm text-white outline-none focus:border-blue-500"
+                >
+                  <option value="">Select a Jira project</option>
+                  {jiraProjects.map((project) => (
+                    <option key={project.key} value={project.key}>
+                      {project.key} — {project.name}
+                    </option>
+                  ))}
+                </select>
+                {jiraLoading && <p className="text-xs text-white/60">Loading Jira projects…</p>}
+                {!jiraLoading && jiraProjects.length === 0 && !jiraError && jiraCloudId && (
+                  <p className="text-xs text-white/50">
+                    No Jira projects found. Reconnect Confluence with the Jira scope enabled.
+                  </p>
+                )}
+                {!jiraLoading && !jiraCloudId && !jiraError && (
+                  <p className="text-xs text-white/50">
+                    Select a Jira workspace to load projects.
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm text-white/80">Name</label>
+                <Input
+                  value={jiraName}
+                  onChange={(e) => setJiraName(e.currentTarget.value)}
+                  placeholder="Jira: ABC"
+                />
+              </div>
+
+              {jiraError && (
+                <Alert variant="destructive">
+                  <AlertDescription>{jiraError}</AlertDescription>
+                </Alert>
+              )}
+              {jiraWarning && !jiraError && (
+                <Alert>
+                  <AlertDescription>{jiraWarning}</AlertDescription>
+                </Alert>
+              )}
+
+              <div className="flex justify-end gap-2">
+                <Button variant="secondary" onClick={() => setShowSourceDialog(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={createJiraSource} disabled={!jiraProjectKey || !jiraCloudId}>
+                  Create Source
+                </Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

@@ -58,7 +58,14 @@ export default async function RepositoriesPage() {
         // Get file summary count from repo_file_summaries
         let fileSummaryStatus: 'complete' | 'partial' | 'none' = 'none';
         let fileSummaryCount = 0;
-        if (setup?.branch && repo.repo_url) {
+        if (repo.provider === 'jira') {
+          fileSummaryCount = setup?.summarized_files || 0;
+          if (setup?.total_files && fileSummaryCount >= setup.total_files) {
+            fileSummaryStatus = 'complete';
+          } else if (fileSummaryCount > 0) {
+            fileSummaryStatus = 'partial';
+          }
+        } else if (setup?.branch && repo.repo_url) {
           try {
             const normalizedRepoId = normalizeRepoId(repo.repo_url);
             const { count, error: countError } = await supabase

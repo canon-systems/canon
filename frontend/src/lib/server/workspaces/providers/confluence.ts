@@ -4,7 +4,7 @@
 
 import type { WorkspaceProvider, WorkspaceInfo, WorkspaceContent } from '../base';
 import { marked } from 'marked';
-import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
+import { getProviderAccessToken, withConfluenceAccessToken } from '@/lib/server/oauth/tokenStore';
 
 const CONFLUENCE_API_BASE = 'https://api.atlassian.com/ex/confluence';
 
@@ -84,14 +84,15 @@ export class ConfluenceProvider implements WorkspaceProvider {
 					createPayload.parentId = parentId;
 				}
 
-				const createResponse = await fetch(
-					`${CONFLUENCE_API_BASE}/${cloudInfo.cloudId}/wiki/api/v2/pages`,
-					{
-						method: 'POST',
-						headers: confluenceHeaders(accessToken),
-						body: JSON.stringify(createPayload),
-					}
-				);
+				const createResponse = await withConfluenceAccessToken({
+					connectionId,
+					run: async (token) =>
+						fetch(`${CONFLUENCE_API_BASE}/${cloudInfo.cloudId}/wiki/api/v2/pages`, {
+							method: 'POST',
+							headers: confluenceHeaders(token),
+							body: JSON.stringify(createPayload),
+						}),
+				});
 
 				if (!createResponse.ok) {
 					const errorText = await createResponse.text().catch(() => '');
@@ -129,7 +130,7 @@ export class ConfluenceProvider implements WorkspaceProvider {
 			}
 
 			const updated = await updateConfluencePage(
-				accessToken,
+				connectionId,
 				cloudInfo.cloudId,
 				pageId,
 				content.title,
@@ -177,7 +178,7 @@ export class ConfluenceProvider implements WorkspaceProvider {
 			const html = content.html || (content.markdown ? await marked.parse(content.markdown) : '');
 			const storageValue = convertHtmlToConfluenceStorage(html);
 			const updated = await updateConfluencePage(
-				accessToken,
+				connectionId,
 				cloudInfo.cloudId,
 				resourceId,
 				content.title,
@@ -236,18 +237,19 @@ async function resolveCloudInfo(accessToken: string, preferredCloudId?: string |
 }
 
 async function updateConfluencePage(
-	accessToken: string,
+	connectionId: string,
 	cloudId: string,
 	pageId: string,
 	title: string | undefined,
 	storageValue: string
 ): Promise<{ id: string; url?: string | null } | null> {
-	const pageResponse = await fetch(
-		`${CONFLUENCE_API_BASE}/${cloudId}/wiki/api/v2/pages/${pageId}`,
-		{
-			headers: confluenceHeaders(accessToken),
-		}
-	);
+	const pageResponse = await withConfluenceAccessToken({
+		connectionId,
+		run: async (token) =>
+			fetch(`${CONFLUENCE_API_BASE}/${cloudId}/wiki/api/v2/pages/${pageId}`, {
+				headers: confluenceHeaders(token),
+			}),
+	});
 
 	if (!pageResponse.ok) {
 		const errorText = await pageResponse.text().catch(() => '');
@@ -262,25 +264,26 @@ async function updateConfluencePage(
 		return null;
 	}
 
-	const updateResponse = await fetch(
-		`${CONFLUENCE_API_BASE}/${cloudId}/wiki/api/v2/pages/${pageId}`,
-		{
-			method: 'PUT',
-			headers: confluenceHeaders(accessToken),
-			body: JSON.stringify({
-				id: pageId,
-				status: 'current',
-				title: title || page.title || 'Documentation',
-				version: {
-					number: currentVersion + 1,
-				},
-				body: {
-					representation: 'storage',
-					value: storageValue,
-				},
+	const updateResponse = await withConfluenceAccessToken({
+		connectionId,
+		run: async (token) =>
+			fetch(`${CONFLUENCE_API_BASE}/${cloudId}/wiki/api/v2/pages/${pageId}`, {
+				method: 'PUT',
+				headers: confluenceHeaders(token),
+				body: JSON.stringify({
+					id: pageId,
+					status: 'current',
+					title: title || page.title || 'Documentation',
+					version: {
+						number: currentVersion + 1,
+					},
+					body: {
+						representation: 'storage',
+						value: storageValue,
+					},
+				}),
 			}),
-		}
-	);
+	});
 
 	if (!updateResponse.ok) {
 		const errorText = await updateResponse.text().catch(() => '');

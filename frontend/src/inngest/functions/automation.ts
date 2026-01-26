@@ -47,10 +47,15 @@ export const checkAndRunAutomations = inngest.createFunction(
     console.log(`🎯 [SMART] Starting smart summary management cycle at ${new Date().toISOString()}`);
 
     // Create Supabase client
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_KEY!
-    );
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceKey = process.env.SUPABASE_SERVICE_KEY;
+    if (!supabaseUrl || !serviceKey) {
+      console.error('❌ [SMART] Missing Supabase env for automation run');
+      return { error: 'Missing Supabase env' };
+    }
+    // Supabase client for automation runs
+
+    const supabase = createClient(supabaseUrl, serviceKey);
 
     // Get all enabled automation rules with schedules
     const { data: rules, error } = await supabase
@@ -118,6 +123,9 @@ export const checkAndRunAutomations = inngest.createFunction(
           .eq('id', rule.id);
 
         console.log(`✅ [SMART] Completed: ${rule.id} (Success: ${result.success}, Actions: ${result.actions?.length || 0}, Errors: ${result.errors?.length || 0})`);
+        if (result.errors?.length) {
+          console.error(`❌ [SMART] Rule ${rule.id} errors: ${result.errors.join(' | ')}`);
+        }
 
         executed++;
 

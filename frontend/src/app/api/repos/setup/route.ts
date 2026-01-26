@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
 import { setupRepositorySimple, cancelSetupImmediately } from '@/lib/server/services/repoSetupSimple';
+import { setupJiraSourceSimple } from '@/lib/server/services/jiraSetupSimple';
 import { parseRepoUrl } from '@/lib/server/github/github';
 
 export const runtime = 'nodejs';
@@ -34,7 +35,7 @@ export async function POST(request: NextRequest) {
     // Verify user has access to this repository
     const { data: repo, error: repoError } = await supabase
       .from('workspace_repos')
-      .select('id, user_id, default_branch, repo_url')
+      .select('id, user_id, default_branch, repo_url, provider, settings')
       .eq('id', repoId)
       .single();
 
@@ -123,7 +124,7 @@ export async function POST(request: NextRequest) {
         .from('repository_setup')
         .insert({
           repo_id: repoId,
-          branch: repo.default_branch || 'main',
+          branch: repo.provider === 'jira' ? 'jira' : (repo.default_branch || 'main'),
           setup_status: 'analyzing',
           setup_started_at: new Date().toISOString(),
           total_files: 0,
@@ -156,18 +157,39 @@ export async function POST(request: NextRequest) {
       console.log(`[repo-setup] Starting background setup for repo ${repoId} with job ID: ${jobId}`);
 
       // Run setup in background (don't await - let it run async)
-      setupRepositorySimple(
-        supabase,
-        setup.id,
-        repoUrl,
-        repo.default_branch || 'main',
-        repo.user_id,
-        'openai/gpt-4o-mini',
-        session.access_token
-      ).catch((error) => {
-        console.error('[repo-setup] Background setup failed:', error);
-        // Error handling is done inside setupRepositorySimple
-      });
+      if (repo.provider === 'jira') {
+        const settings = repo.settings && typeof repo.settings === 'object'
+          ? (repo.settings as Record<string, any>)
+          : {};
+        const projectKey = typeof settings.jira_project_key === 'string' ? settings.jira_project_key : null;
+        const cloudId = typeof settings.cloud_id === 'string' ? settings.cloud_id : null;
+
+        setupJiraSourceSimple(
+          supabase,
+          setup.id,
+          {
+            repoId: repo.id,
+            userId: repo.user_id,
+            projectKey,
+            cloudId,
+          }
+        ).catch((error) => {
+          console.error('[repo-setup] Jira setup failed:', error);
+        });
+      } else {
+        setupRepositorySimple(
+          supabase,
+          setup.id,
+          repoUrl,
+          repo.default_branch || 'main',
+          repo.user_id,
+          'openai/gpt-4o-mini',
+          session.access_token
+        ).catch((error) => {
+          console.error('[repo-setup] Background setup failed:', error);
+          // Error handling is done inside setupRepositorySimple
+        });
+      }
 
       console.log(`[repo-setup] Background setup started successfully for setup ${setup.id}`);
 
@@ -324,7 +346,7 @@ export async function GET(request: NextRequest) {
     // Get repository info to normalize repo_id for querying repo_file_summaries
     const { data: repo, error: repoError } = await supabase
       .from('workspace_repos')
-      .select('repo_url')
+      .select('repo_url, provider, id')
       .eq('id', repoId)
       .single();
 
@@ -389,7 +411,7 @@ export async function GET(request: NextRequest) {
 
     // Get actual count from repo_file_summaries for accuracy
     let actualSummarizedFiles = setup.summarized_files || 0;
-    if (repo?.repo_url) {
+    if (repo?.provider !== 'jira' && repo?.repo_url) {
       try {
         const normalizedRepoId = normalizeRepoId(repo.repo_url);
         const branch = setup.branch || 'main';

@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { RepositorySetupWizard } from '@/components/RepositorySetupWizard';
+import { JiraSetupWizard } from '@/components/JiraSetupWizard';
 
 interface PageProps {
     searchParams: Promise<{
@@ -22,7 +23,7 @@ export default async function RepositorySetupPage({ searchParams }: PageProps) {
     const supabase = await createClient();
     const { data: repo, error } = await supabase
         .from('workspace_repos')
-        .select('id, name, repo_url')
+        .select('id, name, repo_url, provider')
         .eq('id', repoId)
         .single();
 
@@ -35,6 +36,10 @@ export default async function RepositorySetupPage({ searchParams }: PageProps) {
                 </div>
             </div>
         );
+    }
+
+    if (repo.provider === 'jira') {
+        return <JiraSetupWizard repoId={repoId} />;
     }
 
     return <RepositorySetupWizard repoId={repoId} />;
