@@ -36,7 +36,7 @@ export function LoginPageClient() {
         email,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/overview`
+          emailRedirectTo: `${window.location.origin}/documentation`
         }
       });
 
@@ -49,7 +49,7 @@ export function LoginPageClient() {
       if (signupData.session) {
         // Wait a moment for cookies to sync, then redirect with full page reload
         await new Promise(resolve => setTimeout(resolve, 100));
-        window.location.href = '/overview';
+        window.location.href = '/documentation';
         return;
       }
 
@@ -81,7 +81,7 @@ export function LoginPageClient() {
       if (data.session) {
         // Wait a moment for cookies to sync, then redirect with full page reload
         await new Promise(resolve => setTimeout(resolve, 100));
-        window.location.href = '/overview';
+        window.location.href = '/documentation';
         return;
       }
 

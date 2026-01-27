@@ -36,7 +36,6 @@ type NavItem = {
 };
 
 const primaryNav: NavItem[] = [
-  { href: '/overview', label: 'Overview', icon: Activity },
   { href: '/repos', label: 'Sources', icon: Database },
   { href: '/documentation', label: 'Docs', icon: FileText },
   { href: '/review', label: 'Review', icon: GitCompare, matchPrefix: true },
