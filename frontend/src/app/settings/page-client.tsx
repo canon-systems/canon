@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Settings, User, Link2, Sliders, Mail, Check, X, Loader2, Github } from 'lucide-react';
+import { Settings, User, Link2, Mail, Check, X, Loader2, Github } from 'lucide-react';
 import { IntegrationLogos } from '@/components/IntegrationLogos';
 import { getIntegrationsCached, clearIntegrationsCache } from '@/lib/client/integrationsCache';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
@@ -19,7 +19,7 @@ interface Connection {
   updated_at: string;
 }
 
-type TabId = 'profile' | 'integrations' | 'preferences';
+type TabId = 'profile' | 'integrations';
 
 // Repository and automation types moved to /automation page
 
@@ -29,8 +29,7 @@ interface SettingsPageClientProps {
 
 const tabs: Array<{ id: TabId; name: string; icon: React.ComponentType<{ className?: string }> }> = [
   { id: 'profile', name: 'Profile', icon: User },
-  { id: 'integrations', name: 'Integrations', icon: Link2 },
-  { id: 'preferences', name: 'Preferences', icon: Sliders }
+  { id: 'integrations', name: 'Integrations', icon: Link2 }
 ];
 
 export function SettingsPageClient({ user: initialUser }: SettingsPageClientProps) {
@@ -74,7 +73,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   // Get active tab from URL query param
   useEffect(() => {
     const tabParam = searchParams.get('tab');
-    const validTabs: TabId[] = ['profile', 'integrations', 'preferences'];
+    const validTabs: TabId[] = ['profile', 'integrations'];
     if (tabParam && validTabs.includes(tabParam as TabId)) {
       setActiveTab(tabParam as TabId);
     }
@@ -242,7 +241,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
             <h1 className="text-3xl font-bold text-white">Settings</h1>
           </div>
           <p className="text-white/70">
-            Manage your account settings, integrations, and preferences.
+            Manage your account settings and integrations.
           </p>
         </div>
 
@@ -609,28 +608,6 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                     ))}
                   </div>
                 )}
-              </div>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="preferences" className="mt-6">
-            {/* Preferences Tab */}
-            <div>
-              <div className="mb-6">
-                <h2 className="text-2xl font-semibold text-white mb-2">Preferences</h2>
-                <p className="text-white/70">Customize your application preferences</p>
-              </div>
-
-              <div className="rounded-xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm">
-                <div className="flex items-center justify-center py-12">
-                  <div className="text-center">
-                    <Sliders className="h-16 w-16 text-white/30 mx-auto mb-4" />
-                    <p className="text-white/60 mb-2">Preferences coming soon</p>
-                    <p className="text-sm text-white/40">
-                      Configure default LLM models, prompt settings, and other preferences here.
-                    </p>
-                  </div>
-                </div>
               </div>
             </div>
           </TabsContent>
