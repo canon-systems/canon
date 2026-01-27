@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Github, Search, Loader2, CheckCircle2, AlertCircle, ExternalLink, Plus, ChevronRight, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -26,8 +26,7 @@ interface GitHubRepo {
 export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryConnectionWizardProps) {
   const router = useRouter();
 
-  const [step, setStep] = useState<'search' | 'select' | 'branch' | 'connect'>('search');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [step, setStep] = useState<'select' | 'branch'>('select');
   const [searchResults, setSearchResults] = useState<GitHubRepo[]>([]);
   const [filteredResults, setFilteredResults] = useState<GitHubRepo[]>([]);
   const [repoFilterQuery, setRepoFilterQuery] = useState('');
@@ -40,7 +39,10 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
   const [isLoadingBranches, setIsLoadingBranches] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [hasGitHubConnection, setHasGitHubConnection] = useState(false);
+  const [hasGitHubConnection, setHasGitHubConnection] = useState<boolean | null>(null);
+  const [isCheckingConnection, setIsCheckingConnection] = useState(true);
+  const searchInFlightRef = useRef(false);
+  const hasLoadedReposRef = useRef(false);
 
   // Filter repositories based on search query
   useEffect(() => {
@@ -71,6 +73,7 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
   // Check GitHub connection status
   useEffect(() => {
     async function checkGitHubConnection() {
+      setIsCheckingConnection(true);
       try {
         const response = await fetch('/api/integrations/list');
         if (response.ok) {
@@ -82,20 +85,23 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
           setHasGitHubConnection(hasConnection);
         } else {
           console.error('Failed to check GitHub connection:', response.status);
+          setHasGitHubConnection(false);
         }
       } catch (err) {
         console.error('Failed to check GitHub connection:', err);
         // Assume no connection if we can't check
         setHasGitHubConnection(false);
+      } finally {
+        setIsCheckingConnection(false);
       }
     }
     checkGitHubConnection();
   }, []);
 
-  const searchRepositories = async (ownerOverride?: string) => {
-    const owner = ownerOverride ?? searchQuery.trim();
-    if (!owner || isSearching) return;
+  const searchRepositories = useCallback(async () => {
+    if (searchInFlightRef.current) return;
 
+    searchInFlightRef.current = true;
     setIsSearching(true);
     setError(null);
 
@@ -103,17 +109,15 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
       const response = await fetch('/api/github/repos', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ owner })
+        body: JSON.stringify({})
       });
 
       if (response.ok) {
         const data = await response.json();
         setSearchResults(data.repos || []);
         setFilteredResults(data.repos || []);
-        if (data.repos && data.repos.length > 0) {
-          setStep('select');
-        } else {
-          setError('No repositories found for this owner/organization.');
+        if (!data.repos || data.repos.length === 0) {
+          setError('No repositories found for this GitHub installation.');
         }
       } else {
         const errorData = await response.json().catch(() => ({}));
@@ -128,8 +132,9 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
       console.error('Search error:', err);
     } finally {
       setIsSearching(false);
+      searchInFlightRef.current = false;
     }
-  };
+  }, []);
 
   const fetchBranches = async (repo: GitHubRepo) => {
     setIsLoadingBranches(true);
@@ -208,11 +213,29 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
     }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      searchRepositories();
+  useEffect(() => {
+    if (hasGitHubConnection) {
+      if (!hasLoadedReposRef.current) {
+        hasLoadedReposRef.current = true;
+        searchRepositories();
+      }
     }
-  };
+  }, [hasGitHubConnection, searchRepositories]);
+
+  if (isCheckingConnection || hasGitHubConnection === null) {
+    return (
+      <div className="glass-panel p-8 text-center">
+        <Github className="h-16 w-16 text-white/20 mx-auto mb-4" />
+        <h2 className="text-xl font-semibold text-white mb-4">Checking GitHub connection</h2>
+        <p className="text-white/60 mb-6 max-w-md mx-auto">
+          Verifying your GitHub App installation...
+        </p>
+        <div className="flex justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-white/70" />
+        </div>
+      </div>
+    );
+  }
 
   if (!hasGitHubConnection) {
     return (
@@ -267,50 +290,10 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
         </div>
       )}
 
-      {step === 'search' && (
-        <div className="space-y-6">
-          <div className="field-group">
-            <span className="field-label">GitHub Owner/Organization</span>
-            <div className="flex gap-3">
-              <Input
-                className="field-input flex-1"
-                placeholder="Enter username or organization (e.g., 'canon', 'github', or @me for yours')"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyPress={handleKeyPress}
-              />
-              <Button
-                onClick={() => searchRepositories()}
-                disabled={!searchQuery.trim() || isSearching}
-                className="flex items-center gap-2"
-              >
-                {isSearching ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Search className="h-4 w-4" />
-                )}
-                {isSearching ? 'Searching...' : 'Search'}
-              </Button>
-            </div>
-            <p className="field-note">
-              Tip: use <code className="px-1 rounded bg-white/10">@me</code> to list all repositories the GitHub App installation can access.
-            </p>
-          </div>
-        </div>
-      )}
-
       {step === 'select' && (
         <div className="space-y-6">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold text-white">Select Repository</h3>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setStep('search')}
-              className="h-auto text-sm text-white/70 hover:text-white"
-            >
-              ← Back to search
-            </Button>
           </div>
 
           {/* Repository Filter Search */}
@@ -319,7 +302,7 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-white/40" />
               <Input
-                className="field-input pl-10"
+                className="field-input !pl-10"
                 placeholder="Search repositories by name, description..."
                 value={repoFilterQuery}
                 onChange={(e) => setRepoFilterQuery(e.target.value)}
@@ -342,7 +325,13 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
           </div>
 
           <div className="max-h-96 overflow-y-auto space-y-3">
-            {filteredResults.length === 0 && repoFilterQuery ? (
+            {isSearching && searchResults.length === 0 ? (
+              <div className="text-center py-8">
+                <Loader2 className="h-10 w-10 animate-spin text-blue-400 mx-auto mb-4" />
+                <h4 className="text-white/70 mb-2">Loading repositories</h4>
+                <p className="text-sm text-white/40">Fetching repositories you have access to...</p>
+              </div>
+            ) : filteredResults.length === 0 && repoFilterQuery ? (
               <div className="text-center py-8">
                 <Search className="h-12 w-12 text-white/20 mx-auto mb-4" />
                 <h4 className="text-white/60 mb-2">No repositories match your search</h4>
@@ -443,7 +432,7 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-white/40" />
               <Input
-                className="field-input pl-10"
+                className="field-input !pl-10"
                 placeholder="Search branches..."
                 value={branchFilterQuery}
                 onChange={(e) => setBranchFilterQuery(e.target.value)}

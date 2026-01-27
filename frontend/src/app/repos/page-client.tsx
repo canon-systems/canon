@@ -11,6 +11,7 @@ import {
   ExternalLink,
   FileText,
   Github,
+  Layers,
   MoreHorizontal,
   Plus,
   Settings,
@@ -86,6 +87,7 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
   const [jiraSiteName, setJiraSiteName] = useState('');
   const [jiraProjectKey, setJiraProjectKey] = useState('');
   const [jiraName, setJiraName] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
 
   // Redirect to ongoing setup if found
   useEffect(() => {
@@ -155,9 +157,6 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
     : `Add ${sourceOptions.find((option) => option.key === sourceMode)?.label ?? 'Source'} Source`;
 
   const handleDeleteRepository = async (repoId: string, repoName: string) => {
-    if (!confirm(`Disconnect ${repoName}? This will remove associated data and documents.`)) {
-      return;
-    }
     setDeletingRepoId(repoId);
     try {
       const response = await fetch(`/api/repos/${repoId}`, { method: 'DELETE' });
@@ -420,36 +419,20 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
       {filteredRepos.length === 0 ? (
         <Card className="border-white/10 bg-white/5 p-10 text-center">
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-white/10">
-            <Github className="h-6 w-6 text-white/70" />
+            <Layers className="h-6 w-6 text-white/70" />
           </div>
-          <CardTitle className="mt-4 text-xl text-white">No sources match that view</CardTitle>
-          <CardDescription className="mt-2 text-white/70">
-            Try adjusting filters or connect a new source.
-          </CardDescription>
-          <div className="mt-6 flex justify-center gap-3">
+          <CardTitle className="mt-4 text-xl text-white">No sources yet</CardTitle>
+          <div className="mt-6 flex justify-center">
             <Button onClick={handleConnectRepository}>
               <Plus className="h-4 w-4" />
               Add Source
             </Button>
-            <Button variant="secondary" asChild>
-              <Link href="/documentation">
-                <FileText className="h-4 w-4" />
-                Generate docs
-              </Link>
-            </Button>
           </div>
         </Card>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 px-1 sm:px-2 md:px-0">
+        <div className="flex flex-col gap-3 px-1 sm:px-2 md:px-0">
           {filteredRepos.map((repo) => {
             const statusMeta = getStatusMeta(repo);
-            const hasSummaries = repo.setup_status === 'ready' && repo.total_files && repo.total_files > 0;
-            const summaryProgress = hasSummaries
-              ? Math.min(
-                100,
-                Math.round(((repo.file_summary_count || 0) / (repo.total_files || 1)) * 100)
-              )
-              : 0;
             const isJira = repo.provider === 'jira';
             const sourceLabel = isJira
               ? (repo.settings?.jira_project_key || repo.name)
@@ -457,137 +440,131 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
             const sourceLink = repo.repo_url.startsWith('http') ? repo.repo_url : null;
 
             return (
-              <Card key={repo.id} className="border-white/10 bg-gradient-to-b from-white/8 to-black/60">
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-md shadow-indigo-500/20">
-                        {isJira ? <Activity className="h-5 w-5" /> : <Github className="h-5 w-5" />}
-                      </div>
-                      <div>
-                        <CardTitle className="text-white">{repo.name}</CardTitle>
-                        <CardDescription className="flex items-center gap-2 text-white/70">
-                          {sourceLabel}
-                          {sourceLink && (
-                            <Link href={sourceLink} target="_blank" rel="noreferrer" className="text-white/50 hover:text-white/80">
-                              <ExternalLink className="h-4 w-4" />
-                            </Link>
-                          )}
-                        </CardDescription>
-                      </div>
-                    </div>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full border border-white/10 bg-white/5">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem asChild>
-                          <Link href={`/repos/setup?repoId=${repo.id}`}>
-                            <Settings className="mr-2 h-4 w-4" />
-                            Setup
-                          </Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem asChild disabled={repo.setup_status !== 'ready' || isJira}>
-                          <Link href={`/documentation?repoId=${repo.id}`}>
-                            <FileText className="mr-2 h-4 w-4" />
-                            Generate Docs
-                          </Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem asChild>
-                          <Link href="/automation">
-                            <Zap className="mr-2 h-4 w-4" />
-                            Automation
-                          </Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          className="text-red-300 focus:bg-red-500/10"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteRepository(repo.id, repo.name);
-                          }}
-                        >
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          Disconnect
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+              <div key={repo.id} className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-gradient-to-r from-white/5 to-black/60 px-5 py-4 md:flex-row md:items-center md:justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-md shadow-indigo-500/20">
+                    {isJira ? <Activity className="h-5 w-5" /> : <Github className="h-5 w-5" />}
                   </div>
-                </CardHeader>
-
-                <CardContent className="space-y-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant={statusMeta.color as any} className="flex items-center gap-1">
-                      {statusMeta.icon}
-                      {statusMeta.label}
-                    </Badge>
-                    <Badge variant="outline" className="text-white/80">
-                      {isJira
-                        ? `Scope: ${repo.settings?.jira_project_key || 'Jira'}`
-                        : `Branch: ${repo.setup_branch || repo.default_branch || 'main'}`}
-                    </Badge>
-                    {repo.setup_status === 'ready' && (
-                      <Badge variant="success" className="text-emerald-200">
-                        Summaries: {repo.file_summary_count || 0}/{repo.total_files || 0}
-                      </Badge>
-                    )}
-                  </div>
-
-                  {hasSummaries && (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-sm text-white/70">
-                        <span>File summaries</span>
-                        <span>{summaryProgress}%</span>
-                      </div>
+                  <div>
+                    <div className="text-base font-semibold text-white">{repo.name}</div>
+                    <div className="flex items-center gap-2 text-sm text-white/70">
+                      <span>{sourceLabel}</span>
+                      {sourceLink && (
+                        <Link href={sourceLink} target="_blank" rel="noreferrer" className="text-white/50 hover:text-white/80">
+                          <ExternalLink className="h-4 w-4" />
+                        </Link>
+                      )}
                     </div>
-                  )}
-                </CardContent>
+                  </div>
+                </div>
 
-                <CardFooter className="flex flex-wrap justify-between gap-3">
-                  <div className="flex flex-wrap gap-2">
-                    <Button variant="secondary" asChild>
-                      <Link href={`/repos/setup?repoId=${repo.id}`}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant={statusMeta.color as any} className="flex items-center gap-1">
+                    {statusMeta.icon}
+                    {statusMeta.label}
+                  </Badge>
+                  <Badge variant="outline" className="text-white/80">
+                    {isJira
+                      ? `Scope: ${repo.settings?.jira_project_key || 'Jira'}`
+                      : `Branch: ${repo.setup_branch || repo.default_branch || 'main'}`}
+                  </Badge>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <div className="relative group">
+                    <Button size="icon" variant="secondary" asChild>
+                      <Link href={`/repos/setup?repoId=${repo.id}`} aria-label="Setup">
                         <Settings className="h-4 w-4" />
-                        Setup
                       </Link>
                     </Button>
+                    <span className="pointer-events-none absolute right-1/2 top-0 z-10 -translate-y-10 translate-x-1/2 whitespace-nowrap rounded-md border border-white/10 bg-black/90 px-2 py-1 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100">
+                      Setup
+                    </span>
+                  </div>
+                  <div className="relative group">
                     <Button
+                      size="icon"
                       variant="secondary"
                       disabled={repo.setup_status !== 'ready' || isJira}
                       asChild
                     >
-                      <Link href={`/documentation?repoId=${repo.id}`}>
+                      <Link href={`/documentation?repoId=${repo.id}`} aria-label="Generate Docs">
                         <FileText className="h-4 w-4" />
-                        Generate docs
                       </Link>
                     </Button>
-                    <Button variant="secondary" asChild>
-                      <Link href="/automation">
-                        <Zap className="h-4 w-4" />
-                        Automation
-                      </Link>
-                    </Button>
+                    <span className="pointer-events-none absolute right-1/2 top-0 z-10 -translate-y-10 translate-x-1/2 whitespace-nowrap rounded-md border border-white/10 bg-black/90 px-2 py-1 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100">
+                      Generate Docs
+                    </span>
                   </div>
-                  <Button
-                    variant="ghost"
-                    className="text-red-300 hover:text-red-200"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteRepository(repo.id, repo.name);
-                    }}
-                    disabled={deletingRepoId === repo.id}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    Disconnect
-                  </Button>
-                </CardFooter>
-              </Card>
+                  <div className="relative group">
+                    <Button size="icon" variant="secondary" asChild>
+                      <Link href="/automation" aria-label="Automation">
+                        <Zap className="h-4 w-4" />
+                      </Link>
+                    </Button>
+                    <span className="pointer-events-none absolute right-1/2 top-0 z-10 -translate-y-10 translate-x-1/2 whitespace-nowrap rounded-md border border-white/10 bg-black/90 px-2 py-1 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100">
+                      Automation
+                    </span>
+                  </div>
+                  <div className="relative group">
+                    <Button
+                      size="icon"
+                      variant="destructive"
+                      className="border border-red-500/40 bg-red-500/10 text-red-200 hover:bg-red-500/20"
+                      aria-label="Disconnect"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDeleteTarget({ id: repo.id, name: repo.name });
+                      }}
+                      disabled={deletingRepoId === repo.id}
+                    >
+                      <Trash2 className="h-4 w-4 text-red-300" />
+                    </Button>
+                    <span className="pointer-events-none absolute right-1/2 top-0 z-10 -translate-y-10 translate-x-1/2 whitespace-nowrap rounded-md border border-white/10 bg-black/90 px-2 py-1 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100">
+                      Disconnect
+                    </span>
+                  </div>
+                </div>
+              </div>
             );
           })}
         </div>
       )}
 
+
+      <Dialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+      >
+        <DialogContent className="max-w-md border-white/10 bg-black/95">
+          <DialogTitle className="text-white">Disconnect source?</DialogTitle>
+          <div className="space-y-4 text-sm text-white/70">
+            <p>
+              This will delete the record for{' '}
+              <span className="font-semibold text-white">{deleteTarget?.name}</span> and remove associated data.
+            </p>
+            <div className="flex items-center justify-end gap-2">
+              <Button variant="secondary" onClick={() => setDeleteTarget(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                className="border border-red-500/40 bg-red-500/10 text-red-200 hover:bg-red-500/20"
+                onClick={() => {
+                  if (deleteTarget) {
+                    void handleDeleteRepository(deleteTarget.id, deleteTarget.name);
+                    setDeleteTarget(null);
+                  }
+                }}
+              >
+                Disconnect
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={showSourceDialog}
