@@ -217,10 +217,6 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   // Repository management moved to /automation page
 
   // Connection status helpers for integrations tab
-  const isNotionConnected = connections.some(c => c.provider === 'notion' && c.status === 'active');
-  const isConfluenceConnected = connections.some(c => c.provider === 'confluence' && c.status === 'active');
-  const isGoogleDocsConnected = connections.some(c => c.provider === 'googledocs' && c.status === 'active');
-  const isGitHubConnected = connections.some(c => c.provider === 'github' && c.status === 'active');
   const gitHubConnection = connections.find(c => c.provider === 'github' && c.status === 'active');
   const githubInstallationId = (() => {
     const meta = gitHubConnection?.metadata;
@@ -320,294 +316,146 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                 </div>
               )}
 
-              {/* Available Integrations */}
-              <div className="mb-8">
-                <h2 className="text-xl font-semibold text-white mb-4">Available Integrations</h2>
-                <div className="grid gap-4 md:grid-cols-2">
-                  {/* GitHub Integration */}
-                  <div className="rounded-xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm">
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white/5">
-                          <Github className="h-7 w-7 text-white" />
-                        </div>
-                        <div>
-                          <h3 className="text-lg font-semibold text-white">GitHub</h3>
-                          <p className="text-sm text-white/60">Access your repositories and private repos</p>
-                        </div>
-                      </div>
-                      {isGitHubConnected && (
-                        <span className="flex items-center gap-1 rounded-full bg-green-500/20 px-3 py-1 text-xs text-green-300">
-                          <Check className="h-3 w-3" />
-                          Connected
-                        </span>
-                      )}
-                    </div>
-                    {isGitHubConnected ? (
-                      <div className="flex flex-col gap-3">
-                        <Button
-                          onClick={() => {
-                            if (githubInstallationId) {
-                              window.open(`https://github.com/settings/installations/${githubInstallationId}`, '_blank', 'noopener');
-                              return;
-                            }
-                            const installUrl = process.env.NEXT_PUBLIC_GITHUB_APP_INSTALL_URL;
-                            if (installUrl) {
-                              window.open(installUrl, '_blank', 'noopener');
-                            } else {
-                              setError('GitHub App install URL is not configured.');
-                            }
-                          }}
-                          variant="secondary"
-                          className="w-full border-white/20 bg-white/10 text-white hover:bg-white/20"
-                        >
-                          Manage installation
-                        </Button>
-                        <Button
-                          onClick={() => {
-                            const conn = connections.find(c => c.provider === 'github');
-                            if (conn) openDisconnectModal(conn.connection_id, 'github');
-                          }}
-                          variant="secondary"
-                          className="w-full border-red-500/50 bg-red-500/10 text-red-200 hover:bg-red-500/20"
-                        >
-                          Disconnect
-                        </Button>
-                      </div>
-                    ) : (
-                      <Button
-                        onClick={() => connectToProvider('github')}
-                        disabled={connecting}
-                        className="w-full bg-blue-600 text-white hover:bg-blue-700"
-                      >
-                        {connecting ? (
-                          <span className="flex items-center justify-center gap-2">
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            Connecting...
-                          </span>
-                        ) : (
-                          <span className="flex items-center justify-center gap-2">
-                            <Link2 className="h-4 w-4" />
-                            Connect GitHub
-                          </span>
-                        )}
-                      </Button>
-                    )}
+              {/* Integrations */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-xl font-semibold text-white">Integrations</h2>
+                    <p className="text-sm text-white/60">Connect the tools you use; view and manage them in one list.</p>
                   </div>
-
-                  {/* Notion Integration */}
-                  <div className="rounded-xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm">
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white/5">
-                          <IntegrationLogos provider="notion" size={28} />
-                        </div>
-                        <div>
-                          <h3 className="text-lg font-semibold text-white">Notion</h3>
-                          <p className="text-sm text-white/60">Access and sync your Notion pages</p>
-                        </div>
-                      </div>
-                      {isNotionConnected && (
-                        <span className="flex items-center gap-1 rounded-full bg-green-500/20 px-3 py-1 text-xs text-green-300">
-                          <Check className="h-3 w-3" />
-                          Connected
-                        </span>
-                      )}
-                    </div>
-                    {isNotionConnected ? (
-                      <Button
-                        onClick={() => {
-                          const conn = connections.find(c => c.provider === 'notion');
-                          if (conn) openDisconnectModal(conn.connection_id, 'notion');
-                        }}
-                        variant="secondary"
-                        className="w-full border-red-500/50 bg-red-500/10 text-red-200 hover:bg-red-500/20"
-                      >
-                        Disconnect
-                      </Button>
-                    ) : (
-                      <Button
-                        onClick={() => connectToProvider('notion')}
-                        disabled={connecting}
-                        className="w-full bg-blue-600 text-white hover:bg-blue-700"
-                      >
-                        {connecting ? (
-                          <span className="flex items-center justify-center gap-2">
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            Connecting...
-                          </span>
-                        ) : (
-                          <span className="flex items-center justify-center gap-2">
-                            <Link2 className="h-4 w-4" />
-                            Connect Notion
-                          </span>
-                        )}
-                      </Button>
-                    )}
-                  </div>
-
-                  {/* Confluence Integration */}
-                  <div className="rounded-xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm">
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white/5">
-                          <IntegrationLogos provider="confluence" size={28} />
-                        </div>
-                        <div>
-                          <h3 className="text-lg font-semibold text-white">Confluence</h3>
-                          <p className="text-sm text-white/60">Access and sync your Confluence pages</p>
-                        </div>
-                      </div>
-                      {isConfluenceConnected && (
-                        <span className="flex items-center gap-1 rounded-full bg-green-500/20 px-3 py-1 text-xs text-green-300">
-                          <Check className="h-3 w-3" />
-                          Connected
-                        </span>
-                      )}
-                    </div>
-                    {isConfluenceConnected ? (
-                      <Button
-                        onClick={() => {
-                          const conn = connections.find(c => c.provider === 'confluence');
-                          if (conn) openDisconnectModal(conn.connection_id, 'confluence');
-                        }}
-                        variant="secondary"
-                        className="w-full border-red-500/50 bg-red-500/10 text-red-200 hover:bg-red-500/20"
-                      >
-                        Disconnect
-                      </Button>
-                    ) : (
-                      <Button
-                        onClick={() => connectToProvider('confluence')}
-                        disabled={connecting}
-                        className="w-full bg-blue-600 text-white hover:bg-blue-700"
-                      >
-                        {connecting ? (
-                          <span className="flex items-center justify-center gap-2">
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            Connecting...
-                          </span>
-                        ) : (
-                          <span className="flex items-center justify-center gap-2">
-                            <Link2 className="h-4 w-4" />
-                            Connect Confluence
-                          </span>
-                        )}
-                      </Button>
-                    )}
-                  </div>
-
-                  {/* Google Docs Integration */}
-                  <div className="rounded-xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm">
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white/5">
-                          <IntegrationLogos provider="google-docs" size={28} />
-                        </div>
-                        <div>
-                          <h3 className="text-lg font-semibold text-white">Google Docs</h3>
-                          <p className="text-sm text-white/60">Access and sync your Google Docs</p>
-                        </div>
-                      </div>
-                      {isGoogleDocsConnected && (
-                        <span className="flex items-center gap-1 rounded-full bg-green-500/20 px-3 py-1 text-xs text-green-300">
-                          <Check className="h-3 w-3" />
-                          Connected
-                        </span>
-                      )}
-                    </div>
-                    {isGoogleDocsConnected ? (
-                      <Button
-                        onClick={() => {
-                          const conn = connections.find(c => c.provider === 'googledocs');
-                          if (conn) openDisconnectModal(conn.connection_id, 'googledocs');
-                        }}
-                        variant="secondary"
-                        className="w-full border-red-500/50 bg-red-500/10 text-red-200 hover:bg-red-500/20"
-                      >
-                        Disconnect
-                      </Button>
-                    ) : (<p>Connect Google Docs (Coming Soon)</p>
-                      // <button
-                      //   onClick={() => connectToProvider('google-docs')}
-                      //   disabled={connecting}
-                      //   className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                      // >
-                      //   {connecting ? (
-                      //     <span className="flex items-center justify-center gap-2">
-                      //       <Loader2 className="h-4 w-4 animate-spin" />
-                      //       Connecting...
-                      //     </span>
-                      //   ) : (
-                      //     <span className="flex items-center justify-center gap-2">
-                      //       {/* <Link2 className="h-4 w-4" /> */}
-                      //       Connect Google Docs (Coming Soon)
-                      //     </span>
-                      //   )}
-                      // </button>
-                    )}
-                  </div>
+                  {loading && (
+                    <span className="flex items-center gap-2 text-sm text-white/60">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Refreshing
+                    </span>
+                  )}
                 </div>
-              </div>
 
-              {/* Active Connections */}
-              <div>
-                <h2 className="text-xl font-semibold text-white mb-4">Active Connections</h2>
-                {loading ? (
-                  <div className="rounded-xl border border-white/10 bg-white/5 p-8 text-center">
-                    <Loader2 className="h-8 w-8 animate-spin text-white/50 mx-auto mb-2" />
-                    <p className="text-white/60">Loading connections...</p>
-                  </div>
-                ) : connections.length === 0 ? (
-                  <div className="rounded-xl border border-white/10 bg-white/5 p-8 text-center">
-                    <Link2 className="h-12 w-12 text-white/30 mx-auto mb-4" />
-                    <p className="text-white/60">No active connections</p>
-                    <p className="text-sm text-white/40 mt-2">Connect an integration above to get started</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {connections.map(connection => (
-                      <div key={connection.id} className="rounded-lg border border-white/10 bg-white/5 p-4 backdrop-blur-sm">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/5">
-                              {connection.provider === 'github' ? (
-                                <Github className="h-6 w-6 text-white" />
-                              ) : (
-                                <IntegrationLogos
-                                  provider={(connection.provider === 'googledocs' ? 'google-docs' : connection.provider) as 'notion' | 'slack' | 'confluence' | 'google-docs' | 'jira'}
-                                  size={24}
-                                />
+                <div className="space-y-3">
+                  {[
+                    {
+                      provider: 'github',
+                      name: 'GitHub',
+                      description: 'Install our GitHub App to sync repos and PR context.',
+                      icon: <Github className="h-7 w-7 text-white" />
+                    },
+                    {
+                      provider: 'notion',
+                      name: 'Notion',
+                      description: 'Sync pages and databases for richer answers.',
+                      icon: <IntegrationLogos provider="notion" size={28} />
+                    },
+                    {
+                      provider: 'confluence',
+                      name: 'Confluence',
+                      description: 'Keep your Confluence spaces searchable and fresh.',
+                      icon: <IntegrationLogos provider="confluence" size={28} />
+                    },
+                    {
+                      provider: 'googledocs',
+                      name: 'Google Docs',
+                      description: 'Bring docs into canon. Coming soon.',
+                      icon: <IntegrationLogos provider="google-docs" size={28} />,
+                      comingSoon: true
+                    }
+                  ].map(card => {
+                    const connection = connections.find(c => c.provider === card.provider);
+                    const connected = connection?.status === 'active';
+                    const connectedOn = connection?.created_at ? formatDate(connection.created_at) : null;
+
+                    return (
+                      <div
+                        key={card.provider}
+                        className="rounded-lg border border-white/10 bg-white/5 p-4 backdrop-blur-sm flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white/5">
+                            {card.icon}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h3 className="text-lg font-semibold text-white">{card.name}</h3>
+                              {connected && (
+                                <span className="flex items-center gap-1 rounded-full bg-green-500/20 px-2 py-0.5 text-[11px] text-green-300">
+                                  <Check className="h-3 w-3" />
+                                  Connected
+                                </span>
+                              )}
+                              {card.comingSoon && !connected && (
+                                <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-white/60">
+                                  Coming soon
+                                </span>
                               )}
                             </div>
-                            <div>
-                              <p className="font-medium text-white">{getProviderName(connection.provider)}</p>
-                              <p className="text-xs text-white/60">
-                                Connected {formatDate(connection.created_at)}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {connection.status === 'active' && (
-                              <span className="flex items-center gap-1 rounded-full bg-green-500/20 px-2 py-1 text-xs text-green-300">
-                                <Check className="h-3 w-3" />
-                                Active
-                              </span>
+                            <p className="text-sm text-white/60">{card.description}</p>
+                            {connectedOn && (
+                              <p className="mt-1 text-xs text-white/50">Connected {connectedOn}</p>
                             )}
-                            <Button
-                              variant="secondary"
-                              size="icon"
-                              onClick={() => openDisconnectModal(connection.connection_id, connection.provider)}
-                              className="border-red-500/50 bg-red-500/10 text-red-200 hover:bg-red-500/20"
-                            >
-                              <X className="h-4 w-4" />
-                            </Button>
                           </div>
                         </div>
+
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end sm:gap-3 w-full sm:w-auto">
+                          {connected ? (
+                            <>
+                              {card.provider === 'github' && (
+                                <Button
+                                  onClick={() => {
+                                    if (githubInstallationId) {
+                                      window.open(`https://github.com/settings/installations/${githubInstallationId}`, '_blank', 'noopener');
+                                      return;
+                                    }
+                                    const installUrl = process.env.NEXT_PUBLIC_GITHUB_APP_INSTALL_URL;
+                                    if (installUrl) {
+                                      window.open(installUrl, '_blank', 'noopener');
+                                    } else {
+                                      setError('GitHub App install URL is not configured.');
+                                    }
+                                  }}
+                                  variant="secondary"
+                                  className="w-full sm:w-auto border-white/20 bg-white/10 text-white hover:bg-white/20"
+                                >
+                                  Manage installation
+                                </Button>
+                              )}
+                              <Button
+                                onClick={() => {
+                                  if (connection) openDisconnectModal(connection.connection_id, card.provider);
+                                }}
+                                variant="secondary"
+                                className="w-full sm:w-auto border-red-500/50 bg-red-500/10 text-red-200 hover:bg-red-500/20"
+                              >
+                                Disconnect
+                              </Button>
+                            </>
+                          ) : !card.comingSoon ? (
+                            <Button
+                              onClick={() => connectToProvider(card.provider)}
+                              disabled={connecting}
+                              className="w-full sm:w-auto bg-blue-600 text-white hover:bg-blue-700"
+                            >
+                              {connecting ? (
+                                <span className="flex items-center justify-center gap-2">
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                  Connecting...
+                                </span>
+                              ) : (
+                                <span className="flex items-center justify-center gap-2">
+                                  <Link2 className="h-4 w-4" />
+                                  {`Connect ${card.name}`}
+                                </span>
+                              )}
+                            </Button>
+                          ) : (
+                            <div className="flex items-center gap-2 text-sm text-white/50">
+                              <Loader2 className="h-4 w-4 animate-spin text-white/40" />
+                              <span>Coming soon</span>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    ))}
-                  </div>
-                )}
+                    );
+                  })}
+                </div>
               </div>
             </div>
           </TabsContent>
