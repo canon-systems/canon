@@ -35,6 +35,7 @@ import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { RepositoryConnectionWizard } from '@/components/RepositoryConnectionWizard';
+import { IntegrationLogos } from '@/components/IntegrationLogos';
 
 interface Repository {
   id: string;
@@ -63,8 +64,7 @@ type SourceOption = {
   key: SourceKey;
   label: string;
   description: string;
-  helper: string;
-  icon: typeof Github;
+  provider: 'github' | 'jira';
   onSelect: () => void;
 };
 
@@ -134,17 +134,15 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
     {
       key: 'github',
       label: 'GitHub',
-      description: 'Connect repositories and index code.',
-      helper: 'Best for codebases and PR-driven updates.',
-      icon: Github,
+      description: 'Connect your codebase.',
+      provider: 'github',
       onSelect: () => setSourceMode('github'),
     },
     {
       key: 'jira',
       label: 'Jira',
-      description: 'Connect projects and index tickets.',
-      helper: 'Best for product and delivery activity.',
-      icon: Activity,
+      description: 'Connect projects.',
+      provider: 'jira',
       onSelect: () => {
         setSourceMode('jira');
         loadJiraSites();
@@ -443,7 +441,7 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
               <div key={repo.id} className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-gradient-to-r from-white/5 to-black/60 px-5 py-4 md:flex-row md:items-center md:justify-between">
                 <div className="flex items-center gap-4">
                   <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-md shadow-indigo-500/20">
-                    {isJira ? <Activity className="h-5 w-5" /> : <Github className="h-5 w-5" />}
+                    <IntegrationLogos provider={isJira ? 'jira' : 'github'} size={20} color="#ffffff" />
                   </div>
                   <div>
                     <div className="text-base font-semibold text-white">{repo.name}</div>
@@ -580,11 +578,9 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
             <div className="space-y-6 p-6">
               <div>
                 <h3 className="text-xl font-semibold text-white">Choose a source to connect</h3>
-                <p className="text-sm text-white/60">Pick the system you want to index for updates.</p>
               </div>
               <div className="grid gap-4 md:grid-cols-2">
                 {sourceOptions.map((option) => {
-                  const Icon = option.icon;
                   return (
                     <button
                       key={option.key}
@@ -595,7 +591,7 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
                       <div className="flex items-start justify-between">
                         <div className="flex items-center gap-3">
                           <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-white/10">
-                            <Icon className="h-6 w-6 text-white" />
+                            <IntegrationLogos provider={option.provider} size={24} color="#ffffff" />
                           </div>
                           <div>
                             <p className="text-lg font-semibold text-white">{option.label}</p>
@@ -603,7 +599,6 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
                           </div>
                         </div>
                       </div>
-                      <p className="mt-4 text-xs text-white/50">{option.helper}</p>
                     </button>
                   );
                 })}

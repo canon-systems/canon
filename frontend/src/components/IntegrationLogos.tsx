@@ -5,6 +5,7 @@ import * as simpleIcons from 'simple-icons';
 interface IntegrationLogosProps {
   size?: number;
   provider: 'notion' | 'slack' | 'confluence' | 'google-docs' | 'googledocs' | 'jira' | 'github' | 'coda';
+  color?: string;
 }
 
 // Map provider names to simple-icons export names
@@ -19,9 +20,10 @@ const iconMap: Record<string, keyof typeof simpleIcons> = {
   'coda': 'siCoda'
 };
 
-export function IntegrationLogos({ size = 24, provider }: IntegrationLogosProps) {
+export function IntegrationLogos({ size = 24, provider, color }: IntegrationLogosProps) {
   const iconKey = iconMap[provider] || 'siNotion';
   const icon = simpleIcons[iconKey] as { title: string; hex: string; path: string };
+  const fill = color || `#${icon.hex}`;
 
   return (
     <svg
@@ -34,8 +36,7 @@ export function IntegrationLogos({ size = 24, provider }: IntegrationLogosProps)
       aria-label={icon.title}
     >
       <title>{icon.title}</title>
-      <path d={icon.path} fill={`#${icon.hex}`} />
+      <path d={icon.path} fill={fill} />
     </svg>
   );
 }
-
