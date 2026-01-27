@@ -1,24 +1,17 @@
 'use client';
 
-import { useEffect, useMemo, useState, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
+import { useMemo, useState, useEffect, useCallback } from 'react';
 import {
   Activity,
   AlertTriangle,
   CheckCircle2,
   Clock,
-  ExternalLink,
-  FileText,
   Github,
   Layers,
   Plus,
-  Settings,
   Trash2,
-  Zap,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import {
   Card,
@@ -28,26 +21,17 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { RepositoryConnectionWizard } from '@/components/RepositoryConnectionWizard';
 import { IntegrationLogos } from '@/components/IntegrationLogos';
+import { Input } from '@/components/ui/input';
 
 interface Repository {
   id: string;
   name: string;
-  repo_url?: string;
-  external_url?: string;
-  external_id?: string;
-  default_branch: string;
-  source_type?: string;
-  provider?: string;
-  settings?: Record<string, unknown>;
-  setup_status?: string | null;
-  setup_branch?: string;
-  file_summary_status?: 'complete' | 'partial' | 'none';
-  file_summary_count?: number;
-  total_files?: number;
+  provider: string;
+  scope: Record<string, unknown>;
+  connection_id?: string | null;
+  status_payload?: Record<string, unknown> | null;
+  last_error?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -57,100 +41,79 @@ interface RepositoriesPageClientProps {
 }
 
 type StatusFilter = 'all' | 'ready' | 'processing' | 'failed' | 'not_started';
-type SourceKey = 'github' | 'jira';
 
-type SourceOption = {
-  key: SourceKey;
-  label: string;
-  description: string;
-  provider: 'github' | 'jira';
-  onSelect: () => void;
+type GithubRepo = { id: string; full_name: string; name: string; default_branch: string };
+type JiraProject = { id: string; key: string; name: string };
+
+const parseGithubRepos = (data: unknown): GithubRepo[] => {
+  const repos = (data as { repos?: unknown })?.repos;
+  if (!Array.isArray(repos)) return [];
+
+  return repos
+    .map((repo) => {
+      if (!repo || typeof repo !== 'object') return null;
+      const obj = repo as Record<string, unknown>;
+      const fullName =
+        typeof obj.full_name === 'string'
+          ? obj.full_name
+          : typeof obj.name === 'string'
+            ? obj.name
+            : '';
+      const name =
+        typeof obj.name === 'string'
+          ? obj.name
+          : fullName.split('/').pop() || fullName || '';
+      const idValue = obj.id ?? fullName ?? name;
+      if (!idValue) return null;
+      const defaultBranch = typeof obj.default_branch === 'string' ? obj.default_branch : 'main';
+      return {
+        id: String(idValue),
+        full_name: fullName || name,
+        name: name || fullName,
+        default_branch: defaultBranch,
+      };
+    })
+    .filter((repo): repo is GithubRepo => Boolean(repo?.id));
+};
+
+const parseJiraProjects = (data: unknown): JiraProject[] => {
+  const projects = (data as { projects?: unknown })?.projects;
+  if (!Array.isArray(projects)) return [];
+
+  return projects
+    .map((project) => {
+      if (!project || typeof project !== 'object') return null;
+      const obj = project as Record<string, unknown>;
+      const idSource = obj.id ?? obj.key ?? obj.name;
+      if (!idSource) return null;
+      const key = obj.key ?? obj.name ?? '';
+      const name = obj.name ?? obj.key ?? '';
+      return { id: String(idSource), key: String(key), name: String(name) };
+    })
+    .filter((project): project is JiraProject => Boolean(project?.id));
 };
 
 export default function RepositoriesPageClient({ repositories }: RepositoriesPageClientProps) {
-  const router = useRouter();
   const [showSourceDialog, setShowSourceDialog] = useState(false);
-  const [sourceMode, setSourceMode] = useState<'select' | SourceKey>('select');
+  const [loadingSources, setLoadingSources] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const [availableGithub, setAvailableGithub] = useState<Array<{ id: string; full_name: string; name: string; default_branch: string }>>([]);
+  const [availableJira, setAvailableJira] = useState<Array<{ id: string; key: string; name: string }>>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [sourceSearch, setSourceSearch] = useState('');
   const [deletingRepoId, setDeletingRepoId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [jiraProjects, setJiraProjects] = useState<Array<{ id: string; key: string; name: string }>>([]);
-  const [jiraLoading, setJiraLoading] = useState(false);
-  const [jiraError, setJiraError] = useState('');
-  const [jiraWarning, setJiraWarning] = useState('');
-  const [jiraSites, setJiraSites] = useState<Array<{ id: string; name: string; url: string }>>([]);
-  const [jiraSitesLoading, setJiraSitesLoading] = useState(false);
-  const [jiraSitesError, setJiraSitesError] = useState('');
-  const [jiraCloudId, setJiraCloudId] = useState('');
-  const [jiraSiteUrl, setJiraSiteUrl] = useState('');
-  const [jiraSiteName, setJiraSiteName] = useState('');
-  const [jiraProjectKey, setJiraProjectKey] = useState('');
-  const [jiraName, setJiraName] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
-
-  // Redirect to ongoing setup if found
-  useEffect(() => {
-    const checkOngoingSetups = async () => {
-      for (const repo of repositories) {
-        if (repo.setup_status === 'analyzing') {
-          try {
-            const response = await fetch(`/api/repos/setup?sourceId=${repo.id}`);
-            const data = await response.json();
-            if (response.ok && data.setup?.setup_status === 'analyzing') {
-              router.push(`/repos/setup?sourceId=${repo.id}`);
-              break;
-            }
-          } catch (error) {
-            console.error('Error checking setup status:', error);
-          }
-        }
-      }
-    };
-    if (repositories.length > 0) checkOngoingSetups();
-  }, [repositories, router]);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState('');
 
   const handleConnectRepository = () => {
-    setSourceMode('select');
     setShowSourceDialog(true);
+    setCreateError('');
+    setLoadError('');
+    void loadAvailableSources();
   };
-
-  const handleConnectionComplete = (repoId: string) => {
-    setShowSourceDialog(false);
-    router.push(`/repos/setup?sourceId=${repoId}`);
-  };
-
-  const handleJiraCreated = (repoId: string) => {
-    setShowSourceDialog(false);
-    setJiraProjectKey('');
-    setJiraName('');
-    setJiraCloudId('');
-    setJiraSiteUrl('');
-    setJiraSiteName('');
-    router.push(`/repos/setup?sourceId=${repoId}`);
-  };
-
-  const sourceOptions = useMemo<SourceOption[]>(() => [
-    {
-      key: 'github',
-      label: 'GitHub',
-      description: 'Connect your codebase.',
-      provider: 'github',
-      onSelect: () => setSourceMode('github'),
-    },
-    {
-      key: 'jira',
-      label: 'Jira',
-      description: 'Connect projects.',
-      provider: 'jira',
-      onSelect: () => {
-        setSourceMode('jira');
-      },
-    },
-  ], []);
-
-  const sourceTitle = sourceMode === 'select'
-    ? 'Add Source'
-    : `Add ${sourceOptions.find((option) => option.key === sourceMode)?.label ?? 'Source'} Source`;
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleDeleteRepository = async (repoId: string, _repoName: string) => {
@@ -172,12 +135,46 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
   };
 
   const statusCounts = useMemo(() => {
-    const ready = repositories.filter((r) => r.setup_status === 'ready').length;
-    const processing = repositories.filter((r) => r.setup_status === 'analyzing').length;
-    const failed = repositories.filter((r) => r.setup_status === 'failed').length;
-    const notStarted = repositories.filter((r) => !r.setup_status || r.setup_status === 'pending').length;
+    const ready = repositories.filter((r) => {
+      const status = (r.status_payload?.status as string) || '';
+      return status === 'ready' || status === 'draft_ready';
+    }).length;
+    const processing = repositories.filter((r) => {
+      const status = (r.status_payload?.status as string) || '';
+      return status === 'queueing' || status === 'ingesting';
+    }).length;
+    const failed = repositories.filter((r) => {
+      const status = (r.status_payload?.status as string) || '';
+      return status === 'failed' || status === 'error';
+    }).length;
+    const notStarted = repositories.filter((r) => {
+      const status = (r.status_payload?.status as string) || '';
+      return !status || status === 'pending';
+    }).length;
     return { total: repositories.length, ready, processing, failed, notStarted };
   }, [repositories]);
+
+  const availableSources = useMemo(() => {
+    const repos = availableGithub.map((r) => ({
+      key: `github:${r.id}`,
+      label: r.name || r.full_name,
+      subtitle: `Branch: ${r.default_branch || 'main'}`,
+      provider: 'github' as const,
+    }));
+    const jira = availableJira.map((p) => ({
+      key: `jira:${p.id}`,
+      label: p.name || p.key,
+      subtitle: `Key: ${p.key}`,
+      provider: 'jira' as const,
+    }));
+    return [...repos, ...jira].sort((a, b) => a.label.localeCompare(b.label));
+  }, [availableGithub, availableJira]);
+
+  const filteredAvailableSources = useMemo(() => {
+    const term = sourceSearch.trim().toLowerCase();
+    if (!term) return availableSources;
+    return availableSources.filter((s) => s.label.toLowerCase().includes(term) || s.subtitle.toLowerCase().includes(term));
+  }, [availableSources, sourceSearch]);
 
   const filteredRepos = useMemo(() => {
     return repositories.filter((repo) => {
@@ -185,14 +182,15 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
       const matchesSearch =
         !term ||
         repo.name.toLowerCase().includes(term) ||
-        (repo.external_url || repo.repo_url || '').toLowerCase().includes(term);
+        JSON.stringify(repo.scope || {}).toLowerCase().includes(term);
 
+      const statusValue = (repo.status_payload?.status as string) || '';
       const status =
-        repo.setup_status === 'ready'
+        statusValue === 'ready' || statusValue === 'draft_ready'
           ? 'ready'
-          : repo.setup_status === 'analyzing'
+          : statusValue === 'queueing' || statusValue === 'ingesting'
             ? 'processing'
-            : repo.setup_status === 'failed'
+            : statusValue === 'failed' || statusValue === 'error'
               ? 'failed'
               : 'not_started';
 
@@ -202,133 +200,167 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
   }, [repositories, searchQuery, statusFilter]);
 
   const getStatusMeta = (repo: Repository) => {
-    if (repo.setup_status === 'ready') {
+    const status = (repo.status_payload?.status as string) || '';
+    if (status === 'ready' || status === 'draft_ready') {
       return { label: 'Connected', color: 'success', tone: 'text-emerald-200', icon: <CheckCircle2 className="h-4 w-4" /> };
     }
-    if (repo.setup_status === 'analyzing') {
+    if (status === 'queueing' || status === 'ingesting') {
       return { label: 'Processing', color: 'default', tone: 'text-blue-200', icon: <Clock className="h-4 w-4" /> };
     }
-    if (repo.setup_status === 'failed') {
+    if (status === 'failed' || status === 'error') {
       return { label: 'Failed', color: 'destructive', tone: 'text-red-200', icon: <AlertTriangle className="h-4 w-4" /> };
     }
     return { label: 'Not started', color: 'outline', tone: 'text-white/70', icon: <Activity className="h-4 w-4" /> };
   };
 
-  const loadJiraProjects = useCallback(async (cloudId?: string) => {
-    if (jiraLoading) return;
-    setJiraLoading(true);
-    setJiraError('');
-    setJiraWarning('');
-    try {
-      if (!cloudId) {
-        throw new Error('Select a Jira workspace to load projects.');
-      }
-      const response = await fetch(`/api/jira/projects?cloudId=${encodeURIComponent(cloudId)}`);
-      const data = await response.json();
-      if (!response.ok) {
-        const detail = data.error || data.detail || 'Failed to load Jira projects';
-        throw new Error(`${detail}. Make sure Confluence is connected with read:jira-work and Jira is enabled for this site.`);
-      }
-      const projects = Array.isArray(data.projects) ? data.projects : [];
-      setJiraProjects(projects);
-      if (typeof data.warning === 'string' && data.warning.trim()) {
-        setJiraWarning(data.warning.trim());
-      }
-    } catch (err: unknown) {
-      setJiraError(err instanceof Error ? err.message : 'Failed to load Jira projects');
-    } finally {
-      setJiraLoading(false);
+  const displayScope = (repo: Repository) => {
+    if (!repo.scope) return 'Scope: —';
+    if (repo.provider === 'github' && typeof repo.scope.repo === 'string') {
+      return `Repo: ${repo.scope.repo}${repo.scope.branch ? ` @ ${repo.scope.branch}` : ''}`;
     }
-  }, [jiraLoading, setJiraLoading, setJiraError, setJiraWarning, setJiraProjects]);
+    if (repo.provider === 'jira' && typeof repo.scope.project === 'string') {
+      return `Jira: ${repo.scope.project}`;
+    }
+    if (repo.provider === 'slack' && typeof repo.scope.channel === 'string') {
+      return `Slack: #${repo.scope.channel}`;
+    }
+    return 'Scope: configured';
+  };
 
-  const selectJiraSite = useCallback(async (site: { id: string; name: string; url: string }) => {
-    setJiraCloudId(site.id);
-    setJiraSiteUrl(site.url);
-    setJiraSiteName(site.name);
-    setJiraProjects([]);
-    setJiraProjectKey('');
-    setJiraWarning('');
-    setJiraError('');
-    await fetch('/api/jira/workspace', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        cloudId: site.id,
-        siteUrl: site.url,
-        siteName: site.name,
-      }),
-    }).catch(() => { });
-    await loadJiraProjects(site.id);
-  }, [loadJiraProjects, setJiraCloudId, setJiraSiteUrl, setJiraSiteName, setJiraProjects, setJiraProjectKey, setJiraWarning, setJiraError]);
-
-  const loadJiraSites = useCallback(async () => {
-    if (jiraSitesLoading) return;
-    setJiraSitesLoading(true);
-    setJiraSitesError('');
+  const loadAvailableSources = useCallback(async () => {
+    setLoadingSources(true);
+    setLoadError('');
     try {
-      const response = await fetch('/api/jira/sites');
-      const data = await response.json();
-      if (!response.ok) {
-        const detail = data.error || data.detail || 'Failed to load Jira workspaces';
-        throw new Error(detail);
-      }
-      const sites: Array<{ id: string; name: string; url: string }> = Array.isArray(data.sites)
-        ? (data.sites as Array<{ id: string; name: string; url: string }>)
-        : [];
+      const [ghRes, jiraRes] = await Promise.allSettled([
+        fetch('/api/github/repos', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        }),
+        fetch('/api/jira/projects'),
+      ]);
 
-      // Deduplicate by id as a safeguard (server should already do this)
-      const uniqueSitesMap = new Map<string, { id: string; name: string; url: string }>();
-      for (const site of sites) {
-        if (!uniqueSitesMap.has(site.id)) {
-          uniqueSitesMap.set(site.id, site);
+      let ghRepos: Array<{ id: string; full_name: string; name: string; default_branch: string }> = [];
+
+      if (ghRes.status === 'fulfilled') {
+        const ghData = await ghRes.value.json();
+        ghRepos = parseGithubRepos(ghData);
+      } else {
+        setLoadError('Failed to load GitHub repositories.');
+      }
+
+      const fetchProjectsForCloud = async (cloudId: string) => {
+        const res = await fetch(`/api/jira/projects?cloudId=${encodeURIComponent(cloudId)}`);
+        if (!res.ok) return [];
+        const data = await res.json();
+        return parseJiraProjects(data);
+      };
+
+      let jiraProjects: Array<{ id: string; key: string; name: string }> = [];
+
+      // First attempt: default projects call
+      if (jiraRes.status === 'fulfilled') {
+        const jiraData = await jiraRes.value.json();
+        jiraProjects = parseJiraProjects(jiraData);
+      }
+
+      // Fallback: iterate sites until we find projects
+      if (jiraProjects.length === 0) {
+        const sitesRes = await fetch('/api/jira/sites');
+        if (sitesRes.ok) {
+          const sitesData = await sitesRes.json();
+          const sites = Array.isArray(sitesData?.sites) ? sitesData.sites : [];
+          for (const site of sites) {
+            if (!site?.id) continue;
+            jiraProjects = await fetchProjectsForCloud(String(site.id));
+            if (jiraProjects.length > 0) break;
+          }
         }
       }
-      const uniqueSites = Array.from(uniqueSitesMap.values());
 
-      setJiraSites(uniqueSites);
-      if (uniqueSites.length === 1) {
-        selectJiraSite(uniqueSites[0]);
+      // Apply both sets at once to avoid staggered rendering
+      setAvailableGithub(ghRepos);
+      setAvailableJira(jiraProjects);
+      if (jiraProjects.length === 0) {
+        setLoadError((prev) => prev || 'No Jira projects found. Ensure Jira/Confluence OAuth is connected.');
       }
-    } catch (err: unknown) {
-      setJiraSitesError(err instanceof Error ? err.message : 'Failed to load Jira workspaces');
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Failed to load sources.');
     } finally {
-      setJiraSitesLoading(false);
+      setLoadingSources(false);
     }
-  }, [jiraSitesLoading, selectJiraSite]);
+  }, [setLoadingSources, setLoadError, setAvailableGithub, setAvailableJira]);
 
-  // Load Jira sites when source mode changes to 'jira'
   useEffect(() => {
-    if (sourceMode === 'jira' && showSourceDialog) {
-      loadJiraSites();
+    if (showSourceDialog) {
+      void loadAvailableSources();
     }
-  }, [sourceMode, showSourceDialog, loadJiraSites]);
+  }, [showSourceDialog, loadAvailableSources]);
 
-  async function createJiraSource() {
+  const toggleSelection = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const createSources = async () => {
+    setCreating(true);
+    setCreateError('');
     try {
-      setJiraError('');
-      if (!jiraCloudId) {
-        throw new Error('Select a Jira workspace before creating a source.');
+      if (selectedIds.size === 0) {
+        throw new Error('Select at least one source to add.');
       }
-      const response = await fetch('/api/jira/source', {
+
+      const sources: Array<{ provider: string; name: string; scope: Record<string, unknown>; connection_id: string | null }> = [];
+
+      for (const repo of availableGithub) {
+        const key = `github:${repo.id}`;
+        if (selectedIds.has(key)) {
+          sources.push({
+            provider: 'github',
+            name: repo.full_name,
+            scope: { repo: repo.full_name, branch: repo.default_branch || 'main' },
+            connection_id: null,
+          });
+        }
+      }
+
+      for (const project of availableJira) {
+        const key = `jira:${project.id}`;
+        if (selectedIds.has(key)) {
+          sources.push({
+            provider: 'jira',
+            name: project.name || project.key,
+            scope: { project: project.key },
+            connection_id: null,
+          });
+        }
+      }
+
+      const payload = { sources };
+
+      const response = await fetch('/api/repos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectKey: jiraProjectKey || undefined,
-          name: jiraName || undefined,
-          cloudId: jiraCloudId,
-          siteUrl: jiraSiteUrl || undefined,
-          siteName: jiraSiteName || undefined,
-        })
+        body: JSON.stringify(payload),
       });
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data.error || data.detail || 'Failed to create Jira source');
+        throw new Error(data.error || data.detail || 'Failed to create sources');
       }
-      handleJiraCreated(data.id);
+
+      setShowSourceDialog(false);
+      // reload to show new sources
+      window.location.reload();
     } catch (err: unknown) {
-      setJiraError(err instanceof Error ? err.message : 'Failed to create Jira source');
+      setCreateError(err instanceof Error ? err.message : 'Failed to create sources');
+    } finally {
+      setCreating(false);
     }
-  }
+  };
 
   return (
     <div className="space-y-8 px-1 sm:px-2 md:px-0">
@@ -395,18 +427,17 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
               onChange={(e) => setSearchQuery(e.currentTarget.value)}
               className="max-w-lg"
             />
-            <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as StatusFilter)}>
-              <SelectTrigger className="w-48">
-                <SelectValue placeholder="All statuses" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All statuses</SelectItem>
-                <SelectItem value="ready">Ready</SelectItem>
-                <SelectItem value="processing">Processing</SelectItem>
-                <SelectItem value="failed">Failed</SelectItem>
-                <SelectItem value="not_started">Not started</SelectItem>
-              </SelectContent>
-            </Select>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.currentTarget.value as StatusFilter)}
+              className="w-48 rounded-lg border border-white/20 bg-black/60 px-3 py-2 text-sm text-white outline-none focus:border-blue-500"
+            >
+              <option value="all">All statuses</option>
+              <option value="ready">Ready</option>
+              <option value="processing">Processing</option>
+              <option value="failed">Failed</option>
+              <option value="not_started">Not started</option>
+            </select>
           </div>
           <div className="flex gap-2">
             <Button variant="secondary" onClick={() => { setSearchQuery(''); setStatusFilter('all'); }}>
@@ -437,32 +468,15 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
         <div className="flex flex-col gap-3 px-1 sm:px-2 md:px-0">
           {filteredRepos.map((repo) => {
             const statusMeta = getStatusMeta(repo);
-            const isJira = repo.provider === 'jira';
-            const displayUrl = repo.external_url || repo.repo_url || '';
-            const jiraProjectKey = repo.settings && typeof repo.settings === 'object' && 'jira_project_key' in repo.settings && typeof repo.settings.jira_project_key === 'string'
-              ? repo.settings.jira_project_key
-              : null;
-            const sourceLabel = isJira
-              ? (jiraProjectKey || repo.name)
-              : displayUrl.replace('https://github.com/', '');
-            const sourceLink = displayUrl.startsWith('http') ? displayUrl : null;
-
             return (
               <div key={repo.id} className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-gradient-to-r from-white/5 to-black/60 px-5 py-4 md:flex-row md:items-center md:justify-between">
                 <div className="flex items-center gap-4">
                   <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-md shadow-indigo-500/20">
-                    <IntegrationLogos provider={isJira ? 'jira' : 'github'} size={20} color="#ffffff" />
+                    <IntegrationLogos provider={repo.provider as 'github' | 'jira' | 'slack'} size={20} color="#ffffff" />
                   </div>
                   <div>
                     <div className="text-base font-semibold text-white">{repo.name}</div>
-                    <div className="flex items-center gap-2 text-sm text-white/70">
-                      <span>{sourceLabel}</span>
-                      {sourceLink && (
-                        <Link href={sourceLink} target="_blank" rel="noreferrer" className="text-white/50 hover:text-white/80">
-                          <ExternalLink className="h-4 w-4" />
-                        </Link>
-                      )}
-                    </div>
+                    <div className="flex items-center gap-2 text-sm text-white/70">{displayScope(repo)}</div>
                   </div>
                 </div>
 
@@ -471,49 +485,19 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
                     {statusMeta.icon}
                     {statusMeta.label}
                   </Badge>
-                  <Badge variant="outline" className="text-white/80">
-                    {isJira
-                      ? `Scope: ${repo.settings?.jira_project_key || 'Jira'}`
-                      : `Branch: ${repo.setup_branch || repo.default_branch || 'main'}`}
-                  </Badge>
+                  {typeof repo.status_payload?.progress_pct === 'number' && repo.status_payload.progress_pct > 0 && repo.status_payload.progress_pct < 100 && (
+                    <Badge variant="outline" className="text-white/80">
+                      {Math.round(repo.status_payload.progress_pct)}%
+                    </Badge>
+                  )}
+                  {repo.last_error && statusMeta.label === 'Failed' && (
+                    <Badge variant="destructive" className="text-white/90">
+                      {repo.last_error.slice(0, 48)}
+                    </Badge>
+                  )}
                 </div>
 
                 <div className="flex flex-wrap items-center justify-end gap-2">
-                  <div className="relative group">
-                    <Button size="icon" variant="secondary" asChild>
-                        <Link href={`/repos/setup?sourceId=${repo.id}`} aria-label="Setup">
-                        <Settings className="h-4 w-4" />
-                      </Link>
-                    </Button>
-                    <span className="pointer-events-none absolute right-1/2 top-0 z-10 -translate-y-10 translate-x-1/2 whitespace-nowrap rounded-md border border-white/10 bg-black/90 px-2 py-1 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100">
-                      Setup
-                    </span>
-                  </div>
-                  <div className="relative group">
-                    <Button
-                      size="icon"
-                      variant="secondary"
-                      disabled={repo.setup_status !== 'ready' || isJira}
-                      asChild
-                    >
-                      <Link href={`/documentation?sourceId=${repo.id}`} aria-label="Generate Docs">
-                        <FileText className="h-4 w-4" />
-                      </Link>
-                    </Button>
-                    <span className="pointer-events-none absolute right-1/2 top-0 z-10 -translate-y-10 translate-x-1/2 whitespace-nowrap rounded-md border border-white/10 bg-black/90 px-2 py-1 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100">
-                      Generate Docs
-                    </span>
-                  </div>
-                  <div className="relative group">
-                    <Button size="icon" variant="secondary" asChild>
-                      <Link href="/automation" aria-label="Automation">
-                        <Zap className="h-4 w-4" />
-                      </Link>
-                    </Button>
-                    <span className="pointer-events-none absolute right-1/2 top-0 z-10 -translate-y-10 translate-x-1/2 whitespace-nowrap rounded-md border border-white/10 bg-black/90 px-2 py-1 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100">
-                      Automation
-                    </span>
-                  </div>
                   <div className="relative group">
                     <Button
                       size="icon"
@@ -578,135 +562,85 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
         open={showSourceDialog}
         onOpenChange={(open) => {
           setShowSourceDialog(open);
-          if (!open) setSourceMode('select');
+          if (!open) {
+            setSelectedIds(new Set());
+            setCreateError('');
+            setLoadError('');
+          }
         }}
       >
-        <DialogContent className={sourceMode === 'github' ? 'p-0' : 'max-w-2xl border-white/10 bg-black/95'}>
-          <DialogTitle className="sr-only">{sourceTitle}</DialogTitle>
-
-          {sourceMode === 'select' && (
-            <div className="space-y-6 p-6">
-              <div>
-                <h3 className="text-xl font-semibold text-white">Choose a source to connect</h3>
+        <DialogContent className="max-w-2xl border-white/10 bg-black/95">
+          <DialogTitle className="text-white">Add sources</DialogTitle>
+          <p className="text-sm text-white/70">
+            Select the sources you want to connect, then click “Add sources”. We’ll start ingesting them in the background.
+          </p>
+          <div className="space-y-6">
+            {loadError && <p className="text-sm text-red-300">{loadError}</p>}
+            {loadingSources && (
+              <div className="flex items-center gap-2 text-sm text-white/70">
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" aria-label="Loading" />
+                <span>Loading sources…</span>
               </div>
-              <div className="grid gap-4 md:grid-cols-2">
-                {sourceOptions.map((option) => {
+            )}
+
+            <div className="space-y-3">
+              <Input
+                placeholder="Search sources"
+                value={sourceSearch}
+                onChange={(e) => setSourceSearch(e.currentTarget.value)}
+                className="bg-black/50 text-white"
+              />
+
+              <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+                {filteredAvailableSources.length === 0 && !loadingSources && (
+                <p className="text-sm text-white/60">No available sources found. Connect integrations first.</p>
+                )}
+                {filteredAvailableSources.map((src) => {
+                  const selected = selectedIds.has(src.key);
                   return (
-                    <button
-                      key={option.key}
-                      type="button"
-                      onClick={option.onSelect}
-                      className="rounded-xl border border-white/10 bg-white/5 p-5 text-left transition hover:border-white/30 hover:bg-white/10"
+                    <label
+                      key={src.key}
+                      className="flex cursor-pointer items-center gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/80 hover:border-white/30"
                     >
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-white/10">
-                            <IntegrationLogos provider={option.provider} size={24} color="#ffffff" />
-                          </div>
-                          <div>
-                            <p className="text-lg font-semibold text-white">{option.label}</p>
-                            <p className="text-sm text-white/60">{option.description}</p>
-                          </div>
-                        </div>
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 accent-indigo-500"
+                        checked={selected}
+                        onChange={() => toggleSelection(src.key)}
+                      />
+                      <IntegrationLogos provider={src.provider} size={18} color="#ffffff" />
+                      <div className="flex flex-col">
+                        <span className="font-medium text-white">{src.label}</span>
+                        <span className="text-xs text-white/60">{src.subtitle}</span>
                       </div>
-                    </button>
+                    </label>
                   );
                 })}
               </div>
-              <div className="flex justify-end">
-                <Button variant="secondary" onClick={() => setShowSourceDialog(false)}>
-                  Cancel
-                </Button>
-              </div>
             </div>
-          )}
 
-          {sourceMode === 'github' && (
-            <RepositoryConnectionWizard
-              onComplete={handleConnectionComplete}
-              onCancel={() => setShowSourceDialog(false)}
-            />
-          )}
+            {createError && <p className="text-sm text-red-300">{createError}</p>}
 
-          {sourceMode === 'jira' && (
-            <div className="space-y-4 p-6">
-              <div className="space-y-2">
-                <label className="text-sm text-white/80">Workspace</label>
-                <select
-                  value={jiraCloudId}
-                  onChange={(e) => {
-                    const selected = jiraSites.find((site) => site.id === e.target.value);
-                    if (selected) void selectJiraSite(selected);
-                  }}
-                  className="w-full rounded-lg border border-white/20 bg-black/60 px-3 py-2 text-sm text-white outline-none focus:border-blue-500"
-                >
-                  <option value="">Select a Jira workspace</option>
-                  {jiraSites.map((site) => (
-                    <option key={site.id} value={site.id}>
-                      {site.name || site.url}
-                    </option>
-                  ))}
-                </select>
-                {jiraSitesLoading && <p className="text-xs text-white/60">Loading Jira workspaces…</p>}
-                {jiraSitesError && <p className="text-xs text-red-300">{jiraSitesError}</p>}
-                {jiraWarning && !jiraSitesError && (
-                  <p className="text-xs text-amber-200">{jiraWarning}</p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm text-white/80">Project</label>
-                <select
-                  value={jiraProjectKey}
-                  onChange={(e) => setJiraProjectKey(e.target.value)}
-                  className="w-full rounded-lg border border-white/20 bg-black/60 px-3 py-2 text-sm text-white outline-none focus:border-blue-500"
-                >
-                  <option value="">Select a Jira project</option>
-                  {jiraProjects.map((project) => (
-                    <option key={project.key} value={project.key}>
-                      {project.key} — {project.name}
-                    </option>
-                  ))}
-                </select>
-                {jiraLoading && <p className="text-xs text-white/60">Loading Jira projects…</p>}
-                {!jiraLoading && jiraProjects.length === 0 && !jiraError && jiraCloudId && (
-                  <p className="text-xs text-white/50">
-                    No Jira projects found. Reconnect Confluence with the Jira scope enabled.
-                  </p>
-                )}
-                {!jiraLoading && !jiraCloudId && !jiraError && (
-                  <p className="text-xs text-white/50">
-                    Select a Jira workspace to load projects.
-                  </p>
-                )}
-              </div>
-
-              {jiraError && (
-                <Alert variant="destructive">
-                  <AlertDescription>{jiraError}</AlertDescription>
-                </Alert>
-              )}
-              {jiraWarning && !jiraError && (
-                <Alert>
-                  <AlertDescription>{jiraWarning}</AlertDescription>
-                </Alert>
-              )}
-
-              <div className="flex justify-between gap-2">
-                <Button variant="secondary" onClick={() => setSourceMode('select')}>
-                  Back
-                </Button>
-                <div className="flex gap-2">
-                  <Button variant="secondary" onClick={() => setShowSourceDialog(false)}>
-                    Cancel
-                  </Button>
-                  <Button onClick={createJiraSource} disabled={!jiraProjectKey || !jiraCloudId}>
-                    Create Source
-                  </Button>
-                </div>
-              </div>
+            <div className="flex justify-end gap-3">
+              <Button
+                variant="secondary"
+                size="lg"
+                className="h-11 !rounded-full !border !border-white/50 !bg-white/10 px-5 text-white shadow-sm transition hover:!bg-white/20 hover:shadow"
+                onClick={() => setShowSourceDialog(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="default"
+                size="lg"
+                className="h-11 !rounded-full !bg-white px-6 !text-slate-900 font-semibold shadow-lg transition hover:!bg-slate-100 hover:shadow-xl focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+                onClick={createSources}
+                disabled={creating}
+              >
+                {creating ? 'Adding…' : 'Add sources'}
+              </Button>
             </div>
-          )}
+          </div>
         </DialogContent>
       </Dialog>
     </div>

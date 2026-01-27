@@ -60,8 +60,8 @@ export async function PATCH(
     const { id } = await params;
     const updates = await request.json();
 
-    // Only allow updating certain fields
-    const allowedFields = ['default_branch'];
+    // Allow updating minimal fields for now
+    const allowedFields = ['name', 'scope', 'status_payload', 'last_error'];
     const filteredUpdates: Record<string, unknown> = {};
 
     for (const field of allowedFields) {
@@ -145,8 +145,8 @@ export async function DELETE(
         supabase,
         user.id,
         id,
-        source.external_url || source.repo_url,
-        source.default_branch,
+        source.external_url,
+        null,
         source.provider
       );
     } catch (logError) {

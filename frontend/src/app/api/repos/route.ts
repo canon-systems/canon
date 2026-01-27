@@ -2,14 +2,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
 
-type CreateRepoBody = {
+type CreateSource = {
   name: string;
-  provider?: string;
-  repo_url: string;
-  default_branch?: string;
-  auth_type?: string;
-  credentials_ref?: string | null;
-  settings?: Record<string, unknown>;
+  provider: string;
+  scope: Record<string, unknown>;
+  connection_id?: string | null;
+};
+
+const providerAuthMap: Record<string, string> = {
+  github: 'github',
+  gitlab: 'gitlab',
+  jira: 'confluence',
+  confluence: 'confluence',
+  slack: 'slack',
 };
 
 /**
@@ -55,40 +60,58 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = await createClient();
-    const body = (await request.json()) as CreateRepoBody;
-    const { name, provider, repo_url, default_branch, auth_type, credentials_ref, settings } = body;
+    const body = (await request.json()) as { sources?: CreateSource[] } & CreateSource;
 
-    if (!name || !repo_url) {
-      return NextResponse.json({
-        error: 'name and repo_url are required',
-        received: { name, repo_url },
-        validation: { hasName: !!name, hasRepoUrl: !!repo_url }
-      }, { status: 400 });
+    const sources: CreateSource[] = Array.isArray((body as { sources?: CreateSource[] }).sources)
+      ? (body as { sources: CreateSource[] }).sources
+      : [body as CreateSource];
+
+    if (sources.length === 0) {
+      return NextResponse.json({ error: 'No sources provided' }, { status: 400 });
     }
 
-    const resolvedProvider = provider || 'github';
-    const insert = {
-      user_id: user.id,
-      name,
-      provider: resolvedProvider,
-      repo_url,
-      default_branch: default_branch || 'main',
-      auth_type: auth_type || 'github_app',
-      credentials_ref: credentials_ref ?? null,
-      settings: settings || {},
-      source_type: resolvedProvider === 'jira' ? 'tickets' : 'code',
-      external_id: repo_url,
-      external_url: repo_url,
-      source_config: {},
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
+    // Preload user connections for providers to auto-fill connection_id when not provided
+    const { data: connections } = await supabase
+      .from('oauth_connections')
+      .select('id, provider')
+      .eq('user_id', user.id)
+      .eq('status', 'active');
 
-    const { data, error } = await supabase.from('workspace_sources').insert(insert).select().single();
+    const rows = [];
+    for (const src of sources) {
+      if (!src.name || !src.provider || !src.scope) {
+        return NextResponse.json({ error: 'name, provider, and scope are required for each source' }, { status: 400 });
+      }
 
-    if (error || !data) {
-      console.error('Failed to create repository:', error);
-      throw error || new Error('Failed to create repository');
+      const providerKey = src.provider.toLowerCase();
+      const authProvider = providerAuthMap[providerKey] || providerKey;
+      const connectionId =
+        src.connection_id ??
+        connections?.find((c) => (c.provider || '').toLowerCase() === authProvider)?.id ??
+        null;
+
+      if (!connectionId && ['github', 'gitlab', 'jira', 'confluence', 'slack'].includes(authProvider)) {
+        return NextResponse.json({ error: `Missing OAuth connection for provider ${src.provider}` }, { status: 400 });
+      }
+
+      rows.push({
+        user_id: user.id,
+        name: src.name,
+        provider: src.provider,
+        scope: src.scope,
+        connection_id: connectionId,
+        status_payload: { status: 'queueing', progress_pct: 0 },
+        last_error: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+    }
+
+    const { data, error } = await supabase.from('workspace_sources').insert(rows).select();
+
+    if (error) {
+      console.error('Failed to create sources:', error);
+      throw error;
     }
 
     return NextResponse.json(data, { status: 200 });
