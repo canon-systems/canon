@@ -392,7 +392,7 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
 
           {selectedRepo && (
             <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
-              <Button variant="secondary" onClick={() => setStep('search')}>
+              <Button variant="secondary" onClick={() => setStep('select')}>
                 Back
               </Button>
               <Button
