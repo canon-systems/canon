@@ -56,8 +56,8 @@ export function ReviewPageClient({ documentId, title, currentContent, pending }:
 
       const nextRoute = action === 'approve' ? `/edit/${documentId}` : '/review';
       router.push(nextRoute);
-    } catch (err: any) {
-      setError(err.message || 'Failed to process review');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to process review');
     } finally {
       setSaving(null);
     }

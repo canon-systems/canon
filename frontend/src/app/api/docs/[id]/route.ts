@@ -27,14 +27,15 @@ export async function GET(
       return NextResponse.json({ error: 'Document not found' }, { status: 404 });
     }
 
-    // Verify user has access via workspace_repos
-    const { data: repo } = await supabase
-      .from('workspace_repos')
+    // Verify user has access via workspace_sources
+    const sourceId = document.source_id;
+    const { data: source } = await supabase
+      .from('workspace_sources')
       .select('user_id')
-      .eq('id', document.repo_id)
+      .eq('id', sourceId)
       .single();
 
-    if (!repo || repo.user_id !== user.id) {
+    if (!source || source.user_id !== user.id) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -58,9 +59,9 @@ export async function GET(
         status: 'completed',
         created_at: document.created_at,
         updated_at: document.updated_at,
-        input_type: 'github_repo',
+        input_type: 'source',
         source_meta: {
-          repoId: document.repo_id,
+          repoId: sourceId,
         },
         summary: document.content.replace(/\s+/g, ' ').slice(0, 200),
         error_message: null,
@@ -71,12 +72,12 @@ export async function GET(
       },
       { status: 200 }
     );
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Get doc error:', err);
     return NextResponse.json(
       {
         error: 'Failed to retrieve document',
-        detail: err.message || String(err),
+        detail: err instanceof Error ? err.message : String(err),
       },
       { status: 500 }
     );
@@ -106,19 +107,20 @@ export async function DELETE(
       return NextResponse.json({ error: 'Document not found' }, { status: 404 });
     }
 
-    const { data: repo } = await supabase
-      .from('workspace_repos')
-      .select('user_id, repo_url')
-      .eq('id', document.repo_id)
+    const sourceId = document.source_id;
+    const { data: source } = await supabase
+      .from('workspace_sources')
+      .select('user_id, repo_url, external_url')
+      .eq('id', sourceId)
       .single();
 
-    if (!repo || repo.user_id !== user.id) {
+    if (!source || source.user_id !== user.id) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     // Track deletion before removing the record
     try {
-      await trackDocDeleted(supabase, user.id, id, document.title, document.repo_id, repo.repo_url);
+      await trackDocDeleted(supabase, user.id, id, document.title, sourceId, source.repo_url || source.external_url);
     } catch (logError) {
       console.warn('Failed to track doc deletion:', logError);
     }
@@ -127,19 +129,19 @@ export async function DELETE(
       .from('documents')
       .delete()
       .eq('id', id)
-      .eq('repo_id', document.repo_id);
+      .eq('source_id', sourceId);
 
     if (error) {
       throw error;
     }
 
     return NextResponse.json({ success: true }, { status: 200 });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Delete doc error:', err);
     return NextResponse.json(
       {
         error: 'Failed to delete document',
-        detail: err.message || String(err),
+        detail: err instanceof Error ? err.message : String(err),
       },
       { status: 500 }
     );

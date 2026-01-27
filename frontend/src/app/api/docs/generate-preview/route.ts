@@ -11,7 +11,7 @@ type GeneratePreviewRequestBody = {
     submissionId: string;
     model: string;
     promptConfig?: PromptConfig;
-    documentStructure?: any;
+    documentStructure?: Record<string, unknown>;
 };
 
 export const runtime = 'nodejs';
@@ -44,21 +44,22 @@ export async function POST(request: NextRequest) {
         }
 
         // Verify user has access
-        const { data: repo } = await supabase
-            .from('workspace_repos')
-            .select('user_id, repo_url, default_branch')
-            .eq('id', document.repo_id)
+        const sourceId = document.source_id;
+        const { data: source } = await supabase
+            .from('workspace_sources')
+            .select('user_id, repo_url, external_url, default_branch, provider')
+            .eq('id', sourceId)
             .single();
 
-        if (!repo || repo.user_id !== user?.id) {
+        if (!source || source.user_id !== user?.id) {
             return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
         }
 
         // Get persisted regeneration settings from document
-        const configuration = (document as any).configuration || {};
+        const configuration = (document as { configuration?: Record<string, unknown> }).configuration || {};
 
         // Use persisted settings as defaults, override with request body if provided
-        const defaultModel = configuration.model || model;
+        const defaultModel = (typeof configuration.model === 'string' ? configuration.model : null) || model;
         const defaultPromptConfig = promptConfig || configuration;
         const defaultDocumentStructure =
             documentStructure ||
@@ -89,9 +90,10 @@ export async function POST(request: NextRequest) {
         }
 
         // Build the prompt config with document structure
+        const docStructure = defaultDocumentStructure || (defaultPromptConfig as { document_structure?: unknown })?.document_structure;
         const fullPromptConfig = {
             ...defaultPromptConfig,
-            document_structure: defaultDocumentStructure || (defaultPromptConfig as any)?.document_structure || null
+            document_structure: docStructure || undefined
         };
 
         // Generate preview documentation
@@ -101,8 +103,8 @@ export async function POST(request: NextRequest) {
             projectName: document.title || 'Project',
             model: defaultModel,
             files: [], // Will be populated from repo
-            repoUrl: repo.repo_url,
-            branch: repo.default_branch || 'main',
+            repoUrl: source.repo_url || source.external_url || '',
+            branch: source.default_branch || 'main',
             subdir: null,
             promptConfig: fullPromptConfig,
             useSummaries: true, // Always use summaries for previews
@@ -112,14 +114,13 @@ export async function POST(request: NextRequest) {
         });
 
         if (user?.id) {
-            await trackDocGenerated(supabase, user.id, submissionId, document.repo_id, false);
+            await trackDocGenerated(supabase, user.id, submissionId, sourceId, false);
         }
 
         // Analyze significance of changes
         const significanceAnalysis = await analyzeSignificance(
             document.content || '',
-            result.markdown,
-            trackedFiles
+            result.markdown
         );
 
         return NextResponse.json({
@@ -129,12 +130,12 @@ export async function POST(request: NextRequest) {
             significanceAnalysis
         });
 
-    } catch (err: any) {
+    } catch (err: unknown) {
         console.error('Generate preview error:', err);
         return NextResponse.json(
             {
                 error: 'Preview generation failed',
-                detail: err.message || String(err),
+                detail: err instanceof Error ? err.message : String(err),
             },
             { status: 500 }
         );
@@ -144,7 +145,7 @@ export async function POST(request: NextRequest) {
 /**
  * Analyze the significance of changes between original and new content
  */
-async function analyzeSignificance(originalContent: string, newContent: string, trackedFiles: string[]) {
+async function analyzeSignificance(originalContent: string, newContent: string) {
     // Simple significance analysis
     const originalLength = originalContent.length;
     const newLength = newContent.length;

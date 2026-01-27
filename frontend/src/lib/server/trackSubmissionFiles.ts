@@ -6,15 +6,14 @@
 //   In the new schema, files are tracked when documents are created, but this
 //   function exists for backward compatibility and migration purposes.
 //
-//   NOTE: In the new schema, document_files stores document_id, repo_id, and file_path.
-//   File hashes, sizes, and types are stored in repo_file_summaries.
+//   NOTE: In the new schema, document_files stores document_id, source_id, and file_path.
+//   File hashes, sizes, and types are stored in repo_file_summaries keyed by normalized source key.
 //
 //   This function is mainly for backward compatibility with old submission-based code.
 // ============================================================================
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { getUserOctokit } from './github/getUserOctokit';
-import { parseRepoUrl } from './github/github';
+// Removed unused imports: getUserOctokit, parseRepoUrl
 
 // -----------------------------------------------------------------------------
 // TYPE: DocumentRow (for backward compatibility, accepts submission-like structure)
@@ -23,7 +22,7 @@ type DocumentRow = {
   id: string;
   input_type?: string | null;
   selected_files?: string[] | null;
-  source_meta?: any;
+  source_meta?: Record<string, unknown> | null;
   code_snapshot?: {
     commitSha?: string;
     fileShas?: Record<string, string | null>;
@@ -31,29 +30,7 @@ type DocumentRow = {
   } | null;
 };
 
-// -----------------------------------------------------------------------------
-// HELPER: Normalize repo URL to repo_id format
-// -----------------------------------------------------------------------------
-function normalizeRepoId(repoUrl: string): string {
-  const parsed = parseRepoUrl(repoUrl);
-  if (!parsed) {
-    throw new Error(`Invalid repo URL: ${repoUrl}`);
-  }
-  return `github.com/${parsed.owner}/${parsed.repo}`;
-}
-
-// -----------------------------------------------------------------------------
-// HELPER: Infer file type from file path
-// -----------------------------------------------------------------------------
-function guessFileTypeFromPath(path: string): string {
-  const lastDot = path.lastIndexOf('.');
-
-  if (lastDot === -1) return 'unknown';
-
-  const ext = path.slice(lastDot + 1).toLowerCase();
-
-  return ext || 'unknown';
-}
+// Removed unused helper functions: normalizeRepoId, guessFileTypeFromPath
 
 // -----------------------------------------------------------------------------
 // MAIN FUNCTION: trackSubmissionFiles
@@ -65,12 +42,12 @@ export async function trackSubmissionFiles(params: {
   submission: DocumentRow;
   userId?: string | null;
 }) {
-  const { supabase, submission, userId } = params;
+  const { supabase, submission } = params;
 
   // Check if this is a document (new schema) or submission (old schema)
   const { data: document } = await supabase
     .from('documents')
-    .select('id, repo_id')
+    .select('id, source_id')
     .eq('id', submission.id)
     .single();
 
@@ -98,7 +75,7 @@ export async function trackSubmissionFiles(params: {
     if (filesToAdd.length > 0) {
     const fileMappings = filesToAdd.map(filePath => ({
         document_id: submission.id,
-        repo_id: document.repo_id,
+        source_id: document.source_id,
         file_path: filePath
       }));
 

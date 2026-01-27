@@ -15,7 +15,8 @@ export class GitHubProvider implements RepoProvider {
      * Get an Octokit instance via GitHub App installation.
      * OAuth and anonymous access are not supported.
      */
-    private async getOctokit(repoInfo: RepoInfo, connectionId?: string): Promise<Octokit> {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private async getOctokit(repoInfo: RepoInfo, _connectionId?: string): Promise<Octokit> {
         return await getGitHubAppOctokitForRepo(repoInfo.owner, repoInfo.repo);
     }
 
@@ -70,9 +71,10 @@ export class GitHubProvider implements RepoProvider {
                 branch
             });
             return data.commit.sha;
-        } catch (error: any) {
+        } catch (error: unknown) {
             // If 404, repo might be private and user doesn't have access
-            if (error.status === 404) {
+            const errorStatus = (error as { status?: number })?.status;
+            if (errorStatus === 404) {
                 console.error(`Repository ${repoInfo.owner}/${repoInfo.repo} not found or not accessible`);
             } else {
                 console.error(`Error getting branch commit SHA for ${repoInfo.owner}/${repoInfo.repo}/${branch}:`, error);
@@ -176,8 +178,9 @@ export class GitHubProvider implements RepoProvider {
                 } else {
                     result[path] = null;
                 }
-            } catch (error: any) {
-                if (error.status === 404) {
+            } catch (error: unknown) {
+                const errorStatus = (error as { status?: number })?.status;
+                if (errorStatus === 404) {
                     result[path] = null; // File doesn't exist
                 } else {
                     console.error(`Error getting file SHA for ${path}:`, error);
@@ -207,8 +210,9 @@ export class GitHubProvider implements RepoProvider {
                 return Buffer.from(data.content, 'base64').toString('utf-8');
             }
             return data.content || null;
-        } catch (error: any) {
-            if (error.status === 404) {
+        } catch (error: unknown) {
+            const errorStatus = (error as { status?: number })?.status;
+            if (errorStatus === 404) {
                 console.error(`File ${path} not found in ${repoInfo.owner}/${repoInfo.repo}`);
             } else {
                 console.error(`Error fetching file content for ${path}:`, error);
@@ -217,7 +221,8 @@ export class GitHubProvider implements RepoProvider {
         }
     }
 
-    handleWebhook(payload: unknown): WebhookResult | null {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    handleWebhook(_payload: unknown): WebhookResult | null {
         // Webhooks are not used in this implementation
         // File summary generation happens automatically through background jobs
         console.log('Webhook functionality is disabled - summaries are generated automatically');

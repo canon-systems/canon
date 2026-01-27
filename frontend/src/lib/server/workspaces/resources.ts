@@ -42,21 +42,32 @@ async function notionSearch(connectionId: string, objectValue: 'page' | 'databas
       return [];
     }
 
-    return payload.results.map((item: any) => {
+    return payload.results.map((item: {
+      properties?: {
+        title?: { title?: Array<{ text?: { content?: string } }> };
+        Name?: { title?: Array<{ text?: { content?: string } }> };
+      };
+      title?: Array<{ text?: { content?: string } }>;
+      id?: string;
+      url?: string;
+      [key: string]: unknown;
+    }) => {
       let title = 'Untitled';
       const props = item.properties || {};
       const titleProp = props.title || props.Name;
       if (Array.isArray(titleProp?.title)) {
-        title = titleProp.title.map((t: any) => t.text?.content || '').join('').trim() || title;
+        title = titleProp.title.map((t: { text?: { content?: string } }) => t.text?.content || '').join('').trim() || title;
       } else if (Array.isArray(item.title)) {
-        title = item.title.map((t: any) => t.text?.content || '').join('').trim() || title;
+        title = item.title.map((t: { text?: { content?: string } }) => t.text?.content || '').join('').trim() || title;
       }
 
+      const url = typeof item.url === 'string' ? item.url : undefined;
+
       return {
-        id: item.id,
+        id: item.id || '',
         type: objectValue === 'page' ? 'page' : 'database',
         title,
-        url: item.url,
+        url,
       };
     });
   } catch (error) {

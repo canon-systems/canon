@@ -64,6 +64,8 @@ export type GenerateDocParams = {
 	model: string;
 	files?: Array<{ path: string; content: string }>;
 	repoUrl?: string | null;
+	sourceId?: string;
+	sourceUrl?: string | null;
 	branch?: string | null;
 	subdir?: string | null;
 	promptConfig?: PromptConfigType | null;
@@ -87,6 +89,8 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 		model,
 		files: initialFiles,
 		repoUrl,
+		// Removed unused variable: sourceId
+		sourceUrl,
 		branch,
 		subdir,
 		promptConfig,
@@ -100,18 +104,19 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 		throw new Error('model is required for documentation generation');
 	}
 
-	let files = initialFiles || [];
+	const files = initialFiles || [];
 	let fileEntries = files;
 
 	if (!fileEntries.length) {
-		if (!repoUrl) {
-			throw new Error('Either files or repoUrl must be provided');
+		const resolvedUrl = repoUrl || sourceUrl || '';
+		if (!resolvedUrl) {
+			throw new Error('Either files or a source URL must be provided');
 		}
 
 		const analysis = await analyzeRepository({
 			supabase,
 			userId: userId ?? '',
-			repoUrl,
+			repoUrl: resolvedUrl,
 			branch: branch || undefined,
 			subdir,
 			filters: null,
@@ -125,13 +130,15 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 	}
 
 	// If useSummaries is enabled, load summaries using centralized manager
-	let summariesMap = new Map<string, any>();
+	let summariesMap = new Map<string, { file_path: string; summary_text: string }>();
 
-	if (useSummaries && repoUrl) {
+	const resolvedRepoUrl = repoUrl || sourceUrl || null;
+
+	if (useSummaries && resolvedRepoUrl) {
 		// Use centralized FileSummaryManager to load existing summaries
-		const repoId = normalizeRepoId(repoUrl);
+		const repoKey = normalizeRepoId(resolvedRepoUrl);
 		const summaryBranch = branch || 'main';
-		const summaryManager = new FileSummaryManager(supabase, repoId, summaryBranch);
+		const summaryManager = new FileSummaryManager(supabase, repoKey, summaryBranch);
 
 		// Get file paths we're processing
 		const filePaths = fileEntries.map(f => f.path);
@@ -217,7 +224,7 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 			}
 
 			if (!summary) {
-				// Summary is missing - generate it now
+		// Summary is missing - generate it now
 				console.log(`Summary missing for ${file.path}, generating now...`);
 
 				// Re-run prepare to generate the missing summary
@@ -232,19 +239,19 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 				// Reload ALL summaries and use fuzzy matching
 				const { data: document } = await supabase
 					.from('documents')
-					.select('id, repo_id')
+					.select('id, source_id')
 					.eq('id', submissionId)
 					.single();
 
 				if (document) {
 					// Get repo details for branch
 					const { data: repo } = await supabase
-						.from('workspace_repos')
+						.from('workspace_sources')
 						.select('default_branch')
-						.eq('id', document.repo_id)
+						.eq('id', document.source_id)
 						.single();
 
-					const repoId = normalizeRepoId(repoUrl!);
+					const repoId = normalizeRepoId(resolvedRepoUrl!);
 					const submissionBranch = repo?.default_branch || branch || 'main';
 					// Load all summaries and find matching one with fuzzy path matching
 					const { data: reloadedSummaries } = await supabase
@@ -273,7 +280,7 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 			const summaryText = summary.summary_text || 'No summary available';
 
 			// Format summary for LLM - simplified since we only have text now
-			let formattedSummary = `--- FILE: ${file.path} ---\n${summaryText}`;
+			const formattedSummary = `--- FILE: ${file.path} ---\n${summaryText}`;
 
 			fileContentParts.push(formattedSummary);
 		} else {
@@ -308,7 +315,7 @@ export async function generateDocumentation(params: GenerateDocParams): Promise<
 	const gateway = new LLMGateway();
 
 	// Generate documentation (this is the main blocking operation)
-	const startTime = Date.now();
+	// Removed unused variable: startTime
 
 	const markdown = await gateway.call(
 		[

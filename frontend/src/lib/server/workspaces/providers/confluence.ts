@@ -30,6 +30,7 @@ function convertHtmlToConfluenceStorage(html: string): string {
 export class ConfluenceProvider implements WorkspaceProvider {
 	name = 'confluence';
 
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
 	async pullContent(_workspaceInfo: WorkspaceInfo, _connectionId: string): Promise<WorkspaceContent | null> {
 		// TODO: Implement Confluence pull
 		// For now, return null - Confluence pull can be added later
@@ -70,7 +71,7 @@ export class ConfluenceProvider implements WorkspaceProvider {
 					return null;
 				}
 
-				const createPayload: Record<string, any> = {
+				const createPayload: Record<string, unknown> = {
 					spaceId,
 					status: 'current',
 					title: content.title || 'Documentation',
@@ -298,9 +299,9 @@ async function updateConfluencePage(
 	};
 }
 
-function buildConfluencePageUrl(payload: any, siteUrl?: string | null): string | null {
-	const links = payload?._links || payload?.links || {};
-	const base = links?.base || siteUrl || null;
+function buildConfluencePageUrl(payload: Record<string, unknown>, siteUrl?: string | null): string | null {
+	const links = (payload?._links || payload?.links || {}) as Record<string, unknown>;
+	const base = (typeof links?.base === 'string' ? links.base : null) || siteUrl || null;
 	const webui = links?.webui || null;
 	if (base && webui) {
 		return `${base}${webui}`;

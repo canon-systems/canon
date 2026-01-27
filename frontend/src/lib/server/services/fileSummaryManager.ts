@@ -1,7 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createHash } from 'crypto';
-import { getUserOctokit } from '../github/getUserOctokit';
-import { parseRepoUrl } from '../github/github';
+// Removed unused imports: getUserOctokit, parseRepoUrl
 import { generateFileSummary } from './fileSummarizer';
 
 /**
@@ -41,12 +40,13 @@ export type ProgressCallback = (progress: {
  */
 export class FileSummaryManager {
   private supabase: SupabaseClient;
-  private repoId: string;
+  // normalized key (e.g., github.com/owner/repo) used in repo_file_summaries.repo_id
+  private sourceKey: string;
   private branch: string;
 
-  constructor(supabase: SupabaseClient, repoId: string, branch: string = 'main') {
+  constructor(supabase: SupabaseClient, sourceKey: string, branch: string = 'main') {
     this.supabase = supabase;
-    this.repoId = repoId;
+    this.sourceKey = sourceKey;
     this.branch = branch;
   }
 
@@ -73,7 +73,7 @@ export class FileSummaryManager {
     const { data, error } = await this.supabase
       .from('repo_file_summaries')
       .select('file_hash, updated_at')
-      .ilike('repo_id', this.repoId)
+      .ilike('repo_id', this.sourceKey)
       .eq('branch', this.branch)
       .eq('file_path', normalizedPath)
       .single();
@@ -115,13 +115,13 @@ export class FileSummaryManager {
   /**
    * Load existing summaries for files (without generating missing ones)
    */
-  async getExistingSummaries(filePaths: string[]): Promise<Map<string, any>> {
+  async getExistingSummaries(filePaths: string[]): Promise<Map<string, { file_path: string; summary_text: string }>> {
     const normalizedPaths = filePaths.map(path => this.normalizeFilePath(path));
 
     const { data, error } = await this.supabase
       .from('repo_file_summaries')
       .select('file_path, summary_text')
-      .ilike('repo_id', this.repoId)
+      .ilike('repo_id', this.sourceKey)
       .eq('branch', this.branch)
       .in('file_path', normalizedPaths);
 
@@ -130,7 +130,7 @@ export class FileSummaryManager {
     }
 
     // Build map with fuzzy path matching
-    const summariesMap = new Map<string, any>();
+    const summariesMap = new Map<string, { file_path: string; summary_text: string }>();
 
     for (const summary of data || []) {
       // Store with normalized path as key
@@ -176,7 +176,7 @@ export class FileSummaryManager {
     const { force = false, batchSize = 20, onProgress, model = 'openai/gpt-4o-mini' } = options;
 
     let processed = 0;
-    let skipped = 0;
+    const skipped = 0;
     let failed = 0;
     const updatedFiles: string[] = [];
 
@@ -224,7 +224,7 @@ export class FileSummaryManager {
               .from('repo_file_summaries')
               .upsert(
                 {
-                  repo_id: this.repoId,
+                  repo_id: this.sourceKey,
                   file_path: this.normalizeFilePath(file.path),
                   file_hash: fileHash,
                   summary_text: summary.summary_text,
@@ -274,7 +274,8 @@ export class FileSummaryManager {
    */
   async refreshSummaries(
     filePaths: string[],
-    options: {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _options: {
       onProgress?: ProgressCallback;
       model?: string;
     } = {}

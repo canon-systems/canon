@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef, startTransition } from 'react';
 import { ChevronDown, Sparkles, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -84,38 +84,50 @@ export function PromptCustomizer({ promptConfig, onChange, onSave, saving = fals
     if (!config.audience) config.audience = 'technical';
     if (!config.customInstructions) config.customInstructions = '';
     onChange(config);
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run on mount to initialize defaults
 
-  // Check if current values are custom
+  // Derive custom personality state
+  const personalityOpts = useMemo(() => personalityOptions.map(o => o.value), []);
+  const isCustomPersonality = useMemo(() => {
+    return promptConfig.personality ? !personalityOpts.includes(promptConfig.personality) : false;
+  }, [promptConfig.personality, personalityOpts]);
+  
+  const prevPersonalityRef = useRef(promptConfig.personality);
   useEffect(() => {
-    if (!useCustomPersonality) {
-      const personalityOpts = personalityOptions.map(o => o.value);
-      const isCustom = promptConfig.personality ? !personalityOpts.includes(promptConfig.personality) : false;
-      if (isCustom) {
-        setUseCustomPersonality(true);
-        if (promptConfig.personality) {
+    if (prevPersonalityRef.current !== promptConfig.personality) {
+      prevPersonalityRef.current = promptConfig.personality;
+      startTransition(() => {
+        if (isCustomPersonality && promptConfig.personality) {
+          setUseCustomPersonality(true);
           setCustomPersonalityText(promptConfig.personality);
+        } else if (promptConfig.personality && !isCustomPersonality && useCustomPersonality) {
+          setUseCustomPersonality(false);
         }
-      }
-    } else if (promptConfig.personality) {
-      setCustomPersonalityText(promptConfig.personality);
+      });
     }
-  }, [promptConfig.personality, useCustomPersonality]);
+  }, [promptConfig.personality, isCustomPersonality, useCustomPersonality]);
 
+  // Derive custom style state
+  const styleOpts = useMemo(() => styleOptions.map(o => o.value), []);
+  const isCustomStyle = useMemo(() => {
+    return promptConfig.style ? !styleOpts.includes(promptConfig.style) : false;
+  }, [promptConfig.style, styleOpts]);
+  
+  const prevStyleRef = useRef(promptConfig.style);
   useEffect(() => {
-    if (!useCustomStyle) {
-      const styleOpts = styleOptions.map(o => o.value);
-      const isCustom = promptConfig.style ? !styleOpts.includes(promptConfig.style) : false;
-      if (isCustom) {
-        setUseCustomStyle(true);
-        if (promptConfig.style) {
+    if (prevStyleRef.current !== promptConfig.style) {
+      prevStyleRef.current = promptConfig.style;
+      startTransition(() => {
+        if (isCustomStyle && promptConfig.style) {
+          setUseCustomStyle(true);
           setCustomStyleText(promptConfig.style);
+        } else if (promptConfig.style && !isCustomStyle && useCustomStyle) {
+          setUseCustomStyle(false);
         }
-      }
-    } else if (promptConfig.style) {
-      setCustomStyleText(promptConfig.style);
+      });
     }
-  }, [promptConfig.style, useCustomStyle]);
+  }, [promptConfig.style, isCustomStyle, useCustomStyle]);
 
   const hasCustomization =
     (promptConfig.personality && promptConfig.personality !== 'default') ||
@@ -337,7 +349,7 @@ export function PromptCustomizer({ promptConfig, onChange, onSave, saving = fals
                 ))}
               </SelectContent>
             </Select>
-            <p className="mt-1 text-xs text-white/50">Controls whether the documentation uses "I/we", "you", "it/they", or formal third person</p>
+            <p className="mt-1 text-xs text-white/50">Controls whether the documentation uses &quot;I/we&quot;, &quot;you&quot;, &quot;it/they&quot;, or formal third person</p>
           </div>
 
           {/* Audience */}

@@ -13,8 +13,8 @@ type CreateRepoBody = {
 };
 
 /**
- * GET: List all repositories for the workspace
- * POST: Create a new repository configuration
+ * GET: List all sources for the workspace
+ * POST: Create a new source configuration
  */
 export async function GET() {
   try {
@@ -25,7 +25,7 @@ export async function GET() {
 
     const supabase = await createClient();
     const { data, error } = await supabase
-      .from('workspace_repos')
+      .from('workspace_sources')
       .select('*')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false });
@@ -35,12 +35,12 @@ export async function GET() {
     }
 
     return NextResponse.json(data || [], { status: 200 });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('List repos error:', err);
     return NextResponse.json(
       {
         error: 'Failed to list repositories',
-        detail: err.message || String(err),
+        detail: err instanceof Error ? err.message : String(err),
       },
       { status: 500 }
     );
@@ -66,20 +66,25 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
+    const resolvedProvider = provider || 'github';
     const insert = {
       user_id: user.id,
       name,
-      provider: provider || 'github',
+      provider: resolvedProvider,
       repo_url,
       default_branch: default_branch || 'main',
       auth_type: auth_type || 'github_app',
       credentials_ref: credentials_ref ?? null,
       settings: settings || {},
+      source_type: resolvedProvider === 'jira' ? 'tickets' : 'code',
+      external_id: repo_url,
+      external_url: repo_url,
+      source_config: {},
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
 
-    const { data, error } = await supabase.from('workspace_repos').insert(insert).select().single();
+    const { data, error } = await supabase.from('workspace_sources').insert(insert).select().single();
 
     if (error || !data) {
       console.error('Failed to create repository:', error);
@@ -87,12 +92,12 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(data, { status: 200 });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Create repo error:', err);
     return NextResponse.json(
       {
         error: 'Failed to create repository',
-        detail: err.message || String(err),
+        detail: err instanceof Error ? err.message : String(err),
       },
       { status: 500 }
     );

@@ -6,6 +6,7 @@ import { DocumentationPageClient } from './page-generate-client';
 interface PageProps {
   searchParams: Promise<{
     repoId?: string;
+    sourceId?: string;
   }>;
 }
 
@@ -20,7 +21,7 @@ export default async function DocumentationPage({ searchParams }: PageProps) {
 
   // Get all repositories for the user
   const { data: repositories, error: repoError } = await supabase
-    .from('workspace_repos')
+    .from('workspace_sources')
     .select('*')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false });
@@ -29,32 +30,16 @@ export default async function DocumentationPage({ searchParams }: PageProps) {
     console.error('Failed to load repositories:', repoError);
   }
 
-  // Helper function to normalize repo URL to repo_id format
-  function normalizeRepoId(repoUrl: string): string {
-    try {
-      const url = new URL(repoUrl);
-      const pathParts = url.pathname.split('/').filter(Boolean);
-      if (pathParts.length >= 2) {
-        return `github.com/${pathParts[0]}/${pathParts[1]}`;
-      }
-    } catch {
-      // If URL parsing fails, try to extract from string
-      const match = repoUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
-      if (match) {
-        return `github.com/${match[1]}/${match[2]}`;
-      }
-    }
-    return repoUrl;
-  }
+  // Removed unused function: normalizeRepoId
 
   // Get setup status for each repository and filter to only ready repos
   const reposWithSetup = await Promise.all(
     (repositories || []).map(async (repo) => {
       try {
         const { data: setup, error } = await supabase
-          .from('repository_setup')
+          .from('source_setup')
           .select('setup_status, branch, total_files, summarized_files')
-          .eq('repo_id', repo.id)
+          .eq('source_id', repo.id)
           .single();
 
         if (error && error.code && error.code !== 'PGRST116') { // PGRST116 is "not found"
@@ -66,7 +51,7 @@ export default async function DocumentationPage({ searchParams }: PageProps) {
           return {
             id: repo.id,
             name: repo.name,
-            repo_url: repo.repo_url,
+            repo_url: repo.repo_url || repo.external_url,
             default_branch: repo.default_branch,
             setup_branch: setup.branch,
             setup_status: setup.setup_status,

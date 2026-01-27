@@ -50,10 +50,10 @@ export async function POST(request: NextRequest) {
     if (updateError) throw updateError;
 
     return NextResponse.json({ ok: true });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Failed to save Jira workspace:', err);
     return NextResponse.json(
-      { error: 'Failed to save Jira workspace', detail: err.message || String(err) },
+      { error: 'Failed to save Jira workspace', detail: err instanceof Error ? err.message : String(err) },
       { status: 500 }
     );
   }

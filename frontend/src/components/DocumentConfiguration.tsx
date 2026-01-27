@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import { PromptCustomizer } from '@/components/PromptCustomizer';
 import { DocumentStructure, type DocumentStructureConfig } from '@/components/DocumentStructure';
 import { Button } from '@/components/ui/button';

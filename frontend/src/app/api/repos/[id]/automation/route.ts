@@ -19,7 +19,7 @@ export async function GET(
     const { data: rules, error } = await supabase
       .from('automation_rules')
       .select('*')
-      .eq('repo_id', id)
+      .eq('source_id', id)
       .eq('user_id', user.id);
 
     if (error) {
@@ -52,12 +52,12 @@ export async function GET(
       },
       { status: 200 }
     );
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Automation GET error:', err);
     return NextResponse.json(
       {
         error: 'Failed to load automation rules',
-        detail: err.message || String(err),
+        detail: err instanceof Error ? err.message : String(err),
       },
       { status: 500 }
     );
@@ -76,7 +76,7 @@ export async function PATCH(
 
     const { id } = await params;
     const body = await request.json().catch(() => ({})) as {
-      automation_rules?: Array<Record<string, any>>;
+      automation_rules?: Array<Record<string, unknown>>;
     };
 
     if (!Array.isArray(body.automation_rules)) {
@@ -92,7 +92,7 @@ export async function PATCH(
       await supabase
         .from('automation_rules')
         .delete()
-        .eq('repo_id', id)
+        .eq('source_id', id)
         .eq('user_id', user.id);
 
       return NextResponse.json(
@@ -106,7 +106,7 @@ export async function PATCH(
     }
 
     const incomingRule = body.automation_rules[0] || {};
-    const actionPreset = typeof (incomingRule as any)?.action_preset === 'string' ? String((incomingRule as any).action_preset) : null;
+    const actionPreset = typeof (incomingRule as Record<string, unknown>)?.action_preset === 'string' ? String((incomingRule as Record<string, unknown>).action_preset) : null;
     const generateDoc =
       typeof incomingRule.generate_doc === 'boolean'
         ? incomingRule.generate_doc
@@ -135,7 +135,7 @@ export async function PATCH(
     const { data: existingRule, error: existingError } = await supabase
       .from('automation_rules')
       .select('id')
-      .eq('repo_id', id)
+      .eq('source_id', id)
       .eq('user_id', user.id)
       .maybeSingle();
 
@@ -146,7 +146,7 @@ export async function PATCH(
 
     const writePayload = {
       user_id: user.id,
-      repo_id: id,
+      source_id: id,
       name: incomingRule.name,
       enabled: incomingRule.enabled ?? true,
       schedule: incomingRule.schedule,
@@ -200,12 +200,12 @@ export async function PATCH(
       },
       { status: 200 }
     );
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Automation PATCH error:', err);
     return NextResponse.json(
       {
         error: 'Failed to save automation rules',
-        detail: err.message || String(err),
+        detail: err instanceof Error ? err.message : String(err),
       },
       { status: 500 }
     );

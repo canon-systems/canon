@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Github, Search, Loader2, CheckCircle2, AlertCircle, ExternalLink, Plus, ChevronRight, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { getIntegrationsCached } from '@/lib/client/integrationsCache';
 
 interface RepositoryConnectionWizardProps {
   onComplete?: (repoId: string) => void;
@@ -75,18 +76,12 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
     async function checkGitHubConnection() {
       setIsCheckingConnection(true);
       try {
-        const response = await fetch('/api/integrations/list');
-        if (response.ok) {
-          const data = await response.json();
-          const hasConnection = (data.connections || []).some(
-            (c: { provider: string; status: string }) =>
-              c.provider === 'github' && c.status === 'active'
-          );
-          setHasGitHubConnection(hasConnection);
-        } else {
-          console.error('Failed to check GitHub connection:', response.status);
-          setHasGitHubConnection(false);
-        }
+        const data = await getIntegrationsCached();
+        const hasConnection = (data.connections || []).some(
+          (c) =>
+            c.provider === 'github' && c.status === 'active'
+        );
+        setHasGitHubConnection(hasConnection);
       } catch (err) {
         console.error('Failed to check GitHub connection:', err);
         // Assume no connection if we can't check
@@ -134,7 +129,7 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
       setIsSearching(false);
       searchInFlightRef.current = false;
     }
-  }, []);
+  }, [hasGitHubConnection]);
 
   const fetchBranches = async (repo: GitHubRepo) => {
     setIsLoadingBranches(true);

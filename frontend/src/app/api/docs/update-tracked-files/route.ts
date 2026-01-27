@@ -6,7 +6,7 @@ import { parseRepoUrl } from '@/lib/server/github/github';
 import { analyzeRepository } from '@/lib/server/services/analyzeRepository';
 import { generateDocumentation } from '@/lib/server/services/docGenerator';
 import { prepareFileSummaries } from '@/lib/server/services/prepareSummaries';
-import { createOrUpdateDocument } from '@/lib/server/services/documentService';
+// Removed unused import: createOrUpdateDocument
 import { trackDocGenerated } from '@/lib/server/services/usageTracking';
 
 export const runtime = 'nodejs';
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
     // Get existing document
     const { data: document, error: docError } = await supabase
       .from('documents')
-      .select('id, repo_id, title, configuration, content')
+      .select('id, source_id, title, configuration, content')
       .eq('id', documentId)
       .single();
 
@@ -46,30 +46,31 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get repo details
-    const { data: repo, error: repoError } = await supabase
-      .from('workspace_repos')
-      .select('id, repo_url, default_branch, user_id, settings')
-      .eq('id', document.repo_id)
+    const sourceId = document.source_id;
+    // Get source details
+    const { data: source, error: repoError } = await supabase
+      .from('workspace_sources')
+      .select('id, repo_url, external_url, default_branch, user_id, settings, provider')
+      .eq('id', sourceId)
       .single();
 
-    if (repoError || !repo) {
+    if (repoError || !source) {
       return NextResponse.json(
-        { error: 'Repository not found' },
+        { error: 'Source not found' },
         { status: 404 }
       );
     }
 
     // Verify user has access
-    if (repo.user_id !== user.id) {
+    if (source.user_id !== user.id) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 403 }
       );
     }
 
-    const repoUrl = repo.repo_url;
-    const branch = repo.default_branch || 'main';
+    const repoUrl = source.repo_url || source.external_url;
+    const branch = source.default_branch || 'main';
 
     const parsed = parseRepoUrl(repoUrl);
     if (!parsed) {
@@ -82,12 +83,13 @@ export async function POST(request: NextRequest) {
     const octokit = await getUserOctokit(supabase, user.id, parsed.owner, parsed.repo);
 
     // Get current commit SHA
-    const { data: branchData } = await octokit.repos.getBranch({
+    // Removed unused variable: branchData
+    await octokit.repos.getBranch({
       owner: parsed.owner,
       repo: parsed.repo,
       branch,
     });
-    const currentCommitSha = branchData.commit.sha;
+    // Removed unused variable: currentCommitSha
 
     // Get existing tracked files
     const { data: existingFiles } = await supabase
@@ -123,7 +125,7 @@ export async function POST(request: NextRequest) {
     if (filesToAdd.length > 0) {
       const fileMappings = filesToAdd.map(filePath => ({
         document_id: documentId,
-        repo_id: repo.id,
+        source_id: sourceId,
         file_path: filePath
       }));
 
@@ -164,11 +166,11 @@ export async function POST(request: NextRequest) {
         }
 
         // Get repo and document settings if available
-        const repoSettings = repo.settings || {};
+        const repoSettings = source.settings || {};
         const subdir = repoSettings.subdir || null;
         const filters = repoSettings.filters || null;
         const repoPromptConfig = repoSettings.llm_prompt_config || repoSettings.prompt_config || null;
-        const docConfig = (document as any).configuration || {};
+        const docConfig = (document as { configuration?: Record<string, unknown> }).configuration || {};
         const resolvedDocumentStructure =
           docConfig.documentStructure ||
           docConfig.document_structure ||
@@ -254,7 +256,7 @@ export async function POST(request: NextRequest) {
           change_summary: 'Regenerated with updated tracked files'
         });
 
-        await trackDocGenerated(supabase, user.id, documentId, document.repo_id, false);
+        await trackDocGenerated(supabase, user.id, documentId, sourceId, false);
 
         const timestamp2 = new Date().toISOString();
         console.log(`[${timestamp2}] [update-tracked-files] ✅ Successfully regenerated document: ${document.title}`);
@@ -266,7 +268,7 @@ export async function POST(request: NextRequest) {
           regenerated: true,
           files_changed: filesChanged,
         });
-      } catch (regenerateError: any) {
+      } catch (regenerateError: unknown) {
         const timestamp3 = new Date().toISOString();
         console.error(`[${timestamp3}] [update-tracked-files] Regeneration error:`, regenerateError);
         // Files were updated, but regeneration failed
@@ -275,7 +277,7 @@ export async function POST(request: NextRequest) {
           message: 'Tracked files updated, but regeneration failed',
           selected_files: selected_files,
           regenerated: false,
-          regeneration_error: regenerateError.message,
+          regeneration_error: regenerateError instanceof Error ? regenerateError.message : String(regenerateError),
         });
       }
     }
@@ -289,10 +291,10 @@ export async function POST(request: NextRequest) {
       regenerated: false,
       files_changed: filesChanged,
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Update tracked files error:', err);
     return NextResponse.json(
-      { error: 'Failed to update tracked files', detail: err.message || String(err) },
+      { error: 'Failed to update tracked files', detail: err instanceof Error ? err.message : String(err) },
       { status: 500 }
     );
   }

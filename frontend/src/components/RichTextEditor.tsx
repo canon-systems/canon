@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useEditor, EditorContent, type JSONContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
@@ -126,12 +126,12 @@ export function RichTextEditor({
   }
 
   // Emit a ratio purely from scrollTop, used when user scrolls
-  function emitCursorRatioFromScroll(): void {
+  const emitCursorRatioFromScroll = useCallback((): void => {
     if (!editorRef.current) return;
     const maxScroll = Math.max(1, (editorRef.current.scrollHeight || 0) - (editorRef.current.clientHeight || 0));
     const ratio = clamp((editorRef.current.scrollTop || 0) / maxScroll, 0, 1);
     onCursorChange?.(ratio);
-  }
+  }, [onCursorChange]);
 
   // Add scroll listener
   useEffect(() => {
@@ -142,7 +142,7 @@ export function RichTextEditor({
     return () => {
       el.removeEventListener('scroll', emitCursorRatioFromScroll);
     };
-  }, []);
+  }, [emitCursorRatioFromScroll]);
 
   // Add custom keyboard shortcuts
   useEffect(() => {

@@ -7,13 +7,15 @@ import { LLMGateway } from './llmGateway';
  */
 export async function generateDocument(
 	supabase: SupabaseClient,
-	repoId: string,
+	sourceId: string,
 	title: string,
-	selectedFiles: string[]
+	selectedFiles: string[],
+	sourceUrl?: string
 ): Promise<{ documentId: string }> {
 	// 1. Get summaries for selected files
 	// Normalize repoId to match repo_file_summaries format (github.com/owner/repo)
-	const normalizedRepoId = repoId.startsWith('github.com/') ? repoId : `github.com/${repoId}`;
+	const repoKey = sourceUrl || sourceId;
+	const normalizedRepoId = repoKey.startsWith('github.com/') ? repoKey : `github.com/${repoKey.replace(/^github\.com\//, '')}`;
 	const { data: summaries, error: summariesError } = await supabase
 		.from('repo_file_summaries')
 		.select('file_path, summary_text')
@@ -56,15 +58,16 @@ Be thorough and clear.`;
 			'openai/gpt-4o',
 			0.3
 		);
-	} catch (error: any) {
-		throw new Error(`Failed to generate document: ${error.message}`);
+	} catch (error: unknown) {
+		const errorMessage = error instanceof Error ? error.message : String(error);
+		throw new Error(`Failed to generate document: ${errorMessage}`);
 	}
 
 	// 4. Save document
 	const { data: doc, error: docError } = await supabase
 		.from('documents')
 		.insert({
-			repo_id: repoId,
+			source_id: sourceId,
 			title,
 			content: documentContent
 		})
@@ -78,7 +81,7 @@ Be thorough and clear.`;
 	// 5. Save file mappings
 	const fileMappings = selectedFiles.map(filePath => ({
 		document_id: doc.id,
-		repo_id: repoId,
+		source_id: sourceId,
 		file_path: filePath
 	}));
 
@@ -114,10 +117,10 @@ Be thorough and clear.`;
 export async function getDocument(
 	supabase: SupabaseClient,
 	documentId: string
-): Promise<{ id: string; title: string; content: string; repo_id: string; kb_id: string | null; kb_provider: string | null; created_at: string; updated_at: string; configuration?: any } | null> {
+): Promise<{ id: string; title: string; content: string; source_id: string | null; kb_id: string | null; kb_provider: string | null; created_at: string; updated_at: string; configuration?: Record<string, unknown> | null } | null> {
 	const { data, error } = await supabase
 		.from('documents')
-		.select('id, title, content, repo_id, kb_id, kb_provider, created_at, updated_at, configuration')
+		.select('id, title, content, source_id, kb_id, kb_provider, created_at, updated_at, configuration')
 		.eq('id', documentId)
 		.single();
 
@@ -147,17 +150,18 @@ export async function getDocumentFiles(
  */
 export async function createOrUpdateDocument(
 	supabase: SupabaseClient,
-	repoId: string,
+	sourceId: string,
 	title: string,
 	content: string,
 	filePaths: string[],
-	sourceMeta?: Record<string, unknown>
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	_sourceMeta?: Record<string, unknown>
 ): Promise<{ documentId: string; isNew: boolean }> {
 	// Check if document exists for this repo
 	const { data: existingDoc } = await supabase
 		.from('documents')
 		.select('id')
-		.eq('repo_id', repoId)
+		.eq('source_id', sourceId)
 		.eq('title', title)
 		.single();
 
@@ -190,7 +194,7 @@ export async function createOrUpdateDocument(
 
 		const fileMappings = filePaths.map(filePath => ({
 			document_id: documentId,
-			repo_id: repoId,
+			source_id: sourceId,
 			file_path: filePath
 		}));
 
@@ -216,7 +220,7 @@ export async function createOrUpdateDocument(
 		const { data: newDoc, error: createError } = await supabase
 			.from('documents')
 			.insert({
-				repo_id: repoId,
+				source_id: sourceId,
 				title,
 				content,
 			})
@@ -233,7 +237,7 @@ export async function createOrUpdateDocument(
 		// Save file mappings
 		const fileMappings = filePaths.map(filePath => ({
 			document_id: documentId,
-			repo_id: repoId,
+			source_id: sourceId,
 			file_path: filePath
 		}));
 

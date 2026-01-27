@@ -52,9 +52,9 @@ export async function POST(request: NextRequest) {
       const { data: installRepos } = await octokit.apps.listReposAccessibleToInstallation({
         per_page: 100
       });
-      const repoList = Array.isArray((installRepos as any).repositories)
-        ? (installRepos as any).repositories
-        : (installRepos as any);
+      const repoList = Array.isArray((installRepos as { repositories?: unknown[] }).repositories)
+        ? (installRepos as { repositories: Array<{ id: number; name: string; full_name: string; html_url: string; description: string | null; private: boolean; default_branch: string; language: string | null; updated_at: string; owner?: { login?: string } }> }).repositories
+        : (installRepos as { repositories?: Array<{ id: number; name: string; full_name: string; html_url: string; description: string | null; private: boolean; default_branch: string; language: string | null; updated_at: string; owner?: { login?: string } }> }).repositories || [];
 
       const repos = Array.isArray(repoList) ? repoList : [];
 
@@ -86,8 +86,8 @@ export async function POST(request: NextRequest) {
         );
       }
       ownerType = userOrOrg.type;
-    } catch (error: any) {
-      if (error.status === 404) {
+    } catch (error: unknown) {
+      if (error instanceof Error && 'status' in error && (error as { status: number }).status === 404) {
         return NextResponse.json(
           { error: `User or organization '${owner}' not found` },
           { status: 404 }
@@ -105,8 +105,8 @@ export async function POST(request: NextRequest) {
         const { data } = await appOctokit.apps.getUserInstallation({ username: owner });
         installationId = data.id;
       }
-    } catch (error: any) {
-      if (error.status === 404) {
+    } catch (error: unknown) {
+      if (error instanceof Error && 'status' in error && (error as { status: number }).status === 404) {
         return NextResponse.json(
           {
             error: 'GitHub App not installed',
@@ -119,22 +119,33 @@ export async function POST(request: NextRequest) {
     }
 
     const octokit = getGitHubAppOctokit(installationId);
-    const repos: any[] = [];
+    const repos: Array<{
+      id: number;
+      name: string;
+      full_name: string;
+      html_url: string;
+      description: string | null;
+      private: boolean;
+      default_branch: string;
+      language: string | null;
+      updated_at: string;
+      owner?: { login?: string };
+    }> = [];
 
     try {
       const { data: installRepos } = await octokit.apps.listReposAccessibleToInstallation({
         per_page: 100
       });
-      const repoList = Array.isArray((installRepos as any).repositories)
-        ? (installRepos as any).repositories
-        : (installRepos as any);
+      const repoList = Array.isArray((installRepos as { repositories?: unknown[] }).repositories)
+        ? (installRepos as { repositories: Array<{ id: number; name: string; full_name: string; html_url: string; description: string | null; private: boolean; default_branch: string; language: string | null; updated_at: string; owner?: { login?: string } }> }).repositories
+        : (installRepos as { repositories?: Array<{ id: number; name: string; full_name: string; html_url: string; description: string | null; private: boolean; default_branch: string; language: string | null; updated_at: string; owner?: { login?: string } }> }).repositories || [];
       if (Array.isArray(repoList)) {
         const ownerLower = owner.toLowerCase();
         repos.push(...repoList.filter((r) => r.owner?.login?.toLowerCase() === ownerLower));
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       // If 404, owner doesn't exist or user doesn't have access
-      if (error.status === 404) {
+      if (error instanceof Error && 'status' in error && (error as { status: number }).status === 404) {
         return NextResponse.json(
           { error: `Owner '${owner}' not found or not accessible via GitHub App` },
           { status: 404 }
@@ -171,13 +182,13 @@ export async function POST(request: NextRequest) {
         updated_at: r.updated_at
       }))
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Error fetching repositories:', err);
 
     return NextResponse.json(
       {
         error: 'Failed to fetch repositories',
-        detail: err.message || String(err)
+        detail: err instanceof Error ? err.message : String(err)
       },
       { status: 500 }
     );

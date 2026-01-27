@@ -12,9 +12,9 @@ export default async function RepositoriesPage() {
 
   const supabase = await createClient();
 
-  // First get repositories
+  // First get sources
   const { data: repositories, error: repoError } = await supabase
-    .from('workspace_repos')
+    .from('workspace_sources')
     .select('*')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false });
@@ -41,14 +41,14 @@ export default async function RepositoriesPage() {
     return repoUrl;
   }
 
-  // Then get setup status, branch, and file summary status for each repository
+  // Then get setup status, branch, and file summary status for each source
   const repositoriesWithSetup = await Promise.all(
     (repositories || []).map(async (repo) => {
       try {
         const { data: setup, error } = await supabase
-          .from('repository_setup')
+          .from('source_setup')
           .select('setup_status, branch, total_files, summarized_files')
-          .eq('repo_id', repo.id)
+          .eq('source_id', repo.id)
           .single();
 
         if (error && error.code && error.code !== 'PGRST116') { // PGRST116 is "not found"
@@ -65,9 +65,9 @@ export default async function RepositoriesPage() {
           } else if (fileSummaryCount > 0) {
             fileSummaryStatus = 'partial';
           }
-        } else if (setup?.branch && repo.repo_url) {
+        } else if (setup?.branch && (repo.repo_url || repo.external_url)) {
           try {
-            const normalizedRepoId = normalizeRepoId(repo.repo_url);
+            const normalizedRepoId = normalizeRepoId(repo.repo_url || repo.external_url || '');
             const { count, error: countError } = await supabase
               .from('repo_file_summaries')
               .select('*', { count: 'exact', head: true })

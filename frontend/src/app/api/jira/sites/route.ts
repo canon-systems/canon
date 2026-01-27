@@ -12,12 +12,12 @@ export async function GET() {
     const sites = await listJiraSitesForUser(user.id);
 
     return NextResponse.json({ sites });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Failed to list Jira sites:', err);
     return NextResponse.json(
       {
         error: 'Failed to list Jira sites',
-        detail: err.message || String(err),
+        detail: err instanceof Error ? err.message : String(err),
       },
       { status: 500 }
     );

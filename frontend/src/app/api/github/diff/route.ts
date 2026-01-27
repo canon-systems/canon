@@ -85,8 +85,8 @@ export async function POST(request: NextRequest) {
             filePath,
             status: 'modified'
           });
-        } catch (error: any) {
-          if (error.status === 404) {
+        } catch (error: unknown) {
+          if (error instanceof Error && 'status' in error && (error as { status: number }).status === 404) {
             // File might have been added or deleted
             return NextResponse.json({
               diff: `--- /dev/null\n+++ b/${filePath}\n@@ New file @@\n`,

@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
       userId: user?.id || null,
       projectName,
       model,
-      files: files.map((file: any) => ({
+      files: files.map((file: { path?: string; content?: string }) => ({
         path: String(file?.path || 'unknown'),
         content: String(file?.content || ''),
       })),
@@ -89,12 +89,12 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({ markdown: result.markdown }, { status: 200 });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Generate doc error:', err);
     return NextResponse.json(
       {
         error: 'Generator failed',
-        detail: err.message || String(err),
+        detail: err instanceof Error ? err.message : String(err),
       },
       { status: 500 }
     );

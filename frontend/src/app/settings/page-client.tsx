@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Settings, User, Link2, Sliders, Mail, Check, X, Loader2, Github, CheckCircle2, Wrench, RefreshCw } from 'lucide-react';
+import { Settings, User, Link2, Sliders, Mail, Check, X, Loader2, Github } from 'lucide-react';
 import { IntegrationLogos } from '@/components/IntegrationLogos';
+import { getIntegrationsCached, clearIntegrationsCache } from '@/lib/client/integrationsCache';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -13,7 +14,7 @@ interface Connection {
   provider: string;
   connection_id: string;
   status: string;
-  metadata?: any;
+  metadata?: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }
@@ -26,7 +27,7 @@ interface SettingsPageClientProps {
   user: SupabaseUser | null;
 }
 
-const tabs: Array<{ id: TabId; name: string; icon: any }> = [
+const tabs: Array<{ id: TabId; name: string; icon: React.ComponentType<{ className?: string }> }> = [
   { id: 'profile', name: 'Profile', icon: User },
   { id: 'integrations', name: 'Integrations', icon: Link2 },
   { id: 'preferences', name: 'Preferences', icon: Sliders }
@@ -47,6 +48,28 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   const [uninstallOnDisconnect, setUninstallOnDisconnect] = useState(false);
 
   // Repository management moved to /automation page
+
+  const loadConnections = useCallback(async (force = false) => {
+    setLoading(true);
+    try {
+      const data = await getIntegrationsCached(force);
+      // Map IntegrationConnection[] to Connection[] by adding required fields
+      const mappedConnections: Connection[] = (data.connections || []).map((conn) => ({
+        id: conn.id || conn.connection_id || '',
+        provider: conn.provider || '',
+        connection_id: conn.connection_id || conn.id || '',
+        status: conn.status || 'inactive',
+        metadata: conn.metadata || {},
+        created_at: (conn.created_at as string) || new Date().toISOString(),
+        updated_at: (conn.updated_at as string) || new Date().toISOString(),
+      }));
+      setConnections(mappedConnections);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load connections');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   // Get active tab from URL query param
   useEffect(() => {
@@ -81,35 +104,18 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     if (tabParam === 'integrations' || (!tabParam && activeTab === 'integrations')) {
       loadConnections();
     }
-  }, [searchParams, router]);
+  }, [searchParams, router, activeTab, loadConnections]);
 
   useEffect(() => {
     loadConnections();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [loadConnections]);
 
   // Reload connections when switching to integrations tab
   useEffect(() => {
     if (activeTab === 'integrations' && connections.length === 0 && !loading) {
       loadConnections();
     }
-  }, [activeTab]);
-
-
-
-  async function loadConnections() {
-    setLoading(true);
-    try {
-      const response = await fetch('/api/integrations/list');
-      if (!response.ok) throw new Error('Failed to load connections');
-      const data = await response.json();
-      setConnections(data.connections || []);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load connections');
-    } finally {
-      setLoading(false);
-    }
-  }
+  }, [activeTab, connections.length, loading, loadConnections]);
 
   async function connectToProvider(providerName: string) {
     setConnecting(true);
@@ -135,8 +141,8 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
       }
 
       throw new Error(`${getProviderDisplayName(providerName)} integration is not available yet.`);
-    } catch (err: any) {
-      setError(err.message || 'Failed to connect');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to connect');
       console.error('Connection error:', err);
       setConnecting(false);
     }
@@ -169,9 +175,10 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
       }
 
       setSuccess(`Disconnected from ${getProviderDisplayName(provider)}`);
-      await loadConnections();
-    } catch (err: any) {
-      setError(err.message || 'Failed to disconnect');
+      clearIntegrationsCache();
+      await loadConnections(true);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to disconnect');
     }
   }
 

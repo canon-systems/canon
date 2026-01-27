@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, AlertTriangle, Info } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -55,8 +55,8 @@ export function LoginPageClient() {
 
       setInfoMsg('Check your email and click the confirmation link to finish sign up.');
       setLoading(false);
-    } catch (e: any) {
-      setErrorMsg(e?.message ?? 'Something went wrong during sign up.');
+    } catch (e: unknown) {
+      setErrorMsg(e instanceof Error ? e.message : 'Something went wrong during sign up.');
       setLoading(false);
     }
   }
@@ -87,8 +87,8 @@ export function LoginPageClient() {
 
       setErrorMsg('Login failed - no session created');
       setLoading(false);
-    } catch (e: any) {
-      setErrorMsg(e?.message ?? 'Something went wrong during login.');
+    } catch (e: unknown) {
+      setErrorMsg(e instanceof Error ? e.message : 'Something went wrong during login.');
       setLoading(false);
     }
   }

@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
-  Grid3x3, List, MoreVertical, RefreshCw, Loader2, Clock,
-  CheckCircle2, AlertCircle, X, Search, Send, FileText, Filter, Github, GitBranch, ExternalLink
+  Grid3x3, List, MoreVertical, RefreshCw, Loader2,
+  CheckCircle2, AlertCircle, Search, Send, Github, GitBranch, ExternalLink
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import type { User } from '@supabase/supabase-js';
@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -110,11 +110,6 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
     }
   }, []);
 
-  // Load docs from API
-  useEffect(() => {
-    loadDocs();
-  }, [statusFilter, searchQuery, repoFilter, page]);
-
   async function loadRepos() {
     try {
       const response = await fetch('/api/repos');
@@ -122,12 +117,12 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
         const data = await response.json();
         setRepos(data || []);
       }
-    } catch (err) {
+    } catch {
       // Ignore errors - repos filter is optional
     }
   }
 
-  async function loadDocs() {
+  const loadDocs = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -159,13 +154,12 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
       // Debug: Log first item to check push metadata
       if (data.items && data.items.length > 0) {
       }
-    } catch (err: any) {
-      setError(err.message || 'Failed to load documents');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load documents');
     } finally {
       setLoading(false);
     }
-  }
-
+  }, [page, statusFilter, searchQuery, repoFilter, setLoading, setError, setItems, setTotal, setTotalPages, setPendingTotal]);
 
   function setViewModeAndSave(mode: ViewMode) {
     setViewMode(mode);
@@ -279,7 +273,8 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
   }
 
   // Status badge component
-  function getStatusBadge(status: DocItem['status']) {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  function getStatusBadge(_status: DocItem['status']) {
     return (
       <span className="inline-flex items-center gap-1 rounded border border-blue-400/30 bg-blue-500/20 px-2 py-1 text-xs text-blue-200">
         <Send className="h-3 w-3" />
@@ -861,7 +856,7 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
           <DialogHeader>
             <DialogTitle>Confirm Delete</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete <span className="font-semibold">"{itemToDelete?.title}"</span>?
+              Are you sure you want to delete <span className="font-semibold">&quot;{itemToDelete?.title}&quot;</span>?
               This action cannot be undone.
             </DialogDescription>
           </DialogHeader>

@@ -21,22 +21,22 @@ export default async function EditDetailPage({ params }: { params: Promise<{ id:
     notFound();
   }
 
-  // Verify user has access and get repo settings
+  // Verify user has access and get source settings
   const { data: repo } = await supabase
-    .from('workspace_repos')
-    .select('user_id, settings, repo_url, default_branch')
-    .eq('id', document.repo_id)
+    .from('workspace_sources')
+    .select('user_id, settings, repo_url, external_url, default_branch')
+    .eq('id', document.source_id)
     .single();
 
   if (!repo || repo.user_id !== user.id) {
     notFound();
   }
 
-  // Get repository setup to get the branch used for setup
+  // Get source setup to get the branch used for setup
   const { data: setup } = await supabase
-    .from('repository_setup')
+    .from('source_setup')
     .select('branch')
-    .eq('repo_id', document.repo_id)
+    .eq('source_id', document.source_id)
     .single();
 
   // Get file paths
@@ -54,9 +54,9 @@ export default async function EditDetailPage({ params }: { params: Promise<{ id:
 
   // Extract prompt config from repo settings
   const repoSettings = (repo.settings || {}) as {
-    llm_prompt_config?: any;
+    llm_prompt_config?: Record<string, unknown>;
     model?: string;
-    document_structure?: any;
+    document_structure?: Record<string, unknown>;
   };
 
   // Get configuration from document if available, otherwise fall back to repo settings
@@ -81,14 +81,14 @@ export default async function EditDetailPage({ params }: { params: Promise<{ id:
         }
       : null,
     source_meta: {
-      repoId: document.repo_id,
-      repoUrl: repo.repo_url,
+      repoId: document.source_id,
+      repoUrl: repo.repo_url || repo.external_url,
       branch: setup?.branch || repo.default_branch || 'main',
       llm_prompt_config: regenerationSettings || repoSettings.llm_prompt_config || null,
       model: regenerationSettings.model || repoSettings.model || null,
       document_structure: regenerationSettings.documentStructure || repoSettings.document_structure || null,
     },
-    code_snapshot: null as any,
+    code_snapshot: undefined,
     is_outdated: false,
     selected_files: filePaths
   };

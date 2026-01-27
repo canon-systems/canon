@@ -3,63 +3,14 @@
  */
 
 import type { WorkspaceProvider, WorkspaceInfo, WorkspaceContent } from '../base';
-import { marked } from 'marked';
-import { parse } from 'node-html-parser';
 
-function convertHtmlToGoogleDocsRequests(html: string, title: string): any[] {
-	const root = parse(html);
-	const body = root.querySelector('body') || root;
-	const requests: any[] = [];
-
-	// Clear existing content
-	requests.push({
-		deleteContent: {
-			range: {
-				startIndex: 1,
-				endIndex: 1
-			}
-		}
-	});
-
-	// Insert title
-	if (title) {
-		requests.push({
-			insertText: {
-				location: { index: 1 },
-				text: title + '\n'
-			}
-		});
-		requests.push({
-			updateParagraphStyle: {
-				range: {
-					startIndex: 1,
-					endIndex: title.length + 1
-				},
-				paragraphStyle: {
-					namedStyleType: 'HEADING_1'
-				},
-				fields: 'namedStyleType'
-			}
-		});
-	}
-
-	// Process content (simplified - full implementation would handle all HTML elements)
-	const textContent = body.text || '';
-	if (textContent) {
-		requests.push({
-			insertText: {
-				location: { index: title ? title.length + 2 : 1 },
-				text: textContent
-			}
-		});
-	}
-
-	return requests;
-}
+// Removed unused import: marked
+// Removed unused function: convertHtmlToGoogleDocsRequests
 
 export class GoogleDocsProvider implements WorkspaceProvider {
 	name = 'googledocs';
 
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
 	async pullContent(_workspaceInfo: WorkspaceInfo, _connectionId: string): Promise<WorkspaceContent | null> {
 		// TODO: Implement Google Docs pull
 		// For now, return null - Google Docs pull can be added later

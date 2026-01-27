@@ -98,7 +98,7 @@ async function updateProgress(
 		update.summarized_files = totalSummarized;
 	}
 	if (progress.currentFile !== undefined) {
-		update.current_file = progress.currentFile;
+		update.current_item = progress.currentFile;
 	}
 	if (progress.phase) {
 		update.processing_status = progress.phase;
@@ -113,11 +113,11 @@ async function updateProgress(
 		update.estimated_time_remaining = progress.estimatedTimeRemaining;
 	}
 	if (progress.recentFiles) {
-		update.recent_files = JSON.stringify(progress.recentFiles.slice(0, 10));
+		update.recent_items = JSON.stringify(progress.recentFiles.slice(0, 10));
 	}
 
 	const { error } = await supabase
-		.from('repository_setup')
+		.from('source_setup')
 		.update(update)
 		.eq('id', setupId);
 
@@ -238,16 +238,16 @@ export async function setupRepositorySimple(
 	branch: string,
 	userId: string,
 	model: string = 'openai/gpt-4o-mini',
-	_accessToken?: string
+	// Removed unused parameter: _accessToken
 ): Promise<{ success: boolean; totalFiles: number; processedFiles: number; cachedFiles: number }> {
-	const repoId = normalizeRepoId(repoUrl);
+	const normalizedRepoKey = normalizeRepoId(repoUrl);
 
 	const db = createServiceRoleClient();
 	const { data: ownedRepo, error: ownershipError } = await db
-		.from('workspace_repos')
-		.select('id, provider, default_branch, auth_type')
+		.from('workspace_sources')
+		.select('id, provider, default_branch, auth_type, external_url, settings')
 		.eq('user_id', userId)
-		.eq('repo_url', repoUrl)
+		.or(`repo_url.eq.${repoUrl},external_url.eq.${repoUrl}`)
 		.single();
 
 	if (ownershipError || !ownedRepo) {
@@ -263,8 +263,8 @@ export async function setupRepositorySimple(
 	// Verify we can access the setup record at startup
 	try {
 		const { data: initialSetup, error: initialError } = await db
-			.from('repository_setup')
-			.select('setup_status, repo_id')
+			.from('source_setup')
+			.select('setup_status, source_id')
 			.eq('id', setupId)
 			.single();
 
@@ -273,10 +273,11 @@ export async function setupRepositorySimple(
 			throw new Error(`Setup record access failed: ${initialError.message}`);
 		}
 
-		console.log(`[repoSetupSimple] ✅ Setup record accessible: ${setupId} (status: ${initialSetup?.setup_status}, repo: ${initialSetup?.repo_id})`);
-	} catch (accessError: any) {
-		console.error(`[repoSetupSimple] ❌ Failed to access setup record at startup: ${accessError.message}`);
-		throw accessError;
+		console.log(`[repoSetupSimple] ✅ Setup record accessible: ${setupId} (status: ${initialSetup?.setup_status}, source: ${initialSetup?.source_id})`);
+	} catch (accessError: unknown) {
+		const errorMessage = accessError instanceof Error ? accessError.message : String(accessError);
+		console.error(`[repoSetupSimple] ❌ Failed to access setup record at startup: ${errorMessage}`);
+		throw accessError instanceof Error ? accessError : new Error(String(accessError));
 	}
 
 	const progress: ProgressState = {
@@ -294,7 +295,7 @@ export async function setupRepositorySimple(
 
 	try {
 		// Phase 1: Scan repository
-		console.log(`[repoSetupSimple] Phase 1: Scanning repository ${repoId}...`);
+		console.log(`[repoSetupSimple] Phase 1: Scanning repository ${normalizedRepoKey}...`);
 		await updateProgress(db, setupId, { phase: 'scanning', currentFile: null });
 
 		const analysis = await analyzeRepository({
@@ -373,7 +374,7 @@ export async function setupRepositorySimple(
 					}
 
 					// Check cache
-					const cached = await getCachedSummary(db, repoId, filePath, fileHash, branch);
+					const cached = await getCachedSummary(db, normalizedRepoKey, filePath, fileHash, branch);
 
 					if (cached.exists && cached.hash === fileHash) {
 						// File is cached and up-to-date
@@ -386,7 +387,7 @@ export async function setupRepositorySimple(
 					} else {
 						// Generate summary with abort signal
 						const summary = await generateFileSummary(fileContent, filePath, model);
-						await saveFileSummary(db, repoId, filePath, fileHash, summary, branch, userId, model);
+						await saveFileSummary(db, normalizedRepoKey, filePath, fileHash, summary, branch, userId, model);
 						progress.processedFiles++;
 						const fileIndex = progress.recentFiles.findIndex(f => f.path === filePath);
 						if (fileIndex >= 0) {
@@ -394,9 +395,9 @@ export async function setupRepositorySimple(
 						}
 						console.log(`[repoSetupSimple] ✓ Processed: ${filePath}`);
 					}
-				} catch (error: any) {
+				} catch (error: unknown) {
 					// Handle cancellation vs other errors
-					if (error.name === 'AbortError' || error.message?.includes('cancelled')) {
+					if (error instanceof Error && (error.name === 'AbortError' || error.message?.includes('cancelled'))) {
 						console.log(`[repoSetupSimple] File processing cancelled: ${filePath}`);
 						const fileIndex = progress.recentFiles.findIndex(f => f.path === filePath);
 						if (fileIndex >= 0) {
@@ -406,7 +407,8 @@ export async function setupRepositorySimple(
 						abortController.abort();
 						throw error;
 					} else {
-						console.error(`[repoSetupSimple] ❌ Failed: ${filePath} - ${error.message}`);
+						const errorMessage = error instanceof Error ? error.message : String(error);
+						console.error(`[repoSetupSimple] ❌ Failed: ${filePath} - ${errorMessage}`);
 						const fileIndex = progress.recentFiles.findIndex(f => f.path === filePath);
 						if (fileIndex >= 0) {
 							progress.recentFiles[fileIndex].status = 'failed';
@@ -479,7 +481,7 @@ export async function setupRepositorySimple(
 		const { count, error: countError } = await db
 			.from('repo_file_summaries')
 			.select('*', { count: 'exact', head: true })
-			.ilike('repo_id', repoId)
+			.ilike('repo_id', normalizedRepoKey)
 			.eq('branch', branch);
 
 		if (countError) {
@@ -501,7 +503,7 @@ export async function setupRepositorySimple(
 		});
 
 		await db
-			.from('repository_setup')
+			.from('source_setup')
 			.update({
 				setup_status: 'ready',
 				setup_completed_at: new Date().toISOString(),
@@ -527,7 +529,7 @@ export async function setupRepositorySimple(
 			processedFiles: progress.processedFiles,
 			cachedFiles: progress.cachedFiles,
 		};
-	} catch (error: any) {
+	} catch (error: unknown) {
 		console.error(`[repoSetupSimple] ❌ Setup failed:`, error);
 
 		await updateProgress(db, setupId, {
@@ -536,22 +538,27 @@ export async function setupRepositorySimple(
 		});
 
 		await db
-			.from('repository_setup')
+			.from('source_setup')
 			.update({
 				setup_status: 'failed',
-				error_message: error.message || 'Unknown error',
+				error_message: error instanceof Error ? error.message : (typeof error === 'string' ? error : 'Unknown error'),
 				setup_completed_at: new Date().toISOString(),
 			})
 			.eq('id', setupId);
 
-		// Remove the repository from workspace_repos if setup failed or was cancelled
-		console.log(`[repoSetupSimple] Aborting operations and removing failed/cancelled repository ${repoId} from workspace_repos`);
+		// Remove the source if setup failed or was cancelled
+		console.log(`[repoSetupSimple] Aborting operations and removing failed/cancelled source for setup ${setupId}`);
 		abortController.abort();
 		unregisterSetupCancellation(setupId);
-		await db
-			.from('workspace_repos')
-			.delete()
-			.eq('id', repoId);
+		try {
+			const { data: setupRecord } = await db.from('source_setup').select('source_id').eq('id', setupId).single();
+			const sourceId = setupRecord?.source_id;
+			if (sourceId) {
+				await db.from('workspace_sources').delete().eq('id', sourceId);
+			}
+		} catch (removeError) {
+			console.error('[repoSetupSimple] Failed to remove source after failure:', removeError);
+		}
 
 		throw error;
 	}

@@ -28,10 +28,11 @@ export default async function ReviewPage({ params, searchParams }: ReviewPagePro
     redirect('/documentation?tab=edit');
   }
 
+  const sourceId = document.source_id;
   const { data: repo } = await supabase
-    .from('workspace_repos')
+    .from('workspace_sources')
     .select('user_id')
-    .eq('id', document.repo_id)
+    .eq('id', sourceId)
     .single();
 
   if (!repo || repo.user_id !== user.id) {
@@ -56,8 +57,10 @@ export default async function ReviewPage({ params, searchParams }: ReviewPagePro
 
   const { data: pending } = await pendingQuery.maybeSingle();
 
-  const pendingMetadata = (pending as any)?.metadata || {};
+  const pendingMetadata = (pending as { metadata?: Record<string, unknown> } | null)?.metadata || {};
   const rejectedAt = typeof pendingMetadata.rejected_at === 'string' ? pendingMetadata.rejected_at : '';
+  const model = typeof pendingMetadata.model === 'string' ? pendingMetadata.model : '';
+  const affectedFiles = Array.isArray(pendingMetadata.affected_files) ? pendingMetadata.affected_files : [];
 
   if (!pending) {
     redirect('/review');
@@ -72,9 +75,9 @@ export default async function ReviewPage({ params, searchParams }: ReviewPagePro
         id: pending.id,
         content: pending.content,
         createdAt: pending.created_at,
-        model: pendingMetadata.model || '',
+        model,
         changeSummary: pending.change_summary || '',
-        affectedFiles: Array.isArray(pendingMetadata.affected_files) ? pendingMetadata.affected_files : [],
+        affectedFiles,
         status: pending.status === 'rejected' ? 'rejected' : 'pending',
         rejectedAt,
       } : null}

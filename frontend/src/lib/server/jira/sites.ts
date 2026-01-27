@@ -58,11 +58,11 @@ export async function listJiraSitesForUser(userId: string): Promise<JiraSite[]> 
   if (!Array.isArray(data)) return [];
 
   const sites = data
-    .map((resource: any) => {
+    .map((resource: { id?: string | number; name?: string; url?: string; scopes?: unknown[] }) => {
       const id = resource?.id ? String(resource.id) : null;
       const name = resource?.name ? String(resource.name) : null;
       const url = resource?.url ? String(resource.url) : null;
-      const scopes = Array.isArray(resource?.scopes) ? resource.scopes.map((scope: any) => String(scope)) : [];
+      const scopes = Array.isArray(resource?.scopes) ? resource.scopes.map((scope: unknown) => String(scope)) : [];
       if (!id || !url) return null;
       return {
         id,

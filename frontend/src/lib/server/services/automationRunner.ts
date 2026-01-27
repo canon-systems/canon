@@ -3,7 +3,7 @@ import { analyzeRepository } from './analyzeRepository';
 import { generateDocumentation } from './docGenerator';
 import { trackArchitectureDiagram, trackAutomationRun, trackDocGenerated, trackPushToKb } from './usageTracking';
 import { LLMGateway } from './llmGateway';
-import { FileSummaryManager } from './fileSummaryManager';
+import { FileSummaryManager, type UpdateResult } from './fileSummaryManager';
 import { parseRepoUrl } from '../github/github';
 import { TreeSitterAnalyzer } from './treeSitterAnalyzer';
 import { getWorkspaceProvider } from '../workspaces/workspaceFactory';
@@ -12,6 +12,7 @@ import { getGitHubDiffForRepo } from '../diff/githubDiff';
 import { getJiraDiffForProject } from '../diff/jiraDiff';
 import { buildCanonDiff } from '../diff/canon';
 import { renderDiffMarkdown } from '../diff/renderers';
+import type { PromptConfig } from '../prompts/buildSystemPrompt';
 
 const ARCHITECTURE_SUPPORTED_EXTENSIONS = new Set([
 	'js',
@@ -124,10 +125,46 @@ function normalizeRepoId(repoUrl: string): string {
 	return `github.com/${parsed.owner}/${parsed.repo}`;
 }
 
+type WorkspaceSource = {
+	id: string;
+	name: string;
+	repo_url: string;
+	external_url?: string | null;
+	default_branch: string;
+	provider: string;
+	settings?: Record<string, unknown> | null;
+	[key: string]: unknown;
+};
+
+type AutomationRule = {
+	id: string;
+	source_id: string;
+	name?: string | null;
+	enabled?: boolean | null;
+	schedule?: string | null;
+	generate_doc?: boolean | null;
+	generate_diagram?: boolean | null;
+	auto_publish?: boolean | null;
+	auto_approve?: boolean | null;
+	target_diagrams?: string[] | null;
+	auto_publish_target?: Record<string, unknown> | null;
+	last_run_at?: string | null;
+	[key: string]: unknown;
+};
+
+type DocumentRow = {
+	id: string;
+	source_id: string;
+	title: string;
+	content: string;
+	configuration?: Record<string, unknown> | null;
+	[key: string]: unknown;
+};
+
 type AutomationRuleContext = {
 	supabase: SupabaseClient;
-	repo: any;
-	rule: any;
+	repo: WorkspaceSource;
+	rule: AutomationRule;
 	userId: string;
 	triggerType?: 'scheduled' | 'manual';
 };
@@ -192,11 +229,11 @@ export async function executeAutomationRule({
 			result.actions.push('generate_diff');
 
 			try {
-				let githubRepoUrl = repo.repo_url;
+				let githubRepoUrl = repo.repo_url || repo.external_url;
 				if (autoPublishTarget?.github_repo_id) {
 					const { data: githubRepo, error: githubRepoError } = await supabase
-						.from('workspace_repos')
-						.select('id, repo_url, provider')
+						.from('workspace_sources')
+						.select('id, repo_url, external_url, provider')
 						.eq('id', autoPublishTarget.github_repo_id)
 						.single();
 					if (githubRepoError || !githubRepo) {
@@ -205,9 +242,13 @@ export async function executeAutomationRule({
 					if (githubRepo.provider !== 'github') {
 						throw new Error('Selected source is not a GitHub repository.');
 					}
-					githubRepoUrl = githubRepo.repo_url;
+					githubRepoUrl = githubRepo.repo_url || githubRepo.external_url;
 				} else if (repo.provider !== 'github') {
 					throw new Error('Select a GitHub repository for the diff.');
+				}
+
+				if (!githubRepoUrl) {
+					throw new Error('GitHub repo URL is required for diff.');
 				}
 
 				const parsed = parseRepoUrl(githubRepoUrl);
@@ -219,7 +260,7 @@ export async function executeAutomationRule({
 				const targetResourceId = autoPublishTarget?.resource_id || autoPublishTarget?.resourceId;
 				const connectionIdOverride = autoPublishTarget?.connection_id || autoPublishTarget?.connectionId;
 
-				if (!provider || !targetResourceId) {
+				if (!provider || typeof provider !== 'string' || !targetResourceId) {
 					throw new Error('Missing knowledge base target for diff delivery.');
 				}
 
@@ -232,7 +273,7 @@ export async function executeAutomationRule({
 					supabase,
 					userId,
 					provider,
-					connectionIdOverride
+					typeof connectionIdOverride === 'string' ? connectionIdOverride : undefined
 				);
 
 				if (!connectionId) {
@@ -264,11 +305,12 @@ export async function executeAutomationRule({
 						closed_unmerged: githubDiff.prs_closed_unmerged.length,
 						commits: githubDiff.commits.length,
 					});
-				} catch (err: any) {
-					throw new Error(`GitHub diff failed: ${err?.message || String(err)}`);
+				} catch (err: unknown) {
+					const errorMessage = err instanceof Error ? err.message : String(err);
+					throw new Error(`GitHub diff failed: ${errorMessage}`);
 				}
 
-				const jiraProjectKey = autoPublishTarget?.jira_project_key || autoPublishTarget?.jiraProjectKey;
+				const jiraProjectKey = typeof autoPublishTarget?.jira_project_key === 'string' ? autoPublishTarget.jira_project_key : (typeof autoPublishTarget?.jiraProjectKey === 'string' ? autoPublishTarget.jiraProjectKey : undefined);
 				let jiraDiff;
 				if (jiraProjectKey) {
 					try {
@@ -284,8 +326,9 @@ export async function executeAutomationRule({
 							regressed: jiraDiff.tickets_regressed.length,
 							new: jiraDiff.tickets_new.length,
 						});
-					} catch (err: any) {
-						throw new Error(`Jira diff failed: ${err?.message || String(err)}`);
+					} catch (err: unknown) {
+						const errorMessage = err instanceof Error ? err.message : String(err);
+						throw new Error(`Jira diff failed: ${errorMessage}`);
 					}
 				}
 
@@ -296,21 +339,22 @@ export async function executeAutomationRule({
 					jira: jiraDiff,
 				});
 
-				const diffTitle = autoPublishTarget?.title || rule.name || 'Daily Activity Diff';
+				const diffTitle = (typeof autoPublishTarget?.title === 'string' ? autoPublishTarget.title : null) || rule.name || 'Daily Activity Diff';
+				const audiences = Array.isArray(autoPublishTarget?.audiences) ? autoPublishTarget.audiences : undefined;
 				const markdown = renderDiffMarkdown(canon, {
-					audiences: autoPublishTarget?.audiences,
+					audiences,
 					title: diffTitle,
 				});
 
 				const workspaceInfo: WorkspaceInfo = {
 					provider,
-					resourceId: targetResourceId,
-					metadata: autoPublishTarget?.metadata || {},
+					resourceId: typeof targetResourceId === 'string' ? targetResourceId : '',
+					metadata: (autoPublishTarget?.metadata && typeof autoPublishTarget.metadata === 'object' && !Array.isArray(autoPublishTarget.metadata)) ? autoPublishTarget.metadata as Record<string, unknown> : {},
 				};
 
 				let pushed = await providerImpl.pushContent(
 					workspaceInfo,
-					{ title: diffTitle, markdown },
+					{ title: typeof diffTitle === 'string' ? diffTitle : '', markdown: typeof markdown === 'string' ? markdown : '' },
 					connectionId,
 					false
 				);
@@ -319,7 +363,7 @@ export async function executeAutomationRule({
 					// Fallback: resourceId might be a space id; create page once and persist page id.
 					pushed = await providerImpl.pushContent(
 						workspaceInfo,
-						{ title: diffTitle, markdown },
+						{ title: typeof diffTitle === 'string' ? diffTitle : '', markdown: typeof markdown === 'string' ? markdown : '' },
 						connectionId,
 						true
 					);
@@ -340,12 +384,13 @@ export async function executeAutomationRule({
 				if (pushed) {
 					result.publishStatus = 'success';
 					result.publishProvider = provider;
-					result.publishResourceId = pushed.resourceId || targetResourceId;
+					const publishResourceId = typeof pushed.resourceId === 'string' ? pushed.resourceId : (typeof targetResourceId === 'string' ? targetResourceId : '');
+					result.publishResourceId = publishResourceId;
 					result.actions.push('push_diff');
-					if (pushed.metadata?.url) {
-						console.log(`✅ [DIFF] Updated page: ${pushed.metadata.url}`);
+					if (pushed.metadata && typeof pushed.metadata === 'object' && !Array.isArray(pushed.metadata) && typeof (pushed.metadata as Record<string, unknown>).url === 'string') {
+						console.log(`✅ [DIFF] Updated page: ${(pushed.metadata as Record<string, unknown>).url}`);
 					} else {
-						console.log(`✅ [DIFF] Updated resource: ${pushed.resourceId || targetResourceId}`);
+						console.log(`✅ [DIFF] Updated resource: ${publishResourceId}`);
 					}
 
 					await trackPushToKb(
@@ -353,13 +398,13 @@ export async function executeAutomationRule({
 						userId,
 						provider,
 						null,
-						pushed.resourceId || targetResourceId
+						publishResourceId
 					);
 				} else {
 					throw new Error(`Failed to push diff to ${provider}`);
 				}
-			} catch (err: any) {
-				const message = err?.message || String(err);
+			} catch (err: unknown) {
+				const message = err instanceof Error ? err.message : String(err);
 				console.error(`❌ [DIFF] ${message}`);
 				result.errors.push(message);
 			}
@@ -367,8 +412,8 @@ export async function executeAutomationRule({
 			result.success = result.errors.length === 0;
 
 			await insertAutomationRun(supabase, {
-				repoId: repo.id,
-				repoUrl: repo.repo_url ?? null,
+				sourceId: repo.id,
+				sourceUrl: repo.repo_url ?? null,
 				automationRuleId: rule.id || null,
 				userId,
 				triggerType,
@@ -391,12 +436,13 @@ export async function executeAutomationRule({
 		try {
 			new LLMGateway();
 			console.log(`✅ [CHECK] AI service available`);
-		} catch (error: any) {
-			console.error(`❌ [ERROR] AI service unavailable: ${error.message}`);
-			result.errors.push(`AI service configuration error: ${error.message}`);
+		} catch (error: unknown) {
+			const errorMessage = error instanceof Error ? error.message : String(error);
+			console.error(`❌ [ERROR] AI service unavailable: ${errorMessage}`);
+			result.errors.push(`AI service configuration error: ${errorMessage}`);
 				await insertAutomationRun(supabase, {
-					repoId: repo.id,
-					repoUrl: repo.repo_url ?? null,
+					sourceId: repo.id,
+					sourceUrl: repo.repo_url ?? null,
 					automationRuleId: rule.id || null,
 					userId,
 					triggerType,
@@ -416,19 +462,19 @@ export async function executeAutomationRule({
 
 		// 🔍 Repository validation
 		const { data: repoSetup, error: setupError } = await supabase
-			.from('repository_setup')
+			.from('source_setup')
 			.select('setup_status, last_analyzed, branch')
-			.eq('repo_id', repo.id)
+			.eq('source_id', repo.id)
 			.single();
 
 		if (setupError || !repoSetup || repoSetup.setup_status !== 'ready') {
 			console.log(`⚠️ [SKIP] Repository not set up for automation`);
 			result.skipped = true;
-			result.skipReason = 'Repository not set up for automation. Please run repository setup first.';
+			result.skipReason = 'Source not set up for automation. Please run source setup first.';
 			result.success = true;
 				await insertAutomationRun(supabase, {
-					repoId: repo.id,
-					repoUrl: repo.repo_url ?? null,
+					sourceId: repo.id,
+					sourceUrl: repo.repo_url ?? repo.external_url ?? null,
 					automationRuleId: rule.id || null,
 					userId,
 					triggerType,
@@ -478,8 +524,8 @@ export async function executeAutomationRule({
 			console.error(`❌ [ERROR] Failed to analyze repository:`, analysis.message);
 			result.errors.push('Failed to analyze repository for file processing');
 				await insertAutomationRun(supabase, {
-					repoId: repo.id,
-					repoUrl: repo.repo_url ?? null,
+					sourceId: repo.id,
+					sourceUrl: repo.repo_url ?? null,
 					automationRuleId: rule.id || null,
 					userId,
 					triggerType,
@@ -506,7 +552,7 @@ export async function executeAutomationRule({
 		console.log(`📊 Found ${filesToProcess.length} files to process`);
 
 		// Use FileSummaryManager for efficient processing - it will only process changed files
-		let summaryResult: any = null;
+		let summaryResult: UpdateResult | null = null;
 		if (filesToProcess.length > 0) {
 			const summaryManager = new FileSummaryManager(
 				supabase,
@@ -527,7 +573,7 @@ export async function executeAutomationRule({
 							console.log(`   Currently processing: ${progress.currentFile}`);
 						}
 					},
-					model: rule.model || 'openai/gpt-4o-mini',
+					model: typeof rule.model === 'string' ? rule.model : 'openai/gpt-4o-mini',
 				}
 			);
 
@@ -564,7 +610,7 @@ export async function executeAutomationRule({
 					const { data: existing, error: findError } = await supabase
 						.from('diagrams')
 						.select('id, title, updated_at')
-						.eq('repo_id', repo.id)
+						.eq('source_id', repo.id)
 						.eq('diagram_type', 'architecture')
 						.single();
 
@@ -609,7 +655,7 @@ export async function executeAutomationRule({
 								const { data: insertedDiagram, error: insertError } = await supabase
 									.from('diagrams')
 									.insert({
-										repo_id: repo.id,
+										source_id: repo.id,
 										title: `Architecture Diagram - ${repo.name}`,
 										diagram_type: 'architecture',
 										content: architectureAnalysis.mermaid,
@@ -654,8 +700,8 @@ export async function executeAutomationRule({
 
 								console.log(`✅ [DIAGRAMS] Architecture diagram ${isNew ? 'created' : 'updated'} (id: ${diagram.id})`);
 							}
-						} catch (diagramError: any) {
-							const message = diagramError?.message || 'Failed to generate architecture diagram';
+						} catch (diagramError: unknown) {
+							const message = diagramError instanceof Error ? diagramError.message : 'Failed to generate architecture diagram';
 							console.error(`❌ [DIAGRAMS] ${message}`, diagramError);
 							result.errors.push(message);
 						}
@@ -677,8 +723,8 @@ export async function executeAutomationRule({
 			}
 
 				await insertAutomationRun(supabase, {
-					repoId: repo.id,
-					repoUrl: repo.repo_url ?? null,
+					sourceId: repo.id,
+					sourceUrl: repo.repo_url ?? null,
 					automationRuleId: rule.id || null,
 					userId,
 					triggerType,
@@ -704,16 +750,16 @@ export async function executeAutomationRule({
 		// Get all documents for this repo
 		const { data: repoDocs, error: docsError } = await supabase
 			.from('documents')
-			.select('id, title, repo_id, content, configuration')
-			.eq('repo_id', repo.id);
+			.select('id, title, source_id, content, configuration')
+			.eq('source_id', repo.id);
 
 		if (docsError) {
 			console.error(`❌ [ERROR] Failed to get documents:`, docsError);
 			result.errors.push('Failed to identify affected documents');
 			result.filesProcessed = summaryResult?.processed || 0;
 				await insertAutomationRun(supabase, {
-					repoId: repo.id,
-					repoUrl: repo.repo_url ?? null,
+					sourceId: repo.id,
+					sourceUrl: repo.repo_url ?? null,
 					automationRuleId: rule.id || null,
 					userId,
 					triggerType,
@@ -746,8 +792,8 @@ export async function executeAutomationRule({
 			result.errors.push('Failed to identify affected documents');
 			result.filesProcessed = summaryResult?.processed || 0;
 				await insertAutomationRun(supabase, {
-					repoId: repo.id,
-					repoUrl: repo.repo_url ?? null,
+					sourceId: repo.id,
+					sourceUrl: repo.repo_url ?? null,
 					automationRuleId: rule.id || null,
 					userId,
 					triggerType,
@@ -777,10 +823,10 @@ export async function executeAutomationRule({
 					docId: doc.id,
 					title: doc.title,
 					status: 'completed',
-					sourceMeta: { repoId: doc.repo_id },
+					sourceMeta: { repoId: doc.source_id },
 					affectedFiles,
-					configuration: (doc as any).configuration || {},
-					content: (doc as any).content || '',
+					configuration: (doc as DocumentRow).configuration || {},
+					content: (doc as DocumentRow).content || '',
 				});
 			}
 		});
@@ -799,8 +845,8 @@ export async function executeAutomationRule({
 			}
 
 				await insertAutomationRun(supabase, {
-					repoId: repo.id,
-					repoUrl: repo.repo_url ?? null,
+					sourceId: repo.id,
+					sourceUrl: repo.repo_url ?? null,
 					automationRuleId: rule.id || null,
 					userId,
 					triggerType,
@@ -846,13 +892,18 @@ export async function executeAutomationRule({
 				console.log(`[${timestamp}]    Files to regenerate: ${relatedFiles.length} file(s) - ${relatedFiles.slice(0, 5).join(', ')}${relatedFiles.length > 5 ? ` ... and ${relatedFiles.length - 5} more` : ''}`);
 
 				// Get current content for all related files (use summaries where available)
+				if (!repo.repo_url || typeof repo.repo_url !== 'string') {
+					console.error(`[${timestamp}] Invalid repo URL for doc ${docId}`);
+					docsFailed++;
+					continue;
+				}
 				const analysis = await analyzeRepository({
 					supabase,
 					userId,
 					repoUrl: repo.repo_url,
-					branch: repoBranch,
-					subdir,
-					filters,
+					branch: typeof repoBranch === 'string' ? repoBranch : undefined,
+					subdir: typeof subdir === 'string' ? subdir : undefined,
+					filters: filters && typeof filters === 'object' && !Array.isArray(filters) ? filters as Record<string, unknown> : undefined,
 				});
 
 				const filesToUse = analysis.rawFiles?.filter(file =>
@@ -865,25 +916,28 @@ export async function executeAutomationRule({
 					continue;
 				}
 
-				const docConfig = docInfo.configuration || {};
+				const docConfig = (docInfo.configuration && typeof docInfo.configuration === 'object' && !Array.isArray(docInfo.configuration)) ? docInfo.configuration as Record<string, unknown> : {};
+				const repoPromptConfigTyped = (repoPromptConfig && typeof repoPromptConfig === 'object' && !Array.isArray(repoPromptConfig)) ? repoPromptConfig as Record<string, unknown> : null;
+				const repoDocumentStructureTyped = typeof repoDocumentStructure === 'string' ? repoDocumentStructure : null;
+				
 				const resolvedDocumentStructure =
-					docConfig.documentStructure ||
-					docConfig.document_structure ||
-					repoDocumentStructure ||
-					repoPromptConfig?.document_structure ||
-					repoPromptConfig?.documentStructure ||
+					(typeof docConfig.documentStructure === 'string' ? docConfig.documentStructure : null) ||
+					(typeof docConfig.document_structure === 'string' ? docConfig.document_structure as string : null) ||
+					repoDocumentStructureTyped ||
+					(repoPromptConfigTyped && typeof repoPromptConfigTyped.document_structure === 'string' ? repoPromptConfigTyped.document_structure : null) ||
+					(repoPromptConfigTyped && typeof repoPromptConfigTyped.documentStructure === 'string' ? repoPromptConfigTyped.documentStructure : null) ||
 					null;
 
-				const resolvedPromptConfig = {
-					personality: docConfig.personality ?? repoPromptConfig?.personality,
-					style: docConfig.style ?? repoPromptConfig?.style,
-					perspective: docConfig.perspective ?? repoPromptConfig?.perspective,
-					customInstructions: docConfig.customInstructions ?? repoPromptConfig?.customInstructions,
-					temperature: docConfig.temperature ?? repoPromptConfig?.temperature,
-					document_structure: resolvedDocumentStructure || undefined,
+				const resolvedPromptConfig: PromptConfig = {
+					personality: (typeof docConfig.personality === 'string' ? docConfig.personality : undefined) ?? (repoPromptConfigTyped && typeof repoPromptConfigTyped.personality === 'string' ? repoPromptConfigTyped.personality : undefined),
+					style: (typeof docConfig.style === 'string' ? docConfig.style : undefined) ?? (repoPromptConfigTyped && typeof repoPromptConfigTyped.style === 'string' ? repoPromptConfigTyped.style : undefined),
+					perspective: (typeof docConfig.perspective === 'string' ? docConfig.perspective : undefined) ?? (repoPromptConfigTyped && typeof repoPromptConfigTyped.perspective === 'string' ? repoPromptConfigTyped.perspective : undefined),
+					customInstructions: (typeof docConfig.customInstructions === 'string' ? docConfig.customInstructions : undefined) ?? (repoPromptConfigTyped && typeof repoPromptConfigTyped.customInstructions === 'string' ? repoPromptConfigTyped.customInstructions : undefined),
+					temperature: (typeof docConfig.temperature === 'number' ? docConfig.temperature : undefined) ?? (repoPromptConfigTyped && typeof repoPromptConfigTyped.temperature === 'number' ? repoPromptConfigTyped.temperature : undefined),
+					document_structure: resolvedDocumentStructure ? (typeof resolvedDocumentStructure === 'object' && !Array.isArray(resolvedDocumentStructure) ? resolvedDocumentStructure : undefined) : undefined,
 				};
 
-				const selectedModel = docConfig.model || rule.model || 'openai/gpt-4o';
+				const selectedModel = (typeof docConfig.model === 'string' ? docConfig.model : null) || (typeof rule.model === 'string' ? rule.model : null) || 'openai/gpt-4o';
 
 				// Generate updated documentation
 				const docResult = await generateDocumentation({
@@ -893,8 +947,8 @@ export async function executeAutomationRule({
 					model: selectedModel,
 					files: filesToUse,
 					repoUrl: repo.repo_url,
-					branch: repoBranch,
-					subdir,
+					branch: typeof repoBranch === 'string' ? repoBranch : undefined,
+					subdir: typeof subdir === 'string' ? subdir : undefined,
 					promptConfig: resolvedPromptConfig,
 					useSummaries: true,
 					submissionId: docId,
@@ -1025,7 +1079,7 @@ export async function executeAutomationRule({
 					if (filesToAdd.length > 0) {
 						const fileMappings = filesToAdd.map(filePath => ({
 							document_id: docId,
-							repo_id: repo.id,
+							source_id: repo.id,
 							file_path: filePath
 						}));
 
@@ -1058,20 +1112,20 @@ export async function executeAutomationRule({
 						const targetResourceId = autoPublishTarget?.resource_id || autoPublishTarget?.resourceId;
 						const connectionIdOverride = autoPublishTarget?.connection_id || autoPublishTarget?.connectionId;
 
-						if (!provider) {
+						if (!provider || typeof provider !== 'string') {
 							console.warn(`⚠️ [PUBLISH] Auto-publish enabled but no provider configured`);
 						} else {
 							const providerImpl = getWorkspaceProvider(provider);
 							if (!providerImpl) {
 								console.warn(`⚠️ [PUBLISH] Unsupported provider: ${provider}`);
-							} else if (!targetResourceId) {
+							} else if (!targetResourceId || typeof targetResourceId !== 'string') {
 								console.warn(`⚠️ [PUBLISH] Missing target resource for provider ${provider}`);
 							} else {
 								const connectionId = await getProviderConnectionId(
 									supabase,
 									userId,
 									provider,
-									connectionIdOverride
+									typeof connectionIdOverride === 'string' ? connectionIdOverride : undefined
 								);
 
 								if (!connectionId) {
@@ -1080,7 +1134,7 @@ export async function executeAutomationRule({
 									const workspaceInfo: WorkspaceInfo = {
 										provider,
 										resourceId: targetResourceId,
-										metadata: autoPublishTarget?.metadata || {},
+										metadata: (autoPublishTarget?.metadata && typeof autoPublishTarget.metadata === 'object' && !Array.isArray(autoPublishTarget.metadata)) ? autoPublishTarget.metadata as Record<string, unknown> : {},
 									};
 
 									try {
@@ -1121,10 +1175,11 @@ export async function executeAutomationRule({
 											result.errors.push(`Failed to publish document ${docInfo.title} to ${provider}`);
 											console.warn(`⚠️ [PUBLISH] Failed to push document ${docId} to ${provider}`);
 										}
-									} catch (publishError: any) {
+									} catch (publishError: unknown) {
 										result.publishStatus = 'failed';
 										result.publishProvider = provider;
-										result.errors.push(publishError?.message || `Publish failed for provider ${provider}`);
+										const errorMessage = publishError instanceof Error ? publishError.message : (typeof publishError === 'string' ? publishError : `Publish failed for provider ${provider}`);
+										result.errors.push(errorMessage);
 										console.error(`❌ [PUBLISH] Error pushing document ${docId} to ${provider}:`, publishError);
 									}
 								}
@@ -1155,8 +1210,8 @@ export async function executeAutomationRule({
 
 		// Insert into automation_runs table
 			await insertAutomationRun(supabase, {
-				repoId: repo.id,
-				repoUrl: repo.repo_url ?? null,
+				sourceId: repo.id,
+				sourceUrl: repo.repo_url ?? null,
 				automationRuleId: rule.id || null,
 				userId,
 				triggerType,
@@ -1174,11 +1229,11 @@ export async function executeAutomationRule({
 			});
 
 		return result;
-	} catch (error: any) {
-		result.errors.push(error.message || String(error));
-
+	} catch (error: unknown) {
 		// Provide more helpful error messages for common issues
-		let errorMessage = error.message || String(error);
+		let errorMessage = error instanceof Error ? error.message : String(error);
+		result.errors.push(errorMessage);
+
 		if (errorMessage.includes('LLM gateway configuration is missing')) {
 			errorMessage += '\n💡 SOLUTION: Configure VERCEL_AI_GATEWAY_URL and VERCEL_AI_GATEWAY_API_KEY in your environment variables.';
 		} else if (errorMessage.includes('LLM API call failed')) {
@@ -1202,8 +1257,8 @@ export async function executeAutomationRule({
 
 	// Insert into automation_runs table even on error/skip
 		await insertAutomationRun(supabase, {
-			repoId: repo.id,
-			repoUrl: repo.repo_url ?? null,
+			sourceId: repo.id,
+			sourceUrl: repo.repo_url ?? null,
 			automationRuleId: rule.id || null,
 			userId,
 			triggerType,
@@ -1229,8 +1284,8 @@ export async function executeAutomationRule({
 	async function insertAutomationRun(
 		supabase: SupabaseClient,
 		data: {
-			repoId: string;
-			repoUrl?: string | null;
+			sourceId: string;
+			sourceUrl?: string | null;
 			userId: string;
 			automationRuleId?: string | null;
 			triggerType: 'scheduled' | 'manual';
@@ -1243,8 +1298,8 @@ export async function executeAutomationRule({
 			errors: string[];
 			docId?: string | null;
 			diagramId?: string | null;
-			generatedDocuments?: any[];
-			generatedDiagrams?: any[];
+			generatedDocuments?: Array<{ id: string; title?: string; updatedAt?: string; isNew?: boolean; status?: string; reviewUrl?: string }>;
+			generatedDiagrams?: Array<{ id: string; type: string; title?: string; isNew?: boolean; updatedAt?: string }>;
 		}
 	): Promise<void> {
 		let dbRecorded = false;
@@ -1253,7 +1308,7 @@ export async function executeAutomationRule({
 			const { error } = await supabase
 				.from('automation_runs')
 				.insert({
-					repo_id: data.repoId,
+					source_id: data.sourceId,
 					user_id: data.userId,
 					automation_rule_id: data.automationRuleId || null,
 					executed_at: new Date().toISOString(),
@@ -1276,14 +1331,14 @@ export async function executeAutomationRule({
 				dbRecorded = true;
 				console.log(`✅ [TRACKING] Automation run recorded in database`);
 			}
-		} catch (error: any) {
-			dbError = error?.message || String(error);
+		} catch (error: unknown) {
+			dbError = error instanceof Error ? error.message : String(error);
 			console.error(`❌ [ERROR] Exception inserting automation run:`, error);
 		} finally {
 			try {
 				await trackAutomationRun(supabase, data.userId, {
-					repoId: data.repoId,
-					repoUrl: data.repoUrl ?? null,
+					sourceId: data.sourceId,
+					repoUrl: data.sourceUrl ?? null,
 					automationRuleId: data.automationRuleId ?? null,
 					triggerType: data.triggerType,
 					status: data.status,
@@ -1300,7 +1355,7 @@ export async function executeAutomationRule({
 					dbRecorded,
 					dbError,
 				});
-			} catch (eventError: any) {
+			} catch (eventError: unknown) {
 				console.warn(`⚠️ [TRACKING] Failed to emit automation_run usage_event:`, eventError);
 			}
 		}

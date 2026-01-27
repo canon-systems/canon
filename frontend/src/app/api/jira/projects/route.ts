@@ -17,12 +17,12 @@ export async function GET(request: NextRequest) {
       warning: result.warning,
       cloudId: result.cloudId,
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Failed to list Jira projects:', err);
     return NextResponse.json(
       {
         error: 'Failed to list Jira projects',
-        detail: err.message || String(err),
+        detail: err instanceof Error ? err.message : String(err),
       },
       { status: 500 }
     );

@@ -171,12 +171,13 @@ export async function withConfluenceAccessToken<T>(params: {
 
   const encrypted = data.access_token as EncryptedSecret | undefined;
   if (!encrypted) throw new Error('Missing Confluence token.');
-  let accessToken = decryptSecret(encrypted);
+  const accessToken = decryptSecret(encrypted);
 
   try {
     return await params.run(accessToken);
-  } catch (err: any) {
-    const status = err?.status || err?.response?.status;
+  } catch (err: unknown) {
+    const errorObj = err as { status?: number; response?: { status?: number } };
+    const status = errorObj?.status || errorObj?.response?.status;
     if (status !== 401) throw err;
 
     const refreshTokenEncrypted = data.refresh_token as EncryptedSecret | undefined;

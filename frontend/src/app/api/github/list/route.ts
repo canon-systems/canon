@@ -19,17 +19,21 @@ async function fetchContents(
       ref: branch
     });
     return data;
-  } catch (error: any) {
-    if (error.status === 404) {
+  } catch (error: unknown) {
+    if (error instanceof Error && 'status' in error && (error as { status: number }).status === 404) {
       throw new Error(`GitHub 404: Path not found - ${path}`);
     }
-    if (error.status === 403) {
-      throw new Error(`GitHub 403: Access denied - check GitHub App installation and permissions`);
+    if (error instanceof Error && 'status' in error) {
+      const status = (error as { status: number }).status;
+      if (status === 403) {
+        throw new Error(`GitHub 403: Access denied - check GitHub App installation and permissions`);
+      }
+      if (status === 401) {
+        throw new Error(`GitHub 401: Authentication failed - check GitHub App configuration`);
+      }
+      throw new Error(`GitHub ${status}: ${error.message || 'Unknown error'}`);
     }
-    if (error.status === 401) {
-      throw new Error(`GitHub 401: Authentication failed - check GitHub App configuration`);
-    }
-    throw new Error(`GitHub ${error.status}: ${error.message || 'Unknown error'}`);
+    throw error;
   }
 }
 
@@ -64,7 +68,7 @@ async function listAllFiles(
         // Direct file object
         files.push({ path: node.path as string, size: Number(node.size || 0) });
       }
-    } catch (e) {
+    } catch {
       // If a folder doesn't exist or rate-limited, we skip with minimal fuss for now.
       // You can surface this to the client if you want stricter behavior.
     }
@@ -136,8 +140,7 @@ async function handleListRequest(repoUrl: string, branch: string, subdirRaw: str
     );
   }
 
-  // Use the repository record that matches the requested branch
-  const userRepo = userRepos[0];
+  // Removed unused variable: userRepo
 
   // Clean subdir (trim leading/trailing slashes)
   const subdir = subdirRaw.replace(/^\/+|\/+$/g, '');
@@ -172,11 +175,12 @@ export async function GET(request: NextRequest) {
     const subdir = searchParams.get('subdir') || '';
 
     return await handleListRequest(repoUrl, branch, subdir);
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('GitHub list API GET error:', err);
 
     // Handle specific GitHub errors
-    if (err.message?.includes('403') || err.message?.includes('Access denied')) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    if (errorMessage.includes('403') || errorMessage.includes('Access denied')) {
       return NextResponse.json(
         {
           error: 'Repository access denied',
@@ -186,7 +190,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    if (err.message?.includes('401') || err.message?.includes('Authentication failed')) {
+    if (errorMessage.includes('401') || errorMessage.includes('Authentication failed')) {
       return NextResponse.json(
         {
           error: 'GitHub authentication failed',
@@ -197,7 +201,7 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json(
-      { error: 'Failed to list repository files', detail: err.message || String(err) },
+      { error: 'Failed to list repository files', detail: err instanceof Error ? err.message : String(err) },
       { status: 500 }
     );
   }
@@ -211,11 +215,12 @@ export async function POST(request: NextRequest) {
     const subdirRaw = String(body.subdir || '');
 
     return await handleListRequest(repoUrl, branch, subdirRaw);
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('GitHub list API POST error:', err);
 
     // Handle specific GitHub errors
-    if (err.message?.includes('403') || err.message?.includes('Access denied')) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    if (errorMessage.includes('403') || errorMessage.includes('Access denied')) {
       return NextResponse.json(
         {
           error: 'Repository access denied',
@@ -225,7 +230,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (err.message?.includes('401') || err.message?.includes('Authentication failed')) {
+    if (errorMessage.includes('401') || errorMessage.includes('Authentication failed')) {
       return NextResponse.json(
         {
           error: 'GitHub authentication failed',
@@ -236,7 +241,7 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(
-      { error: 'Failed to list repository files', detail: err.message || String(err) },
+      { error: 'Failed to list repository files', detail: err instanceof Error ? err.message : String(err) },
       { status: 500 }
     );
   }

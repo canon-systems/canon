@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
     // Load the document
     const { data: document, error: docErr } = await supabase
       .from('documents')
-      .select('id, repo_id, updated_at')
+      .select('id, source_id, updated_at')
       .eq('id', documentId)
       .single();
 
@@ -46,11 +46,12 @@ export async function POST(request: NextRequest) {
     }
 
 
-    // Get repo details
+    const sourceId = document.source_id;
+    // Get source details
     const { data: repo, error: repoErr } = await supabase
-      .from('workspace_repos')
-      .select('repo_url, default_branch, user_id')
-      .eq('id', document.repo_id)
+      .from('workspace_sources')
+      .select('repo_url, external_url, default_branch, user_id')
+      .eq('id', sourceId)
       .single();
 
     if (repoErr || !repo) {
@@ -68,7 +69,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const repoUrl = repo.repo_url;
+    const repoUrl = repo.repo_url || repo.external_url;
     const branch = repo.default_branch || 'main';
 
     // Get tracked files from document_files
@@ -140,7 +141,8 @@ export async function POST(request: NextRequest) {
     const latestCommitSha = branchData.commit.sha;
 
     // Get latest document version to find stored commit SHA if available
-    const { data: latestVersion } = await supabase
+    // Removed unused variable: latestVersion
+    await supabase
       .from('document_versions')
       .select('created_at')
       .eq('document_id', documentId)
@@ -150,7 +152,7 @@ export async function POST(request: NextRequest) {
 
     // Detect renames using GitHub's compareCommits API
     // Note: We don't store commit SHA in the new schema, so we'll compare against a reasonable time window
-    let renamedFiles: Array<{ old_path: string; new_path: string }> = [];
+    const renamedFiles: Array<{ old_path: string; new_path: string }> = [];
 
     // Try to detect renames by comparing current state
     // This is a simplified approach - in production you might want to store commit SHA in document_versions
@@ -269,7 +271,7 @@ export async function POST(request: NextRequest) {
             new_hash: '(file removed or not accessible)'
           });
         }
-      } catch (e) {
+      } catch {
         // File might not exist anymore or error fetching
         changedFiles.push({
           file_path: filePath,

@@ -110,13 +110,13 @@ export async function setupJiraSourceSimple(
     if (startAt === 0) {
       total = typeof data?.total === 'number' ? data.total : issues.length;
       await supabase
-        .from('repository_setup')
+        .from('source_setup')
         .update({
           total_files: total,
           summarized_files: 0,
           processing_status: 'scanning',
           progress_percentage: 0,
-          current_file: null,
+          current_item: null,
           last_progress_update: new Date().toISOString(),
         })
         .eq('id', setupId);
@@ -158,10 +158,10 @@ export async function setupJiraSourceSimple(
 
       if (processed % 25 === 0 || processed === total) {
         await supabase
-          .from('repository_setup')
+          .from('source_setup')
           .update({
             summarized_files: processed,
-            current_file: record.key,
+            current_item: record.key,
             processing_status: 'scanning',
             progress_percentage: total ? Math.round((processed / total) * 100) : 0,
             last_progress_update: new Date().toISOString(),
@@ -175,7 +175,7 @@ export async function setupJiraSourceSimple(
   }
 
   await supabase
-    .from('repository_setup')
+    .from('source_setup')
     .update({
       setup_status: 'ready',
       setup_completed_at: new Date().toISOString(),
@@ -184,7 +184,7 @@ export async function setupJiraSourceSimple(
       total_files: total || processed,
       processing_status: 'ready',
       progress_percentage: 100,
-      current_file: null,
+      current_item: null,
       last_progress_update: new Date().toISOString(),
     })
     .eq('id', setupId);

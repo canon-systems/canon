@@ -33,8 +33,8 @@ export default async function ReviewQueuePage() {
   const supabase = await createClient();
 
   const { data: repos } = await supabase
-    .from('workspace_repos')
-    .select('id, name, repo_url')
+    .from('workspace_sources')
+    .select('id, name, repo_url, external_url, provider')
     .eq('user_id', user.id);
 
   const repoIds = (repos || []).map(repo => repo.id);
@@ -43,17 +43,28 @@ export default async function ReviewQueuePage() {
   const { data: documents } = repoIds.length > 0
     ? await supabase
       .from('documents')
-      .select('id, title, repo_id')
-      .in('repo_id', repoIds)
+      .select('id, title, source_id')
+      .in('source_id', repoIds)
     : { data: [] };
 
   const documentIds = (documents || []).map(doc => doc.id);
   const documentMap = new Map((documents || []).map(doc => [doc.id, doc]));
 
-  const buildReviewItem = (version: any, fallbackSummary: string): ReviewItem | null => {
+  const buildReviewItem = (version: {
+    id: string;
+    document_id: string;
+    version_number?: number;
+    content?: string;
+    change_summary?: string;
+    status?: string;
+    metadata?: Record<string, unknown>;
+    created_at: string;
+    [key: string]: unknown;
+  }, fallbackSummary: string): ReviewItem | null => {
     const document = documentMap.get(version.document_id);
     if (!document) return null;
-    const repo = repoMap.get(document.repo_id);
+    const sourceId = document.source_id;
+    const repo = repoMap.get(sourceId);
     const metadata = version.metadata || {};
     const affectedFiles = Array.isArray(metadata.affected_files)
       ? metadata.affected_files
@@ -66,7 +77,7 @@ export default async function ReviewQueuePage() {
       documentId: version.document_id,
       title: document.title || 'Untitled',
       repoName: repo?.name || 'Unknown repo',
-      repoUrl: repo?.repo_url || '',
+      repoUrl: repo?.repo_url || repo?.external_url || '',
       createdAt: version.created_at,
       changeSummary: version.change_summary || fallbackSummary,
       affectedFiles,
@@ -92,11 +103,31 @@ export default async function ReviewQueuePage() {
     : { data: [] };
 
   const pendingItems = (pendingVersions || [])
-    .map((version: any) => buildReviewItem(version, 'Automated update pending review'))
+    .map((version: {
+      id: string;
+      document_id: string;
+      version_number?: number;
+      content?: string;
+      change_summary?: string;
+      status?: string;
+      metadata?: Record<string, unknown>;
+      created_at: string;
+      [key: string]: unknown;
+    }) => buildReviewItem(version, 'Automated update pending review'))
     .filter(Boolean) as ReviewItem[];
 
   const rejectedItems = (rejectedVersions || [])
-    .map((version: any) => buildReviewItem(version, 'Previously rejected update'))
+    .map((version: {
+      id: string;
+      document_id: string;
+      version_number?: number;
+      content?: string;
+      change_summary?: string;
+      status?: string;
+      metadata?: Record<string, unknown>;
+      created_at: string;
+      [key: string]: unknown;
+    }) => buildReviewItem(version, 'Previously rejected update'))
     .filter(Boolean) as ReviewItem[];
 
   const hasPending = pendingItems.length > 0;

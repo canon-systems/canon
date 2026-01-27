@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
 
@@ -12,19 +12,19 @@ export async function POST() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get user's repos
-    const { data: userRepos } = await supabase
-      .from('workspace_repos')
+    // Get user's sources
+    const { data: userSources } = await supabase
+      .from('workspace_sources')
       .select('id')
       .eq('user_id', user.id);
 
-    const repoIds = userRepos?.map(r => r.id) || [];
+    const sourceIds = userSources?.map(r => r.id) || [];
 
-    const { data: documents, error: docError } = repoIds.length > 0
+    const { data: documents, error: docError } = sourceIds.length > 0
       ? await supabase
         .from('documents')
-        .select('id, repo_id, updated_at')
-        .in('repo_id', repoIds)
+        .select('id, source_id, updated_at')
+        .in('source_id', sourceIds)
       : { data: null, error: null };
 
     if (docError) {

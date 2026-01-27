@@ -52,12 +52,12 @@ export async function prepareFileSummaries(
 	userId: string,
 	onFileProgress?: (filePath: string, status: 'processing' | 'completed' | 'skipped' | 'failed', error?: string) => void
 ): Promise<{ filesPrepared: number; filesUpdated: number; filesSkipped: number }> {
-	const startTime = Date.now();
+	// Removed unused variable: startTime
 
 	// Load document
 	const { data: document, error: docError } = await supabase
 		.from('documents')
-		.select('id, repo_id')
+		.select('id, source_id')
 		.eq('id', documentId)
 		.single();
 
@@ -67,16 +67,16 @@ export async function prepareFileSummaries(
 
 	// Get repo details to get repo_url and branch
 	const { data: repo, error: repoError } = await supabase
-		.from('workspace_repos')
-		.select('repo_url, default_branch')
-		.eq('id', document.repo_id)
+		.from('workspace_sources')
+		.select('repo_url, external_url, default_branch')
+		.eq('id', document.source_id)
 		.single();
 
 	if (repoError || !repo) {
 		throw new Error(`Repository not found for document: ${documentId}`);
 	}
 
-	const repoUrl = repo.repo_url;
+	const repoUrl = repo.repo_url || repo.external_url;
 	const branch = repo.default_branch || 'main';
 	const repoId = normalizeRepoId(repoUrl);
 
@@ -167,9 +167,8 @@ export async function prepareFileSummaries(
 	const octokit = await getUserOctokit(supabase, userId, owner, repoName);
 
 	// Get commit SHA from branch
-	let currentCommitSha: string;
 	const { data: branchData } = await octokit.repos.getBranch({ owner, repo: repoName, branch });
-	currentCommitSha = branchData.commit.sha;
+	const currentCommitSha = branchData.commit.sha;
 
 	let filesUpdated = 0;
 	const failedFiles: Array<{ path: string; error: string }> = [];
@@ -239,8 +238,8 @@ export async function prepareFileSummaries(
 					}
 
 					return { filePath, success: true };
-				} catch (error: any) {
-					let errorMessage = error?.message || String(error);
+				} catch (error: unknown) {
+					let errorMessage = error instanceof Error ? error.message : String(error);
 
 					// Provide more user-friendly error messages
 					if (errorMessage.includes('rate limit')) {
@@ -307,7 +306,7 @@ export async function generateAndSaveFileSummaries(
 	model: string = 'openai/gpt-4o-mini',
 	submissionId?: string | null,
 	branch: string = 'main',
-	onProgress?: (processed: number, total: number, currentFile?: string, status?: string, progressPercent?: number, processingRate?: number, estimatedTimeRemaining?: number, recentFiles?: any[]) => Promise<void>
+	onProgress?: (processed: number, total: number, currentFile?: string, status?: string, progressPercent?: number, processingRate?: number, estimatedTimeRemaining?: number, recentFiles?: Array<{ path: string; status: string; timestamp: number }>) => Promise<void>
 ): Promise<{ filesProcessed: number; filesUpdated: number; filesSkipped: number }> {
 	if (!repoUrl) {
 		throw new Error('repoUrl is required');
@@ -356,7 +355,7 @@ export async function generateAndSaveFileSummaries(
 
 	// Track recent files for progress updates
 	const recentFiles: Array<{ path: string; status: 'completed' | 'skipped' | 'processing'; timestamp: number }> = [];
-	let processingStartTime = Date.now();
+	const processingStartTime = Date.now();
 	let filesProcessedSinceStart = 0;
 
 	// Initial progress update
@@ -493,7 +492,7 @@ export async function generateAndSaveFileSummaries(
 					if (onProgress) {
 						await onProgress(filesProcessed + filesSkipped, files.length, filePath, 'file_completed', completedProgressPercent, completedProcessingRate, completedEstimatedTimeRemaining, [...recentFiles]);
 					}
-				} catch (error: any) {
+				} catch (error: unknown) {
 					console.error(`Error generating summary for ${filePath}:`, error);
 					// Continue processing other files
 				}

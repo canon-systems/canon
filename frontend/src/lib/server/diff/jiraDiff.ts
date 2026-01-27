@@ -113,7 +113,7 @@ export async function getJiraDiffForProject(params: JiraDiffParams): Promise<Jir
     });
     const payload = await resources.json().catch(() => []);
     const list = Array.isArray(payload) ? payload : [];
-    const jiraResource = list.find((resource: any) =>
+    const jiraResource = list.find((resource: { id?: string; scopes?: string[] }) =>
       Array.isArray(resource?.scopes) && resource.scopes.some((s: string) => s.includes('jira'))
     );
     cloudId = jiraResource?.id ? String(jiraResource.id) : null;

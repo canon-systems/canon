@@ -1,7 +1,6 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import type { User } from '@supabase/supabase-js';
 import Link from 'next/link';
 import {
   FileText,
@@ -75,7 +74,7 @@ interface OverviewStats {
     enabled: boolean;
     lastRunAt?: string;
     lastRunStatus?: string;
-    lastExecution?: any;
+    lastExecution?: Record<string, unknown>;
   }>;
   connectedReposCount: number;
 }
@@ -141,7 +140,6 @@ const TIME_FILTER_LABELS: Record<TimeFilter, string> = {
 };
 
 interface OverviewPageClientProps {
-  user: User | null;
   stats: OverviewStats;
 }
 
@@ -192,7 +190,7 @@ function ChartNoDataOverlay({ message }: { message: string }) {
   );
 }
 
-export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
+export function OverviewPageClient({ stats }: OverviewPageClientProps) {
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
   const [activityFilter, setActivityFilter] = useState<ActivityFilter>('all');
 
@@ -654,7 +652,7 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
                   return (
                     <Card key={`${rule.repoId}-${rule.ruleId}`} className="border-white/10 bg-white/5">
                       <CardContent className="flex items-center gap-3 p-3">
-                        <Badge variant={getStatusColor(rule.lastRunStatus) as any} className="flex items-center gap-1">
+                        <Badge variant={getStatusColor(rule.lastRunStatus) as 'default' | 'secondary' | 'destructive' | 'outline'} className="flex items-center gap-1">
                           {getStatusIcon(rule.lastRunStatus)}
                           {rule.lastRunStatus ?? 'Pending'}
                         </Badge>
@@ -662,11 +660,14 @@ export function OverviewPageClient({ user, stats }: OverviewPageClientProps) {
                           <p className="text-sm text-white truncate">{rule.ruleName}</p>
                           <p className="text-xs text-white/60 truncate">{rule.repoName}</p>
                           <p className="text-xs text-white/50 mt-1">Last run: {formatDate(rule.lastRunAt)}</p>
-                          {rule.lastExecution?.doc_id && (
-                            <Link href={`/edit/${rule.lastExecution.doc_id}`} className="text-xs text-white/75 hover:text-white mt-1 inline-block">
-                              View generated doc →
-                            </Link>
-                          )}
+                          {(() => {
+                            const docId = rule.lastExecution?.doc_id;
+                            return typeof docId === 'string' && docId ? (
+                              <Link href={`/edit/${docId}`} className="text-xs text-white/75 hover:text-white mt-1 inline-block">
+                                View generated doc →
+                              </Link>
+                            ) : null;
+                          })()}
                         </div>
                       </CardContent>
                     </Card>

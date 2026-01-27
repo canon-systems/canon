@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
 		// Verify document ownership through workspace_repos
 		const { data: document, error: docError } = await supabase
 			.from('documents')
-			.select('id, repo_id')
+			.select('id, source_id')
 			.eq('id', documentId)
 			.single();
 
@@ -36,15 +36,16 @@ export async function POST(request: NextRequest) {
 			);
 		}
 
-		// Verify user has access to the repo
-		const { data: repo, error: repoError } = await supabase
-			.from('workspace_repos')
+		const sourceId = document.source_id;
+		// Verify user has access to the source
+		const { data: source, error: repoError } = await supabase
+			.from('workspace_sources')
 			.select('user_id')
-			.eq('id', document.repo_id)
+			.eq('id', sourceId)
 			.eq('user_id', user.id)
 			.single();
 
-		if (repoError || !repo) {
+		if (repoError || !source) {
 			return NextResponse.json(
 				{ error: 'Document not found or unauthorized' },
 				{ status: 403 }
@@ -60,12 +61,12 @@ export async function POST(request: NextRequest) {
 			filesUpdated: result.filesUpdated,
 			filesSkipped: result.filesSkipped,
 		});
-	} catch (err: any) {
+	} catch (err: unknown) {
 		console.error('Prepare summaries error:', err);
 		return NextResponse.json(
 			{
 				error: 'Failed to prepare summaries',
-				detail: err.message || String(err),
+				detail: err instanceof Error ? err.message : String(err),
 			},
 			{ status: 500 }
 		);

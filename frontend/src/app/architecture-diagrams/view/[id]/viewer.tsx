@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import {
     Background,
     Controls,
@@ -18,7 +17,7 @@ import {
     MarkerType
 } from 'reactflow';
 import ELK from 'elkjs/lib/elk.bundled.js';
-import { ArrowLeft, Filter, Search, Sparkles } from 'lucide-react';
+import { ArrowLeft, Filter, Search } from 'lucide-react';
 import 'reactflow/dist/style.css';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -70,7 +69,7 @@ interface Diagram {
     title: string;
     content: string;
     diagram_type: string;
-    analysis_data: any;
+    analysis_data: Record<string, unknown>;
     created_at: string;
 }
 
@@ -91,7 +90,7 @@ function extractRepoLabel(filePath?: string): string | null {
     return null;
 }
 
-function collectRepoLabels(node: any): string[] {
+function collectRepoLabels(node: { files?: string[] }): string[] {
     const labels = new Set<string>();
     (node.files || []).forEach((fp: string) => {
         const label = extractRepoLabel(fp);
@@ -106,62 +105,8 @@ function formatPackages(pkgs?: string[]): string {
     return `${pkgs.slice(0, 2).join(', ')} +${pkgs.length - 2} more`;
 }
 
-function makeReactFlowNodes(
-    nodes: any[],
-    repoClassMap: Map<string, number>,
-    repoFilter: Set<string>,
-    search: string
-): Node[] {
-    const term = search.trim().toLowerCase();
-    return nodes
-        .filter((n) => {
-            const repos = collectRepoLabels(n);
-            const matchesRepo =
-                repoFilter.size === 0 ||
-                repos.length === 0 ||
-                repos.some((r) => repoFilter.has(r));
-            const matchesSearch = term ? (n.label || '').toLowerCase().includes(term) : true;
-            return matchesRepo && matchesSearch;
-        })
-        .map((n) => {
-            const repos = collectRepoLabels(n);
-            const repoBadges = repos.map((r) => {
-                const idx = repoClassMap.get(r) ?? 0;
-                return {
-                    label: r,
-                    color: repoPalette[idx % repoPalette.length] || '#38bdf8'
-                };
-            });
-
-            return {
-                id: n.id,
-                type: 'systemNode',
-                data: {
-                    label: n.label,
-                    category: n.category,
-                    repoBadges,
-                    fileCount: n.fileCount,
-                    packages: formatPackages(n.packages),
-                    source: n.source
-                },
-                position: { x: 0, y: 0 },
-                width: 240,
-                height: 120
-            };
-        });
-}
-
-function makeReactFlowEdges(edges: any[], nodeIds: Set<string>): Edge[] {
-    return edges
-        .filter((e) => nodeIds.has(e.from) && nodeIds.has(e.to))
-        .map((e, idx) => ({
-            id: `e-${e.from}-${e.to}-${idx}`,
-            source: e.from,
-            target: e.to,
-            data: { kind: e.kind, strength: e.strength },
-            animated: false
-        }));
-}
+// Removed unused functions: makeReactFlowNodes and makeReactFlowEdges
+// These were replaced by expandNodes and expandEdges
 
 async function layoutWithElk(nodes: Node[], edges: Edge[]) {
     const graph = {
@@ -176,8 +121,8 @@ async function layoutWithElk(nodes: Node[], edges: Edge[]) {
         },
         children: nodes.map((n) => ({
             id: n.id,
-            width: (n as any).measured?.width || (n as any).width || 240,
-            height: (n as any).measured?.height || (n as any).height || 120
+            width: (n as { measured?: { width?: number }; width?: number }).measured?.width || (n as { width?: number }).width || 240,
+            height: (n as { measured?: { height?: number }; height?: number }).measured?.height || (n as { height?: number }).height || 120
         })),
         edges: edges.map((e) => ({
             id: e.id,
@@ -200,7 +145,16 @@ async function layoutWithElk(nodes: Node[], edges: Edge[]) {
     return { nodes: laidOutNodes, edges };
 }
 
-function SystemNode({ data, selected }: any) {
+function SystemNode({ data, selected }: { 
+    data: { 
+        category?: string; 
+        label?: string; 
+        repoBadges?: Array<{ label: string; color?: string }>; 
+        fileCount?: number;
+        packages?: string;
+    }; 
+    selected: boolean 
+}) {
     const border = selected ? '#22c55e' : '#1f2937';
     const categoryColor = categoryColors[data.category || 'other'] || '#3b82f6';
 
@@ -242,11 +196,11 @@ function SystemNode({ data, selected }: any) {
                 )}
                 {data.repoBadges?.length ? (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 8 }}>
-                        {data.repoBadges.map((r: any) => (
+                        {data.repoBadges.map((r: { label: string; color?: string }) => (
                             <span
                                 key={r.label}
                                 style={{
-                                    background: r.color,
+                                    background: r.color || '#38bdf8',
                                     color: '#0b1220',
                                     padding: '2px 8px',
                                     borderRadius: 12,
@@ -268,14 +222,24 @@ const nodeTypes = { systemNode: SystemNode };
 
 const NO_REPO_LABEL = 'unattributed';
 
-function getRepoLabelsWithDefault(node: any): string[] {
+function getRepoLabelsWithDefault(node: { files?: string[] }): string[] {
     const labels = collectRepoLabels(node);
     if (labels.length === 0) return [NO_REPO_LABEL];
     return labels;
 }
 
+interface RawNode {
+    id: string;
+    label: string;
+    category?: string;
+    files?: string[];
+    fileCount?: number;
+    packages?: string[];
+    source?: string;
+}
+
 function expandNodes(
-    nodes: any[],
+    nodes: RawNode[],
     repoClassMap: Map<string, number>
 ): Node[] {
     const expanded: Node[] = [];
@@ -312,7 +276,7 @@ function expandNodes(
 }
 
 function expandEdges(
-    edges: any[],
+    edges: Array<{ from: string; to: string; [key: string]: unknown }>,
     nodeRepoMap: Map<string, string[]>
 ): Edge[] {
     const result: Edge[] = [];
@@ -339,18 +303,36 @@ function expandEdges(
 }
 
 export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagramViewerProps) {
-    const router = useRouter();
     const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
 
-    const initialNodesRaw = (diagram.analysis_data?.highLevelNodes || []).length
-        ? diagram.analysis_data?.highLevelNodes
-        : diagram.analysis_data?.fullNodes || [];
-    const fullNodesRaw = diagram.analysis_data?.fullNodes || initialNodesRaw;
+    const initialNodesRaw = useMemo(() => {
+        const highLevelNodes = Array.isArray(diagram.analysis_data?.highLevelNodes) 
+            ? diagram.analysis_data.highLevelNodes 
+            : [];
+        const fullNodes = Array.isArray(diagram.analysis_data?.fullNodes) 
+            ? diagram.analysis_data.fullNodes 
+            : [];
+        return highLevelNodes.length > 0 ? highLevelNodes : fullNodes;
+    }, [diagram.analysis_data]);
+    const fullNodesRaw = useMemo(() => {
+        const fullNodes = Array.isArray(diagram.analysis_data?.fullNodes) 
+            ? diagram.analysis_data.fullNodes 
+            : [];
+        return fullNodes.length > 0 ? fullNodes : initialNodesRaw;
+    }, [diagram.analysis_data, initialNodesRaw]);
 
-    const initialEdgesRaw = (diagram.analysis_data?.highLevelEdges || []).length
-        ? diagram.analysis_data?.highLevelEdges
-        : diagram.analysis_data?.fullEdges || [];
-    const fullEdgesRaw = diagram.analysis_data?.fullEdges || initialEdgesRaw;
+    const initialEdgesRaw = (() => {
+        const highLevelEdges = Array.isArray(diagram.analysis_data?.highLevelEdges) 
+            ? diagram.analysis_data.highLevelEdges 
+            : [];
+        const fullEdges = Array.isArray(diagram.analysis_data?.fullEdges) 
+            ? diagram.analysis_data.fullEdges 
+            : [];
+        return highLevelEdges.length > 0 ? highLevelEdges : fullEdges;
+    })();
+    const fullEdgesRaw = (Array.isArray(diagram.analysis_data?.fullEdges) 
+        ? diagram.analysis_data.fullEdges 
+        : []) || initialEdgesRaw;
 
     const allRepoLabels = useMemo(() => {
         const set = new Set<string>();
@@ -380,7 +362,7 @@ export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagram
 
     const nodeRepoMap = useMemo(() => {
         const map = new Map<string, string[]>();
-        baseNodes.forEach((n: any) => map.set(n.id, getRepoLabelsWithDefault(n)));
+        baseNodes.forEach((n: { id: string; files?: string[] }) => map.set(n.id, getRepoLabelsWithDefault(n)));
         return map;
     }, [baseNodes]);
 
@@ -396,12 +378,16 @@ export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagram
     const filteredNodes = useMemo(() => {
         const term = search.trim().toLowerCase();
         return expandedNodes.filter((n) => {
-            const repoLabel = (n.data as any)?.repoLabel;
-            const matchesRepo =
-                repoFilter.size === 0 ||
-                repoLabel === NO_REPO_LABEL ||
-                repoFilter.has(repoLabel);
-            const matchesSearch = term ? (n.data as any)?.label?.toLowerCase().includes(term) : true;
+            const repoLabel = (n.data as { repoLabel?: string })?.repoLabel;
+            let matchesRepo = false;
+            if (repoFilter.size === 0) {
+                matchesRepo = true;
+            } else if (repoLabel === NO_REPO_LABEL) {
+                matchesRepo = true;
+            } else if (repoLabel !== undefined) {
+                matchesRepo = repoFilter.has(repoLabel);
+            }
+            const matchesSearch = term ? (n.data as { label?: string })?.label?.toLowerCase().includes(term) : true;
             return matchesRepo && matchesSearch;
         });
     }, [expandedNodes, repoFilter, search]);
@@ -438,10 +424,14 @@ export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagram
                 setLoading(false);
             }
         };
-        if (filteredNodes.length) runLayout();
-        else {
-            setLoading(false);
-            setLayoutError('No nodes to layout');
+        if (filteredNodes.length) {
+            runLayout();
+        } else {
+            // Defer state updates to avoid synchronous setState warning
+            setTimeout(() => {
+                setLoading(false);
+                setLayoutError('No nodes to layout');
+            }, 0);
         }
         return () => {
             cancelled = true;
@@ -450,8 +440,22 @@ export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagram
 
     const selectedNode = useMemo(() => {
         const node = nodes.find((n) => n.id === selectedNodeId);
-        return node?.data as any;
-    }, [nodes, selectedNodeId]);
+        return node?.data as { 
+            category?: string; 
+            label?: string; 
+            repoBadges?: Array<{ label: string; color?: string }>; 
+            files?: string[];
+            fileCount?: number;
+            packages?: string;
+        } | undefined;
+    }, [nodes, selectedNodeId]) as {
+        category?: string;
+        label?: string;
+        repoBadges?: Array<{ label: string; color?: string }>;
+        files?: string[];
+        fileCount?: number;
+        packages?: string;
+    } | undefined;
 
     const neighborIds = useMemo(() => {
         if (!selectedNodeId) return new Set<string>();
@@ -467,7 +471,7 @@ export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagram
         return edges.map((e: Edge) => {
             const isHighlight =
                 selectedNodeId && (e.source === selectedNodeId || e.target === selectedNodeId);
-            const baseColor = (e.data as any)?.kind === 'external' ? '#f59e0b' : '#7dd3fc';
+            const baseColor = (e.data as { kind?: string })?.kind === 'external' ? '#f59e0b' : '#7dd3fc';
             return {
                 ...e,
                 style: {
@@ -552,11 +556,11 @@ export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagram
                                                 <div>
                                                     <div className="text-white/60 text-xs mb-2">Repositories</div>
                                                     <div className="flex flex-wrap gap-2">
-                                                        {selectedNode.repoBadges.map((r: any) => (
+                                                        {selectedNode.repoBadges.map((r: { label: string; color?: string }) => (
                                                             <Badge
                                                                 key={r.label}
                                                                 style={{
-                                                                    background: r.color,
+                                                                    background: r.color || '#38bdf8',
                                                                     color: '#0b1220'
                                                                 }}
                                                             >
@@ -643,8 +647,8 @@ export function ArchitectureDiagramViewer({ diagram, repo }: ArchitectureDiagram
                                 <CardContent>
                                     <div className="h-[700px] rounded-lg border border-white/10 bg-slate-900/60">
                                         <ReactFlow
-                                            nodes={nodes as any}
-                                            edges={decoratedEdges as any}
+                                            nodes={nodes}
+                                            edges={decoratedEdges}
                                             onNodesChange={onNodesChange}
                                             onEdgesChange={onEdgesChange}
                                             onNodeClick={(_, n) => setSelectedNodeId(n.id)}

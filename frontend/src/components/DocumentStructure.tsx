@@ -114,7 +114,7 @@ export function DocumentStructure({ config, onChange, onSave, saving = false, sa
     setDragOverIndex(null);
   }
 
-  function usePreset(preset: 'default' | 'minimal' | 'comprehensive') {
+  function applyPreset(preset: 'default' | 'minimal' | 'comprehensive') {
     let sections: DocumentSection[] = [];
     
     switch (preset) {
@@ -197,7 +197,7 @@ export function DocumentStructure({ config, onChange, onSave, saving = false, sa
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => usePreset('minimal')}
+                onClick={() => applyPreset('minimal')}
                 className={cn(
                   "group relative flex flex-col items-center gap-2 border-2 px-4 py-3 text-xs font-medium",
                   activePreset === 'minimal'
@@ -219,7 +219,7 @@ export function DocumentStructure({ config, onChange, onSave, saving = false, sa
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => usePreset('default')}
+                onClick={() => applyPreset('default')}
                 className={cn(
                   "group relative flex flex-col items-center gap-2 border-2 px-4 py-3 text-xs font-medium",
                   activePreset === 'default'
@@ -241,7 +241,7 @@ export function DocumentStructure({ config, onChange, onSave, saving = false, sa
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => usePreset('comprehensive')}
+                onClick={() => applyPreset('comprehensive')}
                 className={cn(
                   "group relative flex flex-col items-center gap-2 border-2 px-4 py-3 text-xs font-medium",
                   activePreset === 'comprehensive'

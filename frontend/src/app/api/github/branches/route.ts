@@ -40,11 +40,11 @@ export async function POST(request: NextRequest) {
     const branchNames = branches.map((b) => b.name).sort();
 
     return NextResponse.json({ branches: branchNames }, { status: 200 });
-  } catch (err: any) {
+  } catch (err: unknown) {
     return NextResponse.json(
       {
         error: 'Failed to fetch branches',
-        detail: err.message || String(err)
+        detail: err instanceof Error ? err.message : String(err)
       },
       { status: 500 }
     );

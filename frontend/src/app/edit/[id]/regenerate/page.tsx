@@ -21,11 +21,11 @@ export default async function RegeneratePage({ params }: { params: Promise<{ id:
     notFound();
   }
 
-  // Verify user has access and get repo settings
+  // Verify user has access and get source settings
   const { data: repo } = await supabase
-    .from('workspace_repos')
+    .from('workspace_sources')
     .select('user_id, settings')
-    .eq('id', document.repo_id)
+    .eq('id', document.source_id)
     .single();
 
   if (!repo || repo.user_id !== user.id) {
@@ -34,13 +34,13 @@ export default async function RegeneratePage({ params }: { params: Promise<{ id:
 
   // Extract prompt config from repo settings
   const repoSettings = (repo.settings || {}) as {
-    llm_prompt_config?: any;
+    llm_prompt_config?: Record<string, unknown>;
     model?: string;
-    document_structure?: any;
+    document_structure?: Record<string, unknown>;
   };
 
   // Get regeneration settings from document if available, otherwise fall back to repo settings
-  const regenerationSettings = (document as any).configuration || {};
+  const regenerationSettings = (document as { configuration?: Record<string, unknown> }).configuration || {};
 
   // Format as submission for backward compatibility with client component
   const submission = {
@@ -54,7 +54,7 @@ export default async function RegeneratePage({ params }: { params: Promise<{ id:
     input_content: '',
     summary: document.content.replace(/\s+/g, ' ').slice(0, 200),
     source_meta: {
-      repoId: document.repo_id,
+      repoId: document.source_id,
       llm_prompt_config: regenerationSettings || repoSettings.llm_prompt_config || null,
       model: regenerationSettings.model || repoSettings.model || null,
       document_structure: regenerationSettings.documentStructure || repoSettings.document_structure || null,

@@ -1,13 +1,13 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { Zap, Plus, CheckCircle2, XCircle, Clock, Loader2, GitBranch, ExternalLink, TrendingUp, ChevronDown, Github, Trash2 } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Zap, Plus, CheckCircle2, Loader2, GitBranch, ExternalLink, TrendingUp, ChevronDown, Github, Trash2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { Button } from '@/components/ui/button';
+import { getIntegrationsCached } from '@/lib/client/integrationsCache';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Separator } from '@/components/ui/separator';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
@@ -18,7 +18,7 @@ interface Connection {
   provider: string;
   connection_id: string;
   status: string;
-  metadata: any;
+  metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }
@@ -27,19 +27,17 @@ interface Repo {
   id: string;
   name: string;
   provider: string;
-  repo_url: string;
+  repo_url?: string;
+  external_url?: string;
   default_branch: string;
   auth_type: string;
   credentials_ref?: string;
-  settings?: any;
+  settings?: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }
 
-interface AutomationRulesResponse {
-  automation_rules: Array<Record<string, any>>;
-  automation_metadata: Record<string, any>;
-}
+// Removed unused interface: AutomationRulesResponse
 
 interface AutomationRuleForm {
   id: string;
@@ -84,9 +82,9 @@ interface AutomationPageClientProps {
   repos: Repo[];
   connections: Connection[];
   allRules: Array<{
-    repoId: string;
-    repoName: string;
-    repoUrl: string;
+    sourceId: string;
+    sourceName: string;
+    sourceUrl: string;
     ruleId: string;
     ruleName: string;
     enabled: boolean;
@@ -97,7 +95,7 @@ interface AutomationPageClientProps {
     schedule?: string;
     lastRunAt?: string;
     lastRunStatus?: string;
-    lastExecution?: any;
+    lastExecution?: Record<string, unknown>;
   }>;
   stats: {
     totalRules: number;
@@ -146,7 +144,7 @@ function isValidCron(cron: string): boolean {
   try {
     const parts = cron.trim().split(/\s+/);
     return parts.length === 5 && parts.every(part => part.length > 0);
-  } catch (error) {
+  } catch {
     return false;
   }
 }
@@ -156,7 +154,7 @@ function getCronDescription(cron: string): string {
     const parts = cron.trim().split(/\s+/);
     if (parts.length !== 5) return 'Invalid cron expression';
 
-    const [minute, hour, day, month, weekday] = parts;
+    const [minute, hour] = parts;
 
     // Common patterns
     if (cron === '0 2 * * *') return 'Daily at 2:00 AM UTC';
@@ -193,7 +191,7 @@ function getCronDescription(cron: string): string {
     }
 
     return description;
-  } catch (error) {
+  } catch {
     return 'Invalid cron expression';
   }
 }
@@ -270,12 +268,17 @@ function calculateNextRun(cronExpression: string): string {
     }
 
     return 'Soon';
-  } catch (error) {
+  } catch {
     return 'Unknown';
   }
 }
 
-function getEnhancedStatus(rule: any): {
+function getEnhancedStatus(rule: {
+  enabled?: boolean;
+  last_run_status?: string;
+  last_run_at?: string;
+  schedule?: string;
+}): {
   status: 'active' | 'paused' | 'failed' | 'skipped' | 'unknown';
   icon: string;
   title: string;
@@ -283,8 +286,8 @@ function getEnhancedStatus(rule: any): {
   color: string;
 } {
   const enabled = rule.enabled;
-  const lastStatus = rule.lastRunStatus;
-  const lastRunAt = rule.lastRunAt;
+  const lastStatus = rule.last_run_status;
+  const lastRunAt = rule.last_run_at;
   const schedule = rule.schedule;
 
   // If disabled, show paused status
@@ -375,29 +378,20 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
   // Delete confirmation modals
-  const [deleteRuleModal, setDeleteRuleModal] = useState<{ open: boolean; repoId: string | null; ruleId: string | null; ruleName: string }>({ open: false, repoId: null, ruleId: null, ruleName: '' });
+  const [deleteRuleModal, setDeleteRuleModal] = useState<{ open: boolean; sourceId: string | null; ruleId: string | null; ruleName: string }>({ open: false, sourceId: null, ruleId: null, ruleName: '' });
   const [deleting, setDeleting] = useState(false);
 
 
   // Load repos on mount
-  useEffect(() => {
-    loadRepos();
-    loadConnections();
-  }, []);
-
-  useEffect(() => {
-    updateStatsFromRules();
-  }, [statsRange]);
-
   // Update stats by fetching fresh data from server
-  async function updateStatsFromRules(range: StatsRange = statsRange) {
+  const updateStatsFromRules = useCallback(async (range: StatsRange = statsRange) => {
     try {
       // Fetch fresh automation rules from all repos
       let query = supabase
         .from('automation_rules')
         .select(`
 	          *,
-	          workspace_repos!inner(id, name, repo_url)
+	          workspace_sources!inner(id, name, repo_url, external_url)
 	        `);
 
       if (user && user.id) {
@@ -412,24 +406,43 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
 
       const freshAllRules: typeof allRules = [];
 
-      rules?.forEach((rule: any) => {
+      rules?.forEach((rule: {
+        id: string;
+        source_id: string;
+        name?: string;
+        enabled?: boolean;
+        generate_doc?: boolean;
+        generate_diagram?: boolean;
+        auto_publish?: boolean;
+        schedule?: string;
+        last_run_at?: string;
+        last_run_status?: string;
+        workspace_sources?: {
+          name?: string;
+          external_url?: string;
+          repo_url?: string;
+        };
+        [key: string]: unknown;
+      }) => {
         const enabled = Boolean(rule.enabled);
         totalRules++;
         if (enabled) activeRules++;
 
+        const sourceName = rule.workspace_sources?.name || 'Untitled Source';
+        const sourceUrl = rule.workspace_sources?.external_url || rule.workspace_sources?.repo_url || '';
         freshAllRules.push({
-          repoId: rule.repo_id,
-          repoName: rule.workspace_repos.name || 'Untitled Repo',
-          repoUrl: rule.workspace_repos.repo_url || '',
+          sourceId: rule.source_id,
+          sourceName,
+          sourceUrl,
           ruleId: rule.id,
           ruleName: (rule.name && rule.name.trim() !== '') ? rule.name : 'Smart Automation',
           enabled,
-          generate_doc: rule.generate_doc,
-          generate_diagram: rule.generate_diagram,
-          auto_publish: rule.auto_publish,
-          schedule: rule.schedule,
-          lastRunAt: rule.last_run_at,
-          lastRunStatus: rule.last_run_status,
+          generate_doc: typeof rule.generate_doc === 'boolean' ? rule.generate_doc : undefined,
+          generate_diagram: typeof rule.generate_diagram === 'boolean' ? rule.generate_diagram : undefined,
+          auto_publish: typeof rule.auto_publish === 'boolean' ? rule.auto_publish : undefined,
+          schedule: typeof rule.schedule === 'string' ? rule.schedule : undefined,
+          lastRunAt: typeof rule.last_run_at === 'string' ? rule.last_run_at : undefined,
+          lastRunStatus: typeof rule.last_run_status === 'string' ? rule.last_run_status : undefined,
         });
       });
 
@@ -474,24 +487,29 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
     } catch (error) {
       console.error('Failed to update stats from rules:', error);
     }
-  }
+  }, [statsRange, supabase, user, setAllRules, setStats]);
+
+  useEffect(() => {
+    updateStatsFromRules();
+  }, [updateStatsFromRules]);
 
   async function loadRepos() {
     setLoadingRepos(true);
     try {
       const response = await fetch('/api/repos');
-      if (!response.ok) throw new Error('Failed to load repositories');
+      if (!response.ok) throw new Error('Failed to load sources');
       const data = await response.json();
       setReposList(data || []);
-    } catch (err: any) {
-      setRepoError(err.message || 'Failed to load repositories');
+    } catch (err: unknown) {
+      setRepoError(err instanceof Error ? err.message : 'Failed to load sources');
       setTimeout(() => setRepoError(''), 5000);
     } finally {
       setLoadingRepos(false);
     }
   }
 
-  function parseRepoUrl(url: string): { owner: string; repo: string } | null {
+  function parseRepoUrl(url?: string | null): { owner: string; repo: string } | null {
+    if (!url) return null;
     try {
       const match = url.match(/github\.com\/([^/]+)\/([^/]+)/);
       if (match) {
@@ -505,12 +523,12 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
 
 
 
-  async function handleDeleteRule(repoId: string, ruleId: string) {
+  async function handleDeleteRule(sourceId: string, ruleId: string) {
     setDeleting(true);
     setRepoError('');
     try {
       // Get current rules
-      const response = await fetch(`/api/repos/${repoId}/automation`, {
+      const response = await fetch(`/api/repos/${sourceId}/automation`, {
         method: 'GET',
         credentials: 'include',
       });
@@ -521,10 +539,10 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
       const currentRules = data.automation_rules || [];
 
       // Remove the rule
-      const updatedRules = currentRules.filter((r: any) => (r.id || r.name) !== ruleId);
+      const updatedRules = currentRules.filter((r: { id?: string; name?: string }) => (r.id || r.name) !== ruleId);
 
       // Update rules
-      const updateResponse = await fetch(`/api/repos/${repoId}/automation`, {
+      const updateResponse = await fetch(`/api/repos/${sourceId}/automation`, {
         method: 'PATCH',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -536,19 +554,19 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
         throw new Error(errorData.error || errorData.detail || 'Failed to delete rule');
       }
 
-      setDeleteRuleModal({ open: false, repoId: null, ruleId: null, ruleName: '' });
+      setDeleteRuleModal({ open: false, sourceId: null, ruleId: null, ruleName: '' });
       setRepoSuccess('Rule deleted successfully!');
       setTimeout(() => setRepoSuccess(''), 5000);
 
       // Refresh automation rules
-      if (activeAutomationRepoId === repoId) {
-        await fetchAutomationRules(repoId);
+      if (activeAutomationRepoId === sourceId) {
+        await fetchAutomationRules(sourceId);
       }
 
       // Update stats (which will fetch fresh data and update allRules state)
       updateStatsFromRules();
-    } catch (err: any) {
-      setRepoError(err.message || 'Failed to delete rule');
+    } catch (err: unknown) {
+      setRepoError(err instanceof Error ? err.message : 'Failed to delete rule');
       setTimeout(() => setRepoError(''), 5000);
     } finally {
       setDeleting(false);
@@ -556,19 +574,33 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
   }
 
 
-  async function loadConnections() {
+  const loadConnections = useCallback(async () => {
     try {
-      const response = await fetch('/api/integrations/list');
-      if (!response.ok) throw new Error('Failed to load connections');
-      const data = await response.json();
-      setConnections(data.connections || []);
-    } catch (err: any) {
+      const data = await getIntegrationsCached();
+      // Map IntegrationConnection[] to Connection[] by adding required fields
+      const mappedConnections: Connection[] = (data.connections || []).map((conn) => ({
+        id: conn.id || conn.connection_id || '',
+        provider: conn.provider || '',
+        connection_id: conn.connection_id || conn.id || '',
+        status: conn.status || 'inactive',
+        metadata: conn.metadata || {},
+        created_at: (conn.created_at as string) || new Date().toISOString(),
+        updated_at: (conn.updated_at as string) || new Date().toISOString(),
+      }));
+      setConnections(mappedConnections);
+    } catch (err: unknown) {
       console.error('Failed to load connections:', err);
     }
-  }
+  }, [setConnections]);
+
+  // Load repos and connections on mount
+  useEffect(() => {
+    loadRepos();
+    loadConnections();
+  }, [loadConnections]);
 
   // All the automation helper functions from settings (extracted)
-  function createAutomationRuleForm(overrides: Partial<AutomationRuleForm> = {}): AutomationRuleForm {
+  const createAutomationRuleForm = useCallback((overrides: Partial<AutomationRuleForm> = {}): AutomationRuleForm => {
     return {
       id: overrides.id ?? globalThis.crypto?.randomUUID?.() ?? `rule-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       name: overrides.name ?? 'Smart Automation',
@@ -592,31 +624,35 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
       diff_github_repo_id: overrides.diff_github_repo_id ?? '',
       diff_window_minutes: overrides.diff_window_minutes ?? '',
     };
-  }
+  }, []);
 
-  function parseSchedule(rule: Record<string, any>): {
+  function parseSchedule(rule: Record<string, unknown>): {
     customCron: string;
     customScheduleDescription: string;
   } {
-    const raw = (rule.schedule || '').trim();
+    const raw = typeof rule.schedule === 'string' ? rule.schedule.trim() : '';
     // For cron-only schedules, just use the raw value as the cron expression
     // Remove any 'cron:' prefix if it exists for backward compatibility
     const cron = raw.startsWith('cron:') ? raw.replace(/^cron:/, '') : raw;
+    let customScheduleDescription = '';
+    if (typeof rule.custom_schedule_description === 'string') {
+      customScheduleDescription = rule.custom_schedule_description;
+    }
     return {
       customCron: cron || '0 2 * * *', // Default to daily at 2 AM
-      customScheduleDescription: rule?.custom_schedule_description ?? ''
+      customScheduleDescription
     };
   }
 
-  function mapRulesToForms(rules: Record<string, any>[]): AutomationRuleForm[] {
+  const mapRulesToForms = useCallback((rules: Array<Record<string, unknown>>): AutomationRuleForm[] => {
     if (!Array.isArray(rules)) return [];
     return rules.map((rule, index) => {
       const schedule = parseSchedule(rule);
 
-      let generate_doc = rule.generate_doc;
-      let generate_diagram = rule.generate_diagram;
-      let auto_publish = rule.auto_publish;
-      let auto_approve = typeof rule.auto_approve === 'boolean' ? rule.auto_approve : Boolean(rule.auto_publish);
+      let generate_doc: boolean = typeof rule.generate_doc === 'boolean' ? rule.generate_doc : true;
+      let generate_diagram: boolean = typeof rule.generate_diagram === 'boolean' ? rule.generate_diagram : false;
+      let auto_publish: boolean = typeof rule.auto_publish === 'boolean' ? rule.auto_publish : false;
+      let auto_approve: boolean = typeof rule.auto_approve === 'boolean' ? rule.auto_approve : Boolean(rule.auto_publish);
 
       // Backward-compat: infer from action_preset if present
       const actionPreset = typeof rule.action_preset === 'string' ? rule.action_preset : null;
@@ -629,36 +665,69 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
         }
       }
 
-      const targetDiagrams = (rule.target_diagrams && rule.target_diagrams.length > 0)
+      const targetDiagrams = (Array.isArray(rule.target_diagrams) && rule.target_diagrams.length > 0)
         ? rule.target_diagrams
         : (generate_diagram ? ['architecture'] : []);
 
+      let ruleId = `rule-${index}-${Date.now()}`;
+      if (typeof rule.id === 'string') {
+        ruleId = rule.id;
+      }
+
+      let ruleName = 'Smart Automation';
+      if (typeof rule.name === 'string' && rule.name.trim() !== '') {
+        ruleName = rule.name;
+      }
+
+      const enabled = typeof rule.enabled === 'boolean' ? rule.enabled : false;
+
+      // Extract auto_publish_target with type safety
+      const autoPublishTarget = (typeof rule.auto_publish_target === 'object' && rule.auto_publish_target !== null)
+        ? rule.auto_publish_target as Record<string, unknown>
+        : null;
+
+      const getStringProp = (obj: Record<string, unknown> | null, key: string, altKey?: string): string => {
+        if (!obj) return '';
+        if (typeof obj[key] === 'string') return obj[key] as string;
+        if (altKey && typeof obj[altKey] === 'string') return obj[altKey] as string;
+        return '';
+      };
+
+      const getBooleanProp = (obj: Record<string, unknown> | null, key: string, altKey?: string): boolean => {
+        if (!obj) return false;
+        if (obj[key] === true || obj[key] === 'diff') return true;
+        if (altKey && obj[altKey] === true) return true;
+        return false;
+      };
+
       return createAutomationRuleForm({
-        id: rule.id || `rule-${index}-${Date.now()}`,
-        name: (rule.name && rule.name.trim() !== '') ? rule.name : 'Smart Automation',
-        enabled: rule.enabled ?? false,
+        id: ruleId,
+        name: ruleName,
+        enabled,
         customCron: schedule.customCron,
 
         // Individual behavior fields
-        generate_doc: generate_doc ?? true,
-        generate_diagram: generate_diagram ?? false,
-        auto_publish: auto_publish ?? false,
-        auto_approve: auto_approve ?? false,
+        generate_doc,
+        generate_diagram,
+        auto_publish,
+        auto_approve,
         target_diagrams: targetDiagrams,
 
         // LEGACY: Keep for backward compatibility (not displayed in UI)
         detect_changes: true, // Always true for smart automation
-        auto_publish_target_provider: rule?.auto_publish_target?.provider ?? '',
-        auto_publish_target_connection_id: rule?.auto_publish_target?.connection_id ?? '',
-        auto_publish_target_resource_id: rule?.auto_publish_target?.resource_id ?? '',
+        auto_publish_target_provider: getStringProp(autoPublishTarget, 'provider'),
+        auto_publish_target_connection_id: getStringProp(autoPublishTarget, 'connection_id'),
+        auto_publish_target_resource_id: getStringProp(autoPublishTarget, 'resource_id'),
         auto_publish_custom_resource: '',
-        jira_project_key: rule?.auto_publish_target?.jira_project_key ?? rule?.auto_publish_target?.jiraProjectKey ?? '',
-        run_diff: rule?.auto_publish_target?.mode === 'diff' || rule?.auto_publish_target?.diff === true,
-        diff_github_repo_id: rule?.auto_publish_target?.github_repo_id ?? rule?.auto_publish_target?.githubRepoId ?? '',
-        diff_window_minutes: rule?.auto_publish_target?.window_minutes ? String(rule.auto_publish_target.window_minutes) : '',
+        jira_project_key: getStringProp(autoPublishTarget, 'jira_project_key', 'jiraProjectKey'),
+        run_diff: getBooleanProp(autoPublishTarget, 'mode', 'diff') || getBooleanProp(autoPublishTarget, 'diff'),
+        diff_github_repo_id: getStringProp(autoPublishTarget, 'github_repo_id', 'githubRepoId'),
+        diff_window_minutes: (autoPublishTarget && autoPublishTarget.window_minutes != null)
+          ? String(autoPublishTarget.window_minutes)
+          : '',
       });
     });
-  }
+  }, [createAutomationRuleForm]);
 
 
 
@@ -675,7 +744,7 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
     const raw = connection?.metadata?.resources || connection?.metadata?.targets || [];
     if (!raw || !Array.isArray(raw)) return [];
     return raw
-      .map((item: any) => {
+      .map((item: string | { resource_id?: string; id?: string; name?: string; label?: string }) => {
         if (!item) return null;
         if (typeof item === 'string') return { id: item, name: item };
         const id = item.resource_id || item.id || item.name;
@@ -686,7 +755,7 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
       .filter(Boolean) as Array<{ id: string; name: string }>;
   }
 
-  async function loadResourcesForProvider(provider: string) {
+  const loadResourcesForProvider = useCallback(async (provider: string) => {
     const normalizedProvider = normalizeProviderName(provider);
     if (!normalizedProvider || !isKnowledgeBaseProvider(normalizedProvider)) return;
     if (providerResourceLoading[normalizedProvider]) return;
@@ -710,7 +779,15 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
       if (!response.ok) throw new Error(result.error || result.detail || 'Failed to load resources');
 
       const normalized = (result.resources || [])
-        .map((resource: any) => {
+        .map((resource: {
+          id?: string;
+          resource_id?: string;
+          page_id?: string;
+          title?: string;
+          name?: string;
+          label?: string;
+          url?: string;
+        }) => {
           const id = resource.id || resource.resource_id || resource.page_id;
           const name = resource.title || resource.name || resource.label || resource.url || resource.id || resource.resource_id || 'Untitled resource';
           return id ? { id, name } : null;
@@ -718,15 +795,15 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
         .filter(Boolean) as Array<{ id: string; name: string }>;
 
       setProviderResources((prev) => ({ ...prev, [normalizedProvider]: normalized }));
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to load resources for provider', provider, err);
-      setProviderResourceErrors((prev) => ({ ...prev, [normalizedProvider]: err?.message || 'Failed to load resources' }));
+      setProviderResourceErrors((prev) => ({ ...prev, [normalizedProvider]: err instanceof Error ? err.message : 'Failed to load resources' }));
     } finally {
       setProviderResourceLoading((prev) => ({ ...prev, [normalizedProvider]: false }));
     }
-  }
+  }, [providerResources, providerResourceLoading, providerResourceErrors, supabase, setProviderResources, setProviderResourceLoading, setProviderResourceErrors]);
 
-  async function loadJiraProjects() {
+  const loadJiraProjects = useCallback(async () => {
     if (jiraProjectsLoading) return;
     if (jiraProjects.length > 0 && !jiraProjectsError) return;
 
@@ -748,7 +825,12 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
       if (!response.ok) throw new Error(result.error || result.detail || 'Failed to load Jira projects');
 
       const normalized = (result.projects || [])
-        .map((project: any) => {
+        .map((project: {
+          key?: string;
+          project_key?: string;
+          name?: string;
+          id?: string;
+        }) => {
           const key = project.key || project.project_key;
           const name = project.name || project.key;
           const id = project.id || key;
@@ -761,13 +843,13 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
       if (typeof result.warning === 'string' && result.warning.trim()) {
         setJiraProjectsWarning(result.warning.trim());
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to load Jira projects', err);
-      setJiraProjectsError(err?.message || 'Failed to load Jira projects');
+      setJiraProjectsError(err instanceof Error ? err.message : 'Failed to load Jira projects');
     } finally {
       setJiraProjectsLoading(false);
     }
-  }
+  }, [jiraProjectsLoading, jiraProjects.length, jiraProjectsError, supabase, setJiraProjects, setJiraProjectsLoading, setJiraProjectsError, setJiraProjectsWarning]);
 
   function setRuleConnection(connectionId: string, provider: string) {
     if (!singleRuleForm) return;
@@ -807,13 +889,13 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
     });
   }
 
-  function toggleExpandedRow(repoId: string) {
+  function toggleExpandedRow(sourceId: string) {
     setExpandedRows(prev => {
       const newSet = new Set(prev);
-      if (newSet.has(repoId)) {
-        newSet.delete(repoId);
+      if (newSet.has(sourceId)) {
+        newSet.delete(sourceId);
       } else {
-        newSet.add(repoId);
+        newSet.add(sourceId);
       }
       return newSet;
     });
@@ -827,7 +909,7 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
 
   function formToRule(form: AutomationRuleForm) {
     // NEW: Smart automation rule structure
-    const rule: Record<string, any> = {
+    const rule: Record<string, unknown> = {
       id: form.id,
       name: (form.name?.trim() && form.name.trim() !== '') ? form.name.trim() : 'Smart Automation',
       enabled: form.enabled,
@@ -863,7 +945,9 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
     rule.detect_changes = true; // Always true for smart automation
 
     // Default architecture diagrams when diagram generation is selected and no explicit target provided
-    if (rule.generate_diagram && (!rule.target_diagrams || rule.target_diagrams.length === 0)) {
+    const generateDiagram = typeof rule.generate_diagram === 'boolean' ? rule.generate_diagram : false;
+    const targetDiagrams = Array.isArray(rule.target_diagrams) ? rule.target_diagrams : [];
+    if (generateDiagram && targetDiagrams.length === 0) {
       rule.target_diagrams = ['architecture'];
     }
 
@@ -871,12 +955,12 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
   }
 
 
-  async function fetchAutomationRules(repoId: string) {
-    setAutomationLoading((prev) => ({ ...prev, [repoId]: true }));
-    setAutomationAlerts((prev) => ({ ...prev, [repoId]: null }));
+  const fetchAutomationRules = useCallback(async (sourceId: string) => {
+    setAutomationLoading((prev) => ({ ...prev, [sourceId]: true }));
+    setAutomationAlerts((prev) => ({ ...prev, [sourceId]: null }));
 
     try {
-      const response = await fetch(`/api/repos/${repoId}/automation`, { method: 'GET', credentials: 'include' });
+      const response = await fetch(`/api/repos/${sourceId}/automation`, { method: 'GET', credentials: 'include' });
       if (!response.ok) {
         const errorDetail = await response.json().catch(() => null);
         throw new Error(errorDetail?.error || errorDetail?.detail || 'Failed to load automation rules');
@@ -886,24 +970,24 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
       const forms = mapRulesToForms(data.automation_rules || []);
       // For single rule mode, use the first rule or create a new one
       setSingleRuleForm(forms.length > 0 ? forms[0] : createAutomationRuleForm());
-    } catch (error: any) {
-      setAutomationAlerts((prev) => ({ ...prev, [repoId]: { type: 'error', message: error?.message || 'Failed to load automation rules' } }));
+    } catch (error: unknown) {
+      setAutomationAlerts((prev) => ({ ...prev, [sourceId]: { type: 'error', message: error instanceof Error ? error.message : 'Failed to load automation rules' } }));
     } finally {
-      setAutomationLoading((prev) => ({ ...prev, [repoId]: false }));
+      setAutomationLoading((prev) => ({ ...prev, [sourceId]: false }));
     }
-  }
+  }, [setSingleRuleForm, setAutomationLoading, setAutomationAlerts, mapRulesToForms, createAutomationRuleForm]);
 
-  async function handleSaveAutomationRules(repoId: string) {
+  async function handleSaveAutomationRules(sourceId: string) {
     if (!singleRuleForm) return;
 
     // Use the current enabled state from the form
     const parsed = [formToRule(singleRuleForm)];
 
-    setAutomationSaving((prev) => ({ ...prev, [repoId]: true }));
-    setAutomationAlerts((prev) => ({ ...prev, [repoId]: null }));
+    setAutomationSaving((prev) => ({ ...prev, [sourceId]: true }));
+    setAutomationAlerts((prev) => ({ ...prev, [sourceId]: null }));
 
     try {
-      const response = await fetch(`/api/repos/${repoId}/automation`, {
+      const response = await fetch(`/api/repos/${sourceId}/automation`, {
         method: 'PATCH',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -922,21 +1006,21 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
       // Update stats (which will fetch fresh data and update allRules state)
       updateStatsFromRules();
 
-      setAutomationAlerts((prev) => ({ ...prev, [repoId]: { type: 'success', message: 'Automation rule saved' } }));
+      setAutomationAlerts((prev) => ({ ...prev, [sourceId]: { type: 'success', message: 'Automation rule saved' } }));
 
       // Close the modal after successful save
       setActiveAutomationRepoId(null);
-    } catch (error: any) {
-      setAutomationAlerts((prev) => ({ ...prev, [repoId]: { type: 'error', message: error?.message || 'Failed to save automation rule' } }));
+    } catch (error: unknown) {
+      setAutomationAlerts((prev) => ({ ...prev, [sourceId]: { type: 'error', message: error instanceof Error ? error.message : 'Failed to save automation rule' } }));
     } finally {
-      setAutomationSaving((prev) => ({ ...prev, [repoId]: false }));
+      setAutomationSaving((prev) => ({ ...prev, [sourceId]: false }));
     }
   }
 
-  async function toggleRuleEnabled(repoId: string, ruleId: string) {
+  async function toggleRuleEnabled(sourceId: string, ruleId: string) {
     try {
       // Fetch current rules from API
-      const rulesResponse = await fetch(`/api/repos/${repoId}/automation`);
+      const rulesResponse = await fetch(`/api/repos/${sourceId}/automation`);
       if (!rulesResponse.ok) {
         throw new Error('Failed to fetch current rules');
       }
@@ -945,7 +1029,7 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
       const currentRules = rulesData.automation_rules || [];
 
       // Find and toggle the rule
-      const ruleIndex = currentRules.findIndex((r: any) => r.id === ruleId);
+      const ruleIndex = currentRules.findIndex((r: { id: string; [key: string]: unknown }) => r.id === ruleId);
       if (ruleIndex === -1) return;
 
       const updatedRules = [...currentRules];
@@ -955,7 +1039,7 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
       };
 
       // Send the update to the server
-      const response = await fetch(`/api/repos/${repoId}/automation`, {
+      const response = await fetch(`/api/repos/${sourceId}/automation`, {
         method: 'PATCH',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -969,21 +1053,21 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
       // Update stats (which will fetch fresh data and update allRules state)
       updateStatsFromRules();
 
-      setAutomationAlerts((prev) => ({ ...prev, [repoId]: { type: 'success', message: 'Automation rule updated' } }));
+      setAutomationAlerts((prev) => ({ ...prev, [sourceId]: { type: 'success', message: 'Automation rule updated' } }));
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Failed to toggle rule enabled state:', error);
       setAutomationAlerts((prev) => ({
         ...prev,
-        [repoId]: { type: 'error', message: error.message || 'Failed to update rule' }
+        [sourceId]: { type: 'error', message: error instanceof Error ? error.message : 'Failed to update rule' }
       }));
     }
   }
 
-  async function toggleAllRulesEnabled(repoId: string) {
+  async function toggleAllRulesEnabled(sourceId: string) {
     try {
       // Fetch current rules from API
-      const rulesResponse = await fetch(`/api/repos/${repoId}/automation`);
+      const rulesResponse = await fetch(`/api/repos/${sourceId}/automation`);
       if (!rulesResponse.ok) {
         throw new Error('Failed to fetch current rules');
       }
@@ -997,17 +1081,21 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
       }
 
       // Check if all rules are currently enabled
-      const allEnabled = currentRules.every((rule: any) => rule.enabled);
+      const allEnabled = currentRules.every((rule: { enabled?: boolean; [key: string]: unknown }) => rule.enabled);
       const newEnabledState = !allEnabled;
 
       // Update all rules to the new state
-      const updatedRules = currentRules.map((rule: any) => ({
+      const updatedRules = currentRules.map((rule: {
+        id: string;
+        enabled?: boolean;
+        [key: string]: unknown;
+      }) => ({
         ...rule,
         enabled: newEnabledState
       }));
 
       // Send the update to the server
-      const response = await fetch(`/api/repos/${repoId}/automation`, {
+      const response = await fetch(`/api/repos/${sourceId}/automation`, {
         method: 'PATCH',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -1023,25 +1111,25 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
 
       setAutomationAlerts((prev) => ({
         ...prev,
-        [repoId]: {
+        [sourceId]: {
           type: 'success',
           message: newEnabledState ? 'All automation rules enabled' : 'All automation rules disabled'
         }
       }));
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Failed to toggle all rules enabled state:', error);
       setAutomationAlerts((prev) => ({
         ...prev,
-        [repoId]: { type: 'error', message: error.message || 'Failed to update rules' }
+        [sourceId]: { type: 'error', message: error instanceof Error ? error.message : 'Failed to update rules' }
       }));
     }
   }
 
-  async function openAutomationModal(repoId: string) {
-    setActiveAutomationRepoId(repoId);
+  async function openAutomationModal(sourceId: string) {
+    setActiveAutomationRepoId(sourceId);
     // Load existing rule or create new one
-    await fetchAutomationRules(repoId);
+    await fetchAutomationRules(sourceId);
   }
 
   function closeAutomationModal() {
@@ -1054,7 +1142,7 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
       fetchAutomationRules(activeAutomationRepoId);
       if (connections.length === 0) loadConnections();
     }
-  }, [activeAutomationRepoId]);
+  }, [activeAutomationRepoId, fetchAutomationRules, connections.length, loadConnections]);
 
   // Load resources when a rule with a saved provider is loaded
   useEffect(() => {
@@ -1065,7 +1153,7 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
     if (provider === 'confluence') {
       loadJiraProjects();
     }
-  }, [singleRuleForm?.auto_publish_target_provider]);
+  }, [singleRuleForm?.auto_publish_target_provider, loadResourcesForProvider, loadJiraProjects]);
 
   const activeAutomationRepo = reposList.find((repo) => repo.id === activeAutomationRepoId) || null;
   const knowledgeBaseConnections = connections.filter((connection) => isKnowledgeBaseProvider(connection.provider));
@@ -1114,29 +1202,7 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
   const defaultOptionLabel = resourceLoading ? `Loading ${providerDisplayName || 'resources'}...` : 'Select a resource';
   const statsRangeMeta = STATS_RANGE_OPTIONS.find((option) => option.value === statsRange) || STATS_RANGE_OPTIONS[0];
 
-  // Helper functions for UI
-
-  const getStatusIcon = (status: string) => {
-    if (status === 'success') return <span className="inline-block h-2 w-2 rounded-full bg-emerald-400"></span>;
-    if (status === 'failed') return <span className="inline-block h-2 w-2 rounded-full bg-rose-400"></span>;
-    if (status === 'skipped') return <span className="inline-block h-2 w-2 rounded-full bg-yellow-400"></span>;
-    return <span className="inline-block h-2 w-2 rounded-full bg-white/40"></span>;
-  };
-
-  const getStatusColor = (status?: string) => {
-    if (status === 'success') return 'bg-green-500/20 text-green-400';
-    if (status === 'failed') return 'bg-red-500/20 text-red-400';
-    if (status === 'skipped') return 'bg-yellow-500/20 text-yellow-400';
-    return 'bg-white/10 text-white/60';
-  };
-
-  const getStatusIconComponent = (status?: string) => {
-    if (status === 'success') return <CheckCircle2 className="h-4 w-4" />;
-    if (status === 'failed') return <XCircle className="h-4 w-4" />;
-    if (status === 'skipped') return <Clock className="h-4 w-4" />;
-    return <Clock className="h-4 w-4" />;
-  };
-
+  // Removed unused helper functions: getStatusIcon, getStatusColor, getStatusIconComponent
 
   return (
     <div className="min-h-screen px-4 py-8 sm:px-6 lg:px-8">
@@ -1261,34 +1327,38 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
                     </thead>
                     <tbody className="divide-y divide-white/10">
                       {reposList.map((repo) => {
-                        const repoInfo = parseRepoUrl(repo.repo_url);
-                        const repoRules = allRules.filter((r) => r.repoId === repo.id);
+                        const displayUrl = repo.external_url || repo.repo_url || '';
+                        const repoInfo = parseRepoUrl(displayUrl);
+                        const repoRules = allRules.filter((r) => r.sourceId === repo.id);
                         const hasRules = repoRules.length > 0;
                         const activeRules = repoRules.filter((r) => r.enabled).length;
                         const isExpanded = expandedRows.has(repo.id);
 
                         return (
-                          <React.Fragment key={repo.id}>
-                            {/* Main Repository Row */}
-                            <tr className="hover:bg-white/5 transition-colors cursor-pointer" onClick={() => toggleExpandedRow(repo.id)}>
-                              <td className="px-4 py-3 w-8">
-                                <ChevronDown
-                                  className={`h-4 w-4 text-white/60 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                                />
-                              </td>
-                              <td className="px-4 py-3">
-                                <div className="flex items-center gap-2">
+                         <React.Fragment key={repo.id}>
+                           {/* Main Repository Row */}
+                           <tr className="hover:bg-white/5 transition-colors cursor-pointer" onClick={() => toggleExpandedRow(repo.id)}>
+                             <td className="px-4 py-3 w-8">
+                               <ChevronDown
+                                 className={`h-4 w-4 text-white/60 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                               />
+                             </td>
+                             <td className="px-4 py-3">
+                               <div className="flex items-center gap-2">
                                   <Github className="h-4 w-4 text-white/60" />
-                                  <div>
-                                    <div className="font-semibold text-white">{repo.name}</div>
-                                    <div className="text-xs text-white/50 font-mono">
-                                      {repo.repo_url}
-                                    </div>
-                                    {repo.settings?.subdir && (
-                                      <div className="text-xs text-white/40 mt-0.5">
-                                        Path: {repo.settings.subdir}
-                                      </div>
-                                    )}
+                                 <div>
+                                  <div className="font-semibold text-white">{repo.name}</div>
+                                  <div className="text-xs text-white/50 font-mono">
+                                      {displayUrl}
+                                  </div>
+                                    {(() => {
+                                      const subdir = repo.settings?.subdir;
+                                      return typeof subdir === 'string' && subdir ? (
+                                        <div className="text-xs text-white/40 mt-0.5">
+                                          Path: {subdir}
+                                        </div>
+                                      ) : null;
+                                    })()}
                                   </div>
                                 </div>
                               </td>
@@ -1331,17 +1401,17 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
                                 <div className="flex items-center justify-end gap-2">
                                   {hasRules && (
                                     <>
-                                      <Switch
-                                        checked={activeRules > 0}
+                                     <Switch
+                                       checked={activeRules > 0}
                                         onCheckedChange={() => toggleAllRulesEnabled(repo.id)}
                                         aria-label={activeRules > 0 ? 'Disable all rules' : 'Enable all rules'}
                                         className="scale-90"
-                                      />
+                                     />
                                     </>
                                   )}
                                   <Button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
+                                   onClick={(e) => {
+                                     e.stopPropagation();
                                       openAutomationModal(repo.id);
                                     }}
                                     variant="secondary"
@@ -1361,7 +1431,7 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
                                       title="Open repository on GitHub"
                                     >
                                       <a
-                                        href={repo.repo_url}
+                                  href={displayUrl}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         onClick={(e) => e.stopPropagation()}
@@ -1427,7 +1497,7 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
                                                   size="icon"
                                                   onClick={() => setDeleteRuleModal({
                                                     open: true,
-                                                    repoId: repo.id,
+                                                    sourceId: repo.id,
                                                     ruleId: rule.ruleId,
                                                     ruleName: rule.ruleName
                                                   })}
@@ -1486,7 +1556,7 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
 
 
         {/* Delete Rule Confirmation Modal */}
-        <Dialog open={deleteRuleModal.open} onOpenChange={(open) => !open && !deleting && setDeleteRuleModal({ open: false, repoId: null, ruleId: null, ruleName: '' })}>
+        <Dialog open={deleteRuleModal.open} onOpenChange={(open) => !open && !deleting && setDeleteRuleModal({ open: false, sourceId: null, ruleId: null, ruleName: '' })}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Delete Automation Rule</DialogTitle>
@@ -1497,14 +1567,14 @@ export function AutomationPageClient({ user, repos, connections: initialConnecti
             <div className="flex justify-end gap-3">
               <Button
                 variant="secondary"
-                onClick={() => setDeleteRuleModal({ open: false, repoId: null, ruleId: null, ruleName: '' })}
+                onClick={() => setDeleteRuleModal({ open: false, sourceId: null, ruleId: null, ruleName: '' })}
                 disabled={deleting}
               >
                 Cancel
               </Button>
               <Button
                 variant="destructive"
-                onClick={() => deleteRuleModal.repoId && deleteRuleModal.ruleId && handleDeleteRule(deleteRuleModal.repoId, deleteRuleModal.ruleId)}
+                onClick={() => deleteRuleModal.sourceId && deleteRuleModal.ruleId && handleDeleteRule(deleteRuleModal.sourceId, deleteRuleModal.ruleId)}
                 disabled={deleting}
               >
                 {deleting ? (

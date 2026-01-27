@@ -1,10 +1,9 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
-import type { User } from '@supabase/supabase-js';
+import { useState, useMemo } from 'react';
 import { FileText, Layers3, AlertCircle, RefreshCw, ExternalLink, Calendar, GitBranch, Folder, Code, Clock, Hash, Zap, Github, XCircle, Link as LinkIcon, ScrollText } from 'lucide-react';
 import Link from 'next/link';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 interface LogEntry {
@@ -62,18 +61,10 @@ type TypeFilter =
   | 'diagram'
   | 'kb_push';
 
-interface Repo {
-  id: string;
-  repo_url: string;
-  name: string;
-  default_branch: string;
-  settings?: any;
-}
+// Removed unused interface: Repo
 
 interface LogsPageClientProps {
-  user: User | null;
   logs: LogsData;
-  repos?: Repo[];
 }
 
 function ListNoDataOverlay({ message }: { message: string }) {
@@ -85,7 +76,7 @@ function ListNoDataOverlay({ message }: { message: string }) {
   );
 }
 
-export function LogsPageClient({ user, logs, repos = [] }: LogsPageClientProps) {
+export function LogsPageClient({ logs }: LogsPageClientProps) {
   const [timeFilter, setTimeFilter] = useState<TimeFilter>('all');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');

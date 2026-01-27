@@ -72,16 +72,18 @@ export async function POST(request: NextRequest) {
     };
 
     const { data, error } = await supabase
-      .from('workspace_repos')
+      .from('workspace_sources')
       .insert({
         user_id: user.id,
         name,
         provider: 'jira',
         repo_url: repoUrl,
+        external_url: repoUrl,
         default_branch: 'jira',
         auth_type: 'oauth',
         credentials_ref: null,
         settings,
+        source_type: 'issue',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
@@ -93,10 +95,10 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(data, { status: 200 });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Create Jira source error:', err);
     return NextResponse.json(
-      { error: 'Failed to create Jira source', detail: err.message || String(err) },
+      { error: 'Failed to create Jira source', detail: err instanceof Error ? err.message : String(err) },
       { status: 500 }
     );
   }

@@ -46,9 +46,11 @@ export async function POST(request: NextRequest) {
       .sort();
 
     return NextResponse.json({ directories }, { status: 200 });
-  } catch (err: any) {
+  } catch (err: unknown) {
     // Handle repository not found or access denied
-    if (err.status === 404) {
+    const errorStatus = (err as { status?: number })?.status;
+    
+    if (errorStatus === 404) {
       return NextResponse.json(
         {
           error: 'Repository not found',
@@ -58,7 +60,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (err.status === 403) {
+    if (errorStatus === 403) {
       return NextResponse.json(
         {
           error: 'Access denied',
@@ -71,7 +73,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error: 'Failed to fetch directories',
-        detail: err.message || String(err)
+        detail: err instanceof Error ? err.message : String(err)
       },
       { status: 500 }
     );

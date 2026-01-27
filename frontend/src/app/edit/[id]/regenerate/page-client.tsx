@@ -6,11 +6,11 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Loader2, X, ArrowLeft, Check, RefreshCw, Settings, Eye, Sparkles, AlertCircle, Info } from 'lucide-react';
+import { Loader2, X, Check, RefreshCw, Settings, Eye, Sparkles, AlertCircle, Info } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { RegeneratePreview } from '@/components/RegeneratePreview';
 import { DocumentConfiguration } from '@/components/DocumentConfiguration';
-import type { DocumentStructureConfig } from '@/components/DocumentStructure';
+import type { DocumentStructureConfig, DocumentSection } from '@/components/DocumentStructure';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
@@ -21,7 +21,7 @@ interface Submission {
   id: string;
   title: string;
   markdown: string;
-  source_meta?: any;
+  source_meta?: Record<string, unknown>;
 }
 
 interface RegeneratePageClientProps {
@@ -155,32 +155,92 @@ export function RegeneratePageClient({ submission }: RegeneratePageClientProps) 
   const [generatingPreview, setGeneratingPreview] = useState(false);
   const [previewContent, setPreviewContent] = useState('');
   const [previewModel, setPreviewModel] = useState('');
-  const [previewPromptConfig, setPreviewPromptConfig] = useState<any>({});
+  const [previewPromptConfig, setPreviewPromptConfig] = useState<Record<string, unknown>>({});
   const [previewError, setPreviewError] = useState('');
-  const [significanceAnalysis, setSignificanceAnalysis] = useState<any>(null);
-  const [selectedRegenModel, setSelectedRegenModel] = useState(submission.source_meta?.model || 'openai/gpt-4o');
+  const [significanceAnalysis, setSignificanceAnalysis] = useState<Record<string, unknown> | null>(null);
+  const [selectedRegenModel, setSelectedRegenModel] = useState<string>(() => {
+    const model = submission.source_meta?.model;
+    return typeof model === 'string' ? model : 'openai/gpt-4o';
+  });
 
   // Configuration save state
   const [savingConfig, setSavingConfig] = useState(false);
   const [configSaveMessage, setConfigSaveMessage] = useState('');
   const [configSaveError, setConfigSaveError] = useState('');
   const [showConfigConfirm, setShowConfigConfirm] = useState(false);
-  const [regenPromptConfig, setRegenPromptConfig] = useState(
-    submission.source_meta?.llm_prompt_config || {
+  type RequiredPromptConfig = {
+    personality: string;
+    style: string;
+    perspective: string;
+    audience: string;
+    customInstructions: string;
+    temperature: number;
+  };
+
+  const [regenPromptConfig, setRegenPromptConfig] = useState<RequiredPromptConfig>(() => {
+    const config = submission.source_meta?.llm_prompt_config;
+    if (
+      config &&
+      typeof config === 'object' &&
+      !Array.isArray(config)
+    ) {
+      return {
+        personality: typeof (config as { personality?: unknown }).personality === 'string' 
+          ? (config as { personality: string }).personality 
+          : 'default',
+        style: typeof (config as { style?: unknown }).style === 'string' 
+          ? (config as { style: string }).style 
+          : 'default',
+        perspective: typeof (config as { perspective?: unknown }).perspective === 'string' 
+          ? (config as { perspective: string }).perspective 
+          : 'default',
+        audience: typeof (config as { audience?: unknown }).audience === 'string' 
+          ? (config as { audience: string }).audience 
+          : 'technical',
+        customInstructions: typeof (config as { customInstructions?: unknown }).customInstructions === 'string' 
+          ? (config as { customInstructions: string }).customInstructions 
+          : '',
+        temperature: typeof (config as { temperature?: unknown }).temperature === 'number' 
+          ? (config as { temperature: number }).temperature 
+          : 0.3,
+      };
+    }
+    return {
       personality: 'default',
       style: 'default',
       perspective: 'default',
       audience: 'technical',
       customInstructions: '',
       temperature: 0.3
+    };
+  });
+  const [structureConfig, setStructureConfig] = useState<DocumentStructureConfig>(() => {
+    const docStructure = submission.source_meta?.document_structure;
+    if (
+      docStructure &&
+      typeof docStructure === 'object' &&
+      !Array.isArray(docStructure) &&
+      'sections' in docStructure &&
+      'includeTableOfContents' in docStructure &&
+      Array.isArray((docStructure as { sections?: unknown }).sections) &&
+      typeof (docStructure as { includeTableOfContents?: unknown }).includeTableOfContents === 'boolean'
+    ) {
+      const typed = docStructure as {
+        sections?: DocumentSection[];
+        includeTableOfContents: boolean;
+        customStructure?: string;
+      };
+      return {
+        sections: typed.sections || [],
+        includeTableOfContents: typed.includeTableOfContents,
+        customStructure: typed.customStructure,
+      };
     }
-  );
-  const [structureConfig, setStructureConfig] = useState<DocumentStructureConfig>(
-    submission.source_meta?.document_structure || {
+    return {
       sections: [],
       includeTableOfContents: false,
-    }
-  );
+    };
+  });
   const [regenerating, setRegenerating] = useState(false);
 
   const selectedRegenModelObj = availableModels.find(m => m.value === selectedRegenModel) || availableModels[0];
@@ -435,7 +495,16 @@ export function RegeneratePageClient({ submission }: RegeneratePageClientProps) 
                 <div className="space-y-4">
                   <DocumentConfiguration
                     promptConfig={regenPromptConfig}
-                    onPromptConfigChange={setRegenPromptConfig}
+                    onPromptConfigChange={(config) => {
+                      setRegenPromptConfig({
+                        personality: config.personality || 'default',
+                        style: config.style || 'default',
+                        perspective: config.perspective || 'default',
+                        audience: config.audience || 'technical',
+                        customInstructions: config.customInstructions || '',
+                        temperature: config.temperature ?? 0.3,
+                      });
+                    }}
                     structureConfig={structureConfig}
                     onStructureConfigChange={setStructureConfig}
                     onSave={showConfigSaveConfirm}
@@ -487,12 +556,20 @@ export function RegeneratePageClient({ submission }: RegeneratePageClientProps) 
                 <div className="mb-6">
                   <p className="text-sm text-white/60">
                     Generated with <strong className="text-white/90">{previewModel}</strong>
-                    {previewPromptConfig.personality && previewPromptConfig.personality !== 'default' && (
-                      <>, <strong className="text-white/90">{previewPromptConfig.personality}</strong> personality</>
-                    )}
-                    {previewPromptConfig.style && previewPromptConfig.style !== 'default' && (
-                      <>, <strong className="text-white/90">{previewPromptConfig.style}</strong> style</>
-                    )}
+                    {(() => {
+                      const personality = previewPromptConfig.personality;
+                      if (typeof personality === 'string' && personality !== 'default') {
+                        return <>, <strong className="text-white/90">{personality}</strong> personality</>;
+                      }
+                      return null;
+                    })()}
+                    {(() => {
+                      const style = previewPromptConfig.style;
+                      if (typeof style === 'string' && style !== 'default') {
+                        return <>, <strong className="text-white/90">{style}</strong> style</>;
+                      }
+                      return null;
+                    })()}
                   </p>
                 </div>
                 <Button
@@ -505,79 +582,113 @@ export function RegeneratePageClient({ submission }: RegeneratePageClientProps) 
                 </Button>
 
                 {/* Unavailable Files Warning */}
-                {significanceAnalysis?.unavailableFiles && significanceAnalysis.unavailableFiles.length > 0 && (
-                  <Alert variant="warning">
-                    <Info className="h-5 w-5" />
-                    <AlertTitle>
-                      Some files couldn't be analyzed
-                    </AlertTitle>
-                    <AlertDescription>
-                      {significanceAnalysis.unavailableFiles.length} file{significanceAnalysis.unavailableFiles.length === 1 ? '' : 's'} {significanceAnalysis.unavailableFiles.length === 1 ? 'was' : 'were'} unavailable during analysis. This may affect the accuracy of the significance assessment.
-                      <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
-                        {significanceAnalysis.unavailableFiles.map((file: { path: string; reason: string; commitSha: string }, idx: number) => (
-                          <div key={idx} className="text-xs text-orange-200/70 bg-orange-500/10 rounded px-2 py-1">
-                            <div className="font-mono">{file.path}</div>
-                            <div className="text-orange-200/60 mt-0.5">{file.reason}</div>
+                {(() => {
+                  const unavailableFiles = significanceAnalysis?.unavailableFiles;
+                  if (Array.isArray(unavailableFiles) && unavailableFiles.length > 0) {
+                    return (
+                      <Alert variant="warning">
+                        <Info className="h-5 w-5" />
+                        <AlertTitle>
+                          Some files couldn&apos;t be analyzed
+                        </AlertTitle>
+                        <AlertDescription>
+                          {unavailableFiles.length} file{unavailableFiles.length === 1 ? '' : 's'} {unavailableFiles.length === 1 ? 'was' : 'were'} unavailable during analysis. This may affect the accuracy of the significance assessment.
+                          <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
+                            {unavailableFiles.map((file: { path: string; reason: string; commitSha: string }, idx: number) => (
+                              <div key={idx} className="text-xs text-orange-200/70 bg-orange-500/10 rounded px-2 py-1">
+                                <div className="font-mono">{file.path}</div>
+                                <div className="text-orange-200/60 mt-0.5">{file.reason}</div>
+                              </div>
+                            ))}
                           </div>
-                        ))}
-                      </div>
-                    </AlertDescription>
-                  </Alert>
-                )}
+                        </AlertDescription>
+                      </Alert>
+                    );
+                  }
+                  return null;
+                })()}
 
                 {/* Significance Analysis Warning */}
-                {significanceAnalysis && !significanceAnalysis.isSignificant && (
-                  <Alert variant="warning">
-                    <AlertCircle className="h-5 w-5" />
-                    <AlertTitle>
-                      Changes may not be significant
-                    </AlertTitle>
-                    <AlertDescription>
-                      {significanceAnalysis.reason}
-                      {significanceAnalysis.summary && (
-                        <p className="text-xs text-yellow-200/70 mb-2">
-                          {significanceAnalysis.summary}
-                        </p>
-                      )}
-                      {significanceAnalysis.technicalChanges && (
-                        <div className="text-xs text-yellow-200/70 mb-2">
-                          <strong>Technical:</strong> {significanceAnalysis.technicalChanges.level} - {significanceAnalysis.technicalChanges.description}
-                        </div>
-                      )}
-                      {significanceAnalysis.businessLogicChanges && (
-                        <div className="text-xs text-yellow-200/70">
-                          <strong>Business Logic:</strong> {significanceAnalysis.businessLogicChanges.level} - {significanceAnalysis.businessLogicChanges.description}
-                        </div>
-                      )}
-                      <p className="text-xs text-yellow-200/60 mt-3 italic">
-                        You can still proceed with regeneration if needed.
-                      </p>
-                    </AlertDescription>
-                  </Alert>
-                )}
+                {(() => {
+                  if (!significanceAnalysis) return null;
+                  const isSignificant = significanceAnalysis.isSignificant;
+                  if (typeof isSignificant === 'boolean' && !isSignificant) {
+                    const reason = typeof significanceAnalysis.reason === 'string' ? significanceAnalysis.reason : '';
+                    const summary = typeof significanceAnalysis.summary === 'string' ? significanceAnalysis.summary : null;
+                    const technicalChanges = significanceAnalysis.technicalChanges && typeof significanceAnalysis.technicalChanges === 'object' && !Array.isArray(significanceAnalysis.technicalChanges)
+                      ? significanceAnalysis.technicalChanges as { level?: unknown; description?: unknown }
+                      : null;
+                    const businessLogicChanges = significanceAnalysis.businessLogicChanges && typeof significanceAnalysis.businessLogicChanges === 'object' && !Array.isArray(significanceAnalysis.businessLogicChanges)
+                      ? significanceAnalysis.businessLogicChanges as { level?: unknown; description?: unknown }
+                      : null;
+                    
+                    return (
+                      <Alert variant="warning">
+                        <AlertCircle className="h-5 w-5" />
+                        <AlertTitle>
+                          Changes may not be significant
+                        </AlertTitle>
+                        <AlertDescription>
+                          {reason}
+                          {summary && (
+                            <p className="text-xs text-yellow-200/70 mb-2">
+                              {summary}
+                            </p>
+                          )}
+                          {technicalChanges && typeof technicalChanges.level === 'string' && typeof technicalChanges.description === 'string' && (
+                            <div className="text-xs text-yellow-200/70 mb-2">
+                              <strong>Technical:</strong> {technicalChanges.level} - {technicalChanges.description}
+                            </div>
+                          )}
+                          {businessLogicChanges && typeof businessLogicChanges.level === 'string' && typeof businessLogicChanges.description === 'string' && (
+                            <div className="text-xs text-yellow-200/70">
+                              <strong>Business Logic:</strong> {businessLogicChanges.level} - {businessLogicChanges.description}
+                            </div>
+                          )}
+                          <p className="text-xs text-yellow-200/60 mt-3 italic">
+                            You can still proceed with regeneration if needed.
+                          </p>
+                        </AlertDescription>
+                      </Alert>
+                    );
+                  }
+                  return null;
+                })()}
 
                 {/* Significance Analysis Success */}
-                {significanceAnalysis && significanceAnalysis.isSignificant && (
-                  <Alert variant="success">
-                    <Check className="h-5 w-5" />
-                    <AlertTitle>
-                      Significant changes detected
-                    </AlertTitle>
-                    <AlertDescription>
-                      {significanceAnalysis.reason}
-                      {significanceAnalysis.summary && (
-                        <p className="text-xs text-green-200/70">
-                          {significanceAnalysis.summary}
-                        </p>
-                      )}
-                      {significanceAnalysis.unavailableFiles && significanceAnalysis.unavailableFiles.length > 0 && (
-                        <p className="text-xs text-green-200/60 mt-2 italic">
-                          Note: {significanceAnalysis.unavailableFiles.length} file{significanceAnalysis.unavailableFiles.length === 1 ? '' : 's'} couldn't be analyzed, but significant changes were still detected in other files.
-                        </p>
-                      )}
-                    </AlertDescription>
-                  </Alert>
-                )}
+                {(() => {
+                  if (!significanceAnalysis) return null;
+                  const isSignificant = significanceAnalysis.isSignificant;
+                  if (typeof isSignificant === 'boolean' && isSignificant) {
+                    const reason = typeof significanceAnalysis.reason === 'string' ? significanceAnalysis.reason : '';
+                    const summary = typeof significanceAnalysis.summary === 'string' ? significanceAnalysis.summary : null;
+                    const unavailableFilesRaw = significanceAnalysis.unavailableFiles;
+                    const unavailableFiles = Array.isArray(unavailableFilesRaw) ? unavailableFilesRaw : [];
+                    
+                    return (
+                      <Alert variant="success">
+                        <Check className="h-5 w-5" />
+                        <AlertTitle>
+                          Significant changes detected
+                        </AlertTitle>
+                        <AlertDescription>
+                          {reason}
+                          {summary && (
+                            <p className="text-xs text-green-200/70">
+                              {summary}
+                            </p>
+                          )}
+                          {unavailableFiles.length > 0 && (
+                            <p className="text-xs text-green-200/60 mt-2 italic">
+                              Note: {unavailableFiles.length} file{unavailableFiles.length === 1 ? '' : 's'} couldn&apos;t be analyzed, but significant changes were still detected in other files.
+                            </p>
+                          )}
+                        </AlertDescription>
+                      </Alert>
+                    );
+                  }
+                  return null;
+                })()}
 
                 {/* Enhanced Preview */}
                 <RegeneratePreview
@@ -634,7 +745,7 @@ export function RegeneratePageClient({ submission }: RegeneratePageClientProps) 
           <DialogHeader>
             <DialogTitle className="text-white">Save Configuration Changes</DialogTitle>
             <DialogDescription className="text-white/70">
-              Are you sure you want to save these configuration changes? This will update the document's configuration settings and affect future regenerations.
+              Are you sure you want to save these configuration changes? This will update the document&apos;s configuration settings and affect future regenerations.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

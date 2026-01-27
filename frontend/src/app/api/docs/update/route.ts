@@ -25,7 +25,7 @@ function normalizeRepoId(repoUrl: string): string {
   return `github.com/${parsed.owner}/${parsed.repo}`;
 }
 
-import { getDocument, getDocumentFiles } from '@/lib/server/services/documentService';
+import { getDocument } from '@/lib/server/services/documentService';
 
 export async function POST(request: NextRequest) {
   let documentId: string | undefined;
@@ -56,14 +56,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Document not found' }, { status: 404 });
     }
 
+    const sourceId = document.source_id;
     // Verify user has access
-    const { data: repo } = await supabase
-      .from('workspace_repos')
-      .select('user_id, repo_url, default_branch')
-      .eq('id', document.repo_id)
+    const { data: source } = await supabase
+      .from('workspace_sources')
+      .select('user_id, repo_url, external_url, default_branch, provider')
+      .eq('id', sourceId)
       .single();
 
-    if (!repo || repo.user_id !== user.id) {
+    if (!source || source.user_id !== user.id) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -75,7 +76,7 @@ export async function POST(request: NextRequest) {
     const versionNumber = versionData || 1;
 
     // Update document
-    const updateData: any = {
+    const updateData: Record<string, unknown> = {
       content: previewContent.trim(),
       updated_at: new Date().toISOString(),
     };
@@ -105,10 +106,11 @@ export async function POST(request: NextRequest) {
     // TRUE FIX: Update file hashes synchronously after regeneration
     // This ensures check-updates sees current hashes, not stale ones
     try {
-      const repoInfo = parseRepoUrl(repo.repo_url);
+      const repoUrl = source.repo_url || source.external_url || '';
+      const repoInfo = parseRepoUrl(repoUrl);
       if (repoInfo) {
         const octokit = await getUserOctokit(supabase, user.id, repoInfo.owner, repoInfo.repo);
-        const branch = repo.default_branch || 'main';
+        const branch = source.default_branch || 'main';
 
         // Get current tracked files
         const { data: documentFiles } = await supabase
@@ -144,7 +146,7 @@ export async function POST(request: NextRequest) {
                 const { data: existingSummary } = await supabase
                   .from('repo_file_summaries')
                   .select('summary_text, summary_model')
-                  .ilike('repo_id', normalizeRepoId(repo.repo_url))
+                  .ilike('repo_id', normalizeRepoId(repoUrl))
                   .eq('branch', branch)
                   .eq('file_path', filePath)
                   .single();
@@ -154,7 +156,7 @@ export async function POST(request: NextRequest) {
                   .from('repo_file_summaries')
                   .upsert(
                     {
-                      repo_id: normalizeRepoId(repo.repo_url),
+                      repo_id: normalizeRepoId(repoUrl),
                       file_path: filePath,
                       file_hash: currentHash,
                       summary_text: existingSummary?.summary_text || '', // Preserve existing or use empty string
@@ -192,7 +194,7 @@ export async function POST(request: NextRequest) {
       workspaceUpdated: false,
       workspaceProvider: null
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Update document error:', err);
     return NextResponse.json({ error: 'Update failed', detail: String(err) }, { status: 500 });
   }

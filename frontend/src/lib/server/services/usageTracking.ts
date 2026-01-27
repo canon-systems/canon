@@ -18,12 +18,14 @@ export async function trackDocGenerated(
 	supabase: SupabaseClient,
 	workspaceId: string,
 	docId?: string | null,
-	repoId?: string | null,
+	sourceId?: string | null,
 	autoPublished = false
 ) {
 	await trackUsageEvent(supabase, workspaceId, 'doc_generated', {
 		doc_id: docId,
-		repo_id: repoId,
+		source_id: sourceId,
+		// keep legacy field for back-compat with old dashboards
+		repo_id: sourceId,
 		auto_published: autoPublished,
 	});
 }
@@ -31,11 +33,12 @@ export async function trackDocGenerated(
 export async function trackRepoScan(
 	supabase: SupabaseClient,
 	workspaceId: string,
-	repoId?: string | null,
+	sourceId?: string | null,
 	repoUrl?: string | null
 ) {
 	await trackUsageEvent(supabase, workspaceId, 'repo_scan_run', {
-		repo_id: repoId,
+		source_id: sourceId,
+		repo_id: sourceId,
 		repo_url: repoUrl,
 	});
 }
@@ -44,7 +47,7 @@ export async function trackAutomationRun(
 	supabase: SupabaseClient,
 	workspaceId: string,
 	data: {
-		repoId: string;
+		sourceId: string;
 		repoUrl?: string | null;
 		automationRuleId?: string | null;
 		triggerType: 'scheduled' | 'manual';
@@ -67,7 +70,8 @@ export async function trackAutomationRun(
 	const actions = Array.isArray(data.actions) ? data.actions.filter(Boolean) : [];
 
 	await trackUsageEvent(supabase, workspaceId, 'automation_run', {
-		repo_id: data.repoId,
+		source_id: data.sourceId,
+		repo_id: data.sourceId,
 		repo_url: data.repoUrl ?? null,
 		automation_rule_id: data.automationRuleId ?? null,
 		trigger_type: data.triggerType,
@@ -119,7 +123,7 @@ export async function trackAutoPublish(
 export async function trackArchitectureDiagram(
 	supabase: SupabaseClient,
 	workspaceId: string,
-	repoId: string,
+	sourceId: string,
 	diagramId: string,
 	isNew: boolean,
 	repoUrl?: string | null,
@@ -128,7 +132,8 @@ export async function trackArchitectureDiagram(
 	const eventType = isNew ? 'architecture_diagram_generated' : 'architecture_diagram_regenerated';
 
 	await trackUsageEvent(supabase, workspaceId, eventType, {
-		repo_id: repoId,
+		source_id: sourceId,
+		repo_id: sourceId,
 		repo_url: repoUrl,
 		diagram_id: diagramId,
 		is_new: isNew,
@@ -139,14 +144,15 @@ export async function trackArchitectureDiagram(
 export async function trackRepoConnected(
 	supabase: SupabaseClient,
 	workspaceId: string,
-	repoId: string,
+	sourceId: string,
 	repoUrl: string,
 	provider: string,
 	defaultBranch?: string | null,
 	authType?: string | null
 ) {
 	await trackUsageEvent(supabase, workspaceId, 'repo_connected', {
-		repo_id: repoId,
+		source_id: sourceId,
+		repo_id: sourceId,
 		repo_url: repoUrl,
 		provider,
 		default_branch: defaultBranch,
@@ -183,13 +189,14 @@ export async function trackDocDeleted(
 	workspaceId: string,
 	docId: string,
 	title?: string | null,
-	repoId?: string | null,
+	sourceId?: string | null,
 	repoUrl?: string | null
 ) {
 	await trackUsageEvent(supabase, workspaceId, 'doc_deleted', {
 		doc_id: docId,
 		title,
-		repo_id: repoId,
+		source_id: sourceId,
+		repo_id: sourceId,
 		repo_url: repoUrl,
 	});
 }
@@ -197,12 +204,13 @@ export async function trackDocDeleted(
 export async function trackArchitectureDiagramDeleted(
 	supabase: SupabaseClient,
 	workspaceId: string,
-	repoId: string,
+	sourceId: string,
 	diagramId: string,
 	repoUrl?: string | null
 ) {
 	await trackUsageEvent(supabase, workspaceId, 'architecture_diagram_deleted', {
-		repo_id: repoId,
+		source_id: sourceId,
+		repo_id: sourceId,
 		repo_url: repoUrl,
 		diagram_id: diagramId,
 	});
@@ -211,13 +219,14 @@ export async function trackArchitectureDiagramDeleted(
 export async function trackRepoDisconnected(
 	supabase: SupabaseClient,
 	workspaceId: string,
-	repoId: string,
+	sourceId: string,
 	repoUrl?: string | null,
 	branch?: string | null,
 	provider?: string | null
 ) {
 	await trackUsageEvent(supabase, workspaceId, 'repo_disconnected', {
-		repo_id: repoId,
+		source_id: sourceId,
+		repo_id: sourceId,
 		repo_url: repoUrl,
 		branch,
 		provider,

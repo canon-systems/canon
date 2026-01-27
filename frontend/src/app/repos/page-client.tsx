@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -12,7 +12,6 @@ import {
   FileText,
   Github,
   Layers,
-  MoreHorizontal,
   Plus,
   Settings,
   Trash2,
@@ -25,13 +24,10 @@ import {
   Card,
   CardContent,
   CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
-import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { RepositoryConnectionWizard } from '@/components/RepositoryConnectionWizard';
@@ -40,10 +36,13 @@ import { IntegrationLogos } from '@/components/IntegrationLogos';
 interface Repository {
   id: string;
   name: string;
-  repo_url: string;
+  repo_url?: string;
+  external_url?: string;
+  external_id?: string;
   default_branch: string;
+  source_type?: string;
   provider?: string;
-  settings?: any;
+  settings?: Record<string, unknown>;
   setup_status?: string | null;
   setup_branch?: string;
   file_summary_status?: 'complete' | 'partial' | 'none';
@@ -95,10 +94,10 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
       for (const repo of repositories) {
         if (repo.setup_status === 'analyzing') {
           try {
-            const response = await fetch(`/api/repos/setup?repoId=${repo.id}`);
+            const response = await fetch(`/api/repos/setup?sourceId=${repo.id}`);
             const data = await response.json();
             if (response.ok && data.setup?.setup_status === 'analyzing') {
-              router.push(`/repos/setup?repoId=${repo.id}`);
+              router.push(`/repos/setup?sourceId=${repo.id}`);
               break;
             }
           } catch (error) {
@@ -117,7 +116,7 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
 
   const handleConnectionComplete = (repoId: string) => {
     setShowSourceDialog(false);
-    router.push(`/repos/setup?repoId=${repoId}`);
+    router.push(`/repos/setup?sourceId=${repoId}`);
   };
 
   const handleJiraCreated = (repoId: string) => {
@@ -127,10 +126,10 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
     setJiraCloudId('');
     setJiraSiteUrl('');
     setJiraSiteName('');
-    router.push(`/repos/setup?repoId=${repoId}`);
+    router.push(`/repos/setup?sourceId=${repoId}`);
   };
 
-  const sourceOptions = useMemo<SourceOption[]>(() => ([
+  const sourceOptions = useMemo<SourceOption[]>(() => [
     {
       key: 'github',
       label: 'GitHub',
@@ -145,16 +144,16 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
       provider: 'jira',
       onSelect: () => {
         setSourceMode('jira');
-        loadJiraSites();
       },
     },
-  ]), [loadJiraSites]);
+  ], []);
 
   const sourceTitle = sourceMode === 'select'
     ? 'Add Source'
     : `Add ${sourceOptions.find((option) => option.key === sourceMode)?.label ?? 'Source'} Source`;
 
-  const handleDeleteRepository = async (repoId: string, repoName: string) => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const handleDeleteRepository = async (repoId: string, _repoName: string) => {
     setDeletingRepoId(repoId);
     try {
       const response = await fetch(`/api/repos/${repoId}`, { method: 'DELETE' });
@@ -186,7 +185,7 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
       const matchesSearch =
         !term ||
         repo.name.toLowerCase().includes(term) ||
-        repo.repo_url.toLowerCase().includes(term);
+        (repo.external_url || repo.repo_url || '').toLowerCase().includes(term);
 
       const status =
         repo.setup_status === 'ready'
@@ -215,7 +214,54 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
     return { label: 'Not started', color: 'outline', tone: 'text-white/70', icon: <Activity className="h-4 w-4" /> };
   };
 
-  async function loadJiraSites() {
+  const loadJiraProjects = useCallback(async (cloudId?: string) => {
+    if (jiraLoading) return;
+    setJiraLoading(true);
+    setJiraError('');
+    setJiraWarning('');
+    try {
+      if (!cloudId) {
+        throw new Error('Select a Jira workspace to load projects.');
+      }
+      const response = await fetch(`/api/jira/projects?cloudId=${encodeURIComponent(cloudId)}`);
+      const data = await response.json();
+      if (!response.ok) {
+        const detail = data.error || data.detail || 'Failed to load Jira projects';
+        throw new Error(`${detail}. Make sure Confluence is connected with read:jira-work and Jira is enabled for this site.`);
+      }
+      const projects = Array.isArray(data.projects) ? data.projects : [];
+      setJiraProjects(projects);
+      if (typeof data.warning === 'string' && data.warning.trim()) {
+        setJiraWarning(data.warning.trim());
+      }
+    } catch (err: unknown) {
+      setJiraError(err instanceof Error ? err.message : 'Failed to load Jira projects');
+    } finally {
+      setJiraLoading(false);
+    }
+  }, [jiraLoading, setJiraLoading, setJiraError, setJiraWarning, setJiraProjects]);
+
+  const selectJiraSite = useCallback(async (site: { id: string; name: string; url: string }) => {
+    setJiraCloudId(site.id);
+    setJiraSiteUrl(site.url);
+    setJiraSiteName(site.name);
+    setJiraProjects([]);
+    setJiraProjectKey('');
+    setJiraWarning('');
+    setJiraError('');
+    await fetch('/api/jira/workspace', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        cloudId: site.id,
+        siteUrl: site.url,
+        siteName: site.name,
+      }),
+    }).catch(() => { });
+    await loadJiraProjects(site.id);
+  }, [loadJiraProjects, setJiraCloudId, setJiraSiteUrl, setJiraSiteName, setJiraProjects, setJiraProjectKey, setJiraWarning, setJiraError]);
+
+  const loadJiraSites = useCallback(async () => {
     if (jiraSitesLoading) return;
     setJiraSitesLoading(true);
     setJiraSitesError('');
@@ -243,59 +289,19 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
       if (uniqueSites.length === 1) {
         selectJiraSite(uniqueSites[0]);
       }
-    } catch (err: any) {
-      setJiraSitesError(err.message || 'Failed to load Jira workspaces');
+    } catch (err: unknown) {
+      setJiraSitesError(err instanceof Error ? err.message : 'Failed to load Jira workspaces');
     } finally {
       setJiraSitesLoading(false);
     }
-  }
+  }, [jiraSitesLoading, selectJiraSite]);
 
-  async function selectJiraSite(site: { id: string; name: string; url: string }) {
-    setJiraCloudId(site.id);
-    setJiraSiteUrl(site.url);
-    setJiraSiteName(site.name);
-    setJiraProjects([]);
-    setJiraProjectKey('');
-    setJiraWarning('');
-    setJiraError('');
-    await fetch('/api/jira/workspace', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        cloudId: site.id,
-        siteUrl: site.url,
-        siteName: site.name,
-      }),
-    }).catch(() => { });
-    await loadJiraProjects(site.id);
-  }
-
-  async function loadJiraProjects(cloudId?: string) {
-    if (jiraLoading) return;
-    setJiraLoading(true);
-    setJiraError('');
-    setJiraWarning('');
-    try {
-      if (!cloudId) {
-        throw new Error('Select a Jira workspace to load projects.');
-      }
-      const response = await fetch(`/api/jira/projects?cloudId=${encodeURIComponent(cloudId)}`);
-      const data = await response.json();
-      if (!response.ok) {
-        const detail = data.error || data.detail || 'Failed to load Jira projects';
-        throw new Error(`${detail}. Make sure Confluence is connected with read:jira-work and Jira is enabled for this site.`);
-      }
-      const projects = Array.isArray(data.projects) ? data.projects : [];
-      setJiraProjects(projects);
-      if (typeof data.warning === 'string' && data.warning.trim()) {
-        setJiraWarning(data.warning.trim());
-      }
-    } catch (err: any) {
-      setJiraError(err.message || 'Failed to load Jira projects');
-    } finally {
-      setJiraLoading(false);
+  // Load Jira sites when source mode changes to 'jira'
+  useEffect(() => {
+    if (sourceMode === 'jira' && showSourceDialog) {
+      loadJiraSites();
     }
-  }
+  }, [sourceMode, showSourceDialog, loadJiraSites]);
 
   async function createJiraSource() {
     try {
@@ -319,8 +325,8 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
         throw new Error(data.error || data.detail || 'Failed to create Jira source');
       }
       handleJiraCreated(data.id);
-    } catch (err: any) {
-      setJiraError(err.message || 'Failed to create Jira source');
+    } catch (err: unknown) {
+      setJiraError(err instanceof Error ? err.message : 'Failed to create Jira source');
     }
   }
 
@@ -432,10 +438,14 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
           {filteredRepos.map((repo) => {
             const statusMeta = getStatusMeta(repo);
             const isJira = repo.provider === 'jira';
+            const displayUrl = repo.external_url || repo.repo_url || '';
+            const jiraProjectKey = repo.settings && typeof repo.settings === 'object' && 'jira_project_key' in repo.settings && typeof repo.settings.jira_project_key === 'string'
+              ? repo.settings.jira_project_key
+              : null;
             const sourceLabel = isJira
-              ? (repo.settings?.jira_project_key || repo.name)
-              : repo.repo_url.replace('https://github.com/', '');
-            const sourceLink = repo.repo_url.startsWith('http') ? repo.repo_url : null;
+              ? (jiraProjectKey || repo.name)
+              : displayUrl.replace('https://github.com/', '');
+            const sourceLink = displayUrl.startsWith('http') ? displayUrl : null;
 
             return (
               <div key={repo.id} className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-gradient-to-r from-white/5 to-black/60 px-5 py-4 md:flex-row md:items-center md:justify-between">
@@ -457,7 +467,7 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant={statusMeta.color as any} className="flex items-center gap-1">
+                  <Badge variant={statusMeta.color as 'default' | 'secondary' | 'destructive' | 'outline'} className="flex items-center gap-1">
                     {statusMeta.icon}
                     {statusMeta.label}
                   </Badge>
@@ -471,7 +481,7 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
                 <div className="flex flex-wrap items-center justify-end gap-2">
                   <div className="relative group">
                     <Button size="icon" variant="secondary" asChild>
-                      <Link href={`/repos/setup?repoId=${repo.id}`} aria-label="Setup">
+                        <Link href={`/repos/setup?sourceId=${repo.id}`} aria-label="Setup">
                         <Settings className="h-4 w-4" />
                       </Link>
                     </Button>
@@ -486,7 +496,7 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
                       disabled={repo.setup_status !== 'ready' || isJira}
                       asChild
                     >
-                      <Link href={`/documentation?repoId=${repo.id}`} aria-label="Generate Docs">
+                      <Link href={`/documentation?sourceId=${repo.id}`} aria-label="Generate Docs">
                         <FileText className="h-4 w-4" />
                       </Link>
                     </Button>

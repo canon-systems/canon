@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { AlertTriangle, CheckCircle2, Clock, Database, ListChecks } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Progress } from '@/components/ui/progress';
 
 type JiraSetupWizardProps = {
-  repoId: string;
+  sourceId: string;
 };
 
 type SetupResponse = {
@@ -25,7 +25,7 @@ type SetupResponse = {
   error?: string;
 };
 
-export function JiraSetupWizard({ repoId }: JiraSetupWizardProps) {
+export function JiraSetupWizard({ sourceId }: JiraSetupWizardProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [setup, setSetup] = useState<SetupResponse['setup']>(null);
@@ -33,9 +33,9 @@ export function JiraSetupWizard({ repoId }: JiraSetupWizardProps) {
   const [cancelling, setCancelling] = useState(false);
   const [startedAt, setStartedAt] = useState<number | null>(null);
 
-  async function fetchStatus() {
+  const fetchStatus = useCallback(async () => {
     try {
-      const response = await fetch(`/api/repos/setup?repoId=${repoId}`);
+      const response = await fetch(`/api/repos/setup?sourceId=${sourceId}`);
       const data = (await response.json()) as SetupResponse;
       if (!response.ok) {
         throw new Error(data?.error || data?.status || 'Failed to load setup status');
@@ -46,10 +46,10 @@ export function JiraSetupWizard({ repoId }: JiraSetupWizardProps) {
       } else {
         setError(null);
       }
-    } catch (err: any) {
-      setError(err.message || 'Failed to load setup status');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load setup status');
     }
-  }
+  }, [sourceId, setSetup, setError]);
 
   async function startSetup() {
     setLoading(true);
@@ -57,15 +57,15 @@ export function JiraSetupWizard({ repoId }: JiraSetupWizardProps) {
       const response = await fetch('/api/repos/setup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ repoId }),
+        body: JSON.stringify({ sourceId }),
       });
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data?.error || 'Failed to start setup');
       }
       await fetchStatus();
-    } catch (err: any) {
-      setError(err.message || 'Failed to start setup');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to start setup');
     } finally {
       setLoading(false);
     }
@@ -73,7 +73,7 @@ export function JiraSetupWizard({ repoId }: JiraSetupWizardProps) {
 
   useEffect(() => {
     fetchStatus();
-  }, [repoId]);
+  }, [fetchStatus]);
 
   const status = setup?.setup_status || setup?.status || 'not_started';
   const total = setup?.total_files || 0;
@@ -103,7 +103,7 @@ export function JiraSetupWizard({ repoId }: JiraSetupWizardProps) {
       return () => clearInterval(t);
     }
     return undefined;
-  }, [status]);
+  }, [status, fetchStatus]);
 
   useEffect(() => {
     if (status === 'ready' || status === 'failed' || status === 'cancelled') {
@@ -125,7 +125,7 @@ export function JiraSetupWizard({ repoId }: JiraSetupWizardProps) {
   async function cancelSetup() {
     setCancelling(true);
     try {
-      await fetch(`/api/repos/setup?repoId=${repoId}`, { method: 'DELETE' });
+      await fetch(`/api/repos/setup?sourceId=${sourceId}`, { method: 'DELETE' });
       router.push('/repos');
     } finally {
       setCancelling(false);

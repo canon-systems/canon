@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Loader2, AlertCircle, CheckCircle2, RefreshCw, Clock, FileText, GitCompare, X, Send, ExternalLink, ChevronDown, Github, GitBranch, Search, Check, ArrowLeft } from 'lucide-react';
@@ -9,6 +9,7 @@ import { DocumentConfiguration } from '@/components/DocumentConfiguration';
 import type { DocumentStructureConfig } from '@/components/DocumentStructure';
 import { RichTextEditor } from '@/components/RichTextEditor';
 import { IntegrationLogos } from '@/components/IntegrationLogos';
+import { getIntegrationsCached } from '@/lib/client/integrationsCache';
 import { ReviewPanel, ViewMode } from '@/components/ReviewPanel';
 import { EnhancedDiffViewer } from '@/components/EnhancedDiffViewer';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -28,8 +29,8 @@ interface Submission {
   input_type: 'github_repo' | 'github_repo_directory' | 'zipped_folder' | 'pasted_code';
   input_content: string;
   summary: string | null;
-  source_meta?: any;
-  code_snapshot?: any;
+  source_meta?: Record<string, unknown>;
+  code_snapshot?: Record<string, unknown>;
   is_outdated: boolean;
   selected_files?: string[] | null;
   pending_review?: { id: string; created_at?: string | null } | null;
@@ -79,11 +80,17 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
   const [dismissedPendingReview, setDismissedPendingReview] = useState(false);
 
   // Tracked files management state
-  const [trackedFiles, setTrackedFiles] = useState<string[]>(
-    initialSubmission.selected_files ||
-    initialSubmission.source_meta?.selected_files ||
-    []
-  );
+  const getInitialTrackedFiles = (): string[] => {
+    if (Array.isArray(initialSubmission.selected_files)) {
+      return initialSubmission.selected_files;
+    }
+    const sourceMetaFiles = initialSubmission.source_meta?.selected_files;
+    if (Array.isArray(sourceMetaFiles)) {
+      return sourceMetaFiles;
+    }
+    return [];
+  };
+  const [trackedFiles, setTrackedFiles] = useState<string[]>(getInitialTrackedFiles);
   const [updatingFiles, setUpdatingFiles] = useState(false);
   const [fileUpdateMsg, setFileUpdateMsg] = useState('');
   const [fileUpdateErr, setFileUpdateErr] = useState('');
@@ -129,34 +136,95 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
   }
 
   // Prompt customization state
-  const [promptConfig, setPromptConfig] = useState(
-    initialSubmission.source_meta?.llm_prompt_config || {
+  const getInitialPromptConfig = (): {
+    personality?: string;
+    style?: string;
+    perspective?: string;
+    audience?: string;
+    customInstructions?: string;
+    temperature?: number;
+  } => {
+    const llmPromptConfig = initialSubmission.source_meta?.llm_prompt_config;
+    if (
+      llmPromptConfig &&
+      typeof llmPromptConfig === 'object' &&
+      !Array.isArray(llmPromptConfig)
+    ) {
+      return {
+        personality: 'personality' in llmPromptConfig && typeof llmPromptConfig.personality === 'string'
+          ? llmPromptConfig.personality
+          : 'default',
+        style: 'style' in llmPromptConfig && typeof llmPromptConfig.style === 'string'
+          ? llmPromptConfig.style
+          : 'default',
+        perspective: 'perspective' in llmPromptConfig && typeof llmPromptConfig.perspective === 'string'
+          ? llmPromptConfig.perspective
+          : 'default',
+        audience: 'audience' in llmPromptConfig && typeof llmPromptConfig.audience === 'string'
+          ? llmPromptConfig.audience
+          : 'technical',
+        customInstructions: 'customInstructions' in llmPromptConfig && typeof llmPromptConfig.customInstructions === 'string'
+          ? llmPromptConfig.customInstructions
+          : '',
+        temperature: 'temperature' in llmPromptConfig && (typeof llmPromptConfig.temperature === 'number' || typeof llmPromptConfig.temperature === 'string')
+          ? (typeof llmPromptConfig.temperature === 'number' ? llmPromptConfig.temperature : parseFloat(llmPromptConfig.temperature))
+          : 0.3,
+      };
+    }
+    return {
       personality: 'default',
       style: 'default',
       perspective: 'default',
       audience: 'technical',
       customInstructions: '',
       temperature: 0.3
-    }
-  );
+    };
+  };
+  const [promptConfig, setPromptConfig] = useState<{
+    personality?: string;
+    style?: string;
+    perspective?: string;
+    audience?: string;
+    customInstructions?: string;
+    temperature?: number;
+  }>(getInitialPromptConfig);
   const [savingPromptConfig, setSavingPromptConfig] = useState(false);
   const [promptConfigMsg, setPromptConfigMsg] = useState('');
   const [promptConfigErr, setPromptConfigErr] = useState('');
 
   // Document structure configuration state
-  const [structureConfig, setStructureConfig] = useState<DocumentStructureConfig>(
-    initialSubmission.source_meta?.document_structure || {
+  const getInitialStructureConfig = (): DocumentStructureConfig => {
+    const docStructure = initialSubmission.source_meta?.document_structure;
+    if (
+      docStructure &&
+      typeof docStructure === 'object' &&
+      !Array.isArray(docStructure) &&
+      'sections' in docStructure &&
+      'includeTableOfContents' in docStructure &&
+      Array.isArray(docStructure.sections) &&
+      typeof docStructure.includeTableOfContents === 'boolean'
+    ) {
+      return {
+        sections: docStructure.sections,
+        includeTableOfContents: docStructure.includeTableOfContents,
+        customStructure: 'customStructure' in docStructure && typeof docStructure.customStructure === 'string'
+          ? docStructure.customStructure
+          : undefined,
+      };
+    }
+    return {
       sections: [],
       includeTableOfContents: false,
-    }
-  );
+    };
+  };
+  const [structureConfig, setStructureConfig] = useState<DocumentStructureConfig>(getInitialStructureConfig);
 
   // Configuration save confirmation dialog
   const [showConfigConfirm, setShowConfigConfirm] = useState(false);
 
   // Push to knowledge base state
   const [showPushModal, setShowPushModal] = useState(false);
-  const [connections, setConnections] = useState<Array<{ provider: string; connection_id: string; metadata?: any }>>([]);
+  const [connections, setConnections] = useState<Array<{ provider: string; connection_id: string; metadata?: Record<string, unknown> }>>([]);
   const [loadingConnections, setLoadingConnections] = useState(false);
   const [pushing, setPushing] = useState(false);
   const [pushError, setPushError] = useState('');
@@ -174,10 +242,10 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
     type: string;
     title: string;
     url?: string;
-    metadata?: Record<string, any>;
+    metadata?: Record<string, unknown>;
   } | null>(null);
   const [availableResources, setAvailableResources] = useState<
-    Array<{ id: string; type: string; title: string; url?: string; metadata?: Record<string, any> }>
+    Array<{ id: string; type: string; title: string; url?: string; metadata?: Record<string, unknown> }>
   >([]);
   const [loadingResources, setLoadingResources] = useState(false);
   const [confluencePages, setConfluencePages] = useState<Array<{ id: string; title: string }>>([]);
@@ -186,10 +254,10 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
 
   // Review panel state
   const [viewMode, setViewMode] = useState<ViewMode>('editor');
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [isProcessing] = useState(false);
   const [showDiff, setShowDiff] = useState(false);
-  const [diffData, setDiffData] = useState<any>(null);
-  const [originalMarkdown, setOriginalMarkdown] = useState(initialSubmission.markdown);
+  const [diffData, setDiffData] = useState<{ original?: string; updated?: string; changes?: unknown } | null>(null);
+  const [originalMarkdown] = useState(initialSubmission.markdown);
 
   const isGitRepo = initialSubmission.input_type === 'github_repo' || initialSubmission.input_type === 'github_repo_directory';
 
@@ -201,14 +269,15 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
         : '';
 
   // Handle editor content changes
-  function handleEditorChange(data: { html: string; json: any; text: string }) {
+  function handleEditorChange(data: { html: string; json: unknown; text: string }) {
     setHtml(data.html);
     // Convert HTML back to markdown for saving
     setMarkdown(turndown.turndown(data.html));
   }
 
   // Cursor change handler (no longer needed for preview sync, but keeping for potential future use)
-  function handleCursorChange(ratio: number) {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  function handleCursorChange(_ratio: number) {
     // Preview pane removed - RichTextEditor already shows formatted content
   }
 
@@ -359,8 +428,11 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
   async function loadAvailableRepoFiles() {
     if (!isGitRepo) return;
 
-    const repoUrl = initialSubmission.source_meta?.repoUrl;
-    const branch = initialSubmission.source_meta?.branch || 'main';
+    const repoUrlRaw = initialSubmission.source_meta?.repoUrl;
+    const branchRaw = initialSubmission.source_meta?.branch;
+    
+    const repoUrl = typeof repoUrlRaw === 'string' ? repoUrlRaw : null;
+    const branch = typeof branchRaw === 'string' ? branchRaw : 'main';
 
     if (!repoUrl) {
       setFileUpdateErr('Repository URL not found. Please ensure this document is associated with a connected repository.');
@@ -390,9 +462,9 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
         .filter((f: { path: string; size: number }) => !trackedFiles.includes(f.path))
         .map((f: { path: string; size: number }) => f.path);
       setAvailableRepoFiles(untrackedFiles);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to load repo files:', err);
-      setFileUpdateErr(err.message || 'Failed to load repository files');
+      setFileUpdateErr(err instanceof Error ? err.message : 'Failed to load repository files');
     } finally {
       setLoadingRepoFiles(false);
     }
@@ -440,31 +512,33 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
         setFilesChanged({ added, removed });
         setShowRegenerateModal(true);
       }
-    } catch (err: any) {
-      setFileUpdateErr(err.message || 'Failed to update tracked files');
+    } catch (err: unknown) {
+      setFileUpdateErr(err instanceof Error ? err.message : 'Failed to update tracked files');
     } finally {
       setUpdatingFiles(false);
     }
   }
 
   // Load connections when push modal opens
-  async function loadConnections() {
+  const loadConnections = useCallback(async () => {
     setLoadingConnections(true);
     try {
-      const response = await fetch('/api/integrations/list');
-      if (!response.ok) throw new Error('Failed to load connections');
-      const data = await response.json();
+      const data = await getIntegrationsCached();
       // Filter for knowledge base providers (notion, confluence, coda)
-      const kbConnections = (data.connections || []).filter(
-        (c: any) => ['notion', 'confluence', 'coda'].includes(c.provider) && c.status === 'active'
-      );
+      const kbConnections = (data.connections || [])
+        .filter((c) => c.provider && ['notion', 'confluence', 'coda'].includes(c.provider) && c.status === 'active')
+        .map((c) => ({
+          provider: c.provider || '',
+          connection_id: c.connection_id || c.id || '',
+          metadata: c.metadata || {},
+        }));
       setConnections(kbConnections);
-    } catch (err: any) {
-      setPushError(err.message || 'Failed to load connections');
+    } catch (err: unknown) {
+      setPushError(err instanceof Error ? err.message : 'Failed to load connections');
     } finally {
       setLoadingConnections(false);
     }
-  }
+  }, []);
 
   function openPushModal() {
     setShowPushModal(true);
@@ -532,16 +606,16 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
 
       const resources = result.resources || [];
       // Deduplicate resources by id to prevent duplicate key errors
-      const uniqueResourcesMap = new Map<string, { id: string; type: string; title: string; url?: string; metadata?: Record<string, any> }>();
+      const uniqueResourcesMap = new Map<string, { id: string; type: string; title: string; url?: string; metadata?: Record<string, unknown> }>();
       for (const resource of resources) {
         if (resource && resource.id && !uniqueResourcesMap.has(resource.id)) {
           uniqueResourcesMap.set(resource.id, resource);
         }
       }
       setAvailableResources(Array.from(uniqueResourcesMap.values()));
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to load resources:', err);
-      setPushError(`Failed to load ${getProviderDisplayName(provider)} resources: ${err.message}`);
+      setPushError(`Failed to load ${getProviderDisplayName(provider)} resources: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setLoadingResources(false);
     }
@@ -588,14 +662,18 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
       }
 
       setConfluencePages(
-        (result.resources || []).map((page: any) => ({
+        (result.resources || []).map((page: {
+          id: string;
+          title?: string;
+          name?: string;
+        }) => ({
           id: page.id,
           title: page.title || page.name || page.id,
         }))
       );
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to load Confluence pages:', err);
-      setPushError(`Failed to load Confluence pages: ${err.message}`);
+      setPushError(`Failed to load Confluence pages: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setLoadingConfluencePages(false);
     }
@@ -727,8 +805,8 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
         }
         router.refresh();
       }, resourceUrl ? 5000 : 2000);
-    } catch (err: any) {
-      setPushError(err.message || 'Failed to push to knowledge base');
+    } catch (err: unknown) {
+      setPushError(err instanceof Error ? err.message : 'Failed to push to knowledge base');
     } finally {
       setPushing(false);
     }
@@ -791,9 +869,9 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
       setMarkdown(result.markdown);
       const parsed = marked.parse(result.markdown);
       setHtml(typeof parsed === 'string' ? parsed : '<p></p>');
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Failed to apply template:', error);
-      alert(`Failed to apply template: ${error.message}`);
+      alert(`Failed to apply template: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
@@ -810,9 +888,9 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
       setDiffData(result);
       setShowDiff(true);
       // View mode will be set by the ReviewPanel button click
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Failed to load diff:', error);
-      alert(`Failed to load diff: ${error.message}`);
+      alert(`Failed to load diff: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
@@ -821,8 +899,7 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
   // Load connections on mount
   useEffect(() => {
     loadConnections();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [loadConnections]);
 
   // Auto-check on page load if not recently checked
   useEffect(() => {
@@ -853,43 +930,53 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
               <p className="text-white/60 mt-1">
                 Submission ID: <span className="font-mono">{initialSubmission.id}</span>
               </p>
-              {isGitRepo && initialSubmission.source_meta?.repoUrl && (
-                <div className="mt-2 flex flex-wrap items-center gap-4 text-sm">
-                  <div className="flex items-center gap-2">
-                    <Github className="h-4 w-4 text-white/40" />
-                    <span className="text-white/60">Repository:</span>
-                    <a
-                      href={initialSubmission.source_meta.repoUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-mono text-blue-300 hover:text-blue-200 hover:underline"
-                    >
-                      {initialSubmission.source_meta.repoUrl.replace('https://github.com/', '')}
-                    </a>
-                  </div>
-                  {initialSubmission.source_meta.branch && (
+              {isGitRepo && (() => {
+                const repoUrl = initialSubmission.source_meta?.repoUrl;
+                const branch = initialSubmission.source_meta?.branch;
+                const commitSha = initialSubmission.code_snapshot?.commitSha;
+                
+                if (typeof repoUrl !== 'string' || !repoUrl) {
+                  return null;
+                }
+                
+                return (
+                  <div className="mt-2 flex flex-wrap items-center gap-4 text-sm">
                     <div className="flex items-center gap-2">
-                      <GitBranch className="h-4 w-4 text-white/40" />
-                      <span className="text-white/60">Branch:</span>
-                      <span className="font-mono text-white/80">{initialSubmission.source_meta.branch}</span>
-                    </div>
-                  )}
-                  {initialSubmission.code_snapshot?.commitSha && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-white/60">Commit:</span>
+                      <Github className="h-4 w-4 text-white/40" />
+                      <span className="text-white/60">Repository:</span>
                       <a
-                        href={`${initialSubmission.source_meta.repoUrl}/commit/${initialSubmission.code_snapshot.commitSha}`}
+                        href={repoUrl}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="font-mono text-blue-300 hover:text-blue-200 hover:underline"
-                        title={initialSubmission.code_snapshot.commitSha}
                       >
-                        {initialSubmission.code_snapshot.commitSha.substring(0, 7)}
+                        {repoUrl.replace('https://github.com/', '')}
                       </a>
                     </div>
-                  )}
-                </div>
-              )}
+                    {typeof branch === 'string' && branch && (
+                      <div className="flex items-center gap-2">
+                        <GitBranch className="h-4 w-4 text-white/40" />
+                        <span className="text-white/60">Branch:</span>
+                        <span className="font-mono text-white/80">{branch}</span>
+                      </div>
+                    )}
+                    {typeof commitSha === 'string' && commitSha && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-white/60">Commit:</span>
+                        <a
+                          href={`${repoUrl}/commit/${commitSha}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-mono text-blue-300 hover:text-blue-200 hover:underline"
+                          title={commitSha}
+                        >
+                          {commitSha.substring(0, 7)}
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
               <p className="text-white/60 mt-2">
                 Created: {new Date(initialSubmission.created_date).toLocaleString()}
               </p>
@@ -1056,13 +1143,22 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
                         {outdatedFiles.length} file{outdatedFiles.length === 1 ? '' : 's'} {outdatedFiles.length === 1 ? 'has' : 'have'} been modified since this documentation was created.
                       </p>
 
-                      {initialSubmission.source_meta?.workspace && (
-                        <div className="mb-3 rounded-lg border border-orange-500/20 bg-orange-500/10 px-3 py-2">
-                          <p className="text-xs text-orange-200/90">
-                            <span className="font-medium">📝 {initialSubmission.source_meta.workspace.provider || 'workspace'} linked:</span> Existing documentation will be pulled from {initialSubmission.source_meta.workspace.provider || 'workspace'} and used as context for regeneration. The {initialSubmission.source_meta.workspace.provider || 'workspace'} page will be updated after regeneration.
-                          </p>
-                        </div>
-                      )}
+                      {(() => {
+                        const workspaceRaw = initialSubmission.source_meta?.workspace;
+                        if (!workspaceRaw || typeof workspaceRaw !== 'object' || Array.isArray(workspaceRaw)) {
+                          return null;
+                        }
+                        const workspace = workspaceRaw as Record<string, unknown>;
+                        const providerRaw = workspace.provider;
+                        const provider = typeof providerRaw === 'string' ? providerRaw : 'workspace';
+                        return (
+                          <div className="mb-3 rounded-lg border border-orange-500/20 bg-orange-500/10 px-3 py-2">
+                            <p className="text-xs text-orange-200/90">
+                              <span className="font-medium">📝 {provider} linked:</span> Existing documentation will be pulled from {provider} and used as context for regeneration. The {provider} page will be updated after regeneration.
+                            </p>
+                          </div>
+                        );
+                      })()}
 
                       {lastCheckedAt && (
                         <p className="text-xs text-orange-200/60 mb-4">
@@ -1638,9 +1734,21 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
             <div className="flex-1 overflow-y-auto p-6">
               <div className="space-y-2">
                 {outdatedFiles.map((file, idx) => {
-                  const repoUrl = initialSubmission.source_meta?.repoUrl || '';
-                  const branch = initialSubmission.source_meta?.branch || 'main';
-                  const oldCommitSha = initialSubmission.code_snapshot?.commitSha;
+                  const repoUrlRaw = initialSubmission.source_meta?.repoUrl;
+                  const branchRaw = initialSubmission.source_meta?.branch;
+                  
+                  let repoUrl = '';
+                  if (typeof repoUrlRaw === 'string') {
+                    repoUrl = repoUrlRaw;
+                  }
+                  
+                  let branch = 'main';
+                  if (typeof branchRaw === 'string') {
+                    branch = branchRaw;
+                  }
+                  
+                  const commitShaRaw = initialSubmission.code_snapshot?.commitSha;
+                  const oldCommitSha = typeof commitShaRaw === 'string' ? commitShaRaw : undefined;
                   const urls = buildFileChangeUrl(file.file_path, repoUrl, branch, oldCommitSha);
 
                   return (
@@ -2077,7 +2185,7 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
             {/* Content */}
             <div className="p-6 space-y-4">
               <p className="text-white/80">
-                You've updated the tracked files for this documentation. To reflect these changes,
+                You&apos;ve updated the tracked files for this documentation. To reflect these changes,
                 the documentation needs to be regenerated.
               </p>
 
@@ -2165,7 +2273,7 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
           <DialogHeader>
             <DialogTitle className="text-white">Save Configuration Changes</DialogTitle>
             <DialogDescription className="text-white/70">
-              Are you sure you want to save these configuration changes? This will update the document's configuration settings and affect future regenerations.
+              Are you sure you want to save these configuration changes? This will update the document&apos;s configuration settings and affect future regenerations.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

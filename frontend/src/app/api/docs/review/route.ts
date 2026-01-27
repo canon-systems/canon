@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
 
     const { data: document, error: docError } = await supabase
       .from('documents')
-      .select('id, repo_id, content')
+      .select('id, source_id, content')
       .eq('id', documentId)
       .single();
 
@@ -49,10 +49,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Document not found' }, { status: 404 });
     }
 
+    const sourceId = document.source_id;
     const { data: repo } = await supabase
-      .from('workspace_repos')
+      .from('workspace_sources')
       .select('user_id')
-      .eq('id', document.repo_id)
+      .eq('id', sourceId)
       .single();
 
     if (!repo || repo.user_id !== user.id) {
@@ -149,10 +150,10 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({ success: true });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Review update error:', err);
     return NextResponse.json(
-      { error: 'Failed to process review', detail: err.message || String(err) },
+      { error: 'Failed to process review', detail: err instanceof Error ? err.message : String(err) },
       { status: 500 }
     );
   }

@@ -96,12 +96,12 @@ export async function GET(request: NextRequest) {
       failedExecutions: totalFailures,
       successRate,
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Automation stats error:', err);
     return NextResponse.json(
       {
         error: 'Failed to load automation statistics',
-        detail: err.message || String(err),
+        detail: err instanceof Error ? err.message : String(err),
       },
       { status: 500 }
     );

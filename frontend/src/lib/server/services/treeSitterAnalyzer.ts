@@ -14,7 +14,7 @@ export interface DependencyInfo {
 export interface ComponentCluster {
     files: string[];
     dependencies: string[];
-    metadata?: any;
+    metadata?: Record<string, unknown>;
 }
 
 export interface ArchitectureComponent {
@@ -64,7 +64,7 @@ export interface ExternalTarget {
     packagePrefixes?: string[];
     protocolSchemes?: string[];
     serviceHostPatterns?: string[];
-    surfaces?: any[];
+    surfaces?: Array<Record<string, unknown>>;
     provider?: string | null;
     needsReview?: boolean;
     enabled?: boolean;
@@ -107,7 +107,102 @@ export interface ArchitectureAnalysis {
     mermaid: string;
 }
 
-const rowEnabled = (row: any): boolean => {
+type FunctionalityPatterns = {
+    hasAsyncFunctions: boolean;
+    hasDatabaseCalls: boolean;
+    hasHttpCalls: boolean;
+    hasFileOperations: boolean;
+    returnsJsx: boolean;
+    hasEventHandlers: boolean;
+    hasValidation: boolean;
+};
+
+type ArchitecturalPatterns = {
+    isRouteHandler: boolean;
+    isDataModel: boolean;
+    isMiddleware: boolean;
+    isUtility: boolean;
+    isComponent: boolean;
+    isConfig: boolean;
+    isAuth: boolean;
+};
+
+type ClusterMetadata = {
+    language: string;
+    hasExternalDeps: boolean;
+    avgImports: number;
+    avgExports: number;
+};
+
+type NamingPatterns = {
+    hasMainFiles: boolean;
+    hasApiFiles: boolean;
+    hasBusinessFiles: boolean;
+    hasDataFiles: boolean;
+    hasUiFiles: boolean;
+    hasUtilFiles: boolean;
+    hasConfigFiles: boolean;
+    hasTestFiles: boolean;
+};
+
+type DependencyPatterns = {
+    internalDeps: number;
+    externalDeps: number;
+    importCount: number;
+    exportCount: number;
+    hasCircularDeps: boolean;
+    dependencyDiversity: number;
+    avgImports?: number;
+};
+
+type StructuralPatterns = {
+    commonPrefix: string;
+    directoryDepth: number;
+    isFlatStructure: boolean;
+    hasStandardDirs: boolean;
+};
+
+type ContentPatterns = {
+    frameworks: Set<string>;
+    libraries: Set<string>;
+    languages: Set<string>;
+    patterns: Set<string>;
+};
+
+type FilePatterns = {
+    hasExports: boolean;
+    hasImports: boolean;
+    hasReact: boolean;
+    hasDatabase: boolean;
+    hasHttp: boolean;
+    hasAuth: boolean;
+    hasConfig: boolean;
+    hasTest: boolean;
+    hasUtil: boolean;
+    fileExtensions: Set<string>;
+    importPatterns: string[];
+    exportPatterns: string[];
+};
+
+type ClusterSignals = {
+    filePatterns: FilePatterns;
+    namingPatterns: NamingPatterns;
+    dependencyPatterns: DependencyPatterns;
+    structuralPatterns: StructuralPatterns;
+    contentPatterns: ContentPatterns;
+    centralityScore: number;
+};
+
+type PurposePatterns = {
+    frameworks?: Set<string>;
+    libraries?: Set<string>;
+    hasExports?: boolean;
+    hasImports?: boolean;
+    importPatterns?: string[];
+    [key: string]: unknown;
+};
+
+const rowEnabled = (row: Record<string, unknown> | null | undefined): boolean => {
     // Treat null/undefined as enabled to avoid filtering out rows missing the flag
     if (row === null || row === undefined) return false;
     if ('enabled' in row) return row.enabled !== false;
@@ -187,7 +282,8 @@ export class TreeSitterAnalyzer {
         supabase: SupabaseClient,
         repoId: string,
         files: Array<{ path: string, content: string }>,
-        manifestFiles: Array<{ path: string, content: string }> = []
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        _manifestFiles: Array<{ path: string, content: string }> = []
     ): Promise<ArchitectureAnalysis> {
         await this.initialize();
 
@@ -1115,8 +1211,6 @@ export class TreeSitterAnalyzer {
     }
 
     private finalizeClusters(clusters: ComponentCluster[], dependencies: DependencyInfo[]): ComponentCluster[] {
-        const fileMap = new Map(dependencies.map(d => [d.filePath, d]));
-
         return clusters
             .filter(cluster => cluster.files.length > 0)
             .map(cluster => ({
@@ -1131,7 +1225,7 @@ export class TreeSitterAnalyzer {
 
     private groupByArchitecturalPurpose(clusters: ComponentCluster[], fileMap: Map<string, DependencyInfo>): ComponentCluster[] {
         const resultClusters: ComponentCluster[] = [];
-        const processedClusters = new Set<ComponentCluster>();
+        // Removed unused variable: processedClusters
 
         // Group by architectural purpose first
         const purposeGroups = this.createArchitecturalPurposeGroups(clusters, fileMap);
@@ -1180,7 +1274,7 @@ export class TreeSitterAnalyzer {
         return 'utility'; // Default
     }
 
-    private isApiPurpose(files: DependencyInfo[], patterns: any): boolean {
+    private isApiPurpose(files: DependencyInfo[], patterns: PurposePatterns): boolean {
         // Check for API/Backend framework imports
         if (patterns.frameworks?.has('express') || patterns.frameworks?.has('fastify') ||
             patterns.frameworks?.has('nestjs') || patterns.frameworks?.has('koa') ||
@@ -1196,7 +1290,7 @@ export class TreeSitterAnalyzer {
         }
 
         // Check file content and naming patterns
-        return files.some(f => {
+        const hasHttpInFiles = files.some((f): boolean => {
             const content = [...f.imports, ...f.exports].join(' ').toLowerCase();
             const fileName = f.filePath.toLowerCase();
             return content.includes('router.') || content.includes('app.get') ||
@@ -1206,10 +1300,12 @@ export class TreeSitterAnalyzer {
                 fileName.includes('route') || fileName.includes('controller') ||
                 fileName.includes('handler') || fileName.includes('endpoint') ||
                 fileName.includes('api') || fileName.includes('middleware');
-        }) || patterns.hasHttpCalls;
+        });
+        const hasHttpCalls = typeof patterns.hasHttpCalls === 'boolean' ? patterns.hasHttpCalls : false;
+        return hasHttpInFiles || hasHttpCalls;
     }
 
-    private isUiPurpose(files: DependencyInfo[], patterns: any): boolean {
+    private isUiPurpose(files: DependencyInfo[], patterns: PurposePatterns): boolean {
         // Check for UI framework imports
         if (patterns.frameworks?.has('react') || patterns.frameworks?.has('vue') ||
             patterns.frameworks?.has('angular') || patterns.frameworks?.has('svelte') ||
@@ -1230,7 +1326,7 @@ export class TreeSitterAnalyzer {
         });
     }
 
-    private isDataPurpose(files: DependencyInfo[], patterns: any): boolean {
+    private isDataPurpose(files: DependencyInfo[], patterns: PurposePatterns): boolean {
         // Check for data/ORM framework imports
         if (patterns.frameworks?.has('mongoose') || patterns.frameworks?.has('sequelize') ||
             patterns.frameworks?.has('typeorm') || patterns.frameworks?.has('prisma') ||
@@ -1248,7 +1344,7 @@ export class TreeSitterAnalyzer {
         }
 
         // Check file content and naming
-        return files.some(f => {
+        const hasDataInFiles = files.some((f): boolean => {
             const content = [...f.imports, ...f.exports].join(' ').toLowerCase();
             const fileName = f.filePath.toLowerCase();
             return content.includes('model') || content.includes('schema') ||
@@ -1258,19 +1354,22 @@ export class TreeSitterAnalyzer {
                 fileName.includes('model') || fileName.includes('schema') ||
                 fileName.includes('entity') || fileName.includes('repository') ||
                 fileName.includes('dao') || fileName.includes('migration');
-        }) || patterns.libraries?.has('orm') || patterns.hasDatabaseCalls;
+        });
+        const hasOrm = patterns.libraries && patterns.libraries.has('orm');
+        const hasDatabaseCalls = typeof patterns.hasDatabaseCalls === 'boolean' ? patterns.hasDatabaseCalls : false;
+        return hasDataInFiles || hasOrm || hasDatabaseCalls;
     }
 
-    private isBusinessPurpose(files: DependencyInfo[], patterns: any): boolean {
+    private isBusinessPurpose(files: DependencyInfo[], patterns: PurposePatterns): boolean {
         return files.some(f => {
             const fileName = f.filePath.toLowerCase();
             return fileName.includes('service') || fileName.includes('manager') ||
                 fileName.includes('logic') || fileName.includes('processor') ||
                 fileName.includes('workflow');
-        }) && patterns.importPatterns.length > 2;
+        }) && (Array.isArray(patterns.importPatterns) ? patterns.importPatterns.length > 2 : false);
     }
 
-    private isInfraPurpose(files: DependencyInfo[], patterns: any): boolean {
+    private isInfraPurpose(files: DependencyInfo[], patterns: PurposePatterns): boolean {
         // Check for cloud provider libraries and BaaS platforms
         if (patterns.libraries?.has('aws') || patterns.libraries?.has('google-cloud') ||
             patterns.libraries?.has('azure') || patterns.libraries?.has('container-orchestration') ||
@@ -1303,32 +1402,34 @@ export class TreeSitterAnalyzer {
         });
     }
 
-    private isConfigPurpose(files: DependencyInfo[], patterns: any): boolean {
-        return files.some(f => {
+    private isConfigPurpose(files: DependencyInfo[], patterns: PurposePatterns): boolean {
+        const hasConfigInFiles = files.some((f): boolean => {
             const content = [...f.imports, ...f.exports].join(' ').toLowerCase();
             const fileName = f.filePath.toLowerCase();
             return content.includes('dotenv') || content.includes('process.env') ||
                 fileName.includes('config') || fileName.includes('settings') ||
                 fileName.includes('env');
-        }) || patterns.libraries?.has('config');
+        });
+        const hasConfigLib = patterns.libraries && patterns.libraries.has('config');
+        return hasConfigInFiles || Boolean(hasConfigLib);
     }
 
-    private isMiddlewarePurpose(files: DependencyInfo[], patterns: any): boolean {
+    private isMiddlewarePurpose(files: DependencyInfo[], patterns: PurposePatterns): boolean {
         return files.some(f => {
             const fileName = f.filePath.toLowerCase();
             return fileName.includes('middleware') || fileName.includes('interceptor') ||
                 fileName.includes('hook') || fileName.includes('decorator') ||
                 fileName.includes('plugin');
-        }) || (patterns.hasExports && patterns.hasImports && patterns.importPatterns.length > 5);
+        }) || (patterns.hasExports === true && patterns.hasImports === true && Array.isArray(patterns.importPatterns) && patterns.importPatterns.length > 5) || false;
     }
 
-    private isEntryPurpose(files: DependencyInfo[], patterns: any): boolean {
+    private isEntryPurpose(files: DependencyInfo[], patterns: PurposePatterns): boolean {
         return files.some(f => {
             const fileName = f.filePath.toLowerCase();
             return fileName.includes('main.') || fileName.includes('app.') ||
                 fileName.includes('index.') || fileName.includes('server.') ||
                 fileName.includes('start.');
-        }) || (patterns.hasExports && patterns.importPatterns.length > 3);
+        }) || (patterns.hasExports === true && Array.isArray(patterns.importPatterns) && patterns.importPatterns.length > 3) || false;
     }
 
     private mergeClustersByPurpose(clusters: ComponentCluster[], purpose: string, fileMap: Map<string, DependencyInfo>): ComponentCluster {
@@ -1417,8 +1518,10 @@ export class TreeSitterAnalyzer {
 
     private shouldMergeClusters(cluster1: ComponentCluster, cluster2: ComponentCluster, fileMap: Map<string, DependencyInfo>): boolean {
         // Check architectural purpose compatibility
-        const purpose1 = cluster1.metadata?.architecturalPurpose || this.determineClusterArchitecturalPurpose(cluster1, fileMap);
-        const purpose2 = cluster2.metadata?.architecturalPurpose || this.determineClusterArchitecturalPurpose(cluster2, fileMap);
+        const purpose1Raw = cluster1.metadata?.architecturalPurpose || this.determineClusterArchitecturalPurpose(cluster1, fileMap);
+        const purpose2Raw = cluster2.metadata?.architecturalPurpose || this.determineClusterArchitecturalPurpose(cluster2, fileMap);
+        const purpose1 = typeof purpose1Raw === 'string' ? purpose1Raw : '';
+        const purpose2 = typeof purpose2Raw === 'string' ? purpose2Raw : '';
 
         // Same purpose = always merge
         if (purpose1 === purpose2) return true;
@@ -1435,9 +1538,9 @@ export class TreeSitterAnalyzer {
             'entry': ['api', 'middleware']
         };
 
-        return compatiblePurposes[purpose1]?.includes(purpose2) ||
-            compatiblePurposes[purpose2]?.includes(purpose1) ||
-            false;
+        const compat1 = compatiblePurposes[purpose1];
+        const compat2 = compatiblePurposes[purpose2];
+        return (compat1?.includes(purpose2) || compat2?.includes(purpose1)) ?? false;
     }
 
     private finalSemanticConsolidation(clusters: ComponentCluster[], fileMap: Map<string, DependencyInfo>): ComponentCluster[] {
@@ -1525,7 +1628,7 @@ export class TreeSitterAnalyzer {
         return similarity > 0.3; // 30% similarity threshold
     }
 
-    private extractFunctionalityPatterns(files: DependencyInfo[]): any {
+    private extractFunctionalityPatterns(files: DependencyInfo[]): FunctionalityPatterns {
         const patterns = {
             hasAsyncFunctions: false,
             hasDatabaseCalls: false,
@@ -1582,8 +1685,8 @@ export class TreeSitterAnalyzer {
         return patterns;
     }
 
-    private patternSimilarity(patterns1: any, patterns2: any): number {
-        const keys = Object.keys(patterns1);
+    private patternSimilarity(patterns1: FunctionalityPatterns, patterns2: FunctionalityPatterns): number {
+        const keys: Array<keyof FunctionalityPatterns> = ['hasAsyncFunctions', 'hasDatabaseCalls', 'hasHttpCalls', 'hasFileOperations', 'returnsJsx', 'hasEventHandlers', 'hasValidation'];
         let matches = 0;
 
         for (const key of keys) {
@@ -1620,7 +1723,7 @@ export class TreeSitterAnalyzer {
         };
     }
 
-    private recognizeArchitecturalPatterns(cluster: ComponentCluster, fileMap: Map<string, DependencyInfo>): any {
+    private recognizeArchitecturalPatterns(cluster: ComponentCluster, fileMap: Map<string, DependencyInfo>): ArchitecturalPatterns {
         const files = cluster.files.map(f => fileMap.get(f)).filter(Boolean) as DependencyInfo[];
         const patterns = {
             isRouteHandler: false,
@@ -1680,7 +1783,7 @@ export class TreeSitterAnalyzer {
     }
 
 
-    private analyzeClusterMetadata(files: string[], dependencies: DependencyInfo[]): any {
+    private analyzeClusterMetadata(files: string[], dependencies: DependencyInfo[]): ClusterMetadata {
         const fileInfos = files.map(f => dependencies.find(d => d.filePath === f)).filter(Boolean) as DependencyInfo[];
         return {
             language: this.detectDominantLanguage(fileInfos),
@@ -1709,7 +1812,7 @@ export class TreeSitterAnalyzer {
 
     private generateClusterName(cluster: ComponentCluster, type: ArchitectureComponent['type']): string {
         const fileCount = cluster.files.length;
-        const dominantLang = cluster.metadata?.language || 'mixed';
+        const dominantLang = (typeof cluster.metadata?.language === 'string' ? cluster.metadata.language : null) || 'mixed';
 
         return `${this.getComponentTypeLabel(type)} (${fileCount} files, ${dominantLang})`;
     }
@@ -1725,7 +1828,7 @@ export class TreeSitterAnalyzer {
         return this.determineComponentType(signals, metadata);
     }
 
-    private analyzeClusterSignals(cluster: ComponentCluster, files: DependencyInfo[]): any {
+    private analyzeClusterSignals(cluster: ComponentCluster, files: DependencyInfo[]): ClusterSignals {
         return {
             filePatterns: this.analyzeFilePatterns(files),
             namingPatterns: this.analyzeNamingPatterns(cluster.files),
@@ -1736,7 +1839,7 @@ export class TreeSitterAnalyzer {
         };
     }
 
-    private analyzeNamingPatterns(filePaths: string[]): any {
+    private analyzeNamingPatterns(filePaths: string[]): NamingPatterns {
         const patterns = {
             hasMainFiles: false,
             hasApiFiles: false,
@@ -1793,14 +1896,15 @@ export class TreeSitterAnalyzer {
         return patterns;
     }
 
-    private analyzeDependencyPatterns(cluster: ComponentCluster, files: DependencyInfo[]): any {
-        const patterns = {
+    private analyzeDependencyPatterns(cluster: ComponentCluster, files: DependencyInfo[]): DependencyPatterns {
+        const patterns: DependencyPatterns = {
             internalDeps: 0,
             externalDeps: 0,
             importCount: 0,
             exportCount: 0,
             hasCircularDeps: false,
-            dependencyDiversity: 0
+            dependencyDiversity: 0,
+            avgImports: 0
         };
 
         const clusterFileSet = new Set(cluster.files);
@@ -1818,6 +1922,9 @@ export class TreeSitterAnalyzer {
             }
         }
 
+        // Calculate average imports
+        patterns.avgImports = files.length > 0 ? patterns.importCount / files.length : 0;
+
         // Calculate dependency diversity (unique external dependencies)
         const uniqueExternalDeps = new Set<string>();
         for (const file of files) {
@@ -1832,7 +1939,7 @@ export class TreeSitterAnalyzer {
         return patterns;
     }
 
-    private analyzeStructuralPatterns(filePaths: string[]): any {
+    private analyzeStructuralPatterns(filePaths: string[]): StructuralPatterns {
         const patterns = {
             commonPrefix: this.findCommonPathPrefix(filePaths),
             directoryDepth: 0,
@@ -1859,7 +1966,7 @@ export class TreeSitterAnalyzer {
         if (paths.length === 1) return paths[0].split('/').slice(0, -1).join('/');
 
         const splitPaths = paths.map(p => p.split('/'));
-        let commonPrefix = [];
+        const commonPrefix = [];
 
         for (let i = 0; i < splitPaths[0].length; i++) {
             const segment = splitPaths[0][i];
@@ -1873,7 +1980,7 @@ export class TreeSitterAnalyzer {
         return commonPrefix.join('/');
     }
 
-    private analyzeContentPatterns(files: DependencyInfo[]): any {
+    private analyzeContentPatterns(files: DependencyInfo[]): ContentPatterns {
         // Analyze content-based patterns (frameworks, libraries, etc.)
         const patterns = {
             frameworks: new Set<string>(),
@@ -1993,9 +2100,9 @@ export class TreeSitterAnalyzer {
         return cluster.files.length > 0 ? externalDeps / cluster.files.length : 0;
     }
 
-    private determineComponentType(signals: any, metadata: any): ArchitectureComponent['type'] {
+    private determineComponentType(signals: ClusterSignals, metadata: Record<string, unknown> | undefined): ArchitectureComponent['type'] {
         // Use architectural purpose from clustering if available (most reliable)
-        if (metadata?.architecturalPurpose) {
+        if (metadata && typeof metadata.architecturalPurpose === 'string') {
             const purposeToType: Record<string, ArchitectureComponent['type']> = {
                 'api': 'api',
                 'ui': 'ui',
@@ -2024,7 +2131,7 @@ export class TreeSitterAnalyzer {
             contentPatterns.frameworks?.has('express') ||
             contentPatterns.frameworks?.has('fastify') ||
             contentPatterns.frameworks?.has('nestjs') ||
-            (dependencyPatterns.avgImports > 3 && this.hasHttpPatterns(contentPatterns))) {
+            ((dependencyPatterns.avgImports ?? 0) > 3 && this.hasHttpPatterns(contentPatterns))) {
             return 'api';
         }
 
@@ -2051,7 +2158,7 @@ export class TreeSitterAnalyzer {
         // Business logic (functions with complex logic)
         if (namingPatterns.hasBusinessFiles ||
             (dependencyPatterns.internalDeps > dependencyPatterns.externalDeps * 2 &&
-                dependencyPatterns.avgImports > 2)) {
+                (dependencyPatterns.avgImports ?? 0) > 2)) {
             return 'business';
         }
 
@@ -2093,14 +2200,14 @@ export class TreeSitterAnalyzer {
         return 'util';
     }
 
-    private hasHttpPatterns(contentPatterns: any): boolean {
+    private hasHttpPatterns(contentPatterns: ContentPatterns): boolean {
         return contentPatterns.libraries?.has('http-client') ||
             contentPatterns.frameworks?.has('express') ||
             contentPatterns.frameworks?.has('fastify') ||
             contentPatterns.frameworks?.has('nestjs');
     }
 
-    private isRootLevel(structural: any): boolean {
+    private isRootLevel(structural: StructuralPatterns): boolean {
         return structural.commonPrefix === '' || structural.commonPrefix === '/' || structural.directoryDepth <= 1;
     }
 
@@ -2129,7 +2236,6 @@ export class TreeSitterAnalyzer {
     }
 
     private classifyComponentType(dir: string, files: DependencyInfo[]): ArchitectureComponent['type'] {
-        const lowerDir = dir.toLowerCase();
         const fileNames = files.map(f => f.filePath.toLowerCase());
         const dirParts = dir.toLowerCase().split('/').filter(p => p);
 
@@ -2187,23 +2293,12 @@ export class TreeSitterAnalyzer {
         }
 
         // Determine based on project structure patterns
-        return this.classifyByProjectStructure(dirParts, filePatterns);
+        // Generate ContentPatterns from files for classifyByProjectStructure
+        const contentPatterns = this.analyzeContentPatterns(files);
+        return this.classifyByProjectStructure(dirParts, contentPatterns);
     }
 
-    private analyzeFilePatterns(files: DependencyInfo[]): {
-        hasExports: boolean;
-        hasImports: boolean;
-        hasReact: boolean;
-        hasDatabase: boolean;
-        hasHttp: boolean;
-        hasAuth: boolean;
-        hasConfig: boolean;
-        hasTest: boolean;
-        hasUtil: boolean;
-        fileExtensions: Set<string>;
-        importPatterns: string[];
-        exportPatterns: string[];
-    } {
+    private analyzeFilePatterns(files: DependencyInfo[]): FilePatterns {
         const patterns = {
             hasExports: false,
             hasImports: false,
@@ -2247,7 +2342,7 @@ export class TreeSitterAnalyzer {
         return patterns;
     }
 
-    private isEntryPoint(dir: string, fileNames: string[], patterns: any): boolean {
+    private isEntryPoint(dir: string, fileNames: string[], patterns: ContentPatterns | FilePatterns): boolean {
         const lowerDir = dir.toLowerCase();
 
         // Main application files
@@ -2258,13 +2353,15 @@ export class TreeSitterAnalyzer {
 
         // Root level or src root
         if (lowerDir === '/' || lowerDir === '/src' || lowerDir === '/app' || lowerDir === '/lib') {
-            return patterns.hasExports && patterns.importPatterns.length > 0;
+            const hasExports = 'hasExports' in patterns ? patterns.hasExports : false;
+            const importPatterns = 'importPatterns' in patterns ? patterns.importPatterns : [];
+            return hasExports && Array.isArray(importPatterns) && importPatterns.length > 0;
         }
 
         return false;
     }
 
-    private isApiLayer(dir: string, fileNames: string[], patterns: any): boolean {
+    private isApiLayer(dir: string, fileNames: string[], patterns: ContentPatterns | FilePatterns): boolean {
         const lowerDir = dir.toLowerCase();
 
         // API related directories
@@ -2274,7 +2371,8 @@ export class TreeSitterAnalyzer {
         }
 
         // HTTP-related files
-        if (patterns.hasHttp && fileNames.some(f => f.includes('route') || f.includes('controller') ||
+        const hasHttp = 'hasHttp' in patterns ? patterns.hasHttp : false;
+        if (hasHttp && fileNames.some(f => f.includes('route') || f.includes('controller') ||
             f.includes('handler') || f.includes('endpoint'))) {
             return true;
         }
@@ -2282,7 +2380,8 @@ export class TreeSitterAnalyzer {
         return false;
     }
 
-    private isBusinessLogic(dir: string, fileNames: string[], patterns: any): boolean {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private isBusinessLogic(dir: string, fileNames: string[], _patterns: ContentPatterns | FilePatterns): boolean {
         const lowerDir = dir.toLowerCase();
 
         // Business logic directories
@@ -2301,7 +2400,7 @@ export class TreeSitterAnalyzer {
         return false;
     }
 
-    private isDataLayer(dir: string, fileNames: string[], patterns: any): boolean {
+    private isDataLayer(dir: string, fileNames: string[], patterns: ContentPatterns | FilePatterns): boolean {
         const lowerDir = dir.toLowerCase();
 
         // Data layer directories
@@ -2311,7 +2410,8 @@ export class TreeSitterAnalyzer {
         }
 
         // Database-related patterns
-        if (patterns.hasDatabase || fileNames.some(f => f.includes('model') || f.includes('entity') ||
+        const hasDatabase = 'hasDatabase' in patterns ? patterns.hasDatabase : false;
+        if (hasDatabase || fileNames.some(f => f.includes('model') || f.includes('entity') ||
             f.includes('schema') || f.includes('repository'))) {
             return true;
         }
@@ -2319,7 +2419,7 @@ export class TreeSitterAnalyzer {
         return false;
     }
 
-    private isUiLayer(dir: string, fileNames: string[], patterns: any): boolean {
+    private isUiLayer(dir: string, fileNames: string[], patterns: ContentPatterns | FilePatterns): boolean {
         const lowerDir = dir.toLowerCase();
 
         // UI directories
@@ -2330,7 +2430,8 @@ export class TreeSitterAnalyzer {
         }
 
         // React/Vue/Angular patterns
-        if (patterns.hasReact || fileNames.some(f => f.includes('component') || f.includes('view') ||
+        const hasReact = 'hasReact' in patterns ? patterns.hasReact : false;
+        if (hasReact || fileNames.some(f => f.includes('component') || f.includes('view') ||
             f.includes('page') || f.includes('screen'))) {
             return true;
         }
@@ -2338,7 +2439,8 @@ export class TreeSitterAnalyzer {
         return false;
     }
 
-    private isInfrastructure(dir: string, fileNames: string[], patterns: any): boolean {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    private isInfrastructure(dir: string, fileNames: string[], _patterns: ContentPatterns | FilePatterns): boolean {
         const lowerDir = dir.toLowerCase();
 
         // Infrastructure directories
@@ -2356,7 +2458,7 @@ export class TreeSitterAnalyzer {
         return false;
     }
 
-    private isConfiguration(dir: string, fileNames: string[], patterns: any): boolean {
+    private isConfiguration(dir: string, fileNames: string[], patterns: ContentPatterns | FilePatterns): boolean {
         const lowerDir = dir.toLowerCase();
 
         // Config directories
@@ -2365,7 +2467,8 @@ export class TreeSitterAnalyzer {
         }
 
         // Config patterns
-        if (patterns.hasConfig || fileNames.some(f => f.includes('config') || f.includes('settings') ||
+        const hasConfig = 'hasConfig' in patterns ? patterns.hasConfig : false;
+        if (hasConfig || fileNames.some(f => f.includes('config') || f.includes('settings') ||
             f.includes('env') || f.includes('constants'))) {
             return true;
         }
@@ -2373,9 +2476,13 @@ export class TreeSitterAnalyzer {
         return false;
     }
 
-    private isAuthLayer(files: DependencyInfo[], patterns: any): boolean {
+    private isAuthLayer(files: DependencyInfo[], patterns: ContentPatterns | FilePatterns): boolean {
         // Check for authentication libraries
-        if (patterns.libraries?.has('auth')) {
+        if ('libraries' in patterns && patterns.libraries && patterns.libraries.has('auth')) {
+            return true;
+        }
+        const hasAuth = 'hasAuth' in patterns ? patterns.hasAuth : false;
+        if (hasAuth) {
             return true;
         }
 
@@ -2419,7 +2526,7 @@ export class TreeSitterAnalyzer {
         return false;
     }
 
-    private isMiddleware(dir: string, fileNames: string[], patterns: any): boolean {
+    private isMiddleware(dir: string, fileNames: string[], patterns: ContentPatterns | FilePatterns): boolean {
         const lowerDir = dir.toLowerCase();
 
         // Middleware directories
@@ -2435,14 +2542,17 @@ export class TreeSitterAnalyzer {
         }
 
         // Shared utilities with heavy imports/exports
-        if (patterns.hasExports && patterns.hasImports && patterns.importPatterns.length > 5) {
+        const hasExports = 'hasExports' in patterns ? patterns.hasExports : false;
+        const hasImports = 'hasImports' in patterns ? patterns.hasImports : false;
+        const importPatterns = 'importPatterns' in patterns ? patterns.importPatterns : [];
+        if (hasExports && hasImports && Array.isArray(importPatterns) && importPatterns.length > 5) {
             return true;
         }
 
         return false;
     }
 
-    private classifyByProjectStructure(dirParts: string[], patterns: any): ArchitectureComponent['type'] {
+    private classifyByProjectStructure(dirParts: string[], patterns: ContentPatterns | FilePatterns): ArchitectureComponent['type'] {
         // Analyze directory structure for common patterns
 
         // Frontend patterns
@@ -2465,11 +2575,14 @@ export class TreeSitterAnalyzer {
         }
 
         // Default fallback - analyze based on file patterns
-        if (patterns.hasExports && !patterns.hasReact && patterns.fileExtensions.has('js')) {
+        const hasExports = 'hasExports' in patterns ? patterns.hasExports : false;
+        const hasReact = 'hasReact' in patterns ? patterns.hasReact : false;
+        const fileExtensions = 'fileExtensions' in patterns ? patterns.fileExtensions : new Set<string>();
+        if (hasExports && !hasReact && fileExtensions.has('js')) {
             return 'business'; // Likely backend logic
         }
 
-        if (patterns.hasReact || patterns.fileExtensions.has('jsx') || patterns.fileExtensions.has('tsx')) {
+        if (hasReact || fileExtensions.has('jsx') || fileExtensions.has('tsx')) {
             return 'ui'; // Likely frontend components
         }
 
@@ -2514,7 +2627,7 @@ export class TreeSitterAnalyzer {
     }
 
     private buildRelationships(components: ArchitectureComponent[], dependencies: DependencyInfo[]) {
-        const relationships: Array<{ from: string, to: string, type: string, strength: number }> = [];
+        // Removed unused variable: relationships
 
         // Create a mapping of file paths to their containing components for fast lookup
         const fileToComponentMap = new Map<string, ArchitectureComponent>();
@@ -2681,9 +2794,23 @@ export class TreeSitterAnalyzer {
     }
 
     private async loadExternalRegistry(supabase: SupabaseClient): Promise<ExternalTarget[]> {
+        type SystemNodeRow = {
+            id?: string;
+            label?: string;
+            category?: string;
+            package_names?: string[] | null;
+            package_prefixes?: string[] | null;
+            protocol_schemes?: string[] | null;
+            service_host_patterns?: string[] | null;
+            surfaces?: string | Array<Record<string, unknown>> | null;
+            provider?: string | null;
+            needs_review?: boolean | null;
+            enabled?: boolean | null;
+            [key: string]: unknown;
+        };
         try {
-            let data: any[] | null = null;
-            let rawCount = 0;
+            let data: SystemNodeRow[] | null = null;
+            // Removed unused variable: rawCount
 
             // Prefer service role to bypass RLS; fall back to provided client if it fails
             try {
@@ -2707,14 +2834,14 @@ export class TreeSitterAnalyzer {
                 data = anonData || [];
             }
 
-            rawCount = Array.isArray(data) ? data.length : 0;
-            const nodes = (data as any[]).map(row => {
-                const packageNames = Array.isArray((row as any).package_names) ? (row as any).package_names : [];
-                const packagePrefixes = Array.isArray((row as any).package_prefixes) ? (row as any).package_prefixes : [];
-                const protocolSchemes = Array.isArray((row as any).protocol_schemes) ? (row as any).protocol_schemes : [];
-                const serviceHostPatterns = Array.isArray((row as any).service_host_patterns) ? (row as any).service_host_patterns : [];
-                const surfacesRaw = (row as any).surfaces;
-                let surfaces: any[] = [];
+            // Removed unused variable: rawCount
+            const nodes = (data || []).map((row): ExternalTarget | null => {
+                const packageNames = Array.isArray(row.package_names) ? row.package_names : [];
+                const packagePrefixes = Array.isArray(row.package_prefixes) ? row.package_prefixes : [];
+                const protocolSchemes = Array.isArray(row.protocol_schemes) ? row.protocol_schemes : [];
+                const serviceHostPatterns = Array.isArray(row.service_host_patterns) ? row.service_host_patterns : [];
+                const surfacesRaw = row.surfaces;
+                let surfaces: Array<Record<string, unknown>> = [];
                 if (Array.isArray(surfacesRaw)) {
                     surfaces = surfacesRaw;
                 } else if (typeof surfacesRaw === 'string') {
@@ -2725,20 +2852,36 @@ export class TreeSitterAnalyzer {
                         surfaces = [];
                     }
                 }
+                const id = typeof row.id === 'string' ? row.id : null;
+                const label = typeof row.label === 'string' ? row.label : null;
+                const category = typeof row.category === 'string' ? row.category as ExternalCategory : 'other';
+                if (!id || !label) return null;
                 return {
-                    id: (row as any).id,
-                    label: (row as any).label,
-                    category: (row as any).category,
+                    id,
+                    label,
+                    category,
                     packageNames,
                     packagePrefixes,
                     protocolSchemes,
                     serviceHostPatterns,
                     surfaces,
-                    provider: (row as any).provider ?? null,
-                    needsReview: Boolean((row as any).needs_review),
-                    enabled: (row as any).enabled
+                    provider: typeof row.provider === 'string' ? row.provider : null,
+                    needsReview: Boolean(row.needs_review),
+                    enabled: row.enabled !== false
                 };
-            }).filter(target => !!target.id && !!target.label && rowEnabled(target));
+            }).filter((target): target is ExternalTarget => {
+                if (target === null) return false;
+                // Convert ExternalTarget to Record for rowEnabled check
+                const targetRecord: Record<string, unknown> = {
+                    enabled: target.enabled,
+                    id: target.id,
+                    label: target.label,
+                    category: target.category,
+                    provider: target.provider,
+                    needsReview: target.needsReview,
+                };
+                return rowEnabled(targetRecord);
+            });
 
             return nodes;
         } catch (err) {

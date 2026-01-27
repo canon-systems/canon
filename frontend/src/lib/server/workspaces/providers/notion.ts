@@ -3,7 +3,7 @@
  */
 
 import type { WorkspaceProvider, WorkspaceInfo, WorkspaceContent } from '../base';
-import { htmlToNotionBlocks, NotionBlock } from '../../notion/htmlToBlocks';
+import { htmlToNotionBlocks } from '../../notion/htmlToBlocks';
 import { markdownToNotionBlocks } from '../../notion/markdownToBlocks';
 import { marked } from 'marked';
 import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
@@ -19,10 +19,37 @@ function notionHeaders(accessToken: string) {
 	} as const;
 }
 
+type NotionRichTextItem = {
+	type: string;
+	text?: { content?: string };
+	mention?: {
+		type?: string;
+		page?: string;
+		[key: string]: unknown;
+	};
+	[key: string]: unknown;
+};
+
+type NotionBlock = {
+	type: string;
+	paragraph?: { rich_text?: NotionRichTextItem[] };
+	heading_1?: { rich_text?: NotionRichTextItem[] };
+	heading_2?: { rich_text?: NotionRichTextItem[] };
+	heading_3?: { rich_text?: NotionRichTextItem[] };
+	bulleted_list_item?: { rich_text?: NotionRichTextItem[] };
+	numbered_list_item?: { rich_text?: NotionRichTextItem[] };
+	code?: { rich_text?: NotionRichTextItem[]; language?: string };
+	quote?: { rich_text?: NotionRichTextItem[] };
+	to_do?: { rich_text?: NotionRichTextItem[]; checked?: boolean };
+	has_children?: boolean;
+	children?: NotionBlock[];
+	[key: string]: unknown;
+};
+
 /**
  * Convert Notion blocks to markdown
  */
-function blocksToMarkdown(blocks: any[]): string {
+function blocksToMarkdown(blocks: NotionBlock[]): string {
 	const markdown: string[] = [];
 
 	for (const block of blocks) {
@@ -75,9 +102,9 @@ function blocksToMarkdown(blocks: any[]): string {
 	return markdown.filter(Boolean).join('\n\n');
 }
 
-function extractRichText(richText: any[]): string {
+function extractRichText(richText: NotionRichTextItem[]): string {
 	return richText
-		.map((item: any) => {
+		.map((item) => {
 			if (item.type === 'text') {
 				return item.text?.content || '';
 			}
@@ -89,9 +116,9 @@ function extractRichText(richText: any[]): string {
 		.join('');
 }
 
-async function fetchAllBlocks(pageId: string, accessToken: string): Promise<any[]> {
+async function fetchAllBlocks(pageId: string, accessToken: string): Promise<NotionBlock[]> {
 	const blocksUrl = new URL(`${NOTION_API_BASE}/blocks/${pageId}/children`);
-	let allBlocks: any[] = [];
+	let allBlocks: NotionBlock[] = [];
 	let nextCursor: string | undefined;
 
 	do {
@@ -239,13 +266,13 @@ export class NotionProvider implements WorkspaceProvider {
 				blocks = htmlToNotionBlocks(html);
 				
 				// If HTML conversion produced too few meaningful blocks, use direct markdown conversion
-				const hasContent = blocks.some(b => {
-					if (b.type === 'paragraph') {
-						const richText = (b as any).paragraph?.rich_text || [];
-						return richText.some((rt: any) => rt.text?.content?.trim());
-					}
-					return b.type !== 'paragraph'; // Non-paragraph blocks are considered content
-				});
+			const hasContent = blocks.some(b => {
+				if (b.type === 'paragraph') {
+					const richText = (b as NotionBlock).paragraph?.rich_text || [];
+					return richText.some((rt) => rt.text?.content?.trim());
+				}
+				return b.type !== 'paragraph'; // Non-paragraph blocks are considered content
+			});
 				
 				if (!hasContent || blocks.length <= 1) {
 					console.log('[Notion] HTML conversion produced few blocks, falling back to markdown conversion');
@@ -378,13 +405,13 @@ export class NotionProvider implements WorkspaceProvider {
 				blocks = htmlToNotionBlocks(html);
 				
 				// If HTML conversion produced too few meaningful blocks, use direct markdown conversion
-				const hasContent = blocks.some(b => {
-					if (b.type === 'paragraph') {
-						const richText = (b as any).paragraph?.rich_text || [];
-						return richText.some((rt: any) => rt.text?.content?.trim());
-					}
-					return b.type !== 'paragraph';
-				});
+			const hasContent = blocks.some(b => {
+				if (b.type === 'paragraph') {
+					const richText = (b as NotionBlock).paragraph?.rich_text || [];
+					return richText.some((rt) => rt.text?.content?.trim());
+				}
+				return b.type !== 'paragraph';
+			});
 				
 				if (!hasContent || blocks.length <= 1) {
 					console.log('[Notion] HTML conversion produced few blocks in update, falling back to markdown conversion');

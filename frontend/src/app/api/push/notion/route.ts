@@ -163,12 +163,12 @@ export async function POST(request: NextRequest) {
       },
       { status: 200 }
     );
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Push to Notion error:', err);
     return NextResponse.json(
       {
         error: 'Failed to push to Notion',
-        detail: err.message || String(err),
+        detail: err instanceof Error ? err.message : String(err),
       },
       { status: 500 }
     );

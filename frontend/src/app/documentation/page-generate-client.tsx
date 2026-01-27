@@ -1,26 +1,25 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Github, FolderOpen, Loader2, AlertTriangle, Info, ChevronDown, Check, Search, X, Grid3x3, List, MoreVertical, Clock, CheckCircle2, AlertCircle, Send, FileText, Filter, GitBranch, ExternalLink, BookOpen } from 'lucide-react';
+import { Github, FolderOpen, Loader2, AlertTriangle, Info, ChevronDown, Check, Search, X, Grid3x3, List, MoreVertical, Clock, CheckCircle2, AlertCircle, FileText, ExternalLink, BookOpen } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { PromptCustomizer } from '@/components/PromptCustomizer';
 import { DocumentStructure, type DocumentStructureConfig } from '@/components/DocumentStructure';
 import { SearchableSelect } from '@/components/SearchableSelect';
 import { RepositoryConnectionWizard } from '@/components/RepositoryConnectionWizard';
+import { getIntegrationsCached } from '@/lib/client/integrationsCache';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
   Card,
   CardContent,
   CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Progress } from '@/components/ui/progress';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
@@ -242,7 +241,7 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
   const [directories, setDirectories] = useState<string[]>([]);
   const [availableRepos, setAvailableRepos] = useState<RepoWithSetup[]>(initialRepos);
   const [loadingDirectories, setLoadingDirectories] = useState(false);
-  const [loadingRepos, setLoadingRepos] = useState(false);
+  const [loadingRepos] = useState(false);
 
   // Create unique repository options (deduplicated by repo_url)
   const uniqueRepos = availableRepos.reduce((acc, repo) => {
@@ -267,8 +266,7 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
   // Get available branches for selected repo
   const availableBranches = uniqueRepos.find(r => r.repo_url === selectedRepoUrl)?.branches || [];
 
-  // Find the selected repo record based on repo URL and branch
-  const selectedRepoRecord = availableBranches.find(b => b.branch === selectedBranch);
+  // Removed unused variable: selectedRepoRecord
 
 
   // LLM Prompt customization
@@ -317,14 +315,6 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
     }
   }, [searchParams]);
 
-  // Load edit data when edit tab is active
-  useEffect(() => {
-    if (activeTab === 'edit') {
-      loadEditItems();
-      loadRepos();
-    }
-  }, [activeTab]);
-
   // Load view preference from localStorage for edit tab
   useEffect(() => {
     if (activeTab === 'edit') {
@@ -361,14 +351,11 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
     async function checkGitHubConnection() {
       setCheckingGitHub(true);
       try {
-        const response = await fetch('/api/integrations/list');
-        if (response.ok) {
-          const data = await response.json();
-          setHasGitHubConnection((data.connections || []).some(
-            (c: { provider: string; status: string }) =>
-              c.provider === 'github' && c.status === 'active'
-          ));
-        }
+        const data = await getIntegrationsCached();
+        setHasGitHubConnection((data.connections || []).some(
+          (c) =>
+            c.provider === 'github' && c.status === 'active'
+        ));
       } catch (err) {
         console.error('Failed to check GitHub connection:', err);
       } finally {
@@ -397,7 +384,8 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
     };
   }, [showModelDropdown]);
 
-  const handleRepositoryConnected = async (repoId: string) => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const handleRepositoryConnected = async (_repoId: string) => {
     setShowConnectionWizard(false);
     // Refresh the page to load the new repository
     window.location.reload();
@@ -604,18 +592,7 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
     return Array.from(selectedPaths);
   }
 
-  function detectRepoProvider(repoUrl: string): string | null {
-    if (!repoUrl) return null;
-    try {
-      const url = new URL(repoUrl);
-      if (url.hostname === 'github.com' || url.hostname.includes('github.com')) {
-        return 'github';
-      }
-    } catch {
-      return null;
-    }
-    return null;
-  }
+  // Removed unused function: detectRepoProvider
 
 
   async function analyzeAndSave() {
@@ -624,7 +601,7 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
     setRunning(true);
 
     if (!selectedRepoId || !repoUrl || !repoUrl.includes('github.com')) {
-      setErrorMsg('Please select a repository from the dropdown.');
+      setErrorMsg('Please select a source from the dropdown.');
       setRunning(false);
       return;
     }
@@ -635,22 +612,22 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
       setStatusMsg('Queuing…');
       const filesForLog = selectedArray();
 
-      // Validate that repository exists and is properly set up
+      // Validate that source exists and is properly set up
       if (!selectedRepoId) {
-        throw new Error('Please select a repository from the dropdown. Repositories must be set up first before creating documents.');
+        throw new Error('Please select a source from the dropdown. Sources must be set up first before creating documents.');
       }
 
       const { data: existingRepo } = await supabase
-        .from('workspace_repos')
+        .from('workspace_sources')
         .select('id')
         .eq('id', selectedRepoId)
         .single();
 
       if (!existingRepo) {
-        throw new Error('Selected repository not found. Please go to the Repositories page to set up this repository first.');
+        throw new Error('Selected source not found. Please go to the Sources page to set up this source first.');
       }
 
-      const repoId = existingRepo.id;
+      const sourceId = existingRepo.id;
 
       // Prepare configuration settings
       const regenerationSettings = {
@@ -668,7 +645,7 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
       const { data: docData, error: docError } = await supabase
         .from('documents')
         .insert({
-          repo_id: repoId,
+          source_id: sourceId,
           title: docTitle || 'Untitled',
           content: '', // Will be updated after generation
           configuration: regenerationSettings
@@ -684,7 +661,7 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
       // Save file mappings
       const fileMappings = filesForLog.map(filePath => ({
         document_id: documentId,
-        repo_id: repoId,
+        source_id: sourceId,
         file_path: filePath
       }));
 
@@ -729,7 +706,7 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
         throw new Error(githubData?.error || githubData?.detail || `Git fetch failed (${r.status})`);
       }
       const got = Array.isArray(githubData.files) ? githubData.files : [];
-      filesForDoc = got.map((f: any) => ({ path: f.path, content: String(f.content || '') }));
+      filesForDoc = got.map((f: { path: string; content?: string }) => ({ path: f.path, content: String(f.content || '') }));
 
       if (!filesForDoc.length) throw new Error('No content gathered for summarization.');
 
@@ -782,51 +759,23 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
         })
       });
       const text = await rGen.text();
-      let gen: any;
+      let gen: Record<string, unknown>;
       try {
         gen = JSON.parse(text);
       } catch {
         throw new Error(`Expected JSON from generator but got non-JSON (status ${rGen.status}). First bytes: ${text.slice(0, 200)}`);
       }
-      if (!rGen.ok) throw new Error(gen?.error || `Generate failed (${rGen.status})`);
+      if (!rGen.ok) {
+        const errorMessage = (gen?.error && typeof gen.error === 'string') 
+          ? gen.error 
+          : `Generate failed (${rGen.status})`;
+        throw new Error(errorMessage);
+      }
       const markdown = String(gen.markdown || '');
 
-      // Save final result with code snapshot
+      // Save final result
       setStatusMsg('Saving…');
-      let codeSnapshot: any = null;
-      if (repoUrl && branch) {
-        try {
-          const selectedFiles = selectedArray();
-          if (selectedFiles.length > 0) {
-            try {
-              const snapshotRes = await fetch('/api/github/snapshot', {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({
-                  repoUrl,
-                  branch,
-                  selectedFiles
-                })
-              });
-
-              if (snapshotRes.ok) {
-                const snapshotData = await snapshotRes.json().catch(() => null);
-                if (snapshotData?.commitSha && snapshotData?.fileShas) {
-                  codeSnapshot = {
-                    commitSha: snapshotData.commitSha,
-                    fileShas: snapshotData.fileShas,
-                    createdAt: new Date().toISOString()
-                  };
-                }
-              }
-            } catch (fetchError) {
-              console.error('[code_snapshot] Fetch error:', fetchError);
-            }
-          }
-        } catch (e) {
-          console.error('[code_snapshot] Exception:', e);
-        }
-      }
+      // Removed unused codeSnapshot variable and related fetch logic
 
       // Update document with generated content
       const { error: uerr } = await supabase
@@ -872,7 +821,7 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
   const showLoadButton = isGit && !pickerFiles.length;
 
   // Edit tab functions
-  async function loadEditItems() {
+  const loadEditItems = useCallback(async () => {
     setEditLoading(true);
     try {
       const queryParams = new URLSearchParams({
@@ -880,7 +829,7 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
         limit: '20',
         ...(statusFilter !== 'all' && { status: statusFilter }),
         ...(searchQuery && { search: searchQuery }),
-        ...(repoFilter !== 'all' && { repo_id: repoFilter }),
+        ...(repoFilter !== 'all' && { source_id: repoFilter }),
       });
 
       const response = await fetch(`/api/docs/list?${queryParams}`);
@@ -890,14 +839,14 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
       setEditItems(data.items || []);
       setTotalPages(data.totalPages || 1);
       setTotal(data.total || 0);
-    } catch (err: any) {
-      setEditError(err.message || 'Failed to load documents');
+    } catch (err: unknown) {
+      setEditError(err instanceof Error ? err.message : 'Failed to load documents');
     } finally {
       setEditLoading(false);
     }
-  }
+  }, [page, statusFilter, searchQuery, repoFilter, setEditItems, setEditLoading, setEditError, setTotalPages, setTotal]);
 
-  async function loadRepos() {
+  const loadRepos = useCallback(async () => {
     try {
       const response = await fetch('/api/repos');
       if (response.ok) {
@@ -907,9 +856,18 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
     } catch (err) {
       console.error('Failed to load repos:', err);
     }
-  }
+  }, [setRepos]);
 
-  async function deleteItem(id: string, title: string) {
+  // Load edit data when edit tab is active
+  useEffect(() => {
+    if (activeTab === 'edit') {
+      loadEditItems();
+      loadRepos();
+    }
+  }, [activeTab, loadEditItems, loadRepos]);
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async function deleteItem(id: string, _title: string) {
     setDeletingId(id);
     setDeleteError(null);
     try {
@@ -922,8 +880,8 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
       await loadEditItems();
       setShowDeleteModal(false);
       setItemToDelete(null);
-    } catch (err: any) {
-      setDeleteError(err.message || 'Failed to delete document');
+    } catch (err: unknown) {
+      setDeleteError(err instanceof Error ? err.message : 'Failed to delete document');
     } finally {
       setDeletingId(null);
     }
@@ -936,7 +894,7 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
     router.push(`/documentation?tab=${tabId}`, { scroll: false });
   }
 
-  const tabs: Array<{ id: TabId; name: string; icon: any }> = [
+  const tabs: Array<{ id: TabId; name: string; icon: React.ComponentType<{ className?: string }> }> = [
     { id: 'edit', name: 'Edit', icon: BookOpen },
     { id: 'generate', name: 'Generate', icon: FileText }
   ];
@@ -1278,7 +1236,7 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
                           ) : (
                             <Alert variant="default" className="text-center">
                               <AlertDescription>
-                                No files match "{fileSearchQuery}"
+                                No files match &quot;{fileSearchQuery}&quot;
                               </AlertDescription>
                             </Alert>
                           )
@@ -1585,7 +1543,7 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
           </DialogHeader>
           <div className="space-y-4">
             <p className="text-white/70">
-              Are you sure you want to delete <span className="font-semibold text-white">"{itemToDelete?.title}"</span>?
+              Are you sure you want to delete <span className="font-semibold text-white">&quot;{itemToDelete?.title}&quot;</span>?
               This action cannot be undone.
             </p>
             {deleteError && (

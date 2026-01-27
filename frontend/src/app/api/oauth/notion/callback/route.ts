@@ -62,8 +62,12 @@ export async function GET(request: NextRequest) {
       return redirectToSettings(request.nextUrl.origin, { error: 'Notion token exchange did not return an access token.' });
     }
 
-    const raw: any = tokenSet as any;
-    const providerAccountId = raw?.bot_id || raw?.owner?.user?.id || raw?.owner?.workspace?.id || null;
+    const raw = tokenSet as Record<string, unknown>;
+    const botId = typeof raw?.bot_id === 'string' ? raw.bot_id : null;
+    const owner = raw?.owner && typeof raw.owner === 'object' && !Array.isArray(raw.owner) ? raw.owner as Record<string, unknown> : null;
+    const ownerUser = owner?.user && typeof owner.user === 'object' && !Array.isArray(owner.user) ? owner.user as Record<string, unknown> : null;
+    const ownerWorkspace = owner?.workspace && typeof owner.workspace === 'object' && !Array.isArray(owner.workspace) ? owner.workspace as Record<string, unknown> : null;
+    const providerAccountId = botId || (typeof ownerUser?.id === 'string' ? ownerUser.id : null) || (typeof ownerWorkspace?.id === 'string' ? ownerWorkspace.id : null) || null;
 
     const supabase = await createClient();
     const { data: existingConnection } = await supabase

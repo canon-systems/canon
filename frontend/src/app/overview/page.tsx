@@ -23,7 +23,7 @@ export default async function OverviewPage() {
     .from('automation_rules')
     .select(`
       *,
-      workspace_repos!inner(id, name, repo_url)
+      workspace_sources!inner(id, name, repo_url, external_url, provider)
     `)
     .eq('user_id', user.id);
 
@@ -37,14 +37,41 @@ export default async function OverviewPage() {
     enabled: boolean;
     lastRunAt?: string;
     lastRunStatus?: string;
-    lastExecution?: any;
+    lastExecution?: Record<string, unknown>;
   }> = [];
 
-  rulesData?.forEach((rule: any) => {
+  rulesData?.forEach((rule: {
+    source_id: string;
+    id: string;
+    name?: string;
+    enabled?: boolean;
+    generate_doc?: boolean;
+    generate_diagram?: boolean;
+    auto_publish?: boolean;
+    schedule?: string;
+    last_run_at?: string;
+    last_run_status?: string;
+    workspace_sources?: {
+      id?: string;
+      name?: string;
+      repo_url?: string;
+      external_url?: string;
+      provider?: string;
+    };
+  }) => {
+    const workspaceSource = rule.workspace_sources;
+    const sourceName = (workspaceSource && typeof workspaceSource === 'object' && 'name' in workspaceSource && typeof workspaceSource.name === 'string')
+      ? workspaceSource.name
+      : 'Untitled Source';
+    const repoUrl = (workspaceSource && typeof workspaceSource === 'object')
+      ? ((typeof workspaceSource.repo_url === 'string' ? workspaceSource.repo_url : '') || 
+         (typeof workspaceSource.external_url === 'string' ? workspaceSource.external_url : ''))
+      : '';
+    
     automationRules.push({
-      repoId: rule.repo_id,
-      repoName: rule.workspace_repos.name || 'Untitled Repo',
-      repoUrl: rule.workspace_repos.repo_url || '',
+      repoId: rule.source_id,
+      repoName: sourceName,
+      repoUrl,
       ruleId: rule.id,
       ruleName: rule.name || rule.id,
       enabled: Boolean(rule.enabled),
@@ -72,7 +99,7 @@ export default async function OverviewPage() {
   const repoConnectionState = new Map<string, { connected: boolean; timestamp: number }>();
   events.forEach((event) => {
     if (event.event_type !== 'repo_connected' && event.event_type !== 'repo_disconnected') return;
-    const repoId = getMetadataId(event, 'repo_id');
+    const repoId = getMetadataId(event, 'source_id') || getMetadataId(event, 'repo_id');
     if (!repoId) return;
     const timestamp = new Date(event.created_at).getTime();
     const existing = repoConnectionState.get(repoId);
@@ -110,7 +137,6 @@ export default async function OverviewPage() {
 
   return (
     <OverviewPageClient
-      user={user}
       stats={stats}
     />
   );

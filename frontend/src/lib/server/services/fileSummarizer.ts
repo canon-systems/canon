@@ -37,7 +37,8 @@ export async function generateFileSummary(
 	fileContent: string,
 	filePath: string,
 	model: string = 'openai/gpt-4o-mini',
-	repoContext?: any
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	_repoContext?: Record<string, unknown>
 ): Promise<FileSummary> {
 	// Skip excluded files
 	if (SKIP_FILE_PATTERNS.some(pattern => pattern.test(filePath))) {
@@ -53,9 +54,10 @@ export async function generateFileSummary(
 	let gateway: LLMGateway;
 	try {
 		gateway = getGateway();
-	} catch (error: any) {
-		console.error(`[fileSummarizer] ❌ LLM gateway initialization failed for ${filePath}: ${error.message}`);
-		throw new Error(`AI service unavailable: ${error.message}`);
+	} catch (error: unknown) {
+		const errorMessage = error instanceof Error ? error.message : String(error);
+		console.error(`[fileSummarizer] ❌ LLM gateway initialization failed for ${filePath}: ${errorMessage}`);
+		throw new Error(`AI service unavailable: ${errorMessage}`);
 	}
 
 	// Concise analysis prompt optimized for LLM context limits
@@ -116,7 +118,7 @@ Follow the system prompt requirements exactly. Analyze the entire file content t
 				jsonStr = jsonMatch[1];
 			}
 
-			const parsed = JSON.parse(jsonStr) as any;
+			const parsed = JSON.parse(jsonStr) as { summary?: string; content?: string; text?: string; resources?: string };
 
 			// Return the summary content as summary_text (summary_text is just our DB field name)
 			return {
@@ -131,8 +133,9 @@ Follow the system prompt requirements exactly. Analyze the entire file content t
 				resources: "",
 			};
 		}
-	} catch (error: any) {
-		console.error(`[fileSummarizer] ❌ LLM gateway call failed for ${filePath}: ${error.message}`);
-		throw new Error(`AI service unavailable: ${error.message}`);
+	} catch (error: unknown) {
+		const errorMessage = error instanceof Error ? error.message : String(error);
+		console.error(`[fileSummarizer] ❌ LLM gateway call failed for ${filePath}: ${errorMessage}`);
+		throw new Error(`AI service unavailable: ${errorMessage}`);
 	}
 }

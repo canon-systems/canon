@@ -12,10 +12,10 @@ export default async function LogsPage() {
 
   const supabase = await createClient();
 
-  // Get all repos for enrichment
+  // Get all sources for enrichment
   const { data: userRepos } = await supabase
-    .from('workspace_repos')
-    .select('id, repo_url, name, default_branch, settings')
+    .from('workspace_sources')
+    .select('id, repo_url, external_url, name, default_branch, settings')
     .eq('user_id', user.id);
 
   // Get usage events as the source of truth for activity
@@ -51,26 +51,22 @@ export default async function LogsPage() {
   }> = [];
 
   // Repo map for metadata enrichment
-  const repoMap = new Map<string, any>();
-  const { data: allReposData } = await supabase
-    .from('workspace_repos')
-    .select('id, repo_url, default_branch, name, created_at')
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: false });
-  
-  if (allReposData) {
-    allReposData.forEach(r => repoMap.set(r.id, r));
+  const repoMap = new Map<string, { id: string; name?: string; [key: string]: unknown }>();
+  if (userRepos) {
+    userRepos.forEach((r) => repoMap.set(r.id, r));
   }
 
   const entriesFromEvents = (usageEvents || []).map(event => {
-    const meta = (event as any).metadata || {};
-    const repo = meta.repo_id ? repoMap.get(meta.repo_id) : null;
+    const meta = (event as { metadata?: Record<string, unknown> }).metadata || {};
+    const sourceIdRaw = meta.source_id || meta.repo_id;
+    const sourceId = typeof sourceIdRaw === 'string' ? sourceIdRaw : null;
+    const repo = sourceId ? repoMap.get(sourceId) : null;
     const repoName = repo?.name || (meta.repo_url ? String(meta.repo_url).split('/').pop()?.replace('.git', '') : undefined);
     const base = {
       id: event.id,
       timestamp: event.created_at,
       metadata: {
-        repoUrl: meta.repo_url || repo?.repo_url || undefined,
+        repoUrl: meta.repo_url || repo?.repo_url || repo?.external_url || undefined,
         branch: meta.branch || repo?.default_branch || undefined,
         provider: meta.provider,
       },
@@ -238,7 +234,7 @@ export default async function LogsPage() {
           status,
           link,
           metadata: {
-            ...(base as any).metadata,
+            ...(base as { metadata?: Record<string, unknown> }).metadata,
             automationRuleId: meta.automation_rule_id || undefined,
             isAutomation: true,
           },
@@ -256,10 +252,10 @@ export default async function LogsPage() {
   logEntries.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
   // Helper function to check if error is "table not found" (migration not run yet)
-  const isTableNotFoundError = (error: any): boolean => {
+  const isTableNotFoundError = (error: unknown): boolean => {
     if (!error) return false;
-    const message = error.message || '';
-    const code = error.code || '';
+    const message = (error instanceof Error ? error.message : (typeof error === 'object' && error !== null && 'message' in error && typeof error.message === 'string' ? error.message : '')) || '';
+    const code = (typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : '') || '';
     return (
       message.includes("Could not find the table") ||
       message.includes("relation") && message.includes("does not exist") ||
@@ -283,9 +279,7 @@ export default async function LogsPage() {
 
   return (
     <LogsPageClient
-      user={user}
       logs={logs}
-      repos={userRepos || []}
     />
   );
 }

@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronRight, CheckCircle2, Github, FileText, Loader2, AlertCircle, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface RepositorySetupWizardProps {
-  repoId: string;
+  sourceId: string;
   onComplete?: () => void;
 }
 
@@ -32,11 +32,13 @@ interface SetupStatus {
 interface Repository {
   id: string;
   name: string;
-  repo_url: string;
+  repo_url?: string;
+  external_url?: string;
   default_branch: string;
 }
 
-export function RepositorySetupWizard({ repoId, onComplete: _onComplete }: RepositorySetupWizardProps) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function RepositorySetupWizard({ sourceId, onComplete: _onComplete }: RepositorySetupWizardProps) {
   const router = useRouter();
   const [currentStep, setCurrentStep] = useState<SetupStep>('connect');
   const [isLoading, setIsLoading] = useState(true);
@@ -62,11 +64,6 @@ export function RepositorySetupWizard({ repoId, onComplete: _onComplete }: Repos
     { id: 'connect' as SetupStep, title: '1. Repository Status', icon: Github },
     { id: 'analyze' as SetupStep, title: '2. File Analysis', icon: FileText },
   ];
-
-  // Load repository and setup data on mount
-  useEffect(() => {
-    loadRepositoryData();
-  }, [repoId]);
 
   // Prevent navigation away during setup process and handle cleanup
   useEffect(() => {
@@ -96,150 +93,8 @@ export function RepositorySetupWizard({ repoId, onComplete: _onComplete }: Repos
     };
   }, []);
 
-  const loadRepositoryData = async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-
-      // First load repository data
-      const repoResponse = await fetch(`/api/repos/${repoId}`);
-      if (!repoResponse.ok) {
-        throw new Error('Failed to load repository data');
-      }
-      const repoData = await repoResponse.json();
-      setRepository(repoData);
-
-      // Then load setup status
-      await loadSetupStatus();
-    } catch (err: unknown) {
-      console.error('Failed to load repository data:', err);
-      const message = err instanceof Error ? err.message : typeof err === 'string' ? err : 'Failed to load repository data';
-      setError(message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const loadSetupStatus = async () => {
-    try {
-      setIsLoadingSetupStatus(true);
-      const response = await fetch(`/api/repos/setup?repoId=${repoId}`);
-      const data = await response.json();
-
-      if (response.ok) {
-        setSetupStatus(data.setup);
-
-        // Check if there's an ongoing setup process that we need to resume
-        if (data.setup?.status === 'analyzing') {
-          // Restore progress state from database
-          const progressFromDB = data.setup;
-          const progressPercent = progressFromDB.progress || (progressFromDB.totalFiles > 0 ? (progressFromDB.summarizedFiles / progressFromDB.totalFiles) * 100 : 0);
-
-          // Calculate current phase based on progress and status
-          let phase: string = 'analyzing';
-          if (progressFromDB.processingStatus?.includes('ai-processing') || progressPercent >= 20) {
-            phase = 'ai-processing';
-          } else if (progressFromDB.processingStatus?.includes('scanning') || progressPercent < 5) {
-            phase = 'scanning';
-          } else if (progressFromDB.processingStatus?.includes('transitioning') || (progressPercent >= 5 && progressPercent < 20)) {
-            phase = 'transitioning';
-          }
-
-          // Calculate estimated time remaining based on stored data
-          let estimatedTimeRemaining = progressFromDB.estimatedTimeRemaining;
-          if (!estimatedTimeRemaining && progressFromDB.processingRate && progressFromDB.processingRate > 0) {
-            const remainingFiles = progressFromDB.totalFiles - progressFromDB.summarizedFiles;
-            estimatedTimeRemaining = (remainingFiles / progressFromDB.processingRate) * 60;
-          }
-
-          setSetupProgress({
-            step: progressFromDB.currentFile ? `Processing: ${progressFromDB.currentFile.split('/').pop()}` : 'Resuming file analysis...',
-            message: progressFromDB.currentFile ?
-              `Currently processing ${progressFromDB.currentFile.split('/').pop()}` :
-              'Resuming repository setup process...',
-            progress: progressPercent,
-            startTime: Date.now(),
-            phase,
-            currentFile: progressFromDB.currentFile,
-            processingStatus: progressFromDB.processingStatus,
-            recentFiles: progressFromDB.recentFiles || [],
-            processingRate: progressFromDB.processingRate,
-            estimatedTimeRemaining,
-          });
-
-          // Resume polling for the ongoing process
-          pollSetupStatus();
-        } else if (data.setup?.status === 'ready') {
-          // Setup is ready, will redirect to documentation when progress completes
-        }
-      } else {
-        setError(data.error || 'Failed to load setup status');
-      }
-    } catch (_err) {
-      setError('Failed to load setup status');
-    } finally {
-      setIsLoadingSetupStatus(false);
-    }
-  };
-
-
-  const handleStartSetup = async () => {
-    if (!repository) {
-      setError('Repository data not loaded');
-      return;
-    }
-
-    setIsLoading(true);
-    setError(null);
-
-    // Initialize progress tracking
-    setSetupProgress({
-      step: 'Initializing',
-      message: 'Preparing repository analysis...',
-      progress: 0,
-      startTime: Date.now(),
-      phase: 'initializing'
-    });
-
-    try {
-      const response = await fetch('/api/repos/setup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          repoId,
-          repoUrl: repository.repo_url, // Use actual repository URL
-        }),
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        setSetupStatus(data.setup);
-        setCurrentStep('analyze');
-
-        // Update progress for analysis phase
-        setSetupProgress(prev => prev ? {
-          ...prev,
-          step: 'Analyzing Repository',
-          message: 'Scanning repository files and structure...',
-          progress: 10
-        } : null);
-
-        // Poll for completion
-        pollSetupStatus();
-      } else {
-        setSetupProgress(null);
-        setError(data.error || 'Failed to start setup');
-      }
-    } catch (_err) {
-      setSetupProgress(null);
-      setError('Failed to start repository setup');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const pollSetupStatus = () => {
+  // Define pollSetupStatus first since it's used by loadSetupStatus
+  const pollSetupStatus = useCallback(() => {
     let pollCount = 0;
     let previousSummarizedFiles = 0;
     let processingStartTime: number | null = null;
@@ -247,7 +102,7 @@ export function RepositorySetupWizard({ repoId, onComplete: _onComplete }: Repos
 
     pollIntervalRef.current = setInterval(async () => {
       pollCount++;
-      const response = await fetch(`/api/repos/setup?repoId=${repoId}`);
+      const response = await fetch(`/api/repos/setup?sourceId=${sourceId}`);
       const data = await response.json();
 
       if (response.ok && data.setup) {
@@ -435,6 +290,155 @@ export function RepositorySetupWizard({ repoId, onComplete: _onComplete }: Repos
         } : null);
       }
     }, 1500000); // 25 minutes
+  }, [sourceId, setSetupStatus, setSetupProgress, setError, setupProgress, pollIntervalRef, router]);
+
+  const loadSetupStatus = useCallback(async () => {
+    try {
+      setIsLoadingSetupStatus(true);
+      const response = await fetch(`/api/repos/setup?sourceId=${sourceId}`);
+      const data = await response.json();
+
+      if (response.ok) {
+        setSetupStatus(data.setup);
+
+        // Check if there's an ongoing setup process that we need to resume
+        if (data.setup?.status === 'analyzing') {
+          // Restore progress state from database
+          const progressFromDB = data.setup;
+          const progressPercent = progressFromDB.progress || (progressFromDB.totalFiles > 0 ? (progressFromDB.summarizedFiles / progressFromDB.totalFiles) * 100 : 0);
+
+          // Calculate current phase based on progress and status
+          let phase: string = 'analyzing';
+          if (progressFromDB.processingStatus?.includes('ai-processing') || progressPercent >= 20) {
+            phase = 'ai-processing';
+          } else if (progressFromDB.processingStatus?.includes('scanning') || progressPercent < 5) {
+            phase = 'scanning';
+          } else if (progressFromDB.processingStatus?.includes('transitioning') || (progressPercent >= 5 && progressPercent < 20)) {
+            phase = 'transitioning';
+          }
+
+          // Calculate estimated time remaining based on stored data
+          let estimatedTimeRemaining = progressFromDB.estimatedTimeRemaining;
+          if (!estimatedTimeRemaining && progressFromDB.processingRate && progressFromDB.processingRate > 0) {
+            const remainingFiles = progressFromDB.totalFiles - progressFromDB.summarizedFiles;
+            estimatedTimeRemaining = (remainingFiles / progressFromDB.processingRate) * 60;
+          }
+
+          setSetupProgress({
+            step: progressFromDB.currentFile ? `Processing: ${progressFromDB.currentFile.split('/').pop()}` : 'Resuming file analysis...',
+            message: progressFromDB.currentFile ?
+              `Currently processing ${progressFromDB.currentFile.split('/').pop()}` :
+              'Resuming repository setup process...',
+            progress: progressPercent,
+            startTime: Date.now(),
+            phase,
+            currentFile: progressFromDB.currentFile,
+            processingStatus: progressFromDB.processingStatus,
+            recentFiles: progressFromDB.recentFiles || [],
+            processingRate: progressFromDB.processingRate,
+            estimatedTimeRemaining,
+          });
+
+          // Resume polling for the ongoing process
+          pollSetupStatus();
+        } else if (data.setup?.status === 'ready') {
+          // Setup is ready, will redirect to documentation when progress completes
+        }
+      } else {
+        setError(data.error || 'Failed to load setup status');
+      }
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    } catch (_err) {
+      setError('Failed to load setup status');
+    } finally {
+      setIsLoadingSetupStatus(false);
+    }
+  }, [sourceId, setIsLoadingSetupStatus, setSetupStatus, setSetupProgress, pollSetupStatus]);
+
+  const loadRepositoryData = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      // First load repository data
+      const repoResponse = await fetch(`/api/repos/${sourceId}`);
+      if (!repoResponse.ok) {
+        throw new Error('Failed to load source data');
+      }
+      const repoData = await repoResponse.json();
+      setRepository(repoData);
+
+      // Then load setup status
+      await loadSetupStatus();
+    } catch (err: unknown) {
+      console.error('Failed to load source data:', err);
+      const message = err instanceof Error ? err.message : typeof err === 'string' ? err : 'Failed to load source data';
+      setError(message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [sourceId, setIsLoading, setError, setRepository, loadSetupStatus]);
+
+  // Load repository and setup data on mount
+  useEffect(() => {
+    loadRepositoryData();
+  }, [sourceId, loadRepositoryData]);
+
+  const handleStartSetup = async () => {
+    if (!repository) {
+      setError('Repository data not loaded');
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    // Initialize progress tracking
+    setSetupProgress({
+      step: 'Initializing',
+      message: 'Preparing repository analysis...',
+      progress: 0,
+      startTime: Date.now(),
+      phase: 'initializing'
+    });
+
+    try {
+      const response = await fetch('/api/repos/setup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sourceId,
+          repoUrl: repository.repo_url || repository.external_url, // Use actual source URL
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setSetupStatus(data.setup);
+        setCurrentStep('analyze');
+
+        // Update progress for analysis phase
+        setSetupProgress(prev => prev ? {
+          ...prev,
+          step: 'Analyzing Repository',
+          message: 'Scanning repository files and structure...',
+          progress: 10
+        } : null);
+
+        // Poll for completion
+        pollSetupStatus();
+      } else {
+        setSetupProgress(null);
+        setError(data.error || 'Failed to start setup');
+      }
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    } catch (_err) {
+      setSetupProgress(null);
+      setError('Failed to start repository setup');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const getStepStatus = (stepId: SetupStep) => {
@@ -706,7 +710,7 @@ export function RepositorySetupWizard({ repoId, onComplete: _onComplete }: Repos
                       if (window.confirm('Are you sure you want to cancel the repository setup? This will stop the analysis process.')) {
                         try {
                           setIsLoading(true);
-                          const response = await fetch(`/api/repos/setup?repoId=${repoId}`, {
+                          const response = await fetch(`/api/repos/setup?sourceId=${sourceId}`, {
                             method: 'DELETE',
                           });
 

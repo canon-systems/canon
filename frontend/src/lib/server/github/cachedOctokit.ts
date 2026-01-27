@@ -66,9 +66,10 @@ export async function getCachedBranch(
 		setCache(key, data, TTL.BRANCH);
 
 		return data;
-	} catch (error: any) {
+	} catch (error: unknown) {
 		// If branch not found, try to get the repository's default branch
-		if (error.status === 404) {
+		const errorStatus = (error as { status?: number })?.status;
+		if (errorStatus === 404) {
 			console.log(`[getCachedBranch] Branch '${branch}' not found, trying to get default branch for ${owner}/${repo}`);
 
 			try {
@@ -98,7 +99,7 @@ export async function getCachedBranch(
 				setCache(defaultKey, defaultBranchData, TTL.BRANCH);
 
 				return defaultBranchData;
-			} catch (repoError: any) {
+			} catch (repoError: unknown) {
 				console.error(`[getCachedBranch] Failed to get default branch for ${owner}/${repo}:`, repoError);
 				throw new Error(`Branch '${branch}' not found and unable to determine default branch for repository ${owner}/${repo}`);
 			}
@@ -202,7 +203,7 @@ export async function getCachedFileContent(
 		setCache(key, result, TTL.FILE_CONTENT);
 
 		return result;
-	} catch (error) {
+	} catch {
 		return null;
 	}
 }

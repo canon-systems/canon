@@ -4,17 +4,7 @@ import { getSession } from '@/lib/auth';
 import { computeTextDiff } from '@/lib/utils/textDiff';
 import { createTwoFilesPatch } from 'diff';
 
-type SourceMeta = {
-  repoUrl?: string;
-};
-
-type SubmissionRow = {
-  id: string;
-  markdown?: string;
-  previous_markdown?: string;
-  created_by?: string;
-  source_meta?: SourceMeta;
-};
+// Removed unused type: SubmissionRow
 
 /**
  * GET: Get document diff
@@ -36,7 +26,7 @@ export async function GET(request: NextRequest) {
 
     const { data: document, error } = await supabase
       .from('documents')
-      .select('id, repo_id, content')
+      .select('id, source_id, content')
       .eq('id', docId)
       .single();
 
@@ -45,10 +35,11 @@ export async function GET(request: NextRequest) {
     }
 
     // Verify user has access to the repo
+    const sourceId = document.source_id;
     const { data: repo, error: repoError } = await supabase
-      .from('workspace_repos')
+      .from('workspace_sources')
       .select('user_id')
-      .eq('id', document.repo_id)
+      .eq('id', sourceId)
       .eq('user_id', user.id)
       .single();
 
@@ -97,12 +88,12 @@ export async function GET(request: NextRequest) {
       },
       { status: 200 }
     );
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Get diff error:', err);
     return NextResponse.json(
       {
         error: 'Failed to get diff',
-        detail: err.message || String(err),
+        detail: err instanceof Error ? err.message : String(err),
       },
       { status: 500 }
     );

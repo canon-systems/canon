@@ -128,12 +128,12 @@ export async function POST(request: NextRequest) {
       },
       { status: 200 }
     );
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Confluence diff push error:', err);
     return NextResponse.json(
       {
         error: 'Failed to push diff to Confluence',
-        detail: err.message || String(err),
+        detail: err instanceof Error ? err.message : String(err),
       },
       { status: 500 }
     );

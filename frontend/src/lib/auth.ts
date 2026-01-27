@@ -38,14 +38,16 @@ export async function getSession() {
       user: userData.user,
       session: sessionData.session ?? null
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     // Handle any unexpected auth errors
     console.error('Unexpected auth error in getSession:', error);
 
-    const isRefreshTokenError = error.message?.includes('refresh_token_not_found') ||
-                                error.message?.includes('Invalid Refresh Token') ||
-                                error.message?.includes('refresh token') ||
-                                error.status === 400;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStatus = (error as { status?: number })?.status;
+    const isRefreshTokenError = errorMessage?.includes('refresh_token_not_found') ||
+                                errorMessage?.includes('Invalid Refresh Token') ||
+                                errorMessage?.includes('refresh token') ||
+                                errorStatus === 400;
 
     if (isRefreshTokenError) {
       console.log('Refresh token error caught in getSession');

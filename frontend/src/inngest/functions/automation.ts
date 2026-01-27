@@ -43,7 +43,8 @@ export const checkAndRunAutomations = inngest.createFunction(
   {
     cron: "*/5 * * * *", // Run every 5 minutes for responsive automation 
   },
-  async ({ event, step }) => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async ({ event: _event, step: _step }) => {
     console.log(`🎯 [SMART] Starting smart summary management cycle at ${new Date().toISOString()}`);
 
     // Create Supabase client
@@ -86,15 +87,15 @@ export const checkAndRunAutomations = inngest.createFunction(
 
         console.log(`🚀 [SMART] Executing automation rule: ${rule.id}`);
 
-        // Get repo data
+        // Get source data
         const { data: repo, error: repoError } = await supabase
-          .from('workspace_repos')
+          .from('workspace_sources')
           .select('*')
-          .eq('id', rule.repo_id)
+          .eq('id', rule.source_id)
           .single();
 
         if (repoError || !repo) {
-          console.error(`❌ Repo not found: ${rule.repo_id}`, repoError);
+          console.error(`❌ Source not found: ${rule.source_id}`, repoError);
           continue;
         }
 
@@ -108,7 +109,11 @@ export const checkAndRunAutomations = inngest.createFunction(
         });
 
         // Update last run status
-        const updateData: any = {
+        const updateData: {
+          last_run_at: string;
+          last_run_status: string;
+          last_run_error?: string;
+        } = {
           last_run_at: new Date().toISOString(),
           last_run_status: result.success ? 'success' : 'failed',
         };
@@ -129,8 +134,8 @@ export const checkAndRunAutomations = inngest.createFunction(
 
         executed++;
 
-      } catch (error: any) {
-        console.error(`❌ [SMART] Failed: ${rule.id} - ${error.message || String(error)}`);
+      } catch (error: unknown) {
+        console.error(`❌ [SMART] Failed: ${rule.id} - ${error instanceof Error ? error.message : String(error)}`);
 
         // Update with failure status
         await supabase
@@ -138,7 +143,7 @@ export const checkAndRunAutomations = inngest.createFunction(
           .update({
             last_run_at: new Date().toISOString(),
             last_run_status: 'failed',
-            last_run_error: error.message || String(error),
+            last_run_error: error instanceof Error ? error.message : String(error),
           })
           .eq('id', rule.id);
       }
