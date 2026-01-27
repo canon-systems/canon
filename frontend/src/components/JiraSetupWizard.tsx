@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { AlertTriangle, CheckCircle2, Clock, Database, ListChecks } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
@@ -30,6 +31,7 @@ export function JiraSetupWizard({ repoId }: JiraSetupWizardProps) {
   const [setup, setSetup] = useState<SetupResponse['setup']>(null);
   const [error, setError] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [startedAt, setStartedAt] = useState<number | null>(null);
 
   async function fetchStatus() {
     try {
@@ -74,6 +76,26 @@ export function JiraSetupWizard({ repoId }: JiraSetupWizardProps) {
   }, [repoId]);
 
   const status = setup?.setup_status || setup?.status || 'not_started';
+  const total = setup?.total_files || 0;
+  const done = setup?.summarized_files || 0;
+  const progress = typeof setup?.progress_percentage === 'number'
+    ? Math.round(setup.progress_percentage)
+    : total > 0
+      ? Math.round((done / total) * 100)
+      : status === 'ready'
+        ? 100
+        : 0;
+
+  const phase = useMemo(() => {
+    if (status === 'ready') return 'complete';
+    if (status === 'failed') return 'failed';
+    if (status === 'analyzing') {
+      if ((setup?.processing_status || '').includes('scanning') || progress < 5) return 'scanning';
+      if (progress < 20) return 'preparing';
+      return 'indexing';
+    }
+    return 'idle';
+  }, [status, setup?.processing_status, progress]);
 
   useEffect(() => {
     if (status === 'analyzing') {
@@ -92,21 +114,13 @@ export function JiraSetupWizard({ repoId }: JiraSetupWizardProps) {
     }
     return undefined;
   }, [status, router]);
-  const total = setup?.total_files || 0;
-  const done = setup?.summarized_files || 0;
-  const progress = typeof setup?.progress_percentage === 'number'
-    ? Math.round(setup.progress_percentage)
-    : total > 0
-      ? Math.round((done / total) * 100)
-      : 0;
-
-  const stage = setup?.processing_status || (status === 'ready' ? 'complete' : status === 'failed' ? 'failed' : 'starting');
   const stageLabel =
-    stage.includes('starting') ? 'Starting' :
-      stage.includes('scanning') ? 'Scanning issues' :
-        stage.includes('ready') || status === 'ready' ? 'Complete' :
-          stage.includes('failed') || status === 'failed' ? 'Failed' :
-            'Indexing';
+    phase === 'idle' ? 'Ready to start' :
+      phase === 'scanning' ? 'Scanning issues' :
+        phase === 'preparing' ? 'Preparing index' :
+          phase === 'indexing' ? 'Indexing issues' :
+            phase === 'complete' ? 'Complete' :
+              'Failed';
 
   async function cancelSetup() {
     setCancelling(true);
@@ -118,12 +132,26 @@ export function JiraSetupWizard({ repoId }: JiraSetupWizardProps) {
     }
   }
 
+  useEffect(() => {
+    if (status === 'analyzing' && !startedAt) {
+      setStartedAt(Date.now());
+    }
+    if (status !== 'analyzing' && startedAt) {
+      setStartedAt(null);
+    }
+  }, [status, startedAt]);
+
   return (
-    <div className="mx-auto max-w-2xl px-4 py-12">
+    <div className="mx-auto max-w-3xl px-4 py-12">
       <Card className="border-white/10 bg-black/60">
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-white">Jira Setup</CardTitle>
+        <CardHeader className="space-y-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-2">
+              <CardTitle className="text-white">Jira Setup</CardTitle>
+              <CardDescription className="text-white/70">
+                Index Jira issues so diffs and automation can run quickly.
+              </CardDescription>
+            </div>
             <span className={`rounded-full px-3 py-1 text-xs font-semibold ${
               status === 'ready' ? 'bg-emerald-500/20 text-emerald-200'
                 : status === 'failed' ? 'bg-red-500/20 text-red-200'
@@ -133,37 +161,78 @@ export function JiraSetupWizard({ repoId }: JiraSetupWizardProps) {
               {status}
             </span>
           </div>
-          <CardDescription className="text-white/70">
-            Index Jira issues so diffs can run quickly.
-          </CardDescription>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className={`rounded-lg border border-white/10 p-4 ${phase === 'indexing' ? 'bg-blue-500/10' : 'bg-white/5'}`}>
+              <div className="flex items-center gap-2 text-sm text-white/80">
+                <Database className="h-4 w-4 text-blue-300" />
+                Jira Index
+              </div>
+              <p className="mt-2 text-xs text-white/60">
+                {phase === 'idle' && 'Ready to scan your Jira project for changes.'}
+                {phase === 'scanning' && 'Scanning issues and change history.'}
+                {phase === 'preparing' && 'Preparing the index for fast diffs.'}
+                {phase === 'indexing' && 'Indexing issues for daily updates.'}
+                {phase === 'complete' && 'Index complete and ready to use.'}
+                {phase === 'failed' && 'Indexing failed. See details below.'}
+              </p>
+            </div>
+            <div className="rounded-lg border border-white/10 bg-white/5 p-4">
+              <div className="flex items-center gap-2 text-sm text-white/80">
+                <ListChecks className="h-4 w-4 text-emerald-300" />
+                Setup Steps
+              </div>
+              <ul className="mt-2 space-y-1 text-xs text-white/60">
+                <li className="flex items-center gap-2">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-300" />
+                  Jira source connected
+                </li>
+                <li className="flex items-center gap-2">
+                  {status === 'ready' ? (
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-300" />
+                  ) : status === 'analyzing' ? (
+                    <Clock className="h-3.5 w-3.5 text-blue-300" />
+                  ) : (
+                    <Clock className="h-3.5 w-3.5 text-white/40" />
+                  )}
+                  Index Jira issues
+                </li>
+              </ul>
+            </div>
+          </div>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-6">
           {error && <p className="text-sm text-red-300">{error}</p>}
 
-          <div className="grid grid-cols-2 gap-4 text-sm text-white/70">
-            <div className="rounded-lg border border-white/10 bg-white/5 p-3">
-              <div className="text-xs uppercase text-white/50">Stage</div>
-              <div className="mt-1 text-lg text-white">{stageLabel}</div>
+          <div className="rounded-xl border border-white/10 bg-white/5 p-5 space-y-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm text-white/70">Stage</p>
+                <p className="text-lg text-white">{stageLabel}</p>
+              </div>
+              <div className="text-sm text-white/70">
+                Issues indexed: <span className="text-white">{done}</span> / {total}
+              </div>
             </div>
-            <div className="rounded-lg border border-white/10 bg-white/5 p-3">
-              <div className="text-xs uppercase text-white/50">Issues Indexed</div>
-              <div className="mt-1 text-lg text-white">{done} / {total}</div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs text-white/50">
+                <span>Progress</span>
+                <span>{progress}%</span>
+              </div>
+              <Progress value={progress} />
+              {status === 'analyzing' && startedAt && (
+                <p className="text-xs text-white/50">
+                  Working… {Math.max(1, Math.floor((Date.now() - startedAt) / 1000))}s elapsed
+                </p>
+              )}
             </div>
           </div>
 
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs text-white/50">
-              <span>Progress</span>
-              <span>{progress}%</span>
-            </div>
-            <Progress value={progress} />
-          </div>
-
-          <div className="flex justify-end">
+          <div className="flex flex-wrap justify-between gap-2">
+            <Button variant="secondary" onClick={() => router.push('/repos')}>
+              Back to Sources
+            </Button>
             <div className="flex gap-2">
-              <Button variant="secondary" onClick={() => router.push('/repos')}>
-                Back to Sources
-              </Button>
               {status === 'analyzing' && (
                 <Button variant="destructive" onClick={cancelSetup} disabled={cancelling}>
                   {cancelling ? 'Cancelling…' : 'Cancel Setup'}
@@ -174,6 +243,15 @@ export function JiraSetupWizard({ repoId }: JiraSetupWizardProps) {
               </Button>
             </div>
           </div>
+
+          {status === 'failed' && (
+            <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4" />
+                Jira setup failed. Try again or return to sources.
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

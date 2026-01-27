@@ -56,11 +56,21 @@ interface RepositoriesPageClientProps {
 }
 
 type StatusFilter = 'all' | 'ready' | 'processing' | 'failed' | 'not_started';
+type SourceKey = 'github' | 'jira';
+
+type SourceOption = {
+  key: SourceKey;
+  label: string;
+  description: string;
+  helper: string;
+  icon: typeof Github;
+  onSelect: () => void;
+};
 
 export default function RepositoriesPageClient({ repositories }: RepositoriesPageClientProps) {
   const router = useRouter();
   const [showSourceDialog, setShowSourceDialog] = useState(false);
-  const [sourceMode, setSourceMode] = useState<'github' | 'jira'>('github');
+  const [sourceMode, setSourceMode] = useState<'select' | SourceKey>('select');
   const [deletingRepoId, setDeletingRepoId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -99,13 +109,8 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
   }, [repositories, router]);
 
   const handleConnectRepository = () => {
-    setSourceMode('github');
+    setSourceMode('select');
     setShowSourceDialog(true);
-  };
-  const handleConnectJira = () => {
-    setSourceMode('jira');
-    setShowSourceDialog(true);
-    loadJiraSites();
   };
 
   const handleConnectionComplete = (repoId: string) => {
@@ -122,6 +127,32 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
     setJiraSiteName('');
     router.push(`/repos/setup?repoId=${repoId}`);
   };
+
+  const sourceOptions = useMemo<SourceOption[]>(() => ([
+    {
+      key: 'github',
+      label: 'GitHub',
+      description: 'Connect repositories and index code.',
+      helper: 'Best for codebases and PR-driven updates.',
+      icon: Github,
+      onSelect: () => setSourceMode('github'),
+    },
+    {
+      key: 'jira',
+      label: 'Jira',
+      description: 'Connect projects and index tickets.',
+      helper: 'Best for product and delivery activity.',
+      icon: Activity,
+      onSelect: () => {
+        setSourceMode('jira');
+        loadJiraSites();
+      },
+    },
+  ]), [loadJiraSites]);
+
+  const sourceTitle = sourceMode === 'select'
+    ? 'Add Source'
+    : `Add ${sourceOptions.find((option) => option.key === sourceMode)?.label ?? 'Source'} Source`;
 
   const handleDeleteRepository = async (repoId: string, repoName: string) => {
     if (!confirm(`Disconnect ${repoName}? This will remove associated data and documents.`)) {
@@ -198,10 +229,10 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
         const detail = data.error || data.detail || 'Failed to load Jira workspaces';
         throw new Error(detail);
       }
-      const sites: Array<{ id: string; name: string; url: string }> = Array.isArray(data.sites) 
+      const sites: Array<{ id: string; name: string; url: string }> = Array.isArray(data.sites)
         ? (data.sites as Array<{ id: string; name: string; url: string }>)
         : [];
-      
+
       // Deduplicate by id as a safeguard (server should already do this)
       const uniqueSitesMap = new Map<string, { id: string; name: string; url: string }>();
       for (const site of sites) {
@@ -210,7 +241,7 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
         }
       }
       const uniqueSites = Array.from(uniqueSitesMap.values());
-      
+
       setJiraSites(uniqueSites);
       if (uniqueSites.length === 1) {
         selectJiraSite(uniqueSites[0]);
@@ -238,7 +269,7 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
         siteUrl: site.url,
         siteName: site.name,
       }),
-    }).catch(() => {});
+    }).catch(() => { });
     await loadJiraProjects(site.id);
   }
 
@@ -309,7 +340,7 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
               <CardDescription className="text-white/70">
                 Link GitHub and Jira sources, track setup progress, and jump straight into documentation or automation.
               </CardDescription>
-              </div>
+            </div>
             <div className="grid grid-cols-2 gap-3 lg:w-[360px]">
               <Card className="border-white/10 bg-white/5">
                 <CardContent className="p-4">
@@ -374,15 +405,15 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
               </SelectContent>
             </Select>
           </div>
-            <div className="flex gap-2">
-              <Button variant="secondary" onClick={() => { setSearchQuery(''); setStatusFilter('all'); }}>
-                Clear filters
-              </Button>
-              <Button onClick={handleConnectRepository}>
-                <Plus className="h-4 w-4" />
-                Add Source
-              </Button>
-            </div>
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => { setSearchQuery(''); setStatusFilter('all'); }}>
+              Clear filters
+            </Button>
+            <Button onClick={handleConnectRepository}>
+              <Plus className="h-4 w-4" />
+              Add Source
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
@@ -415,9 +446,9 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
             const hasSummaries = repo.setup_status === 'ready' && repo.total_files && repo.total_files > 0;
             const summaryProgress = hasSummaries
               ? Math.min(
-                  100,
-                  Math.round(((repo.file_summary_count || 0) / (repo.total_files || 1)) * 100)
-                )
+                100,
+                Math.round(((repo.file_summary_count || 0) / (repo.total_files || 1)) * 100)
+              )
               : 0;
             const isJira = repo.provider === 'jira';
             const sourceLabel = isJira
@@ -558,36 +589,64 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
       )}
 
 
-      <Dialog open={showSourceDialog} onOpenChange={setShowSourceDialog}>
-        <DialogContent className={sourceMode === 'github' ? 'p-0' : 'max-w-lg border-white/10 bg-black/95'}>
-          <DialogTitle className="sr-only">
-            {sourceMode === 'github' ? 'Add GitHub Source' : 'Add Jira Source'}
-          </DialogTitle>
-          <div className="flex items-center gap-2 border-b border-white/10 bg-black/80 px-4 py-3">
-            <Button
-              type="button"
-              variant={sourceMode === 'github' ? 'secondary' : 'ghost'}
-              onClick={() => setSourceMode('github')}
-            >
-              <Github className="h-4 w-4" />
-              GitHub
-            </Button>
-            <Button
-              type="button"
-              variant={sourceMode === 'jira' ? 'secondary' : 'ghost'}
-              onClick={() => { setSourceMode('jira'); loadJiraSites(); }}
-            >
-              <Activity className="h-4 w-4" />
-              Jira
-            </Button>
-          </div>
+      <Dialog
+        open={showSourceDialog}
+        onOpenChange={(open) => {
+          setShowSourceDialog(open);
+          if (!open) setSourceMode('select');
+        }}
+      >
+        <DialogContent className={sourceMode === 'github' ? 'p-0' : 'max-w-2xl border-white/10 bg-black/95'}>
+          <DialogTitle className="sr-only">{sourceTitle}</DialogTitle>
 
-          {sourceMode === 'github' ? (
+          {sourceMode === 'select' && (
+            <div className="space-y-6 p-6">
+              <div>
+                <h3 className="text-xl font-semibold text-white">Choose a source to connect</h3>
+                <p className="text-sm text-white/60">Pick the system you want to index for updates.</p>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                {sourceOptions.map((option) => {
+                  const Icon = option.icon;
+                  return (
+                    <button
+                      key={option.key}
+                      type="button"
+                      onClick={option.onSelect}
+                      className="rounded-xl border border-white/10 bg-white/5 p-5 text-left transition hover:border-white/30 hover:bg-white/10"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-white/10">
+                            <Icon className="h-6 w-6 text-white" />
+                          </div>
+                          <div>
+                            <p className="text-lg font-semibold text-white">{option.label}</p>
+                            <p className="text-sm text-white/60">{option.description}</p>
+                          </div>
+                        </div>
+                      </div>
+                      <p className="mt-4 text-xs text-white/50">{option.helper}</p>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex justify-end">
+                <Button variant="secondary" onClick={() => setShowSourceDialog(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {sourceMode === 'github' && (
             <RepositoryConnectionWizard
               onComplete={handleConnectionComplete}
               onCancel={() => setShowSourceDialog(false)}
             />
-          ) : (
+          )}
+
+          {sourceMode === 'jira' && (
             <div className="space-y-4 p-6">
               <div className="space-y-2">
                 <label className="text-sm text-white/80">Workspace</label>
@@ -608,6 +667,9 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
                 </select>
                 {jiraSitesLoading && <p className="text-xs text-white/60">Loading Jira workspaces…</p>}
                 {jiraSitesError && <p className="text-xs text-red-300">{jiraSitesError}</p>}
+                {jiraWarning && !jiraSitesError && (
+                  <p className="text-xs text-amber-200">{jiraWarning}</p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -637,15 +699,6 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
                 )}
               </div>
 
-              <div className="space-y-2">
-                <label className="text-sm text-white/80">Name</label>
-                <Input
-                  value={jiraName}
-                  onChange={(e) => setJiraName(e.currentTarget.value)}
-                  placeholder="Jira: ABC"
-                />
-              </div>
-
               {jiraError && (
                 <Alert variant="destructive">
                   <AlertDescription>{jiraError}</AlertDescription>
@@ -657,13 +710,18 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
                 </Alert>
               )}
 
-              <div className="flex justify-end gap-2">
-                <Button variant="secondary" onClick={() => setShowSourceDialog(false)}>
-                  Cancel
+              <div className="flex justify-between gap-2">
+                <Button variant="secondary" onClick={() => setSourceMode('select')}>
+                  Back
                 </Button>
-                <Button onClick={createJiraSource} disabled={!jiraProjectKey || !jiraCloudId}>
-                  Create Source
-                </Button>
+                <div className="flex gap-2">
+                  <Button variant="secondary" onClick={() => setShowSourceDialog(false)}>
+                    Cancel
+                  </Button>
+                  <Button onClick={createJiraSource} disabled={!jiraProjectKey || !jiraCloudId}>
+                    Create Source
+                  </Button>
+                </div>
               </div>
             </div>
           )}

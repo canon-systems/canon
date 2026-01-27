@@ -6,8 +6,8 @@ import { usePathname } from 'next/navigation';
 import {
   Activity,
   BookOpen,
+  Database,
   FileText,
-  Github,
   GitCompare,
   Layers3,
   LogOut,
@@ -36,7 +36,7 @@ type NavItem = {
 
 const primaryNav: NavItem[] = [
   { href: '/overview', label: 'Overview', icon: Activity },
-  { href: '/repos', label: 'Sources', icon: Github },
+  { href: '/repos', label: 'Sources', icon: Database },
   { href: '/documentation', label: 'Docs', icon: FileText },
   { href: '/review', label: 'Review', icon: GitCompare, matchPrefix: true },
   { href: '/architecture-diagrams', label: 'Architecture', icon: Layers3 },
