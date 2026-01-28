@@ -45,6 +45,12 @@ type StatusFilter = 'all' | 'ready' | 'processing' | 'failed' | 'not_started';
 type GithubRepo = { id: string; full_name: string; name: string; default_branch: string };
 type JiraProject = { id: string; key: string; name: string; cloudId?: string };
 
+const repoNameOnly = (value: string) => {
+  if (typeof value !== 'string') return '';
+  const lastSlash = value.lastIndexOf('/');
+  return lastSlash >= 0 ? value.slice(lastSlash + 1) : value;
+};
+
 const parseGithubRepos = (data: unknown): GithubRepo[] => {
   const repos = (data as { repos?: unknown })?.repos;
   if (!Array.isArray(repos)) return [];
@@ -162,7 +168,7 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
   const availableSources = useMemo(() => {
     const repos = availableGithub.map((r) => ({
       key: `github:${r.id}`,
-      label: r.name || r.full_name,
+      label: repoNameOnly(r.name || r.full_name),
       subtitle: `Branch: ${r.default_branch || 'main'}`,
       provider: 'github' as const,
     }));
@@ -221,7 +227,7 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
   const displayScope = (repo: Repository) => {
     if (!repo.scope) return 'Scope: —';
     if (repo.provider === 'github' && typeof repo.scope.repo === 'string') {
-      return `Repo: ${repo.scope.repo}${repo.scope.branch ? ` @ ${repo.scope.branch}` : ''}`;
+      return `Branch: ${repo.scope.branch ? ` ${repo.scope.branch}` : ''}`;
     }
     if (repo.provider === 'jira' && typeof repo.scope.project === 'string') {
       return `Jira: ${repo.scope.project}`;
@@ -324,9 +330,10 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
       for (const repo of availableGithub) {
         const key = `github:${repo.id}`;
         if (selectedIds.has(key)) {
+          const repoLabel = repoNameOnly(repo.name || repo.full_name);
           sources.push({
             provider: 'github',
-            name: repo.full_name,
+            name: repoLabel,
             scope: { repo: repo.full_name, branch: repo.default_branch || 'main' },
             connection_id: null,
           });
@@ -378,7 +385,7 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
               </Badge>
               <CardTitle className="text-3xl text-white">Connect, index, and automate</CardTitle>
               <CardDescription className="text-white/70">
-                Link GitHub and Jira sources, track setup progress, and jump straight into documentation or automation.
+                Link known sources, track setup progress, and jump straight into automation.
               </CardDescription>
             </div>
             <div className="grid grid-cols-2 gap-3 lg:w-[360px]">
@@ -473,19 +480,23 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
         <div className="flex flex-col gap-3 px-1 sm:px-2 md:px-0">
           {filteredRepos.map((repo) => {
             const statusMeta = getStatusMeta(repo);
+            const repoLabel = repoNameOnly(repo.name);
             return (
-              <div key={repo.id} className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-gradient-to-r from-white/5 to-black/60 px-5 py-4 md:flex-row md:items-center md:justify-between">
+              <div
+                key={repo.id}
+                className="grid gap-3 rounded-2xl border border-white/10 bg-gradient-to-r from-white/5 to-black/60 px-5 py-4 md:min-h-[88px] md:grid-cols-[minmax(280px,1.6fr)_minmax(220px,1fr)_auto] md:items-center"
+              >
                 <div className="flex items-center gap-4">
                   <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-md shadow-indigo-500/20">
                     <IntegrationLogos provider={repo.provider as 'github' | 'jira' | 'slack'} size={20} color="#ffffff" />
                   </div>
-                  <div>
-                    <div className="text-base font-semibold text-white">{repo.name}</div>
+                  <div className="min-w-0">
+                    <div className="truncate text-base font-semibold text-white">{repoLabel}</div>
                     <div className="flex items-center gap-2 text-sm text-white/70">{displayScope(repo)}</div>
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2 md:justify-start">
                   <Badge variant={statusMeta.color as 'default' | 'secondary' | 'destructive' | 'outline'} className="flex items-center gap-1">
                     {statusMeta.icon}
                     {statusMeta.label}
@@ -511,7 +522,7 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
                       aria-label="Disconnect"
                       onClick={(e) => {
                         e.stopPropagation();
-                        setDeleteTarget({ id: repo.id, name: repo.name });
+                        setDeleteTarget({ id: repo.id, name: repoLabel });
                       }}
                       disabled={deletingRepoId === repo.id}
                     >
@@ -598,7 +609,7 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
 
               <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
                 {filteredAvailableSources.length === 0 && !loadingSources && (
-                <p className="text-sm text-white/60">No available sources found. Connect integrations first.</p>
+                  <p className="text-sm text-white/60">No available sources found. Connect integrations first.</p>
                 )}
                 {filteredAvailableSources.map((src) => {
                   const selected = selectedIds.has(src.key);

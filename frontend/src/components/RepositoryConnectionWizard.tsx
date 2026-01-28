@@ -349,7 +349,7 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
                           <Github className="w-4 h-4 text-white" />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <h4 className="font-semibold text-white truncate">{repo.full_name}</h4>
+                          <h4 className="font-semibold text-white truncate">{repo.name}</h4>
                           <div className="flex items-center gap-2 text-sm text-white/60">
                             {repo.private && <span className="text-yellow-400">Private</span>}
                             {repo.language && <span>{repo.language}</span>}
@@ -455,7 +455,7 @@ export function RepositoryConnectionWizard({ onComplete, onCancel }: RepositoryC
                 <Github className="w-4 h-4 text-white" />
               </div>
               <div>
-                <h4 className="font-semibold text-white">{selectedRepo.full_name}</h4>
+                <h4 className="font-semibold text-white">{selectedRepo.name}</h4>
                 <p className="text-sm text-white/60">Choose a branch to connect</p>
               </div>
             </div>
