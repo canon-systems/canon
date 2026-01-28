@@ -171,9 +171,16 @@ export class FileSummaryManager {
       batchSize?: number;
       onProgress?: ProgressCallback;
       model?: string;
+      regenerationReason?: string;
     } = {}
   ): Promise<UpdateResult> {
-    const { force = false, batchSize = 20, onProgress, model = 'openai/gpt-4o-mini' } = options;
+    const {
+      force = false,
+      batchSize = 30,
+      onProgress,
+      model = 'openai/gpt-4o-mini',
+      regenerationReason = 'initial',
+    } = options;
 
     let processed = 0;
     const skipped = 0;
@@ -225,12 +232,13 @@ export class FileSummaryManager {
               .upsert(
                 {
                   repo_id: this.sourceKey,
+                  source_key: this.sourceKey,
                   file_path: this.normalizeFilePath(file.path),
                   file_hash: fileHash,
                   summary_text: summary.summary_text,
                   summary_model: model,
                   branch: this.branch,
-                  regeneration_reason: 'file_changed',
+                  regeneration_reason: regenerationReason,
                   updated_at: new Date().toISOString(),
                 },
                 {
@@ -267,6 +275,24 @@ export class FileSummaryManager {
       total: files.length,
       updatedFiles
     };
+  }
+
+  /**
+   * Force-update summaries for all provided files (or respect caller force flag).
+   * Convenience wrapper so callers can rely on a stable method name.
+   */
+  async updateSummaries(
+    files: Array<{ path: string; content: string; hash?: string }>,
+    options: {
+      force?: boolean;
+      batchSize?: number;
+      onProgress?: ProgressCallback;
+      model?: string;
+      regenerationReason?: string;
+    } = {}
+  ): Promise<UpdateResult> {
+    const { force = true, ...rest } = options;
+    return this.updateSummariesIfNeeded(files, { force, ...rest });
   }
 
   /**

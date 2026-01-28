@@ -43,7 +43,7 @@ interface RepositoriesPageClientProps {
 type StatusFilter = 'all' | 'ready' | 'processing' | 'failed' | 'not_started';
 
 type GithubRepo = { id: string; full_name: string; name: string; default_branch: string };
-type JiraProject = { id: string; key: string; name: string };
+type JiraProject = { id: string; key: string; name: string; cloudId?: string };
 
 const parseGithubRepos = (data: unknown): GithubRepo[] => {
   const repos = (data as { repos?: unknown })?.repos;
@@ -78,6 +78,7 @@ const parseGithubRepos = (data: unknown): GithubRepo[] => {
 
 const parseJiraProjects = (data: unknown): JiraProject[] => {
   const projects = (data as { projects?: unknown })?.projects;
+  const cloudId = (data as { cloudId?: unknown })?.cloudId;
   if (!Array.isArray(projects)) return [];
 
   return projects
@@ -88,9 +89,13 @@ const parseJiraProjects = (data: unknown): JiraProject[] => {
       if (!idSource) return null;
       const key = obj.key ?? obj.name ?? '';
       const name = obj.name ?? obj.key ?? '';
-      return { id: String(idSource), key: String(key), name: String(name) };
+      const result: JiraProject = { id: String(idSource), key: String(key), name: String(name) };
+      if (typeof cloudId === 'string') {
+        result.cloudId = cloudId;
+      }
+      return result;
     })
-    .filter((project): project is JiraProject => Boolean(project?.id));
+    .filter((project): project is JiraProject => project !== null);
 };
 
 export default function RepositoriesPageClient({ repositories }: RepositoriesPageClientProps) {
@@ -98,7 +103,7 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
   const [loadingSources, setLoadingSources] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [availableGithub, setAvailableGithub] = useState<Array<{ id: string; full_name: string; name: string; default_branch: string }>>([]);
-  const [availableJira, setAvailableJira] = useState<Array<{ id: string; key: string; name: string }>>([]);
+  const [availableJira, setAvailableJira] = useState<Array<{ id: string; key: string; name: string; cloudId?: string }>>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [sourceSearch, setSourceSearch] = useState('');
   const [deletingRepoId, setDeletingRepoId] = useState<string | null>(null);
@@ -253,10 +258,10 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
         const res = await fetch(`/api/jira/projects?cloudId=${encodeURIComponent(cloudId)}`);
         if (!res.ok) return [];
         const data = await res.json();
-        return parseJiraProjects(data);
+        return parseJiraProjects({ ...data, cloudId });
       };
 
-      let jiraProjects: Array<{ id: string; key: string; name: string }> = [];
+      let jiraProjects: Array<{ id: string; key: string; name: string; cloudId?: string }> = [];
 
       // First attempt: default projects call
       if (jiraRes.status === 'fulfilled') {
@@ -334,7 +339,7 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
           sources.push({
             provider: 'jira',
             name: project.name || project.key,
-            scope: { project: project.key },
+            scope: { project: project.key, cloudId: project.cloudId },
             connection_id: null,
           });
         }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
+import { ingestSource, type WorkspaceSource } from '@/lib/server/services/sourceIngest';
 
 type CreateSource = {
   name: string;
@@ -73,7 +74,7 @@ export async function POST(request: NextRequest) {
     // Preload user connections for providers to auto-fill connection_id when not provided
     const { data: connections } = await supabase
       .from('oauth_connections')
-      .select('id, provider')
+      .select('id, connection_id, provider')
       .eq('user_id', user.id)
       .eq('status', 'active');
 
@@ -85,12 +86,22 @@ export async function POST(request: NextRequest) {
 
       const providerKey = src.provider.toLowerCase();
       const authProvider = providerAuthMap[providerKey] || providerKey;
-      const connectionId =
-        src.connection_id ??
-        connections?.find((c) => (c.provider || '').toLowerCase() === authProvider)?.id ??
-        null;
+      // Resolve connection id to the oauth_connections.id (UUID) that satisfies the FK
+      let resolvedConnId: string | null = null;
+      if (src.connection_id) {
+        resolvedConnId =
+          connections?.find(
+            (c) =>
+              c.id === src.connection_id ||
+              c.connection_id === src.connection_id ||
+              (c.connection_id || '').toString() === src.connection_id
+          )?.id || null;
+      } else {
+        resolvedConnId =
+          connections?.find((c) => (c.provider || '').toLowerCase() === authProvider)?.id || null;
+      }
 
-      if (!connectionId && ['github', 'gitlab', 'jira', 'confluence', 'slack'].includes(authProvider)) {
+      if (!resolvedConnId && ['github', 'gitlab', 'jira', 'confluence', 'slack'].includes(authProvider)) {
         return NextResponse.json({ error: `Missing OAuth connection for provider ${src.provider}` }, { status: 400 });
       }
 
@@ -99,7 +110,7 @@ export async function POST(request: NextRequest) {
         name: src.name,
         provider: src.provider,
         scope: src.scope,
-        connection_id: connectionId,
+        connection_id: resolvedConnId,
         status_payload: { status: 'queueing', progress_pct: 0 },
         last_error: null,
         created_at: new Date().toISOString(),
@@ -114,12 +125,20 @@ export async function POST(request: NextRequest) {
       throw error;
     }
 
+    // Kick off ingestion sequentially (could be parallelized with workers)
+    for (const row of data || []) {
+      // Fire and forget; don't block the response
+      ingestSource(supabase, row as WorkspaceSource).catch((err) => {
+        console.error('[ingestSource] failed', err);
+      });
+    }
+
     return NextResponse.json(data, { status: 200 });
   } catch (err: unknown) {
     console.error('Create repo error:', err);
     return NextResponse.json(
       {
-        error: 'Failed to create repository',
+        error: 'Failed to connect to source',
         detail: err instanceof Error ? err.message : String(err),
       },
       { status: 500 }
