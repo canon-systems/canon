@@ -165,21 +165,50 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
     return { total: repositories.length, ready, processing, failed, notStarted };
   }, [repositories]);
 
+  const existingSourceKeys = useMemo(() => {
+    const set = new Set<string>();
+    repositories.forEach((r) => {
+      if (r.provider === 'github' && typeof (r.scope as { repo?: unknown })?.repo === 'string') {
+        set.add(`github:${String((r.scope as { repo?: string }).repo).toLowerCase()}`);
+      }
+      if (r.provider === 'jira' && typeof (r.scope as { project?: unknown })?.project === 'string') {
+        set.add(`jira:${String((r.scope as { project?: string }).project).toLowerCase()}`);
+      }
+    });
+    return set;
+  }, [repositories]);
+
   const availableSources = useMemo(() => {
-    const repos = availableGithub.map((r) => ({
-      key: `github:${r.id}`,
-      label: repoNameOnly(r.name || r.full_name),
-      subtitle: `Branch: ${r.default_branch || 'main'}`,
-      provider: 'github' as const,
-    }));
-    const jira = availableJira.map((p) => ({
-      key: `jira:${p.id}`,
-      label: p.name || p.key,
-      subtitle: `Key: ${p.key}`,
-      provider: 'jira' as const,
-    }));
+    const repos = availableGithub
+      .map((r) => {
+        const scopeKey = `github:${(r.full_name || r.name).toLowerCase()}`;
+        if (existingSourceKeys.has(scopeKey)) return null;
+        return {
+          key: `github:${r.id}`,
+          scopeKey,
+          label: repoNameOnly(r.name || r.full_name),
+          subtitle: `Branch: ${r.default_branch || 'main'}`,
+          provider: 'github' as const,
+        };
+      })
+      .filter(Boolean) as Array<{ key: string; scopeKey: string; label: string; subtitle: string; provider: 'github' }>;
+
+    const jira = availableJira
+      .map((p) => {
+        const scopeKey = `jira:${p.key.toLowerCase()}`;
+        if (existingSourceKeys.has(scopeKey)) return null;
+        return {
+          key: `jira:${p.id}`,
+          scopeKey,
+          label: p.name || p.key,
+          subtitle: `Key: ${p.key}`,
+          provider: 'jira' as const,
+        };
+      })
+      .filter(Boolean) as Array<{ key: string; scopeKey: string; label: string; subtitle: string; provider: 'jira' }>;
+
     return [...repos, ...jira].sort((a, b) => a.label.localeCompare(b.label));
-  }, [availableGithub, availableJira]);
+  }, [availableGithub, availableJira, existingSourceKeys]);
 
   const filteredAvailableSources = useMemo(() => {
     const term = sourceSearch.trim().toLowerCase();
@@ -329,7 +358,8 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
 
       for (const repo of availableGithub) {
         const key = `github:${repo.id}`;
-        if (selectedIds.has(key)) {
+        const scopeKey = `github:${(repo.full_name || repo.name).toLowerCase()}`;
+        if (selectedIds.has(key) && !existingSourceKeys.has(scopeKey)) {
           const repoLabel = repoNameOnly(repo.name || repo.full_name);
           sources.push({
             provider: 'github',
@@ -342,7 +372,8 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
 
       for (const project of availableJira) {
         const key = `jira:${project.id}`;
-        if (selectedIds.has(key)) {
+        const scopeKey = `jira:${project.key.toLowerCase()}`;
+        if (selectedIds.has(key) && !existingSourceKeys.has(scopeKey)) {
           sources.push({
             provider: 'jira',
             name: project.name || project.key,
@@ -600,16 +631,44 @@ export default function RepositoriesPageClient({ repositories }: RepositoriesPag
             )}
 
             <div className="space-y-3">
-              <Input
-                placeholder="Search sources"
-                value={sourceSearch}
-                onChange={(e) => setSourceSearch(e.currentTarget.value)}
-                className="bg-black/50 text-white"
-              />
+              <div className="flex flex-wrap items-center gap-3">
+                <Input
+                  placeholder="Search sources"
+                  value={sourceSearch}
+                  onChange={(e) => setSourceSearch(e.currentTarget.value)}
+                  className="flex-1 min-w-[220px] max-w-xl !bg-neutral-800 !border-white text-white placeholder:text-white/70"
+                />
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() =>
+                      setSelectedIds((prev) => {
+                        const next = new Set(prev);
+                        filteredAvailableSources.forEach((src) => next.add(src.key));
+                        return next;
+                      })
+                    }
+                    disabled={filteredAvailableSources.length === 0}
+                  >
+                    Select All
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSelectedIds(new Set())}
+                    disabled={selectedIds.size === 0}
+                  >
+                    Clear
+                  </Button>
+                </div>
+              </div>
 
               <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
                 {filteredAvailableSources.length === 0 && !loadingSources && (
-                  <p className="text-sm text-white/60">No available sources found. Connect integrations first.</p>
+                <p className="text-sm text-white/60">No available sources found. Connect integrations first.</p>
                 )}
                 {filteredAvailableSources.map((src) => {
                   const selected = selectedIds.has(src.key);
