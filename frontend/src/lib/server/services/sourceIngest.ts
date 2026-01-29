@@ -3,6 +3,9 @@ import { analyzeRepository } from './analyzeRepository';
 import { FileSummaryManager } from './fileSummaryManager';
 import { parseRepoUrl } from '../github/github';
 import { getProviderAccessToken } from '../oauth/tokenStore';
+import { buildAkusForSources } from './akuBuilder';
+
+const DEFAULT_AUDIENCES = ['Executive', 'Sales', 'Marketing', 'Engineering', 'Support', 'Customer'];
 
 export type WorkspaceSource = {
   id: string;
@@ -88,11 +91,16 @@ export async function ingestGitHubSource(
 
     const files = analysis.rawFiles || [];
     const sourceKey = normalizeRepoId(repoUrl);
-    const manager = new FileSummaryManager(supabase, sourceKey, branch);
+    const manager = new FileSummaryManager(supabase, source.id, sourceKey, branch);
+    console.log('[ingestGitHubSource] summarizing files', { sourceId: source.id, fileCount: files.length });
     await manager.updateSummaries(
       files.map((f) => ({ path: f.path, content: f.content })),
       { model: 'openai/gpt-4o-mini', regenerationReason: 'initial' }
     );
+
+    // Build AKUs for this source and generate default audience projections
+    console.log('[ingestGitHubSource] building AKUs', { sourceId: source.id, audiences: DEFAULT_AUDIENCES });
+    await buildAkusForSources(supabase, source.user_id, [source.id], DEFAULT_AUDIENCES);
 
     await updateStatus(supabase, source.id, 'ready', 100);
     console.log('[ingestGitHubSource] complete', { sourceId: source.id, repo, branch, files: files.length });
@@ -114,6 +122,7 @@ export async function ingestIssueSource(
   }
 
   try {
+    console.log('[ingestIssueSource] start', { sourceId: source.id, provider });
     await updateStatus(supabase, source.id, 'ingesting', 0);
 
     const projectKey = typeof source.scope?.project === 'string' ? source.scope.project : null;
@@ -264,6 +273,10 @@ export async function ingestIssueSource(
     if (rows.length > 0) {
       await supabase.from('issue_index').upsert(rows, { onConflict: 'source_id,issue_key' });
     }
+
+    // Build AKUs for this issue source as well (with default projections)
+    console.log('[ingestIssueSource] building AKUs', { sourceId: source.id, issues: rows.length, audiences: DEFAULT_AUDIENCES });
+    await buildAkusForSources(supabase, source.user_id, [source.id], DEFAULT_AUDIENCES);
 
     await updateStatus(supabase, source.id, 'ready', 100);
   } catch (err) {

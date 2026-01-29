@@ -40,13 +40,14 @@ export type ProgressCallback = (progress: {
  */
 export class FileSummaryManager {
   private supabase: SupabaseClient;
-  // normalized key (e.g., github.com/owner/repo) used in repo_file_summaries.repo_id
-  private sourceKey: string;
+  private sourceKey: string; // normalized key (e.g., github.com/owner/repo)
+  private sourceId: string;
   private branch: string;
 
-  constructor(supabase: SupabaseClient, sourceKey: string, branch: string = 'main') {
+  constructor(supabase: SupabaseClient, sourceId: string, sourceKey: string, branch: string = 'main') {
     this.supabase = supabase;
     this.sourceKey = sourceKey;
+    this.sourceId = sourceId;
     this.branch = branch;
   }
 
@@ -73,7 +74,7 @@ export class FileSummaryManager {
     const { data, error } = await this.supabase
       .from('repo_file_summaries')
       .select('file_hash, updated_at')
-      .ilike('repo_id', this.sourceKey)
+      .eq('source_id', this.sourceId)
       .eq('branch', this.branch)
       .eq('file_path', normalizedPath)
       .single();
@@ -121,7 +122,7 @@ export class FileSummaryManager {
     const { data, error } = await this.supabase
       .from('repo_file_summaries')
       .select('file_path, summary_text')
-      .ilike('repo_id', this.sourceKey)
+      .eq('source_id', this.sourceId)
       .eq('branch', this.branch)
       .in('file_path', normalizedPaths);
 
@@ -231,7 +232,7 @@ export class FileSummaryManager {
               .from('repo_file_summaries')
               .upsert(
                 {
-                  repo_id: this.sourceKey,
+                  source_id: this.sourceId,
                   source_key: this.sourceKey,
                   file_path: this.normalizeFilePath(file.path),
                   file_hash: fileHash,
@@ -242,7 +243,7 @@ export class FileSummaryManager {
                   updated_at: new Date().toISOString(),
                 },
                 {
-                  onConflict: 'repo_id,file_path,branch',
+                  onConflict: 'source_id,file_path,branch',
                   ignoreDuplicates: false
                 }
               );
