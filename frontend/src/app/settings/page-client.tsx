@@ -8,6 +8,8 @@ import { getIntegrationsCached, clearIntegrationsCache } from '@/lib/client/inte
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { createClient } from '@/lib/supabase/client';
 
 interface Connection {
   id: string;
@@ -19,7 +21,7 @@ interface Connection {
   updated_at: string;
 }
 
-type TabId = 'profile' | 'integrations';
+type TabId = 'profile' | 'preferences' | 'integrations';
 
 // Repository and automation types moved to /automation page
 
@@ -29,6 +31,7 @@ interface SettingsPageClientProps {
 
 const tabs: Array<{ id: TabId; name: string; icon: React.ComponentType<{ className?: string }> }> = [
   { id: 'profile', name: 'Profile', icon: User },
+  { id: 'preferences', name: 'Preferences', icon: Settings },
   { id: 'integrations', name: 'Integrations', icon: Link2 }
 ];
 
@@ -37,6 +40,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   const searchParams = useSearchParams();
 
   const [activeTab, setActiveTab] = useState<TabId>('profile');
+  const [user, setUser] = useState<SupabaseUser | null>(initialUser);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
@@ -45,6 +49,15 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   const [disconnectModalOpen, setDisconnectModalOpen] = useState(false);
   const [connectionToDisconnect, setConnectionToDisconnect] = useState<{ connectionId: string; provider: string } | null>(null);
   const [uninstallOnDisconnect, setUninstallOnDisconnect] = useState(false);
+  const DEFAULT_AUDIENCES = ['Executive', 'Sales', 'Marketing', 'Engineering', 'Support', 'Customer'];
+  const [preferredAudiences, setPreferredAudiences] = useState<string[]>(() => {
+    const meta = initialUser?.user_metadata?.preferred_audiences;
+    if (Array.isArray(meta) && meta.length) return meta as string[];
+    return [];
+  });
+  const [savingPreferences, setSavingPreferences] = useState(false);
+  const [preferencesMessage, setPreferencesMessage] = useState('');
+  const [preferencesError, setPreferencesError] = useState('');
 
   // Repository management moved to /automation page
 
@@ -73,7 +86,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   // Get active tab from URL query param
   useEffect(() => {
     const tabParam = searchParams.get('tab');
-    const validTabs: TabId[] = ['profile', 'integrations'];
+    const validTabs: TabId[] = ['profile', 'preferences', 'integrations'];
     if (tabParam && validTabs.includes(tabParam as TabId)) {
       setActiveTab(tabParam as TabId);
     }
@@ -207,15 +220,6 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     router.push(`/settings?tab=${tabId}`, { scroll: false });
   }
 
-  // Automation functionality moved to /automation page
-
-  // Repository management moved to /automation page
-
-  // Automation functionality moved to /automation page
-  // All automation-related functions removed
-
-  // Repository management moved to /automation page
-
   // Connection status helpers for integrations tab
   const gitHubConnection = connections.find(c => c.provider === 'github' && c.status === 'active');
   const githubInstallationId = (() => {
@@ -227,6 +231,32 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     const fallback = Number(gitHubConnection?.connection_id);
     return Number.isFinite(fallback) && fallback > 0 ? fallback : null;
   })();
+
+  async function savePreferences() {
+    setSavingPreferences(true);
+    setPreferencesMessage('');
+    setPreferencesError('');
+
+    try {
+      const supabase = createClient();
+      const { data, error: updateError } = await supabase.auth.updateUser({
+        data: { preferred_audiences: preferredAudiences }
+      });
+
+      if (updateError) throw updateError;
+      if (data?.user) setUser(data.user as SupabaseUser);
+
+      setPreferencesMessage('Preferences saved. We will default to these audiences when generating documentation.');
+    } catch (err: unknown) {
+      setPreferencesError(err instanceof Error ? err.message : 'Failed to save preferences');
+    } finally {
+      setSavingPreferences(false);
+    }
+  }
+
+  const toggleAudience = (aud: string) => {
+    setPreferredAudiences(prev => prev.includes(aud) ? prev.filter(a => a !== aud) : [...prev, aud]);
+  };
 
   return (
     <>
@@ -269,8 +299,8 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                       <User className="h-8 w-8 text-white/70" />
                     </div>
                     <div>
-                      <p className="text-lg font-semibold text-white">{initialUser?.email || 'User'}</p>
-                      <p className="text-sm text-white/60">Account ID: {initialUser?.id || 'N/A'}</p>
+                      <p className="text-lg font-semibold text-white">{user?.email || 'User'}</p>
+                      <p className="text-sm text-white/60">Account ID: {user?.id || 'N/A'}</p>
                     </div>
                   </div>
 
@@ -291,6 +321,91 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                       Profile management features coming soon. For now, your account information is managed through authentication.
                     </p>
                   </div>
+                </div>
+              </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="preferences" className="mt-6">
+            {/* Preferences Tab */}
+            <div>
+              <div className="mb-6">
+                <h2 className="text-2xl font-semibold text-white mb-2">Preferences</h2>
+                <p className="text-white/70">Set your default audience so generated content starts in the right voice.</p>
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm space-y-5">
+                {(preferencesMessage || preferencesError) && (
+                  <div
+                    className={`rounded-lg border p-3 text-sm ${preferencesError
+                      ? 'border-red-500/50 bg-red-500/10 text-red-200'
+                      : 'border-green-500/50 bg-green-500/10 text-green-200'
+                      }`}
+                  >
+                    {preferencesError || preferencesMessage}
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-white/80">
+                    Preferred audiences
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {DEFAULT_AUDIENCES.map((aud) => {
+                      const active = preferredAudiences.includes(aud);
+                      return (
+                        <Badge
+                          key={aud}
+                          variant={active ? 'default' : 'outline'}
+                          className="cursor-pointer transition-all hover:scale-105"
+                          onClick={() => toggleAudience(aud)}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              toggleAudience(aud);
+                            }
+                          }}
+                        >
+                          {aud}
+                        </Badge>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-white/60">
+                    These audiences will be the default for the new AKU workflow.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <Button
+                    onClick={savePreferences}
+                    disabled={savingPreferences}
+                    className="bg-blue-600 text-white hover:bg-blue-700"
+                  >
+                    {savingPreferences ? (
+                      <span className="flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Saving...
+                      </span>
+                    ) : (
+                      'Save preferences'
+                    )}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="text-white/70 hover:text-white"
+                    onClick={() => {
+                      const meta = user?.user_metadata?.preferred_audiences;
+                      setPreferredAudiences(Array.isArray(meta) ? meta : []);
+                      setPreferencesError('');
+                      setPreferencesMessage('');
+                    }}
+                  >
+                    Reset to default
+                  </Button>
                 </div>
               </div>
             </div>

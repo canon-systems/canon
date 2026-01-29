@@ -315,6 +315,41 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
     }
   }, [searchParams]);
 
+  // Preload preferred audience from user profile (set once on mount)
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPreferredAudience() {
+      try {
+        const supabase = createClient();
+        const { data } = await supabase.auth.getUser();
+        const preferredSingle = data.user?.user_metadata?.preferred_audience;
+        const preferredArray = data.user?.user_metadata?.preferred_audiences;
+
+        if (!cancelled) {
+          const resolvedAudience =
+            (typeof preferredSingle === 'string' && preferredSingle.trim()) ||
+            (Array.isArray(preferredArray) && preferredArray[0]) ||
+            null;
+
+          if (resolvedAudience) {
+            setPromptConfig((prev) => ({
+              ...prev,
+              audience: resolvedAudience
+            }));
+          }
+        }
+      } catch (err) {
+        console.error('Unable to load preferred audience', err);
+      }
+    }
+
+    loadPreferredAudience();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Load view preference from localStorage for edit tab
   useEffect(() => {
     if (activeTab === 'edit') {

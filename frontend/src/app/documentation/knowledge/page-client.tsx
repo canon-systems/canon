@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -23,6 +23,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import { Loader2, Users, ChevronsUpDown, Info } from 'lucide-react';
+import { createClient } from '@/lib/supabase/client';
 
 type KnowledgeItem = {
   id: string;
@@ -35,8 +36,6 @@ type KnowledgeItem = {
 };
 
 type Source = { id: string; name: string; provider: string };
-
-const DEFAULT_AUDIENCES = ['Executive', 'Sales', 'Marketing', 'Engineering', 'Support', 'Customer'];
 
 function projectForAudience(item: KnowledgeItem, audience: string): string {
   const base = item.body || '';
@@ -67,28 +66,43 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
   const [loading, setLoading] = useState(false);
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
   const [sourceMenuOpen, setSourceMenuOpen] = useState(false);
-  const [audiences, setAudiences] = useState<string[]>(() => {
-    if (typeof window === 'undefined') return [];
-    try {
-      const saved = localStorage.getItem('knowledge_audiences');
-      if (saved) return JSON.parse(saved);
-    } catch {
-      // ignore
-    }
-    return [];
-  });
+  const [audiences, setAudiences] = useState<string[]>([]);
   const [selectedTabs, setSelectedTabs] = useState<Record<string, string>>({});
 
-  const toggleAudience = (aud: string) => {
-    setAudiences((prev) => {
-      const exists = prev.includes(aud);
-      const next = exists ? prev.filter((a) => a !== aud) : [...prev, aud];
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('knowledge_audiences', JSON.stringify(next));
+
+  // Initialize audiences directly from Supabase preference (persisted in auth metadata)
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPreferredAudiences() {
+      try {
+        const supabase = createClient();
+        const { data } = await supabase.auth.getUser();
+        const preferred =
+          (Array.isArray(data.user?.user_metadata?.preferred_audiences) && data.user?.user_metadata?.preferred_audiences) ||
+          (data.user?.user_metadata?.preferred_audience ? [data.user.user_metadata.preferred_audience] : []);
+
+        if (!cancelled && preferred && preferred.length) {
+          setAudiences(preferred);
+        }
+      } catch (err) {
+        console.error('Unable to load preferred audiences', err);
       }
-      return next;
-    });
-  };
+    }
+
+    loadPreferredAudiences();
+    const handleFocus = () => loadPreferredAudiences();
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', handleFocus);
+    }
+
+    return () => {
+      cancelled = true;
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('focus', handleFocus);
+      }
+    };
+  }, []);
 
   const toggleSource = (id: string) => {
     setSelectedSourceIds((prev) =>
@@ -137,10 +151,10 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
         item.projections && item.projections.length > 0
           ? item.projections
           : audiences.map((aud) => ({
-              audience: aud,
-              projection: projectForAudience(item, aud),
-              status: 'draft',
-            }));
+            audience: aud,
+            projection: projectForAudience(item, aud),
+            status: 'draft',
+          }));
       return { ...item, projections };
     });
   }, [items, audiences]);
@@ -248,36 +262,30 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
 
           <div className="space-y-3">
             <Label className="text-white">Audiences</Label>
-            <div className="flex flex-wrap gap-2">
-              {DEFAULT_AUDIENCES.map((aud) => {
-                const active = audiences.includes(aud);
-                return (
+            {audiences.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {audiences.map((aud) => (
                   <Badge
                     key={aud}
-                    variant={active ? 'default' : 'outline'}
-                    className="cursor-pointer transition-all hover:scale-105"
-                    onClick={() => toggleAudience(aud)}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        toggleAudience(aud);
-                      }
-                    }}
+                    variant="default"
+                    className="cursor-default"
                   >
                     {aud}
                   </Badge>
-                );
-              })}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white/70">
+                No audiences selected. Set them in Settings → Preferences.
+              </div>
+            )}
           </div>
 
           <div className="flex justify-end">
             <Button
               variant="default"
               onClick={loadItems}
-              disabled={loading || selectedSourceIds.length === 0}
+              disabled={loading || selectedSourceIds.length === 0 || audiences.length === 0}
             >
               {loading ? (
                 <>
