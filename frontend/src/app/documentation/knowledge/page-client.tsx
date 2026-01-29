@@ -22,7 +22,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
-import { Loader2, Users, ChevronsUpDown, Info } from 'lucide-react';
+import { Loader2, ChevronsUpDown, Info } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
 type KnowledgeItem = {
@@ -111,7 +111,7 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
   };
 
   const loadItems = async () => {
-    if (selectedSourceIds.length === 0) return;
+    if (selectedSourceIds.length === 0 || audiences.length === 0) return;
     setLoading(true);
     try {
       // Build (ingest -> AKU) then fetch the latest list
@@ -158,6 +158,16 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
       return { ...item, projections };
     });
   }, [items, audiences]);
+
+  // Auto-sync when sources or audience preferences change
+  useEffect(() => {
+    if (selectedSourceIds.length === 0 || audiences.length === 0) return;
+    const id = setTimeout(() => {
+      loadItems();
+    }, 400);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSourceIds, audiences]);
 
   return (
     <div className="space-y-6">
@@ -261,7 +271,25 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
           </div>
 
           <div className="space-y-3">
-            <Label className="text-white">Audiences</Label>
+            <div className="flex items-center justify-between gap-3">
+              <Label className="text-white">Audiences</Label>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={loadItems}
+                disabled={loading || selectedSourceIds.length === 0 || audiences.length === 0}
+                className="border-white/20 bg-white/10 text-white hover:bg-white/20"
+              >
+                {loading ? (
+                  <span className="flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Syncing...
+                  </span>
+                ) : (
+                  'Sync now'
+                )}
+              </Button>
+            </div>
             {audiences.length > 0 ? (
               <div className="flex flex-wrap gap-2">
                 {audiences.map((aud) => (
@@ -279,26 +307,6 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                 No audiences selected. Set them in Settings → Preferences.
               </div>
             )}
-          </div>
-
-          <div className="flex justify-end">
-            <Button
-              variant="default"
-              onClick={loadItems}
-              disabled={loading || selectedSourceIds.length === 0 || audiences.length === 0}
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Loading...
-                </>
-              ) : (
-                <>
-                  <Users className="h-4 w-4 mr-2" />
-                  Generate units
-                </>
-              )}
-            </Button>
           </div>
         </CardContent>
       </Card>
@@ -323,7 +331,7 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
         <Alert variant="default">
           <Info className="h-4 w-4" />
           <AlertDescription>
-            Select one or more sources above and click &quot;Generate units&quot; to load knowledge.
+            Select one or more sources above to start syncing knowledge automatically.
           </AlertDescription>
         </Alert>
       )}
