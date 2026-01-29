@@ -1,9 +1,9 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
-import RepositoriesPageClient from './page-client';
+import SourcesPageClient from './page-client';
 
-export default async function RepositoriesPage() {
+export default async function SourcesPage() {
   const { user } = await getSession();
 
   if (!user) {
@@ -23,5 +23,5 @@ export default async function RepositoriesPage() {
     console.error('Failed to load repositories:', repoError);
   }
 
-  return <RepositoriesPageClient repositories={repositories || []} />;
+  return <SourcesPageClient repositories={repositories || []} />;
 }

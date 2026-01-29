@@ -919,7 +919,7 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
       <div className="mx-auto w-full max-w-none space-y-6">
         <header>
           <Button variant="ghost" size="sm" asChild className="mb-4">
-            <Link href="/documentation?tab=edit">
+            <Link href="/knowledge?tab=edit">
               <ArrowLeft className="w-4 h-4" />
               Back to Documentation
             </Link>
@@ -1507,7 +1507,7 @@ export function EditDetailPageClient({ submission: initialSubmission }: EditDeta
           </Button>
 
           <Button asChild variant="outline" className="rounded-xl border-white/20 text-white/80 hover:bg-white/10">
-            <Link href="/documentation?tab=edit">Back to Edit</Link>
+            <Link href="/knowledge?tab=edit">Back to Edit</Link>
           </Button>
         </div>
 

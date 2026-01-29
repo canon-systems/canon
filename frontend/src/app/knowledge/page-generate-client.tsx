@@ -926,7 +926,7 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
   function setActiveTabAndUpdateUrl(value: string) {
     const tabId = value as TabId;
     setActiveTab(tabId);
-    router.push(`/documentation?tab=${tabId}`, { scroll: false });
+    router.push(`/knowledge?tab=${tabId}`, { scroll: false });
   }
 
   const tabs: Array<{ id: TabId; name: string; icon: React.ComponentType<{ className?: string }> }> = [
@@ -1128,7 +1128,7 @@ export function DocumentationPageClient({ repoId, repos: initialRepos = [] }: Do
                         <p className="text-sm text-white/60">
                           {uniqueRepos.length === 0 ? (
                             <span>
-                              No ready repositories. <Link href="/repos" className="font-medium underline">Go to Repositories →</Link>
+                              No ready repositories. <Link href="/sources" className="font-medium underline">Go to Sources →</Link>
                             </span>
                           ) : (
                             'Select a repository that has been set up with file summaries.'

@@ -36,7 +36,7 @@ interface Repository {
   updated_at: string;
 }
 
-interface RepositoriesPageClientProps {
+interface SourcesPageClientProps {
   repositories: Repository[];
 }
 
@@ -104,7 +104,7 @@ const parseJiraProjects = (data: unknown): JiraProject[] => {
     .filter((project): project is JiraProject => project !== null);
 };
 
-export default function RepositoriesPageClient({ repositories }: RepositoriesPageClientProps) {
+export default function SourcesPageClient({ repositories }: SourcesPageClientProps) {
   const [showSourceDialog, setShowSourceDialog] = useState(false);
   const [loadingSources, setLoadingSources] = useState(false);
   const [loadError, setLoadError] = useState('');

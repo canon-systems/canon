@@ -515,7 +515,7 @@ export function EditListPageClient({ user }: EditListPageClientProps) {
               <CardContent className="p-12 text-center">
                 <p className="mb-4 text-white/80">No documents found.</p>
                 <Button asChild>
-                  <Link href="/documentation">Create your first document</Link>
+                  <Link href="/knowledge">Create your first document</Link>
                 </Button>
               </CardContent>
             </Card>

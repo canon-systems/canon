@@ -107,7 +107,7 @@ export default async function LogsPage() {
           title: repoName ? `Repository Connected: ${repoName}` : 'Repository Connected',
           message: repoName ? `Connected repository ${repoName}` : 'Repository connected',
           status: 'completed',
-          link: '/repos',
+          link: '/sources',
         };
       }
       case 'repo_disconnected': {
@@ -117,7 +117,7 @@ export default async function LogsPage() {
           title: repoName ? `Repository Disconnected: ${repoName}` : 'Repository Disconnected',
           message: repoName ? `Disconnected repository ${repoName}` : 'Repository disconnected',
           status: 'completed',
-          link: '/repos',
+          link: '/sources',
         };
       }
       case 'integration_connected':
@@ -170,7 +170,7 @@ export default async function LogsPage() {
           title: repoName ? `Repo scan: ${repoName}` : 'Repo scan',
           message: meta.repo_url ? `Scanned ${meta.repo_url}` : 'Repository scan executed',
           status: 'completed',
-          link: '/repos',
+          link: '/sources',
         };
       case 'automation_run': {
         const rawStatus = typeof meta.status === 'string' ? meta.status : null;

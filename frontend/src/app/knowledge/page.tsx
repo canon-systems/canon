@@ -1,9 +1,9 @@
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
-import KnowledgeClient from './knowledge/page-client';
+import KnowledgeClient from './page-client';
 
-export default async function DocumentationPage() {
+export default async function KnowledgePage() {
   const { session, user } = await getSession();
 
   if (!session) {

@@ -534,7 +534,7 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
                                                     Set up repositories to generate architecture diagrams. Repositories must complete the full setup process.
                                                 </p>
                                                 <Button asChild>
-                                                    <Link href="/repos">
+                                                    <Link href="/sources">
                                                         <Github className="w-4 h-4" />
                                                         Manage Repositories
                                                     </Link>

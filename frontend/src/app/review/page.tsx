@@ -160,7 +160,7 @@ export default async function ReviewQueuePage() {
               <p>No pending reviews right now.</p>
               <div className="mt-4">
                 <Button asChild>
-                  <Link href="/documentation">Generate Documentation</Link>
+                  <Link href="/knowledge">Generate Documentation</Link>
                 </Button>
               </div>
             </CardContent>
@@ -178,7 +178,7 @@ export default async function ReviewQueuePage() {
                     <p>No pending reviews right now.</p>
                     <div className="mt-4">
                       <Button asChild>
-                        <Link href="/documentation">Generate Documentation</Link>
+                        <Link href="/knowledge">Generate Documentation</Link>
                       </Button>
                     </div>
                   </CardContent>

@@ -25,7 +25,7 @@ export default async function ReviewPage({ params, searchParams }: ReviewPagePro
 
   const document = await getDocument(supabase, id);
   if (!document) {
-    redirect('/documentation?tab=edit');
+    redirect('/knowledge?tab=edit');
   }
 
   const sourceId = document.source_id;
@@ -36,7 +36,7 @@ export default async function ReviewPage({ params, searchParams }: ReviewPagePro
     .single();
 
   if (!repo || repo.user_id !== user.id) {
-    redirect('/documentation?tab=edit');
+    redirect('/knowledge?tab=edit');
   }
 
   let pendingQuery = supabase
