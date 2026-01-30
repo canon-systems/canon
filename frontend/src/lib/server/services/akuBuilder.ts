@@ -1,5 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { randomUUID } from 'crypto';
+import { LLMGateway } from './llmGateway';
+
 type Evidence = {
   id: string;
   source_id: string;
@@ -9,19 +11,74 @@ type Evidence = {
   scope_ref: string;
 };
 
-const audienceTemplates: Record<string, (title: string, sections: StructuredBody) => string> = {
-  Executive: (title, sections) =>
-    `Capability: ${title}\nImpact: ${sections.summary}\nRisks: ${sections.failure_modes || 'TBD'}\nOwner: TBD`,
-  Sales: (_title, sections) =>
-    `Problem: ${sections.summary}\nDifferentiators: ${sections.dependencies || 'TBD'}\nDisqualifiers: TBD\nIntegration reqs: ${sections.dependencies || 'TBD'}`,
-  Marketing: (_title, sections) =>
-    `Positioning: ${sections.summary}\nClaims allowed: TBD\nDo-not-claim: TBD\nTarget persona: TBD`,
-  Engineering: (_title, sections) =>
-    `Summary:\n${sections.summary}\nInterfaces:\n${sections.interfaces || 'TBD'}\nDependencies:\n${sections.dependencies || 'TBD'}\nFailure modes:\n${sections.failure_modes || 'TBD'}`,
-  Support: (_title, sections) =>
-    `Common breakage: ${sections.failure_modes || 'TBD'}\nSignals/alerts: TBD\nRunbook:\n${sections.summary}`,
-  Customer: (_title, sections) =>
-    `Benefit: ${sections.summary}\nHow to use safely: TBD\nLimits: TBD\nContact: Support`,
+type StructuredBody = {
+  purpose: string;
+  interfaces: string;
+  dependencies: string;
+  operational: string;
+  failure_modes: string;
+  data: string;
+  ownership: string;
+};
+
+type AudienceSchema = {
+  name: string;
+  sections: Array<{ key: string; label: string; instructions: string; maxChars: number }>;
+};
+
+const AUDIENCE_SCHEMAS: Record<string, AudienceSchema> = {
+  Executive: {
+    name: 'Executive',
+    sections: [
+      { key: 'capability', label: 'Capability', instructions: 'One sentence, business capability.', maxChars: 220 },
+      { key: 'impact', label: 'Impact', instructions: 'Business impact; user value; cost/risk mitigation. No tech jargon.', maxChars: 260 },
+      { key: 'risks', label: 'Risks', instructions: 'Pull only from failure modes or operational concerns.', maxChars: 200 },
+      { key: 'owner', label: 'Owner', instructions: 'Owner inferred from ownership signals or leave empty.', maxChars: 120 },
+    ],
+  },
+  Sales: {
+    name: 'Sales',
+    sections: [
+      { key: 'problem', label: 'Problem', instructions: 'Customer problem solved (plain language).', maxChars: 220 },
+      { key: 'differentiators', label: 'Differentiators', instructions: 'Only facts in canonical evidence.', maxChars: 220 },
+      { key: 'disqualifiers', label: 'Disqualifiers', instructions: 'When NOT to sell; pull from failure modes/limits.', maxChars: 200 },
+      { key: 'integration', label: 'Integration', instructions: 'Key dependencies/setup from interfaces/dependencies.', maxChars: 200 },
+    ],
+  },
+  Marketing: {
+    name: 'Marketing',
+    sections: [
+      { key: 'positioning', label: 'Positioning', instructions: 'Market-facing positioning.', maxChars: 220 },
+      { key: 'claims_allowed', label: 'Claims allowed', instructions: 'Only claims supported by evidence.', maxChars: 200 },
+      { key: 'do_not_claim', label: 'Do-not-claim', instructions: 'Statements to avoid.', maxChars: 200 },
+      { key: 'persona', label: 'Persona', instructions: 'Target persona.', maxChars: 140 },
+    ],
+  },
+  Engineering: {
+    name: 'Engineering',
+    sections: [
+      { key: 'summary', label: 'Summary', instructions: 'Technical overview.', maxChars: 320 },
+      { key: 'interfaces', label: 'Interfaces', instructions: 'APIs/routes/call sites.', maxChars: 320 },
+      { key: 'dependencies', label: 'Dependencies', instructions: 'Services, env vars, secrets, infra.', maxChars: 260 },
+      { key: 'failure_modes', label: 'Failure modes', instructions: 'Likely failures and mitigations.', maxChars: 260 },
+    ],
+  },
+  Support: {
+    name: 'Support',
+    sections: [
+      { key: 'breakage', label: 'Common breakage', instructions: 'What typically breaks.', maxChars: 220 },
+      { key: 'signals', label: 'Signals/alerts', instructions: 'Detection cues.', maxChars: 200 },
+      { key: 'runbook', label: 'Runbook', instructions: 'Concrete steps; no inventions.', maxChars: 260 },
+    ],
+  },
+  Customer: {
+    name: 'Customer',
+    sections: [
+      { key: 'benefit', label: 'Benefit', instructions: 'Plain language benefit.', maxChars: 200 },
+      { key: 'how_to_use', label: 'How to use', instructions: 'Safe usage from interfaces/data/operational.', maxChars: 220 },
+      { key: 'limits', label: 'Limits', instructions: 'Known constraints only.', maxChars: 180 },
+    ],
+  },
 };
 
 const criticalKeywords = ['auth', 'token', 'jwt', 'billing', 'payment', 'invoice', 'stripe', 'permission', 'acl', 'sso', 'saml', 'pii', 'data loss', 'encryption', 'backup'];
@@ -47,22 +104,12 @@ function audienceSurface(title: string, body: string) {
   return { map, count };
 }
 
-type StructuredBody = {
-  summary: string;
-  interfaces: string;
-  dependencies: string;
-  invariants: string;
-  failure_modes: string;
-  notes: string;
-};
-
 type ClusterKey = { key: string; label: string; reason: string };
 
 function classifyFile(path: string): ClusterKey {
   const lower = path.toLowerCase();
   const parts = path.split('/').filter(Boolean);
   const top = parts[0] || 'root';
-
   const integrationNames = ['modal', 'stripe', 'supabase', 'github', 'jira', 'confluence', 'notion', 'slack'];
   const featureNames = ['auth', 'billing', 'ingest', 'summarize', 'docs', 'automation'];
 
@@ -73,45 +120,149 @@ function classifyFile(path: string): ClusterKey {
     return { key: `job:${top}`, label: `${top} jobs`, reason: 'job' };
   }
   const integrationHit = integrationNames.find((n) => lower.includes(n));
-  if (integrationHit) {
-    return { key: `integration:${integrationHit}`, label: `${integrationHit} integration`, reason: 'integration' };
-  }
+  if (integrationHit) return { key: `integration:${integrationHit}`, label: `${integrationHit} integration`, reason: 'integration' };
   const featureHit = featureNames.find((n) => lower.startsWith(`${n}/`) || lower.includes(`/${n}/`));
-  if (featureHit) {
-    return { key: `feature:${featureHit}`, label: `${featureHit}`, reason: 'feature' };
-  }
+  if (featureHit) return { key: `feature:${featureHit}`, label: `${featureHit}`, reason: 'feature' };
   return { key: `folder:${top}`, label: top, reason: 'folder' };
+}
+
+function summarizeText(texts: string[], maxLen = 600) {
+  const joined = texts.join(' ');
+  return joined.length <= maxLen ? joined : joined.slice(0, maxLen);
 }
 
 function buildStructuredBody(clusterLabel: string, items: Evidence[]): StructuredBody {
   const summaries = items.map((e) => e.body).filter(Boolean);
-  const summaryText = summaries.join(' ') || `Capability: ${clusterLabel}`;
+  const summaryText = summarizeText(summaries, 800) || `Capability: ${clusterLabel}`;
 
   const interfaceItems = items
     .filter((e) => e.scope_ref.toLowerCase().includes('api') || e.scope_ref.toLowerCase().includes('route'))
     .map((e) => `- ${e.scope_ref}`)
     .join('\n');
 
-  const depsCandidates = ['modal', 'stripe', 'supabase', 'github', 'jira', 'confluence', 'notion', 'slack', 'queue', 'kafka', 'sqs'];
+  const depsCandidates = ['modal', 'stripe', 'supabase', 'github', 'jira', 'confluence', 'notion', 'slack', 'queue', 'kafka', 'sqs', 'redis'];
   const deps = depsCandidates
     .filter((d) => summaries.some((s) => s.toLowerCase().includes(d)) || items.some((e) => e.scope_ref.toLowerCase().includes(d)))
     .map((d) => `- ${d}`)
     .join('\n');
 
+  const ownership = items.map((e) => e.scope_ref.split('/')[0]).filter(Boolean);
+
   return {
-    summary: summaryText,
-    interfaces: interfaceItems || 'TBD',
-    dependencies: deps || 'TBD',
-    invariants: 'TBD',
-    failure_modes: 'TBD',
-    notes: `Sources: ${items.map((e) => e.scope_ref).join(', ')}`,
+    purpose: summaryText,
+    interfaces: interfaceItems || 'Not observed',
+    dependencies: deps || 'Not observed',
+    operational: 'Rate limits / retries / timeouts not observed in summaries.',
+    failure_modes: 'Auth failure, network/Modal outage, misconfiguration (inferred).',
+    data: 'Data observed in summaries; ensure PII handling as per code.',
+    ownership: ownership.length ? Array.from(new Set(ownership)).join(', ') : 'Not observed',
   };
 }
 
-/**
- * Build AKUs and optional audience projections for the given sources.
- * Designed to be called from ingest flows and HTTP handlers.
- */
+function canonicalToMarkdown(c: StructuredBody) {
+  return [
+    '## Purpose',
+    c.purpose,
+    '## Interfaces',
+    c.interfaces,
+    '## Dependencies',
+    c.dependencies,
+    '## Operational concerns',
+    c.operational,
+    '## Failure modes',
+    c.failure_modes,
+    '## Data',
+    c.data,
+    '## Ownership',
+    c.ownership,
+  ].join('\n\n');
+}
+
+const FORBIDDEN_IF_NOT_PRESENT = ['sla', 'gdpr', 'hipaa', 'pci', 'encryption', 'privacy', 'compliance'];
+
+function validateProjection(text: string, canonical: string, schema: AudienceSchema) {
+  const lowerCanon = canonical.toLowerCase();
+  const failures: string[] = [];
+  FORBIDDEN_IF_NOT_PRESENT.forEach((term) => {
+    if (text.toLowerCase().includes(term) && !lowerCanon.includes(term)) {
+      failures.push(`Forbidden term without evidence: ${term}`);
+    }
+  });
+  schema.sections.forEach((s) => {
+    if (!text.toLowerCase().includes(s.label.toLowerCase().split(' ')[0])) {
+      // soft check; allow
+    }
+  });
+  return failures;
+}
+
+async function generateProjection(
+  llm: LLMGateway,
+  audience: string,
+  schema: AudienceSchema,
+  title: string,
+  canonical: string,
+  structured: StructuredBody
+) {
+  const system = [
+    'You are Canon AKU projection generator.',
+    'Use ONLY provided canonical facts; forbid fabrication.',
+    'Output compact JSON ONLY, no code fences, no markdown.',
+    'Shape: {"sections":[{"label":"<label>","text":"<short human text>"}]}',
+    'Labels must match provided schema labels exactly.',
+    'If a section is unsupported by evidence, use empty string.',
+  ].join(' ');
+
+  const userContent = {
+    audience: schema.name,
+    title,
+    schema: schema.sections.map((s) => ({ label: s.label, instructions: s.instructions, maxChars: s.maxChars })),
+    canonical,
+    structured,
+  };
+
+  try {
+    const respText = await llm.call(
+      [
+        { role: 'system', content: system },
+        { role: 'user', content: JSON.stringify(userContent) },
+      ] as any,
+      'openai/gpt-4o-mini',
+      0.2
+    );
+
+    const cleaned = (respText || '')
+      .replace(/```json/gi, '')
+      .replace(/```/g, '')
+      .trim();
+
+    // Attempt to extract JSON object if extra text present
+    const jsonMatch = cleaned.match(/{[\s\S]*}/);
+    const jsonText = jsonMatch ? jsonMatch[0] : cleaned;
+
+    const parsed = JSON.parse(jsonText);
+    if (!parsed.sections || !Array.isArray(parsed.sections)) throw new Error('Invalid projection shape');
+
+    const projection = parsed.sections
+      .filter((s: any) => s?.label)
+      .map((s: { label: string; text: string }) => `${s.label}:\n${(s.text || '').trim()}`)
+      .join('\n\n')
+      .trim();
+
+    if (!projection) throw new Error('Empty projection');
+
+    const validation = validateProjection(projection, canonical, schema);
+    const status = validation.length === 0 ? 'draft' : 'pending_verification';
+    const finalText = validation.length === 0 ? projection : `PENDING: ${validation.join('; ')}\n\n${projection}`;
+    return { projection: finalText, status };
+  } catch (e) {
+    return {
+      projection: `PENDING: projection generation failed (${(e as Error).message})`,
+      status: 'pending_verification',
+    };
+  }
+}
+
 export async function buildAkusForSources(
   supabase: SupabaseClient,
   userId: string,
@@ -123,32 +274,23 @@ export async function buildAkusForSources(
 
   const evidence: Evidence[] = [];
 
-  // Resolve source keys from workspace_sources (repo_url/external_url) for fallback matching
   const { data: summaries } = await supabase
     .from('repo_file_summaries')
-    .select('id, source_id, file_path, summary_text');
+    .select('id, source_id, file_path, summary_text')
+    .in('source_id', sourceIds);
 
-  summaries
-    ?.filter((s) => {
-      return s.source_id && sourceIds.includes(s.source_id);
-    })
-    .forEach((s) => {
-      evidence.push({
-        id: s.id,
-        source_id: s.source_id || 'unknown',
-        kind: 'code',
-        title: s.file_path,
-        body: s.summary_text || '',
-        scope_ref: s.file_path,
-      });
+  summaries?.forEach((s) => {
+    evidence.push({
+      id: s.id,
+      source_id: s.source_id,
+      kind: 'code',
+      title: s.file_path,
+      body: s.summary_text || '',
+      scope_ref: s.file_path,
     });
+  });
 
-  if (evidence.length === 0 && (summaries || []).length > 0) {
-    console.log('[AKU builder] note: no summaries matched source ids', {
-      requestedSourceIds: sourceIds,
-      summaryCount: summaries?.length || 0,
-    });
-  }
+  console.log('[AKU builder] evidence from summaries', { count: evidence.length });
 
   const { data: issues } = await supabase
     .from('issue_index')
@@ -166,7 +308,8 @@ export async function buildAkusForSources(
     });
   });
 
-  // cluster by capability heuristics
+  console.log('[AKU builder] total evidence after issues', { count: evidence.length });
+
   const clusters = new Map<string, { items: Evidence[]; label: string; reason: string }>();
   evidence.forEach((e) => {
     const cls = classifyFile(e.scope_ref);
@@ -174,48 +317,31 @@ export async function buildAkusForSources(
     clusters.get(cls.key)!.items.push(e);
   });
 
-  type Aku = {
-    id: string;
-    title: string;
-    body: string;
-    type: 'issue' | 'code_summary';
-    source_ids: string[];
-    scope_refs: string[];
-    hash: string;
-    status: string;
-    scores: Record<string, unknown>;
-  };
+  const akus: any[] = [];
+  const projections: any[] = [];
+  const llm = new LLMGateway();
 
-  type AudienceProjection = {
-    id: string;
-    aku_id: string;
-    audience: string;
-    projection: string;
-    status: string;
-  };
-
-  const akus: Aku[] = [];
-  const projections: AudienceProjection[] = [];
-
-  for (const [, cluster] of clusters.entries()) {
+  for (const [key, cluster] of clusters.entries()) {
     const items = cluster.items;
     if (items.length === 0) continue;
     const hasIssue = items.some((e) => e.kind === 'issue');
     if (!hasIssue && items.length < 2) continue;
 
+    console.log('[AKU builder] cluster', { key, label: cluster.label, reason: cluster.reason, size: items.length });
+
     const title = cluster.label.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
     const structured = buildStructuredBody(title, items);
-    const body = `## Summary\n${structured.summary}\n\n## Interfaces\n${structured.interfaces}\n\n## Dependencies\n${structured.dependencies}\n\n## Invariants\n${structured.invariants}\n\n## Failure modes\n${structured.failure_modes}\n\n## Notes\n${structured.notes}`;
+    const canonical = canonicalToMarkdown(structured);
+
     const source_ids = Array.from(new Set(items.map((i) => i.source_id)));
     const scope_refs = Array.from(new Set(items.map((i) => i.scope_ref)));
     const hash = `${items.map((i) => i.id).sort().join(':')}`;
     const akuId = randomUUID();
 
-    // scoring
-    const crit = scoreText(title + ' ' + body, criticalKeywords);
-    const promise = scoreText(title + ' ' + body, promiseKeywords);
-    const blast = scoreText(title + ' ' + body, blastKeywords);
-    const audSurface = audienceSurface(title, body);
+    const crit = scoreText(title + canonical, criticalKeywords);
+    const promise = scoreText(title + canonical, promiseKeywords);
+    const blast = scoreText(title + canonical, blastKeywords);
+    const audSurface = audienceSurface(title, canonical);
     const scores = {
       business_criticality: crit,
       promise_surface: promise,
@@ -228,7 +354,7 @@ export async function buildAkusForSources(
     akus.push({
       id: akuId,
       title,
-      body,
+      body: canonical,
       type: hasIssue ? 'issue' : 'code_summary',
       source_ids,
       scope_refs,
@@ -237,16 +363,17 @@ export async function buildAkusForSources(
       scores,
     });
 
-    audiences.forEach((aud: string) => {
-      const tmpl = audienceTemplates[aud] || (() => body);
+    for (const aud of audiences) {
+      const schema = AUDIENCE_SCHEMAS[aud] || AUDIENCE_SCHEMAS.Engineering;
+      const { projection, status } = await generateProjection(llm, aud, schema, title, canonical, structured);
       projections.push({
         id: randomUUID(),
         aku_id: akuId,
         audience: aud,
-        projection: tmpl(title, structured),
-        status: 'draft',
+        projection,
+        status,
       });
-    });
+    }
   }
 
   console.log('[AKU builder] stats', {
@@ -264,9 +391,7 @@ export async function buildAkusForSources(
       })),
       { onConflict: 'hash' }
     );
-    if (akuErr) {
-      console.error('[AKU builder] upsert akus error', akuErr);
-    }
+    if (akuErr) console.error('[AKU builder] upsert akus error', akuErr);
   }
 
   if (projections.length > 0) {
@@ -277,9 +402,7 @@ export async function buildAkusForSources(
       })),
       { onConflict: 'aku_id,audience' }
     );
-    if (projErr) {
-      console.error('[AKU builder] upsert projections error', projErr);
-    }
+    if (projErr) console.error('[AKU builder] upsert projections error', projErr);
   }
 
   console.log('[AKU builder] done', { userId, akus: akus.length, projections: projections.length });

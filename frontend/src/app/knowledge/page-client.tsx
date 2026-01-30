@@ -399,7 +399,7 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
             </SidebarGroup>
 
             <SidebarGroup>
-              <SidebarGroupLabel>Titles</SidebarGroupLabel>
+              <SidebarGroupLabel>Units</SidebarGroupLabel>
               <SidebarGroupContent>
                 {categories.length > 0 ? (
                   <div className="flex flex-wrap gap-2">
@@ -461,7 +461,7 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                     Syncing...
                   </span>
                 ) : (
-                  'Sync now'
+                  'Refresh knowledge'
                 )}
               </Button>
               <Button

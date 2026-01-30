@@ -122,7 +122,7 @@ export async function ingestIssueSource(
   }
 
   try {
-    console.log('[ingestIssueSource] start', { sourceId: source.id, provider });
+    console.log('[ingestIssueSource] start', { sourceId: source.id, provider, scope: source.scope });
     await updateStatus(supabase, source.id, 'ingesting', 0);
 
     const projectKey = typeof source.scope?.project === 'string' ? source.scope.project : null;
@@ -271,7 +271,10 @@ export async function ingestIssueSource(
     });
 
     if (rows.length > 0) {
+      console.log('[ingestIssueSource] upserting issues', { sourceId: source.id, count: rows.length });
       await supabase.from('issue_index').upsert(rows, { onConflict: 'source_id,issue_key' });
+    } else {
+      console.log('[ingestIssueSource] no issues to upsert', { sourceId: source.id });
     }
 
     // Build AKUs for this issue source as well (with default projections)
