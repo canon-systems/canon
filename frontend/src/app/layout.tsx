@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, Space_Grotesk } from "next/font/google";
+import { Inter } from "next/font/google";
 import "./globals.css";
 import { RootLayoutClient } from "./layout-client";
 import { getSession } from "@/lib/auth";
@@ -12,7 +12,7 @@ const inter = Inter({
   variable: "--font-ui",
 });
 
-const spaceGrotesk = Space_Grotesk({
+const interDisplay = Inter({
   subsets: ["latin"],
   variable: "--font-display",
 });
@@ -31,7 +31,7 @@ export default async function RootLayout({
 
   return (
     <html lang="en" className="dark">
-      <body className={`min-h-screen bg-black text-white antialiased ${inter.variable} ${spaceGrotesk.variable}`}>
+      <body className={`min-h-screen bg-black text-white antialiased ${inter.variable} ${interDisplay.variable}`}>
         <RootLayoutClient user={user} session={session}>
           {children}
         </RootLayoutClient>
