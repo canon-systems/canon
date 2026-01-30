@@ -141,6 +141,11 @@ export class LLMGateway {
 				throw new Error(payload?.error?.message || payload?.message || `LLM HTTP ${response.status}`);
 			}
 
+			const usage = payload?.usage || {};
+			console.log(
+				`🤖 [LLM] model=${model} prompt_tokens=${usage.prompt_tokens ?? '?'} completion_tokens=${usage.completion_tokens ?? '?'} total=${usage.total_tokens ?? '?'}`
+			);
+
 			const content = payload?.choices?.[0]?.message?.content;
 			return typeof content === 'string' ? content.trim() : '';
 		} catch (error: unknown) {
@@ -211,4 +216,3 @@ export class LLMGateway {
 		}
 	}
 }
-

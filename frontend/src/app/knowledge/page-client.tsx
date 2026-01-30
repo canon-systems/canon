@@ -127,22 +127,9 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
   };
 
   const loadItems = async () => {
-    if (selectedSourceIds.length === 0 || selectedAudiences.length === 0) return;
     setLoading(true);
     try {
-      // Build (ingest -> AKU) then fetch the latest list
-      await fetch('/api/knowledge/build', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          sourceIds: selectedSourceIds,
-          audiences: selectedAudiences,
-        }),
-      });
-
-      const listRes = await fetch(
-        `/api/knowledge?sourceIds=${encodeURIComponent(selectedSourceIds.join(','))}`
-      );
+      const listRes = await fetch(`/api/knowledge`);
       const data = await listRes.json();
       const normalized = (Array.isArray(data) ? data : []).map((item, idx) => {
         const title = typeof item?.title === 'string' && item.title.trim().length > 0
@@ -188,8 +175,15 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
     setItems([]);
   };
 
+  const itemsFilteredBySources = useMemo(() => {
+    if (selectedSourceIds.length === 0) return items;
+    return items.filter((item) =>
+      Array.isArray(item.source_ids) && item.source_ids.some((id) => selectedSourceIds.includes(id))
+    );
+  }, [items, selectedSourceIds]);
+
   const projectedItems = useMemo(() => {
-    return items.map((item) => {
+    return itemsFilteredBySources.map((item) => {
       // fallback: generate projection client-side if not present
       const projections =
         item.projections && item.projections.length > 0
@@ -383,9 +377,6 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                   </div>
                 )}
                 <div className="flex items-center justify-between text-xs text-white/70">
-                  <span>
-                    Selected: {selectedAudiences.length > 0 ? selectedAudiences.join(', ') : 'None'}
-                  </span>
                   <div className="flex gap-2">
                     <Button variant="ghost" size="sm" onClick={clearAudiences}>
                       Clear
@@ -430,9 +421,6 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                   </div>
                 )}
                 <div className="flex items-center justify-between text-xs text-white/70">
-                  <span>
-                    Selected: {selectedCategories.length > 0 ? selectedCategories.join(', ') : 'None'}
-                  </span>
                   <div className="flex gap-2">
                     <Button variant="ghost" size="sm" onClick={() => setSelectedCategories([])}>
                       Clear
@@ -452,7 +440,7 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                 variant="secondary"
                 size="sm"
                 onClick={loadItems}
-                disabled={loading || !filtersReady}
+                disabled={loading}
                 className="border-white/20 bg-white/10 text-white hover:bg-white/15"
               >
                 {loading ? (
@@ -509,11 +497,11 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
             </Alert>
           )}
 
-          {!loading && !filtersReady && (
+          {!loading && items.length === 0 && (
             <Alert variant="default">
               <Info className="h-4 w-4" />
               <AlertDescription>
-                Choose at least one source and audience to start syncing knowledge.
+                No knowledge loaded yet. Click “Refresh knowledge” to pull everything, or pick filters to view a subset.
               </AlertDescription>
             </Alert>
           )}

@@ -77,7 +77,7 @@ export async function ingestGitHubSource(
   }
 
   try {
-    console.log('[ingestGitHubSource] start', { sourceId: source.id, repo, branch });
+    console.log(`Source ingest: GitHub start for ${repo}@${branch}`, { sourceId: source.id });
     await updateStatus(supabase, source.id, 'ingesting', 0);
 
     const repoUrl = repo.startsWith('http') ? repo : `https://github.com/${repo}`;
@@ -92,20 +92,20 @@ export async function ingestGitHubSource(
     const files = analysis.rawFiles || [];
     const sourceKey = normalizeRepoId(repoUrl);
     const manager = new FileSummaryManager(supabase, source.id, sourceKey, branch);
-    console.log('[ingestGitHubSource] summarizing files', { sourceId: source.id, fileCount: files.length });
+    console.log(`Source ingest: summarizing ${files.length} files`);
     await manager.updateSummaries(
       files.map((f) => ({ path: f.path, content: f.content })),
       { model: 'openai/gpt-4o-mini', regenerationReason: 'initial' }
     );
 
     // Build AKUs for this source and generate default audience projections
-    console.log('[ingestGitHubSource] building AKUs', { sourceId: source.id, audiences: DEFAULT_AUDIENCES });
+    console.log('Source ingest: building AKUs for GitHub source', { audiences: DEFAULT_AUDIENCES });
     await buildAkusForSources(supabase, source.user_id, [source.id], DEFAULT_AUDIENCES);
 
     await updateStatus(supabase, source.id, 'ready', 100);
-    console.log('[ingestGitHubSource] complete', { sourceId: source.id, repo, branch, files: files.length });
+    console.log(`Source ingest: finished ${repo}@${branch} (${files.length} files)`);
   } catch (err) {
-    console.error('[ingestGitHubSource] failed', err);
+    console.error('Source ingest: GitHub failed', err);
     await updateStatus(supabase, source.id, 'failed', 0, {
       error: err instanceof Error ? err.message : String(err),
     });
@@ -122,7 +122,7 @@ export async function ingestIssueSource(
   }
 
   try {
-    console.log('[ingestIssueSource] start', { sourceId: source.id, provider, scope: source.scope });
+    console.log(`Source ingest: Issue provider start (${provider})`, { scope: source.scope });
     await updateStatus(supabase, source.id, 'ingesting', 0);
 
     const projectKey = typeof source.scope?.project === 'string' ? source.scope.project : null;
@@ -137,7 +137,7 @@ export async function ingestIssueSource(
         .eq('id', source.connection_id)
         .single();
       if (connError) {
-        console.warn('[ingestIssueSource] failed to load oauth_connection for source', source.id, connError);
+        console.warn('Source ingest: no OAuth connection found', { sourceId: source.id, provider, error: connError });
       } else {
         connectionIdForTokens = conn?.connection_id || null;
       }
@@ -152,7 +152,7 @@ export async function ingestIssueSource(
       return;
     }
 
-    console.log('[ingestIssueSource] fetching token', { sourceId: source.id, provider, connectionId });
+    console.log('Source ingest: fetching access token for issues', { connectionId });
 
     const accessToken = await getProviderAccessToken({
       provider: provider === 'jira' ? 'confluence' : provider,
@@ -163,7 +163,7 @@ export async function ingestIssueSource(
       await updateStatus(supabase, source.id, 'failed', 0, {
         error: 'Missing access token for issue source. Connect Jira/Confluence OAuth.',
       });
-      console.error('[ingestIssueSource] no access token found', { sourceId: source.id, provider, connectionId });
+      console.error('Source ingest: missing access token for issue provider', { connectionId });
       return;
     }
 
@@ -221,7 +221,7 @@ export async function ingestIssueSource(
       if (!searchResult.ok) {
         const errMsg = `Jira search failed (${searchResult.status})${searchResult.body ? `: ${searchResult.body.slice(0, 200)}` : ''}`;
         await updateStatus(supabase, source.id, 'failed', 0, { error: errMsg });
-        console.error('[ingestIssueSource] jira search failed', { sourceId: source.id, status: searchResult.status, body: searchResult.body });
+        console.error('Source ingest: Jira search failed', { status: searchResult.status, body: searchResult.body });
         return;
       }
 
@@ -271,19 +271,19 @@ export async function ingestIssueSource(
     });
 
     if (rows.length > 0) {
-      console.log('[ingestIssueSource] upserting issues', { sourceId: source.id, count: rows.length });
+      console.log(`Source ingest: storing ${rows.length} issues`);
       await supabase.from('issue_index').upsert(rows, { onConflict: 'source_id,issue_key' });
     } else {
-      console.log('[ingestIssueSource] no issues to upsert', { sourceId: source.id });
+      console.log('Source ingest: no issues to store for this source');
     }
 
     // Build AKUs for this issue source as well (with default projections)
-    console.log('[ingestIssueSource] building AKUs', { sourceId: source.id, issues: rows.length, audiences: DEFAULT_AUDIENCES });
+    console.log('Source ingest: building AKUs from issues', { issues: rows.length, audiences: DEFAULT_AUDIENCES });
     await buildAkusForSources(supabase, source.user_id, [source.id], DEFAULT_AUDIENCES);
 
     await updateStatus(supabase, source.id, 'ready', 100);
   } catch (err) {
-    console.error('[ingestIssueSource] failed', err);
+    console.error('Source ingest: issue ingest failed', err);
     await updateStatus(supabase, source.id, 'failed', 0, {
       error: err instanceof Error ? err.message : String(err),
     });

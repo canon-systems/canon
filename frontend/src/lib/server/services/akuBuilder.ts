@@ -30,53 +30,53 @@ const AUDIENCE_SCHEMAS: Record<string, AudienceSchema> = {
   Executive: {
     name: 'Executive',
     sections: [
-      { key: 'capability', label: 'Capability', instructions: 'One sentence, business capability.', maxChars: 220 },
-      { key: 'impact', label: 'Impact', instructions: 'Business impact; user value; cost/risk mitigation. No tech jargon.', maxChars: 260 },
-      { key: 'risks', label: 'Risks', instructions: 'Pull only from failure modes or operational concerns.', maxChars: 200 },
-      { key: 'owner', label: 'Owner', instructions: 'Owner inferred from ownership signals or leave empty.', maxChars: 120 },
+      { key: 'capability', label: 'Capability', instructions: 'Business capability in clear language; avoid technical jargon.', maxChars: 800 },
+      { key: 'impact', label: 'Impact', instructions: 'Business impact; user value; revenue/risk/cost effects.', maxChars: 800 },
+      { key: 'risks', label: 'Risks', instructions: 'Only risks supported by evidence; business framing.', maxChars: 600 },
+      { key: 'owner', label: 'Owner', instructions: 'Owner inferred from ownership signals or state unknown.', maxChars: 300 },
     ],
   },
   Sales: {
     name: 'Sales',
     sections: [
-      { key: 'problem', label: 'Problem', instructions: 'Customer problem solved (plain language).', maxChars: 220 },
-      { key: 'differentiators', label: 'Differentiators', instructions: 'Only facts in canonical evidence.', maxChars: 220 },
-      { key: 'disqualifiers', label: 'Disqualifiers', instructions: 'When NOT to sell; pull from failure modes/limits.', maxChars: 200 },
-      { key: 'integration', label: 'Integration', instructions: 'Key dependencies/setup from interfaces/dependencies.', maxChars: 200 },
+      { key: 'problem', label: 'Problem', instructions: 'Customer problem solved; business terms, not technical.', maxChars: 800 },
+      { key: 'differentiators', label: 'Differentiators', instructions: 'Only evidence-backed differentiators.', maxChars: 800 },
+      { key: 'disqualifiers', label: 'Disqualifiers', instructions: 'When NOT to sell; limits/risks from evidence.', maxChars: 600 },
+      { key: 'integration', label: 'Integration', instructions: 'Setup/requirements expressed simply.', maxChars: 600 },
     ],
   },
   Marketing: {
     name: 'Marketing',
     sections: [
-      { key: 'positioning', label: 'Positioning', instructions: 'Market-facing positioning.', maxChars: 220 },
-      { key: 'claims_allowed', label: 'Claims allowed', instructions: 'Only claims supported by evidence.', maxChars: 200 },
-      { key: 'do_not_claim', label: 'Do-not-claim', instructions: 'Statements to avoid.', maxChars: 200 },
-      { key: 'persona', label: 'Persona', instructions: 'Target persona.', maxChars: 140 },
+      { key: 'positioning', label: 'Positioning', instructions: 'Market-facing positioning in plain language.', maxChars: 800 },
+      { key: 'claims_allowed', label: 'Claims allowed', instructions: 'Only claims supported by evidence.', maxChars: 600 },
+      { key: 'do_not_claim', label: 'Do-not-claim', instructions: 'Statements to avoid (evidence-backed).', maxChars: 600 },
+      { key: 'persona', label: 'Persona', instructions: 'Target persona/business buyer.', maxChars: 400 },
     ],
   },
   Engineering: {
     name: 'Engineering',
     sections: [
-      { key: 'summary', label: 'Summary', instructions: 'Technical overview.', maxChars: 320 },
-      { key: 'interfaces', label: 'Interfaces', instructions: 'APIs/routes/call sites.', maxChars: 320 },
-      { key: 'dependencies', label: 'Dependencies', instructions: 'Services, env vars, secrets, infra.', maxChars: 260 },
-      { key: 'failure_modes', label: 'Failure modes', instructions: 'Likely failures and mitigations.', maxChars: 260 },
+      { key: 'summary', label: 'Summary', instructions: 'Technical overview with enough context.', maxChars: 900 },
+      { key: 'interfaces', label: 'Interfaces', instructions: 'APIs/routes/call sites.', maxChars: 900 },
+      { key: 'dependencies', label: 'Dependencies', instructions: 'Services, env vars, secrets, infra.', maxChars: 800 },
+      { key: 'failure_modes', label: 'Failure modes', instructions: 'Likely failures and mitigations.', maxChars: 800 },
     ],
   },
   Support: {
     name: 'Support',
     sections: [
-      { key: 'breakage', label: 'Common breakage', instructions: 'What typically breaks.', maxChars: 220 },
-      { key: 'signals', label: 'Signals/alerts', instructions: 'Detection cues.', maxChars: 200 },
-      { key: 'runbook', label: 'Runbook', instructions: 'Concrete steps; no inventions.', maxChars: 260 },
+      { key: 'breakage', label: 'Common breakage', instructions: 'What typically breaks; user-facing language.', maxChars: 800 },
+      { key: 'signals', label: 'Signals/alerts', instructions: 'Detection cues.', maxChars: 600 },
+      { key: 'runbook', label: 'Runbook', instructions: 'Concrete steps; no inventions.', maxChars: 900 },
     ],
   },
   Customer: {
     name: 'Customer',
     sections: [
-      { key: 'benefit', label: 'Benefit', instructions: 'Plain language benefit.', maxChars: 200 },
-      { key: 'how_to_use', label: 'How to use', instructions: 'Safe usage from interfaces/data/operational.', maxChars: 220 },
-      { key: 'limits', label: 'Limits', instructions: 'Known constraints only.', maxChars: 180 },
+      { key: 'benefit', label: 'Benefit', instructions: 'Plain language benefit and outcome.', maxChars: 800 },
+      { key: 'how_to_use', label: 'How to use', instructions: 'Safe usage, step-like, no jargon.', maxChars: 800 },
+      { key: 'limits', label: 'Limits', instructions: 'Known constraints only.', maxChars: 600 },
     ],
   },
 };
@@ -211,6 +211,8 @@ async function generateProjection(
     'Shape: {"sections":[{"label":"<label>","text":"<short human text>"}]}',
     'Labels must match provided schema labels exactly.',
     'If a section is unsupported by evidence, use empty string.',
+    'Adapt language to the audience: for Executive, Sales, Marketing, Customer, Support use business/plain language and explain value/outcomes; avoid technical jargon. For Engineering, keep technical detail.',
+    'Provide a full but concise picture; do not artificially truncate—cover all relevant evidence.',
   ].join(' ');
 
   const userContent = {
@@ -269,7 +271,7 @@ export async function buildAkusForSources(
   sourceIds: string[],
   audiences: string[] = []
 ) {
-  console.log('[AKU builder] start', { userId, sourceIds, audiences });
+  console.log('AKU builder: starting run', { userId, sources: sourceIds.length, audiences });
   if (sourceIds.length === 0) return { akus: [], projections: [] };
 
   const evidence: Evidence[] = [];
@@ -290,7 +292,7 @@ export async function buildAkusForSources(
     });
   });
 
-  console.log('[AKU builder] evidence from summaries', { count: evidence.length });
+  console.log(`AKU builder: collected ${evidence.length} code summaries`);
 
   const { data: issues } = await supabase
     .from('issue_index')
@@ -308,7 +310,7 @@ export async function buildAkusForSources(
     });
   });
 
-  console.log('[AKU builder] total evidence after issues', { count: evidence.length });
+  console.log(`AKU builder: total evidence after adding issues = ${evidence.length}`);
 
   const clusters = new Map<string, { items: Evidence[]; label: string; reason: string }>();
   evidence.forEach((e) => {
@@ -327,7 +329,7 @@ export async function buildAkusForSources(
     const hasIssue = items.some((e) => e.kind === 'issue');
     if (!hasIssue && items.length < 2) continue;
 
-    console.log('[AKU builder] cluster', { key, label: cluster.label, reason: cluster.reason, size: items.length });
+    console.log(`AKU builder: cluster "${cluster.label}" (${cluster.reason}) with ${items.length} evidence items`);
 
     const title = cluster.label.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
     const structured = buildStructuredBody(title, items);
@@ -376,12 +378,9 @@ export async function buildAkusForSources(
     }
   }
 
-  console.log('[AKU builder] stats', {
-    evidence: evidence.length,
-    clusters: clusters.size,
-    promoted: akus.length,
-    projections: projections.length,
-  });
+  console.log(
+    `AKU builder: summary — evidence ${evidence.length}, clusters ${clusters.size}, AKUs ${akus.length}, projections ${projections.length}`
+  );
 
   if (akus.length > 0) {
     const { error: akuErr } = await supabase.from('akus').upsert(
@@ -391,7 +390,7 @@ export async function buildAkusForSources(
       })),
       { onConflict: 'hash' }
     );
-    if (akuErr) console.error('[AKU builder] upsert akus error', akuErr);
+    if (akuErr) console.error('AKU builder: failed to save AKUs', akuErr);
   }
 
   if (projections.length > 0) {
@@ -402,9 +401,9 @@ export async function buildAkusForSources(
       })),
       { onConflict: 'aku_id,audience' }
     );
-    if (projErr) console.error('[AKU builder] upsert projections error', projErr);
+    if (projErr) console.error('AKU builder: failed to save projections', projErr);
   }
 
-  console.log('[AKU builder] done', { userId, akus: akus.length, projections: projections.length });
+  console.log('AKU builder: finished', { userId, akus: akus.length, projections: projections.length });
   return { akus, projections };
 }
