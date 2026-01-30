@@ -73,7 +73,7 @@ export function Navigation({ user, session, onLogout }: NavigationProps) {
   return (
     <div className="sticky top-0 z-40 border-b border-white/10 bg-black/70 backdrop-blur-xl" ref={containerRef}>
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(255,255,255,0.08),transparent_60%)]" />
-      <nav className="relative mx-auto flex max-w-7xl items-center justify-between px-4 py-4 md:px-6 lg:px-8">
+      <nav className="relative flex items-center justify-between px-4 py-4 md:px-6 lg:px-8">
         <Link href="/" className="flex items-center gap-3 rounded-xl border border-white/5 bg-white/5 px-3 py-2 transition hover:border-white/10 hover:bg-white/10">
           <Image
             src="/web-app-manifest-512x512.png"

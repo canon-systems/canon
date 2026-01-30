@@ -90,8 +90,8 @@ export function RootLayoutClient({
         )}
 
         <div className="app-layout__main">
-          <main className="app-main">
-            <div className="mx-auto w-full max-w-7xl px-4 md:px-6 lg:px-8">{children}</div>
+          <main className="app-main px-4 py-4 md:px-6 md:py-4 lg:px-8 lg:py-4">
+            <div className="w-full">{children}</div>
           </main>
         </div>
       </div>
