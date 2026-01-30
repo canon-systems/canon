@@ -61,7 +61,8 @@ export async function GET(req: Request) {
   if (sourceIdsParam) {
     const ids = sourceIdsParam.split(',').map((s) => s.trim()).filter(Boolean);
     if (ids.length > 0) {
-      query = query.containedBy('source_ids', ids);
+      // Show AKUs that include ANY of the selected sources (overlap), not only those fully contained.
+      query = query.overlaps('source_ids', ids);
     }
   }
 
