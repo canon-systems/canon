@@ -237,14 +237,24 @@ async function getCodaResources(connectionId: string): Promise<WorkspaceResource
   return [];
 }
 
+function dedupeResources(list: WorkspaceResource[]): WorkspaceResource[] {
+  const seen = new Set<string>();
+  return list.filter((r) => {
+    if (!r?.id) return false;
+    if (seen.has(r.id)) return false;
+    seen.add(r.id);
+    return true;
+  });
+}
+
 export async function listResources(provider: string, connectionId: string): Promise<WorkspaceResource[]> {
   switch (provider) {
     case 'notion':
-      return getNotionResources(connectionId);
+      return dedupeResources(await getNotionResources(connectionId));
     case 'confluence':
-      return getConfluenceResources(connectionId);
+      return dedupeResources(await getConfluenceResources(connectionId));
     case 'coda':
-      return getCodaResources(connectionId);
+      return dedupeResources(await getCodaResources(connectionId));
     default:
       return [];
   }
