@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -20,7 +20,7 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
-import { Loader2, ChevronsUpDown, Info, Check, BookOpen, GitCompare } from 'lucide-react';
+import { Loader2, ChevronsUpDown, Info, Check, BookOpen, GitCompare, CalendarIcon } from 'lucide-react';
 import { cn } from '@/components/ui/utils';
 import {
   Sidebar,
@@ -35,7 +35,7 @@ import {
 } from '@/components/ui/sidebar';
 import { createClient } from '@/lib/supabase/client';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
+import { Calendar, type DateRange } from '@/components/ui/calendar';
 
 type KnowledgeItem = {
   id: string;
@@ -53,12 +53,36 @@ type Source = { id: string; name: string; provider: string };
 type DiffScope = 'repo' | 'project' | 'org';
 type DiffSource = 'jira' | 'github';
 type Mode = 'knowledge' | 'diffs';
+type DiffDelta = {
+  tickets_moved: number;
+  tickets_completed: number;
+  tickets_regressed: number;
+  tickets_created: number;
+  prs_opened: number;
+  prs_merged: number;
+  prs_closed: number;
+  commits_default: number;
+  repos_added: string[];
+  repos_removed: string[];
+};
+
+/** Connected source from /api/repos (workspace_sources) for Diff panel */
+type ConnectedDiffSource = {
+  id: string;
+  name: string;
+  provider: string;
+  scope: Record<string, unknown> | null;
+  display_name: string; // e.g. canon/repo1, jira/PROJ
+};
 
 type DiffInput = {
   start_timestamp: string;
   end_timestamp: string;
   sources: DiffSource[];
   scope: DiffScope;
+  jira_project_key?: string;
+  github_repos?: string[];
+  source_ids?: string[];
 };
 
 type DiffObject = {
@@ -75,7 +99,7 @@ type DiffObject = {
 };
 
 type ModeSwitcherProps = { active: Mode; onChange: (mode: Mode) => void };
-type FilterTab = 'filters' | 'automation' | 'review';
+type FilterTab = 'filters' | 'schedule' | 'review';
 type ModeCardProps = {
   active: boolean;
   title: string;
@@ -104,6 +128,14 @@ function projectForAudience(item: KnowledgeItem, audience: string): string {
   }
 }
 
+function getDisplayName(repo: { name: string; provider: string; scope: Record<string, unknown> | null }): string {
+  const provider = (repo.provider || '').toLowerCase();
+  const scope = repo.scope || {};
+  if (provider === 'github' && typeof scope.repo === 'string') return scope.repo;
+  if (provider === 'jira' && typeof scope.project === 'string') return `jira/${scope.project}`;
+  return repo.name;
+}
+
 function DiffPrototypePanel() {
   const defaultEnd = useMemo(() => new Date(), []);
   const defaultStart = useMemo(() => {
@@ -117,6 +149,8 @@ function DiffPrototypePanel() {
     end_timestamp: toInputValue(defaultEnd),
     sources: ['jira', 'github'],
     scope: 'org',
+    jira_project_key: '',
+    github_repos: [],
   });
   const [diffObject, setDiffObject] = useState<DiffObject>(() =>
     buildDiffFromInput({
@@ -124,10 +158,27 @@ function DiffPrototypePanel() {
       end_timestamp: toInputValue(defaultEnd),
       sources: ['jira', 'github'],
       scope: 'org',
+      jira_project_key: '',
+      github_repos: [],
     })
   );
-  const [snapshots] = useState(() => seedSnapshots());
   const [diffFilterTab, setDiffFilterTab] = useState<FilterTab>('filters');
+  const [baselineWindow, setBaselineWindow] = useState<{ start: string; end: string } | null>(null);
+  const [compareLoading, setCompareLoading] = useState(false);
+  const [compareError, setCompareError] = useState<string | null>(null);
+  const [deltaObject, setDeltaObject] = useState<DiffDelta | null>(null);
+  const [connectedSources, setConnectedSources] = useState<ConnectedDiffSource[]>([]);
+  const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
+  const [reportSources, setReportSources] = useState<Array<{ id: string; name: string; display_name: string; provider: string }>>([]);
+  const [diffSourceMenuOpen, setDiffSourceMenuOpen] = useState(false);
+
+  const diffAllSourceIds = useMemo(() => connectedSources.map((s) => s.id), [connectedSources]);
+
+  const toggleDiffAllSources = () => {
+    setSelectedSourceIds((prev) =>
+      prev.length === diffAllSourceIds.length ? [] : [...diffAllSourceIds]
+    );
+  };
 
   const canonicalInput = useMemo(
     () => ({
@@ -135,38 +186,130 @@ function DiffPrototypePanel() {
       end_timestamp: new Date(diffInput.end_timestamp).toISOString(),
       sources: diffInput.sources,
       scope: diffInput.scope,
+      jira_project_key: diffInput.jira_project_key,
+      github_repos: diffInput.github_repos,
     }),
     [diffInput]
   );
 
-  const weeklyMarkdown = useMemo(() => buildWeeklyMarkdown(diffObject), [diffObject]);
-  const movementRatio = useMemo(() => {
-    const denominator = Math.max(1, diffObject.tickets_completed);
-    return `${Math.round((diffObject.tickets_moved / denominator) * 100)}%`;
-  }, [diffObject]);
+  const deltaOrZero = useCallback(
+    (field: keyof DiffDelta) => (deltaObject ? deltaObject[field] : 0),
+    [deltaObject]
+  );
 
-  const toggleSource = (source: DiffSource) => {
-    setDiffInput((prev) => {
-      const has = prev.sources.includes(source);
-      const nextSources = has ? prev.sources.filter((s) => s !== source) : [...prev.sources, source];
-      return { ...prev, sources: nextSources.length ? nextSources : prev.sources };
-    });
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/repos');
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        const list = Array.isArray(data) ? data : [];
+        const withDisplay: ConnectedDiffSource[] = list
+          .filter((r: { provider?: string }) => (r.provider || '').toLowerCase() === 'github' || (r.provider || '').toLowerCase() === 'jira')
+          .map((r: { id: string; name: string; provider: string; scope: Record<string, unknown> | null }) => ({
+            id: r.id,
+            name: r.name,
+            provider: r.provider,
+            scope: r.scope ?? null,
+            display_name: getDisplayName({ name: r.name, provider: r.provider, scope: r.scope }),
+          }));
+        if (!cancelled) setConnectedSources(withDisplay);
+      } catch {
+        if (!cancelled) setConnectedSources([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const toggleConnectedSource = (id: string) => {
+    setSelectedSourceIds((prev) =>
+      prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]
+    );
   };
 
-  const updateTime = (field: 'start_timestamp' | 'end_timestamp') => (value: string) => {
-    setDiffInput((prev) => ({ ...prev, [field]: value }));
+  const runDiffCompare = async () => {
+    setCompareError(null);
+    setCompareLoading(true);
+    type CanonicalDiffResponse = {
+      tickets_moved?: number;
+      tickets_completed?: number;
+      tickets_regressed?: number;
+      tickets_created?: number;
+      prs_opened?: number;
+      prs_merged?: number;
+      prs_closed?: number;
+      commits_default?: number;
+      repos_touched?: string[];
+    };
+    const toDiffObj = (d: CanonicalDiffResponse | null | undefined): DiffObject | null => {
+      if (!d) return null;
+      return {
+        tickets_moved: d.tickets_moved ?? 0,
+        tickets_completed: d.tickets_completed ?? 0,
+        tickets_regressed: d.tickets_regressed ?? 0,
+        tickets_created: d.tickets_created ?? 0,
+        prs_opened: d.prs_opened ?? 0,
+        prs_merged: d.prs_merged ?? 0,
+        prs_closed: d.prs_closed ?? 0,
+        commits_default: d.commits_default ?? 0,
+        repos_touched: Array.isArray(d.repos_touched) ? d.repos_touched : [],
+        architecture_changes: [],
+      };
+    };
+    try {
+      const useSourceIds = selectedSourceIds.length > 0;
+      const body: Record<string, unknown> = {
+        start_timestamp: new Date(diffInput.start_timestamp).toISOString(),
+        end_timestamp: new Date(diffInput.end_timestamp).toISOString(),
+        sources: diffInput.sources,
+        scope: diffInput.scope,
+      };
+      if (useSourceIds) {
+        body.source_ids = selectedSourceIds;
+      } else {
+        if (diffInput.jira_project_key) body.jira_project_key = diffInput.jira_project_key;
+        if (diffInput.github_repos?.length) body.github_repos = diffInput.github_repos;
+      }
+
+      const res = await fetch('/api/diffs/compare', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Failed to generate diff');
+
+      const primaryObj = toDiffObj(data?.primary) || buildDiffFromInput(diffInput);
+      setDiffObject(primaryObj);
+
+      if (data?.baseline?.window) {
+        setBaselineWindow(data.baseline.window);
+      } else {
+        setBaselineWindow(null);
+      }
+
+      setDeltaObject(data?.delta || null);
+
+      if (Array.isArray(data?.sources)) {
+        setReportSources(
+          data.sources.map((s: { id: string; name: string; display_name: string; provider: string }) => ({
+            id: s.id,
+            name: s.name,
+            display_name: s.display_name,
+            provider: s.provider,
+          }))
+        );
+      } else {
+        setReportSources([]);
+      }
+
+    } catch (e: unknown) {
+      setCompareError(e instanceof Error ? e.message : 'Failed to generate diff');
+    } finally {
+      setCompareLoading(false);
+    }
   };
-
-  const generateDiff = () => setDiffObject(buildDiffFromInput(diffInput));
-
-  const inputClass =
-    'flex h-10 w-full rounded-lg border border-white/60 bg-neutral-800 px-3 py-2 text-sm text-white placeholder:text-white/60 shadow-[0_10px_30px_rgba(0,0,0,0.35)] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 focus-visible:ring-offset-2 focus-visible:ring-offset-black disabled:cursor-not-allowed disabled:opacity-60';
-  const pillActive =
-    'inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-black disabled:pointer-events-none disabled:opacity-60 h-10 px-4 py-2 rounded-full border border-white/50 hover:border-white/70 hover:bg-white/20 shadow-sm bg-white text-black';
-  const pillInactive =
-    'inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-black disabled:pointer-events-none disabled:opacity-60 h-10 px-4 py-2 rounded-full text-white/70 hover:bg-white/10';
-  const pillInactiveBorder =
-    'inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-black disabled:pointer-events-none disabled:opacity-60 h-10 px-4 py-2 rounded-full border border-white/15 text-white/80 hover:border-white/25 hover:bg-white/10';
 
   return (
     <div className="grid gap-6 lg:grid-cols-[340px_1fr]">
@@ -175,7 +318,7 @@ function DiffPrototypePanel() {
           <SidebarHeader>
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-4">
-                {(['filters', 'automation', 'review'] as FilterTab[]).map((tab) => {
+                {(['filters', 'schedule'] as FilterTab[]).map((tab) => {
                   const active = diffFilterTab === tab;
                   return (
                     <button
@@ -203,250 +346,242 @@ function DiffPrototypePanel() {
                 <SidebarGroup>
                   <SidebarGroupLabel>Time range</SidebarGroupLabel>
                   <SidebarGroupContent>
-                    <div className="space-y-2">
-                      <input
-                        className={inputClass}
-                        type="datetime-local"
-                        value={diffInput.start_timestamp}
-                        onChange={(e) => updateTime('start_timestamp')(e.target.value)}
-                      />
-                      <input
-                        className={inputClass}
-                        type="datetime-local"
-                        value={diffInput.end_timestamp}
-                        onChange={(e) => updateTime('end_timestamp')(e.target.value)}
-                      />
-                    </div>
-                  </SidebarGroupContent>
-                </SidebarGroup>
-                <SidebarGroup>
-                  <SidebarGroupLabel>Scope</SidebarGroupLabel>
-                  <SidebarGroupContent>
-                    <div className="flex flex-wrap gap-2">
-                      {(['repo', 'project', 'org'] as DiffScope[]).map((scope) => {
-                        const active = diffInput.scope === scope;
-                        return (
-                          <button
-                            key={scope}
-                            type="button"
-                            onClick={() => setDiffInput((prev) => ({ ...prev, scope }))}
-                            className={cn(active ? pillActive : pillInactive)}
-                          >
-                            {scope}
-                          </button>
-                        );
-                      })}
-                    </div>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          className={cn(
+                            'w-full justify-start text-left font-normal h-10 rounded-lg border border-white/60 bg-neutral-800 text-white hover:bg-neutral-700 hover:border-white/50',
+                            !diffInput.start_timestamp && 'text-white/50'
+                          )}
+                        >
+                          <CalendarIcon className="mr-2 h-4 w-4" />
+                          {diffInput.start_timestamp && diffInput.end_timestamp ? (
+                            <>
+                              {new Date(diffInput.start_timestamp).toLocaleDateString()} – {new Date(diffInput.end_timestamp).toLocaleDateString()}
+                            </>
+                          ) : (
+                            'Pick a date range'
+                          )}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0 border-white/10 bg-neutral-900" align="start">
+                        <Calendar
+                          mode="range"
+                          defaultMonth={new Date(diffInput.start_timestamp)}
+                          selected={{
+                            from: new Date(diffInput.start_timestamp),
+                            to: new Date(diffInput.end_timestamp),
+                          }}
+                          onSelect={(range: DateRange | undefined) => {
+                            if (!range?.from) return;
+                            const from = range.from;
+                            const to = range.to ?? range.from;
+                            setDiffInput((prev) => ({
+                              ...prev,
+                              start_timestamp: new Date(from.getFullYear(), from.getMonth(), from.getDate(), 0, 0, 0, 0).toISOString(),
+                              end_timestamp: new Date(to.getFullYear(), to.getMonth(), to.getDate(), 23, 59, 59, 999).toISOString(),
+                            }));
+                          }}
+                          numberOfMonths={1}
+                          className="rounded-lg border-0"
+                        />
+                      </PopoverContent>
+                    </Popover>
                   </SidebarGroupContent>
                 </SidebarGroup>
                 <SidebarGroup>
                   <SidebarGroupLabel>Sources</SidebarGroupLabel>
                   <SidebarGroupContent>
-                    <div className="flex flex-wrap gap-2">
-                      {(['jira', 'github'] as DiffSource[]).map((src) => {
-                        const active = diffInput.sources.includes(src);
-                        return (
-                          <button
-                            key={src}
-                            type="button"
-                            onClick={() => toggleSource(src)}
-                            className={cn(active ? pillActive : pillInactiveBorder)}
-                          >
-                            {src.toUpperCase()}
-                          </button>
-                        );
-                      })}
-                    </div>
+                    {connectedSources.length === 0 ? (
+                      <p className="text-xs text-white/50">No GitHub or Jira sources connected. Add them on the Sources page.</p>
+                    ) : (
+                      <>
+                        <Popover open={diffSourceMenuOpen} onOpenChange={setDiffSourceMenuOpen}>
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant="outline"
+                              role="combobox"
+                              aria-expanded={diffSourceMenuOpen}
+                              className="w-full justify-between border-white/20 bg-neutral-800 hover:bg-neutral-700 hover:border-white/30"
+                              onClick={() => setDiffSourceMenuOpen(!diffSourceMenuOpen)}
+                            >
+                              <span className="truncate">
+                                {selectedSourceIds.length > 0
+                                  ? `${selectedSourceIds.length} source${selectedSourceIds.length === 1 ? '' : 's'} selected`
+                                  : 'Choose sources'}
+                              </span>
+                              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                            <Command>
+                              <CommandInput placeholder="Search sources..." />
+                              <CommandList>
+                                <CommandEmpty>No sources found.</CommandEmpty>
+                                <CommandGroup>
+                                  {connectedSources.map((src) => {
+                                    const checked = selectedSourceIds.includes(src.id);
+                                    const handleToggle = () => toggleConnectedSource(src.id);
+                                    return (
+                                      <CommandItem
+                                        key={src.id}
+                                        value={`${src.display_name} ${src.provider}`}
+                                        onSelect={() => handleToggle()}
+                                        className="cursor-pointer"
+                                      >
+                                        <Checkbox
+                                          checked={checked}
+                                          onCheckedChange={() => handleToggle()}
+                                          className="mr-2"
+                                        />
+                                        <span className="flex-1 truncate">
+                                          <span className="text-white/60">[{src.provider}]</span> {src.display_name}
+                                        </span>
+                                      </CommandItem>
+                                    );
+                                  })}
+                                </CommandGroup>
+                              </CommandList>
+                            </Command>
+                            <Separator />
+                            <div className="flex items-center justify-between px-3 py-2">
+                              <span className="text-xs text-white/60">
+                                {selectedSourceIds.length} of {diffAllSourceIds.length} selected
+                              </span>
+                              <div className="flex gap-2">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setSelectedSourceIds([])}
+                                >
+                                  Clear
+                                </Button>
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  onClick={() => {
+                                    toggleDiffAllSources();
+                                    setDiffSourceMenuOpen(false);
+                                  }}
+                                >
+                                  {selectedSourceIds.length === diffAllSourceIds.length ? 'Deselect all' : 'Select all'}
+                                </Button>
+                              </div>
+                            </div>
+                          </PopoverContent>
+                        </Popover>
+                        <div className="flex items-center justify-between text-xs text-white/60 mt-2">
+                          <span>{selectedSourceIds.length} chosen</span>
+                          <Button variant="ghost" size="sm" onClick={toggleDiffAllSources}>
+                            {selectedSourceIds.length === diffAllSourceIds.length ? 'Clear all' : 'Select all'}
+                          </Button>
+                        </div>
+                      </>
+                    )}
                   </SidebarGroupContent>
                 </SidebarGroup>
               </>
             )}
 
-            {diffFilterTab === 'automation' && (
+            {diffFilterTab === 'schedule' && (
               <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/80">
                 Automation config placeholder — hook diff automation here.
-              </div>
-            )}
-
-            {diffFilterTab === 'review' && (
-              <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/80">
-                Review config placeholder — diff review settings here.
               </div>
             )}
           </SidebarContent>
 
           {diffFilterTab === 'filters' && (
             <SidebarFooter>
-              <p className="text-xs text-white/60 mb-3">
-                Scope and timestamps lock once a diff is stored. Regenerate to create a new immutable record.
-              </p>
               <Button
-                onClick={generateDiff}
+                onClick={runDiffCompare}
+                disabled={compareLoading || connectedSources.length === 0 || selectedSourceIds.length === 0}
                 className="w-full border-white/50 bg-white text-black hover:bg-white/90 hover:border-white/70"
               >
-                Generate diff
+                {compareLoading ? (
+                  <span className="flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Generating...
+                  </span>
+                ) : (
+                  'Generate diff'
+                )}
               </Button>
+              {compareError && (
+                <p className="mt-2 text-xs text-red-300">{compareError}</p>
+              )}
             </SidebarFooter>
           )}
         </Sidebar>
       </SidebarProvider>
 
       <div className="space-y-6">
-        <div className="grid gap-4 lg:grid-cols-[1.5fr_1fr]">
-          <Card className="border-white/10 bg-black/50">
-            <CardHeader>
-              <CardTitle>Canonical Diff Contract</CardTitle>
-              <CardDescription>start_timestamp · end_timestamp · sources · scope</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="rounded-lg border border-white/10 bg-neutral-900 p-4 font-mono text-xs text-white/80">
-                <pre className="whitespace-pre-wrap">{JSON.stringify(canonicalInput, null, 2)}</pre>
-              </div>
-              <div className="rounded-lg border border-white/10 bg-white/5 p-3">
-                <div className="text-xs uppercase tracking-[0.2em] text-white/60">Diff object</div>
-                <dl className="mt-2 space-y-1 text-sm text-white/80">
-                  <div className="flex items-center justify-between">
-                    <dt>Tickets moved</dt>
-                    <dd className="font-semibold text-white">{diffObject.tickets_moved}</dd>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <dt>Tickets completed</dt>
-                    <dd className="font-semibold text-white">{diffObject.tickets_completed}</dd>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <dt>Tickets regressed</dt>
-                    <dd className="font-semibold text-white">{diffObject.tickets_regressed}</dd>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <dt>PRs merged</dt>
-                    <dd className="font-semibold text-white">{diffObject.prs_merged}</dd>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <dt>Commits to default</dt>
-                    <dd className="font-semibold text-white">{diffObject.commits_default}</dd>
-                  </div>
-                </dl>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-white/10 bg-white/5">
-            <CardHeader>
-              <CardTitle>System change characteristics</CardTitle>
-              <CardDescription>Derived from the diff spine, not scored.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm">
-                <span>Tickets completed</span>
-                <span className="font-semibold">{diffObject.tickets_completed}</span>
-              </div>
-              <div className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm">
-                <span>PRs merged</span>
-                <span className="font-semibold">{diffObject.prs_merged}</span>
-              </div>
-              <div className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm">
-                <span>Movement vs completion</span>
-                <span className="font-semibold">{movementRatio}</span>
-              </div>
-              <p className="text-xs text-white/60">
-                Stored as a time series keyed by team · repo · date range for later trend work.
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="grid gap-4 lg:grid-cols-[1.5fr_1fr]">
-          <Card className="border-white/10 bg-white/5">
-            <CardHeader>
-              <CardTitle>Weekly truth summary (markdown)</CardTitle>
-              <CardDescription>Bullet lists only; no manual edits.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="rounded-lg border border-white/10 bg-neutral-900 p-4 font-mono text-sm text-white/80 whitespace-pre-wrap">
-                {weeklyMarkdown}
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {['Slack', 'Confluence', 'Email'].map((target) => (
-                  <Button key={target} variant="outline" className="border-white/20 text-white/80 hover:text-white">
-                    Send to {target}
-                  </Button>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-white/10 bg-black/50">
-            <CardHeader>
-              <CardTitle>Architecture signals</CardTitle>
-              <CardDescription>Lightweight change detection from git diff.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                {diffObject.architecture_changes.map((change, idx) => (
-                  <div
-                    key={`${change.label}-${idx}`}
-                    className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm"
-                  >
-                    <div className="flex items-center gap-2">
-                      <Badge variant="secondary" className="bg-white/10 text-white">
-                        {change.label}
-                      </Badge>
-                      <span className="text-white/80">{change.detail}</span>
-                    </div>
-                    <Badge variant="outline" className="border-white/20 text-white/60">
-                      {diffInput.scope}
-                    </Badge>
-                  </div>
-                ))}
-              </div>
-              <div className="space-y-2">
-                <div className="text-xs uppercase tracking-[0.2em] text-white/60">Repos touched</div>
-                <div className="flex flex-wrap gap-2">
-                  {diffObject.repos_touched.map((repo) => (
-                    <Badge key={repo} variant="outline" className="border-white/20 text-white/80">
-                      {repo}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        <Card className="border-white/10 bg-white/5">
+        <Card className="border-white/10 bg-black/50">
           <CardHeader>
-            <CardTitle>Monthly snapshots</CardTitle>
-            <CardDescription>One snapshot per month; compare N vs N-1.</CardDescription>
+            <CardTitle>Diff report</CardTitle>
+            <CardDescription>Results for the selected window (auto-baseline applied)</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-2">
-            <div className="rounded-lg border border-white/10">
-              {snapshots.map((snap, idx) => (
-                <div
-                  key={snap.id}
-                  className={cn(
-                    'flex flex-wrap items-center justify-between gap-3 px-4 py-3',
-                    idx < snapshots.length - 1 ? 'border-b border-white/10' : ''
-                  )}
-                >
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-white">{snap.label}</span>
-                      <Badge variant="secondary" className="bg-white/10 text-white">snapshot</Badge>
-                    </div>
-                    <div className="text-xs text-white/60">Architecture changes: {snap.changes}</div>
-                    <div className="flex flex-wrap gap-2">
-                      {snap.flags.map((flag) => (
-                        <Badge key={`${snap.id}-${flag}`} variant="outline" className="border-white/20 text-white/70">
-                          {flag}
+          <CardContent className="space-y-6">
+            {reportSources.length > 0 && (
+              <div className="rounded-lg border border-white/10 bg-neutral-900/80 p-4">
+                <h3 className="text-sm font-semibold text-white mb-2">Sources in this report</h3>
+                <ul className="flex flex-wrap gap-2">
+                  {reportSources.map((s) => (
+                    <li key={s.id}>
+                      <Badge variant="secondary" className="font-mono text-xs bg-white/10 text-white/90">
+                        {s.display_name}
+                      </Badge>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <div className="rounded-lg border border-white/10 bg-neutral-900 p-4 font-mono text-xs text-white/80">
+              <h3 className="text-sm font-semibold text-white mb-2">High-level metrics (all sources)</h3>
+              <div className="mb-2 flex flex-col gap-1 text-white/70">
+                <span>Primary: {new Date(canonicalInput.start_timestamp).toLocaleDateString()} → {new Date(canonicalInput.end_timestamp).toLocaleDateString()}</span>
+                {baselineWindow && (
+                  <span>Baseline: {new Date(baselineWindow.start).toLocaleDateString()} → {new Date(baselineWindow.end).toLocaleDateString()}</span>
+                )}
+              </div>
+              <dl className="space-y-2 text-sm">
+                {(
+                  [
+                    { label: 'Tickets moved', value: diffObject.tickets_moved, delta: deltaOrZero('tickets_moved') },
+                    { label: 'Tickets completed', value: diffObject.tickets_completed, delta: deltaOrZero('tickets_completed') },
+                    { label: 'Tickets regressed', value: diffObject.tickets_regressed, delta: deltaOrZero('tickets_regressed') },
+                    { label: 'Tickets created', value: diffObject.tickets_created, delta: deltaOrZero('tickets_created') },
+                    { label: 'PRs merged', value: diffObject.prs_merged, delta: deltaOrZero('prs_merged') },
+                    { label: 'PRs opened', value: diffObject.prs_opened, delta: deltaOrZero('prs_opened') },
+                    { label: 'PRs closed', value: diffObject.prs_closed, delta: deltaOrZero('prs_closed') },
+                    { label: 'Commits to default', value: diffObject.commits_default, delta: deltaOrZero('commits_default') },
+                  ] as Array<{ label: string; value: number; delta: number }>
+                ).map((row) => (
+                  <div key={row.label} className="flex items-center justify-between">
+                    <dt className="text-white/80">{row.label}</dt>
+                    <dd className="flex items-center gap-2 font-semibold text-white">
+                      <span>{row.value}</span>
+                      {deltaObject && (
+                        <Badge variant="outline" className={cn('text-xs border-white/20', row.delta >= 0 ? 'text-emerald-300' : 'text-rose-300')}>
+                          {row.delta >= 0 ? '+' : ''}
+                          {row.delta}
                         </Badge>
-                      ))}
-                    </div>
+                      )}
+                    </dd>
                   </div>
-                  <Button variant="ghost" className="text-white/80 hover:text-white">
-                    Compare with previous
-                  </Button>
+                ))}
+                <div className="flex items-center justify-between">
+                  <dt className="text-white/80">Repos touched</dt>
+                  <dd className="flex items-center gap-2 font-semibold text-white">
+                    <span>{diffObject.repos_touched.length}</span>
+                    {deltaObject && (
+                      <Badge variant="outline" className="text-xs border-white/20 text-emerald-300">
+                        +{deltaObject.repos_added?.length ?? 0} / -{deltaObject.repos_removed?.length ?? 0}
+                      </Badge>
+                    )}
+                  </dd>
                 </div>
-              ))}
+              </dl>
             </div>
           </CardContent>
         </Card>
@@ -494,42 +629,6 @@ function buildArchitectureChanges(scope: DiffScope): Array<{ label: 'node_added'
     { label: 'node_modified', detail: 'infra/k8s/gateway.yaml' },
     { label: 'node_removed', detail: 'legacy/etl-sync' },
   ];
-}
-
-function buildWeeklyMarkdown(diff: DiffObject): string {
-  const stalled = Math.max(0, diff.tickets_moved - diff.tickets_completed);
-  return [
-    '## What shipped',
-    `- ${diff.tickets_completed} tickets moved to Done`,
-    `- ${diff.prs_merged} PRs merged`,
-    '',
-    '## What changed',
-    `- ${diff.tickets_moved} tickets moved across states`,
-    `- ${diff.prs_opened} PRs opened`,
-    '',
-    '## What stalled',
-    `- ${stalled} tickets unchanged 7 days`,
-  ].join('\n');
-}
-
-function seedSnapshots(): Array<{ id: string; label: string; changes: number; flags: string[] }> {
-  const now = new Date();
-  return [0, 1, 2].map((offset) => {
-    const d = new Date(now);
-    d.setMonth(d.getMonth() - offset);
-    const label = formatSnapshotLabel(d);
-    return {
-      id: `${label}-${offset}`,
-      label,
-      changes: 6 + offset * 2,
-      flags: offset === 0 ? ['node_added', 'node_modified'] : ['node_modified'],
-    };
-  });
-}
-
-function formatSnapshotLabel(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}`;
 }
 
 function ModeSwitcher({ active, onChange }: ModeSwitcherProps) {
@@ -583,7 +682,7 @@ function ModeCard({ active, title, subtitle, icon: Icon, onClick }: ModeCardProp
         </div>
         <p className="text-sm text-white/70">{subtitle}</p>
         <p className="text-xs text-white/50">
-          {title === 'Knowledge' ? 'Uses source + audience filters' : 'Uses timebox + scope + sources'}
+          {title === 'Knowledge' ? 'Uses source + audience filters' : 'Uses timebox + sources'}
         </p>
       </div>
     </button>
@@ -607,7 +706,8 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
   const [resources, setResources] = useState<Array<{ id: string; title: string; type: string; metadata?: Record<string, unknown> }>>([]);
   const [loadingResources, setLoadingResources] = useState(false);
   const [selectedResourceId, setSelectedResourceId] = useState<string>('');
-  const [pushResult, setPushResult] = useState<{ status: 'idle' | 'pushing' | 'done' | 'error'; message?: string; details?: any[] }>({ status: 'idle' });
+  type PushResultDetail = { key?: string; title?: string; status?: string };
+  const [pushResult, setPushResult] = useState<{ status: 'idle' | 'pushing' | 'done' | 'error'; message?: string; details?: PushResultDetail[] }>({ status: 'idle' });
   const [activeTab, setActiveTab] = useState<Mode>('knowledge');
   const [knowledgeFilterTab, setKnowledgeFilterTab] = useState<FilterTab>('filters');
 
@@ -738,7 +838,7 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
 
       return { ...item, projections: orderedProjections };
     });
-  }, [items, selectedAudiences]);
+  }, [itemsFilteredBySources, selectedAudiences]);
 
   const categories = useMemo(() => {
     const set = new Set<string>();
@@ -763,7 +863,6 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
       loadItems();
     }, 400);
     return () => clearTimeout(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSourceIds, selectedAudiences]);
 
   useEffect(() => {
@@ -823,8 +922,8 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
         throw new Error(data?.error || 'Push failed');
       }
       setPushResult({ status: 'done', details: data.results, message: 'Push complete' });
-    } catch (e: any) {
-      setPushResult({ status: 'error', message: e?.message || 'Push failed' });
+    } catch (e: unknown) {
+      setPushResult({ status: 'error', message: e instanceof Error ? e.message : 'Push failed' });
     }
   };
 
@@ -842,7 +941,7 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                 <SidebarHeader>
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-4">
-                      {(['filters', 'automation', 'review'] as FilterTab[]).map((tab) => {
+                      {(['filters', 'schedule', 'review'] as FilterTab[]).map((tab) => {
                         const active = knowledgeFilterTab === tab;
                         return (
                           <button
@@ -1048,7 +1147,7 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                     </>
                   )}
 
-                  {knowledgeFilterTab === 'automation' && (
+                  {knowledgeFilterTab === 'schedule' && (
                     <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/80">
                       Automation config placeholder — hook automation rules here.
                     </div>
@@ -1088,7 +1187,6 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                       Reset
                     </Button>
                   </div>
-                  <p className="mt-2 text-xs text-white/60">Auto-syncs whenever filters change.</p>
                 </SidebarFooter>
               </Sidebar>
 
@@ -1354,7 +1452,7 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                     {pushResult.message}
                     {Array.isArray(pushResult.details) && pushResult.details.length > 0 && (
                       <div className="mt-2 text-xs text-white/80 space-y-1 max-h-48 overflow-y-auto">
-                        {pushResult.details.map((d: any, idx: number) => (
+                        {pushResult.details.map((d: PushResultDetail, idx: number) => (
                           <div key={d.key != null ? `${String(d.key)}-${idx}` : `detail-${idx}`}>
                             <Badge variant="outline" className="mr-2 border-white/20 text-white/70">
                               {d.status?.toUpperCase()}

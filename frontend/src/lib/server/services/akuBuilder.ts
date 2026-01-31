@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { randomUUID } from 'crypto';
-import { LLMGateway } from './llmGateway';
+import { LLMGateway, type Message } from './llmGateway';
 
 type Evidence = {
   id: string;
@@ -224,14 +224,11 @@ async function generateProjection(
   };
 
   try {
-    const respText = await llm.call(
-      [
-        { role: 'system', content: system },
-        { role: 'user', content: JSON.stringify(userContent) },
-      ] as any,
-      'openai/gpt-4o-mini',
-      0.2
-    );
+    const messages: Message[] = [
+      { role: 'system', content: system },
+      { role: 'user', content: JSON.stringify(userContent) },
+    ];
+    const respText = await llm.call(messages, 'openai/gpt-4o-mini', 0.2);
 
     const cleaned = (respText || '')
       .replace(/```json/gi, '')
@@ -242,12 +239,12 @@ async function generateProjection(
     const jsonMatch = cleaned.match(/{[\s\S]*}/);
     const jsonText = jsonMatch ? jsonMatch[0] : cleaned;
 
-    const parsed = JSON.parse(jsonText);
+    const parsed = JSON.parse(jsonText) as { sections?: Array<{ label?: string; text?: string }> };
     if (!parsed.sections || !Array.isArray(parsed.sections)) throw new Error('Invalid projection shape');
 
     const projection = parsed.sections
-      .filter((s: any) => s?.label)
-      .map((s: { label: string; text: string }) => `${s.label}:\n${(s.text || '').trim()}`)
+      .filter((s): s is { label: string; text?: string } => Boolean(s?.label))
+      .map((s) => `${s.label}:\n${(s.text || '').trim()}`)
       .join('\n\n')
       .trim();
 
@@ -319,11 +316,29 @@ export async function buildAkusForSources(
     clusters.get(cls.key)!.items.push(e);
   });
 
-  const akus: any[] = [];
-  const projections: any[] = [];
+  type AkuRecord = {
+    id: string;
+    title: string;
+    body: string;
+    type: 'code_summary' | 'issue';
+    source_ids: string[];
+    scope_refs: string[];
+    hash: string;
+    status: string;
+    scores: Record<string, number | Record<string, number>>;
+  };
+  type ProjectionRecord = {
+    id: string;
+    aku_id: string;
+    audience: string;
+    projection: string;
+    status: string;
+  };
+  const akus: AkuRecord[] = [];
+  const projections: ProjectionRecord[] = [];
   const llm = new LLMGateway();
 
-  for (const [key, cluster] of clusters.entries()) {
+  for (const [, cluster] of clusters.entries()) {
     const items = cluster.items;
     if (items.length === 0) continue;
     const hasIssue = items.some((e) => e.kind === 'issue');

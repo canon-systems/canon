@@ -80,7 +80,7 @@ export const Sidebar = React.forwardRef<HTMLDivElement, SidebarProps>(function S
   );
 });
 
-interface SidebarInsetProps extends React.HTMLAttributes<HTMLDivElement> {}
+type SidebarInsetProps = React.HTMLAttributes<HTMLDivElement>;
 
 export const SidebarInset = React.forwardRef<HTMLDivElement, SidebarInsetProps>(function SidebarInset(
   { className, ...props },
@@ -95,7 +95,7 @@ export const SidebarInset = React.forwardRef<HTMLDivElement, SidebarInsetProps>(
   );
 });
 
-interface SidebarSectionProps extends React.HTMLAttributes<HTMLDivElement> {}
+type SidebarSectionProps = React.HTMLAttributes<HTMLDivElement>;
 
 export const SidebarHeader = React.forwardRef<HTMLDivElement, SidebarSectionProps>(function SidebarHeader(
   { className, ...props },

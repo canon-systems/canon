@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { planKnowledgePush, type PlanResult, type PlannedPage } from './knowledgePushPlanner';
+import { type PlanResult, type PlannedPage } from './knowledgePushPlanner';
 import { getWorkspaceProvider } from '../workspaces/workspaceFactory';
 import type { WorkspaceInfo, WorkspaceContent } from '../workspaces/base';
 import { marked } from 'marked';
@@ -62,14 +62,6 @@ async function getProviderConnectionId(
 
 function pageKey(page: PlannedPage) {
   return `${page.type}:${page.akuId || 'root'}:${page.audience || ''}`;
-}
-
-function entityParts(page: PlannedPage) {
-  return {
-    entity_type: page.type,
-    aku_id: page.akuId ?? null,
-    audience: page.audience ?? null,
-  };
 }
 
 function parseConfluenceResourceId(resourceId?: string | null): { cloudId?: string | null; id?: string | null } {
