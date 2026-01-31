@@ -322,6 +322,21 @@ export async function buildAkusForSources(
     clusters.get(cls.key)!.items.push(e);
   });
 
+  const hashesForRun: string[] = [];
+  for (const [, cluster] of clusters.entries()) {
+    const items = cluster.items;
+    if (items.length === 0) continue;
+    const hasIssue = items.some((e) => e.kind === 'issue');
+    if (!hasIssue && items.length < 2) continue;
+    const hash = `${items.map((i) => i.id).sort().join(':')}`;
+    hashesForRun.push(hash);
+  }
+  const { data: existingByHash } =
+    hashesForRun.length > 0
+      ? await supabase.from('akus').select('id, hash').eq('user_id', userId).in('hash', hashesForRun)
+      : { data: [] };
+  const idByHash = new Map<string, string>((existingByHash || []).map((r) => [r.hash, r.id]));
+
   type AkuRecord = {
     id: string;
     title: string;
@@ -359,7 +374,7 @@ export async function buildAkusForSources(
     const source_ids = Array.from(new Set(items.map((i) => i.source_id)));
     const scope_refs = Array.from(new Set(items.map((i) => i.scope_ref)));
     const hash = `${items.map((i) => i.id).sort().join(':')}`;
-    const akuId = deterministicAkuId(userId, clusterKey);
+    const akuId = idByHash.get(hash) ?? deterministicAkuId(userId, clusterKey);
 
     const crit = scoreText(title + canonical, criticalKeywords);
     const promise = scoreText(title + canonical, promiseKeywords);
@@ -406,12 +421,14 @@ export async function buildAkusForSources(
   const currentAkuIds = new Set(akus.map((a) => a.id));
 
   if (akus.length > 0) {
+    const now = new Date().toISOString();
     const { error: akuErr } = await supabase.from('akus').upsert(
       akus.map((a) => ({
         ...a,
         user_id: userId,
+        updated_at: now,
       })),
-      { onConflict: 'id' }
+      { onConflict: 'hash' }
     );
     if (akuErr) {
       console.error('AKU builder: failed to save AKUs', akuErr);
@@ -420,10 +437,12 @@ export async function buildAkusForSources(
   }
 
   if (projections.length > 0) {
+    const now = new Date().toISOString();
     const { error: projErr } = await supabase.from('audience_views').upsert(
       projections.map((p) => ({
         ...p,
         user_id: userId,
+        updated_at: now,
       })),
       { onConflict: 'aku_id,audience' }
     );
