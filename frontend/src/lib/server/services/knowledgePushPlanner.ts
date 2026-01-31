@@ -48,6 +48,30 @@ export type PlanResult = {
 
 const MANAGED_BANNER = '> Managed by Canon — source of truth lives inside Canon.';
 
+/**
+ * Create a single-page plan (e.g. for diff reports) to push to a KB root.
+ * The page is created as a system-type page under the given root.
+ */
+export function createSinglePagePlan(title: string, markdown: string): PlanResult {
+  const withBanner = [markdown.trim(), '', MANAGED_BANNER].join('\n');
+  const systemPage: PlannedPage = {
+    key: 'system',
+    parentKey: null,
+    title,
+    markdown: withBanner,
+    type: 'system',
+    akuId: null,
+    audience: null,
+    hash: hash(withBanner),
+  };
+  return {
+    systemPage,
+    akuPages: [],
+    audiencePages: [],
+    pages: [systemPage],
+  };
+}
+
 const slug = (text: string) =>
   (text || '')
     .toLowerCase()

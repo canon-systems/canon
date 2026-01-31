@@ -111,8 +111,17 @@ type ModeCardProps = {
   onClick: () => void;
 };
 
-/** Schedule communication channels (UI-only for now) */
-type ScheduleCommunication = { email?: boolean; kb?: boolean; slack?: boolean };
+/** Schedule communication channels. When kb is true, kb_provider and kb_resource_id are required for delivery. */
+type ScheduleCommunication = {
+  email?: boolean;
+  kb?: boolean;
+  slack?: boolean;
+  /** Knowledge base target (when kb is true) */
+  kb_provider?: 'notion' | 'confluence';
+  kb_resource_id?: string;
+  kb_connection_id?: string | null;
+  kb_root_metadata?: Record<string, unknown>;
+};
 
 type DiffSchedule = {
   id: string;
@@ -228,10 +237,53 @@ function DiffPrototypePanel() {
   const [diffScheduleFormCadence, setDiffScheduleFormCadence] = useState('daily');
   const [diffScheduleFormSourceIds, setDiffScheduleFormSourceIds] = useState<string[]>([]);
   const [diffScheduleFormCommunication, setDiffScheduleFormCommunication] = useState<ScheduleCommunication>({ email: false, kb: false, slack: false });
+  const [diffScheduleFormKbProvider, setDiffScheduleFormKbProvider] = useState<'notion' | 'confluence' | ''>('');
+  const [diffScheduleFormKbResourceId, setDiffScheduleFormKbResourceId] = useState('');
+  const [diffScheduleFormKbResources, setDiffScheduleFormKbResources] = useState<Array<{ id: string; title: string; type?: string; metadata?: Record<string, unknown> }>>([]);
+  const [diffScheduleFormKbRootMetadata, setDiffScheduleFormKbRootMetadata] = useState<Record<string, unknown> | undefined>(undefined);
+  const [diffScheduleFormKbResourcesLoading, setDiffScheduleFormKbResourcesLoading] = useState(false);
   const [diffScheduleSourceMenuOpen, setDiffScheduleSourceMenuOpen] = useState(false);
   const [diffScheduleCadenceMenuOpen, setDiffScheduleCadenceMenuOpen] = useState(false);
 
   const diffAllSourceIds = useMemo(() => connectedSources.map((s) => s.id), [connectedSources]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/schedules?type=diff', { credentials: 'include' });
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        if (cancelled) return;
+        const list = (data.schedules || []) as Array<{
+          id: string;
+          name?: string;
+          enabled?: boolean;
+          cadence?: string;
+          sourceIds?: string[];
+          communication?: ScheduleCommunication;
+        }>;
+        setDiffSchedules(
+          list.map((s) => ({
+            id: s.id,
+            name: typeof s.name === 'string' ? s.name : 'Diff report',
+            enabled: s.enabled !== false,
+            cadence: typeof s.cadence === 'string' ? s.cadence : 'daily',
+            sourceIds: Array.isArray(s.sourceIds) ? s.sourceIds : [],
+            communication: {
+              ...s.communication,
+              email: !!s.communication?.email,
+              kb: !!s.communication?.kb,
+              slack: !!s.communication?.slack,
+            },
+          }))
+        );
+      } catch {
+        if (!cancelled) setDiffSchedules([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const toggleDiffAllSources = () => {
     setSelectedSourceIds((prev) =>
@@ -293,6 +345,33 @@ function DiffPrototypePanel() {
     );
   };
 
+  const loadDiffScheduleKbResources = async (provider: 'notion' | 'confluence', preserveResourceId?: string) => {
+    setDiffScheduleFormKbResourcesLoading(true);
+    setDiffScheduleFormKbResources([]);
+    if (!preserveResourceId) {
+      setDiffScheduleFormKbResourceId('');
+      setDiffScheduleFormKbRootMetadata(undefined);
+    }
+    try {
+      const url = new URL('/api/push/resources', window.location.origin);
+      url.searchParams.set('provider', provider);
+      const res = await fetch(url.toString(), { credentials: 'include' });
+      const data = await res.json();
+      const list = (data?.resources || []) as Array<{ id: string; title: string; type?: string; metadata?: Record<string, unknown> }>;
+      setDiffScheduleFormKbResources(list);
+      if (list.length > 0) {
+        const keepId = preserveResourceId && list.some((r) => r.id === preserveResourceId) ? preserveResourceId : list[0].id;
+        const chosen = list.find((r) => r.id === keepId) ?? list[0];
+        setDiffScheduleFormKbResourceId(chosen.id);
+        setDiffScheduleFormKbRootMetadata(chosen.metadata);
+      }
+    } catch (e) {
+      console.error('Failed to load KB resources', e);
+    } finally {
+      setDiffScheduleFormKbResourcesLoading(false);
+    }
+  };
+
   const openDiffScheduleForm = (schedule?: DiffSchedule) => {
     if (schedule) {
       setDiffScheduleEditingId(schedule.id);
@@ -300,12 +379,24 @@ function DiffPrototypePanel() {
       setDiffScheduleFormCadence(schedule.cadence);
       setDiffScheduleFormSourceIds(schedule.sourceIds);
       setDiffScheduleFormCommunication(schedule.communication);
+      const kbProvider = schedule.communication?.kb_provider ?? '';
+      setDiffScheduleFormKbProvider(kbProvider);
+      setDiffScheduleFormKbResourceId(schedule.communication?.kb_resource_id ?? '');
+      setDiffScheduleFormKbRootMetadata(schedule.communication?.kb_root_metadata);
+      setDiffScheduleFormKbResources([]);
+      if (kbProvider === 'notion' || kbProvider === 'confluence') {
+        loadDiffScheduleKbResources(kbProvider, schedule.communication?.kb_resource_id);
+      }
     } else {
       setDiffScheduleEditingId(null);
       setDiffScheduleFormName('');
       setDiffScheduleFormCadence('daily');
       setDiffScheduleFormSourceIds(connectedSources.length > 0 ? connectedSources.map((s) => s.id) : []);
       setDiffScheduleFormCommunication({ email: false, kb: false, slack: false });
+      setDiffScheduleFormKbProvider('');
+      setDiffScheduleFormKbResourceId('');
+      setDiffScheduleFormKbResources([]);
+      setDiffScheduleFormKbRootMetadata(undefined);
     }
     setDiffScheduleFormOpen(true);
   };
@@ -315,31 +406,131 @@ function DiffPrototypePanel() {
     setDiffScheduleEditingId(null);
   };
 
-  const saveDiffSchedule = () => {
-    const id = diffScheduleEditingId ?? `diff-sched-${Date.now()}`;
-    const schedule: DiffSchedule = {
-      id,
-      name: diffScheduleFormName.trim() || 'Diff report',
+  const saveDiffSchedule = async () => {
+    const name = diffScheduleFormName.trim() || 'Diff report';
+    const comm = { ...diffScheduleFormCommunication };
+    if (comm.kb) {
+      if (diffScheduleFormKbProvider && diffScheduleFormKbResourceId) {
+        comm.kb_provider = diffScheduleFormKbProvider as 'notion' | 'confluence';
+        comm.kb_resource_id = diffScheduleFormKbResourceId;
+        comm.kb_root_metadata = diffScheduleFormKbRootMetadata;
+      }
+    } else {
+      delete comm.kb_provider;
+      delete comm.kb_resource_id;
+      delete comm.kb_connection_id;
+      delete comm.kb_root_metadata;
+    }
+    const body = {
+      type: 'diff' as const,
+      name,
       enabled: true,
       cadence: diffScheduleFormCadence,
       sourceIds: [...diffScheduleFormSourceIds],
-      communication: { ...diffScheduleFormCommunication },
+      communication: comm,
     };
-    if (diffScheduleEditingId) {
-      setDiffSchedules((prev) => prev.map((s) => (s.id === id ? schedule : s)));
-    } else {
-      setDiffSchedules((prev) => [...prev, schedule]);
+    try {
+      if (diffScheduleEditingId) {
+        const res = await fetch(`/api/schedules/${diffScheduleEditingId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data?.error || 'Failed to update schedule');
+        }
+        const data = await res.json();
+        const s = data.schedule as { id: string; name?: string; enabled?: boolean; cadence?: string; sourceIds?: string[]; communication?: ScheduleCommunication };
+        setDiffSchedules((prev) =>
+          prev.map((schedule) =>
+            schedule.id === s.id
+              ? {
+                  id: s.id,
+                  name: typeof s.name === 'string' ? s.name : name,
+                  enabled: s.enabled !== false,
+                  cadence: typeof s.cadence === 'string' ? s.cadence : body.cadence,
+                  sourceIds: Array.isArray(s.sourceIds) ? s.sourceIds : body.sourceIds,
+                  communication: {
+                    ...s.communication,
+                    email: !!s.communication?.email,
+                    kb: !!s.communication?.kb,
+                    slack: !!s.communication?.slack,
+                  },
+                }
+              : schedule
+          )
+        );
+      } else {
+        const res = await fetch('/api/schedules', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data?.error || 'Failed to create schedule');
+        }
+        const data = await res.json();
+        const s = data.schedule as { id: string; name?: string; enabled?: boolean; cadence?: string; sourceIds?: string[]; communication?: ScheduleCommunication };
+        setDiffSchedules((prev) => [
+          ...prev,
+          {
+            id: s.id,
+            name: typeof s.name === 'string' ? s.name : name,
+            enabled: s.enabled !== false,
+            cadence: typeof s.cadence === 'string' ? s.cadence : body.cadence,
+            sourceIds: Array.isArray(s.sourceIds) ? s.sourceIds : body.sourceIds,
+            communication: {
+              ...s.communication,
+              email: !!s.communication?.email,
+              kb: !!s.communication?.kb,
+              slack: !!s.communication?.slack,
+            },
+          },
+        ]);
+      }
+      closeDiffScheduleForm();
+    } catch (err) {
+      console.error('Save diff schedule failed:', err);
     }
-    closeDiffScheduleForm();
   };
 
-  const deleteDiffSchedule = (id: string) => {
-    setDiffSchedules((prev) => prev.filter((s) => s.id !== id));
-    if (diffScheduleEditingId === id) closeDiffScheduleForm();
+  const deleteDiffSchedule = async (id: string) => {
+    try {
+      const res = await fetch(`/api/schedules/${id}`, { method: 'DELETE', credentials: 'include' });
+      if (!res.ok && res.status !== 404) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error || 'Failed to delete schedule');
+      }
+      setDiffSchedules((prev) => prev.filter((s) => s.id !== id));
+      if (diffScheduleEditingId === id) closeDiffScheduleForm();
+    } catch (err) {
+      console.error('Delete diff schedule failed:', err);
+    }
   };
 
-  const toggleDiffScheduleEnabled = (id: string) => {
-    setDiffSchedules((prev) => prev.map((s) => (s.id === id ? { ...s, enabled: !s.enabled } : s)));
+  const toggleDiffScheduleEnabled = async (id: string) => {
+    const schedule = diffSchedules.find((s) => s.id === id);
+    if (!schedule) return;
+    const nextEnabled = !schedule.enabled;
+    try {
+      const res = await fetch(`/api/schedules/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ enabled: nextEnabled }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error || 'Failed to update schedule');
+      }
+      setDiffSchedules((prev) => prev.map((s) => (s.id === id ? { ...s, enabled: nextEnabled } : s)));
+    } catch (err) {
+      console.error('Toggle diff schedule failed:', err);
+    }
   };
 
   const toggleDiffScheduleFormSource = (sourceId: string) => {
@@ -641,28 +832,24 @@ function DiffPrototypePanel() {
                           sched.enabled ? 'border-white/30 bg-white/10' : 'border-white/10 bg-white/5'
                         )}
                       >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-medium text-white truncate">{sched.name}</p>
-                            <p className="text-xs text-white/50 mt-0.5">{getCadenceLabel(sched.cadence)} · {sched.sourceIds.length} source{sched.sourceIds.length === 1 ? '' : 's'}</p>
-                            <div className="flex flex-wrap gap-1 mt-1.5">
-                              {sched.communication.email && <Badge variant="outline" className="text-[10px] border-white/20 text-white/70">Email</Badge>}
-                              {sched.communication.kb && <Badge variant="outline" className="text-[10px] border-white/20 text-white/70">KB</Badge>}
-                              {sched.communication.slack && <Badge variant="outline" className="text-[10px] border-white/20 text-white/70">Slack</Badge>}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-1 shrink-0">
-                            <Switch
-                              checked={sched.enabled}
-                              onCheckedChange={() => toggleDiffScheduleEnabled(sched.id)}
-                            />
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-white/70 hover:text-white" onClick={() => openDiffScheduleForm(sched)}>
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-white/70 hover:text-red-300" onClick={() => deleteDiffSchedule(sched.id)}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
+                        <p className="text-sm font-medium text-white truncate">{sched.name}</p>
+                        <div className="flex items-center justify-start gap-1 mt-1">
+                          <Switch
+                            checked={sched.enabled}
+                            onCheckedChange={() => toggleDiffScheduleEnabled(sched.id)}
+                          />
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-white/70 hover:text-white" onClick={() => openDiffScheduleForm(sched)}>
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-white/70 hover:text-red-300" onClick={() => deleteDiffSchedule(sched.id)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        <p className="text-xs text-white/50 mt-1">{getCadenceLabel(sched.cadence)} · {sched.sourceIds.length} source{sched.sourceIds.length === 1 ? '' : 's'}</p>
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          {sched.communication.email && <Badge variant="outline" className="text-[10px] border-white/20 text-white/70">Email</Badge>}
+                          {sched.communication.kb && <Badge variant="outline" className="text-[10px] border-white/20 text-white/70">KB</Badge>}
+                          {sched.communication.slack && <Badge variant="outline" className="text-[10px] border-white/20 text-white/70">Slack</Badge>}
                         </div>
                       </div>
                     ))}
@@ -783,7 +970,16 @@ function DiffPrototypePanel() {
                           <label className="flex items-center gap-2 cursor-pointer text-sm text-white/80">
                             <Checkbox
                               checked={diffScheduleFormCommunication.kb ?? false}
-                              onCheckedChange={(c) => setDiffScheduleFormCommunication((prev) => ({ ...prev, kb: !!c }))}
+                              onCheckedChange={(c) => {
+                                const kb = !!c;
+                                setDiffScheduleFormCommunication((prev) => ({ ...prev, kb }));
+                                if (!kb) {
+                                  setDiffScheduleFormKbProvider('');
+                                  setDiffScheduleFormKbResourceId('');
+                                  setDiffScheduleFormKbResources([]);
+                                  setDiffScheduleFormKbRootMetadata(undefined);
+                                }
+                              }}
                             />
                             KB
                           </label>
@@ -795,6 +991,64 @@ function DiffPrototypePanel() {
                             Slack
                           </label>
                         </div>
+                        {diffScheduleFormCommunication.kb && (
+                          <div className="mt-3 space-y-2 rounded-md border border-white/10 bg-white/5 p-3">
+                            <span className="text-xs text-white/60">KB target</span>
+                            <div className="flex gap-2">
+                              <Button
+                                type="button"
+                                variant={diffScheduleFormKbProvider === 'notion' ? 'secondary' : 'ghost'}
+                                size="sm"
+                                className={diffScheduleFormKbProvider === 'notion' ? 'border-white/30 bg-white/10 text-white' : 'text-white/70 hover:text-white'}
+                                onClick={() => {
+                                  setDiffScheduleFormKbProvider('notion');
+                                  loadDiffScheduleKbResources('notion');
+                                }}
+                              >
+                                Notion
+                              </Button>
+                              <Button
+                                type="button"
+                                variant={diffScheduleFormKbProvider === 'confluence' ? 'secondary' : 'ghost'}
+                                size="sm"
+                                className={diffScheduleFormKbProvider === 'confluence' ? 'border-white/30 bg-white/10 text-white' : 'text-white/70 hover:text-white'}
+                                onClick={() => {
+                                  setDiffScheduleFormKbProvider('confluence');
+                                  loadDiffScheduleKbResources('confluence');
+                                }}
+                              >
+                                Confluence
+                              </Button>
+                            </div>
+                            {diffScheduleFormKbProvider && (
+                              <div>
+                                <label className="text-xs text-white/60 block mb-1">Page or space</label>
+                                {diffScheduleFormKbResourcesLoading ? (
+                                  <span className="text-sm text-white/60">Loading...</span>
+                                ) : diffScheduleFormKbResources.length === 0 ? (
+                                  <span className="text-sm text-white/60">No resources found. Connect {diffScheduleFormKbProvider} in Settings.</span>
+                                ) : (
+                                  <select
+                                    className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none"
+                                    value={diffScheduleFormKbResourceId}
+                                    onChange={(e) => {
+                                      const id = e.target.value;
+                                      const r = diffScheduleFormKbResources.find((res) => res.id === id);
+                                      setDiffScheduleFormKbResourceId(id);
+                                      setDiffScheduleFormKbRootMetadata(r?.metadata);
+                                    }}
+                                  >
+                                    {diffScheduleFormKbResources.map((r) => (
+                                      <option key={r.id} value={r.id}>
+                                        {r.title || r.id}
+                                      </option>
+                                    ))}
+                                  </select>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                       <div className="flex gap-2 pt-1">
                         <Button variant="secondary" size="sm" className="flex-1 border-white/20 bg-white/10 text-white hover:bg-white/15" onClick={saveDiffSchedule}>
@@ -1024,6 +1278,11 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
   const [projectionScheduleFormAudiences, setProjectionScheduleFormAudiences] = useState<string[]>([]);
   const [projectionScheduleFormUnits, setProjectionScheduleFormUnits] = useState<string[]>([]);
   const [projectionScheduleFormCommunication, setProjectionScheduleFormCommunication] = useState<ScheduleCommunication>({ email: false, kb: false, slack: false });
+  const [projectionScheduleFormKbProvider, setProjectionScheduleFormKbProvider] = useState<'notion' | 'confluence' | ''>('');
+  const [projectionScheduleFormKbResourceId, setProjectionScheduleFormKbResourceId] = useState('');
+  const [projectionScheduleFormKbResources, setProjectionScheduleFormKbResources] = useState<Array<{ id: string; title: string; type?: string; metadata?: Record<string, unknown> }>>([]);
+  const [projectionScheduleFormKbRootMetadata, setProjectionScheduleFormKbRootMetadata] = useState<Record<string, unknown> | undefined>(undefined);
+  const [projectionScheduleFormKbResourcesLoading, setProjectionScheduleFormKbResourcesLoading] = useState(false);
   const [projectionScheduleSourceMenuOpen, setProjectionScheduleSourceMenuOpen] = useState(false);
   const [projectionScheduleCadenceMenuOpen, setProjectionScheduleCadenceMenuOpen] = useState(false);
   const [projectionScheduleAudienceMenuOpen, setProjectionScheduleAudienceMenuOpen] = useState(false);
@@ -1094,6 +1353,48 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
 
   const allSourceIds = useMemo(() => sources.map((s) => s.id), [sources]);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/schedules?type=projection', { credentials: 'include' });
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        if (cancelled) return;
+        const list = (data.schedules || []) as Array<{
+          id: string;
+          name?: string;
+          enabled?: boolean;
+          cadence?: string;
+          sourceIds?: string[];
+          audiences?: string[];
+          units?: string[];
+          communication?: ScheduleCommunication;
+        }>;
+        setProjectionSchedules(
+          list.map((s) => ({
+            id: s.id,
+            name: typeof s.name === 'string' ? s.name : 'Projection report',
+            enabled: s.enabled !== false,
+            cadence: typeof s.cadence === 'string' ? s.cadence : 'daily',
+            sourceIds: Array.isArray(s.sourceIds) ? s.sourceIds : [],
+            audiences: Array.isArray(s.audiences) ? s.audiences : [],
+            units: Array.isArray(s.units) ? s.units : [],
+            communication: {
+              ...s.communication,
+              email: !!s.communication?.email,
+              kb: !!s.communication?.kb,
+              slack: !!s.communication?.slack,
+            },
+          }))
+        );
+      } catch {
+        if (!cancelled) setProjectionSchedules([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   const toggleAllSources = () => {
     setSelectedSourceIds((prev) =>
       prev.length === allSourceIds.length ? [] : allSourceIds
@@ -1122,6 +1423,33 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
     setItems([]);
   };
 
+  const loadProjectionScheduleKbResources = async (provider: 'notion' | 'confluence', preserveResourceId?: string) => {
+    setProjectionScheduleFormKbResourcesLoading(true);
+    setProjectionScheduleFormKbResources([]);
+    if (!preserveResourceId) {
+      setProjectionScheduleFormKbResourceId('');
+      setProjectionScheduleFormKbRootMetadata(undefined);
+    }
+    try {
+      const url = new URL('/api/push/resources', window.location.origin);
+      url.searchParams.set('provider', provider);
+      const res = await fetch(url.toString(), { credentials: 'include' });
+      const data = await res.json();
+      const list = (data?.resources || []) as Array<{ id: string; title: string; type?: string; metadata?: Record<string, unknown> }>;
+      setProjectionScheduleFormKbResources(list);
+      if (list.length > 0) {
+        const keepId = preserveResourceId && list.some((r) => r.id === preserveResourceId) ? preserveResourceId : list[0].id;
+        const chosen = list.find((r) => r.id === keepId) ?? list[0];
+        setProjectionScheduleFormKbResourceId(chosen.id);
+        setProjectionScheduleFormKbRootMetadata(chosen.metadata);
+      }
+    } catch (e) {
+      console.error('Failed to load KB resources', e);
+    } finally {
+      setProjectionScheduleFormKbResourcesLoading(false);
+    }
+  };
+
   const openProjectionScheduleForm = (schedule?: ProjectionSchedule) => {
     if (schedule) {
       setProjectionScheduleEditingId(schedule.id);
@@ -1131,6 +1459,14 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
       setProjectionScheduleFormAudiences(schedule.audiences);
       setProjectionScheduleFormUnits(schedule.units);
       setProjectionScheduleFormCommunication(schedule.communication);
+      const kbProvider = schedule.communication?.kb_provider ?? '';
+      setProjectionScheduleFormKbProvider(kbProvider);
+      setProjectionScheduleFormKbResourceId(schedule.communication?.kb_resource_id ?? '');
+      setProjectionScheduleFormKbRootMetadata(schedule.communication?.kb_root_metadata);
+      setProjectionScheduleFormKbResources([]);
+      if (kbProvider === 'notion' || kbProvider === 'confluence') {
+        loadProjectionScheduleKbResources(kbProvider, schedule.communication?.kb_resource_id);
+      }
     } else {
       setProjectionScheduleEditingId(null);
       setProjectionScheduleFormName('');
@@ -1139,6 +1475,10 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
       setProjectionScheduleFormAudiences([]);
       setProjectionScheduleFormUnits([]);
       setProjectionScheduleFormCommunication({ email: false, kb: false, slack: false });
+      setProjectionScheduleFormKbProvider('');
+      setProjectionScheduleFormKbResourceId('');
+      setProjectionScheduleFormKbResources([]);
+      setProjectionScheduleFormKbRootMetadata(undefined);
     }
     setProjectionScheduleFormOpen(true);
   };
@@ -1148,33 +1488,155 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
     setProjectionScheduleEditingId(null);
   };
 
-  const saveProjectionSchedule = () => {
-    const id = projectionScheduleEditingId ?? `proj-sched-${Date.now()}`;
-    const schedule: ProjectionSchedule = {
-      id,
-      name: projectionScheduleFormName.trim() || 'Projection report',
+  const saveProjectionSchedule = async () => {
+    const name = projectionScheduleFormName.trim() || 'Projection report';
+    const comm = { ...projectionScheduleFormCommunication };
+    if (comm.kb) {
+      if (projectionScheduleFormKbProvider && projectionScheduleFormKbResourceId) {
+        comm.kb_provider = projectionScheduleFormKbProvider as 'notion' | 'confluence';
+        comm.kb_resource_id = projectionScheduleFormKbResourceId;
+        comm.kb_root_metadata = projectionScheduleFormKbRootMetadata;
+      }
+    } else {
+      delete comm.kb_provider;
+      delete comm.kb_resource_id;
+      delete comm.kb_connection_id;
+      delete comm.kb_root_metadata;
+    }
+    const body = {
+      type: 'projection' as const,
+      name,
       enabled: true,
       cadence: projectionScheduleFormCadence,
       sourceIds: [...projectionScheduleFormSourceIds],
       audiences: [...projectionScheduleFormAudiences],
       units: [...projectionScheduleFormUnits],
-      communication: { ...projectionScheduleFormCommunication },
+      communication: comm,
     };
-    if (projectionScheduleEditingId) {
-      setProjectionSchedules((prev) => prev.map((s) => (s.id === id ? schedule : s)));
-    } else {
-      setProjectionSchedules((prev) => [...prev, schedule]);
+    try {
+      if (projectionScheduleEditingId) {
+        const res = await fetch(`/api/schedules/${projectionScheduleEditingId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data?.error || 'Failed to update schedule');
+        }
+        const data = await res.json();
+        const s = data.schedule as {
+          id: string;
+          name?: string;
+          enabled?: boolean;
+          cadence?: string;
+          sourceIds?: string[];
+          audiences?: string[];
+          units?: string[];
+          communication?: ScheduleCommunication;
+        };
+        setProjectionSchedules((prev) =>
+          prev.map((schedule) =>
+            schedule.id === s.id
+              ? {
+                  id: s.id,
+                  name: typeof s.name === 'string' ? s.name : name,
+                  enabled: s.enabled !== false,
+                  cadence: typeof s.cadence === 'string' ? s.cadence : body.cadence,
+                  sourceIds: Array.isArray(s.sourceIds) ? s.sourceIds : body.sourceIds,
+                  audiences: Array.isArray(s.audiences) ? s.audiences : body.audiences,
+                  units: Array.isArray(s.units) ? s.units : body.units,
+                  communication: {
+                    ...s.communication,
+                    email: !!s.communication?.email,
+                    kb: !!s.communication?.kb,
+                    slack: !!s.communication?.slack,
+                  },
+                }
+              : schedule
+          )
+        );
+      } else {
+        const res = await fetch('/api/schedules', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data?.error || 'Failed to create schedule');
+        }
+        const data = await res.json();
+        const s = data.schedule as {
+          id: string;
+          name?: string;
+          enabled?: boolean;
+          cadence?: string;
+          sourceIds?: string[];
+          audiences?: string[];
+          units?: string[];
+          communication?: ScheduleCommunication;
+        };
+        setProjectionSchedules((prev) => [
+          ...prev,
+          {
+            id: s.id,
+            name: typeof s.name === 'string' ? s.name : name,
+            enabled: s.enabled !== false,
+            cadence: typeof s.cadence === 'string' ? s.cadence : body.cadence,
+            sourceIds: Array.isArray(s.sourceIds) ? s.sourceIds : body.sourceIds,
+            audiences: Array.isArray(s.audiences) ? s.audiences : body.audiences,
+            units: Array.isArray(s.units) ? s.units : body.units,
+            communication: {
+              ...s.communication,
+              email: !!s.communication?.email,
+              kb: !!s.communication?.kb,
+              slack: !!s.communication?.slack,
+            },
+          },
+        ]);
+      }
+      closeProjectionScheduleForm();
+    } catch (err) {
+      console.error('Save projection schedule failed:', err);
     }
-    closeProjectionScheduleForm();
   };
 
-  const deleteProjectionSchedule = (id: string) => {
-    setProjectionSchedules((prev) => prev.filter((s) => s.id !== id));
-    if (projectionScheduleEditingId === id) closeProjectionScheduleForm();
+  const deleteProjectionSchedule = async (id: string) => {
+    try {
+      const res = await fetch(`/api/schedules/${id}`, { method: 'DELETE', credentials: 'include' });
+      if (!res.ok && res.status !== 404) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error || 'Failed to delete schedule');
+      }
+      setProjectionSchedules((prev) => prev.filter((s) => s.id !== id));
+      if (projectionScheduleEditingId === id) closeProjectionScheduleForm();
+    } catch (err) {
+      console.error('Delete projection schedule failed:', err);
+    }
   };
 
-  const toggleProjectionScheduleEnabled = (id: string) => {
-    setProjectionSchedules((prev) => prev.map((s) => (s.id === id ? { ...s, enabled: !s.enabled } : s)));
+  const toggleProjectionScheduleEnabled = async (id: string) => {
+    const schedule = projectionSchedules.find((s) => s.id === id);
+    if (!schedule) return;
+    const nextEnabled = !schedule.enabled;
+    try {
+      const res = await fetch(`/api/schedules/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ enabled: nextEnabled }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error || 'Failed to update schedule');
+      }
+      setProjectionSchedules((prev) => prev.map((s) => (s.id === id ? { ...s, enabled: nextEnabled } : s)));
+    } catch (err) {
+      console.error('Toggle projection schedule failed:', err);
+    }
   };
 
   const toggleProjectionScheduleFormSource = (sourceId: string) => {
@@ -1553,32 +2015,28 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                                 sched.enabled ? 'border-white/30 bg-white/10' : 'border-white/10 bg-white/5'
                               )}
                             >
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="min-w-0 flex-1">
-                                  <p className="text-sm font-medium text-white truncate">{sched.name}</p>
-                                  <p className="text-xs text-white/50 mt-0.5">
-                                    {getCadenceLabel(sched.cadence)} · {sched.sourceIds.length} source{sched.sourceIds.length === 1 ? '' : 's'}
-                                    {sched.audiences.length > 0 && ` · ${sched.audiences.length} audience${sched.audiences.length === 1 ? '' : 's'}`}
-                                    {sched.units.length > 0 && ` · ${sched.units.length} unit${sched.units.length === 1 ? '' : 's'}`}
-                                  </p>
-                                  <div className="flex flex-wrap gap-1 mt-1.5">
-                                    {sched.communication.email && <Badge variant="outline" className="text-[10px] border-white/20 text-white/70">Email</Badge>}
-                                    {sched.communication.kb && <Badge variant="outline" className="text-[10px] border-white/20 text-white/70">KB</Badge>}
-                                    {sched.communication.slack && <Badge variant="outline" className="text-[10px] border-white/20 text-white/70">Slack</Badge>}
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-1 shrink-0">
-                                  <Switch
-                                    checked={sched.enabled}
-                                    onCheckedChange={() => toggleProjectionScheduleEnabled(sched.id)}
-                                  />
-                                  <Button variant="ghost" size="icon" className="h-8 w-8 text-white/70 hover:text-white" onClick={() => openProjectionScheduleForm(sched)}>
-                                    <Pencil className="h-4 w-4" />
-                                  </Button>
-                                  <Button variant="ghost" size="icon" className="h-8 w-8 text-white/70 hover:text-red-300" onClick={() => deleteProjectionSchedule(sched.id)}>
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                                </div>
+                              <p className="text-sm font-medium text-white truncate">{sched.name}</p>
+                              <div className="flex items-center justify-start gap-1 mt-1">
+                                <Switch
+                                  checked={sched.enabled}
+                                  onCheckedChange={() => toggleProjectionScheduleEnabled(sched.id)}
+                                />
+                                <Button variant="ghost" size="icon" className="h-8 w-8 text-white/70 hover:text-white" onClick={() => openProjectionScheduleForm(sched)}>
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 text-white/70 hover:text-red-300" onClick={() => deleteProjectionSchedule(sched.id)}>
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                              <p className="text-xs text-white/50 mt-1">
+                                {getCadenceLabel(sched.cadence)} · {sched.sourceIds.length} source{sched.sourceIds.length === 1 ? '' : 's'}
+                                {sched.audiences.length > 0 && ` · ${sched.audiences.length} audience${sched.audiences.length === 1 ? '' : 's'}`}
+                                {sched.units.length > 0 && ` · ${sched.units.length} unit${sched.units.length === 1 ? '' : 's'}`}
+                              </p>
+                              <div className="flex flex-wrap gap-1 mt-1.5">
+                                {sched.communication.email && <Badge variant="outline" className="text-[10px] border-white/20 text-white/70">Email</Badge>}
+                                {sched.communication.kb && <Badge variant="outline" className="text-[10px] border-white/20 text-white/70">KB</Badge>}
+                                {sched.communication.slack && <Badge variant="outline" className="text-[10px] border-white/20 text-white/70">Slack</Badge>}
                               </div>
                             </div>
                           ))}
@@ -1761,81 +2219,87 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                                 </Popover>
                               </div>
                             )}
-                            {categories.length > 0 && (
-                              <div>
-                                <label className="text-xs text-white/60 block mb-1.5">Units</label>
-                                <Popover open={projectionScheduleUnitsMenuOpen} onOpenChange={setProjectionScheduleUnitsMenuOpen}>
-                                  <PopoverTrigger asChild>
-                                    <Button
-                                      variant="outline"
-                                      role="combobox"
-                                      aria-expanded={projectionScheduleUnitsMenuOpen}
-                                      className="w-full justify-between border-white/20 bg-neutral-800 hover:bg-neutral-700 hover:border-white/30 text-white text-sm h-9"
-                                    >
-                                      <span className="truncate">
-                                        {projectionScheduleFormUnits.length > 0
-                                          ? `${projectionScheduleFormUnits.length} unit${projectionScheduleFormUnits.length === 1 ? '' : 's'} selected`
-                                          : 'Choose units'}
-                                      </span>
-                                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                    </Button>
-                                  </PopoverTrigger>
-                                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 border-white/10 bg-neutral-900" align="start">
-                                    <Command>
-                                      <CommandInput placeholder="Search units..." className="text-white" />
-                                      <CommandList>
-                                        <CommandEmpty>No units found.</CommandEmpty>
-                                        <CommandGroup>
-                                          {categories.map((cat) => {
-                                            const checked = projectionScheduleFormUnits.includes(cat);
-                                            return (
-                                              <CommandItem
-                                                key={cat}
-                                                value={cat}
-                                                onSelect={() => toggleProjectionScheduleFormUnit(cat)}
-                                                className="cursor-pointer"
-                                              >
-                                                <Checkbox
-                                                  checked={checked}
-                                                  onCheckedChange={() => toggleProjectionScheduleFormUnit(cat)}
-                                                  className="mr-2"
-                                                />
-                                                <span className="flex-1 truncate text-white/90">{cat}</span>
-                                              </CommandItem>
-                                            );
-                                          })}
-                                        </CommandGroup>
-                                      </CommandList>
-                                    </Command>
-                                    <Separator />
-                                    <div className="flex items-center justify-between px-3 py-2">
-                                      <span className="text-xs text-white/60">
-                                        {projectionScheduleFormUnits.length} of {categories.length} selected
-                                      </span>
-                                      <div className="flex gap-2">
-                                        <Button
-                                          variant="ghost"
-                                          size="sm"
-                                          onClick={() => setProjectionScheduleFormUnits([])}
-                                        >
-                                          Clear
-                                        </Button>
-                                        <Button
-                                          variant="secondary"
-                                          size="sm"
-                                          onClick={() => {
-                                            setProjectionScheduleFormUnits([...categories]);
-                                            setProjectionScheduleUnitsMenuOpen(false);
-                                          }}
-                                        >
-                                          {projectionScheduleFormUnits.length === categories.length ? 'Deselect all' : 'Select all'}
-                                        </Button>
+                            <div>
+                              <label className="text-xs text-white/60 block mb-1.5">Units</label>
+                              <Popover open={projectionScheduleUnitsMenuOpen} onOpenChange={setProjectionScheduleUnitsMenuOpen}>
+                                <PopoverTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    role="combobox"
+                                    aria-expanded={projectionScheduleUnitsMenuOpen}
+                                    className="w-full justify-between border-white/20 bg-neutral-800 hover:bg-neutral-700 hover:border-white/30 text-white text-sm h-9"
+                                  >
+                                    <span className="truncate">
+                                      {projectionScheduleFormUnits.length > 0
+                                        ? `${projectionScheduleFormUnits.length} unit${projectionScheduleFormUnits.length === 1 ? '' : 's'} selected`
+                                        : 'Choose units'}
+                                    </span>
+                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 border-white/10 bg-neutral-900" align="start">
+                                  {categories.length > 0 ? (
+                                    <>
+                                      <Command>
+                                        <CommandInput placeholder="Search units..." className="text-white" />
+                                        <CommandList>
+                                          <CommandEmpty>No units found.</CommandEmpty>
+                                          <CommandGroup>
+                                            {categories.map((cat) => {
+                                              const checked = projectionScheduleFormUnits.includes(cat);
+                                              return (
+                                                <CommandItem
+                                                  key={cat}
+                                                  value={cat}
+                                                  onSelect={() => toggleProjectionScheduleFormUnit(cat)}
+                                                  className="cursor-pointer"
+                                                >
+                                                  <Checkbox
+                                                    checked={checked}
+                                                    onCheckedChange={() => toggleProjectionScheduleFormUnit(cat)}
+                                                    className="mr-2"
+                                                  />
+                                                  <span className="flex-1 truncate text-white/90">{cat}</span>
+                                                </CommandItem>
+                                              );
+                                            })}
+                                          </CommandGroup>
+                                        </CommandList>
+                                      </Command>
+                                      <Separator />
+                                      <div className="flex items-center justify-between px-3 py-2">
+                                        <span className="text-xs text-white/60">
+                                          {projectionScheduleFormUnits.length} of {categories.length} selected
+                                        </span>
+                                        <div className="flex gap-2">
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => setProjectionScheduleFormUnits([])}
+                                          >
+                                            Clear
+                                          </Button>
+                                          <Button
+                                            variant="secondary"
+                                            size="sm"
+                                            onClick={() => {
+                                              setProjectionScheduleFormUnits([...categories]);
+                                              setProjectionScheduleUnitsMenuOpen(false);
+                                            }}
+                                          >
+                                            {projectionScheduleFormUnits.length === categories.length ? 'Deselect all' : 'Select all'}
+                                          </Button>
+                                        </div>
                                       </div>
+                                    </>
+                                  ) : (
+                                    <div className="px-3 py-4 text-sm text-white/60">
+                                      No units available yet. Units will appear once knowledge is generated for selected sources.
                                     </div>
-                                  </PopoverContent>
-                                </Popover>
-                              </div>
-                            )}
+                                  )}
+                                </PopoverContent>
+                              </Popover>
+                            </div>
                             <div>
                               <label className="text-xs text-white/60 block mb-1.5">Communication</label>
                               <div className="flex flex-wrap gap-2">
@@ -1849,7 +2313,16 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                                 <label className="flex items-center gap-2 cursor-pointer text-sm text-white/80">
                                   <Checkbox
                                     checked={projectionScheduleFormCommunication.kb ?? false}
-                                    onCheckedChange={(c) => setProjectionScheduleFormCommunication((prev) => ({ ...prev, kb: !!c }))}
+                                    onCheckedChange={(c) => {
+                                      const kb = !!c;
+                                      setProjectionScheduleFormCommunication((prev) => ({ ...prev, kb }));
+                                      if (!kb) {
+                                        setProjectionScheduleFormKbProvider('');
+                                        setProjectionScheduleFormKbResourceId('');
+                                        setProjectionScheduleFormKbResources([]);
+                                        setProjectionScheduleFormKbRootMetadata(undefined);
+                                      }
+                                    }}
                                   />
                                   KB
                                 </label>
@@ -1861,6 +2334,64 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                                   Slack
                                 </label>
                               </div>
+                              {projectionScheduleFormCommunication.kb && (
+                                <div className="mt-3 space-y-2 rounded-md border border-white/10 bg-white/5 p-3">
+                                  <span className="text-xs text-white/60">KB target</span>
+                                  <div className="flex gap-2">
+                                    <Button
+                                      type="button"
+                                      variant={projectionScheduleFormKbProvider === 'notion' ? 'secondary' : 'ghost'}
+                                      size="sm"
+                                      className={projectionScheduleFormKbProvider === 'notion' ? 'border-white/30 bg-white/10 text-white' : 'text-white/70 hover:text-white'}
+                                      onClick={() => {
+                                        setProjectionScheduleFormKbProvider('notion');
+                                        loadProjectionScheduleKbResources('notion');
+                                      }}
+                                    >
+                                      Notion
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      variant={projectionScheduleFormKbProvider === 'confluence' ? 'secondary' : 'ghost'}
+                                      size="sm"
+                                      className={projectionScheduleFormKbProvider === 'confluence' ? 'border-white/30 bg-white/10 text-white' : 'text-white/70 hover:text-white'}
+                                      onClick={() => {
+                                        setProjectionScheduleFormKbProvider('confluence');
+                                        loadProjectionScheduleKbResources('confluence');
+                                      }}
+                                    >
+                                      Confluence
+                                    </Button>
+                                  </div>
+                                  {projectionScheduleFormKbProvider && (
+                                    <div>
+                                      <label className="text-xs text-white/60 block mb-1">Page or space</label>
+                                      {projectionScheduleFormKbResourcesLoading ? (
+                                        <span className="text-sm text-white/60">Loading...</span>
+                                      ) : projectionScheduleFormKbResources.length === 0 ? (
+                                        <span className="text-sm text-white/60">No resources found. Connect {projectionScheduleFormKbProvider} in Settings.</span>
+                                      ) : (
+                                        <select
+                                          className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none"
+                                          value={projectionScheduleFormKbResourceId}
+                                          onChange={(e) => {
+                                            const id = e.target.value;
+                                            const r = projectionScheduleFormKbResources.find((res) => res.id === id);
+                                            setProjectionScheduleFormKbResourceId(id);
+                                            setProjectionScheduleFormKbRootMetadata(r?.metadata);
+                                          }}
+                                        >
+                                          {projectionScheduleFormKbResources.map((r) => (
+                                            <option key={r.id} value={r.id}>
+                                              {r.title || r.id}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
                             <div className="flex gap-2 pt-1">
                               <Button variant="secondary" size="sm" className="flex-1 border-white/20 bg-white/10 text-white hover:bg-white/15" onClick={saveProjectionSchedule}>
