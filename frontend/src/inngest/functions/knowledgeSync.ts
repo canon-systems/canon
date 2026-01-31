@@ -6,6 +6,25 @@ import {
   type WorkspaceSource,
 } from "@/lib/server/services/sourceIngest";
 
+const MAX_LOG_ITEMS = 20;
+
+function logChangedItems(
+  added: string[],
+  removed: string[],
+  kind: "file" | "ticket"
+): void {
+  if (added.length > 0) {
+    const show = added.slice(0, MAX_LOG_ITEMS);
+    const more = added.length > MAX_LOG_ITEMS ? ` (+${added.length - MAX_LOG_ITEMS} more)` : "";
+    console.log(`[knowledge-sync]   ${kind}s added: ${show.join(", ")}${more}`);
+  }
+  if (removed.length > 0) {
+    const show = removed.slice(0, MAX_LOG_ITEMS);
+    const more = removed.length > MAX_LOG_ITEMS ? ` (+${removed.length - MAX_LOG_ITEMS} more)` : "";
+    console.log(`[knowledge-sync]   ${kind}s removed: ${show.join(", ")}${more}`);
+  }
+}
+
 /**
  * Knowledge sync: runs every 1 minute (for testing; adjust cron as needed).
  * For each workspace source, performs delta sync of repo_file_summaries and
@@ -17,7 +36,7 @@ export const syncKnowledgeSources = inngest.createFunction(
     name: "Knowledge Sync (repo_file_summaries + issue_index)",
     retries: 2,
   },
-  { cron: "*/10 * * * *" }, // every 1 minute
+  { cron: "*/5 * * * *" }, // every 1 minute
   async () => {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const serviceKey = process.env.SUPABASE_SERVICE_KEY;
@@ -63,14 +82,20 @@ export const syncKnowledgeSources = inngest.createFunction(
           githubAdded += r.added;
           githubRemoved += r.removed;
           if (r.added > 0 || r.removed > 0) {
-            console.log(`[knowledge-sync] GitHub ${scopeLabel}: ${r.added} file(s) added, ${r.removed} removed${r.rebuilt ? ", AKUs rebuilt" : ""}`);
+            console.log(
+              `[knowledge-sync] GitHub ${scopeLabel}: ${r.added} file(s) added, ${r.removed} removed${r.rebuilt ? ", AKUs rebuilt" : ""}`
+            );
+            logChangedItems(r.addedPaths, r.removedPaths, "file");
           }
         } else if (["jira", "linear", "asana"].includes(provider)) {
           const r = await syncIssueSourceDelta(supabase, row);
           issueAdded += r.added;
           issueRemoved += r.removed;
           if (r.added > 0 || r.removed > 0) {
-            console.log(`[knowledge-sync] ${provider} ${scopeLabel}: ${r.added} issue(s) added, ${r.removed} removed${r.rebuilt ? ", AKUs rebuilt" : ""}`);
+            console.log(
+              `[knowledge-sync] ${provider} ${scopeLabel}: ${r.added} issue(s) added, ${r.removed} removed${r.rebuilt ? ", AKUs rebuilt" : ""}`
+            );
+            logChangedItems(r.addedKeys, r.removedKeys, "ticket");
           }
         }
       } catch (err) {
@@ -82,8 +107,8 @@ export const syncKnowledgeSources = inngest.createFunction(
 
     console.log(
       `[knowledge-sync] Done: ${sources.length} source(s), ` +
-        `GitHub +${githubAdded}/-${githubRemoved}, issues +${issueAdded}/-${issueRemoved}` +
-        (errors.length ? `, ${errors.length} error(s)` : "")
+      `GitHub +${githubAdded}/-${githubRemoved}, issues +${issueAdded}/-${issueRemoved}` +
+      (errors.length ? `, ${errors.length} error(s)` : "")
     );
 
     return {

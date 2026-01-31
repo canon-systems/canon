@@ -307,6 +307,14 @@ function normalizePath(p: string): string {
   return p.trim().replace(/\\/g, '/').replace(/\/+/g, '/').replace(/^\.?\//, '');
 }
 
+export type GitHubSyncResult = {
+  added: number;
+  removed: number;
+  rebuilt: boolean;
+  addedPaths: string[];
+  removedPaths: string[];
+};
+
 /**
  * Delta sync for a GitHub source: compare current repo state to repo_file_summaries,
  * add/update changed files, remove deleted files, then rebuild AKUs if needed.
@@ -314,10 +322,11 @@ function normalizePath(p: string): string {
 export async function syncGitHubSourceDelta(
   supabase: SupabaseClient,
   source: WorkspaceSource
-): Promise<{ added: number; removed: number; rebuilt: boolean }> {
+): Promise<GitHubSyncResult> {
+  const empty = { added: 0, removed: 0, rebuilt: false, addedPaths: [], removedPaths: [] };
   const repo = typeof source.scope?.repo === 'string' ? source.scope.repo : '';
   const branch = typeof source.scope?.branch === 'string' ? source.scope.branch : 'main';
-  if (!repo) return { added: 0, removed: 0, rebuilt: false };
+  if (!repo) return empty;
 
   try {
     const repoUrl = repo.startsWith('http') ? repo : `https://github.com/${repo}`;
@@ -342,8 +351,9 @@ export async function syncGitHubSourceDelta(
       .eq('branch', branch);
 
     const storedPaths = new Set((stored || []).map((r) => normalizePath(r.file_path)));
-    const added = [...currentPaths].filter((p) => !storedPaths.has(p)).length;
+    const addedPaths = [...currentPaths].filter((p) => !storedPaths.has(p));
     const removedPaths = [...storedPaths].filter((p) => !currentPaths.has(p));
+    const added = addedPaths.length;
 
     let removed = 0;
     if (removedPaths.length > 0) {
@@ -366,14 +376,22 @@ export async function syncGitHubSourceDelta(
 
     if (anyChange) {
       await buildAkusForSources(supabase, source.user_id, [source.id], DEFAULT_AUDIENCES);
-      return { added, removed, rebuilt: true };
+      return { added, removed, rebuilt: true, addedPaths, removedPaths };
     }
-    return { added, removed, rebuilt: false };
+    return { added, removed, rebuilt: false, addedPaths, removedPaths };
   } catch (err) {
     console.error('[knowledge-sync] GitHub delta sync failed', { repo: typeof source.scope?.repo === 'string' ? source.scope.repo : source.id, error: err instanceof Error ? err.message : String(err) });
-    return { added: 0, removed: 0, rebuilt: false };
+    return empty;
   }
 }
+
+export type IssueSyncResult = {
+  added: number;
+  removed: number;
+  rebuilt: boolean;
+  addedKeys: string[];
+  removedKeys: string[];
+};
 
 /**
  * Delta sync for an issue source: fetch current issues, upsert issue_index,
@@ -382,9 +400,10 @@ export async function syncGitHubSourceDelta(
 export async function syncIssueSourceDelta(
   supabase: SupabaseClient,
   source: WorkspaceSource
-): Promise<{ added: number; removed: number; rebuilt: boolean }> {
+): Promise<IssueSyncResult> {
+  const empty = { added: 0, removed: 0, rebuilt: false, addedKeys: [], removedKeys: [] };
   const provider = source.provider.toLowerCase();
-  if (!['jira', 'linear', 'asana'].includes(provider)) return { added: 0, removed: 0, rebuilt: false };
+  if (!['jira', 'linear', 'asana'].includes(provider)) return empty;
 
   const projectKey = typeof source.scope?.project === 'string' ? source.scope.project : null;
   const cloudId = typeof source.scope?.cloudId === 'string' ? source.scope.cloudId : null;
@@ -401,7 +420,7 @@ export async function syncIssueSourceDelta(
   const connectionId = connectionIdForTokens || source.connection_id || null;
   if (!connectionId) {
     console.warn('[knowledge-sync] Issue source skipped: no OAuth connection', { provider, project: projectKey });
-    return { added: 0, removed: 0, rebuilt: false };
+    return empty;
   }
 
   const accessToken = await getProviderAccessToken({
@@ -410,7 +429,7 @@ export async function syncIssueSourceDelta(
   });
   if (!accessToken) {
     console.warn('[knowledge-sync] Issue source skipped: no access token', { provider, project: projectKey });
-    return { added: 0, removed: 0, rebuilt: false };
+    return empty;
   }
 
   let issues: JiraIssue[] = [];
@@ -468,28 +487,29 @@ export async function syncIssueSourceDelta(
     .select('issue_key')
     .eq('source_id', source.id);
   const existingKeys = new Set((existingBefore || []).map((r) => r.issue_key));
-  const added = [...currentKeys].filter((k) => !existingKeys.has(k)).length;
+  const addedKeys = [...currentKeys].filter((k) => !existingKeys.has(k));
+  const added = addedKeys.length;
 
   if (rows.length > 0) {
     await supabase.from('issue_index').upsert(rows, { onConflict: 'source_id,issue_key' });
   }
 
-  const toDelete = [...existingKeys].filter((k) => !currentKeys.has(k));
+  const removedKeys = [...existingKeys].filter((k) => !currentKeys.has(k));
   let removed = 0;
-  if (toDelete.length > 0) {
+  if (removedKeys.length > 0) {
     const { error: delErr } = await supabase
       .from('issue_index')
       .delete()
       .eq('source_id', source.id)
-      .in('issue_key', toDelete);
-    if (!delErr) removed = toDelete.length;
-    else console.warn('[knowledge-sync] Issues: failed to remove obsolete rows', { provider, project: projectKey, count: toDelete.length });
+      .in('issue_key', removedKeys);
+    if (!delErr) removed = removedKeys.length;
+    else console.warn('[knowledge-sync] Issues: failed to remove obsolete rows', { provider, project: projectKey, count: removedKeys.length });
   }
 
   const anyChange = added > 0 || removed > 0;
   if (anyChange) {
     await buildAkusForSources(supabase, source.user_id, [source.id], DEFAULT_AUDIENCES);
-    return { added, removed, rebuilt: true };
+    return { added, removed, rebuilt: true, addedKeys, removedKeys };
   }
-  return { added, removed, rebuilt: false };
+  return { added, removed, rebuilt: false, addedKeys, removedKeys };
 }
