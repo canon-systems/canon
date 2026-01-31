@@ -301,3 +301,195 @@ export async function ingestSource(supabase: SupabaseClient, source: WorkspaceSo
     await updateStatus(supabase, source.id, 'ready', 100);
   }
 }
+
+/** Normalize file path for comparison (matches FileSummaryManager) */
+function normalizePath(p: string): string {
+  return p.trim().replace(/\\/g, '/').replace(/\/+/g, '/').replace(/^\.?\//, '');
+}
+
+/**
+ * Delta sync for a GitHub source: compare current repo state to repo_file_summaries,
+ * add/update changed files, remove deleted files, then rebuild AKUs if needed.
+ */
+export async function syncGitHubSourceDelta(
+  supabase: SupabaseClient,
+  source: WorkspaceSource
+): Promise<{ added: number; removed: number; rebuilt: boolean }> {
+  const repo = typeof source.scope?.repo === 'string' ? source.scope.repo : '';
+  const branch = typeof source.scope?.branch === 'string' ? source.scope.branch : 'main';
+  if (!repo) return { added: 0, removed: 0, rebuilt: false };
+
+  try {
+    const repoUrl = repo.startsWith('http') ? repo : `https://github.com/${repo}`;
+    const analysis = await analyzeRepository({
+      supabase,
+      userId: source.user_id,
+      repoUrl,
+      branch,
+      useZipFetch: true,
+    });
+
+    const rawFiles = analysis.rawFiles || [];
+    const sourceKey = normalizeRepoId(repoUrl);
+    const manager = new FileSummaryManager(supabase, source.id, sourceKey, branch);
+
+    const currentPaths = new Set(rawFiles.map((f) => normalizePath(f.path)));
+
+    const { data: stored } = await supabase
+      .from('repo_file_summaries')
+      .select('file_path')
+      .eq('source_id', source.id)
+      .eq('branch', branch);
+
+    const storedPaths = new Set((stored || []).map((r) => normalizePath(r.file_path)));
+    const added = [...currentPaths].filter((p) => !storedPaths.has(p)).length;
+    const removedPaths = [...storedPaths].filter((p) => !currentPaths.has(p));
+
+    let removed = 0;
+    if (removedPaths.length > 0) {
+      const { error: delErr } = await supabase
+        .from('repo_file_summaries')
+        .delete()
+        .eq('source_id', source.id)
+        .eq('branch', branch)
+        .in('file_path', removedPaths);
+      if (!delErr) removed = removedPaths.length;
+      else console.warn('[knowledge-sync] GitHub: failed to remove deleted file rows', { repo, count: removedPaths.length });
+    }
+
+    const result = await manager.updateSummariesIfNeeded(
+      rawFiles.map((f) => ({ path: f.path, content: f.content })),
+      { model: 'openai/gpt-4o-mini', regenerationReason: 'file_changed' }
+    );
+
+    const anyChange = removed > 0 || result.processed > 0;
+
+    if (anyChange) {
+      await buildAkusForSources(supabase, source.user_id, [source.id], DEFAULT_AUDIENCES);
+      return { added, removed, rebuilt: true };
+    }
+    return { added, removed, rebuilt: false };
+  } catch (err) {
+    console.error('[knowledge-sync] GitHub delta sync failed', { repo: typeof source.scope?.repo === 'string' ? source.scope.repo : source.id, error: err instanceof Error ? err.message : String(err) });
+    return { added: 0, removed: 0, rebuilt: false };
+  }
+}
+
+/**
+ * Delta sync for an issue source: fetch current issues, upsert issue_index,
+ * remove issues no longer returned, then rebuild AKUs.
+ */
+export async function syncIssueSourceDelta(
+  supabase: SupabaseClient,
+  source: WorkspaceSource
+): Promise<{ added: number; removed: number; rebuilt: boolean }> {
+  const provider = source.provider.toLowerCase();
+  if (!['jira', 'linear', 'asana'].includes(provider)) return { added: 0, removed: 0, rebuilt: false };
+
+  const projectKey = typeof source.scope?.project === 'string' ? source.scope.project : null;
+  const cloudId = typeof source.scope?.cloudId === 'string' ? source.scope.cloudId : null;
+
+  let connectionIdForTokens: string | null = null;
+  if (source.connection_id) {
+    const { data: conn } = await supabase
+      .from('oauth_connections')
+      .select('connection_id')
+      .eq('id', source.connection_id)
+      .single();
+    connectionIdForTokens = conn?.connection_id || null;
+  }
+  const connectionId = connectionIdForTokens || source.connection_id || null;
+  if (!connectionId) {
+    console.warn('[knowledge-sync] Issue source skipped: no OAuth connection', { provider, project: projectKey });
+    return { added: 0, removed: 0, rebuilt: false };
+  }
+
+  const accessToken = await getProviderAccessToken({
+    provider: provider === 'jira' ? 'confluence' : provider,
+    connectionId,
+  });
+  if (!accessToken) {
+    console.warn('[knowledge-sync] Issue source skipped: no access token', { provider, project: projectKey });
+    return { added: 0, removed: 0, rebuilt: false };
+  }
+
+  let issues: JiraIssue[] = [];
+  if (provider === 'jira' && cloudId) {
+    const jql = projectKey ? `project=${projectKey}` : '';
+    const baseFields = [
+      'summary', 'status', 'issuetype', 'priority', 'assignee', 'reporter',
+      'labels', 'created', 'updated', 'customfield_10016', 'project',
+    ];
+    const params = `maxResults=50&fields=${encodeURIComponent(baseFields.join(','))}&jql=${encodeURIComponent(jql)}`;
+    const url = `https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3/search/jql?${params}`;
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      issues = Array.isArray(data?.issues) ? data.issues : [];
+    } else {
+      console.warn('[knowledge-sync] Jira fetch failed', { project: projectKey, status: res.status });
+    }
+  }
+
+  const rows = issues.map((issue) => {
+    const fields = issue.fields || {};
+    return {
+      source_id: source.id,
+      provider,
+      issue_id: issue.id,
+      issue_key: issue.key || issue.id,
+      title: fields.summary || '(no summary)',
+      status: fields.status?.name || 'Unknown',
+      status_category: fields.status?.statusCategory?.name || null,
+      type: fields.issuetype?.name || null,
+      priority: fields.priority?.name || null,
+      assignee: fields.assignee?.displayName || null,
+      reporter: fields.reporter?.displayName || null,
+      labels: Array.isArray(fields.labels) ? fields.labels : [],
+      project: fields.project?.key || projectKey || null,
+      sprint: null,
+      epic_key: null,
+      story_points: typeof fields.customfield_10016 === 'number' ? fields.customfield_10016 : null,
+      created_at: fields.created || new Date().toISOString(),
+      updated_at: fields.updated || new Date().toISOString(),
+      last_synced_at: new Date().toISOString(),
+      changelog: {},
+      raw: issue,
+    };
+  });
+
+  const currentKeys = new Set(rows.map((r) => r.issue_key));
+
+  const { data: existingBefore } = await supabase
+    .from('issue_index')
+    .select('issue_key')
+    .eq('source_id', source.id);
+  const existingKeys = new Set((existingBefore || []).map((r) => r.issue_key));
+  const added = [...currentKeys].filter((k) => !existingKeys.has(k)).length;
+
+  if (rows.length > 0) {
+    await supabase.from('issue_index').upsert(rows, { onConflict: 'source_id,issue_key' });
+  }
+
+  const toDelete = [...existingKeys].filter((k) => !currentKeys.has(k));
+  let removed = 0;
+  if (toDelete.length > 0) {
+    const { error: delErr } = await supabase
+      .from('issue_index')
+      .delete()
+      .eq('source_id', source.id)
+      .in('issue_key', toDelete);
+    if (!delErr) removed = toDelete.length;
+    else console.warn('[knowledge-sync] Issues: failed to remove obsolete rows', { provider, project: projectKey, count: toDelete.length });
+  }
+
+  const anyChange = added > 0 || removed > 0;
+  if (anyChange) {
+    await buildAkusForSources(supabase, source.user_id, [source.id], DEFAULT_AUDIENCES);
+    return { added, removed, rebuilt: true };
+  }
+  return { added, removed, rebuilt: false };
+}

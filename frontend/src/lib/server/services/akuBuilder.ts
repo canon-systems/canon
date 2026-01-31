@@ -1,6 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { LLMGateway, type Message } from './llmGateway';
+
+/** Stable id for an AKU so we update the same row when evidence changes (no new record per file/ticket change). */
+function deterministicAkuId(userId: string, clusterKey: string): string {
+  const h = createHash('sha256').update(`${userId}:${clusterKey}`).digest('hex').slice(0, 32);
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
+}
 
 type Evidence = {
   id: string;
@@ -268,7 +274,7 @@ export async function buildAkusForSources(
   sourceIds: string[],
   audiences: string[] = []
 ) {
-  console.log('AKU builder: starting run', { userId, sources: sourceIds.length, audiences });
+  // console.log('AKU builder: starting run', { userId, sources: sourceIds.length, audiences });
   if (sourceIds.length === 0) return { akus: [], projections: [] };
 
   const evidence: Evidence[] = [];
@@ -289,7 +295,7 @@ export async function buildAkusForSources(
     });
   });
 
-  console.log(`AKU builder: collected ${evidence.length} code summaries`);
+  // console.log(`AKU builder: collected ${evidence.length} code summaries`);
 
   const { data: issues } = await supabase
     .from('issue_index')
@@ -307,7 +313,7 @@ export async function buildAkusForSources(
     });
   });
 
-  console.log(`AKU builder: total evidence after adding issues = ${evidence.length}`);
+  // console.log(`AKU builder: total evidence after adding issues = ${evidence.length}`);
 
   const clusters = new Map<string, { items: Evidence[]; label: string; reason: string }>();
   evidence.forEach((e) => {
@@ -338,13 +344,13 @@ export async function buildAkusForSources(
   const projections: ProjectionRecord[] = [];
   const llm = new LLMGateway();
 
-  for (const [, cluster] of clusters.entries()) {
+  for (const [clusterKey, cluster] of clusters.entries()) {
     const items = cluster.items;
     if (items.length === 0) continue;
     const hasIssue = items.some((e) => e.kind === 'issue');
     if (!hasIssue && items.length < 2) continue;
 
-    console.log(`AKU builder: cluster "${cluster.label}" (${cluster.reason}) with ${items.length} evidence items`);
+    // console.log(`AKU builder: cluster "${cluster.label}" (${cluster.reason}) with ${items.length} evidence items`);
 
     const title = cluster.label.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
     const structured = buildStructuredBody(title, items);
@@ -353,7 +359,7 @@ export async function buildAkusForSources(
     const source_ids = Array.from(new Set(items.map((i) => i.source_id)));
     const scope_refs = Array.from(new Set(items.map((i) => i.scope_ref)));
     const hash = `${items.map((i) => i.id).sort().join(':')}`;
-    const akuId = randomUUID();
+    const akuId = deterministicAkuId(userId, clusterKey);
 
     const crit = scoreText(title + canonical, criticalKeywords);
     const promise = scoreText(title + canonical, promiseKeywords);
@@ -393,9 +399,11 @@ export async function buildAkusForSources(
     }
   }
 
-  console.log(
-    `AKU builder: summary — evidence ${evidence.length}, clusters ${clusters.size}, AKUs ${akus.length}, projections ${projections.length}`
-  );
+  // console.log(
+  //   `AKU builder: summary — evidence ${evidence.length}, clusters ${clusters.size}, AKUs ${akus.length}, projections ${projections.length}`
+  // );
+
+  const currentAkuIds = new Set(akus.map((a) => a.id));
 
   if (akus.length > 0) {
     const { error: akuErr } = await supabase.from('akus').upsert(
@@ -403,9 +411,12 @@ export async function buildAkusForSources(
         ...a,
         user_id: userId,
       })),
-      { onConflict: 'hash' }
+      { onConflict: 'id' }
     );
-    if (akuErr) console.error('AKU builder: failed to save AKUs', akuErr);
+    if (akuErr) {
+      console.error('AKU builder: failed to save AKUs', akuErr);
+      return { akus, projections };
+    }
   }
 
   if (projections.length > 0) {
@@ -419,6 +430,19 @@ export async function buildAkusForSources(
     if (projErr) console.error('AKU builder: failed to save projections', projErr);
   }
 
-  console.log('AKU builder: finished', { userId, akus: akus.length, projections: projections.length });
+  // Remove AKUs (and their audience_views) that no longer have a cluster (e.g. evidence removed)
+  if (currentAkuIds.size > 0) {
+    const { data: existingForUser } = await supabase
+      .from('akus')
+      .select('id')
+      .eq('user_id', userId);
+    const orphanIds = (existingForUser || []).map((r) => r.id).filter((id) => !currentAkuIds.has(id));
+    if (orphanIds.length > 0) {
+      await supabase.from('audience_views').delete().eq('user_id', userId).in('aku_id', orphanIds);
+      await supabase.from('akus').delete().eq('user_id', userId).in('id', orphanIds);
+    }
+  }
+
+  // console.log('AKU builder: finished', { userId, akus: akus.length, projections: projections.length });
   return { akus, projections };
 }
