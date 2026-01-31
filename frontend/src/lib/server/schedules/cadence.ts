@@ -24,10 +24,6 @@ export function getWindowForCadence(cadence: string, now: Date = new Date()): { 
       start.setDate(start.getDate() - 7);
       start.setHours(0, 0, 0, 0);
       break;
-    case 'bi-weekly':
-      start.setDate(start.getDate() - 14);
-      start.setHours(0, 0, 0, 0);
-      break;
     case 'monthly':
       start.setMonth(start.getMonth() - 1);
       start.setDate(1);
@@ -62,12 +58,76 @@ export function isScheduleDue(
       return msSinceLast >= 23 * 60 * 60 * 1000; // 23h
     case 'weekly':
       return msSinceLast >= 6 * 24 * 60 * 60 * 1000; // 6 days
-    case 'bi-weekly':
-      return msSinceLast >= 13 * 24 * 60 * 60 * 1000; // 13 days
     case 'monthly':
       return msSinceLast >= 28 * 24 * 60 * 60 * 1000; // 28 days
     case 'custom':
     default:
       return msSinceLast >= 23 * 60 * 60 * 1000; // treat as daily
   }
+}
+
+/** Cadences that use day-of-week: user picks which day to run. (Monthly uses day-of-month instead.) */
+const CADENCES_WITH_WEEKDAY = new Set(['weekly', 'custom']);
+
+/**
+ * Returns true if `now` falls in the run-at hour. We use UTC only.
+ * runAtTime: "HH:mm" 24h (e.g. "09:00"). When null/empty, returns true (no time filter).
+ */
+export function isInRunAtHour(
+  now: Date,
+  runAtTime: string | null | undefined
+): boolean {
+  if (!runAtTime || typeof runAtTime !== 'string') return true;
+  const trimmed = runAtTime.trim();
+  if (!trimmed) return true;
+
+  const match = /^(\d{1,2}):(\d{2})$/.exec(trimmed);
+  if (!match) return true;
+  const desiredHour = parseInt(match[1], 10);
+  if (desiredHour < 0 || desiredHour > 23) return true;
+
+  return now.getUTCHours() === desiredHour;
+}
+
+/**
+ * Returns true if the current UTC day of week matches runAtWeekday.
+ * runAtWeekday: 0 = Sunday, 1 = Monday, ... 6 = Saturday. When null/undefined, returns true.
+ */
+export function isInRunAtWeekday(
+  now: Date,
+  runAtWeekday: number | null | undefined
+): boolean {
+  if (runAtWeekday == null || runAtWeekday < 0 || runAtWeekday > 6) return true;
+  return now.getUTCDay() === runAtWeekday;
+}
+
+/**
+ * Returns true if this cadence uses day-of-week (weekly, custom).
+ */
+export function cadenceUsesWeekday(cadence: string): boolean {
+  return CADENCES_WITH_WEEKDAY.has(String(cadence).toLowerCase());
+}
+
+/**
+ * Returns true if the current UTC day of month matches runAtMonthDay.
+ * runAtMonthDay: 1-31 = that day, 0 = last day of month. When null/undefined, returns true.
+ */
+export function isInRunAtMonthDay(
+  now: Date,
+  runAtMonthDay: number | null | undefined
+): boolean {
+  if (runAtMonthDay == null || runAtMonthDay < 0 || runAtMonthDay > 31) return true;
+  const utcDate = now.getUTCDate();
+  if (runAtMonthDay === 0) {
+    const lastDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate();
+    return utcDate === lastDay;
+  }
+  return utcDate === runAtMonthDay;
+}
+
+/**
+ * Returns true if this cadence uses day-of-month (monthly only).
+ */
+export function cadenceUsesMonthDay(cadence: string): boolean {
+  return String(cadence).toLowerCase() === 'monthly';
 }

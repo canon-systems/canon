@@ -69,7 +69,7 @@ export const syncKnowledgeSources = inngest.createFunction(
     let githubRemoved = 0;
     let issueAdded = 0;
     let issueRemoved = 0;
-    let errors: string[] = [];
+    const errors: string[] = [];
 
     for (const row of sources as WorkspaceSource[]) {
       const provider = (row.provider || "").toLowerCase();

@@ -127,9 +127,13 @@ type DiffSchedule = {
   id: string;
   name: string;
   enabled: boolean;
-  cadence: string; // 'daily' | 'weekly' | 'bi-weekly' | 'monthly' | cron string
+  cadence: string; // 'daily' | 'weekly' | 'monthly' | custom
   sourceIds: string[];
   communication: ScheduleCommunication;
+  runAtTime: string | null;
+  runAtTimezone: string | null;
+  runAtWeekday: number | null; // 0 = Sunday .. 6 = Saturday, UTC
+  runAtMonthDay: number | null; // 1-31 or 0 = last day of month, UTC (monthly only)
 };
 
 type ProjectionSchedule = {
@@ -141,14 +145,52 @@ type ProjectionSchedule = {
   audiences: string[];
   units: string[];
   communication: ScheduleCommunication;
+  runAtTime: string | null;
+  runAtTimezone: string | null;
+  runAtWeekday: number | null;
+  runAtMonthDay: number | null;
 };
 
 const CADENCE_PRESETS: Array<{ value: string; label: string }> = [
   { value: 'daily', label: 'Daily' },
   { value: 'weekly', label: 'Weekly' },
-  { value: 'bi-weekly', label: 'Bi-weekly' },
   { value: 'monthly', label: 'Monthly' },
   { value: 'custom', label: 'Custom' },
+];
+
+/** Day of week for run-at (0 = Sunday .. 6 = Saturday). Used for weekly/custom. */
+const WEEKDAY_OPTIONS: Array<{ value: number; label: string }> = [
+  { value: 0, label: 'Sunday' },
+  { value: 1, label: 'Monday' },
+  { value: 2, label: 'Tuesday' },
+  { value: 3, label: 'Wednesday' },
+  { value: 4, label: 'Thursday' },
+  { value: 5, label: 'Friday' },
+  { value: 6, label: 'Saturday' },
+];
+
+function cadenceUsesWeekday(cadence: string): boolean {
+  return ['weekly', 'custom'].includes(String(cadence).toLowerCase());
+}
+
+function cadenceUsesMonthDay(cadence: string): boolean {
+  return String(cadence).toLowerCase() === 'monthly';
+}
+
+function monthDayOrdinal(n: number): string {
+  if (n >= 11 && n <= 13) return 'th';
+  switch (n % 10) {
+    case 1: return 'st';
+    case 2: return 'nd';
+    case 3: return 'rd';
+    default: return 'th';
+  }
+}
+
+/** Day of month for monthly: 1-31 = that day, 0 = last day of month. */
+const MONTH_DAY_OPTIONS: Array<{ value: number; label: string }> = [
+  ...Array.from({ length: 31 }, (_, i) => ({ value: i + 1, label: `${i + 1}${monthDayOrdinal(i + 1)} of month` })),
+  { value: 0, label: 'Last day of month' },
 ];
 
 function getCadenceLabel(cadence: string): string {
@@ -156,7 +198,6 @@ function getCadenceLabel(cadence: string): string {
   switch (cadence) {
     case 'daily': return 'Daily';
     case 'weekly': return 'Weekly';
-    case 'bi-weekly': return 'Bi-weekly';
     case 'monthly': return 'Monthly';
     case 'custom': return 'Custom';
     default: return cadence.length > 20 ? `${cadence.slice(0, 20)}…` : cadence;
@@ -242,6 +283,9 @@ function DiffPrototypePanel() {
   const [diffScheduleFormKbResources, setDiffScheduleFormKbResources] = useState<Array<{ id: string; title: string; type?: string; metadata?: Record<string, unknown> }>>([]);
   const [diffScheduleFormKbRootMetadata, setDiffScheduleFormKbRootMetadata] = useState<Record<string, unknown> | undefined>(undefined);
   const [diffScheduleFormKbResourcesLoading, setDiffScheduleFormKbResourcesLoading] = useState(false);
+  const [diffScheduleFormRunAtTime, setDiffScheduleFormRunAtTime] = useState('');
+  const [diffScheduleFormRunAtWeekday, setDiffScheduleFormRunAtWeekday] = useState<number>(1); // Monday
+  const [diffScheduleFormRunAtMonthDay, setDiffScheduleFormRunAtMonthDay] = useState<number>(1); // 1st
   const [diffScheduleSourceMenuOpen, setDiffScheduleSourceMenuOpen] = useState(false);
   const [diffScheduleCadenceMenuOpen, setDiffScheduleCadenceMenuOpen] = useState(false);
 
@@ -262,6 +306,10 @@ function DiffPrototypePanel() {
           cadence?: string;
           sourceIds?: string[];
           communication?: ScheduleCommunication;
+          runAtTime?: string | null;
+          runAtTimezone?: string | null;
+          runAtWeekday?: number | null;
+          runAtMonthDay?: number | null;
         }>;
         setDiffSchedules(
           list.map((s) => ({
@@ -276,6 +324,10 @@ function DiffPrototypePanel() {
               kb: !!s.communication?.kb,
               slack: !!s.communication?.slack,
             },
+            runAtTime: s.runAtTime ?? null,
+            runAtTimezone: s.runAtTimezone ?? null,
+            runAtWeekday: s.runAtWeekday ?? null,
+            runAtMonthDay: s.runAtMonthDay ?? null,
           }))
         );
       } catch {
@@ -379,6 +431,9 @@ function DiffPrototypePanel() {
       setDiffScheduleFormCadence(schedule.cadence);
       setDiffScheduleFormSourceIds(schedule.sourceIds);
       setDiffScheduleFormCommunication(schedule.communication);
+      setDiffScheduleFormRunAtTime(schedule.runAtTime ?? '09:00');
+      setDiffScheduleFormRunAtWeekday(schedule.runAtWeekday ?? 1);
+      setDiffScheduleFormRunAtMonthDay(schedule.runAtMonthDay ?? 1);
       const kbProvider = schedule.communication?.kb_provider ?? '';
       setDiffScheduleFormKbProvider(kbProvider);
       setDiffScheduleFormKbResourceId(schedule.communication?.kb_resource_id ?? '');
@@ -393,6 +448,9 @@ function DiffPrototypePanel() {
       setDiffScheduleFormCadence('daily');
       setDiffScheduleFormSourceIds(connectedSources.length > 0 ? connectedSources.map((s) => s.id) : []);
       setDiffScheduleFormCommunication({ email: false, kb: false, slack: false });
+      setDiffScheduleFormRunAtTime('09:00');
+      setDiffScheduleFormRunAtWeekday(1);
+      setDiffScheduleFormRunAtMonthDay(1);
       setDiffScheduleFormKbProvider('');
       setDiffScheduleFormKbResourceId('');
       setDiffScheduleFormKbResources([]);
@@ -426,6 +484,10 @@ function DiffPrototypePanel() {
       name,
       enabled: true,
       cadence: diffScheduleFormCadence,
+      runAtTime: diffScheduleFormRunAtTime.trim() || null,
+      runAtTimezone: 'UTC',
+      runAtWeekday: cadenceUsesWeekday(diffScheduleFormCadence) ? diffScheduleFormRunAtWeekday : null,
+      runAtMonthDay: cadenceUsesMonthDay(diffScheduleFormCadence) ? diffScheduleFormRunAtMonthDay : null,
       sourceIds: [...diffScheduleFormSourceIds],
       communication: comm,
     };
@@ -442,23 +504,27 @@ function DiffPrototypePanel() {
           throw new Error(data?.error || 'Failed to update schedule');
         }
         const data = await res.json();
-        const s = data.schedule as { id: string; name?: string; enabled?: boolean; cadence?: string; sourceIds?: string[]; communication?: ScheduleCommunication };
+        const s = data.schedule as { id: string; name?: string; enabled?: boolean; cadence?: string; sourceIds?: string[]; communication?: ScheduleCommunication; runAtTime?: string | null; runAtTimezone?: string | null; runAtWeekday?: number | null; runAtMonthDay?: number | null };
         setDiffSchedules((prev) =>
           prev.map((schedule) =>
             schedule.id === s.id
               ? {
-                  id: s.id,
-                  name: typeof s.name === 'string' ? s.name : name,
-                  enabled: s.enabled !== false,
-                  cadence: typeof s.cadence === 'string' ? s.cadence : body.cadence,
-                  sourceIds: Array.isArray(s.sourceIds) ? s.sourceIds : body.sourceIds,
-                  communication: {
-                    ...s.communication,
-                    email: !!s.communication?.email,
-                    kb: !!s.communication?.kb,
-                    slack: !!s.communication?.slack,
-                  },
-                }
+                id: s.id,
+                name: typeof s.name === 'string' ? s.name : name,
+                enabled: s.enabled !== false,
+                cadence: typeof s.cadence === 'string' ? s.cadence : body.cadence,
+                sourceIds: Array.isArray(s.sourceIds) ? s.sourceIds : body.sourceIds,
+                communication: {
+                  ...s.communication,
+                  email: !!s.communication?.email,
+                  kb: !!s.communication?.kb,
+                  slack: !!s.communication?.slack,
+                },
+                runAtTime: s.runAtTime ?? null,
+                runAtTimezone: s.runAtTimezone ?? null,
+                runAtWeekday: s.runAtWeekday ?? null,
+                runAtMonthDay: s.runAtMonthDay ?? null,
+              }
               : schedule
           )
         );
@@ -474,7 +540,7 @@ function DiffPrototypePanel() {
           throw new Error(data?.error || 'Failed to create schedule');
         }
         const data = await res.json();
-        const s = data.schedule as { id: string; name?: string; enabled?: boolean; cadence?: string; sourceIds?: string[]; communication?: ScheduleCommunication };
+        const s = data.schedule as { id: string; name?: string; enabled?: boolean; cadence?: string; sourceIds?: string[]; communication?: ScheduleCommunication; runAtTime?: string | null; runAtTimezone?: string | null; runAtWeekday?: number | null; runAtMonthDay?: number | null };
         setDiffSchedules((prev) => [
           ...prev,
           {
@@ -489,6 +555,10 @@ function DiffPrototypePanel() {
               kb: !!s.communication?.kb,
               slack: !!s.communication?.slack,
             },
+            runAtTime: s.runAtTime ?? null,
+            runAtTimezone: s.runAtTimezone ?? null,
+            runAtWeekday: s.runAtWeekday ?? null,
+            runAtMonthDay: s.runAtMonthDay ?? null,
           },
         ]);
       }
@@ -637,6 +707,7 @@ function DiffPrototypePanel() {
     diffInput.end_timestamp,
     selectedSourceIds,
     connectedSources.length,
+    compareLoading,
     runDiffCompare,
   ]);
 
@@ -914,6 +985,51 @@ function DiffPrototypePanel() {
                             </Command>
                           </PopoverContent>
                         </Popover>
+                      </div>
+                      <div>
+                        <div className="flex flex-col gap-2">
+                          {cadenceUsesMonthDay(diffScheduleFormCadence) && (
+                            <div>
+                              <label className="text-[11px] text-white/50 block mb-1">Day of month</label>
+                              <select
+                                value={diffScheduleFormRunAtMonthDay}
+                                onChange={(e) => setDiffScheduleFormRunAtMonthDay(Number(e.target.value))}
+                                className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none"
+                              >
+                                {MONTH_DAY_OPTIONS.map((d) => (
+                                  <option key={d.value} value={d.value}>
+                                    {d.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                          {cadenceUsesWeekday(diffScheduleFormCadence) && (
+                            <div>
+                              <label className="text-[11px] text-white/50 block mb-1">Day of week</label>
+                              <select
+                                value={diffScheduleFormRunAtWeekday}
+                                onChange={(e) => setDiffScheduleFormRunAtWeekday(Number(e.target.value))}
+                                className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none"
+                              >
+                                {WEEKDAY_OPTIONS.map((d) => (
+                                  <option key={d.value} value={d.value}>
+                                    {d.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                          <div>
+                            <label className="text-[11px] text-white/50 block mb-1">Time</label>
+                            <input
+                              type="time"
+                              value={diffScheduleFormRunAtTime}
+                              onChange={(e) => setDiffScheduleFormRunAtTime(e.target.value)}
+                              className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none [color-scheme:dark]"
+                            />
+                          </div>
+                        </div>
                       </div>
                       <div>
                         <SidebarGroupLabel className="text-xs text-white/60 mb-1.5">Sources</SidebarGroupLabel>
@@ -1283,6 +1399,9 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
   const [projectionScheduleFormKbResources, setProjectionScheduleFormKbResources] = useState<Array<{ id: string; title: string; type?: string; metadata?: Record<string, unknown> }>>([]);
   const [projectionScheduleFormKbRootMetadata, setProjectionScheduleFormKbRootMetadata] = useState<Record<string, unknown> | undefined>(undefined);
   const [projectionScheduleFormKbResourcesLoading, setProjectionScheduleFormKbResourcesLoading] = useState(false);
+  const [projectionScheduleFormRunAtTime, setProjectionScheduleFormRunAtTime] = useState('');
+  const [projectionScheduleFormRunAtWeekday, setProjectionScheduleFormRunAtWeekday] = useState<number>(1); // Monday
+  const [projectionScheduleFormRunAtMonthDay, setProjectionScheduleFormRunAtMonthDay] = useState<number>(1); // 1st
   const [projectionScheduleSourceMenuOpen, setProjectionScheduleSourceMenuOpen] = useState(false);
   const [projectionScheduleCadenceMenuOpen, setProjectionScheduleCadenceMenuOpen] = useState(false);
   const [projectionScheduleAudienceMenuOpen, setProjectionScheduleAudienceMenuOpen] = useState(false);
@@ -1370,6 +1489,10 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
           audiences?: string[];
           units?: string[];
           communication?: ScheduleCommunication;
+          runAtTime?: string | null;
+          runAtTimezone?: string | null;
+          runAtWeekday?: number | null;
+          runAtMonthDay?: number | null;
         }>;
         setProjectionSchedules(
           list.map((s) => ({
@@ -1386,6 +1509,10 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
               kb: !!s.communication?.kb,
               slack: !!s.communication?.slack,
             },
+            runAtTime: s.runAtTime ?? null,
+            runAtTimezone: s.runAtTimezone ?? null,
+            runAtWeekday: s.runAtWeekday ?? null,
+            runAtMonthDay: s.runAtMonthDay ?? null,
           }))
         );
       } catch {
@@ -1459,6 +1586,9 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
       setProjectionScheduleFormAudiences(schedule.audiences);
       setProjectionScheduleFormUnits(schedule.units);
       setProjectionScheduleFormCommunication(schedule.communication);
+      setProjectionScheduleFormRunAtTime(schedule.runAtTime ?? '09:00');
+      setProjectionScheduleFormRunAtWeekday(schedule.runAtWeekday ?? 1);
+      setProjectionScheduleFormRunAtMonthDay(schedule.runAtMonthDay ?? 1);
       const kbProvider = schedule.communication?.kb_provider ?? '';
       setProjectionScheduleFormKbProvider(kbProvider);
       setProjectionScheduleFormKbResourceId(schedule.communication?.kb_resource_id ?? '');
@@ -1475,6 +1605,9 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
       setProjectionScheduleFormAudiences([]);
       setProjectionScheduleFormUnits([]);
       setProjectionScheduleFormCommunication({ email: false, kb: false, slack: false });
+      setProjectionScheduleFormRunAtTime('09:00');
+      setProjectionScheduleFormRunAtWeekday(1);
+      setProjectionScheduleFormRunAtMonthDay(1);
       setProjectionScheduleFormKbProvider('');
       setProjectionScheduleFormKbResourceId('');
       setProjectionScheduleFormKbResources([]);
@@ -1508,6 +1641,10 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
       name,
       enabled: true,
       cadence: projectionScheduleFormCadence,
+      runAtTime: projectionScheduleFormRunAtTime.trim() || null,
+      runAtTimezone: 'UTC',
+      runAtWeekday: cadenceUsesWeekday(projectionScheduleFormCadence) ? projectionScheduleFormRunAtWeekday : null,
+      runAtMonthDay: cadenceUsesMonthDay(projectionScheduleFormCadence) ? projectionScheduleFormRunAtMonthDay : null,
       sourceIds: [...projectionScheduleFormSourceIds],
       audiences: [...projectionScheduleFormAudiences],
       units: [...projectionScheduleFormUnits],
@@ -1535,25 +1672,33 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
           audiences?: string[];
           units?: string[];
           communication?: ScheduleCommunication;
+          runAtTime?: string | null;
+          runAtTimezone?: string | null;
+          runAtWeekday?: number | null;
+          runAtMonthDay?: number | null;
         };
         setProjectionSchedules((prev) =>
           prev.map((schedule) =>
             schedule.id === s.id
               ? {
-                  id: s.id,
-                  name: typeof s.name === 'string' ? s.name : name,
-                  enabled: s.enabled !== false,
-                  cadence: typeof s.cadence === 'string' ? s.cadence : body.cadence,
-                  sourceIds: Array.isArray(s.sourceIds) ? s.sourceIds : body.sourceIds,
-                  audiences: Array.isArray(s.audiences) ? s.audiences : body.audiences,
-                  units: Array.isArray(s.units) ? s.units : body.units,
-                  communication: {
-                    ...s.communication,
-                    email: !!s.communication?.email,
-                    kb: !!s.communication?.kb,
-                    slack: !!s.communication?.slack,
-                  },
-                }
+                id: s.id,
+                name: typeof s.name === 'string' ? s.name : name,
+                enabled: s.enabled !== false,
+                cadence: typeof s.cadence === 'string' ? s.cadence : body.cadence,
+                sourceIds: Array.isArray(s.sourceIds) ? s.sourceIds : body.sourceIds,
+                audiences: Array.isArray(s.audiences) ? s.audiences : body.audiences,
+                units: Array.isArray(s.units) ? s.units : body.units,
+                communication: {
+                  ...s.communication,
+                  email: !!s.communication?.email,
+                  kb: !!s.communication?.kb,
+                  slack: !!s.communication?.slack,
+                },
+                runAtTime: s.runAtTime ?? null,
+                runAtTimezone: s.runAtTimezone ?? null,
+                runAtWeekday: s.runAtWeekday ?? null,
+                runAtMonthDay: s.runAtMonthDay ?? null,
+              }
               : schedule
           )
         );
@@ -1578,6 +1723,10 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
           audiences?: string[];
           units?: string[];
           communication?: ScheduleCommunication;
+          runAtTime?: string | null;
+          runAtTimezone?: string | null;
+          runAtWeekday?: number | null;
+          runAtMonthDay?: number | null;
         };
         setProjectionSchedules((prev) => [
           ...prev,
@@ -1595,6 +1744,10 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
               kb: !!s.communication?.kb,
               slack: !!s.communication?.slack,
             },
+            runAtTime: s.runAtTime ?? null,
+            runAtTimezone: s.runAtTimezone ?? null,
+            runAtWeekday: s.runAtWeekday ?? null,
+            runAtMonthDay: s.runAtMonthDay ?? null,
           },
         ]);
       }
@@ -2101,6 +2254,51 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                                   </Command>
                                 </PopoverContent>
                               </Popover>
+                            </div>
+                            <div>
+                              <div className="flex flex-col gap-2">
+                                {cadenceUsesMonthDay(projectionScheduleFormCadence) && (
+                                  <div>
+                                    <label className="text-[11px] text-white/50 block mb-1">Day of month</label>
+                                    <select
+                                      value={projectionScheduleFormRunAtMonthDay}
+                                      onChange={(e) => setProjectionScheduleFormRunAtMonthDay(Number(e.target.value))}
+                                      className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none"
+                                    >
+                                      {MONTH_DAY_OPTIONS.map((d) => (
+                                        <option key={d.value} value={d.value}>
+                                          {d.label}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                )}
+                                {cadenceUsesWeekday(projectionScheduleFormCadence) && (
+                                  <div>
+                                    <label className="text-[11px] text-white/50 block mb-1">Day of week</label>
+                                    <select
+                                      value={projectionScheduleFormRunAtWeekday}
+                                      onChange={(e) => setProjectionScheduleFormRunAtWeekday(Number(e.target.value))}
+                                      className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none"
+                                    >
+                                      {WEEKDAY_OPTIONS.map((d) => (
+                                        <option key={d.value} value={d.value}>
+                                          {d.label}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                )}
+                                <div>
+                                  <label className="text-[11px] text-white/50 block mb-1">Time (UTC)</label>
+                                  <input
+                                    type="time"
+                                    value={projectionScheduleFormRunAtTime}
+                                    onChange={(e) => setProjectionScheduleFormRunAtTime(e.target.value)}
+                                    className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none [color-scheme:dark]"
+                                  />
+                                </div>
+                              </div>
                             </div>
                             <div>
                               <SidebarGroupLabel className="text-xs text-white/60 mb-1.5">Sources</SidebarGroupLabel>

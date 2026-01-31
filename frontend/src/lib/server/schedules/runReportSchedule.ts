@@ -19,6 +19,10 @@ export type ReportScheduleRow = {
   last_run_at: string | null;
   last_run_status: string | null;
   last_run_error: string | null;
+  run_at_time?: string | null;
+  run_at_timezone?: string | null;
+  run_at_weekday?: number | null;
+  run_at_month_day?: number | null;
 };
 
 /**

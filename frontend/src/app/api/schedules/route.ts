@@ -58,6 +58,10 @@ export async function POST(request: NextRequest) {
       name?: string;
       enabled?: boolean;
       cadence?: string;
+      runAtTime?: string | null;
+      runAtTimezone?: string | null;
+      runAtWeekday?: number | null;
+      runAtMonthDay?: number | null;
       sourceIds?: string[];
       communication?: Record<string, unknown>;
       audiences?: string[];
@@ -68,6 +72,10 @@ export async function POST(request: NextRequest) {
     const name = typeof body.name === 'string' ? body.name.trim() || null : null;
     const enabled = typeof body.enabled === 'boolean' ? body.enabled : true;
     const cadence = typeof body.cadence === 'string' ? body.cadence : 'daily';
+    const runAtTime = typeof body.runAtTime === 'string' ? body.runAtTime.trim() || null : null;
+    const runAtTimezone = typeof body.runAtTimezone === 'string' ? body.runAtTimezone.trim() || null : 'UTC';
+    const runAtWeekday = typeof body.runAtWeekday === 'number' && body.runAtWeekday >= 0 && body.runAtWeekday <= 6 ? body.runAtWeekday : null;
+    const runAtMonthDay = typeof body.runAtMonthDay === 'number' && body.runAtMonthDay >= 0 && body.runAtMonthDay <= 31 ? body.runAtMonthDay : null;
     const sourceIds = Array.isArray(body.sourceIds)
       ? body.sourceIds.filter((id): id is string => typeof id === 'string').map((id) => id)
       : [];
@@ -88,6 +96,10 @@ export async function POST(request: NextRequest) {
         name,
         enabled,
         cadence,
+        run_at_time: runAtTime,
+        run_at_timezone: runAtTimezone,
+        run_at_weekday: runAtWeekday,
+        run_at_month_day: runAtMonthDay,
         source_ids: sourceIds,
         communication,
         audiences,
@@ -129,6 +141,10 @@ function rowToSchedule(row: Record<string, unknown>): Record<string, unknown> {
     lastRunAt: row.last_run_at ?? null,
     lastRunStatus: row.last_run_status ?? null,
     lastRunError: row.last_run_error ?? null,
+    runAtTime: row.run_at_time ?? null,
+    runAtTimezone: row.run_at_timezone ?? null,
+    runAtWeekday: row.run_at_weekday ?? null,
+    runAtMonthDay: row.run_at_month_day ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

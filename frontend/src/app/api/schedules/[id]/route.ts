@@ -16,6 +16,10 @@ function rowToSchedule(row: Record<string, unknown>): Record<string, unknown> {
     lastRunAt: row.last_run_at ?? null,
     lastRunStatus: row.last_run_status ?? null,
     lastRunError: row.last_run_error ?? null,
+    runAtTime: row.run_at_time ?? null,
+    runAtTimezone: row.run_at_timezone ?? null,
+    runAtWeekday: row.run_at_weekday ?? null,
+    runAtMonthDay: row.run_at_month_day ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -37,6 +41,10 @@ export async function PATCH(
       name?: string;
       enabled?: boolean;
       cadence?: string;
+      runAtTime?: string | null;
+      runAtTimezone?: string | null;
+      runAtWeekday?: number | null;
+      runAtMonthDay?: number | null;
       sourceIds?: string[];
       communication?: Record<string, unknown>;
       audiences?: string[];
@@ -64,6 +72,10 @@ export async function PATCH(
     if (typeof body.name === 'string') updates.name = body.name.trim() || null;
     if (typeof body.enabled === 'boolean') updates.enabled = body.enabled;
     if (typeof body.cadence === 'string') updates.cadence = body.cadence;
+    if (body.runAtTime !== undefined) updates.run_at_time = typeof body.runAtTime === 'string' ? (body.runAtTime.trim() || null) : null;
+    if (body.runAtTimezone !== undefined) updates.run_at_timezone = typeof body.runAtTimezone === 'string' ? (body.runAtTimezone.trim() || 'UTC') : 'UTC';
+    if (body.runAtWeekday !== undefined) updates.run_at_weekday = typeof body.runAtWeekday === 'number' && body.runAtWeekday >= 0 && body.runAtWeekday <= 6 ? body.runAtWeekday : null;
+    if (body.runAtMonthDay !== undefined) updates.run_at_month_day = typeof body.runAtMonthDay === 'number' && body.runAtMonthDay >= 0 && body.runAtMonthDay <= 31 ? body.runAtMonthDay : null;
     if (Array.isArray(body.sourceIds)) {
       updates.source_ids = body.sourceIds.filter((id): id is string => typeof id === 'string');
     }
