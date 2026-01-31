@@ -692,7 +692,9 @@ function DiffPrototypePanel() {
     }
   }, [selectedSourceIds, diffInput]);
 
-  // Regenerate diff whenever date range or source selection changes
+  // Regenerate diff whenever date range or source selection changes.
+  // Intentionally omit compareLoading from deps: including it would re-run when loading
+  // goes false after a compare, triggering another compare and an infinite loop.
   useEffect(() => {
     if (
       connectedSources.length === 0 ||
@@ -702,12 +704,12 @@ function DiffPrototypePanel() {
       return;
     }
     runDiffCompare();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- compareLoading is a guard only; omit to avoid loop
   }, [
     diffInput.start_timestamp,
     diffInput.end_timestamp,
     selectedSourceIds,
     connectedSources.length,
-    compareLoading,
     runDiffCompare,
   ]);
 
