@@ -31,7 +31,8 @@ const SKIP_FILE_PATTERNS = [
 
 
 /**
- * Generate a file summary
+ * Generate a file summary via LLM.
+ * Callers should log reason (e.g. "new file (added)" or "content changed") before calling.
  */
 export async function generateFileSummary(
 	fileContent: string,

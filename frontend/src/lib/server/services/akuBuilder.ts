@@ -274,7 +274,6 @@ export async function buildAkusForSources(
   sourceIds: string[],
   audiences: string[] = []
 ) {
-  // console.log('AKU builder: starting run', { userId, sources: sourceIds.length, audiences });
   if (sourceIds.length === 0) return { akus: [], projections: [] };
 
   const evidence: Evidence[] = [];
@@ -322,6 +321,13 @@ export async function buildAkusForSources(
     clusters.get(cls.key)!.items.push(e);
   });
 
+  const clusterCount = clusters.size;
+  const codeCount = evidence.filter((e) => e.kind === 'code').length;
+  const issueCount = evidence.filter((e) => e.kind === 'issue').length;
+  console.log(
+    `[AKU builder] Starting: ${evidence.length} evidence (${codeCount} file summaries, ${issueCount} issues), ${clusterCount} clusters, audiences: [${audiences.join(', ')}]`
+  );
+
   const hashesForRun: string[] = [];
   for (const [, cluster] of clusters.entries()) {
     const items = cluster.items;
@@ -365,9 +371,8 @@ export async function buildAkusForSources(
     const hasIssue = items.some((e) => e.kind === 'issue');
     if (!hasIssue && items.length < 2) continue;
 
-    // console.log(`AKU builder: cluster "${cluster.label}" (${cluster.reason}) with ${items.length} evidence items`);
-
     const title = cluster.label.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    console.log(`[AKU builder] AKU: "${title}" (${items.length} evidence items: ${items.map((i) => i.scope_ref).slice(0, 3).join(', ')}${items.length > 3 ? '...' : ''})`);
     const structured = buildStructuredBody(title, items);
     const canonical = canonicalToMarkdown(structured);
 
@@ -403,6 +408,7 @@ export async function buildAkusForSources(
 
     for (const aud of audiences) {
       const schema = AUDIENCE_SCHEMAS[aud] || AUDIENCE_SCHEMAS.Engineering;
+      console.log(`[LLM] Generating audience projection: audience=${aud}, AKU="${title}"`);
       const { projection, status } = await generateProjection(llm, aud, schema, title, canonical, structured);
       projections.push({
         id: randomUUID(),
@@ -414,9 +420,9 @@ export async function buildAkusForSources(
     }
   }
 
-  // console.log(
-  //   `AKU builder: summary — evidence ${evidence.length}, clusters ${clusters.size}, AKUs ${akus.length}, projections ${projections.length}`
-  // );
+  console.log(
+    `[AKU builder] Summary: ${akus.length} AKU(s), ${projections.length} audience projection(s) (${audiences.length} audiences × ${akus.length} AKUs)`
+  );
 
   const currentAkuIds = new Set(akus.map((a) => a.id));
 

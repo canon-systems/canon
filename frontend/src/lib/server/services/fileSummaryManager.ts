@@ -217,6 +217,10 @@ export class FileSummaryManager {
       await Promise.all(
         batch.map(async (file) => {
           try {
+            const status = statusMap.get(file.path);
+            const reason = !status?.exists ? 'new file (added)' : 'content changed (hash mismatch)';
+            console.log(`[LLM] Generating file summary: ${file.path} — reason: ${reason}`);
+
             onProgress?.({
               processed: processed + skipped,
               total: filesNeedingUpdate.length,

@@ -1,9 +1,14 @@
+import { createHash } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { analyzeRepository } from './analyzeRepository';
 import { FileSummaryManager } from './fileSummaryManager';
 import { parseRepoUrl } from '../github/github';
 import { getProviderAccessToken } from '../oauth/tokenStore';
 import { buildAkusForSources } from './akuBuilder';
+
+function fileContentHash(content: string): string {
+  return createHash('sha256').update(content).digest('hex');
+}
 
 const DEFAULT_AUDIENCES = ['Executive', 'Sales', 'Marketing', 'Engineering', 'Support', 'Customer'];
 
@@ -367,14 +372,21 @@ export async function syncGitHubSourceDelta(
       else console.warn('[knowledge-sync] GitHub: failed to remove deleted file rows', { repo, count: removedPaths.length });
     }
 
+    const scopeLabel = typeof source.scope?.repo === 'string' ? source.scope.repo : source.id;
+    console.log(`[knowledge-sync] Checking ${rawFiles.length} files for summary updates (hash comparison), source: ${scopeLabel}`);
     const result = await manager.updateSummariesIfNeeded(
-      rawFiles.map((f) => ({ path: f.path, content: f.content })),
+      rawFiles.map((f) => ({
+        path: f.path,
+        content: f.content,
+        hash: fileContentHash(f.content),
+      })),
       { model: 'openai/gpt-4o-mini', regenerationReason: 'file_changed' }
     );
 
     const anyChange = removed > 0 || result.processed > 0;
 
     if (anyChange) {
+      console.log(`[knowledge-sync] Rebuilding AKUs for source(s) (files/tickets changed), source: ${scopeLabel}`);
       await buildAkusForSources(supabase, source.user_id, [source.id], DEFAULT_AUDIENCES);
       return { added, removed, rebuilt: true, addedPaths, removedPaths };
     }

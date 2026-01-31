@@ -35,8 +35,9 @@ export const syncKnowledgeSources = inngest.createFunction(
     id: "knowledge-sync",
     name: "Knowledge Sync (repo_file_summaries + issue_index)",
     retries: 2,
+    concurrency: { limit: 1 },
   },
-  { cron: "*/5 * * * *" }, // every 1 minute
+  { cron: "*/5 * * * *" }, // every 5 minutes
   async () => {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const serviceKey = process.env.SUPABASE_SERVICE_KEY;
