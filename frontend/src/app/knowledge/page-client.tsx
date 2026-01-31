@@ -20,7 +20,7 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
-import { Loader2, ChevronsUpDown, Info, Check, BookOpen, GitCompare, CalendarIcon } from 'lucide-react';
+import { Loader2, ChevronsUpDown, Info, Check, BookOpen, GitCompare, CalendarIcon, Plus, Trash2, Pencil } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/components/ui/utils';
 import {
@@ -37,6 +37,8 @@ import {
 import { createClient } from '@/lib/supabase/client';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Calendar, type DateRange } from '@/components/ui/calendar';
+import { Switch } from '@/components/ui/switch';
+import { Input } from '@/components/ui/input';
 
 type KnowledgeItem = {
   id: string;
@@ -109,6 +111,49 @@ type ModeCardProps = {
   onClick: () => void;
 };
 
+/** Schedule communication channels (UI-only for now) */
+type ScheduleCommunication = { email?: boolean; kb?: boolean; slack?: boolean };
+
+type DiffSchedule = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  cadence: string; // 'daily' | 'weekly' | 'bi-weekly' | 'monthly' | cron string
+  sourceIds: string[];
+  communication: ScheduleCommunication;
+};
+
+type ProjectionSchedule = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  cadence: string;
+  sourceIds: string[];
+  audiences: string[];
+  units: string[];
+  communication: ScheduleCommunication;
+};
+
+const CADENCE_PRESETS: Array<{ value: string; label: string }> = [
+  { value: 'daily', label: 'Daily' },
+  { value: 'weekly', label: 'Weekly' },
+  { value: 'bi-weekly', label: 'Bi-weekly' },
+  { value: 'monthly', label: 'Monthly' },
+  { value: 'custom', label: 'Custom' },
+];
+
+function getCadenceLabel(cadence: string): string {
+  if (!cadence) return 'Not set';
+  switch (cadence) {
+    case 'daily': return 'Daily';
+    case 'weekly': return 'Weekly';
+    case 'bi-weekly': return 'Bi-weekly';
+    case 'monthly': return 'Monthly';
+    case 'custom': return 'Custom';
+    default: return cadence.length > 20 ? `${cadence.slice(0, 20)}…` : cadence;
+  }
+}
+
 function projectForAudience(item: KnowledgeItem, audience: string): string {
   const base = item.body || '';
   switch (audience.toLowerCase()) {
@@ -176,6 +221,15 @@ function DiffPrototypePanel() {
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
   const [reportSources, setReportSources] = useState<Array<{ id: string; name: string; display_name: string; provider: string }>>([]);
   const [diffSourceMenuOpen, setDiffSourceMenuOpen] = useState(false);
+  const [diffSchedules, setDiffSchedules] = useState<DiffSchedule[]>([]);
+  const [diffScheduleFormOpen, setDiffScheduleFormOpen] = useState(false);
+  const [diffScheduleEditingId, setDiffScheduleEditingId] = useState<string | null>(null);
+  const [diffScheduleFormName, setDiffScheduleFormName] = useState('');
+  const [diffScheduleFormCadence, setDiffScheduleFormCadence] = useState('daily');
+  const [diffScheduleFormSourceIds, setDiffScheduleFormSourceIds] = useState<string[]>([]);
+  const [diffScheduleFormCommunication, setDiffScheduleFormCommunication] = useState<ScheduleCommunication>({ email: false, kb: false, slack: false });
+  const [diffScheduleSourceMenuOpen, setDiffScheduleSourceMenuOpen] = useState(false);
+  const [diffScheduleCadenceMenuOpen, setDiffScheduleCadenceMenuOpen] = useState(false);
 
   const diffAllSourceIds = useMemo(() => connectedSources.map((s) => s.id), [connectedSources]);
 
@@ -236,6 +290,61 @@ function DiffPrototypePanel() {
   const toggleConnectedSource = (id: string) => {
     setSelectedSourceIds((prev) =>
       prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]
+    );
+  };
+
+  const openDiffScheduleForm = (schedule?: DiffSchedule) => {
+    if (schedule) {
+      setDiffScheduleEditingId(schedule.id);
+      setDiffScheduleFormName(schedule.name);
+      setDiffScheduleFormCadence(schedule.cadence);
+      setDiffScheduleFormSourceIds(schedule.sourceIds);
+      setDiffScheduleFormCommunication(schedule.communication);
+    } else {
+      setDiffScheduleEditingId(null);
+      setDiffScheduleFormName('');
+      setDiffScheduleFormCadence('daily');
+      setDiffScheduleFormSourceIds(connectedSources.length > 0 ? connectedSources.map((s) => s.id) : []);
+      setDiffScheduleFormCommunication({ email: false, kb: false, slack: false });
+    }
+    setDiffScheduleFormOpen(true);
+  };
+
+  const closeDiffScheduleForm = () => {
+    setDiffScheduleFormOpen(false);
+    setDiffScheduleEditingId(null);
+  };
+
+  const saveDiffSchedule = () => {
+    const id = diffScheduleEditingId ?? `diff-sched-${Date.now()}`;
+    const schedule: DiffSchedule = {
+      id,
+      name: diffScheduleFormName.trim() || 'Diff report',
+      enabled: true,
+      cadence: diffScheduleFormCadence,
+      sourceIds: [...diffScheduleFormSourceIds],
+      communication: { ...diffScheduleFormCommunication },
+    };
+    if (diffScheduleEditingId) {
+      setDiffSchedules((prev) => prev.map((s) => (s.id === id ? schedule : s)));
+    } else {
+      setDiffSchedules((prev) => [...prev, schedule]);
+    }
+    closeDiffScheduleForm();
+  };
+
+  const deleteDiffSchedule = (id: string) => {
+    setDiffSchedules((prev) => prev.filter((s) => s.id !== id));
+    if (diffScheduleEditingId === id) closeDiffScheduleForm();
+  };
+
+  const toggleDiffScheduleEnabled = (id: string) => {
+    setDiffSchedules((prev) => prev.map((s) => (s.id === id ? { ...s, enabled: !s.enabled } : s)));
+  };
+
+  const toggleDiffScheduleFormSource = (sourceId: string) => {
+    setDiffScheduleFormSourceIds((prev) =>
+      prev.includes(sourceId) ? prev.filter((s) => s !== sourceId) : [...prev, sourceId]
     );
   };
 
@@ -517,9 +626,188 @@ function DiffPrototypePanel() {
             )}
 
             {diffFilterTab === 'schedule' && (
-              <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/80">
-                Schedule placeholder — hook diff schedle here.
-              </div>
+              <>
+                <SidebarGroup>
+                  <SidebarGroupLabel>Diff report schedules</SidebarGroupLabel>
+                  <SidebarGroupContent className="space-y-3">
+                    {diffSchedules.length === 0 && !diffScheduleFormOpen && (
+                      <p className="text-xs text-white/50">No schedules yet. Add one to run diff reports on a cadence.</p>
+                    )}
+                    {diffSchedules.map((sched) => (
+                      <div
+                        key={sched.id}
+                        className={cn(
+                          'rounded-xl border p-3 text-left transition',
+                          sched.enabled ? 'border-white/30 bg-white/10' : 'border-white/10 bg-white/5'
+                        )}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium text-white truncate">{sched.name}</p>
+                            <p className="text-xs text-white/50 mt-0.5">{getCadenceLabel(sched.cadence)} · {sched.sourceIds.length} source{sched.sourceIds.length === 1 ? '' : 's'}</p>
+                            <div className="flex flex-wrap gap-1 mt-1.5">
+                              {sched.communication.email && <Badge variant="outline" className="text-[10px] border-white/20 text-white/70">Email</Badge>}
+                              {sched.communication.kb && <Badge variant="outline" className="text-[10px] border-white/20 text-white/70">KB</Badge>}
+                              {sched.communication.slack && <Badge variant="outline" className="text-[10px] border-white/20 text-white/70">Slack</Badge>}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <Switch
+                              checked={sched.enabled}
+                              onCheckedChange={() => toggleDiffScheduleEnabled(sched.id)}
+                            />
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-white/70 hover:text-white" onClick={() => openDiffScheduleForm(sched)}>
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-white/70 hover:text-red-300" onClick={() => deleteDiffSchedule(sched.id)}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    {!diffScheduleFormOpen && (
+                      <Button variant="outline" size="sm" className="w-full border-white/20 bg-white/5 hover:bg-white/10 text-white" onClick={() => openDiffScheduleForm()}>
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add schedule
+                      </Button>
+                    )}
+                  </SidebarGroupContent>
+                </SidebarGroup>
+                {diffScheduleFormOpen && (
+                  <SidebarGroup>
+                    <SidebarGroupLabel>{diffScheduleEditingId ? 'Edit schedule' : 'New schedule'}</SidebarGroupLabel>
+                    <SidebarGroupContent className="space-y-3">
+                      <div>
+                        <label className="text-xs text-white/60 block mb-1">Name</label>
+                        <Input
+                          value={diffScheduleFormName}
+                          onChange={(e) => setDiffScheduleFormName(e.target.value)}
+                          placeholder="e.g. Weekly diff report"
+                          className="h-9 border-white/20 bg-neutral-800 text-white text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-white/60 block mb-1.5">Cadence</label>
+                        <Popover open={diffScheduleCadenceMenuOpen} onOpenChange={setDiffScheduleCadenceMenuOpen}>
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant="outline"
+                              role="combobox"
+                              aria-expanded={diffScheduleCadenceMenuOpen}
+                              className="w-full justify-between border-white/20 bg-neutral-800 hover:bg-neutral-700 hover:border-white/30 text-white text-sm h-9"
+                            >
+                              <span className="truncate">{getCadenceLabel(diffScheduleFormCadence)}</span>
+                              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 border-white/10 bg-neutral-900" align="start">
+                            <Command>
+                              <CommandList>
+                                <CommandGroup>
+                                  {CADENCE_PRESETS.map((p) => (
+                                    <CommandItem
+                                      key={p.value}
+                                      value={p.label}
+                                      onSelect={() => {
+                                        setDiffScheduleFormCadence(p.value);
+                                        setDiffScheduleCadenceMenuOpen(false);
+                                      }}
+                                      className="cursor-pointer"
+                                    >
+                                      <Checkbox
+                                        checked={diffScheduleFormCadence === p.value}
+                                        className="mr-2 pointer-events-none"
+                                      />
+                                      <span className="text-white/90">{p.label}</span>
+                                    </CommandItem>
+                                  ))}
+                                </CommandGroup>
+                              </CommandList>
+                            </Command>
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+                      <div>
+                        <SidebarGroupLabel className="text-xs text-white/60 mb-1.5">Sources</SidebarGroupLabel>
+                        <Popover open={diffScheduleSourceMenuOpen} onOpenChange={setDiffScheduleSourceMenuOpen}>
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant="outline"
+                              className="w-full justify-between border-white/20 bg-neutral-800 hover:bg-neutral-700 hover:border-white/30 text-white text-sm"
+                            >
+                              <span className="truncate">
+                                {diffScheduleFormSourceIds.length > 0
+                                  ? `${diffScheduleFormSourceIds.length} source${diffScheduleFormSourceIds.length === 1 ? '' : 's'} selected`
+                                  : 'Choose sources'}
+                              </span>
+                              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 border-white/10 bg-neutral-900" align="start">
+                            <Command>
+                              <CommandInput placeholder="Search sources..." className="text-white" />
+                              <CommandList>
+                                <CommandEmpty>No sources found.</CommandEmpty>
+                                <CommandGroup>
+                                  {connectedSources.map((src) => {
+                                    const checked = diffScheduleFormSourceIds.includes(src.id);
+                                    return (
+                                      <CommandItem
+                                        key={src.id}
+                                        value={`${src.display_name} ${src.provider}`}
+                                        onSelect={() => toggleDiffScheduleFormSource(src.id)}
+                                        className="cursor-pointer"
+                                      >
+                                        <Checkbox checked={checked} onCheckedChange={() => toggleDiffScheduleFormSource(src.id)} className="mr-2" />
+                                        <span className="flex-1 truncate text-white/90">[{src.provider}] {src.display_name}</span>
+                                      </CommandItem>
+                                    );
+                                  })}
+                                </CommandGroup>
+                              </CommandList>
+                            </Command>
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+                      <div>
+                        <label className="text-xs text-white/60 block mb-1.5">Communication</label>
+                        <div className="flex flex-wrap gap-2">
+                          <label className="flex items-center gap-2 cursor-pointer text-sm text-white/80">
+                            <Checkbox
+                              checked={diffScheduleFormCommunication.email ?? false}
+                              onCheckedChange={(c) => setDiffScheduleFormCommunication((prev) => ({ ...prev, email: !!c }))}
+                            />
+                            Email
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer text-sm text-white/80">
+                            <Checkbox
+                              checked={diffScheduleFormCommunication.kb ?? false}
+                              onCheckedChange={(c) => setDiffScheduleFormCommunication((prev) => ({ ...prev, kb: !!c }))}
+                            />
+                            KB
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer text-sm text-white/80">
+                            <Checkbox
+                              checked={diffScheduleFormCommunication.slack ?? false}
+                              onCheckedChange={(c) => setDiffScheduleFormCommunication((prev) => ({ ...prev, slack: !!c }))}
+                            />
+                            Slack
+                          </label>
+                        </div>
+                      </div>
+                      <div className="flex gap-2 pt-1">
+                        <Button variant="secondary" size="sm" className="flex-1 border-white/20 bg-white/10 text-white hover:bg-white/15" onClick={saveDiffSchedule}>
+                          Save
+                        </Button>
+                        <Button variant="ghost" size="sm" className="text-white/70 hover:text-white" onClick={closeDiffScheduleForm}>
+                          Cancel
+                        </Button>
+                      </div>
+                    </SidebarGroupContent>
+                  </SidebarGroup>
+                )}
+              </>
             )}
           </SidebarContent>
 
@@ -727,7 +1015,19 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
   const [pushResult, setPushResult] = useState<{ status: 'idle' | 'pushing' | 'done' | 'error'; message?: string; details?: PushResultDetail[] }>({ status: 'idle' });
   const [activeTab, setActiveTab] = useState<Mode>('knowledge');
   const [knowledgeFilterTab, setKnowledgeFilterTab] = useState<FilterTab>('filters');
-
+  const [projectionSchedules, setProjectionSchedules] = useState<ProjectionSchedule[]>([]);
+  const [projectionScheduleFormOpen, setProjectionScheduleFormOpen] = useState(false);
+  const [projectionScheduleEditingId, setProjectionScheduleEditingId] = useState<string | null>(null);
+  const [projectionScheduleFormName, setProjectionScheduleFormName] = useState('');
+  const [projectionScheduleFormCadence, setProjectionScheduleFormCadence] = useState('daily');
+  const [projectionScheduleFormSourceIds, setProjectionScheduleFormSourceIds] = useState<string[]>([]);
+  const [projectionScheduleFormAudiences, setProjectionScheduleFormAudiences] = useState<string[]>([]);
+  const [projectionScheduleFormUnits, setProjectionScheduleFormUnits] = useState<string[]>([]);
+  const [projectionScheduleFormCommunication, setProjectionScheduleFormCommunication] = useState<ScheduleCommunication>({ email: false, kb: false, slack: false });
+  const [projectionScheduleSourceMenuOpen, setProjectionScheduleSourceMenuOpen] = useState(false);
+  const [projectionScheduleCadenceMenuOpen, setProjectionScheduleCadenceMenuOpen] = useState(false);
+  const [projectionScheduleAudienceMenuOpen, setProjectionScheduleAudienceMenuOpen] = useState(false);
+  const [projectionScheduleUnitsMenuOpen, setProjectionScheduleUnitsMenuOpen] = useState(false);
 
   // Initialize audiences directly from Supabase preference (persisted in auth metadata)
   useEffect(() => {
@@ -820,6 +1120,79 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
     setSelectedAudiences([]);
     setSelectedCategories([]);
     setItems([]);
+  };
+
+  const openProjectionScheduleForm = (schedule?: ProjectionSchedule) => {
+    if (schedule) {
+      setProjectionScheduleEditingId(schedule.id);
+      setProjectionScheduleFormName(schedule.name);
+      setProjectionScheduleFormCadence(schedule.cadence);
+      setProjectionScheduleFormSourceIds(schedule.sourceIds);
+      setProjectionScheduleFormAudiences(schedule.audiences);
+      setProjectionScheduleFormUnits(schedule.units);
+      setProjectionScheduleFormCommunication(schedule.communication);
+    } else {
+      setProjectionScheduleEditingId(null);
+      setProjectionScheduleFormName('');
+      setProjectionScheduleFormCadence('daily');
+      setProjectionScheduleFormSourceIds(sources.length > 0 ? sources.map((s) => s.id) : []);
+      setProjectionScheduleFormAudiences([]);
+      setProjectionScheduleFormUnits([]);
+      setProjectionScheduleFormCommunication({ email: false, kb: false, slack: false });
+    }
+    setProjectionScheduleFormOpen(true);
+  };
+
+  const closeProjectionScheduleForm = () => {
+    setProjectionScheduleFormOpen(false);
+    setProjectionScheduleEditingId(null);
+  };
+
+  const saveProjectionSchedule = () => {
+    const id = projectionScheduleEditingId ?? `proj-sched-${Date.now()}`;
+    const schedule: ProjectionSchedule = {
+      id,
+      name: projectionScheduleFormName.trim() || 'Projection report',
+      enabled: true,
+      cadence: projectionScheduleFormCadence,
+      sourceIds: [...projectionScheduleFormSourceIds],
+      audiences: [...projectionScheduleFormAudiences],
+      units: [...projectionScheduleFormUnits],
+      communication: { ...projectionScheduleFormCommunication },
+    };
+    if (projectionScheduleEditingId) {
+      setProjectionSchedules((prev) => prev.map((s) => (s.id === id ? schedule : s)));
+    } else {
+      setProjectionSchedules((prev) => [...prev, schedule]);
+    }
+    closeProjectionScheduleForm();
+  };
+
+  const deleteProjectionSchedule = (id: string) => {
+    setProjectionSchedules((prev) => prev.filter((s) => s.id !== id));
+    if (projectionScheduleEditingId === id) closeProjectionScheduleForm();
+  };
+
+  const toggleProjectionScheduleEnabled = (id: string) => {
+    setProjectionSchedules((prev) => prev.map((s) => (s.id === id ? { ...s, enabled: !s.enabled } : s)));
+  };
+
+  const toggleProjectionScheduleFormSource = (sourceId: string) => {
+    setProjectionScheduleFormSourceIds((prev) =>
+      prev.includes(sourceId) ? prev.filter((s) => s !== sourceId) : [...prev, sourceId]
+    );
+  };
+
+  const toggleProjectionScheduleFormAudience = (audience: string) => {
+    setProjectionScheduleFormAudiences((prev) =>
+      prev.includes(audience) ? prev.filter((a) => a !== audience) : [...prev, audience]
+    );
+  };
+
+  const toggleProjectionScheduleFormUnit = (unit: string) => {
+    setProjectionScheduleFormUnits((prev) =>
+      prev.includes(unit) ? prev.filter((u) => u !== unit) : [...prev, unit]
+    );
   };
 
   const itemsFilteredBySources = useMemo(() => {
@@ -1165,9 +1538,342 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                   )}
 
                   {knowledgeFilterTab === 'schedule' && (
-                    <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/80">
-                      Sc placeholder — hook schedle rules here.
-                    </div>
+                    <>
+                      <SidebarGroup>
+                        <SidebarGroupLabel>Projection schedules</SidebarGroupLabel>
+                        <SidebarGroupContent className="space-y-3">
+                          {projectionSchedules.length === 0 && !projectionScheduleFormOpen && (
+                            <p className="text-xs text-white/50">No schedules yet. Add one to run projection reports on a cadence.</p>
+                          )}
+                          {projectionSchedules.map((sched) => (
+                            <div
+                              key={sched.id}
+                              className={cn(
+                                'rounded-xl border p-3 text-left transition',
+                                sched.enabled ? 'border-white/30 bg-white/10' : 'border-white/10 bg-white/5'
+                              )}
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-sm font-medium text-white truncate">{sched.name}</p>
+                                  <p className="text-xs text-white/50 mt-0.5">
+                                    {getCadenceLabel(sched.cadence)} · {sched.sourceIds.length} source{sched.sourceIds.length === 1 ? '' : 's'}
+                                    {sched.audiences.length > 0 && ` · ${sched.audiences.length} audience${sched.audiences.length === 1 ? '' : 's'}`}
+                                    {sched.units.length > 0 && ` · ${sched.units.length} unit${sched.units.length === 1 ? '' : 's'}`}
+                                  </p>
+                                  <div className="flex flex-wrap gap-1 mt-1.5">
+                                    {sched.communication.email && <Badge variant="outline" className="text-[10px] border-white/20 text-white/70">Email</Badge>}
+                                    {sched.communication.kb && <Badge variant="outline" className="text-[10px] border-white/20 text-white/70">KB</Badge>}
+                                    {sched.communication.slack && <Badge variant="outline" className="text-[10px] border-white/20 text-white/70">Slack</Badge>}
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <Switch
+                                    checked={sched.enabled}
+                                    onCheckedChange={() => toggleProjectionScheduleEnabled(sched.id)}
+                                  />
+                                  <Button variant="ghost" size="icon" className="h-8 w-8 text-white/70 hover:text-white" onClick={() => openProjectionScheduleForm(sched)}>
+                                    <Pencil className="h-4 w-4" />
+                                  </Button>
+                                  <Button variant="ghost" size="icon" className="h-8 w-8 text-white/70 hover:text-red-300" onClick={() => deleteProjectionSchedule(sched.id)}>
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                          {!projectionScheduleFormOpen && (
+                            <Button variant="outline" size="sm" className="w-full border-white/20 bg-white/5 hover:bg-white/10 text-white" onClick={() => openProjectionScheduleForm()}>
+                              <Plus className="h-4 w-4 mr-2" />
+                              Add schedule
+                            </Button>
+                          )}
+                        </SidebarGroupContent>
+                      </SidebarGroup>
+                      {projectionScheduleFormOpen && (
+                        <SidebarGroup>
+                          <SidebarGroupLabel>{projectionScheduleEditingId ? 'Edit schedule' : 'New schedule'}</SidebarGroupLabel>
+                          <SidebarGroupContent className="space-y-3">
+                            <div>
+                              <label className="text-xs text-white/60 block mb-1">Name</label>
+                              <Input
+                                value={projectionScheduleFormName}
+                                onChange={(e) => setProjectionScheduleFormName(e.target.value)}
+                                placeholder="e.g. Weekly projection report"
+                                className="h-9 border-white/20 bg-neutral-800 text-white text-sm"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-xs text-white/60 block mb-1.5">Cadence</label>
+                              <Popover open={projectionScheduleCadenceMenuOpen} onOpenChange={setProjectionScheduleCadenceMenuOpen}>
+                                <PopoverTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    role="combobox"
+                                    aria-expanded={projectionScheduleCadenceMenuOpen}
+                                    className="w-full justify-between border-white/20 bg-neutral-800 hover:bg-neutral-700 hover:border-white/30 text-white text-sm h-9"
+                                  >
+                                    <span className="truncate">{getCadenceLabel(projectionScheduleFormCadence)}</span>
+                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 border-white/10 bg-neutral-900" align="start">
+                                  <Command>
+                                    <CommandList>
+                                      <CommandGroup>
+                                        {CADENCE_PRESETS.map((p) => (
+                                          <CommandItem
+                                            key={p.value}
+                                            value={p.label}
+                                            onSelect={() => {
+                                              setProjectionScheduleFormCadence(p.value);
+                                              setProjectionScheduleCadenceMenuOpen(false);
+                                            }}
+                                            className="cursor-pointer"
+                                          >
+                                            <Checkbox
+                                              checked={projectionScheduleFormCadence === p.value}
+                                              className="mr-2 pointer-events-none"
+                                            />
+                                            <span className="text-white/90">{p.label}</span>
+                                          </CommandItem>
+                                        ))}
+                                      </CommandGroup>
+                                    </CommandList>
+                                  </Command>
+                                </PopoverContent>
+                              </Popover>
+                            </div>
+                            <div>
+                              <SidebarGroupLabel className="text-xs text-white/60 mb-1.5">Sources</SidebarGroupLabel>
+                              <Popover open={projectionScheduleSourceMenuOpen} onOpenChange={setProjectionScheduleSourceMenuOpen}>
+                                <PopoverTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    className="w-full justify-between border-white/20 bg-neutral-800 hover:bg-neutral-700 hover:border-white/30 text-white text-sm"
+                                  >
+                                    <span className="truncate">
+                                      {projectionScheduleFormSourceIds.length > 0
+                                        ? `${projectionScheduleFormSourceIds.length} source${projectionScheduleFormSourceIds.length === 1 ? '' : 's'} selected`
+                                        : 'Choose sources'}
+                                    </span>
+                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 border-white/10 bg-neutral-900" align="start">
+                                  <Command>
+                                    <CommandInput placeholder="Search sources..." className="text-white" />
+                                    <CommandList>
+                                      <CommandEmpty>No sources found.</CommandEmpty>
+                                      <CommandGroup>
+                                        {sources.map((src) => {
+                                          const checked = projectionScheduleFormSourceIds.includes(src.id);
+                                          return (
+                                            <CommandItem
+                                              key={src.id}
+                                              value={`${src.name} ${src.provider}`}
+                                              onSelect={() => toggleProjectionScheduleFormSource(src.id)}
+                                              className="cursor-pointer"
+                                            >
+                                              <Checkbox checked={checked} onCheckedChange={() => toggleProjectionScheduleFormSource(src.id)} className="mr-2" />
+                                              <span className="flex-1 truncate text-white/90">[{src.provider}] {src.name}</span>
+                                            </CommandItem>
+                                          );
+                                        })}
+                                      </CommandGroup>
+                                    </CommandList>
+                                  </Command>
+                                </PopoverContent>
+                              </Popover>
+                            </div>
+                            {audienceOptions.length > 0 && (
+                              <div>
+                                <label className="text-xs text-white/60 block mb-1.5">Audiences</label>
+                                <Popover open={projectionScheduleAudienceMenuOpen} onOpenChange={setProjectionScheduleAudienceMenuOpen}>
+                                  <PopoverTrigger asChild>
+                                    <Button
+                                      variant="outline"
+                                      role="combobox"
+                                      aria-expanded={projectionScheduleAudienceMenuOpen}
+                                      className="w-full justify-between border-white/20 bg-neutral-800 hover:bg-neutral-700 hover:border-white/30 text-white text-sm h-9"
+                                    >
+                                      <span className="truncate">
+                                        {projectionScheduleFormAudiences.length > 0
+                                          ? `${projectionScheduleFormAudiences.length} audience${projectionScheduleFormAudiences.length === 1 ? '' : 's'} selected`
+                                          : 'Choose audiences'}
+                                      </span>
+                                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                    </Button>
+                                  </PopoverTrigger>
+                                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 border-white/10 bg-neutral-900" align="start">
+                                    <Command>
+                                      <CommandInput placeholder="Search audiences..." className="text-white" />
+                                      <CommandList>
+                                        <CommandEmpty>No audiences found.</CommandEmpty>
+                                        <CommandGroup>
+                                          {audienceOptions.map((aud) => {
+                                            const checked = projectionScheduleFormAudiences.includes(aud);
+                                            return (
+                                              <CommandItem
+                                                key={aud}
+                                                value={aud}
+                                                onSelect={() => toggleProjectionScheduleFormAudience(aud)}
+                                                className="cursor-pointer"
+                                              >
+                                                <Checkbox
+                                                  checked={checked}
+                                                  onCheckedChange={() => toggleProjectionScheduleFormAudience(aud)}
+                                                  className="mr-2"
+                                                />
+                                                <span className="flex-1 truncate text-white/90">{aud}</span>
+                                              </CommandItem>
+                                            );
+                                          })}
+                                        </CommandGroup>
+                                      </CommandList>
+                                    </Command>
+                                    <Separator />
+                                    <div className="flex items-center justify-between px-3 py-2">
+                                      <span className="text-xs text-white/60">
+                                        {projectionScheduleFormAudiences.length} of {audienceOptions.length} selected
+                                      </span>
+                                      <div className="flex gap-2">
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => setProjectionScheduleFormAudiences([])}
+                                        >
+                                          Clear
+                                        </Button>
+                                        <Button
+                                          variant="secondary"
+                                          size="sm"
+                                          onClick={() => {
+                                            setProjectionScheduleFormAudiences([...audienceOptions]);
+                                            setProjectionScheduleAudienceMenuOpen(false);
+                                          }}
+                                        >
+                                          {projectionScheduleFormAudiences.length === audienceOptions.length ? 'Deselect all' : 'Select all'}
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  </PopoverContent>
+                                </Popover>
+                              </div>
+                            )}
+                            {categories.length > 0 && (
+                              <div>
+                                <label className="text-xs text-white/60 block mb-1.5">Units</label>
+                                <Popover open={projectionScheduleUnitsMenuOpen} onOpenChange={setProjectionScheduleUnitsMenuOpen}>
+                                  <PopoverTrigger asChild>
+                                    <Button
+                                      variant="outline"
+                                      role="combobox"
+                                      aria-expanded={projectionScheduleUnitsMenuOpen}
+                                      className="w-full justify-between border-white/20 bg-neutral-800 hover:bg-neutral-700 hover:border-white/30 text-white text-sm h-9"
+                                    >
+                                      <span className="truncate">
+                                        {projectionScheduleFormUnits.length > 0
+                                          ? `${projectionScheduleFormUnits.length} unit${projectionScheduleFormUnits.length === 1 ? '' : 's'} selected`
+                                          : 'Choose units'}
+                                      </span>
+                                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                    </Button>
+                                  </PopoverTrigger>
+                                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 border-white/10 bg-neutral-900" align="start">
+                                    <Command>
+                                      <CommandInput placeholder="Search units..." className="text-white" />
+                                      <CommandList>
+                                        <CommandEmpty>No units found.</CommandEmpty>
+                                        <CommandGroup>
+                                          {categories.map((cat) => {
+                                            const checked = projectionScheduleFormUnits.includes(cat);
+                                            return (
+                                              <CommandItem
+                                                key={cat}
+                                                value={cat}
+                                                onSelect={() => toggleProjectionScheduleFormUnit(cat)}
+                                                className="cursor-pointer"
+                                              >
+                                                <Checkbox
+                                                  checked={checked}
+                                                  onCheckedChange={() => toggleProjectionScheduleFormUnit(cat)}
+                                                  className="mr-2"
+                                                />
+                                                <span className="flex-1 truncate text-white/90">{cat}</span>
+                                              </CommandItem>
+                                            );
+                                          })}
+                                        </CommandGroup>
+                                      </CommandList>
+                                    </Command>
+                                    <Separator />
+                                    <div className="flex items-center justify-between px-3 py-2">
+                                      <span className="text-xs text-white/60">
+                                        {projectionScheduleFormUnits.length} of {categories.length} selected
+                                      </span>
+                                      <div className="flex gap-2">
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => setProjectionScheduleFormUnits([])}
+                                        >
+                                          Clear
+                                        </Button>
+                                        <Button
+                                          variant="secondary"
+                                          size="sm"
+                                          onClick={() => {
+                                            setProjectionScheduleFormUnits([...categories]);
+                                            setProjectionScheduleUnitsMenuOpen(false);
+                                          }}
+                                        >
+                                          {projectionScheduleFormUnits.length === categories.length ? 'Deselect all' : 'Select all'}
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  </PopoverContent>
+                                </Popover>
+                              </div>
+                            )}
+                            <div>
+                              <label className="text-xs text-white/60 block mb-1.5">Communication</label>
+                              <div className="flex flex-wrap gap-2">
+                                <label className="flex items-center gap-2 cursor-pointer text-sm text-white/80">
+                                  <Checkbox
+                                    checked={projectionScheduleFormCommunication.email ?? false}
+                                    onCheckedChange={(c) => setProjectionScheduleFormCommunication((prev) => ({ ...prev, email: !!c }))}
+                                  />
+                                  Email
+                                </label>
+                                <label className="flex items-center gap-2 cursor-pointer text-sm text-white/80">
+                                  <Checkbox
+                                    checked={projectionScheduleFormCommunication.kb ?? false}
+                                    onCheckedChange={(c) => setProjectionScheduleFormCommunication((prev) => ({ ...prev, kb: !!c }))}
+                                  />
+                                  KB
+                                </label>
+                                <label className="flex items-center gap-2 cursor-pointer text-sm text-white/80">
+                                  <Checkbox
+                                    checked={projectionScheduleFormCommunication.slack ?? false}
+                                    onCheckedChange={(c) => setProjectionScheduleFormCommunication((prev) => ({ ...prev, slack: !!c }))}
+                                  />
+                                  Slack
+                                </label>
+                              </div>
+                            </div>
+                            <div className="flex gap-2 pt-1">
+                              <Button variant="secondary" size="sm" className="flex-1 border-white/20 bg-white/10 text-white hover:bg-white/15" onClick={saveProjectionSchedule}>
+                                Save
+                              </Button>
+                              <Button variant="ghost" size="sm" className="text-white/70 hover:text-white" onClick={closeProjectionScheduleForm}>
+                                Cancel
+                              </Button>
+                            </div>
+                          </SidebarGroupContent>
+                        </SidebarGroup>
+                      )}
+                    </>
                   )}
 
                   {knowledgeFilterTab === 'review' && (
