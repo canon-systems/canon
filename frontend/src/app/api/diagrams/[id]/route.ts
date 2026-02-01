@@ -30,7 +30,7 @@ export async function DELETE(
 		// Verify user owns the repo
 		const { data: repo, error: repoError } = await supabase
 			.from('workspace_sources')
-			.select('user_id, repo_url, external_url')
+			.select('user_id, external_url')
 			.eq('id', diagram.source_id)
 			.single();
 
@@ -40,7 +40,7 @@ export async function DELETE(
 
 		// Track deletion before removing the record
 		try {
-			await trackArchitectureDiagramDeleted(supabase, user.id, diagram.source_id, diagram.id, repo.repo_url || repo.external_url);
+			await trackArchitectureDiagramDeleted(supabase, user.id, diagram.source_id, diagram.id, repo.external_url ?? undefined);
 		} catch (logError) {
 			console.warn('Failed to track diagram deletion:', logError);
 		}

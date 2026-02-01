@@ -180,6 +180,7 @@ export async function ingestIssueSource(
       const jql = projectKey ? `project=${projectKey}` : '';
       const baseFields = [
         'summary',
+        'description',
         'status',
         'issuetype',
         'priority',
@@ -249,6 +250,9 @@ export async function ingestIssueSource(
       const labels = Array.isArray(fields.labels) ? fields.labels : [];
       const project = fields.project?.key || projectKey || null;
       const storyPoints = fields.customfield_10016 ?? null;
+      const desc = fields.description;
+      const description =
+        typeof desc === 'string' ? (desc.trim() || null) : desc && typeof desc === 'object' ? JSON.stringify(desc) : null;
 
       return {
         source_id: source.id,
@@ -256,6 +260,7 @@ export async function ingestIssueSource(
         issue_id: issue.id,
         issue_key: issue.key || issue.id,
         title: fields.summary || '(no summary)',
+        description,
         status,
         status_category: statusCategory,
         type,
@@ -264,13 +269,10 @@ export async function ingestIssueSource(
         reporter,
         labels,
         project,
-        sprint: null,
-        epic_key: null,
         story_points: typeof storyPoints === 'number' ? storyPoints : null,
         created_at: fields.created || new Date().toISOString(),
         updated_at: fields.updated || new Date().toISOString(),
         last_synced_at: new Date().toISOString(),
-        changelog: {},
         raw: issue,
       };
     });
@@ -448,7 +450,7 @@ export async function syncIssueSourceDelta(
   if (provider === 'jira' && cloudId) {
     const jql = projectKey ? `project=${projectKey}` : '';
     const baseFields = [
-      'summary', 'status', 'issuetype', 'priority', 'assignee', 'reporter',
+      'summary', 'description', 'status', 'issuetype', 'priority', 'assignee', 'reporter',
       'labels', 'created', 'updated', 'customfield_10016', 'project',
     ];
     const params = `maxResults=50&fields=${encodeURIComponent(baseFields.join(','))}&jql=${encodeURIComponent(jql)}`;
@@ -467,12 +469,16 @@ export async function syncIssueSourceDelta(
 
   const rows = issues.map((issue) => {
     const fields = issue.fields || {};
+    const desc = fields.description;
+    const description =
+      typeof desc === 'string' ? (desc.trim() || null) : desc && typeof desc === 'object' ? JSON.stringify(desc) : null;
     return {
       source_id: source.id,
       provider,
       issue_id: issue.id,
       issue_key: issue.key || issue.id,
       title: fields.summary || '(no summary)',
+      description,
       status: fields.status?.name || 'Unknown',
       status_category: fields.status?.statusCategory?.name || null,
       type: fields.issuetype?.name || null,
@@ -481,13 +487,10 @@ export async function syncIssueSourceDelta(
       reporter: fields.reporter?.displayName || null,
       labels: Array.isArray(fields.labels) ? fields.labels : [],
       project: fields.project?.key || projectKey || null,
-      sprint: null,
-      epic_key: null,
       story_points: typeof fields.customfield_10016 === 'number' ? fields.customfield_10016 : null,
       created_at: fields.created || new Date().toISOString(),
       updated_at: fields.updated || new Date().toISOString(),
       last_synced_at: new Date().toISOString(),
-      changelog: {},
       raw: issue,
     };
   });

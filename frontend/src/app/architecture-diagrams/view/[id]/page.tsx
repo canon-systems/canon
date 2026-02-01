@@ -15,7 +15,7 @@ export default async function ArchitectureDiagramViewPage({ params }: PageProps)
         .from('diagrams')
         .select(`
       *,
-      workspace_sources(name, repo_url, external_url)
+      workspace_sources(name, external_url)
     `)
         .eq('id', id)
         .single();

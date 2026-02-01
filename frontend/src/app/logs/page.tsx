@@ -15,7 +15,7 @@ export default async function LogsPage() {
   // Get all sources for enrichment
   const { data: userRepos } = await supabase
     .from('workspace_sources')
-    .select('id, repo_url, external_url, name, default_branch, settings')
+    .select('id, external_url, name, scope')
     .eq('user_id', user.id);
 
   // Get usage events as the source of truth for activity
@@ -51,7 +51,7 @@ export default async function LogsPage() {
   }> = [];
 
   // Repo map for metadata enrichment
-  const repoMap = new Map<string, { id: string; name?: string; [key: string]: unknown }>();
+  const repoMap = new Map<string, { id: string; name?: string;[key: string]: unknown }>();
   if (userRepos) {
     userRepos.forEach((r) => repoMap.set(r.id, r));
   }
@@ -61,13 +61,15 @@ export default async function LogsPage() {
     const sourceIdRaw = meta.source_id || meta.repo_id;
     const sourceId = typeof sourceIdRaw === 'string' ? sourceIdRaw : null;
     const repo = sourceId ? repoMap.get(sourceId) : null;
-    const repoName = repo?.name || (meta.repo_url ? String(meta.repo_url).split('/').pop()?.replace('.git', '') : undefined);
+    const repoUrl = meta.repo_url || repo?.external_url;
+    const scopeBranch = repo && typeof repo.scope === 'object' && repo.scope !== null && 'branch' in repo ? (repo.scope as { branch?: string }).branch : undefined;
+    const repoName = repo?.name || (repoUrl ? String(repoUrl).split('/').pop()?.replace('.git', '') : undefined);
     const base = {
       id: event.id,
       timestamp: event.created_at,
       metadata: {
-        repoUrl: meta.repo_url || repo?.repo_url || repo?.external_url || undefined,
-        branch: meta.branch || repo?.default_branch || undefined,
+        repoUrl: repoUrl ?? undefined,
+        branch: meta.branch || scopeBranch || undefined,
         provider: meta.provider,
       },
     };

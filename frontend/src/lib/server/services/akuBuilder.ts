@@ -307,7 +307,7 @@ export async function buildAkusForSources(
       source_id: i.source_id,
       kind: 'issue',
       title: i.title || i.issue_key,
-      body: i.description || '',
+      body: i.description || i.title || i.issue_key || '',
       scope_ref: i.issue_key || i.title || 'issue',
     });
   });

@@ -14,7 +14,6 @@ import {
 import { buildCanonDiff } from '@/lib/server/diff/canon';
 import { getGitHubDiffForRepo, type GitHubDiffEvent } from '@/lib/server/diff/githubDiff';
 import { getJiraDiffForProject } from '@/lib/server/diff/jiraDiff';
-import { createServiceRoleClient } from '@/lib/supabase/server';
 import { createClient } from '@/lib/supabase/server';
 
 export const dynamic = 'force-dynamic';
@@ -185,48 +184,6 @@ async function computeCanonicalDiffForOneSource(params: {
   return computeCanonicalDiff({ input, window, userId });
 }
 
-async function insertRunAndResult(opts: {
-  supabase: ReturnType<typeof createServiceRoleClient>;
-  userId: string;
-  input: RequestBody;
-  window: { start: string; end: string };
-  canonical: CanonicalDiff;
-  reportMarkdown?: string;
-}) {
-  const { supabase, userId, input, window, canonical, reportMarkdown } = opts;
-
-  const { data: runData, error: runErr } = await supabase
-    .from('diff_runs')
-    .insert({
-      start_ts: window.start,
-      end_ts: window.end,
-      sources: input.sources,
-      scope: input.scope,
-      user_id: userId,
-    })
-    .select('id')
-    .single();
-
-  if (runErr) throw runErr;
-  const diff_run_id = runData.id as string;
-
-  const { error: resErr } = await supabase
-    .from('diff_results')
-    .insert({
-      diff_run_id,
-      canonical_diff: canonical,
-      report_markdown: reportMarkdown ?? null,
-      report_cadence: 'weekly',
-      report_window_start: window.start,
-      report_window_end: window.end,
-      user_id: userId,
-    });
-
-  if (resErr) throw resErr;
-
-  return diff_run_id;
-}
-
 export async function POST(req: NextRequest) {
   const { user } = await getSession();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -351,59 +308,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to compute diff', detail: err instanceof Error ? err.message : String(err) }, { status: 500 });
   }
 
-  const supabase = createServiceRoleClient();
-  let primaryRunId: string | null = null;
-  let baselineRunId: string | null = null;
-
-  try {
-    primaryRunId = await insertRunAndResult({
-      supabase,
-      userId: user.id,
-      input,
-      window: primaryWindow,
-      canonical: primaryDiff,
-    });
-
-    baselineRunId = await insertRunAndResult({
-      supabase,
-      userId: user.id,
-      input,
-      window: baselineWindow,
-      canonical: baselineDiff,
-    });
-
-    const delta = diffDelta(primaryDiff, baselineDiff);
-
-    const { error: cmpErr, data: cmpData } = await supabase
-      .from('diff_comparisons')
-      .insert({
-        primary_run_id: primaryRunId,
-        baseline_run_id: baselineRunId,
-        delta,
-        user_id: user.id,
-      })
-      .select('id')
-      .single();
-
-    if (cmpErr) throw cmpErr;
-
-    const comparison: DiffComparison = {
-      primary: primaryDiff,
-      baseline: baselineDiff,
-      delta,
-      metadata: {
-        comparison_id: cmpData?.id,
-        primary_run_id: primaryRunId,
-        baseline_run_id: baselineRunId,
-        sources: input.sources,
-        scope: input.scope,
-        baseline_strategy: input.compare_start_timestamp ? 'manual' : 'auto_previous_window',
-      },
-    };
-
-    return NextResponse.json(comparison);
-  } catch (err) {
-    console.error('[diffs/compare] persistence error', err);
-    return NextResponse.json({ error: 'Failed to store diff', detail: err instanceof Error ? err.message : String(err) }, { status: 500 });
-  }
+  const delta = diffDelta(primaryDiff, baselineDiff);
+  const comparison: DiffComparison = {
+    primary: primaryDiff,
+    baseline: baselineDiff,
+    delta,
+    metadata: {
+      sources: input.sources,
+      scope: input.scope,
+      baseline_strategy: input.compare_start_timestamp ? 'manual' : 'auto_previous_window',
+    },
+  };
+  return NextResponse.json(comparison);
 }

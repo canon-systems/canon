@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
     const supabase = await createClient();
     const { data: connection } = await supabase
       .from('oauth_connections')
-      .select('metadata')
+      .select('id, metadata')
       .eq('user_id', user.id)
       .eq('provider', 'confluence')
       .eq('status', 'active')
@@ -59,17 +59,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (!connection) {
+      return NextResponse.json(
+        { error: 'No active Confluence connection. Connect Jira/Confluence in Settings first.' },
+        { status: 404 }
+      );
+    }
+
     const name = body.name?.trim() || `Jira: ${projectKey}`;
-    const repoUrl = siteUrl
+    const externalUrl = siteUrl
       ? `${siteUrl.replace(/\/$/, '')}/browse/${projectKey}`
       : `jira://${cloudId}/${projectKey}`;
 
-    const settings = {
-      jira_project_key: projectKey || null,
-      cloud_id: cloudId,
-      site_url: siteUrl,
-      site_name: body.siteName?.trim() || (typeof metadata.jira_site_name === 'string' ? metadata.jira_site_name : null),
-    };
+    const scope = { project: projectKey, cloudId };
 
     const { data, error } = await supabase
       .from('workspace_sources')
@@ -77,13 +79,12 @@ export async function POST(request: NextRequest) {
         user_id: user.id,
         name,
         provider: 'jira',
-        repo_url: repoUrl,
-        external_url: repoUrl,
-        default_branch: 'jira',
-        auth_type: 'oauth',
-        credentials_ref: null,
-        settings,
+        scope,
+        connection_id: connection.id,
+        external_url: externalUrl,
         source_type: 'issue',
+        status_payload: { status: 'queueing', progress_pct: 0 },
+        last_error: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })

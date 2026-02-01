@@ -85,21 +85,24 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
                     .select(`
             id,
             name,
-            repo_url,
             external_url,
-            default_branch,
+            scope,
             source_setup!inner(setup_status, branch)
           `)
                     .eq('source_setup.setup_status', 'ready');
 
                 if (error) throw error;
 
+                const branchFromScope = (scope: unknown): string | undefined =>
+                    scope && typeof scope === 'object' && 'branch' in scope
+                        ? (scope as { branch?: string }).branch
+                        : undefined;
+
                 const reposWithSetup = (repos || []).map((repo: {
                     id: string;
                     name: string;
-                    repo_url?: string;
                     external_url?: string;
-                    default_branch: string;
+                    scope?: Record<string, unknown> | null;
                     source_setup?: Array<{
                         branch?: string;
                         setup_status?: string;
@@ -108,18 +111,17 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
                         setup_status?: string;
                     };
                 }) => {
-                    // Handle source_setup as either array or single object
-                    const setup = Array.isArray(repo.source_setup) 
-                        ? repo.source_setup[0] 
+                    const setup = Array.isArray(repo.source_setup)
+                        ? repo.source_setup[0]
                         : repo.source_setup;
-                    
+                    const defaultBranch = branchFromScope(repo.scope) || setup?.branch || 'main';
                     return {
                         id: repo.id,
                         name: repo.name,
-                        repo_url: repo.external_url || repo.repo_url,
+                        repo_url: repo.external_url,
                         external_url: repo.external_url,
-                        default_branch: repo.default_branch,
-                        setup_branch: setup?.branch || repo.default_branch,
+                        default_branch: defaultBranch,
+                        setup_branch: setup?.branch || defaultBranch,
                         setup_status: setup?.setup_status || 'unknown'
                     };
                 });
@@ -178,7 +180,7 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
                         source_id,
                         content,
                         analysis_data,
-                        workspace_sources!inner(name, repo_url, external_url)
+                        workspace_sources!inner(name, external_url)
                     `)
                     .eq('diagram_type', 'architecture')
                     .order('created_at', { ascending: false })
@@ -389,7 +391,7 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
                         source_id,
                         content,
                         analysis_data,
-                        workspace_sources!inner(name, repo_url, external_url)
+                        workspace_sources!inner(name, external_url)
                     `)
                     .eq('diagram_type', 'architecture')
                     .order('created_at', { ascending: false })
@@ -588,7 +590,7 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
                                                                             </span>
                                                                         )}
                                                                     </div>
-                                                                    <div className="text-white/60 text-sm">{repo.repo_url}</div>
+                                                                    <div className="text-white/60 text-sm">{repo.repo_url || repo.external_url}</div>
                                                                     <div className="flex items-center gap-2 text-white/50 text-xs mt-1">
                                                                         <GitBranch className="w-4 h-4" />
                                                                         <span>{repo.setup_branch}</span>

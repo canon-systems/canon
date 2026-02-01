@@ -96,6 +96,11 @@ export async function POST(request: NextRequest) {
             }
         };
 
+        const branchFromScope = (scope: unknown): string | undefined =>
+            scope && typeof scope === 'object' && 'branch' in scope
+                ? (scope as { branch?: string }).branch
+                : undefined;
+
         for (const { repo, setup } of repos) {
             const repoUrl = repo.repo_url || repo.external_url;
             if (!repoUrl) {
@@ -104,7 +109,7 @@ export async function POST(request: NextRequest) {
                 }, { status: 400 });
             }
 
-            const branch = setup.branch || repo.default_branch;
+            const branch = setup.branch || repo.default_branch || branchFromScope(repo.scope) || 'main';
             if (!branch) {
                 return NextResponse.json({
                     error: `Branch not found for ${repo.name}`
