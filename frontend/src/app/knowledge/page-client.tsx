@@ -773,7 +773,7 @@ function DiffPrototypePanel() {
             {diffFilterTab === 'filters' && (
               <>
                 <SidebarGroup>
-                  <SidebarGroupLabel>Time range</SidebarGroupLabel>
+                  <SidebarGroupLabel>Time range (UTC)</SidebarGroupLabel>
                   <SidebarGroupContent>
                     <Popover open={diffCalendarOpen} onOpenChange={(open) => {
                       setDiffCalendarOpen(open);
@@ -793,7 +793,7 @@ function DiffPrototypePanel() {
                           <CalendarIcon className="mr-2 h-4 w-4" />
                           {diffInput.start_timestamp && diffInput.end_timestamp ? (
                             <>
-                              {formatDateUTC(diffInput.start_timestamp)} – {formatDateUTC(diffInput.end_timestamp)} (UTC)
+                              {formatDateUTC(diffInput.start_timestamp)} – {formatDateUTC(diffInput.end_timestamp)}
                             </>
                           ) : (
                             'Pick a date range'
