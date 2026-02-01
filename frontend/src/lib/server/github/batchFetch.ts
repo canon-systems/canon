@@ -94,7 +94,7 @@ export async function fetchFilesViaZip(
 				content,
 				size: content.length,
 			});
-		} catch (error) {
+		} catch {
 			// Skip binary files or files that can't be read as text
 			console.warn(`Skipping file ${relativePath}: could not read as text`);
 		}

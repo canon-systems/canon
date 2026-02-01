@@ -141,17 +141,23 @@ export class LLMGateway {
 				throw new Error(payload?.error?.message || payload?.message || `LLM HTTP ${response.status}`);
 			}
 
+			const usage = payload?.usage || {};
+			console.log(
+				`🤖 [LLM] model=${model} prompt_tokens=${usage.prompt_tokens ?? '?'} completion_tokens=${usage.completion_tokens ?? '?'} total=${usage.total_tokens ?? '?'}`
+			);
+
 			const content = payload?.choices?.[0]?.message?.content;
 			return typeof content === 'string' ? content.trim() : '';
-		} catch (error: any) {
+		} catch (error: unknown) {
 			// Handle specific error types
-			if (error.name === 'AbortError') {
+			if (error instanceof Error && error.name === 'AbortError') {
 				console.error(`[LLMGateway] ⏰ Request timed out after 180 seconds`);
 				throw new Error('LLM API call timed out after 180 seconds');
 			}
 
 			console.error(`[LLMGateway] 💥 Network or parsing error:`, error);
-			throw new Error(`LLM API call failed: ${error.message || 'Unknown network error'}`);
+			const errorMessage = error instanceof Error ? error.message : 'Unknown network error';
+			throw new Error(`LLM API call failed: ${errorMessage}`);
 		}
 	}
 
@@ -210,4 +216,3 @@ export class LLMGateway {
 		}
 	}
 }
-

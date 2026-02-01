@@ -70,12 +70,12 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({ success: true });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Disconnect error:', err);
     return NextResponse.json(
       {
         error: 'Failed to disconnect',
-        detail: err.message || String(err)
+        detail: err instanceof Error ? err.message : String(err)
       },
       { status: 500 }
     );

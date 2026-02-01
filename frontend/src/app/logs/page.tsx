@@ -12,10 +12,10 @@ export default async function LogsPage() {
 
   const supabase = await createClient();
 
-  // Get all repos for enrichment
+  // Get all sources for enrichment
   const { data: userRepos } = await supabase
-    .from('workspace_repos')
-    .select('id, repo_url, name, default_branch, settings')
+    .from('workspace_sources')
+    .select('id, external_url, name, scope')
     .eq('user_id', user.id);
 
   // Get usage events as the source of truth for activity
@@ -51,27 +51,30 @@ export default async function LogsPage() {
   }> = [];
 
   // Repo map for metadata enrichment
-  const repoMap = new Map<string, any>();
-  const { data: allReposData } = await supabase
-    .from('workspace_repos')
-    .select('id, repo_url, default_branch, name, created_at')
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: false });
-  
-  if (allReposData) {
-    allReposData.forEach(r => repoMap.set(r.id, r));
+  const repoMap = new Map<string, { id: string; name?: string;[key: string]: unknown }>();
+  if (userRepos) {
+    userRepos.forEach((r) => repoMap.set(r.id, r));
   }
 
+  const formatProviderName = (p: unknown): string => {
+    if (p == null || typeof p !== 'string' || !p) return '';
+    return p.charAt(0).toUpperCase() + p.slice(1).toLowerCase();
+  };
+
   const entriesFromEvents = (usageEvents || []).map(event => {
-    const meta = (event as any).metadata || {};
-    const repo = meta.repo_id ? repoMap.get(meta.repo_id) : null;
-    const repoName = repo?.name || (meta.repo_url ? String(meta.repo_url).split('/').pop()?.replace('.git', '') : undefined);
+    const meta = (event as { metadata?: Record<string, unknown> }).metadata || {};
+    const sourceIdRaw = meta.source_id || meta.repo_id;
+    const sourceId = typeof sourceIdRaw === 'string' ? sourceIdRaw : null;
+    const repo = sourceId ? repoMap.get(sourceId) : null;
+    const repoUrl = meta.repo_url || repo?.external_url;
+    const scopeBranch = repo && typeof repo.scope === 'object' && repo.scope !== null && 'branch' in repo ? (repo.scope as { branch?: string }).branch : undefined;
+    const repoName = repo?.name || (repoUrl ? String(repoUrl).split('/').pop()?.replace('.git', '') : undefined);
     const base = {
       id: event.id,
       timestamp: event.created_at,
       metadata: {
-        repoUrl: meta.repo_url || repo?.repo_url || undefined,
-        branch: meta.branch || repo?.default_branch || undefined,
+        repoUrl: repoUrl ?? undefined,
+        branch: meta.branch || scopeBranch || undefined,
         provider: meta.provider,
       },
     };
@@ -84,7 +87,7 @@ export default async function LogsPage() {
           title: meta.title || 'Document generated',
           message: repoName ? `Document generated from ${repoName}` : 'Document generated',
           status: 'completed',
-          link: meta.doc_id ? `/edit/${meta.doc_id}` : undefined,
+          link: undefined,
         };
       case 'doc_auto_published':
         return {
@@ -93,7 +96,7 @@ export default async function LogsPage() {
           title: meta.title || 'Document auto-published',
           message: meta.reason ? `Auto-published: ${meta.reason}` : 'Document auto-published',
           status: 'completed',
-          link: meta.doc_id ? `/edit/${meta.doc_id}` : undefined,
+          link: undefined,
         };
       case 'doc_deleted':
         return {
@@ -111,7 +114,7 @@ export default async function LogsPage() {
           title: repoName ? `Repository Connected: ${repoName}` : 'Repository Connected',
           message: repoName ? `Connected repository ${repoName}` : 'Repository connected',
           status: 'completed',
-          link: '/repos',
+          link: '/sources',
         };
       }
       case 'repo_disconnected': {
@@ -121,27 +124,31 @@ export default async function LogsPage() {
           title: repoName ? `Repository Disconnected: ${repoName}` : 'Repository Disconnected',
           message: repoName ? `Disconnected repository ${repoName}` : 'Repository disconnected',
           status: 'completed',
-          link: '/repos',
+          link: '/sources',
         };
       }
-      case 'integration_connected':
+      case 'integration_connected': {
+        const providerLabel = formatProviderName(meta.provider) || 'Integration';
         return {
           ...base,
           type: 'integration_connection' as const,
-          title: `Integration Connected: ${meta.provider || 'Integration'}`,
-          message: `Connected ${meta.provider || 'integration'}`,
+          title: `Integration Connected: ${providerLabel}`,
+          message: `Connected ${providerLabel.toLowerCase()}`,
           status: 'completed',
           link: '/integrations',
         };
-      case 'integration_disconnected':
+      }
+      case 'integration_disconnected': {
+        const providerLabel = formatProviderName(meta.provider) || 'Integration';
         return {
           ...base,
           type: 'integration_disconnected' as const,
-          title: `Integration Disconnected: ${meta.provider || 'Integration'}`,
-          message: `Disconnected ${meta.provider || 'integration'}`,
+          title: `Integration Disconnected: ${providerLabel}`,
+          message: `Disconnected ${providerLabel.toLowerCase()}`,
           status: 'completed',
           link: '/integrations',
         };
+      }
       case 'architecture_diagram_generated':
       case 'architecture_diagram_regenerated':
       case 'architecture_diagram_deleted':
@@ -158,15 +165,17 @@ export default async function LogsPage() {
           status: 'completed',
           link: meta.diagram_id ? `/architecture-diagrams/view/${meta.diagram_id}` : '/architecture-diagrams',
         };
-      case 'push_to_kb':
+      case 'push_to_kb': {
+        const kbLabel = formatProviderName(meta.provider) || 'KB';
         return {
           ...base,
           type: 'kb_push' as const,
-          title: `Pushed to ${meta.provider || 'KB'}`,
+          title: `Pushed to ${kbLabel}`,
           message: 'Documentation pushed to knowledge base',
           status: 'completed',
-          link: meta.doc_id ? `/edit/${meta.doc_id}` : undefined,
+          link: undefined,
         };
+      }
       case 'repo_scan_run':
         return {
           ...base,
@@ -174,7 +183,7 @@ export default async function LogsPage() {
           title: repoName ? `Repo scan: ${repoName}` : 'Repo scan',
           message: meta.repo_url ? `Scanned ${meta.repo_url}` : 'Repository scan executed',
           status: 'completed',
-          link: '/repos',
+          link: '/sources',
         };
       case 'automation_run': {
         const rawStatus = typeof meta.status === 'string' ? meta.status : null;
@@ -228,7 +237,7 @@ export default async function LogsPage() {
         ].filter(Boolean);
 
         const link =
-          meta.doc_id ? `/edit/${meta.doc_id}` : meta.diagram_id ? `/architecture-diagrams/view/${meta.diagram_id}` : '/automation';
+          meta.diagram_id ? `/architecture-diagrams/view/${meta.diagram_id}` : undefined;
 
         return {
           ...base,
@@ -238,7 +247,7 @@ export default async function LogsPage() {
           status,
           link,
           metadata: {
-            ...(base as any).metadata,
+            ...(base as { metadata?: Record<string, unknown> }).metadata,
             automationRuleId: meta.automation_rule_id || undefined,
             isAutomation: true,
           },
@@ -256,10 +265,10 @@ export default async function LogsPage() {
   logEntries.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
   // Helper function to check if error is "table not found" (migration not run yet)
-  const isTableNotFoundError = (error: any): boolean => {
+  const isTableNotFoundError = (error: unknown): boolean => {
     if (!error) return false;
-    const message = error.message || '';
-    const code = error.code || '';
+    const message = (error instanceof Error ? error.message : (typeof error === 'object' && error !== null && 'message' in error && typeof error.message === 'string' ? error.message : '')) || '';
+    const code = (typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : '') || '';
     return (
       message.includes("Could not find the table") ||
       message.includes("relation") && message.includes("does not exist") ||
@@ -283,9 +292,7 @@ export default async function LogsPage() {
 
   return (
     <LogsPageClient
-      user={user}
       logs={logs}
-      repos={userRepos || []}
     />
   );
 }

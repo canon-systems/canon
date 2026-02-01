@@ -19,7 +19,7 @@ export async function DELETE(
 		// Fetch diagram to verify ownership and capture metadata
 		const { data: diagram, error: diagramError } = await supabase
 			.from('diagrams')
-			.select('id, repo_id')
+			.select('id, source_id')
 			.eq('id', id)
 			.single();
 
@@ -29,9 +29,9 @@ export async function DELETE(
 
 		// Verify user owns the repo
 		const { data: repo, error: repoError } = await supabase
-			.from('workspace_repos')
-			.select('user_id, repo_url')
-			.eq('id', diagram.repo_id)
+			.from('workspace_sources')
+			.select('user_id, external_url')
+			.eq('id', diagram.source_id)
 			.single();
 
 		if (repoError || !repo || repo.user_id !== user.id) {
@@ -40,7 +40,7 @@ export async function DELETE(
 
 		// Track deletion before removing the record
 		try {
-			await trackArchitectureDiagramDeleted(supabase, user.id, diagram.repo_id, diagram.id, repo.repo_url);
+			await trackArchitectureDiagramDeleted(supabase, user.id, diagram.source_id, diagram.id, repo.external_url ?? undefined);
 		} catch (logError) {
 			console.warn('Failed to track diagram deletion:', logError);
 		}
@@ -55,10 +55,10 @@ export async function DELETE(
 		}
 
 		return NextResponse.json({ success: true });
-	} catch (err: any) {
+	} catch (err: unknown) {
 		console.error('Delete diagram error:', err);
 		return NextResponse.json(
-			{ error: 'Failed to delete diagram', detail: err.message || String(err) },
+			{ error: 'Failed to delete diagram', detail: err instanceof Error ? err.message : String(err) },
 			{ status: 500 }
 		);
 	}

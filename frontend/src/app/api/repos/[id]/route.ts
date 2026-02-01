@@ -4,7 +4,7 @@ import { getSession } from '@/lib/auth';
 import { trackRepoDisconnected } from '@/lib/server/services/usageTracking';
 
 /**
- * GET: Get a single repository configuration
+ * GET: Get a single source configuration
  */
 export async function GET(
   request: NextRequest,
@@ -20,23 +20,23 @@ export async function GET(
     const { id } = await params;
 
     const { data, error } = await supabase
-      .from('workspace_repos')
+      .from('workspace_sources')
       .select('*')
       .eq('id', id)
       .eq('user_id', user.id)
       .single();
 
     if (error || !data) {
-      return NextResponse.json({ error: 'Repository not found' }, { status: 404 });
+      return NextResponse.json({ error: 'Source not found' }, { status: 404 });
     }
 
     return NextResponse.json(data, { status: 200 });
-  } catch (err: any) {
-    console.error('Get repo error:', err);
+  } catch (err: unknown) {
+    console.error('Get source error:', err);
     return NextResponse.json(
       {
-        error: 'Failed to get repository',
-        detail: err.message || String(err),
+        error: 'Failed to get source',
+        detail: err instanceof Error ? err.message : String(err),
       },
       { status: 500 }
     );
@@ -44,7 +44,7 @@ export async function GET(
 }
 
 /**
- * PATCH: Update a repository configuration
+ * PATCH: Update a source configuration
  */
 export async function PATCH(
   request: NextRequest,
@@ -60,9 +60,9 @@ export async function PATCH(
     const { id } = await params;
     const updates = await request.json();
 
-    // Only allow updating certain fields
-    const allowedFields = ['default_branch'];
-    const filteredUpdates: any = {};
+    // Allow updating minimal fields for now
+    const allowedFields = ['name', 'scope', 'status_payload', 'last_error'];
+    const filteredUpdates: Record<string, unknown> = {};
 
     for (const field of allowedFields) {
       if (updates[field] !== undefined) {
@@ -75,7 +75,7 @@ export async function PATCH(
     }
 
     const { data, error } = await supabase
-      .from('workspace_repos')
+      .from('workspace_sources')
       .update(filteredUpdates)
       .eq('id', id)
       .eq('user_id', user.id)
@@ -87,16 +87,16 @@ export async function PATCH(
     }
 
     if (!data) {
-      return NextResponse.json({ error: 'Repository not found' }, { status: 404 });
+      return NextResponse.json({ error: 'Source not found' }, { status: 404 });
     }
 
     return NextResponse.json(data, { status: 200 });
-  } catch (err: any) {
-    console.error('Update repo error:', err);
+  } catch (err: unknown) {
+    console.error('Update source error:', err);
     return NextResponse.json(
       {
-        error: 'Failed to update repository',
-        detail: err.message || String(err),
+        error: 'Failed to update source',
+        detail: err instanceof Error ? err.message : String(err),
       },
       { status: 500 }
     );
@@ -104,7 +104,7 @@ export async function PATCH(
 }
 
 /**
- * DELETE: Delete a repository configuration
+ * DELETE: Delete a source configuration
  */
 export async function DELETE(
   request: NextRequest,
@@ -119,19 +119,19 @@ export async function DELETE(
     const supabase = await createClient();
     const { id } = await params;
 
-    const { data: repo, error: repoError } = await supabase
-      .from('workspace_repos')
+    const { data: source, error: repoError } = await supabase
+      .from('workspace_sources')
       .select('*')
       .eq('id', id)
       .eq('user_id', user.id)
       .single();
 
-    if (repoError || !repo) {
-      return NextResponse.json({ error: 'Repository not found' }, { status: 404 });
+    if (repoError || !source) {
+      return NextResponse.json({ error: 'Source not found' }, { status: 404 });
     }
 
     const { error } = await supabase
-      .from('workspace_repos')
+      .from('workspace_sources')
       .delete()
       .eq('id', id)
       .eq('user_id', user.id);
@@ -145,21 +145,21 @@ export async function DELETE(
         supabase,
         user.id,
         id,
-        repo.repo_url,
-        repo.default_branch,
-        repo.provider
+        source.external_url,
+        null,
+        source.provider
       );
     } catch (logError) {
       console.warn('Failed to track repo disconnect:', logError);
     }
 
     return NextResponse.json({ success: true }, { status: 200 });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Delete repo error:', err);
     return NextResponse.json(
       {
         error: 'Failed to delete repository',
-        detail: err.message || String(err),
+        detail: err instanceof Error ? err.message : String(err),
       },
       { status: 500 }
     );

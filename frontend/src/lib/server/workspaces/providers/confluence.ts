@@ -4,7 +4,7 @@
 
 import type { WorkspaceProvider, WorkspaceInfo, WorkspaceContent } from '../base';
 import { marked } from 'marked';
-import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
+import { getProviderAccessToken, withConfluenceAccessToken } from '@/lib/server/oauth/tokenStore';
 
 const CONFLUENCE_API_BASE = 'https://api.atlassian.com/ex/confluence';
 
@@ -30,6 +30,7 @@ function convertHtmlToConfluenceStorage(html: string): string {
 export class ConfluenceProvider implements WorkspaceProvider {
 	name = 'confluence';
 
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
 	async pullContent(_workspaceInfo: WorkspaceInfo, _connectionId: string): Promise<WorkspaceContent | null> {
 		// TODO: Implement Confluence pull
 		// For now, return null - Confluence pull can be added later
@@ -70,7 +71,51 @@ export class ConfluenceProvider implements WorkspaceProvider {
 					return null;
 				}
 
-				const createPayload: Record<string, any> = {
+				// If a page with this title already exists in this space (and under this parent), update it instead of creating
+				let existingPageId = await findPageByTitle(
+					connectionId,
+					cloudInfo.cloudId,
+					spaceId,
+					content.title || 'Documentation',
+					parentId ?? undefined
+				);
+				// Fallback: parent may have changed (e.g. system page recreated at space root); find by title anywhere in space and update
+				if (!existingPageId && parentId != null) {
+					existingPageId = await findPageByTitle(
+						connectionId,
+						cloudInfo.cloudId,
+						spaceId,
+						content.title || 'Documentation',
+						undefined
+					);
+					if (existingPageId) {
+						console.log(`[Confluence] Found existing page by title (different parent), updating: "${content.title || 'Documentation'}" (id=${existingPageId})`);
+					}
+				}
+				if (existingPageId) {
+					const existingWorkspaceInfo: WorkspaceInfo = {
+						provider: 'confluence',
+						resourceId: `${cloudInfo.cloudId}:${existingPageId}`,
+						metadata: { ...workspaceInfo.metadata, spaceId, spaceKey, parentId },
+					};
+					const updated = await this.updateContent(existingWorkspaceInfo, content, connectionId);
+					if (updated) {
+						console.log(`[Confluence] Updated existing page by title: "${content.title || 'Documentation'}" (id=${existingPageId})`);
+						return {
+							provider: 'confluence',
+							resourceId: `${cloudInfo.cloudId}:${existingPageId}`,
+							metadata: {
+								cloudId: cloudInfo.cloudId,
+								siteUrl: cloudInfo.siteUrl,
+								spaceId,
+								spaceKey,
+								parentId,
+							},
+						};
+					}
+				}
+
+				const createPayload: Record<string, unknown> = {
 					spaceId,
 					status: 'current',
 					title: content.title || 'Documentation',
@@ -84,14 +129,15 @@ export class ConfluenceProvider implements WorkspaceProvider {
 					createPayload.parentId = parentId;
 				}
 
-				const createResponse = await fetch(
-					`${CONFLUENCE_API_BASE}/${cloudInfo.cloudId}/wiki/api/v2/pages`,
-					{
-						method: 'POST',
-						headers: confluenceHeaders(accessToken),
-						body: JSON.stringify(createPayload),
-					}
-				);
+				const createResponse = await withConfluenceAccessToken({
+					connectionId,
+					run: async (token) =>
+						fetch(`${CONFLUENCE_API_BASE}/${cloudInfo.cloudId}/wiki/api/v2/pages`, {
+							method: 'POST',
+							headers: confluenceHeaders(token),
+							body: JSON.stringify(createPayload),
+						}),
+				});
 
 				if (!createResponse.ok) {
 					const errorText = await createResponse.text().catch(() => '');
@@ -129,7 +175,7 @@ export class ConfluenceProvider implements WorkspaceProvider {
 			}
 
 			const updated = await updateConfluencePage(
-				accessToken,
+				connectionId,
 				cloudInfo.cloudId,
 				pageId,
 				content.title,
@@ -177,7 +223,7 @@ export class ConfluenceProvider implements WorkspaceProvider {
 			const html = content.html || (content.markdown ? await marked.parse(content.markdown) : '');
 			const storageValue = convertHtmlToConfluenceStorage(html);
 			const updated = await updateConfluencePage(
-				accessToken,
+				connectionId,
 				cloudInfo.cloudId,
 				resourceId,
 				content.title,
@@ -186,6 +232,25 @@ export class ConfluenceProvider implements WorkspaceProvider {
 			return Boolean(updated);
 		} catch (error) {
 			console.error('Confluence update error:', error);
+			return false;
+		}
+	}
+
+	async resourceExists(workspaceInfo: WorkspaceInfo, connectionId: string): Promise<boolean> {
+		try {
+			const { cloudId, resourceId } = parseConfluenceResourceId(workspaceInfo.resourceId);
+			if (!cloudId || !resourceId) return false;
+
+			const response = await withConfluenceAccessToken({
+				connectionId,
+				run: async (token) =>
+					fetch(`${CONFLUENCE_API_BASE}/${cloudId}/wiki/api/v2/pages/${resourceId}`, {
+						headers: confluenceHeaders(token),
+					}),
+			});
+
+			return response.ok;
+		} catch {
 			return false;
 		}
 	}
@@ -206,6 +271,74 @@ function parseConfluenceResourceId(resourceId?: string | null): { cloudId?: stri
 		return { cloudId: parts[0], resourceId: parts.slice(1).join(':') };
 	}
 	return { cloudId: null, resourceId };
+}
+
+function matchPageByTitleAndParent(
+	results: { id?: string; title?: string; parentId?: string | null }[],
+	title: string,
+	parentId?: string
+): string | null {
+	const wantTitle = title.trim().toLowerCase();
+	let firstMatch: string | null = null;
+	for (const page of results) {
+		if (!page?.id) continue;
+		const pageTitle = (page.title != null ? String(page.title).trim() : '').toLowerCase();
+		if (pageTitle !== wantTitle) continue;
+		const pageParentId = page.parentId != null ? String(page.parentId) : undefined;
+		if (parentId === undefined) {
+			if (pageParentId === undefined || pageParentId === '') return String(page.id);
+			if (firstMatch === null) firstMatch = String(page.id);
+		} else if (pageParentId === parentId) {
+			return String(page.id);
+		}
+	}
+	return firstMatch;
+}
+
+/**
+ * Find a page in a space by title (and optionally under a given parent). Returns the page id if found.
+ * Tries GET /spaces/{id}/pages then GET /pages?title=...&space-id=... so we always find existing pages and can update instead of create.
+ */
+async function findPageByTitle(
+	connectionId: string,
+	cloudId: string,
+	spaceId: string,
+	title: string,
+	parentId?: string
+): Promise<string | null> {
+	// 1) GET /spaces/{id}/pages?title=... (spaces endpoint may filter by title)
+	let url = new URL(`${CONFLUENCE_API_BASE}/${cloudId}/wiki/api/v2/spaces/${spaceId}/pages`);
+	url.searchParams.set('title', title);
+	url.searchParams.set('limit', '50');
+
+	let response = await withConfluenceAccessToken({
+		connectionId,
+		run: async (token) => fetch(url.toString(), { headers: confluenceHeaders(token) }),
+	});
+
+	if (response.ok) {
+		const payload = await response.json().catch(() => null);
+		const results = Array.isArray(payload?.results) ? payload.results : [];
+		const match = matchPageByTitleAndParent(results, title, parentId);
+		if (match) return match;
+	}
+
+	// 2) Fallback: GET /pages?title=...&space-id=... (global pages endpoint)
+	url = new URL(`${CONFLUENCE_API_BASE}/${cloudId}/wiki/api/v2/pages`);
+	url.searchParams.set('title', title);
+	url.searchParams.set('space-id', spaceId);
+	url.searchParams.set('limit', '50');
+
+	response = await withConfluenceAccessToken({
+		connectionId,
+		run: async (token) => fetch(url.toString(), { headers: confluenceHeaders(token) }),
+	});
+
+	if (!response.ok) return null;
+
+	const payload = await response.json().catch(() => null);
+	const results = Array.isArray(payload?.results) ? payload.results : [];
+	return matchPageByTitleAndParent(results, title, parentId);
 }
 
 async function resolveCloudInfo(accessToken: string, preferredCloudId?: string | null): Promise<{ cloudId: string; siteUrl?: string | null } | null> {
@@ -236,18 +369,19 @@ async function resolveCloudInfo(accessToken: string, preferredCloudId?: string |
 }
 
 async function updateConfluencePage(
-	accessToken: string,
+	connectionId: string,
 	cloudId: string,
 	pageId: string,
 	title: string | undefined,
 	storageValue: string
 ): Promise<{ id: string; url?: string | null } | null> {
-	const pageResponse = await fetch(
-		`${CONFLUENCE_API_BASE}/${cloudId}/wiki/api/v2/pages/${pageId}`,
-		{
-			headers: confluenceHeaders(accessToken),
-		}
-	);
+	const pageResponse = await withConfluenceAccessToken({
+		connectionId,
+		run: async (token) =>
+			fetch(`${CONFLUENCE_API_BASE}/${cloudId}/wiki/api/v2/pages/${pageId}`, {
+				headers: confluenceHeaders(token),
+			}),
+	});
 
 	if (!pageResponse.ok) {
 		const errorText = await pageResponse.text().catch(() => '');
@@ -262,25 +396,26 @@ async function updateConfluencePage(
 		return null;
 	}
 
-	const updateResponse = await fetch(
-		`${CONFLUENCE_API_BASE}/${cloudId}/wiki/api/v2/pages/${pageId}`,
-		{
-			method: 'PUT',
-			headers: confluenceHeaders(accessToken),
-			body: JSON.stringify({
-				id: pageId,
-				status: 'current',
-				title: title || page.title || 'Documentation',
-				version: {
-					number: currentVersion + 1,
-				},
-				body: {
-					representation: 'storage',
-					value: storageValue,
-				},
+	const updateResponse = await withConfluenceAccessToken({
+		connectionId,
+		run: async (token) =>
+			fetch(`${CONFLUENCE_API_BASE}/${cloudId}/wiki/api/v2/pages/${pageId}`, {
+				method: 'PUT',
+				headers: confluenceHeaders(token),
+				body: JSON.stringify({
+					id: pageId,
+					status: 'current',
+					title: title || page.title || 'Documentation',
+					version: {
+						number: currentVersion + 1,
+					},
+					body: {
+						representation: 'storage',
+						value: storageValue,
+					},
+				}),
 			}),
-		}
-	);
+	});
 
 	if (!updateResponse.ok) {
 		const errorText = await updateResponse.text().catch(() => '');
@@ -295,9 +430,9 @@ async function updateConfluencePage(
 	};
 }
 
-function buildConfluencePageUrl(payload: any, siteUrl?: string | null): string | null {
-	const links = payload?._links || payload?.links || {};
-	const base = links?.base || siteUrl || null;
+function buildConfluencePageUrl(payload: Record<string, unknown>, siteUrl?: string | null): string | null {
+	const links = (payload?._links || payload?.links || {}) as Record<string, unknown>;
+	const base = (typeof links?.base === 'string' ? links.base : null) || siteUrl || null;
 	const webui = links?.webui || null;
 	if (base && webui) {
 		return `${base}${webui}`;

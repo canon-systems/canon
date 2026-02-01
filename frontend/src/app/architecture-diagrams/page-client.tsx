@@ -18,11 +18,13 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
+import { getIntegrationsCached } from '@/lib/client/integrationsCache';
 
 interface RepoWithSetup {
     id: string;
     name: string;
-    repo_url: string;
+    repo_url?: string;
+    external_url?: string;
     default_branch: string;
     setup_branch: string;
     setup_status: string;
@@ -32,12 +34,12 @@ interface ArchitectureDiagram {
     id: string;
     title: string;
     created_at: string;
-    repo_id: string;
-    repo_name: string;
-    repo_url: string;
+    source_id: string;
+    source_name: string;
+    source_url: string;
     content: string;
     analysis_data: {
-        [key: string]: any;
+        [key: string]: unknown;
     };
 }
 
@@ -79,26 +81,50 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
             setLoadingRepos(true);
             try {
                 const { data: repos, error } = await supabase
-                    .from('workspace_repos')
+                    .from('workspace_sources')
                     .select(`
             id,
             name,
-            repo_url,
-            default_branch,
-            repository_setup!inner(setup_status, branch)
+            external_url,
+            scope,
+            source_setup!inner(setup_status, branch)
           `)
-                    .eq('repository_setup.setup_status', 'ready');
+                    .eq('source_setup.setup_status', 'ready');
 
                 if (error) throw error;
 
-                const reposWithSetup = (repos || []).map((repo: any) => ({
-                    id: repo.id,
-                    name: repo.name,
-                    repo_url: repo.repo_url,
-                    default_branch: repo.default_branch,
-                    setup_branch: repo.repository_setup?.branch || repo.default_branch,
-                    setup_status: repo.repository_setup?.setup_status || 'unknown'
-                }));
+                const branchFromScope = (scope: unknown): string | undefined =>
+                    scope && typeof scope === 'object' && 'branch' in scope
+                        ? (scope as { branch?: string }).branch
+                        : undefined;
+
+                const reposWithSetup = (repos || []).map((repo: {
+                    id: string;
+                    name: string;
+                    external_url?: string;
+                    scope?: Record<string, unknown> | null;
+                    source_setup?: Array<{
+                        branch?: string;
+                        setup_status?: string;
+                    }> | {
+                        branch?: string;
+                        setup_status?: string;
+                    };
+                }) => {
+                    const setup = Array.isArray(repo.source_setup)
+                        ? repo.source_setup[0]
+                        : repo.source_setup;
+                    const defaultBranch = branchFromScope(repo.scope) || setup?.branch || 'main';
+                    return {
+                        id: repo.id,
+                        name: repo.name,
+                        repo_url: repo.external_url,
+                        external_url: repo.external_url,
+                        default_branch: defaultBranch,
+                        setup_branch: setup?.branch || defaultBranch,
+                        setup_status: setup?.setup_status || 'unknown'
+                    };
+                });
 
                 setAvailableRepos(reposWithSetup);
             } catch (err) {
@@ -126,14 +152,11 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
         async function checkGitHubConnection() {
             setCheckingGitHub(true);
             try {
-                const response = await fetch('/api/integrations/list');
-                if (response.ok) {
-                    const data = await response.json();
-                    setHasGitHubConnection((data.connections || []).some(
-                        (c: { provider: string; status: string }) =>
-                            c.provider === 'github' && c.status === 'active'
-                    ));
-                }
+                const data = await getIntegrationsCached();
+                setHasGitHubConnection((data.connections || []).some(
+                    (c) =>
+                        c.provider === 'github' && c.status === 'active'
+                ));
             } catch (err) {
                 console.error('Failed to check GitHub connection:', err);
             } finally {
@@ -154,10 +177,10 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
                         id,
                         title,
                         created_at,
-                        repo_id,
+                        source_id,
                         content,
                         analysis_data,
-                        workspace_repos!inner(name, repo_url)
+                        workspace_sources!inner(name, external_url)
                     `)
                     .eq('diagram_type', 'architecture')
                     .order('created_at', { ascending: false })
@@ -165,16 +188,39 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
 
                 if (error) throw error;
 
-                const diagramsWithRepoInfo = (data || []).map((diagram: any) => ({
-                    id: diagram.id,
-                    title: diagram.title,
-                    created_at: diagram.created_at,
-                    repo_id: diagram.repo_id,
-                    repo_name: diagram.workspace_repos?.name || 'Unknown Repository',
-                    repo_url: diagram.workspace_repos?.repo_url || '',
-                    content: diagram.content,
-                    analysis_data: diagram.analysis_data
-                }));
+                const diagramsWithRepoInfo = (data || []).map((diagram: {
+                    id: string;
+                    title: string;
+                    created_at: string;
+                    source_id: string;
+                    content: string;
+                    analysis_data?: Record<string, unknown>;
+                    workspace_sources?: {
+                        name?: string;
+                        external_url?: string;
+                        repo_url?: string;
+                    } | Array<{
+                        name?: string;
+                        external_url?: string;
+                        repo_url?: string;
+                    }>;
+                }): ArchitectureDiagram => {
+                    // Handle workspace_sources as either array or single object
+                    const workspaceSource = Array.isArray(diagram.workspace_sources)
+                        ? diagram.workspace_sources[0]
+                        : diagram.workspace_sources;
+                    
+                    return {
+                        id: diagram.id,
+                        title: diagram.title,
+                        created_at: diagram.created_at,
+                        source_id: diagram.source_id,
+                        source_name: workspaceSource?.name || 'Unknown Source',
+                        source_url: workspaceSource?.external_url || workspaceSource?.repo_url || '',
+                        content: diagram.content,
+                        analysis_data: diagram.analysis_data || {}
+                    };
+                });
 
                 setDiagrams(diagramsWithRepoInfo);
             } catch (err) {
@@ -201,7 +247,7 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
                 const { data, error } = await supabase
                     .from('diagrams')
                     .select('id, title, created_at')
-                    .eq('repo_id', primaryRepoId)
+                    .eq('source_id', primaryRepoId)
                     .eq('diagram_type', 'architecture')
                     .single();
 
@@ -271,7 +317,7 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
             setDiagrams(diagrams.filter(d => d.id !== diagramId));
             setShowDeleteModal(false);
             setDiagramToDelete(null);
-        } catch (err: any) {
+        } catch (err: unknown) {
             console.error('Failed to delete diagram:', err);
             setErrorMsg('Failed to delete diagram');
         } finally {
@@ -342,26 +388,49 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
                         id,
                         title,
                         created_at,
-                        repo_id,
+                        source_id,
                         content,
                         analysis_data,
-                        workspace_repos!inner(name, repo_url)
+                        workspace_sources!inner(name, external_url)
                     `)
                     .eq('diagram_type', 'architecture')
                     .order('created_at', { ascending: false })
                     .limit(10);
 
                 if (!error && updatedDiagrams) {
-                    const diagramsWithRepoInfo = updatedDiagrams.map((diagram: any) => ({
-                        id: diagram.id,
-                        title: diagram.title,
-                        created_at: diagram.created_at,
-                        repo_id: diagram.repo_id,
-                        repo_name: diagram.workspace_repos?.name || 'Unknown Repository',
-                        repo_url: diagram.workspace_repos?.repo_url || '',
-                        content: diagram.content,
-                        analysis_data: diagram.analysis_data
-                    }));
+                    const diagramsWithRepoInfo = updatedDiagrams.map((diagram: {
+                        id: string;
+                        title: string;
+                        created_at: string;
+                        source_id: string;
+                        content: string;
+                        analysis_data: { [key: string]: unknown };
+                        workspace_sources?: {
+                            name?: string;
+                            external_url?: string;
+                            repo_url?: string;
+                        } | Array<{
+                            name?: string;
+                            external_url?: string;
+                            repo_url?: string;
+                        }>;
+                    }) => {
+                        // Handle workspace_sources as either array or single object
+                        const workspaceSource = Array.isArray(diagram.workspace_sources)
+                            ? diagram.workspace_sources[0]
+                            : diagram.workspace_sources;
+                        
+                        return {
+                            id: diagram.id,
+                            title: diagram.title,
+                            created_at: diagram.created_at,
+                            source_id: diagram.source_id,
+                            source_name: workspaceSource?.name || 'Unknown Source',
+                            source_url: workspaceSource?.external_url || workspaceSource?.repo_url || '',
+                            content: diagram.content,
+                            analysis_data: diagram.analysis_data || {}
+                        };
+                    });
                     setDiagrams(diagramsWithRepoInfo);
                 }
             }
@@ -371,8 +440,8 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
                 router.push(`/architecture-diagrams/view/${data.diagramId}`);
             }, 2000);
 
-        } catch (error: any) {
-            setErrorMsg(error.message || 'Failed to generate architecture diagram');
+        } catch (error: unknown) {
+            setErrorMsg(error instanceof Error ? error.message : 'Failed to generate architecture diagram');
         } finally {
             setGenerating(false);
         }
@@ -384,7 +453,7 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
         router.push(`/architecture-diagrams?tab=${tabId}`, { scroll: false });
     }
 
-    const tabs: Array<{ id: TabId; name: string; icon: any }> = [
+    const tabs: Array<{ id: TabId; name: string; icon: React.ComponentType<{ className?: string }> }> = [
         { id: 'view', name: 'View', icon: Eye },
         { id: 'generate', name: 'Generate', icon: Layers3 }
     ];
@@ -467,7 +536,7 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
                                                     Set up repositories to generate architecture diagrams. Repositories must complete the full setup process.
                                                 </p>
                                                 <Button asChild>
-                                                    <Link href="/repos">
+                                                    <Link href="/sources">
                                                         <Github className="w-4 h-4" />
                                                         Manage Repositories
                                                     </Link>
@@ -521,7 +590,7 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
                                                                             </span>
                                                                         )}
                                                                     </div>
-                                                                    <div className="text-white/60 text-sm">{repo.repo_url}</div>
+                                                                    <div className="text-white/60 text-sm">{repo.repo_url || repo.external_url}</div>
                                                                     <div className="flex items-center gap-2 text-white/50 text-xs mt-1">
                                                                         <GitBranch className="w-4 h-4" />
                                                                         <span>{repo.setup_branch}</span>
@@ -691,7 +760,7 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
                                                             <div className="flex items-center gap-4 text-sm text-white/60 mb-3">
                                                                 <div className="flex items-center gap-1">
                                                                     <Github className="w-4 h-4" />
-                                                                    <span>{diagram.repo_name}</span>
+                                                                    <span>{diagram.source_name}</span>
                                                                 </div>
                                                                 <div className="flex items-center gap-1">
                                                                     <Calendar className="w-4 h-4" />
@@ -699,9 +768,9 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
                                                                 </div>
                                                             </div>
 
-                                                            {diagram.repo_url && (
+                                                            {diagram.source_url && (
                                                                 <p className="text-white/50 text-sm">
-                                                                    {diagram.repo_url}
+                                                                    {diagram.source_url}
                                                                 </p>
                                                             )}
                                                         </div>
@@ -748,7 +817,7 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
                         <DialogHeader>
                             <DialogTitle>Confirm Delete</DialogTitle>
                             <DialogDescription>
-                                Are you sure you want to delete <span className="font-semibold">"{diagramToDelete?.title}"</span>?
+                                Are you sure you want to delete <span className="font-semibold">&quot;{diagramToDelete?.title}&quot;</span>?
                                 This action cannot be undone.
                             </DialogDescription>
                         </DialogHeader>

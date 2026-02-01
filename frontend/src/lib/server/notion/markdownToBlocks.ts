@@ -7,7 +7,7 @@
 export interface NotionBlock {
 	object: 'block';
 	type: string;
-	[key: string]: any;
+	[key: string]: unknown;
 }
 
 /**

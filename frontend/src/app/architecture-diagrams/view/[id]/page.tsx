@@ -15,7 +15,7 @@ export default async function ArchitectureDiagramViewPage({ params }: PageProps)
         .from('diagrams')
         .select(`
       *,
-      workspace_repos(name, repo_url)
+      workspace_sources(name, external_url)
     `)
         .eq('id', id)
         .single();
@@ -27,7 +27,7 @@ export default async function ArchitectureDiagramViewPage({ params }: PageProps)
     return (
         <ArchitectureDiagramViewer
             diagram={diagram}
-            repo={diagram.workspace_repos}
+            repo={diagram.workspace_sources}
         />
     );
 }

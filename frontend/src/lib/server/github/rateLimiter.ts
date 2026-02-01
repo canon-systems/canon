@@ -136,7 +136,7 @@ export async function waitIfRateLimited(): Promise<void> {
 /**
  * Decorator/wrapper for Octokit methods that automatically updates rate limit state
  */
-export function withRateLimitTracking<T extends (...args: any[]) => Promise<any>>(
+export function withRateLimitTracking<T extends (...args: unknown[]) => Promise<unknown>>(
 	fn: T
 ): T {
 	return (async (...args: Parameters<T>) => {
@@ -146,7 +146,7 @@ export function withRateLimitTracking<T extends (...args: any[]) => Promise<any>
 		const result = await fn(...args);
 
 		// Update rate limit state from response headers
-		if (result && result.headers) {
+		if (result && typeof result === 'object' && 'headers' in result && result.headers && typeof result.headers === 'object') {
 			updateRateLimitFromHeaders(result.headers as Record<string, string>);
 		}
 

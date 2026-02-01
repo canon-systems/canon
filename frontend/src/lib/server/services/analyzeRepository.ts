@@ -1,9 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { getCachedBranch, getCachedTree } from '../github/cachedOctokit';
 import { getUserOctokit } from '../github/getUserOctokit';
 import { parseRepoUrl } from '../github/github';
-import { getCachedBranch, getCachedTree, getCachedFileShas } from '../github/cachedOctokit';
 import { fetchFilesViaZip, fetchFilesSmart } from '../github/batchFetch';
-import { getRateLimitStatus, hasQuotaFor } from '../github/rateLimiter';
+import { hasQuotaFor } from '../github/rateLimiter';
 
 const RELEVANT_EXTENSIONS = new Set([
 	'.py',
@@ -237,7 +237,7 @@ export async function analyzeRepository({
 	}
 
 	// Check rate limit status (but don't log for reduced noise)
-	const rateLimitStatus = getRateLimitStatus();
+	// Removed unused variable: rateLimitStatus
 
 	if (files.length === 0) {
 		throw new Error('No files found in repository for analysis');

@@ -1,0 +1,25 @@
+import { redirect } from 'next/navigation';
+import { getSession } from '@/lib/auth';
+import { createClient } from '@/lib/supabase/server';
+import KnowledgeClient from './page-client';
+
+export default async function KnowledgePage() {
+  const { session, user } = await getSession();
+
+  if (!session) {
+    redirect('/login');
+  }
+
+  const supabase = await createClient();
+  const { data: sources, error } = await supabase
+    .from('workspace_sources')
+    .select('id, name, provider')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('Failed to load sources:', error);
+  }
+
+  return <KnowledgeClient sources={sources || []} />;
+}

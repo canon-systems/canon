@@ -14,18 +14,39 @@ export async function POST(request: NextRequest) {
 
         const supabase = await createClient();
         const body = await request.json().catch(() => ({}));
-        const { repoIds, forceCreate } = body;
+        const { repoIds, sourceIds, forceCreate } = body;
 
-        const repoIdArray: string[] = Array.isArray(repoIds) ? repoIds.filter(Boolean) : [];
-        if (!repoIdArray.length) {
-            return NextResponse.json({ error: 'repoIds is required' }, { status: 400 });
+        const sourceIdArray: string[] = Array.isArray(sourceIds)
+            ? sourceIds.filter(Boolean)
+            : Array.isArray(repoIds)
+                ? repoIds.filter(Boolean)
+                : [];
+
+        if (!sourceIdArray.length) {
+            return NextResponse.json({ error: 'sourceIds is required' }, { status: 400 });
         }
 
         // Load all repos and verify ownership/setup
-        const repos: any[] = [];
-        for (const rid of repoIdArray) {
+        const repos: Array<{
+            repo: {
+                id: string;
+                name: string;
+                repo_url?: string;
+                external_url?: string;
+                default_branch: string;
+                user_id: string;
+                [key: string]: unknown;
+            };
+            setup: {
+                source_id: string;
+                setup_status: string;
+                branch?: string;
+                [key: string]: unknown;
+            };
+        }> = [];
+        for (const rid of sourceIdArray) {
             const { data: repo, error: repoError } = await supabase
-                .from('workspace_repos')
+                .from('workspace_sources')
                 .select('*')
                 .eq('id', rid)
                 .eq('user_id', user.id)
@@ -36,9 +57,9 @@ export async function POST(request: NextRequest) {
             }
 
             const { data: repoSetup, error: setupError } = await supabase
-                .from('repository_setup')
+                .from('source_setup')
                 .select('*')
-                .eq('repo_id', rid)
+                .eq('source_id', rid)
                 .single();
 
             if (setupError || !repoSetup || repoSetup.setup_status !== 'ready') {
@@ -75,12 +96,31 @@ export async function POST(request: NextRequest) {
             }
         };
 
+        const branchFromScope = (scope: unknown): string | undefined =>
+            scope && typeof scope === 'object' && 'branch' in scope
+                ? (scope as { branch?: string }).branch
+                : undefined;
+
         for (const { repo, setup } of repos) {
+            const repoUrl = repo.repo_url || repo.external_url;
+            if (!repoUrl) {
+                return NextResponse.json({
+                    error: `Repository URL not found for ${repo.name}`
+                }, { status: 400 });
+            }
+
+            const branch = setup.branch || repo.default_branch || branchFromScope(repo.scope) || 'main';
+            if (!branch) {
+                return NextResponse.json({
+                    error: `Branch not found for ${repo.name}`
+                }, { status: 400 });
+            }
+
             const analysis = await analyzeRepository({
                 supabase,
                 userId: user.id,
-                repoUrl: repo.repo_url,
-                branch: setup.branch,
+                repoUrl,
+                branch,
             });
 
             if (!analysis.success || !analysis.rawFiles) {
@@ -89,7 +129,7 @@ export async function POST(request: NextRequest) {
                 }, { status: 400 });
             }
 
-            const slug = slugForRepo(repo.repo_url, repo.name || repo.id);
+            const slug = slugForRepo(repoUrl, repo.name || repo.id);
 
             const codeFiles = analysis.rawFiles
                 .filter(file => {
@@ -162,8 +202,8 @@ export async function POST(request: NextRequest) {
         try {
             const admin = createServiceRoleClient();
             // Try information_schema first
-            let tables: any[] | null = null;
-            let tableError: any = null;
+            let tables: Array<{ table_schema: string; table_name: string }> | null = null;
+            let tableError: Error | null = null;
             const infoRes = await admin
                 .from('information_schema.tables')
                 .select('table_schema, table_name')
@@ -178,7 +218,7 @@ export async function POST(request: NextRequest) {
                     .select('schemaname, tablename')
                     .eq('schemaname', 'public');
                 if (!pgRes.error && pgRes.data) {
-                    tables = pgRes.data.map((t: any) => ({
+                    tables = pgRes.data.map((t: { schemaname: string; tablename: string }) => ({
                         table_schema: t.schemaname,
                         table_name: t.tablename
                     }));
@@ -189,7 +229,7 @@ export async function POST(request: NextRequest) {
             }
 
             if (!tableError && tables?.length) {
-                tableNodes = tables.map((t: any) => ({
+                tableNodes = tables.map((t: { table_schema: string; table_name: string }) => ({
                     id: `table:${t.table_schema}.${t.table_name}`,
                     label: `${t.table_name}`,
                     type: 'internal',
@@ -242,7 +282,7 @@ export async function POST(request: NextRequest) {
             const { data: existing, error: findError } = await supabase
                 .from('diagrams')
                 .select('id')
-                .eq('repo_id', primaryRepo.id)
+                .eq('source_id', primaryRepo.id)
                 .eq('diagram_type', 'architecture')
                 .single();
 
@@ -265,7 +305,7 @@ export async function POST(request: NextRequest) {
                     content: augmentedAnalysis.mermaid,
                     analysis_data: {
                         ...augmentedAnalysis,
-                        source_repo_ids: repoIdArray
+                        source_repo_ids: sourceIdArray
                     },
                     updated_at: new Date().toISOString()
                 })
@@ -287,8 +327,8 @@ export async function POST(request: NextRequest) {
             const { data: inserted, error: insertError } = await supabase
                 .from('diagrams')
                 .insert({
-                    repo_id: primaryRepo.id,
-                    source_repo_ids: repoIdArray,
+                    source_id: primaryRepo.id,
+                    source_repo_ids: sourceIdArray,
                     title: repos.length > 1
                         ? `Architecture Diagram - ${repos.length} repos`
                         : `Architecture Diagram - ${primaryRepo.name}`,
@@ -296,7 +336,7 @@ export async function POST(request: NextRequest) {
                     content: augmentedAnalysis.mermaid,
                     analysis_data: {
                         ...augmentedAnalysis,
-                        source_repo_ids: repoIdArray
+                        source_repo_ids: sourceIdArray
                     }
                 })
                 .select()
@@ -319,7 +359,7 @@ export async function POST(request: NextRequest) {
             primaryRepo.id,
             diagram.id,
             isNew,
-            primaryRepo.repo_url,
+            primaryRepo.repo_url || primaryRepo.external_url,
             primarySetup?.branch || primaryRepo.default_branch
         );
 
@@ -330,12 +370,12 @@ export async function POST(request: NextRequest) {
             isNew
         });
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Architecture diagram generation error:', error);
         return NextResponse.json(
             {
                 error: 'Failed to generate architecture diagram',
-                detail: error.message
+                detail: error instanceof Error ? error.message : String(error)
             },
             { status: 500 }
         );

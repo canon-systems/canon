@@ -1,7 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createHash } from 'crypto';
-import { getUserOctokit } from '../github/getUserOctokit';
-import { parseRepoUrl } from '../github/github';
+// Removed unused imports: getUserOctokit, parseRepoUrl
 import { generateFileSummary } from './fileSummarizer';
 
 /**
@@ -41,12 +40,14 @@ export type ProgressCallback = (progress: {
  */
 export class FileSummaryManager {
   private supabase: SupabaseClient;
-  private repoId: string;
+  private sourceKey: string; // normalized key (e.g., github.com/owner/repo)
+  private sourceId: string;
   private branch: string;
 
-  constructor(supabase: SupabaseClient, repoId: string, branch: string = 'main') {
+  constructor(supabase: SupabaseClient, sourceId: string, sourceKey: string, branch: string = 'main') {
     this.supabase = supabase;
-    this.repoId = repoId;
+    this.sourceKey = sourceKey;
+    this.sourceId = sourceId;
     this.branch = branch;
   }
 
@@ -73,7 +74,7 @@ export class FileSummaryManager {
     const { data, error } = await this.supabase
       .from('repo_file_summaries')
       .select('file_hash, updated_at')
-      .ilike('repo_id', this.repoId)
+      .eq('source_id', this.sourceId)
       .eq('branch', this.branch)
       .eq('file_path', normalizedPath)
       .single();
@@ -115,13 +116,13 @@ export class FileSummaryManager {
   /**
    * Load existing summaries for files (without generating missing ones)
    */
-  async getExistingSummaries(filePaths: string[]): Promise<Map<string, any>> {
+  async getExistingSummaries(filePaths: string[]): Promise<Map<string, { file_path: string; summary_text: string }>> {
     const normalizedPaths = filePaths.map(path => this.normalizeFilePath(path));
 
     const { data, error } = await this.supabase
       .from('repo_file_summaries')
       .select('file_path, summary_text')
-      .ilike('repo_id', this.repoId)
+      .eq('source_id', this.sourceId)
       .eq('branch', this.branch)
       .in('file_path', normalizedPaths);
 
@@ -130,7 +131,7 @@ export class FileSummaryManager {
     }
 
     // Build map with fuzzy path matching
-    const summariesMap = new Map<string, any>();
+    const summariesMap = new Map<string, { file_path: string; summary_text: string }>();
 
     for (const summary of data || []) {
       // Store with normalized path as key
@@ -171,12 +172,19 @@ export class FileSummaryManager {
       batchSize?: number;
       onProgress?: ProgressCallback;
       model?: string;
+      regenerationReason?: string;
     } = {}
   ): Promise<UpdateResult> {
-    const { force = false, batchSize = 20, onProgress, model = 'openai/gpt-4o-mini' } = options;
+    const {
+      force = false,
+      batchSize = 30,
+      onProgress,
+      model = 'openai/gpt-4o-mini',
+      regenerationReason = 'initial',
+    } = options;
 
     let processed = 0;
-    let skipped = 0;
+    const skipped = 0;
     let failed = 0;
     const updatedFiles: string[] = [];
 
@@ -209,6 +217,10 @@ export class FileSummaryManager {
       await Promise.all(
         batch.map(async (file) => {
           try {
+            const status = statusMap.get(file.path);
+            const reason = !status?.exists ? 'new file (added)' : 'content changed (hash mismatch)';
+            console.log(`[LLM] Generating file summary: ${file.path} — reason: ${reason}`);
+
             onProgress?.({
               processed: processed + skipped,
               total: filesNeedingUpdate.length,
@@ -224,17 +236,18 @@ export class FileSummaryManager {
               .from('repo_file_summaries')
               .upsert(
                 {
-                  repo_id: this.repoId,
+                  source_id: this.sourceId,
+                  source_key: this.sourceKey,
                   file_path: this.normalizeFilePath(file.path),
                   file_hash: fileHash,
                   summary_text: summary.summary_text,
                   summary_model: model,
                   branch: this.branch,
-                  regeneration_reason: 'file_changed',
+                  regeneration_reason: regenerationReason,
                   updated_at: new Date().toISOString(),
                 },
                 {
-                  onConflict: 'repo_id,file_path,branch',
+                  onConflict: 'source_id,file_path,branch',
                   ignoreDuplicates: false
                 }
               );
@@ -270,11 +283,30 @@ export class FileSummaryManager {
   }
 
   /**
+   * Force-update summaries for all provided files (or respect caller force flag).
+   * Convenience wrapper so callers can rely on a stable method name.
+   */
+  async updateSummaries(
+    files: Array<{ path: string; content: string; hash?: string }>,
+    options: {
+      force?: boolean;
+      batchSize?: number;
+      onProgress?: ProgressCallback;
+      model?: string;
+      regenerationReason?: string;
+    } = {}
+  ): Promise<UpdateResult> {
+    const { force = true, ...rest } = options;
+    return this.updateSummariesIfNeeded(files, { force, ...rest });
+  }
+
+  /**
    * Force refresh summaries for specific files
    */
   async refreshSummaries(
     filePaths: string[],
-    options: {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _options: {
       onProgress?: ProgressCallback;
       model?: string;
     } = {}

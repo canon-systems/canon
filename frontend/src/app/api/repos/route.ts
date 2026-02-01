@@ -1,20 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
+import { ingestSource, type WorkspaceSource } from '@/lib/server/services/sourceIngest';
+import { trackRepoConnected } from '@/lib/server/services/usageTracking';
 
-type CreateRepoBody = {
+type CreateSource = {
   name: string;
-  provider?: string;
-  repo_url: string;
-  default_branch?: string;
-  auth_type?: string;
-  credentials_ref?: string | null;
-  settings?: Record<string, unknown>;
+  provider: string;
+  scope: Record<string, unknown>;
+  connection_id?: string | null;
+};
+
+const providerAuthMap: Record<string, string> = {
+  github: 'github',
+  gitlab: 'gitlab',
+  jira: 'confluence',
+  confluence: 'confluence',
+  slack: 'slack',
 };
 
 /**
- * GET: List all repositories for the workspace
- * POST: Create a new repository configuration
+ * GET: List all sources for the workspace
+ * POST: Create a new source configuration
  */
 export async function GET() {
   try {
@@ -25,7 +32,7 @@ export async function GET() {
 
     const supabase = await createClient();
     const { data, error } = await supabase
-      .from('workspace_repos')
+      .from('workspace_sources')
       .select('*')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false });
@@ -35,12 +42,12 @@ export async function GET() {
     }
 
     return NextResponse.json(data || [], { status: 200 });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('List repos error:', err);
     return NextResponse.json(
       {
         error: 'Failed to list repositories',
-        detail: err.message || String(err),
+        detail: err instanceof Error ? err.message : String(err),
       },
       { status: 500 }
     );
@@ -55,44 +62,97 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = await createClient();
-    const body = (await request.json()) as CreateRepoBody;
-    const { name, provider, repo_url, default_branch, auth_type, credentials_ref, settings } = body;
+    const body = (await request.json()) as { sources?: CreateSource[] } & CreateSource;
 
-    if (!name || !repo_url) {
-      return NextResponse.json({
-        error: 'name and repo_url are required',
-        received: { name, repo_url },
-        validation: { hasName: !!name, hasRepoUrl: !!repo_url }
-      }, { status: 400 });
+    const sources: CreateSource[] = Array.isArray((body as { sources?: CreateSource[] }).sources)
+      ? (body as { sources: CreateSource[] }).sources
+      : [body as CreateSource];
+
+    if (sources.length === 0) {
+      return NextResponse.json({ error: 'No sources provided' }, { status: 400 });
     }
 
-    const insert = {
-      user_id: user.id,
-      name,
-      provider: provider || 'github',
-      repo_url,
-      default_branch: default_branch || 'main',
-      auth_type: auth_type || 'github_app',
-      credentials_ref: credentials_ref ?? null,
-      settings: settings || {},
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
+    // Preload user connections for providers to auto-fill connection_id when not provided
+    const { data: connections } = await supabase
+      .from('oauth_connections')
+      .select('id, connection_id, provider')
+      .eq('user_id', user.id)
+      .eq('status', 'active');
 
-    const { data, error } = await supabase.from('workspace_repos').insert(insert).select().single();
+    const rows = [];
+    for (const src of sources) {
+      if (!src.name || !src.provider || !src.scope) {
+        return NextResponse.json({ error: 'name, provider, and scope are required for each source' }, { status: 400 });
+      }
 
-    if (error || !data) {
-      console.error('Failed to create repository:', error);
-      throw error || new Error('Failed to create repository');
+      const providerKey = src.provider.toLowerCase();
+      const authProvider = providerAuthMap[providerKey] || providerKey;
+      // Resolve connection id to the oauth_connections.id (UUID) that satisfies the FK
+      let resolvedConnId: string | null = null;
+      if (src.connection_id) {
+        resolvedConnId =
+          connections?.find(
+            (c) =>
+              c.id === src.connection_id ||
+              c.connection_id === src.connection_id ||
+              (c.connection_id || '').toString() === src.connection_id
+          )?.id || null;
+      } else {
+        resolvedConnId =
+          connections?.find((c) => (c.provider || '').toLowerCase() === authProvider)?.id || null;
+      }
+
+      if (!resolvedConnId && ['github', 'gitlab', 'jira', 'confluence', 'slack'].includes(authProvider)) {
+        return NextResponse.json({ error: `Missing OAuth connection for provider ${src.provider}` }, { status: 400 });
+      }
+
+      rows.push({
+        user_id: user.id,
+        name: src.name,
+        provider: src.provider,
+        scope: src.scope,
+        connection_id: resolvedConnId,
+        status_payload: { status: 'queueing', progress_pct: 0 },
+        last_error: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+    }
+
+    const { data, error } = await supabase.from('workspace_sources').insert(rows).select();
+
+    if (error) {
+      console.error('Failed to create sources:', error);
+      throw error;
+    }
+
+    // Log connection for each new source so logs list them properly
+    for (const row of data || []) {
+      const ws = row as WorkspaceSource & { id: string; name?: string; provider?: string; external_url?: string };
+      trackRepoConnected(
+        supabase,
+        user.id,
+        ws.id,
+        ws.external_url ?? '',
+        ws.provider ?? 'unknown'
+      ).catch((err) => console.warn('Failed to track repo connected:', err));
+    }
+
+    // Kick off ingestion sequentially (could be parallelized with workers)
+    for (const row of data || []) {
+      // Fire and forget; don't block the response
+      ingestSource(supabase, row as WorkspaceSource).catch((err) => {
+        console.error('[ingestSource] failed', err);
+      });
     }
 
     return NextResponse.json(data, { status: 200 });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Create repo error:', err);
     return NextResponse.json(
       {
-        error: 'Failed to create repository',
-        detail: err.message || String(err),
+        error: 'Failed to connect to source',
+        detail: err instanceof Error ? err.message : String(err),
       },
       { status: 500 }
     );

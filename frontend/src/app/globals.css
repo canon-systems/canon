@@ -188,7 +188,6 @@ button {
   position: relative;
   z-index: 1;
   flex: 1;
-  padding: clamp(1.5rem, 3vw, 2.75rem);
   min-height: 100vh;
   background: transparent;
 }

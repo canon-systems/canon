@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
   const authorizationUrl = client.authorizationUrl({
     owner: 'user',
     state,
-  } as any);
+  } as Record<string, unknown>);
 
   return NextResponse.redirect(authorizationUrl);
 }

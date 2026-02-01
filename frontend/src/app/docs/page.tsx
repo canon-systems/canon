@@ -172,7 +172,7 @@ export default function DocumentationPage() {
           <div className="text-center">
             <h3 className="text-xl font-semibold text-white mb-4">Need More Help?</h3>
             <p className="text-white/80 mb-6">
-              Can't find what you're looking for? Our support team is here to help.
+              Can&apos;t find what you&apos;re looking for? Our support team is here to help.
             </p>
             <a
               href="mailto:sellers.e.john@gmail.com"

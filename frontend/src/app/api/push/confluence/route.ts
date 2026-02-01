@@ -6,7 +6,6 @@ import type { WorkspaceInfo, WorkspaceContent } from '@/lib/server/workspaces/ba
 import { trackPushToKb } from '@/lib/server/services/usageTracking';
 
 type PushRequestBody = {
-  docId?: string | null;
   title: string;
   markdown: string;
   workspaceInfo?: {
@@ -15,12 +14,10 @@ type PushRequestBody = {
     html?: string | null;
   };
   createNew?: boolean;
-  forceNew?: boolean;
 };
 
 /**
  * POST: Push documentation to Confluence
- * Automatically updates existing page if the doc was previously pushed to Confluence
  */
 export async function POST(request: NextRequest) {
   try {
@@ -31,8 +28,9 @@ export async function POST(request: NextRequest) {
 
     const supabase = await createClient();
     const body = (await request.json()) as PushRequestBody;
-    const { docId, title, markdown, workspaceInfo, forceNew = false } = body;
-    let { createNew = true } = body;
+    const { title, markdown, workspaceInfo } = body;
+    let existingResourceId: string | null = workspaceInfo?.resourceId ?? null;
+    let createNew = body.createNew ?? !existingResourceId;
 
     if (!title || !markdown) {
       return NextResponse.json({ error: 'title and markdown are required' }, { status: 400 });
@@ -53,24 +51,6 @@ export async function POST(request: NextRequest) {
     const provider = getWorkspaceProvider('confluence');
     if (!provider) {
       return NextResponse.json({ error: 'Confluence provider unavailable' }, { status: 500 });
-    }
-
-    let existingResourceId: string | null = null;
-    let attemptedUpdate = false;
-
-    if (docId && !forceNew) {
-      const { data: existingDocument } = await supabase
-        .from('documents')
-        .select('kb_id, kb_provider')
-        .eq('id', docId)
-        .single();
-
-      if (existingDocument?.kb_provider === 'confluence' && existingDocument?.kb_id) {
-        existingResourceId = existingDocument.kb_id;
-        createNew = false;
-        attemptedUpdate = true;
-        console.log(`[Confluence Push] Attempting to update existing page ${existingResourceId} for doc ${docId}`);
-      }
     }
 
     const content: WorkspaceContent = {
@@ -121,18 +101,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to push to Confluence' }, { status: 500 });
     }
 
-    if (docId) {
-      await supabase
-        .from('documents')
-        .update({
-          kb_provider: 'confluence',
-          kb_id: pushResult.resourceId,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', docId);
-    }
-
-    await trackPushToKb(supabase, user.id, 'confluence', docId || null, pushResult.resourceId);
+    await trackPushToKb(supabase, user.id, 'confluence', null, pushResult.resourceId);
 
     return NextResponse.json(
       {
@@ -140,17 +109,15 @@ export async function POST(request: NextRequest) {
         resource_id: pushResult.resourceId,
         url: pushResult.metadata?.url,
         workspace_info: pushResult,
-        updated: attemptedUpdate && !createNew,
-        recreated: attemptedUpdate && createNew,
       },
       { status: 200 }
     );
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Confluence push error:', err);
     return NextResponse.json(
       {
         error: 'Failed to push to Confluence',
-        detail: err.message || String(err),
+        detail: err instanceof Error ? err.message : String(err),
       },
       { status: 500 }
     );

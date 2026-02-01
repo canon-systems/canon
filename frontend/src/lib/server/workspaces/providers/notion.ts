@@ -3,7 +3,7 @@
  */
 
 import type { WorkspaceProvider, WorkspaceInfo, WorkspaceContent } from '../base';
-import { htmlToNotionBlocks, NotionBlock } from '../../notion/htmlToBlocks';
+import { htmlToNotionBlocks } from '../../notion/htmlToBlocks';
 import { markdownToNotionBlocks } from '../../notion/markdownToBlocks';
 import { marked } from 'marked';
 import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
@@ -19,10 +19,37 @@ function notionHeaders(accessToken: string) {
 	} as const;
 }
 
+type NotionRichTextItem = {
+	type: string;
+	text?: { content?: string };
+	mention?: {
+		type?: string;
+		page?: string;
+		[key: string]: unknown;
+	};
+	[key: string]: unknown;
+};
+
+type NotionBlock = {
+	type: string;
+	paragraph?: { rich_text?: NotionRichTextItem[] };
+	heading_1?: { rich_text?: NotionRichTextItem[] };
+	heading_2?: { rich_text?: NotionRichTextItem[] };
+	heading_3?: { rich_text?: NotionRichTextItem[] };
+	bulleted_list_item?: { rich_text?: NotionRichTextItem[] };
+	numbered_list_item?: { rich_text?: NotionRichTextItem[] };
+	code?: { rich_text?: NotionRichTextItem[]; language?: string };
+	quote?: { rich_text?: NotionRichTextItem[] };
+	to_do?: { rich_text?: NotionRichTextItem[]; checked?: boolean };
+	has_children?: boolean;
+	children?: NotionBlock[];
+	[key: string]: unknown;
+};
+
 /**
  * Convert Notion blocks to markdown
  */
-function blocksToMarkdown(blocks: any[]): string {
+function blocksToMarkdown(blocks: NotionBlock[]): string {
 	const markdown: string[] = [];
 
 	for (const block of blocks) {
@@ -75,9 +102,9 @@ function blocksToMarkdown(blocks: any[]): string {
 	return markdown.filter(Boolean).join('\n\n');
 }
 
-function extractRichText(richText: any[]): string {
+function extractRichText(richText: NotionRichTextItem[]): string {
 	return richText
-		.map((item: any) => {
+		.map((item) => {
 			if (item.type === 'text') {
 				return item.text?.content || '';
 			}
@@ -89,9 +116,9 @@ function extractRichText(richText: any[]): string {
 		.join('');
 }
 
-async function fetchAllBlocks(pageId: string, accessToken: string): Promise<any[]> {
+async function fetchAllBlocks(pageId: string, accessToken: string): Promise<NotionBlock[]> {
 	const blocksUrl = new URL(`${NOTION_API_BASE}/blocks/${pageId}/children`);
-	let allBlocks: any[] = [];
+	let allBlocks: NotionBlock[] = [];
 	let nextCursor: string | undefined;
 
 	do {
@@ -134,33 +161,67 @@ function chunkBlocks(blocks: NotionBlock[], chunkSize: number = 100): NotionBloc
 	return chunks;
 }
 
+const delayMs = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 /**
- * Append blocks to a Notion page in chunks
+ * Append blocks to a Notion page in chunks.
+ * Retries on 404 (object_not_found) with a short delay to handle Notion's eventual consistency.
  */
 async function appendBlocksInChunks(
 	pageId: string,
 	blocks: NotionBlock[],
-	accessToken: string
+	accessToken: string,
+	options?: { retryOn404?: boolean }
 ): Promise<boolean> {
 	const chunks = chunkBlocks(blocks, 100);
-	
+	const retryOn404 = options?.retryOn404 ?? true;
+	const maxRetries = retryOn404 ? 2 : 0;
+
 	for (const chunk of chunks) {
 		const appendUrl = new URL(`${NOTION_API_BASE}/blocks/${pageId}/children`);
-		const appendResponse = await fetch(appendUrl.toString(), {
-			method: 'PATCH',
-			headers: notionHeaders(accessToken),
-			body: JSON.stringify({
-				children: chunk
-			})
-		});
+		let lastError: string | null = null;
+		let lastOk = false;
 
-		if (!appendResponse.ok) {
+		for (let attempt = 0; attempt <= maxRetries; attempt++) {
+			if (attempt > 0) {
+				await delayMs(1500 * attempt);
+			}
+
+			const appendResponse = await fetch(appendUrl.toString(), {
+				method: 'PATCH',
+				headers: notionHeaders(accessToken),
+				body: JSON.stringify({
+					children: chunk
+				})
+			});
+
+			if (appendResponse.ok) {
+				lastOk = true;
+				break;
+			}
+
 			const errorText = await appendResponse.text().catch(() => '');
-			console.error(`Notion append blocks error: ${errorText}`);
+			lastError = errorText;
+
+			const is404 = appendResponse.status === 404;
+			const isObjectNotFound = errorText.includes('object_not_found');
+			if (is404 && isObjectNotFound && attempt < maxRetries) {
+				console.warn(`[Notion] Append to page ${pageId} returned 404 (attempt ${attempt + 1}/${maxRetries + 1}), retrying after delay...`);
+				continue;
+			}
+
+			break;
+		}
+
+		if (!lastOk && lastError) {
+			console.error(`Notion append blocks error (pageId=${pageId}): ${lastError}`);
+			console.error(
+				'[Notion] Fix: In Notion, open the KB root page you selected for this push → … (top right) → Add connections → select your integration. Then retry the push.'
+			);
 			return false;
 		}
 	}
-	
+
 	return true;
 }
 
@@ -239,13 +300,13 @@ export class NotionProvider implements WorkspaceProvider {
 				blocks = htmlToNotionBlocks(html);
 				
 				// If HTML conversion produced too few meaningful blocks, use direct markdown conversion
-				const hasContent = blocks.some(b => {
-					if (b.type === 'paragraph') {
-						const richText = (b as any).paragraph?.rich_text || [];
-						return richText.some((rt: any) => rt.text?.content?.trim());
-					}
-					return b.type !== 'paragraph'; // Non-paragraph blocks are considered content
-				});
+			const hasContent = blocks.some(b => {
+				if (b.type === 'paragraph') {
+					const richText = (b as NotionBlock).paragraph?.rich_text || [];
+					return richText.some((rt) => rt.text?.content?.trim());
+				}
+				return b.type !== 'paragraph'; // Non-paragraph blocks are considered content
+			});
 				
 				if (!hasContent || blocks.length <= 1) {
 					console.log('[Notion] HTML conversion produced few blocks, falling back to markdown conversion');
@@ -305,18 +366,16 @@ export class NotionProvider implements WorkspaceProvider {
 
 				const createUrl = new URL(`${NOTION_API_BASE}/pages`);
 
-				// Split blocks into chunks - Notion allows max 100 children in create request
-				const blockChunks = chunkBlocks(blocks, 100);
-				const firstChunk = blockChunks[0] || [];
-				const remainingChunks = blockChunks.slice(1);
-
+				// Create page with title only; then append all blocks. Notion often returns 404 when
+				// appending to a page that was created with many children in the same request, so we
+				// create minimally and always append content in a separate request.
 				const createResponse = await fetch(createUrl.toString(), {
 					method: 'POST',
 					headers: notionHeaders(accessToken),
 					body: JSON.stringify({
 						parent: parentPayload,
 						properties: titleProperty,
-						children: firstChunk
+						children: []
 					})
 				});
 
@@ -329,12 +388,14 @@ export class NotionProvider implements WorkspaceProvider {
 				const createData = await createResponse.json();
 				const pageId = createData.id;
 
-				// Append remaining chunks if any
-				if (remainingChunks.length > 0) {
-					const allRemainingBlocks = remainingChunks.flat();
-					const appendSuccess = await appendBlocksInChunks(pageId, allRemainingBlocks, accessToken);
+				// Append all blocks in chunks. Brief delay + retries help with eventual consistency.
+				if (blocks.length > 0) {
+					await delayMs(500);
+					const appendSuccess = await appendBlocksInChunks(pageId, blocks, accessToken, {
+						retryOn404: true
+					});
 					if (!appendSuccess) {
-						console.warn(`[Notion] Failed to append some blocks to page ${pageId}, but page was created`);
+						console.warn(`[Notion] Failed to append blocks to page ${pageId}, but page was created`);
 					}
 				}
 
@@ -378,13 +439,13 @@ export class NotionProvider implements WorkspaceProvider {
 				blocks = htmlToNotionBlocks(html);
 				
 				// If HTML conversion produced too few meaningful blocks, use direct markdown conversion
-				const hasContent = blocks.some(b => {
-					if (b.type === 'paragraph') {
-						const richText = (b as any).paragraph?.rich_text || [];
-						return richText.some((rt: any) => rt.text?.content?.trim());
-					}
-					return b.type !== 'paragraph';
-				});
+			const hasContent = blocks.some(b => {
+				if (b.type === 'paragraph') {
+					const richText = (b as NotionBlock).paragraph?.rich_text || [];
+					return richText.some((rt) => rt.text?.content?.trim());
+				}
+				return b.type !== 'paragraph';
+			});
 				
 				if (!hasContent || blocks.length <= 1) {
 					console.log('[Notion] HTML conversion produced few blocks in update, falling back to markdown conversion');
@@ -439,6 +500,23 @@ export class NotionProvider implements WorkspaceProvider {
 			return true;
 		} catch (err) {
 			console.error('Notion update error:', err);
+			return false;
+		}
+	}
+
+	async resourceExists(workspaceInfo: WorkspaceInfo, connectionId: string): Promise<boolean> {
+		try {
+			const accessToken = await getProviderAccessToken({ provider: 'notion', connectionId });
+			if (!accessToken || !workspaceInfo.resourceId) return false;
+
+			const pageUrl = new URL(`${NOTION_API_BASE}/pages/${workspaceInfo.resourceId}`);
+			const response = await fetch(pageUrl.toString(), {
+				method: 'GET',
+				headers: notionHeaders(accessToken),
+			});
+
+			return response.ok;
+		} catch {
 			return false;
 		}
 	}

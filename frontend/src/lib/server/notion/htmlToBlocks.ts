@@ -10,7 +10,7 @@ import { parse, HTMLElement } from 'node-html-parser';
 export interface NotionBlock {
 	object: 'block';
 	type: string;
-	[key: string]: any;
+	[key: string]: unknown;
 }
 
 export interface NotionRichText {
@@ -85,7 +85,8 @@ export function htmlToNotionBlocks(html: string): NotionBlock[] {
 			}
 		} else if (node && node.nodeType === 3) {
 			// Text node
-			const text = (node as any).text?.trim() || (node as any).textContent?.trim();
+			const textNode = node as { text?: string; textContent?: string };
+			const text = textNode.text?.trim() || textNode.textContent?.trim();
 			if (text) {
 				blocks.push(createParagraphBlock([{ type: 'text', text: { content: text } }]));
 			}
@@ -273,7 +274,7 @@ function elementToNotionBlock(element: HTMLElement): NotionBlock | null {
 function extractRichText(element: HTMLElement): NotionRichText[] {
 	const richText: NotionRichText[] = [];
 	
-	function processNode(node: any, annotations: NotionRichText['annotations'] = {}): void {
+	function processNode(node: { nodeType?: number; text?: string; textContent?: string; tagName?: string; childNodes?: unknown[] }, annotations: NotionRichText['annotations'] = {}): void {
 		if (node.nodeType === 3) {
 			// Text node
 			const text = node.text || '';
