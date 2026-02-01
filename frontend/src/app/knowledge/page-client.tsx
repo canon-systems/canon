@@ -1316,11 +1316,6 @@ function DiffPrototypePanel() {
   );
 }
 
-function toInputValue(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
 function buildDiffFromInput(input: DiffInput): DiffObject {
   const start = new Date(input.start_timestamp).getTime();
   const end = new Date(input.end_timestamp).getTime();
