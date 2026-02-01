@@ -1,73 +1,196 @@
 import { inngest } from "../client";
 import { createServiceRoleClient } from "@/lib/supabase/server";
-import { isScheduleDue, isInRunAtHour, isInRunAtWeekday, cadenceUsesWeekday, isInRunAtMonthDay, cadenceUsesMonthDay } from "@/lib/server/schedules/cadence";
 import { runReportSchedule, type ReportScheduleRow } from "@/lib/server/schedules/runReportSchedule";
+import { getNextRunAt, simpleToRrule } from "@/lib/server/schedules/rrule";
+
+const SCHEDULE_COLS =
+  "id, user_id, type, name, enabled, cadence, source_ids, communication, audiences, units, last_run_at, last_run_status, last_run_error, run_at_time, run_at_timezone, run_at_weekday, run_at_month_day, rrule, dtstart, next_run_at";
 
 /**
- * Report schedules runner: runs every hour, loads enabled report_schedules,
- * runs each that is due (cadence + last_run_at) and, when run_at_time is set, in the user's chosen hour.
+ * Report schedule tick: event-driven, sleepUntil(next_run_at), run once, then schedule next tick.
+ * Triggered by event "report/schedule.tick" with data { scheduleId, next_run_at }.
+ * Also triggered when a schedule is created/updated (API sends first tick).
  */
-export const runReportSchedules = inngest.createFunction(
+export const reportScheduleTick = inngest.createFunction(
   {
-    id: "report-schedules-runner",
-    name: "Report Schedules Runner (Diff & Projection)",
+    id: "report-schedule-tick",
+    name: "Report Schedule Tick (Diff & Projection)",
     retries: 1,
-    concurrency: { limit: 1 },
+    concurrency: { limit: 5 },
   },
-  { cron: "0 * * * *" }, // every hour at :00
-  async () => {
+  { event: "report/schedule.tick" },
+  async ({ event, step }) => {
+    const { scheduleId, next_run_at: nextRunAtIso } = event.data as { scheduleId: string; next_run_at: string };
+    if (!scheduleId || !nextRunAtIso) {
+      console.error("[report-schedule-tick] Missing scheduleId or next_run_at");
+      return { error: "Missing scheduleId or next_run_at" };
+    }
+
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const serviceKey = process.env.SUPABASE_SERVICE_KEY;
     if (!supabaseUrl || !serviceKey) {
-      console.error("[report-schedules] Missing Supabase env");
+      console.error("[report-schedule-tick] Missing Supabase env");
       return { error: "Missing Supabase env" };
     }
 
-    const supabase = createServiceRoleClient();
-
-    const { data: rows, error } = await supabase
-      .from("report_schedules")
-      .select("id, user_id, type, name, enabled, cadence, source_ids, communication, audiences, units, last_run_at, last_run_status, last_run_error, run_at_time, run_at_timezone, run_at_weekday, run_at_month_day")
-      .eq("enabled", true);
-
-    if (error) {
-      console.error("[report-schedules] Failed to fetch schedules", error);
-      return { error: error.message };
+    const runAt = new Date(nextRunAtIso);
+    if (Number.isNaN(runAt.getTime())) {
+      console.error("[report-schedule-tick] Invalid next_run_at", nextRunAtIso);
+      return { error: "Invalid next_run_at" };
     }
 
-    if (!rows?.length) {
-      return { checked: 0, executed: 0 };
+    await step.sleepUntil("wait-until-run", runAt);
+
+    const supabase = createServiceRoleClient();
+    const { data: row, error: fetchError } = await supabase
+      .from("report_schedules")
+      .select(SCHEDULE_COLS)
+      .eq("id", scheduleId)
+      .maybeSingle();
+
+    if (fetchError) {
+      console.error("[report-schedule-tick] Failed to fetch schedule", scheduleId, fetchError);
+      return { error: fetchError.message };
+    }
+    if (!row || !row.enabled) {
+      return { skipped: true, reason: "schedule not found or disabled" };
+    }
+
+    const schedule = row as ReportScheduleRow;
+
+    if (!schedule.rrule || !schedule.dtstart) {
+      const simple = simpleToRrule({
+        cadence: schedule.cadence ?? "daily",
+        runAtTime: schedule.run_at_time ?? null,
+        runAtWeekday: schedule.run_at_weekday ?? null,
+        runAtMonthDay: schedule.run_at_month_day ?? null,
+      });
+      if (simple) {
+        const afterNow = getNextRunAt(simple.rrule, simple.dtstart, new Date());
+        if (afterNow) {
+          await supabase
+            .from("report_schedules")
+            .update({
+              rrule: simple.rrule,
+              dtstart: simple.dtstart.toISOString(),
+              next_run_at: afterNow.toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", scheduleId);
+          await step.sendEvent("next-tick-after-backfill", {
+            name: "report/schedule.tick",
+            data: { scheduleId, next_run_at: afterNow.toISOString() },
+          });
+          return { backfilled: true, next_run_at: afterNow.toISOString() };
+        }
+      }
+      return { error: "Could not backfill rrule for legacy schedule" };
+    }
+
+    const result = await step.run("run-report", async () => {
+      return runReportSchedule(schedule, supabase);
+    });
+
+    if (result.status !== "succeeded") {
+      const next = getNextRunAt(schedule.rrule, schedule.dtstart, new Date());
+      if (next) {
+        await supabase
+          .from("report_schedules")
+          .update({ next_run_at: next.toISOString(), updated_at: new Date().toISOString() })
+          .eq("id", scheduleId);
+        await step.sendEvent("next-tick-after-failure", {
+          name: "report/schedule.tick",
+          data: { scheduleId, next_run_at: next.toISOString() },
+        });
+      }
+      return { executed: false, error: result.error, next_run_at: next?.toISOString() ?? null };
     }
 
     const now = new Date();
-    const due = (rows as ReportScheduleRow[]).filter((row) => {
-      const cadenceDue = isScheduleDue(row.last_run_at, row.cadence ?? "daily", now);
-      if (!cadenceDue) return false;
-      if (row.run_at_time) {
-        if (!isInRunAtHour(now, row.run_at_time)) return false;
-      }
-      if (cadenceUsesWeekday(row.cadence ?? "daily") && row.run_at_weekday != null) {
-        if (!isInRunAtWeekday(now, row.run_at_weekday)) return false;
-      }
-      if (cadenceUsesMonthDay(row.cadence ?? "daily") && row.run_at_month_day != null) {
-        if (!isInRunAtMonthDay(now, row.run_at_month_day)) return false;
-      }
-      return true;
+    const next = getNextRunAt(schedule.rrule, schedule.dtstart, now);
+    if (!next) {
+      return { executed: true, next_run_at: null };
+    }
+
+    await step.run("update-next-run", async () => {
+      await supabase
+        .from("report_schedules")
+        .update({ next_run_at: next.toISOString(), updated_at: now.toISOString() })
+        .eq("id", scheduleId);
+      return { next_run_at: next.toISOString() };
     });
 
-    if (due.length === 0) {
-      return { checked: rows.length, executed: 0 };
+    await step.sendEvent("next-tick", {
+      name: "report/schedule.tick",
+      data: { scheduleId, next_run_at: next.toISOString() },
+    });
+
+    return { executed: true, next_run_at: next.toISOString() };
+  }
+);
+
+/**
+ * Bootstrap: once per day, find enabled schedules with no next_run_at (legacy or new),
+ * backfill rrule/dtstart/next_run_at from simple fields, and send first tick.
+ */
+export const reportScheduleBootstrap = inngest.createFunction(
+  {
+    id: "report-schedule-bootstrap",
+    name: "Report Schedule Bootstrap (start legacy schedules)",
+    retries: 1,
+    concurrency: { limit: 1 },
+  },
+  { cron: "0 2 * * *" },
+  async ({ step }) => {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceKey = process.env.SUPABASE_SERVICE_KEY;
+    if (!supabaseUrl || !serviceKey) {
+      return { error: "Missing Supabase env" };
+    }
+    const supabase = createServiceRoleClient();
+    const { data: rows, error } = await supabase
+      .from("report_schedules")
+      .select("id, cadence, run_at_time, run_at_weekday, run_at_month_day")
+      .eq("enabled", true)
+      .is("next_run_at", null);
+
+    if (error) {
+      console.error("[report-schedule-bootstrap] Failed to fetch", error);
+      return { error: error.message };
+    }
+    if (!rows?.length) {
+      return { bootstrapped: 0 };
     }
 
-    console.log(`[report-schedules] Running ${due.length} due schedule(s)`);
-    let executed = 0;
-    for (const schedule of due) {
-      const result = await runReportSchedule(schedule, supabase);
-      if (result.status === "succeeded") {
-        executed += 1;
-      }
+    const events: { name: string; data: { scheduleId: string; next_run_at: string } }[] = [];
+    const now = new Date();
+    for (const row of rows) {
+      const simple = simpleToRrule({
+        cadence: (row.cadence as string) ?? "daily",
+        runAtTime: (row.run_at_time as string | null) ?? null,
+        runAtWeekday: (row.run_at_weekday as number | null) ?? null,
+        runAtMonthDay: (row.run_at_month_day as number | null) ?? null,
+      });
+      if (!simple) continue;
+      const nextRunAt = getNextRunAt(simple.rrule, simple.dtstart, now);
+      if (!nextRunAt) continue;
+      await supabase
+        .from("report_schedules")
+        .update({
+          rrule: simple.rrule,
+          dtstart: simple.dtstart.toISOString(),
+          next_run_at: nextRunAt.toISOString(),
+          updated_at: now.toISOString(),
+        })
+        .eq("id", row.id);
+      events.push({
+        name: "report/schedule.tick",
+        data: { scheduleId: row.id, next_run_at: nextRunAt.toISOString() },
+      });
     }
-
-    return { checked: rows.length, executed };
+    if (events.length > 0) {
+      await step.sendEvent("bootstrap-ticks", events);
+    }
+    return { bootstrapped: events.length };
   }
 );

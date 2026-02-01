@@ -45,6 +45,7 @@
     "react-dom": "19.2.1",
     "reactflow": "^11.11.4",
     "recharts": "^3.4.1",
+    "rrule": "^2.8.1",
     "simple-icons": "^15.20.0",
     "tailwind-merge": "^2.5.2",
     "turndown": "^7.2.1",

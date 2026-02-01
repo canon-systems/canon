@@ -1,5 +1,5 @@
 import { serve } from "inngest/next";
-import { inngest, syncKnowledgeSources, runReportSchedules } from "../../../inngest";
+import { inngest, syncKnowledgeSources, reportScheduleTick, reportScheduleBootstrap } from "../../../inngest";
 
 export const runtime = 'nodejs';
 
@@ -8,6 +8,7 @@ export const { GET, POST, PUT } = serve({
   functions: [
     // checkAndRunAutomations,
     syncKnowledgeSources,
-    runReportSchedules,
+    reportScheduleTick,
+    reportScheduleBootstrap,
   ],
 });

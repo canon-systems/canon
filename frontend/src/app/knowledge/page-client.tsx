@@ -127,7 +127,7 @@ type DiffSchedule = {
   id: string;
   name: string;
   enabled: boolean;
-  cadence: string; // 'daily' | 'weekly' | 'monthly' | custom
+  cadence: string; // 'daily' | 'weekly' | 'monthly'
   sourceIds: string[];
   communication: ScheduleCommunication;
   runAtTime: string | null;
@@ -155,7 +155,6 @@ const CADENCE_PRESETS: Array<{ value: string; label: string }> = [
   { value: 'daily', label: 'Daily' },
   { value: 'weekly', label: 'Weekly' },
   { value: 'monthly', label: 'Monthly' },
-  { value: 'custom', label: 'Custom' },
 ];
 
 /** Day of week for run-at (0 = Sunday .. 6 = Saturday). Used for weekly/custom. */
@@ -170,7 +169,7 @@ const WEEKDAY_OPTIONS: Array<{ value: number; label: string }> = [
 ];
 
 function cadenceUsesWeekday(cadence: string): boolean {
-  return ['weekly', 'custom'].includes(String(cadence).toLowerCase());
+  return String(cadence).toLowerCase() === 'weekly';
 }
 
 function cadenceUsesMonthDay(cadence: string): boolean {
@@ -199,7 +198,6 @@ function getCadenceLabel(cadence: string): string {
     case 'daily': return 'Daily';
     case 'weekly': return 'Weekly';
     case 'monthly': return 'Monthly';
-    case 'custom': return 'Custom';
     default: return cadence.length > 20 ? `${cadence.slice(0, 20)}…` : cadence;
   }
 }
@@ -944,7 +942,6 @@ function DiffPrototypePanel() {
             {diffFilterTab === 'schedule' && (
               <>
                 <SidebarGroup>
-                  <SidebarGroupLabel>Diff report schedules</SidebarGroupLabel>
                   <SidebarGroupContent className="space-y-3">
                     {diffSchedules.length === 0 && !diffScheduleFormOpen && (
                       <p className="text-xs text-white/50">No schedules yet. Add one to run diff reports on a cadence.</p>
@@ -2209,7 +2206,6 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                   {knowledgeFilterTab === 'schedule' && (
                     <>
                       <SidebarGroup>
-                        <SidebarGroupLabel>Projection schedules</SidebarGroupLabel>
                         <SidebarGroupContent className="space-y-3">
                           {projectionSchedules.length === 0 && !projectionScheduleFormOpen && (
                             <p className="text-xs text-white/50">No schedules yet. Add one to run projection reports on a cadence.</p>

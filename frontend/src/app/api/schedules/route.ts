@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
+import { inngest } from '@/inngest';
+import { getNextRunAt, simpleToRrule } from '@/lib/server/schedules/rrule';
 
 /** GET /api/schedules — list report schedules for the current user. Optional ?type=diff|projection */
 export async function GET(request: NextRequest) {
@@ -88,30 +90,53 @@ export async function POST(request: NextRequest) {
       : [];
 
     const supabase = await createClient();
+    const simple = simpleToRrule({
+      cadence,
+      runAtTime,
+      runAtWeekday,
+      runAtMonthDay,
+    });
+    const now = new Date();
+    const nextRunAt = simple ? getNextRunAt(simple.rrule, simple.dtstart, now) : null;
+
+    const insertPayload: Record<string, unknown> = {
+      user_id: user.id,
+      type,
+      name,
+      enabled,
+      cadence,
+      run_at_time: runAtTime,
+      run_at_timezone: runAtTimezone,
+      run_at_weekday: runAtWeekday,
+      run_at_month_day: runAtMonthDay,
+      source_ids: sourceIds,
+      communication,
+      audiences,
+      units,
+      updated_at: new Date().toISOString(),
+    };
+    if (simple) {
+      insertPayload.rrule = simple.rrule;
+      insertPayload.dtstart = simple.dtstart.toISOString();
+      insertPayload.next_run_at = nextRunAt?.toISOString() ?? null;
+    }
+
     const { data: row, error } = await supabase
       .from('report_schedules')
-      .insert({
-        user_id: user.id,
-        type,
-        name,
-        enabled,
-        cadence,
-        run_at_time: runAtTime,
-        run_at_timezone: runAtTimezone,
-        run_at_weekday: runAtWeekday,
-        run_at_month_day: runAtMonthDay,
-        source_ids: sourceIds,
-        communication,
-        audiences,
-        units,
-        updated_at: new Date().toISOString(),
-      })
+      .insert(insertPayload)
       .select()
       .single();
 
     if (error) {
       console.error('Schedules POST error:', error);
       throw error;
+    }
+
+    if (row?.id && nextRunAt && row.enabled) {
+      await inngest.send({
+        name: 'report/schedule.tick',
+        data: { scheduleId: row.id, next_run_at: nextRunAt.toISOString() },
+      });
     }
 
     return NextResponse.json({ schedule: rowToSchedule(row) }, { status: 201 });
@@ -145,6 +170,9 @@ function rowToSchedule(row: Record<string, unknown>): Record<string, unknown> {
     runAtTimezone: row.run_at_timezone ?? null,
     runAtWeekday: row.run_at_weekday ?? null,
     runAtMonthDay: row.run_at_month_day ?? null,
+    rrule: row.rrule ?? null,
+    dtstart: row.dtstart ?? null,
+    nextRunAt: row.next_run_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

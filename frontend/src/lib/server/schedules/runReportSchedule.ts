@@ -23,6 +23,12 @@ export type ReportScheduleRow = {
   run_at_timezone?: string | null;
   run_at_weekday?: number | null;
   run_at_month_day?: number | null;
+  /** RFC 5545 RRULE (UTC). Used with dtstart for next_run_at. */
+  rrule?: string | null;
+  /** First occurrence for recurrence (UTC). */
+  dtstart?: string | null;
+  /** Next run time (UTC). Source of truth for tick. */
+  next_run_at?: string | null;
 };
 
 /**

@@ -29,9 +29,8 @@ export function getWindowForCadence(cadence: string, now: Date = new Date()): { 
       start.setDate(1);
       start.setHours(0, 0, 0, 0);
       break;
-    case 'custom':
     default:
-      // Default to last 7 days for custom or unknown
+      // Unknown cadence: default to last 7 days
       start.setDate(start.getDate() - 7);
       start.setHours(0, 0, 0, 0);
       break;
@@ -60,14 +59,13 @@ export function isScheduleDue(
       return msSinceLast >= 6 * 24 * 60 * 60 * 1000; // 6 days
     case 'monthly':
       return msSinceLast >= 28 * 24 * 60 * 60 * 1000; // 28 days
-    case 'custom':
     default:
       return msSinceLast >= 23 * 60 * 60 * 1000; // treat as daily
   }
 }
 
 /** Cadences that use day-of-week: user picks which day to run. (Monthly uses day-of-month instead.) */
-const CADENCES_WITH_WEEKDAY = new Set(['weekly', 'custom']);
+const CADENCES_WITH_WEEKDAY = new Set(['weekly']);
 
 /**
  * Returns true if `now` falls in the run-at hour. We use UTC only.
@@ -102,7 +100,7 @@ export function isInRunAtWeekday(
 }
 
 /**
- * Returns true if this cadence uses day-of-week (weekly, custom).
+ * Returns true if this cadence uses day-of-week (weekly).
  */
 export function cadenceUsesWeekday(cadence: string): boolean {
   return CADENCES_WITH_WEEKDAY.has(String(cadence).toLowerCase());

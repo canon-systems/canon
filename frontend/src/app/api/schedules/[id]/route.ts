@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
+import { inngest } from '@/inngest';
+import { getNextRunAt, simpleToRrule } from '@/lib/server/schedules/rrule';
 
 function rowToSchedule(row: Record<string, unknown>): Record<string, unknown> {
   return {
@@ -20,6 +22,9 @@ function rowToSchedule(row: Record<string, unknown>): Record<string, unknown> {
     runAtTimezone: row.run_at_timezone ?? null,
     runAtWeekday: row.run_at_weekday ?? null,
     runAtMonthDay: row.run_at_month_day ?? null,
+    rrule: row.rrule ?? null,
+    dtstart: row.dtstart ?? null,
+    nextRunAt: row.next_run_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -53,9 +58,19 @@ export async function PATCH(
 
     const supabase = await createClient();
 
+    const scheduleFieldsChanged =
+      body.cadence !== undefined ||
+      body.runAtTime !== undefined ||
+      body.runAtTimezone !== undefined ||
+      body.runAtWeekday !== undefined ||
+      body.runAtMonthDay !== undefined;
+
+    const selectCols = scheduleFieldsChanged
+      ? 'id, cadence, run_at_time, run_at_weekday, run_at_month_day'
+      : 'id';
     const { data: existing, error: fetchError } = await supabase
       .from('report_schedules')
-      .select('id')
+      .select(selectCols)
       .eq('id', id)
       .eq('user_id', user.id)
       .maybeSingle();
@@ -87,6 +102,40 @@ export async function PATCH(
       updates.units = body.units.filter((u): u is string => typeof u === 'string');
     }
 
+    const existingRow = existing as unknown as Record<string, unknown> | null;
+    if (scheduleFieldsChanged && existingRow && existingRow.cadence != null) {
+      const cadence =
+        typeof body.cadence === 'string' ? body.cadence : (existingRow.cadence as string) ?? 'daily';
+      const runAtTime =
+        body.runAtTime !== undefined
+          ? (typeof body.runAtTime === 'string' ? body.runAtTime.trim() || null : null)
+          : (existingRow.run_at_time as string | null) ?? null;
+      const runAtWeekday =
+        body.runAtWeekday !== undefined
+          ? (typeof body.runAtWeekday === 'number' && body.runAtWeekday >= 0 && body.runAtWeekday <= 6
+            ? body.runAtWeekday
+            : null)
+          : (existingRow.run_at_weekday as number | null) ?? null;
+      const runAtMonthDay =
+        body.runAtMonthDay !== undefined
+          ? (typeof body.runAtMonthDay === 'number' && body.runAtMonthDay >= 0 && body.runAtMonthDay <= 31
+            ? body.runAtMonthDay
+            : null)
+          : (existingRow.run_at_month_day as number | null) ?? null;
+      const simple = simpleToRrule({
+        cadence,
+        runAtTime,
+        runAtWeekday,
+        runAtMonthDay,
+      });
+      if (simple) {
+        const nextRunAt = getNextRunAt(simple.rrule, simple.dtstart, new Date());
+        updates.rrule = simple.rrule;
+        updates.dtstart = simple.dtstart.toISOString();
+        updates.next_run_at = nextRunAt?.toISOString() ?? null;
+      }
+    }
+
     const { data: row, error } = await supabase
       .from('report_schedules')
       .update(updates)
@@ -98,6 +147,13 @@ export async function PATCH(
     if (error) {
       console.error('Schedules PATCH error:', error);
       throw error;
+    }
+
+    if (scheduleFieldsChanged && row?.id && row.enabled && row.next_run_at) {
+      await inngest.send({
+        name: 'report/schedule.tick',
+        data: { scheduleId: row.id, next_run_at: row.next_run_at },
+      });
     }
 
     return NextResponse.json({ schedule: rowToSchedule(row) }, { status: 200 });
