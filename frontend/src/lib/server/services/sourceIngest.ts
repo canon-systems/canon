@@ -238,7 +238,7 @@ export async function ingestIssueSource(
       issues = [];
     }
 
-    // Upsert into issue_index
+    // Upsert into issue_index (schema has no description column; full issue is in raw)
     const rows = issues.map((issue) => {
       const fields = issue.fields || {};
       const status = fields.status?.name || 'Unknown';
@@ -250,9 +250,6 @@ export async function ingestIssueSource(
       const labels = Array.isArray(fields.labels) ? fields.labels : [];
       const project = fields.project?.key || projectKey || null;
       const storyPoints = fields.customfield_10016 ?? null;
-      const desc = fields.description;
-      const description =
-        typeof desc === 'string' ? (desc.trim() || null) : desc && typeof desc === 'object' ? JSON.stringify(desc) : null;
 
       return {
         source_id: source.id,
@@ -260,7 +257,6 @@ export async function ingestIssueSource(
         issue_id: issue.id,
         issue_key: issue.key || issue.id,
         title: fields.summary || '(no summary)',
-        description,
         status,
         status_category: statusCategory,
         type,
@@ -469,16 +465,12 @@ export async function syncIssueSourceDelta(
 
   const rows = issues.map((issue) => {
     const fields = issue.fields || {};
-    const desc = fields.description;
-    const description =
-      typeof desc === 'string' ? (desc.trim() || null) : desc && typeof desc === 'object' ? JSON.stringify(desc) : null;
     return {
       source_id: source.id,
       provider,
       issue_id: issue.id,
       issue_key: issue.key || issue.id,
       title: fields.summary || '(no summary)',
-      description,
       status: fields.status?.name || 'Unknown',
       status_category: fields.status?.statusCategory?.name || null,
       type: fields.issuetype?.name || null,

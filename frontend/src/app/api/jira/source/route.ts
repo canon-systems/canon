@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
+import { ingestSource } from '@/lib/server/services/sourceIngest';
 import { trackRepoConnected } from '@/lib/server/services/usageTracking';
 
 export async function POST(request: NextRequest) {
@@ -103,6 +104,11 @@ export async function POST(request: NextRequest) {
       data.external_url ?? externalUrl,
       'jira'
     ).catch((err) => console.warn('Failed to track Jira source connected:', err));
+
+    // Fetch Jira issues and write to issue_index (same pattern as POST /api/repos)
+    ingestSource(supabase, data).catch((err) => {
+      console.error('[ingestSource] Jira source failed', err);
+    });
 
     return NextResponse.json(data, { status: 200 });
   } catch (err: unknown) {

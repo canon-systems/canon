@@ -8,6 +8,12 @@ function deterministicAkuId(userId: string, clusterKey: string): string {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
 }
 
+/** 32-char hash of evidence ids for AKU uniqueness (fits btree index limit). */
+function akuHashFromEvidenceIds(evidenceIds: string[]): string {
+  const composite = evidenceIds.slice().sort().join(':');
+  return createHash('md5').update(composite).digest('hex');
+}
+
 type Evidence = {
   id: string;
   source_id: string;
@@ -334,8 +340,7 @@ export async function buildAkusForSources(
     if (items.length === 0) continue;
     const hasIssue = items.some((e) => e.kind === 'issue');
     if (!hasIssue && items.length < 2) continue;
-    const hash = `${items.map((i) => i.id).sort().join(':')}`;
-    hashesForRun.push(hash);
+    hashesForRun.push(akuHashFromEvidenceIds(items.map((i) => i.id)));
   }
   const { data: existingByHash } =
     hashesForRun.length > 0
@@ -378,7 +383,7 @@ export async function buildAkusForSources(
 
     const source_ids = Array.from(new Set(items.map((i) => i.source_id)));
     const scope_refs = Array.from(new Set(items.map((i) => i.scope_ref)));
-    const hash = `${items.map((i) => i.id).sort().join(':')}`;
+    const hash = akuHashFromEvidenceIds(items.map((i) => i.id));
     const akuId = idByHash.get(hash) ?? deterministicAkuId(userId, clusterKey);
 
     const crit = scoreText(title + canonical, criticalKeywords);
@@ -428,13 +433,15 @@ export async function buildAkusForSources(
 
   if (akus.length > 0) {
     const now = new Date().toISOString();
+    // Upsert by id so we update existing rows (including those with old hash) instead of
+    // inserting a duplicate id when hash changed (e.g. long composite → 32-char MD5).
     const { error: akuErr } = await supabase.from('akus').upsert(
       akus.map((a) => ({
         ...a,
         user_id: userId,
         updated_at: now,
       })),
-      { onConflict: 'hash' }
+      { onConflict: 'id' }
     );
     if (akuErr) {
       console.error('AKU builder: failed to save AKUs', akuErr);
