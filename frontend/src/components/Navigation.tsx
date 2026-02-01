@@ -9,13 +9,11 @@ import {
   BookOpen,
   Database,
   FileText,
-  GitCompare,
   Layers3,
   LogOut,
   Menu,
   ScrollText,
   Settings,
-  Zap,
 } from 'lucide-react';
 import type { Session, User } from '@supabase/supabase-js';
 import { Button } from './ui/button';
@@ -38,9 +36,7 @@ type NavItem = {
 const primaryNav: NavItem[] = [
   { href: '/sources', label: 'Sources', icon: Database },
   { href: '/knowledge', label: 'Knowledge', icon: FileText },
-  { href: '/review', label: 'Review', icon: GitCompare, matchPrefix: true },
   { href: '/architecture-diagrams', label: 'Architecture', icon: Layers3 },
-  { href: '/automation', label: 'Automation', icon: Zap },
   { href: '/logs', label: 'Logs', icon: ScrollText },
 ];
 

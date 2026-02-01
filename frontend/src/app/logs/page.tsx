@@ -80,7 +80,7 @@ export default async function LogsPage() {
           title: meta.title || 'Document generated',
           message: repoName ? `Document generated from ${repoName}` : 'Document generated',
           status: 'completed',
-          link: meta.doc_id ? `/edit/${meta.doc_id}` : undefined,
+          link: undefined,
         };
       case 'doc_auto_published':
         return {
@@ -89,7 +89,7 @@ export default async function LogsPage() {
           title: meta.title || 'Document auto-published',
           message: meta.reason ? `Auto-published: ${meta.reason}` : 'Document auto-published',
           status: 'completed',
-          link: meta.doc_id ? `/edit/${meta.doc_id}` : undefined,
+          link: undefined,
         };
       case 'doc_deleted':
         return {
@@ -161,7 +161,7 @@ export default async function LogsPage() {
           title: `Pushed to ${meta.provider || 'KB'}`,
           message: 'Documentation pushed to knowledge base',
           status: 'completed',
-          link: meta.doc_id ? `/edit/${meta.doc_id}` : undefined,
+          link: undefined,
         };
       case 'repo_scan_run':
         return {
@@ -224,7 +224,7 @@ export default async function LogsPage() {
         ].filter(Boolean);
 
         const link =
-          meta.doc_id ? `/edit/${meta.doc_id}` : meta.diagram_id ? `/architecture-diagrams/view/${meta.diagram_id}` : '/automation';
+          meta.diagram_id ? `/architecture-diagrams/view/${meta.diagram_id}` : undefined;
 
         return {
           ...base,
