@@ -65,15 +65,23 @@ export type DiffComparisonWithSources = DiffComparison & {
   sources?: DiffSourceInfo[];
 };
 
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/**
+ * Baseline = previous N full UTC calendar days. End baseline 1ms before primary
+ * starts so the displayed end date is the last day of the baseline (e.g.
+ * 1/30 → 1/30 for primary 1/31), not the first day of primary.
+ */
 export function computeBaselineWindow(start: string, end: string): { start: string; end: string } {
   const startMs = Date.parse(start);
   const endMs = Date.parse(end);
   if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
     throw new Error('Invalid start/end timestamps');
   }
-  const duration = endMs - startMs;
-  const baselineEndMs = startMs;
-  const baselineStartMs = baselineEndMs - duration;
+  const durationMs = endMs - startMs + 1;
+  const numDays = Math.max(1, Math.round(durationMs / MS_PER_DAY));
+  const baselineEndMs = startMs - 1;
+  const baselineStartMs = startMs - numDays * MS_PER_DAY;
   return {
     start: new Date(baselineStartMs).toISOString(),
     end: new Date(baselineEndMs).toISOString(),

@@ -18,16 +18,17 @@ function Calendar({
   return (
     <DayPicker
       showOutsideDays={showOutsideDays}
+      navLayout="around"
       className={cn('rdp-root p-3 text-white', className)}
       classNames={{
         root: 'rdp-root',
         months: 'flex flex-col sm:flex-row gap-2',
-        month: 'flex flex-col gap-4',
-        month_caption: 'flex justify-center pt-1 relative items-center',
+        month: 'flex flex-col gap-2 relative',
+        month_caption: 'flex justify-center items-center min-h-9 pt-1 pb-2 mx-9 relative',
         caption_label: 'text-sm font-medium text-white',
         nav: 'flex items-center gap-1',
-        button_previous: 'absolute left-1 h-9 w-9 bg-transparent p-0 opacity-70 hover:opacity-100 inline-flex items-center justify-center rounded-md border border-white/20 text-white hover:bg-white/10',
-        button_next: 'absolute right-1 h-9 w-9 bg-transparent p-0 opacity-70 hover:opacity-100 inline-flex items-center justify-center rounded-md border border-white/20 text-white hover:bg-white/10',
+        button_previous: 'absolute left-0 top-0 h-9 w-9 bg-transparent p-0 opacity-70 hover:opacity-100 inline-flex items-center justify-center rounded border border-white/20 text-white hover:bg-white/10',
+        button_next: 'absolute right-0 top-0 h-9 w-9 bg-transparent p-0 opacity-70 hover:opacity-100 inline-flex items-center justify-center rounded border border-white/20 text-white hover:bg-white/10',
         month_grid: 'w-full border-collapse',
         weekdays: 'flex',
         weekday: 'text-white/60 rounded-md w-9 font-normal text-[0.8rem]',

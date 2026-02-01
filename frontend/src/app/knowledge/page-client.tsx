@@ -232,21 +232,36 @@ function getDisplayName(repo: { name: string; provider: string; scope: Record<st
   return repo.name;
 }
 
+/** Start of today in UTC (00:00:00.000Z). */
+function startOfTodayUTC(): Date {
+  const n = new Date();
+  return new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate(), 0, 0, 0, 0));
+}
+
+/** End of today in UTC (23:59:59.999Z). */
+function endOfTodayUTC(): Date {
+  const n = new Date();
+  return new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate(), 23, 59, 59, 999));
+}
+
+/** Format an ISO timestamp as a date string in UTC (all diff times are UTC). */
+function formatDateUTC(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, { timeZone: 'UTC' });
+}
+
+/** Parse ISO string to UTC date parts and return a Date at noon UTC for that day (for calendar display). */
+function isoToCalendarDate(iso: string): Date {
+  const d = new Date(iso);
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 12, 0, 0, 0));
+}
+
 function DiffPrototypePanel() {
-  const defaultEnd = useMemo(() => {
-    const d = new Date();
-    d.setHours(23, 59, 59, 999);
-    return d;
-  }, []);
-  const defaultStart = useMemo(() => {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d;
-  }, []);
+  const defaultStart = useMemo(() => startOfTodayUTC(), []);
+  const defaultEnd = useMemo(() => endOfTodayUTC(), []);
 
   const [diffInput, setDiffInput] = useState<DiffInput>({
-    start_timestamp: toInputValue(defaultStart),
-    end_timestamp: toInputValue(defaultEnd),
+    start_timestamp: defaultStart.toISOString(),
+    end_timestamp: defaultEnd.toISOString(),
     sources: ['jira', 'github'],
     scope: 'org',
     jira_project_key: '',
@@ -254,8 +269,8 @@ function DiffPrototypePanel() {
   });
   const [diffObject, setDiffObject] = useState<DiffObject>(() =>
     buildDiffFromInput({
-      start_timestamp: toInputValue(defaultStart),
-      end_timestamp: toInputValue(defaultEnd),
+      start_timestamp: defaultStart.toISOString(),
+      end_timestamp: defaultEnd.toISOString(),
       sources: ['jira', 'github'],
       scope: 'org',
       jira_project_key: '',
@@ -263,6 +278,9 @@ function DiffPrototypePanel() {
     })
   );
   const [diffFilterTab, setDiffFilterTab] = useState<FilterTab>('filters');
+  const [diffCalendarOpen, setDiffCalendarOpen] = useState(false);
+  const [pendingRangeFrom, setPendingRangeFrom] = useState<Date | undefined>(undefined);
+  const [pendingRangeTo, setPendingRangeTo] = useState<Date | undefined>(undefined);
   const [baselineWindow, setBaselineWindow] = useState<{ start: string; end: string } | null>(null);
   const [compareLoading, setCompareLoading] = useState(false);
   const [compareError, setCompareError] = useState<string | null>(null);
@@ -641,8 +659,8 @@ function DiffPrototypePanel() {
     try {
       const useSourceIds = selectedSourceIds.length > 0;
       const body: Record<string, unknown> = {
-        start_timestamp: new Date(diffInput.start_timestamp).toISOString(),
-        end_timestamp: new Date(diffInput.end_timestamp).toISOString(),
+        start_timestamp: diffInput.start_timestamp,
+        end_timestamp: diffInput.end_timestamp,
         sources: diffInput.sources,
         scope: diffInput.scope,
       };
@@ -691,6 +709,12 @@ function DiffPrototypePanel() {
       setCompareLoading(false);
     }
   }, [selectedSourceIds, diffInput]);
+
+  // Clear report when date range changes so we never show a report that doesn't match the current selection.
+  useEffect(() => {
+    setBaselineWindow(null);
+    setDeltaObject(null);
+  }, [diffInput.start_timestamp, diffInput.end_timestamp]);
 
   // Regenerate diff whenever date range or source selection changes.
   // Intentionally omit compareLoading from deps: including it would re-run when loading
@@ -751,7 +775,13 @@ function DiffPrototypePanel() {
                 <SidebarGroup>
                   <SidebarGroupLabel>Time range</SidebarGroupLabel>
                   <SidebarGroupContent>
-                    <Popover>
+                    <Popover open={diffCalendarOpen} onOpenChange={(open) => {
+                      setDiffCalendarOpen(open);
+                      if (open) {
+                        setPendingRangeFrom(diffInput.start_timestamp ? isoToCalendarDate(diffInput.start_timestamp) : undefined);
+                        setPendingRangeTo(diffInput.end_timestamp ? isoToCalendarDate(diffInput.end_timestamp) : undefined);
+                      }
+                    }}>
                       <PopoverTrigger asChild>
                         <Button
                           variant="outline"
@@ -763,7 +793,7 @@ function DiffPrototypePanel() {
                           <CalendarIcon className="mr-2 h-4 w-4" />
                           {diffInput.start_timestamp && diffInput.end_timestamp ? (
                             <>
-                              {new Date(diffInput.start_timestamp).toLocaleDateString()} – {new Date(diffInput.end_timestamp).toLocaleDateString()}
+                              {formatDateUTC(diffInput.start_timestamp)} – {formatDateUTC(diffInput.end_timestamp)} (UTC)
                             </>
                           ) : (
                             'Pick a date range'
@@ -773,24 +803,46 @@ function DiffPrototypePanel() {
                       <PopoverContent className="w-auto p-0 border-white/10 bg-neutral-900" align="start">
                         <Calendar
                           mode="range"
-                          defaultMonth={new Date(diffInput.start_timestamp)}
+                          defaultMonth={pendingRangeFrom ?? (diffInput.start_timestamp ? isoToCalendarDate(diffInput.start_timestamp) : new Date())}
                           selected={{
-                            from: new Date(diffInput.start_timestamp),
-                            to: new Date(diffInput.end_timestamp),
+                            from: pendingRangeFrom ?? (diffInput.start_timestamp ? isoToCalendarDate(diffInput.start_timestamp) : undefined),
+                            to: pendingRangeTo ?? (diffInput.end_timestamp ? isoToCalendarDate(diffInput.end_timestamp) : undefined),
                           }}
                           onSelect={(range: DateRange | undefined) => {
                             if (!range?.from) return;
-                            const from = range.from;
-                            const to = range.to ?? range.from;
-                            setDiffInput((prev) => ({
-                              ...prev,
-                              start_timestamp: new Date(from.getFullYear(), from.getMonth(), from.getDate(), 0, 0, 0, 0).toISOString(),
-                              end_timestamp: new Date(to.getFullYear(), to.getMonth(), to.getDate(), 23, 59, 59, 999).toISOString(),
-                            }));
+                            setPendingRangeFrom(range.from);
+                            setPendingRangeTo(range.to ?? range.from);
                           }}
                           numberOfMonths={1}
                           className="rounded-lg border-0"
                         />
+                        <div className="flex justify-end gap-2 border-t border-white/10 p-3">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="border-white/20 bg-neutral-800 text-white hover:bg-neutral-700"
+                            onClick={() => setDiffCalendarOpen(false)}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            size="sm"
+                            className="bg-white text-black hover:bg-neutral-200"
+                            onClick={() => {
+                              if (pendingRangeFrom) {
+                                const to = pendingRangeTo ?? pendingRangeFrom;
+                                setDiffInput((prev) => ({
+                                  ...prev,
+                                  start_timestamp: new Date(Date.UTC(pendingRangeFrom.getFullYear(), pendingRangeFrom.getMonth(), pendingRangeFrom.getDate(), 0, 0, 0, 0)).toISOString(),
+                                  end_timestamp: new Date(Date.UTC(to.getFullYear(), to.getMonth(), to.getDate(), 23, 59, 59, 999)).toISOString(),
+                                }));
+                              }
+                              setDiffCalendarOpen(false);
+                            }}
+                          >
+                            Apply
+                          </Button>
+                        </div>
                       </PopoverContent>
                     </Popover>
                   </SidebarGroupContent>
@@ -1216,9 +1268,9 @@ function DiffPrototypePanel() {
             <div className="rounded-lg border border-white/10 bg-neutral-900 p-4 font-mono text-xs text-white/80">
               <h3 className="text-sm font-semibold text-white mb-2">High-level metrics (all sources)</h3>
               <div className="mb-2 flex flex-col gap-1 text-white/70">
-                <span>Primary: {new Date(canonicalInput.start_timestamp).toLocaleDateString()} → {new Date(canonicalInput.end_timestamp).toLocaleDateString()}</span>
+                <span>Primary: {formatDateUTC(canonicalInput.start_timestamp)} → {formatDateUTC(canonicalInput.end_timestamp)} (UTC)</span>
                 {baselineWindow && (
-                  <span>Baseline: {new Date(baselineWindow.start).toLocaleDateString()} → {new Date(baselineWindow.end).toLocaleDateString()}</span>
+                  <span>Baseline: {formatDateUTC(baselineWindow.start)} → {formatDateUTC(baselineWindow.end)} (UTC)</span>
                 )}
               </div>
               <dl className="space-y-2 text-sm">
