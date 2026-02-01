@@ -48,10 +48,11 @@ export async function getGitHubDiffForRepo(params: DiffParams): Promise<GitHubDi
   const prs_closed_unmerged: GitHubDiffEvent[] = [];
   const commits: GitHubDiffEvent[] = [];
 
-  // PRs: list by updated time and filter by window
+  // PRs: list by updated time and filter by window; paginate enough to reach baseline-day PRs
   let page = 1;
   const perPage = 100;
-  while (page <= 10) {
+  const maxPages = 50;
+  while (page <= maxPages) {
     const { data: prs } = await octokit.pulls.list({
       owner,
       repo,
@@ -103,25 +104,41 @@ export async function getGitHubDiffForRepo(params: DiffParams): Promise<GitHubDi
     page += 1;
   }
 
-  // Commits to default branch in window
-  const { data: commitData } = await octokit.repos.listCommits({
-    owner,
-    repo,
-    sha: defaultBranch,
-    since: start,
-    until: end,
-    per_page: 100,
-  });
+  // Commits: use start of next UTC day for until so API includes full window; paginate to get all in range.
+  const untilDate = new Date(end);
+  untilDate.setUTCDate(untilDate.getUTCDate() + 1);
+  untilDate.setUTCHours(0, 0, 0, 0);
+  const untilIso = untilDate.toISOString();
 
-  for (const commit of commitData) {
-    const ts = commit.commit?.author?.date || commit.commit?.committer?.date;
-    if (!ts) continue;
-    commits.push({
-      repo: `${owner}/${repo}`,
-      pr_number: null,
-      action: 'commit',
-      timestamp: ts,
+  let commitPage = 1;
+  const commitsPerPage = 100;
+  const maxCommitPages = 50;
+  while (commitPage <= maxCommitPages) {
+    const { data: commitData } = await octokit.repos.listCommits({
+      owner,
+      repo,
+      sha: defaultBranch,
+      since: start,
+      until: untilIso,
+      per_page: commitsPerPage,
+      page: commitPage,
     });
+
+    if (!commitData?.length) break;
+
+    for (const commit of commitData) {
+      const ts = commit.commit?.author?.date || commit.commit?.committer?.date;
+      if (!ts || !inWindow(ts, startMs, endMs)) continue;
+      commits.push({
+        repo: `${owner}/${repo}`,
+        pr_number: null,
+        action: 'commit',
+        timestamp: ts,
+      });
+    }
+
+    if (commitData.length < commitsPerPage) break;
+    commitPage += 1;
   }
 
   return {

@@ -277,6 +277,7 @@ export async function POST(req: NextRequest) {
     const baselineAgg: CanonicalDiff = emptyCanonicalDiff(baselineWindow);
 
     try {
+      console.log('[diffs/compare] baselineWindow', baselineWindow.start, '→', baselineWindow.end);
       for (const source of sources) {
         const primary = await computeCanonicalDiffForOneSource({
           source,
@@ -288,6 +289,7 @@ export async function POST(req: NextRequest) {
           window: baselineWindow,
           userId: user.id,
         });
+        console.log('[diffs/compare] baseline', source.display_name, 'tickets_moved=', baseline.tickets_moved, 'prs_merged=', baseline.prs_merged, 'commits_default=', baseline.commits_default);
         const delta = diffDelta(primary, baseline);
         by_source[source.display_name] = { primary, baseline, delta };
 

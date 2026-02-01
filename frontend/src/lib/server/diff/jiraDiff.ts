@@ -28,12 +28,27 @@ type JiraDiffParams = {
 
 type JiraStatusCategoryName = 'To Do' | 'In Progress' | 'Done' | string;
 
-function toJqlDate(value: string): string {
+/** Date-only yyyy-MM-dd for JQL from an ISO timestamp. */
+function toJqlDateOnly(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     throw new Error('Invalid timestamp for Jira diff.');
   }
-  return date.toISOString().replace('T', ' ').slice(0, 16);
+  return date.toISOString().slice(0, 10);
+}
+
+/** Previous calendar day in yyyy-MM-dd (for JQL; Jira interprets dates in server timezone). */
+function prevDayIso(isoDate: string): string {
+  const d = new Date(isoDate);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Next calendar day in yyyy-MM-dd (for JQL). */
+function nextDayIso(isoDate: string): string {
+  const d = new Date(isoDate);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
 }
 
 function inWindow(ts: string | null | undefined, start: number, end: number): boolean {
@@ -136,12 +151,22 @@ export async function getJiraDiffForProject(params: JiraDiffParams): Promise<Jir
     throw new Error('Invalid start/end timestamps.');
   }
 
-  const windowClause = `updated >= "${toJqlDate(start)}" AND updated <= "${toJqlDate(end)}"`;
-  const jql = projectKey ? `project = ${projectKey} AND ${windowClause}` : null;
+  // JQL date literals are interpreted in Jira server timezone (Atlassian docs). Use a 1-day
+  // buffer each side so we don't miss issues; we filter changelog by exact UTC window below.
+  const startDate = prevDayIso(toJqlDateOnly(start));
+  const endDate = nextDayIso(toJqlDateOnly(end));
+  const windowClause = `updated >= "${startDate}" AND updated <= "${endDate}"`;
+  // ORDER BY updated ASC so we get issues from the start of the window first; otherwise
+  // (default DESC) we only get the newest and can miss older days in multi-day windows.
+  const jql = projectKey
+    ? `project = ${projectKey} AND ${windowClause} ORDER BY updated ASC`
+    : null;
 
   if (!jql) {
     throw new Error('Missing Jira project.');
   }
+  // Use GET /rest/api/3/search/jql (required; old /search was removed per CHANGE-2046).
+  // Pagination uses nextPageToken, not startAt.
   const baseUrl = `https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3/search/jql`;
 
   const tickets_moved: JiraTicketEvent[] = [];
@@ -151,10 +176,23 @@ export async function getJiraDiffForProject(params: JiraDiffParams): Promise<Jir
 
   const statusCategoryMap = await getStatusCategoryMap(accessToken, cloudId);
 
-  let startAt = 0;
   const maxResults = 50;
-  while (startAt < 1000) {
-    const url = `${baseUrl}?jql=${encodeURIComponent(jql)}&expand=changelog&startAt=${startAt}&maxResults=${maxResults}&fields=${encodeURIComponent('created,status')}`;
+  let nextPageToken: string | undefined;
+  let pageCount = 0;
+  // Scale pages with window length so multi-day baselines get full coverage (single day ~20, 7 days ~100).
+  const windowDays = Math.ceil((endMs - startMs + 1) / (24 * 60 * 60 * 1000));
+  const maxPages = Math.min(100, 20 + 15 * Math.max(1, windowDays));
+
+  while (pageCount < maxPages) {
+    const params = new URLSearchParams({
+      jql,
+      maxResults: String(maxResults),
+      expand: 'changelog',
+      fields: 'created,status',
+    });
+    if (nextPageToken) params.set('nextPageToken', nextPageToken);
+
+    const url = `${baseUrl}?${params.toString()}`;
     const response = await withConfluenceAccessToken({
       connectionId: connection.connectionId,
       run: async (token) =>
@@ -228,8 +266,9 @@ export async function getJiraDiffForProject(params: JiraDiffParams): Promise<Jir
       }
     }
 
-    if (issues.length < maxResults) break;
-    startAt += maxResults;
+    nextPageToken = typeof data?.nextPageToken === 'string' ? data.nextPageToken : undefined;
+    pageCount += 1;
+    if (data?.isLast === true || !nextPageToken) break;
   }
 
   return {
