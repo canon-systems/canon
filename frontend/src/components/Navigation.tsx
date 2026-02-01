@@ -9,7 +9,6 @@ import {
   BookOpen,
   Database,
   FileText,
-  Layers3,
   LogOut,
   Menu,
   ScrollText,
@@ -36,7 +35,6 @@ type NavItem = {
 const primaryNav: NavItem[] = [
   { href: '/sources', label: 'Sources', icon: Database },
   { href: '/knowledge', label: 'Knowledge', icon: FileText },
-  { href: '/architecture-diagrams', label: 'Architecture', icon: Layers3 },
   { href: '/logs', label: 'Logs', icon: ScrollText },
 ];
 
