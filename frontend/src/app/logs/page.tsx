@@ -56,6 +56,11 @@ export default async function LogsPage() {
     userRepos.forEach((r) => repoMap.set(r.id, r));
   }
 
+  const formatProviderName = (p: unknown): string => {
+    if (p == null || typeof p !== 'string' || !p) return '';
+    return p.charAt(0).toUpperCase() + p.slice(1).toLowerCase();
+  };
+
   const entriesFromEvents = (usageEvents || []).map(event => {
     const meta = (event as { metadata?: Record<string, unknown> }).metadata || {};
     const sourceIdRaw = meta.source_id || meta.repo_id;
@@ -122,24 +127,28 @@ export default async function LogsPage() {
           link: '/sources',
         };
       }
-      case 'integration_connected':
+      case 'integration_connected': {
+        const providerLabel = formatProviderName(meta.provider) || 'Integration';
         return {
           ...base,
           type: 'integration_connection' as const,
-          title: `Integration Connected: ${meta.provider || 'Integration'}`,
-          message: `Connected ${meta.provider || 'integration'}`,
+          title: `Integration Connected: ${providerLabel}`,
+          message: `Connected ${providerLabel.toLowerCase()}`,
           status: 'completed',
           link: '/integrations',
         };
-      case 'integration_disconnected':
+      }
+      case 'integration_disconnected': {
+        const providerLabel = formatProviderName(meta.provider) || 'Integration';
         return {
           ...base,
           type: 'integration_disconnected' as const,
-          title: `Integration Disconnected: ${meta.provider || 'Integration'}`,
-          message: `Disconnected ${meta.provider || 'integration'}`,
+          title: `Integration Disconnected: ${providerLabel}`,
+          message: `Disconnected ${providerLabel.toLowerCase()}`,
           status: 'completed',
           link: '/integrations',
         };
+      }
       case 'architecture_diagram_generated':
       case 'architecture_diagram_regenerated':
       case 'architecture_diagram_deleted':
@@ -156,15 +165,17 @@ export default async function LogsPage() {
           status: 'completed',
           link: meta.diagram_id ? `/architecture-diagrams/view/${meta.diagram_id}` : '/architecture-diagrams',
         };
-      case 'push_to_kb':
+      case 'push_to_kb': {
+        const kbLabel = formatProviderName(meta.provider) || 'KB';
         return {
           ...base,
           type: 'kb_push' as const,
-          title: `Pushed to ${meta.provider || 'KB'}`,
+          title: `Pushed to ${kbLabel}`,
           message: 'Documentation pushed to knowledge base',
           status: 'completed',
           link: undefined,
         };
+      }
       case 'repo_scan_run':
         return {
           ...base,

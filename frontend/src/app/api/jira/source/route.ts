@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
+import { trackRepoConnected } from '@/lib/server/services/usageTracking';
 
 export async function POST(request: NextRequest) {
   try {
@@ -94,6 +95,14 @@ export async function POST(request: NextRequest) {
     if (error || !data) {
       throw error || new Error('Failed to create Jira source');
     }
+
+    trackRepoConnected(
+      supabase,
+      user.id,
+      data.id,
+      data.external_url ?? externalUrl,
+      'jira'
+    ).catch((err) => console.warn('Failed to track Jira source connected:', err));
 
     return NextResponse.json(data, { status: 200 });
   } catch (err: unknown) {

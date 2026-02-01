@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
 import { ingestSource, type WorkspaceSource } from '@/lib/server/services/sourceIngest';
+import { trackRepoConnected } from '@/lib/server/services/usageTracking';
 
 type CreateSource = {
   name: string;
@@ -123,6 +124,18 @@ export async function POST(request: NextRequest) {
     if (error) {
       console.error('Failed to create sources:', error);
       throw error;
+    }
+
+    // Log connection for each new source so logs list them properly
+    for (const row of data || []) {
+      const ws = row as WorkspaceSource & { id: string; name?: string; provider?: string; external_url?: string };
+      trackRepoConnected(
+        supabase,
+        user.id,
+        ws.id,
+        ws.external_url ?? '',
+        ws.provider ?? 'unknown'
+      ).catch((err) => console.warn('Failed to track repo connected:', err));
     }
 
     // Kick off ingestion sequentially (could be parallelized with workers)
