@@ -23,8 +23,6 @@ interface Connection {
 
 type TabId = 'profile' | 'preferences' | 'integrations';
 
-// Repository and automation types moved to /automation page
-
 interface SettingsPageClientProps {
   user: SupabaseUser | null;
 }
@@ -58,8 +56,6 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   const [savingPreferences, setSavingPreferences] = useState(false);
   const [preferencesMessage, setPreferencesMessage] = useState('');
   const [preferencesError, setPreferencesError] = useState('');
-
-  // Repository management moved to /automation page
 
   const loadConnections = useCallback(async (force = false) => {
     setLoading(true);

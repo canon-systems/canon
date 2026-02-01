@@ -20,9 +20,9 @@ export async function middleware(request: NextRequest) {
       return NextResponse.next();
     }
 
-    // Protected routes (updated to match current routes) - declare early
+    // Protected routes - declare early
     const pathname = request.nextUrl.pathname;
-    const protectedPrefixes = ['/documentation', '/history', '/logs', '/architecture', '/edit', '/settings'];
+    const protectedPrefixes = ['/sources', '/knowledge', '/logs', '/settings', '/docs', '/architecture-diagrams'];
     const isProtectedRoute = protectedPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 
     let supabaseResponse = NextResponse.next({
@@ -96,7 +96,7 @@ export async function middleware(request: NextRequest) {
     // Redirect logged-in users away from login
     if (user && request.nextUrl.pathname === '/login') {
       const url = request.nextUrl.clone();
-      url.pathname = '/documentation';
+      url.pathname = '/knowledge';
       return NextResponse.redirect(url);
     }
 
