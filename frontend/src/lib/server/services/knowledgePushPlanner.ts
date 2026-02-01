@@ -46,7 +46,7 @@ export type PlanResult = {
   pages: PlannedPage[];
 };
 
-const MANAGED_BANNER = '> Managed by Canon — source of truth lives inside Canon.';
+const MANAGED_BANNER = '> Managed by Canon';
 
 /**
  * Create a single-page plan (e.g. for diff reports) to push to a KB root.
@@ -92,20 +92,12 @@ export function planKnowledgePush(params: {
   const { akus, systemTitle = 'System Knowledge', canonBaseUrl = 'https://canon.internal' } = params;
   const safeAkus = Array.isArray(akus) ? akus : [];
 
-  // System page
+  // System page: no title in body (Confluence/Notion set page title); only projections, no AKU list
   const systemLines = [
-    `# ${systemTitle}`,
     MANAGED_BANNER,
     '',
-    'This space lists Audience Knowledge Units (AKUs) managed inside Canon.',
-    '',
-    '## AKUs',
+    'This space lists audience projections from Canon.',
   ];
-
-  safeAkus.forEach((aku) => {
-    const canonLink = `${canonBaseUrl}/akus/${aku.id}`;
-    systemLines.push(`- ${aku.title} — Canon source: ${canonLink}`);
-  });
 
   const systemMarkdown = systemLines.join('\n');
   const systemPage: PlannedPage = {
@@ -123,23 +115,12 @@ export function planKnowledgePush(params: {
   const audiencePages: PlannedPage[] = [];
 
   safeAkus.forEach((aku) => {
-    const canonLink = `${canonBaseUrl}/akus/${aku.id}`;
     const audiences = Array.isArray(aku.audience_views)
       ? aku.audience_views.filter((v) => v?.audience && v?.projection)
       : [];
-    const audienceList = audiences.map((v) => `- ${aku.title} – ${v.audience}`).join('\n');
 
-    const akuMarkdown = [
-      `# ${aku.title}`,
-      MANAGED_BANNER,
-      '',
-      `Canonical AKU: ${canonLink}`,
-      '',
-      audiences.length ? 'Audience views:' : 'No audience projections available.',
-      audienceList,
-    ]
-      .filter(Boolean)
-      .join('\n');
+    // AKU page: no title in body, no AKU links or audience list — only structural for navigation; content is on projection pages
+    const akuMarkdown = [MANAGED_BANNER].join('\n');
 
     const akuPage: PlannedPage = {
       key: `aku:${aku.id}`,
@@ -156,12 +137,11 @@ export function planKnowledgePush(params: {
 
     audiences.forEach((view) => {
       const audienceTitle = `${aku.title} – ${view.audience}`;
+      // Projection page: no title in body, no Canon AKU link — only audience label and projection content
       const audienceMarkdown = [
-        `# ${audienceTitle}`,
         MANAGED_BANNER,
         '',
         `Audience: ${view.audience}`,
-        `Canon AKU: ${canonLink}`,
         '',
         view.projection.trim(),
       ].join('\n');

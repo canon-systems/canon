@@ -51,5 +51,14 @@ export interface WorkspaceProvider {
 		content: WorkspaceContent,
 		connectionId: string
 	): Promise<boolean>;
+
+	/**
+	 * Check if a resource (page/block) still exists in the workspace.
+	 * Used before skipping an "unchanged" push so we recreate if the resource was deleted externally.
+	 * @param workspaceInfo Workspace connection info with resourceId pointing at the resource
+	 * @param connectionId OAuth connection ID from database
+	 * @returns true if the resource exists and is accessible, false if not found or inaccessible
+	 */
+	resourceExists?(workspaceInfo: WorkspaceInfo, connectionId: string): Promise<boolean>;
 }
 

@@ -76,7 +76,8 @@ function buildWorkspaceInfo(
   resourceId: string | null,
   parentResourceId: string,
   rootMetadata?: Record<string, unknown>,
-  pageType?: 'system' | 'aku' | 'audience'
+  pageType?: 'system' | 'aku' | 'audience',
+  createAtSpaceRoot?: boolean
 ): WorkspaceInfo | null {
   if (provider === 'notion') {
     if (createNew) {
@@ -95,9 +96,12 @@ function buildWorkspaceInfo(
     if (createNew) {
       const { cloudId, id } = parseConfluenceResourceId(parentResourceId);
       if (!cloudId || !id) return null;
-      const spaceId = (rootMetadata?.spaceId as string) || id;
-      const parentPageId =
-        pageType === 'system' ? undefined : parseConfluenceResourceId(parentResourceId).id || undefined;
+      // When root page was deleted, create at space root (parentId omitted); need spaceId from metadata
+      const spaceId = createAtSpaceRoot
+        ? (rootMetadata?.spaceId as string)
+        : ((rootMetadata?.spaceId as string) || id);
+      if (!spaceId) return null;
+      const parentPageId = createAtSpaceRoot ? undefined : (id || undefined);
       return {
         provider,
         resourceId: `${cloudId}:${spaceId}`,
@@ -202,27 +206,67 @@ export async function runKnowledgePush(params: PushParams): Promise<{ results: P
     }
 
     const unchanged = prior?.content_hash === page.hash;
+    let forceCreate = false;
     if (unchanged && prior?.resource_id) {
-      producedResourceIds.set(page.key, prior.resource_id);
-      console.log(`[KB Push] skip (unchanged)`, { key: page.key, title: page.title });
-      results.push({
-        key,
-        title: page.title,
-        status: 'skipped',
-        resourceId: prior.resource_id,
-        parentResourceId,
-      });
-      continue;
+      // Parent may have been recreated (e.g. system page deleted and re-exported); children must be recreated under the new parent
+      if (parentResourceId !== prior.parent_resource_id) {
+        forceCreate = true;
+        console.log(`[KB Push] parent changed, will recreate`, { key: page.key, title: page.title });
+      }
+      if (!forceCreate && typeof providerImpl.resourceExists === 'function') {
+        const existsInfo: WorkspaceInfo = {
+          provider,
+          resourceId: prior.resource_id,
+          metadata: rootMetadata,
+        };
+        const exists = await providerImpl.resourceExists(existsInfo, connectionId);
+        if (!exists) {
+          forceCreate = true;
+          console.log(`[KB Push] resource no longer exists, will recreate`, { key: page.key, title: page.title });
+        }
+      }
+      if (!forceCreate) {
+        producedResourceIds.set(page.key, prior.resource_id);
+        console.log(`[KB Push] skip (unchanged)`, { key: page.key, title: page.title });
+        results.push({
+          key,
+          title: page.title,
+          status: 'skipped',
+          resourceId: prior.resource_id,
+          parentResourceId,
+        });
+        continue;
+      }
     }
 
-    const createNew = !prior?.resource_id;
+    const createNew = !prior?.resource_id || forceCreate;
+    // When creating the system page under Confluence, if the selected root page was deleted, create at space root instead
+    let createAtSpaceRoot = false;
+    if (
+      page.parentKey === null &&
+      provider === 'confluence' &&
+      createNew &&
+      typeof providerImpl.resourceExists === 'function'
+    ) {
+      const rootExistsInfo: WorkspaceInfo = {
+        provider,
+        resourceId: parentResourceId,
+        metadata: rootMetadata,
+      };
+      const rootExists = await providerImpl.resourceExists(rootExistsInfo, connectionId);
+      if (!rootExists) {
+        createAtSpaceRoot = true;
+        console.log(`[KB Push] root page no longer exists, creating System Knowledge at space root`);
+      }
+    }
     const workspaceInfo = buildWorkspaceInfo(
       provider,
       createNew,
       prior?.resource_id || null,
       parentResourceId,
       rootMetadata,
-      page.type
+      page.type,
+      createAtSpaceRoot
     );
     if (!workspaceInfo) {
       console.warn(`[KB Push] workspace info missing`, { key: page.key, title: page.title });

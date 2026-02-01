@@ -71,6 +71,37 @@ export class ConfluenceProvider implements WorkspaceProvider {
 					return null;
 				}
 
+				// If a page with this title already exists in this space (and under this parent), update it instead of creating
+				const existingPageId = await findPageByTitle(
+					connectionId,
+					cloudInfo.cloudId,
+					spaceId,
+					content.title || 'Documentation',
+					parentId ?? undefined
+				);
+				if (existingPageId) {
+					const existingWorkspaceInfo: WorkspaceInfo = {
+						provider: 'confluence',
+						resourceId: `${cloudInfo.cloudId}:${existingPageId}`,
+						metadata: { ...workspaceInfo.metadata, spaceId, spaceKey, parentId },
+					};
+					const updated = await this.updateContent(existingWorkspaceInfo, content, connectionId);
+					if (updated) {
+						console.log(`[Confluence] Updated existing page by title: "${content.title || 'Documentation'}" (id=${existingPageId})`);
+						return {
+							provider: 'confluence',
+							resourceId: `${cloudInfo.cloudId}:${existingPageId}`,
+							metadata: {
+								cloudId: cloudInfo.cloudId,
+								siteUrl: cloudInfo.siteUrl,
+								spaceId,
+								spaceKey,
+								parentId,
+							},
+						};
+					}
+				}
+
 				const createPayload: Record<string, unknown> = {
 					spaceId,
 					status: 'current',
@@ -191,6 +222,25 @@ export class ConfluenceProvider implements WorkspaceProvider {
 			return false;
 		}
 	}
+
+	async resourceExists(workspaceInfo: WorkspaceInfo, connectionId: string): Promise<boolean> {
+		try {
+			const { cloudId, resourceId } = parseConfluenceResourceId(workspaceInfo.resourceId);
+			if (!cloudId || !resourceId) return false;
+
+			const response = await withConfluenceAccessToken({
+				connectionId,
+				run: async (token) =>
+					fetch(`${CONFLUENCE_API_BASE}/${cloudId}/wiki/api/v2/pages/${resourceId}`, {
+						headers: confluenceHeaders(token),
+					}),
+			});
+
+			return response.ok;
+		} catch {
+			return false;
+		}
+	}
 }
 
 function confluenceHeaders(accessToken: string) {
@@ -208,6 +258,74 @@ function parseConfluenceResourceId(resourceId?: string | null): { cloudId?: stri
 		return { cloudId: parts[0], resourceId: parts.slice(1).join(':') };
 	}
 	return { cloudId: null, resourceId };
+}
+
+function matchPageByTitleAndParent(
+	results: { id?: string; title?: string; parentId?: string | null }[],
+	title: string,
+	parentId?: string
+): string | null {
+	const wantTitle = title.trim().toLowerCase();
+	let firstMatch: string | null = null;
+	for (const page of results) {
+		if (!page?.id) continue;
+		const pageTitle = (page.title != null ? String(page.title).trim() : '').toLowerCase();
+		if (pageTitle !== wantTitle) continue;
+		const pageParentId = page.parentId != null ? String(page.parentId) : undefined;
+		if (parentId === undefined) {
+			if (pageParentId === undefined || pageParentId === '') return String(page.id);
+			if (firstMatch === null) firstMatch = String(page.id);
+		} else if (pageParentId === parentId) {
+			return String(page.id);
+		}
+	}
+	return firstMatch;
+}
+
+/**
+ * Find a page in a space by title (and optionally under a given parent). Returns the page id if found.
+ * Tries GET /spaces/{id}/pages then GET /pages?title=...&space-id=... so we always find existing pages and can update instead of create.
+ */
+async function findPageByTitle(
+	connectionId: string,
+	cloudId: string,
+	spaceId: string,
+	title: string,
+	parentId?: string
+): Promise<string | null> {
+	// 1) GET /spaces/{id}/pages?title=... (spaces endpoint may filter by title)
+	let url = new URL(`${CONFLUENCE_API_BASE}/${cloudId}/wiki/api/v2/spaces/${spaceId}/pages`);
+	url.searchParams.set('title', title);
+	url.searchParams.set('limit', '50');
+
+	let response = await withConfluenceAccessToken({
+		connectionId,
+		run: async (token) => fetch(url.toString(), { headers: confluenceHeaders(token) }),
+	});
+
+	if (response.ok) {
+		const payload = await response.json().catch(() => null);
+		const results = Array.isArray(payload?.results) ? payload.results : [];
+		const match = matchPageByTitleAndParent(results, title, parentId);
+		if (match) return match;
+	}
+
+	// 2) Fallback: GET /pages?title=...&space-id=... (global pages endpoint)
+	url = new URL(`${CONFLUENCE_API_BASE}/${cloudId}/wiki/api/v2/pages`);
+	url.searchParams.set('title', title);
+	url.searchParams.set('space-id', spaceId);
+	url.searchParams.set('limit', '50');
+
+	response = await withConfluenceAccessToken({
+		connectionId,
+		run: async (token) => fetch(url.toString(), { headers: confluenceHeaders(token) }),
+	});
+
+	if (!response.ok) return null;
+
+	const payload = await response.json().catch(() => null);
+	const results = Array.isArray(payload?.results) ? payload.results : [];
+	return matchPageByTitleAndParent(results, title, parentId);
 }
 
 async function resolveCloudInfo(accessToken: string, preferredCloudId?: string | null): Promise<{ cloudId: string; siteUrl?: string | null } | null> {

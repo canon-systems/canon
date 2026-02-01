@@ -161,33 +161,67 @@ function chunkBlocks(blocks: NotionBlock[], chunkSize: number = 100): NotionBloc
 	return chunks;
 }
 
+const delayMs = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 /**
- * Append blocks to a Notion page in chunks
+ * Append blocks to a Notion page in chunks.
+ * Retries on 404 (object_not_found) with a short delay to handle Notion's eventual consistency.
  */
 async function appendBlocksInChunks(
 	pageId: string,
 	blocks: NotionBlock[],
-	accessToken: string
+	accessToken: string,
+	options?: { retryOn404?: boolean }
 ): Promise<boolean> {
 	const chunks = chunkBlocks(blocks, 100);
-	
+	const retryOn404 = options?.retryOn404 ?? true;
+	const maxRetries = retryOn404 ? 2 : 0;
+
 	for (const chunk of chunks) {
 		const appendUrl = new URL(`${NOTION_API_BASE}/blocks/${pageId}/children`);
-		const appendResponse = await fetch(appendUrl.toString(), {
-			method: 'PATCH',
-			headers: notionHeaders(accessToken),
-			body: JSON.stringify({
-				children: chunk
-			})
-		});
+		let lastError: string | null = null;
+		let lastOk = false;
 
-		if (!appendResponse.ok) {
+		for (let attempt = 0; attempt <= maxRetries; attempt++) {
+			if (attempt > 0) {
+				await delayMs(1500 * attempt);
+			}
+
+			const appendResponse = await fetch(appendUrl.toString(), {
+				method: 'PATCH',
+				headers: notionHeaders(accessToken),
+				body: JSON.stringify({
+					children: chunk
+				})
+			});
+
+			if (appendResponse.ok) {
+				lastOk = true;
+				break;
+			}
+
 			const errorText = await appendResponse.text().catch(() => '');
-			console.error(`Notion append blocks error: ${errorText}`);
+			lastError = errorText;
+
+			const is404 = appendResponse.status === 404;
+			const isObjectNotFound = errorText.includes('object_not_found');
+			if (is404 && isObjectNotFound && attempt < maxRetries) {
+				console.warn(`[Notion] Append to page ${pageId} returned 404 (attempt ${attempt + 1}/${maxRetries + 1}), retrying after delay...`);
+				continue;
+			}
+
+			break;
+		}
+
+		if (!lastOk && lastError) {
+			console.error(`Notion append blocks error (pageId=${pageId}): ${lastError}`);
+			console.error(
+				'[Notion] Fix: In Notion, open the KB root page you selected for this push → … (top right) → Add connections → select your integration. Then retry the push.'
+			);
 			return false;
 		}
 	}
-	
+
 	return true;
 }
 
@@ -332,18 +366,16 @@ export class NotionProvider implements WorkspaceProvider {
 
 				const createUrl = new URL(`${NOTION_API_BASE}/pages`);
 
-				// Split blocks into chunks - Notion allows max 100 children in create request
-				const blockChunks = chunkBlocks(blocks, 100);
-				const firstChunk = blockChunks[0] || [];
-				const remainingChunks = blockChunks.slice(1);
-
+				// Create page with title only; then append all blocks. Notion often returns 404 when
+				// appending to a page that was created with many children in the same request, so we
+				// create minimally and always append content in a separate request.
 				const createResponse = await fetch(createUrl.toString(), {
 					method: 'POST',
 					headers: notionHeaders(accessToken),
 					body: JSON.stringify({
 						parent: parentPayload,
 						properties: titleProperty,
-						children: firstChunk
+						children: []
 					})
 				});
 
@@ -356,12 +388,14 @@ export class NotionProvider implements WorkspaceProvider {
 				const createData = await createResponse.json();
 				const pageId = createData.id;
 
-				// Append remaining chunks if any
-				if (remainingChunks.length > 0) {
-					const allRemainingBlocks = remainingChunks.flat();
-					const appendSuccess = await appendBlocksInChunks(pageId, allRemainingBlocks, accessToken);
+				// Append all blocks in chunks. Brief delay + retries help with eventual consistency.
+				if (blocks.length > 0) {
+					await delayMs(500);
+					const appendSuccess = await appendBlocksInChunks(pageId, blocks, accessToken, {
+						retryOn404: true
+					});
 					if (!appendSuccess) {
-						console.warn(`[Notion] Failed to append some blocks to page ${pageId}, but page was created`);
+						console.warn(`[Notion] Failed to append blocks to page ${pageId}, but page was created`);
 					}
 				}
 
@@ -466,6 +500,23 @@ export class NotionProvider implements WorkspaceProvider {
 			return true;
 		} catch (err) {
 			console.error('Notion update error:', err);
+			return false;
+		}
+	}
+
+	async resourceExists(workspaceInfo: WorkspaceInfo, connectionId: string): Promise<boolean> {
+		try {
+			const accessToken = await getProviderAccessToken({ provider: 'notion', connectionId });
+			if (!accessToken || !workspaceInfo.resourceId) return false;
+
+			const pageUrl = new URL(`${NOTION_API_BASE}/pages/${workspaceInfo.resourceId}`);
+			const response = await fetch(pageUrl.toString(), {
+				method: 'GET',
+				headers: notionHeaders(accessToken),
+			});
+
+			return response.ok;
+		} catch {
 			return false;
 		}
 	}

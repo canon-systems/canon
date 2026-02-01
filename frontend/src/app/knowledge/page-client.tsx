@@ -102,7 +102,7 @@ type DiffObject = {
 };
 
 type ModeSwitcherProps = { active: Mode; onChange: (mode: Mode) => void };
-type FilterTab = 'filters' | 'schedule' | 'review';
+type FilterTab = 'filters' | 'schedule';
 type ModeCardProps = {
   active: boolean;
   title: string;
@@ -1427,6 +1427,9 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
   const [resources, setResources] = useState<Array<{ id: string; title: string; type: string; metadata?: Record<string, unknown> }>>([]);
   const [loadingResources, setLoadingResources] = useState(false);
   const [selectedResourceId, setSelectedResourceId] = useState<string>('');
+  const [confluenceFolderId, setConfluenceFolderId] = useState<string>('');
+  const [confluenceFolderOptions, setConfluenceFolderOptions] = useState<Array<{ id: string; title: string; metadata?: Record<string, unknown> }>>([]);
+  const [loadingConfluenceFolders, setLoadingConfluenceFolders] = useState(false);
   type PushResultDetail = { key?: string; title?: string; status?: string };
   const [pushResult, setPushResult] = useState<{ status: 'idle' | 'pushing' | 'done' | 'error'; message?: string; details?: PushResultDetail[] }>({ status: 'idle' });
   const [activeTab, setActiveTab] = useState<Mode>('knowledge');
@@ -1587,13 +1590,6 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
     setSelectedCategories((prev) =>
       prev.includes(category) ? prev.filter((c) => c !== category) : [...prev, category]
     );
-  };
-
-  const resetFilters = () => {
-    setSelectedSourceIds([]);
-    setSelectedAudiences([]);
-    setSelectedCategories([]);
-    setItems([]);
   };
 
   const loadProjectionScheduleKbResources = async (provider: 'notion' | 'confluence', preserveResourceId?: string) => {
@@ -1921,6 +1917,15 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
     setSelectedCategories((prev) => prev.filter((c) => categories.includes(c)));
   }, [categories]);
 
+  useEffect(() => {
+    if (pushProvider === 'confluence' && selectedResourceId) {
+      loadConfluenceFolders(selectedResourceId);
+    } else {
+      setConfluenceFolderId('');
+      setConfluenceFolderOptions([]);
+    }
+  }, [pushProvider, selectedResourceId]);
+
   const filtersReady = selectedSourceIds.length > 0 && selectedAudiences.length > 0;
 
   const openPushModal = () => {
@@ -1933,6 +1938,8 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
       setLoadingResources(true);
       setResources([]);
       setSelectedResourceId('');
+      setConfluenceFolderId('');
+      setConfluenceFolderOptions([]);
       const url = new URL('/api/push/resources', window.location.origin);
       url.searchParams.set('provider', provider);
       const res = await fetch(url.toString());
@@ -1948,6 +1955,31 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
     }
   };
 
+  const loadConfluenceFolders = async (spaceResourceId: string) => {
+    const parts = spaceResourceId.split(':');
+    if (parts.length < 2) return;
+    const [cloudId, ...rest] = parts;
+    const spaceId = rest.join(':');
+    if (!cloudId || !spaceId) return;
+    try {
+      setLoadingConfluenceFolders(true);
+      setConfluenceFolderId('');
+      const url = new URL('/api/push/resources', window.location.origin);
+      url.searchParams.set('provider', 'confluence');
+      url.searchParams.set('cloudId', cloudId);
+      url.searchParams.set('spaceId', spaceId);
+      const res = await fetch(url.toString());
+      const data = await res.json();
+      const list = (data?.resources || []) as Array<{ id: string; title: string; type?: string; metadata?: Record<string, unknown> }>;
+      setConfluenceFolderOptions(list);
+    } catch (e) {
+      console.error('Failed to load Confluence folders/pages', e);
+      setConfluenceFolderOptions([]);
+    } finally {
+      setLoadingConfluenceFolders(false);
+    }
+  };
+
   const handleProviderSelect = (p: 'notion' | 'confluence') => {
     setPushProvider(p);
     loadResources(p);
@@ -1957,14 +1989,23 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
     if (!pushProvider || !selectedResourceId) return;
     setPushResult({ status: 'pushing' });
     try {
-      const resourceMeta = resources.find((r) => r.id === selectedResourceId)?.metadata || undefined;
+      const selectedSpace = resources.find((r) => r.id === selectedResourceId);
+      const resourceMeta = selectedSpace?.metadata || undefined;
+      const rootId =
+        pushProvider === 'confluence' && confluenceFolderId
+          ? confluenceFolderId
+          : selectedResourceId;
+      const rootMeta =
+        pushProvider === 'confluence' && confluenceFolderId && selectedSpace?.metadata
+          ? selectedSpace.metadata
+          : resourceMeta;
       const resp = await fetch('/api/knowledge/push', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           provider: pushProvider,
-          rootResourceId: selectedResourceId,
-          rootMetadata: resourceMeta,
+          rootResourceId: rootId,
+          rootMetadata: rootMeta,
           audiences: selectedAudiences.length ? selectedAudiences : undefined,
         }),
       });
@@ -1992,7 +2033,7 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                 <SidebarHeader>
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-4">
-                      {(['filters', 'schedule', 'review'] as FilterTab[]).map((tab) => {
+                      {(['filters', 'schedule'] as FilterTab[]).map((tab) => {
                         const active = knowledgeFilterTab === tab;
                         return (
                           <button
@@ -2650,41 +2691,8 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                     </>
                   )}
 
-                  {knowledgeFilterTab === 'review' && (
-                    <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/80">
-                      Review config placeholder — add review workflows here.
-                    </div>
-                  )}
                 </SidebarContent>
 
-                <SidebarFooter>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={loadItems}
-                      disabled={loading}
-                      className="border-white/20 bg-white/10 text-white hover:bg-white/15"
-                    >
-                      {loading ? (
-                        <span className="flex items-center gap-2">
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          Syncing...
-                        </span>
-                      ) : (
-                        'Refresh knowledge'
-                      )}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={resetFilters}
-                      className="text-white/70 hover:text-white"
-                    >
-                      Reset
-                    </Button>
-                  </div>
-                </SidebarFooter>
               </Sidebar>
 
               <div
@@ -2810,7 +2818,7 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
           <DialogHeader className="space-y-1">
             <DialogTitle className="text-xl">Push to Knowledge Base</DialogTitle>
             <DialogDescription className="text-white/70">
-              Select where to publish your AKUs and audience views. Your current filters will be respected.
+              Select where to publish your audience views.
             </DialogDescription>
           </DialogHeader>
 
@@ -2861,7 +2869,7 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                 <>
                   <div className="flex items-center justify-between">
                     <div className="text-sm text-white/70">
-                      Destination ({pushProvider}) — pick where System Knowledge will live.
+                      Destination
                     </div>
                     <Button
                       variant="ghost"
@@ -2882,34 +2890,44 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                       No resources found for this provider. Connect a space/page and try again.
                     </div>
                   ) : (
-                    <div className="grid gap-2 max-h-60 overflow-y-auto">
-                      {resources.map((r, idx) => (
-                        <button
-                          key={`${r.id}-${idx}`}
-                          className={cn(
-                            'w-full rounded-lg border p-3 text-left transition',
-                            selectedResourceId === r.id
-                              ? 'border-white/60 bg-white/10 shadow-[0_10px_30px_rgba(0,0,0,0.35)]'
-                              : 'border-white/10 bg-white/5 hover:border-white/30'
-                          )}
-                          onClick={() => setSelectedResourceId(r.id)}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="font-semibold text-white">{r.title}</div>
-                            <Badge variant="outline" className="border-white/20 text-xs text-white/70">
-                              {r.type}
-                            </Badge>
-                          </div>
-                          {r.metadata && (
-                            <div className="mt-1 text-xs text-white/60">
-                              {Object.entries(r.metadata)
-                                .slice(0, 3)
-                                .map(([k, v]) => `${k}: ${String(v)}`)
-                                .join(' · ')}
-                            </div>
-                          )}
-                        </button>
+                    <select
+                      className="w-full rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none"
+                      value={selectedResourceId}
+                      onChange={(e) => setSelectedResourceId(e.target.value)}
+                    >
+                      {resources.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.title || r.id}
+                          {r.type ? ` (${r.type})` : ''}
+                        </option>
                       ))}
+                    </select>
+                  )}
+
+                  {pushProvider === 'confluence' && selectedResourceId && (
+                    <div className="space-y-2 pt-2 border-t border-white/10">
+                      <label className="text-sm text-white/70 block">Folder (optional)</label>
+                      <p className="text-xs text-white/50">
+                        Export under a specific page/folder in this space, or use the space root.
+                      </p>
+                      {loadingConfluenceFolders ? (
+                        <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white/60">
+                          <Loader2 className="h-4 w-4 animate-spin" /> Loading pages…
+                        </div>
+                      ) : (
+                        <select
+                          className="w-full rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none"
+                          value={confluenceFolderId}
+                          onChange={(e) => setConfluenceFolderId(e.target.value)}
+                        >
+                          <option value="">Space root</option>
+                          {confluenceFolderOptions.map((f) => (
+                            <option key={f.id} value={f.id}>
+                              {f.title || f.id}
+                            </option>
+                          ))}
+                        </select>
+                      )}
                     </div>
                   )}
                 </>
