@@ -340,16 +340,12 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
   }, [showSourceDialog, loadAvailableSources]);
 
   const toggleSelection = (id: string) => {
-    if (addSourceTab === 'single') {
-      setSelectedIds((prev) => (prev.has(id) ? new Set() : new Set([id])));
-    } else {
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
-        if (next.has(id)) next.delete(id);
-        else next.add(id);
-        return next;
-      });
-    }
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
   const createSources = async () => {
@@ -664,13 +660,15 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
                       variant="secondary"
                       size="sm"
                       onClick={() =>
-                        setSelectedIds(
-                          filteredAvailableSources.length ? new Set([filteredAvailableSources[0].key]) : new Set()
-                        )
+                        setSelectedIds((prev) => {
+                          const next = new Set(prev);
+                          filteredAvailableSources.forEach((src) => next.add(src.key));
+                          return next;
+                        })
                       }
                       disabled={filteredAvailableSources.length === 0}
                     >
-                      Select one
+                      Select All
                     </Button>
                     <Button
                       type="button"
@@ -695,8 +693,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
                         className="flex cursor-pointer items-center gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/80 hover:border-white/30"
                       >
                         <input
-                          type="radio"
-                          name="single-source"
+                          type="checkbox"
                           className="h-4 w-4 accent-indigo-500"
                           checked={selected}
                           onChange={() => toggleSelection(src.key)}

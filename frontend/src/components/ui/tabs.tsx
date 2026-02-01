@@ -68,7 +68,7 @@ const TabsTrigger = ({ value, children, className, disabled = false }: TabsTrigg
       className={cn(
         "inline-flex items-center justify-center whitespace-nowrap rounded-xl px-3.5 py-1.5 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:ring-offset-2 focus-visible:ring-offset-black disabled:pointer-events-none disabled:opacity-50",
         isActive
-          ? "border border-white/20 bg-white text-black shadow-[0_12px_40px_rgba(255,255,255,0.08)]"
+          ? "border border-white/20 !bg-white !text-black shadow-[0_12px_40px_rgba(255,255,255,0.08)]"
           : "border border-transparent text-white/70 hover:text-white hover:bg-white/10 hover:border-white/10",
         className
       )}
