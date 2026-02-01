@@ -1,4 +1,6 @@
+import { computeBaselineWindow, diffDelta } from '@/lib/server/diff/contracts';
 import { runDiffForSources } from '@/lib/server/diff/runDiffForSources';
+import { formatDateRange } from '@/lib/server/diff/renderers';
 import { buildAkusForSources } from '@/lib/server/services/akuBuilder';
 import { planKnowledgePush, createSinglePagePlan } from '@/lib/server/services/knowledgePushPlanner';
 import { runKnowledgePush } from '@/lib/server/services/knowledgePushRunner';
@@ -43,16 +45,17 @@ export async function runReportSchedule(
 
   try {
     if (schedule.type === 'diff') {
-      const window = getWindowForCadence(schedule.cadence, now);
+      const primaryWindow = getWindowForCadence(schedule.cadence, now);
+      const baselineWindow = computeBaselineWindow(primaryWindow.start, primaryWindow.end);
       const sourceIds = Array.isArray(schedule.source_ids) ? schedule.source_ids : [];
-      const canonical = await runDiffForSources(
-        schedule.user_id,
-        sourceIds,
-        window,
-        supabase
-      );
 
-      // KB delivery for diff: push report to Notion/Confluence if configured
+      const [primaryCanonical, baselineCanonical] = await Promise.all([
+        runDiffForSources(schedule.user_id, sourceIds, primaryWindow, supabase),
+        runDiffForSources(schedule.user_id, sourceIds, baselineWindow, supabase),
+      ]);
+      const delta = diffDelta(primaryCanonical, baselineCanonical);
+
+      // KB delivery for diff: push report to Notion/Confluence if configured (same layout as Knowledge page)
       const comm = schedule.communication || {};
       const kbEnabled = comm.kb === true;
       const kbProvider = comm.kb_provider === 'notion' || comm.kb_provider === 'confluence' ? comm.kb_provider : null;
@@ -60,19 +63,27 @@ export async function runReportSchedule(
       if (kbEnabled && kbProvider && kbResourceId) {
         try {
           const title = schedule.name || 'Diff Report';
+          const formatDelta = (n: number) => (n >= 0 ? `+${n}` : String(n));
           const lines = [
-            `# ${title}`,
+            '## High-level metrics (all sources)',
             '',
-            `**Window:** ${canonical.window.start} → ${canonical.window.end}`,
+            `**Primary:** ${formatDateRange(primaryWindow.start, primaryWindow.end)}`,
+            `**Baseline:** ${formatDateRange(baselineWindow.start, baselineWindow.end)}`,
             '',
-            '## Summary',
-            `- Tickets moved: ${canonical.tickets_moved}`,
-            `- Tickets completed: ${canonical.tickets_completed}`,
-            `- PRs merged: ${canonical.prs_merged}`,
-            `- Repos touched: ${(canonical.repos_touched?.length ?? 0)}`,
+            '| Metric | Value | Delta |',
+            '| --- | ---: | ---: |',
+            `| Tickets moved | ${primaryCanonical.tickets_moved} | ${formatDelta(delta.tickets_moved)} |`,
+            `| Tickets completed | ${primaryCanonical.tickets_completed} | ${formatDelta(delta.tickets_completed)} |`,
+            `| Tickets regressed | ${primaryCanonical.tickets_regressed} | ${formatDelta(delta.tickets_regressed)} |`,
+            `| Tickets created | ${primaryCanonical.tickets_created} | ${formatDelta(delta.tickets_created)} |`,
+            `| PRs merged | ${primaryCanonical.prs_merged} | ${formatDelta(delta.prs_merged)} |`,
+            `| PRs opened | ${primaryCanonical.prs_opened} | ${formatDelta(delta.prs_opened)} |`,
+            `| PRs closed | ${primaryCanonical.prs_closed} | ${formatDelta(delta.prs_closed)} |`,
+            `| Commits to default | ${primaryCanonical.commits_default} | ${formatDelta(delta.commits_default)} |`,
+            `| Repos touched | ${primaryCanonical.repos_touched?.length ?? 0} | +${delta.repos_added?.length ?? 0} / -${delta.repos_removed?.length ?? 0} |`,
             '',
-            canonical.repos_touched?.length
-              ? `**Repos:** ${canonical.repos_touched.join(', ')}`
+            primaryCanonical.repos_touched?.length
+              ? `**Repos:** ${primaryCanonical.repos_touched.join(', ')}`
               : '',
           ].filter(Boolean);
           const diffMarkdown = lines.join('\n');
@@ -100,7 +111,8 @@ export async function runReportSchedule(
             errors: [{ message: kbMessage }],
             result_summary: {
               type: 'diff',
-              window: canonical.window,
+              primary: primaryWindow,
+              baseline: baselineWindow,
               kb_push_error: kbMessage,
             },
           });
@@ -131,11 +143,12 @@ export async function runReportSchedule(
           execution_time_ms: executionTimeMs,
           result_summary: {
             type: 'diff',
-            window: canonical.window,
-            tickets_moved: canonical.tickets_moved,
-            tickets_completed: canonical.tickets_completed,
-            prs_merged: canonical.prs_merged,
-            repos_touched: canonical.repos_touched?.length ?? 0,
+            primary: primaryWindow,
+            baseline: baselineWindow,
+            tickets_moved: primaryCanonical.tickets_moved,
+            tickets_completed: primaryCanonical.tickets_completed,
+            prs_merged: primaryCanonical.prs_merged,
+            repos_touched: primaryCanonical.repos_touched?.length ?? 0,
           },
         })
         .select('id')
@@ -209,7 +222,7 @@ export async function runReportSchedule(
         const plan = planKnowledgePush({
           akus: akusForPush,
           systemTitle: schedule.name || 'Knowledge',
-          canonBaseUrl: process.env.NEXT_PUBLIC_APP_URL || 'https://canon.internal',
+          canonBaseUrl: process.env.NEXT_PUBLIC_APP_URL,
         });
         await runKnowledgePush({
           supabase,

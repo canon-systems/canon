@@ -72,13 +72,26 @@ export class ConfluenceProvider implements WorkspaceProvider {
 				}
 
 				// If a page with this title already exists in this space (and under this parent), update it instead of creating
-				const existingPageId = await findPageByTitle(
+				let existingPageId = await findPageByTitle(
 					connectionId,
 					cloudInfo.cloudId,
 					spaceId,
 					content.title || 'Documentation',
 					parentId ?? undefined
 				);
+				// Fallback: parent may have changed (e.g. system page recreated at space root); find by title anywhere in space and update
+				if (!existingPageId && parentId != null) {
+					existingPageId = await findPageByTitle(
+						connectionId,
+						cloudInfo.cloudId,
+						spaceId,
+						content.title || 'Documentation',
+						undefined
+					);
+					if (existingPageId) {
+						console.log(`[Confluence] Found existing page by title (different parent), updating: "${content.title || 'Documentation'}" (id=${existingPageId})`);
+					}
+				}
 				if (existingPageId) {
 					const existingWorkspaceInfo: WorkspaceInfo = {
 						provider: 'confluence',

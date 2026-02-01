@@ -7,7 +7,8 @@ type RenderOptions = {
   title?: string;
 };
 
-function formatDateRange(start: string, end: string): string {
+/** Human-readable date range for diff windows (e.g. KB export and scheduled reports). */
+export function formatDateRange(start: string, end: string): string {
   const startDate = new Date(start).toISOString().replace('T', ' ').slice(0, 16);
   const endDate = new Date(end).toISOString().replace('T', ' ').slice(0, 16);
   return `${startDate} → ${endDate} UTC`;

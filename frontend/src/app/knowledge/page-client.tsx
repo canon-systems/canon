@@ -299,6 +299,10 @@ function DiffPrototypePanel() {
   const [diffScheduleFormKbResources, setDiffScheduleFormKbResources] = useState<Array<{ id: string; title: string; type?: string; metadata?: Record<string, unknown> }>>([]);
   const [diffScheduleFormKbRootMetadata, setDiffScheduleFormKbRootMetadata] = useState<Record<string, unknown> | undefined>(undefined);
   const [diffScheduleFormKbResourcesLoading, setDiffScheduleFormKbResourcesLoading] = useState(false);
+  const [diffScheduleFormConfluenceFolderId, setDiffScheduleFormConfluenceFolderId] = useState('');
+  const [diffScheduleFormConfluenceFolderOptions, setDiffScheduleFormConfluenceFolderOptions] = useState<Array<{ id: string; title: string }>>([]);
+  const [diffScheduleFormConfluenceFoldersLoading, setDiffScheduleFormConfluenceFoldersLoading] = useState(false);
+  const [diffScheduleFormEditingKbResourceId, setDiffScheduleFormEditingKbResourceId] = useState('');
   const [diffScheduleFormRunAtTime, setDiffScheduleFormRunAtTime] = useState('');
   const [diffScheduleFormRunAtWeekday, setDiffScheduleFormRunAtWeekday] = useState<number>(1); // Monday
   const [diffScheduleFormRunAtMonthDay, setDiffScheduleFormRunAtMonthDay] = useState<number>(1); // 1st
@@ -440,6 +444,51 @@ function DiffPrototypePanel() {
     }
   };
 
+  const loadDiffScheduleConfluenceFolders = async (spaceResourceId: string) => {
+    const parts = spaceResourceId.split(':');
+    if (parts.length < 2) return;
+    const [cloudId, ...rest] = parts;
+    const spaceId = rest.join(':');
+    if (!cloudId || !spaceId) return;
+    try {
+      setDiffScheduleFormConfluenceFoldersLoading(true);
+      setDiffScheduleFormConfluenceFolderId('');
+      const url = new URL('/api/push/resources', window.location.origin);
+      url.searchParams.set('provider', 'confluence');
+      url.searchParams.set('cloudId', cloudId);
+      url.searchParams.set('spaceId', spaceId);
+      const res = await fetch(url.toString(), { credentials: 'include' });
+      const data = await res.json();
+      const list = (data?.resources || []) as Array<{ id: string; title: string }>;
+      setDiffScheduleFormConfluenceFolderOptions(list);
+    } catch (e) {
+      console.error('Failed to load Confluence folders', e);
+      setDiffScheduleFormConfluenceFolderOptions([]);
+    } finally {
+      setDiffScheduleFormConfluenceFoldersLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (diffScheduleFormKbProvider === 'confluence' && diffScheduleFormKbResourceId) {
+      loadDiffScheduleConfluenceFolders(diffScheduleFormKbResourceId);
+    } else {
+      setDiffScheduleFormConfluenceFolderId('');
+      setDiffScheduleFormConfluenceFolderOptions([]);
+    }
+  }, [diffScheduleFormKbProvider, diffScheduleFormKbResourceId]);
+
+  useEffect(() => {
+    if (
+      diffScheduleFormConfluenceFolderOptions.length > 0 &&
+      diffScheduleFormEditingKbResourceId &&
+      diffScheduleFormConfluenceFolderOptions.some((r) => r.id === diffScheduleFormEditingKbResourceId)
+    ) {
+      setDiffScheduleFormConfluenceFolderId(diffScheduleFormEditingKbResourceId);
+      setDiffScheduleFormEditingKbResourceId('');
+    }
+  }, [diffScheduleFormConfluenceFolderOptions, diffScheduleFormEditingKbResourceId]);
+
   const openDiffScheduleForm = (schedule?: DiffSchedule) => {
     if (schedule) {
       setDiffScheduleEditingId(schedule.id);
@@ -452,11 +501,17 @@ function DiffPrototypePanel() {
       setDiffScheduleFormRunAtMonthDay(schedule.runAtMonthDay ?? 1);
       const kbProvider = schedule.communication?.kb_provider ?? '';
       setDiffScheduleFormKbProvider(kbProvider);
-      setDiffScheduleFormKbResourceId(schedule.communication?.kb_resource_id ?? '');
-      setDiffScheduleFormKbRootMetadata(schedule.communication?.kb_root_metadata);
+      const comm = schedule.communication || {};
+      const spaceResourceId = (comm.kb_root_metadata as Record<string, unknown> | undefined)?.spaceResourceId as string | undefined;
+      const kbResourceId = typeof comm.kb_resource_id === 'string' ? comm.kb_resource_id : '';
+      setDiffScheduleFormKbResourceId(spaceResourceId ?? kbResourceId);
+      setDiffScheduleFormKbRootMetadata(comm.kb_root_metadata);
+      setDiffScheduleFormConfluenceFolderId('');
+      setDiffScheduleFormConfluenceFolderOptions([]);
+      setDiffScheduleFormEditingKbResourceId(kbResourceId);
       setDiffScheduleFormKbResources([]);
       if (kbProvider === 'notion' || kbProvider === 'confluence') {
-        loadDiffScheduleKbResources(kbProvider, schedule.communication?.kb_resource_id);
+        loadDiffScheduleKbResources(kbProvider, spaceResourceId ?? kbResourceId);
       }
     } else {
       setDiffScheduleEditingId(null);
@@ -471,6 +526,9 @@ function DiffPrototypePanel() {
       setDiffScheduleFormKbResourceId('');
       setDiffScheduleFormKbResources([]);
       setDiffScheduleFormKbRootMetadata(undefined);
+      setDiffScheduleFormConfluenceFolderId('');
+      setDiffScheduleFormConfluenceFolderOptions([]);
+      setDiffScheduleFormEditingKbResourceId('');
     }
     setDiffScheduleFormOpen(true);
   };
@@ -478,6 +536,7 @@ function DiffPrototypePanel() {
   const closeDiffScheduleForm = () => {
     setDiffScheduleFormOpen(false);
     setDiffScheduleEditingId(null);
+    setDiffScheduleFormEditingKbResourceId('');
   };
 
   const saveDiffSchedule = async () => {
@@ -486,8 +545,15 @@ function DiffPrototypePanel() {
     if (comm.kb) {
       if (diffScheduleFormKbProvider && diffScheduleFormKbResourceId) {
         comm.kb_provider = diffScheduleFormKbProvider as 'notion' | 'confluence';
-        comm.kb_resource_id = diffScheduleFormKbResourceId;
-        comm.kb_root_metadata = diffScheduleFormKbRootMetadata;
+        const rootId =
+          diffScheduleFormKbProvider === 'confluence' && diffScheduleFormConfluenceFolderId
+            ? diffScheduleFormConfluenceFolderId
+            : diffScheduleFormKbResourceId;
+        comm.kb_resource_id = rootId;
+        comm.kb_root_metadata =
+          diffScheduleFormKbProvider === 'confluence'
+            ? { ...diffScheduleFormKbRootMetadata, spaceResourceId: diffScheduleFormKbResourceId }
+            : diffScheduleFormKbRootMetadata;
       }
     } else {
       delete comm.kb_provider;
@@ -1145,6 +1211,8 @@ function DiffPrototypePanel() {
                                   setDiffScheduleFormKbResourceId('');
                                   setDiffScheduleFormKbResources([]);
                                   setDiffScheduleFormKbRootMetadata(undefined);
+                                  setDiffScheduleFormConfluenceFolderId('');
+                                  setDiffScheduleFormConfluenceFolderOptions([]);
                                 }
                               }}
                             />
@@ -1188,31 +1256,56 @@ function DiffPrototypePanel() {
                               </Button>
                             </div>
                             {diffScheduleFormKbProvider && (
-                              <div>
-                                <label className="text-xs text-white/60 block mb-1">Page or space</label>
-                                {diffScheduleFormKbResourcesLoading ? (
-                                  <span className="text-sm text-white/60">Loading...</span>
-                                ) : diffScheduleFormKbResources.length === 0 ? (
-                                  <span className="text-sm text-white/60">No resources found. Connect {diffScheduleFormKbProvider} in Settings.</span>
-                                ) : (
-                                  <select
-                                    className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none"
-                                    value={diffScheduleFormKbResourceId}
-                                    onChange={(e) => {
-                                      const id = e.target.value;
-                                      const r = diffScheduleFormKbResources.find((res) => res.id === id);
-                                      setDiffScheduleFormKbResourceId(id);
-                                      setDiffScheduleFormKbRootMetadata(r?.metadata);
-                                    }}
-                                  >
-                                    {diffScheduleFormKbResources.map((r) => (
-                                      <option key={r.id} value={r.id}>
-                                        {r.title || r.id}
-                                      </option>
-                                    ))}
-                                  </select>
+                              <>
+                                <div>
+                                  <label className="text-xs text-white/60 block mb-1">Page or space</label>
+                                  {diffScheduleFormKbResourcesLoading ? (
+                                    <span className="text-sm text-white/60">Loading...</span>
+                                  ) : diffScheduleFormKbResources.length === 0 ? (
+                                    <span className="text-sm text-white/60">No resources found. Connect {diffScheduleFormKbProvider} in Settings.</span>
+                                  ) : (
+                                    <select
+                                      className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none"
+                                      value={diffScheduleFormKbResourceId}
+                                      onChange={(e) => {
+                                        const id = e.target.value;
+                                        const r = diffScheduleFormKbResources.find((res) => res.id === id);
+                                        setDiffScheduleFormKbResourceId(id);
+                                        setDiffScheduleFormKbRootMetadata(r?.metadata);
+                                        setDiffScheduleFormConfluenceFolderId('');
+                                      }}
+                                    >
+                                      {diffScheduleFormKbResources.map((r) => (
+                                        <option key={r.id} value={r.id}>
+                                          {r.title || r.id}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  )}
+                                </div>
+                                {diffScheduleFormKbProvider === 'confluence' && diffScheduleFormKbResourceId && (
+                                  <div className="pt-2 border-t border-white/10">
+                                    <label className="text-xs text-white/60 block mb-1">Folder (optional)</label>
+                                    <p className="text-xs text-white/50 mb-1">Export under a specific page in this space, or use the space root.</p>
+                                    {diffScheduleFormConfluenceFoldersLoading ? (
+                                      <span className="text-sm text-white/60">Loading pages…</span>
+                                    ) : (
+                                      <select
+                                        className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none"
+                                        value={diffScheduleFormConfluenceFolderId}
+                                        onChange={(e) => setDiffScheduleFormConfluenceFolderId(e.target.value)}
+                                      >
+                                        <option value="">Space root</option>
+                                        {diffScheduleFormConfluenceFolderOptions.map((f) => (
+                                          <option key={f.id} value={f.id}>
+                                            {f.title || f.id}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    )}
+                                  </div>
                                 )}
-                              </div>
+                              </>
                             )}
                           </div>
                         )}
@@ -1448,6 +1541,10 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
   const [projectionScheduleFormKbResources, setProjectionScheduleFormKbResources] = useState<Array<{ id: string; title: string; type?: string; metadata?: Record<string, unknown> }>>([]);
   const [projectionScheduleFormKbRootMetadata, setProjectionScheduleFormKbRootMetadata] = useState<Record<string, unknown> | undefined>(undefined);
   const [projectionScheduleFormKbResourcesLoading, setProjectionScheduleFormKbResourcesLoading] = useState(false);
+  const [projectionScheduleFormConfluenceFolderId, setProjectionScheduleFormConfluenceFolderId] = useState('');
+  const [projectionScheduleFormConfluenceFolderOptions, setProjectionScheduleFormConfluenceFolderOptions] = useState<Array<{ id: string; title: string }>>([]);
+  const [projectionScheduleFormConfluenceFoldersLoading, setProjectionScheduleFormConfluenceFoldersLoading] = useState(false);
+  const [projectionScheduleFormEditingKbResourceId, setProjectionScheduleFormEditingKbResourceId] = useState('');
   const [projectionScheduleFormRunAtTime, setProjectionScheduleFormRunAtTime] = useState('');
   const [projectionScheduleFormRunAtWeekday, setProjectionScheduleFormRunAtWeekday] = useState<number>(1); // Monday
   const [projectionScheduleFormRunAtMonthDay, setProjectionScheduleFormRunAtMonthDay] = useState<number>(1); // 1st
@@ -1619,6 +1716,51 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
     }
   };
 
+  const loadProjectionScheduleConfluenceFolders = async (spaceResourceId: string) => {
+    const parts = spaceResourceId.split(':');
+    if (parts.length < 2) return;
+    const [cloudId, ...rest] = parts;
+    const spaceId = rest.join(':');
+    if (!cloudId || !spaceId) return;
+    try {
+      setProjectionScheduleFormConfluenceFoldersLoading(true);
+      setProjectionScheduleFormConfluenceFolderId('');
+      const url = new URL('/api/push/resources', window.location.origin);
+      url.searchParams.set('provider', 'confluence');
+      url.searchParams.set('cloudId', cloudId);
+      url.searchParams.set('spaceId', spaceId);
+      const res = await fetch(url.toString(), { credentials: 'include' });
+      const data = await res.json();
+      const list = (data?.resources || []) as Array<{ id: string; title: string }>;
+      setProjectionScheduleFormConfluenceFolderOptions(list);
+    } catch (e) {
+      console.error('Failed to load Confluence folders', e);
+      setProjectionScheduleFormConfluenceFolderOptions([]);
+    } finally {
+      setProjectionScheduleFormConfluenceFoldersLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (projectionScheduleFormKbProvider === 'confluence' && projectionScheduleFormKbResourceId) {
+      loadProjectionScheduleConfluenceFolders(projectionScheduleFormKbResourceId);
+    } else {
+      setProjectionScheduleFormConfluenceFolderId('');
+      setProjectionScheduleFormConfluenceFolderOptions([]);
+    }
+  }, [projectionScheduleFormKbProvider, projectionScheduleFormKbResourceId]);
+
+  useEffect(() => {
+    if (
+      projectionScheduleFormConfluenceFolderOptions.length > 0 &&
+      projectionScheduleFormEditingKbResourceId &&
+      projectionScheduleFormConfluenceFolderOptions.some((r) => r.id === projectionScheduleFormEditingKbResourceId)
+    ) {
+      setProjectionScheduleFormConfluenceFolderId(projectionScheduleFormEditingKbResourceId);
+      setProjectionScheduleFormEditingKbResourceId('');
+    }
+  }, [projectionScheduleFormConfluenceFolderOptions, projectionScheduleFormEditingKbResourceId]);
+
   const openProjectionScheduleForm = (schedule?: ProjectionSchedule) => {
     if (schedule) {
       setProjectionScheduleEditingId(schedule.id);
@@ -1633,11 +1775,17 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
       setProjectionScheduleFormRunAtMonthDay(schedule.runAtMonthDay ?? 1);
       const kbProvider = schedule.communication?.kb_provider ?? '';
       setProjectionScheduleFormKbProvider(kbProvider);
-      setProjectionScheduleFormKbResourceId(schedule.communication?.kb_resource_id ?? '');
-      setProjectionScheduleFormKbRootMetadata(schedule.communication?.kb_root_metadata);
+      const comm = schedule.communication || {};
+      const spaceResourceId = (comm.kb_root_metadata as Record<string, unknown> | undefined)?.spaceResourceId as string | undefined;
+      const kbResourceId = typeof comm.kb_resource_id === 'string' ? comm.kb_resource_id : '';
+      setProjectionScheduleFormKbResourceId(spaceResourceId ?? kbResourceId);
+      setProjectionScheduleFormKbRootMetadata(comm.kb_root_metadata);
+      setProjectionScheduleFormConfluenceFolderId('');
+      setProjectionScheduleFormConfluenceFolderOptions([]);
+      setProjectionScheduleFormEditingKbResourceId(kbResourceId);
       setProjectionScheduleFormKbResources([]);
       if (kbProvider === 'notion' || kbProvider === 'confluence') {
-        loadProjectionScheduleKbResources(kbProvider, schedule.communication?.kb_resource_id);
+        loadProjectionScheduleKbResources(kbProvider, spaceResourceId ?? kbResourceId);
       }
     } else {
       setProjectionScheduleEditingId(null);
@@ -1654,6 +1802,9 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
       setProjectionScheduleFormKbResourceId('');
       setProjectionScheduleFormKbResources([]);
       setProjectionScheduleFormKbRootMetadata(undefined);
+      setProjectionScheduleFormConfluenceFolderId('');
+      setProjectionScheduleFormConfluenceFolderOptions([]);
+      setProjectionScheduleFormEditingKbResourceId('');
     }
     setProjectionScheduleFormOpen(true);
   };
@@ -1661,6 +1812,7 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
   const closeProjectionScheduleForm = () => {
     setProjectionScheduleFormOpen(false);
     setProjectionScheduleEditingId(null);
+    setProjectionScheduleFormEditingKbResourceId('');
   };
 
   const saveProjectionSchedule = async () => {
@@ -1669,8 +1821,15 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
     if (comm.kb) {
       if (projectionScheduleFormKbProvider && projectionScheduleFormKbResourceId) {
         comm.kb_provider = projectionScheduleFormKbProvider as 'notion' | 'confluence';
-        comm.kb_resource_id = projectionScheduleFormKbResourceId;
-        comm.kb_root_metadata = projectionScheduleFormKbRootMetadata;
+        const rootId =
+          projectionScheduleFormKbProvider === 'confluence' && projectionScheduleFormConfluenceFolderId
+            ? projectionScheduleFormConfluenceFolderId
+            : projectionScheduleFormKbResourceId;
+        comm.kb_resource_id = rootId;
+        comm.kb_root_metadata =
+          projectionScheduleFormKbProvider === 'confluence'
+            ? { ...projectionScheduleFormKbRootMetadata, spaceResourceId: projectionScheduleFormKbResourceId }
+            : projectionScheduleFormKbRootMetadata;
       }
     } else {
       delete comm.kb_provider;
@@ -2605,6 +2764,8 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                                         setProjectionScheduleFormKbResourceId('');
                                         setProjectionScheduleFormKbResources([]);
                                         setProjectionScheduleFormKbRootMetadata(undefined);
+                                        setProjectionScheduleFormConfluenceFolderId('');
+                                        setProjectionScheduleFormConfluenceFolderOptions([]);
                                       }
                                     }}
                                   />
@@ -2648,31 +2809,56 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                                     </Button>
                                   </div>
                                   {projectionScheduleFormKbProvider && (
-                                    <div>
-                                      <label className="text-xs text-white/60 block mb-1">Page or space</label>
-                                      {projectionScheduleFormKbResourcesLoading ? (
-                                        <span className="text-sm text-white/60">Loading...</span>
-                                      ) : projectionScheduleFormKbResources.length === 0 ? (
-                                        <span className="text-sm text-white/60">No resources found. Connect {projectionScheduleFormKbProvider} in Settings.</span>
-                                      ) : (
-                                        <select
-                                          className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none"
-                                          value={projectionScheduleFormKbResourceId}
-                                          onChange={(e) => {
-                                            const id = e.target.value;
-                                            const r = projectionScheduleFormKbResources.find((res) => res.id === id);
-                                            setProjectionScheduleFormKbResourceId(id);
-                                            setProjectionScheduleFormKbRootMetadata(r?.metadata);
-                                          }}
-                                        >
-                                          {projectionScheduleFormKbResources.map((r) => (
-                                            <option key={r.id} value={r.id}>
-                                              {r.title || r.id}
-                                            </option>
-                                          ))}
-                                        </select>
+                                    <>
+                                      <div>
+                                        <label className="text-xs text-white/60 block mb-1">Page or space</label>
+                                        {projectionScheduleFormKbResourcesLoading ? (
+                                          <span className="text-sm text-white/60">Loading...</span>
+                                        ) : projectionScheduleFormKbResources.length === 0 ? (
+                                          <span className="text-sm text-white/60">No resources found. Connect {projectionScheduleFormKbProvider} in Settings.</span>
+                                        ) : (
+                                          <select
+                                            className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none"
+                                            value={projectionScheduleFormKbResourceId}
+                                            onChange={(e) => {
+                                              const id = e.target.value;
+                                              const r = projectionScheduleFormKbResources.find((res) => res.id === id);
+                                              setProjectionScheduleFormKbResourceId(id);
+                                              setProjectionScheduleFormKbRootMetadata(r?.metadata);
+                                              setProjectionScheduleFormConfluenceFolderId('');
+                                            }}
+                                          >
+                                            {projectionScheduleFormKbResources.map((r) => (
+                                              <option key={r.id} value={r.id}>
+                                                {r.title || r.id}
+                                              </option>
+                                            ))}
+                                          </select>
+                                        )}
+                                      </div>
+                                      {projectionScheduleFormKbProvider === 'confluence' && projectionScheduleFormKbResourceId && (
+                                        <div className="pt-2 border-t border-white/10">
+                                          <label className="text-xs text-white/60 block mb-1">Folder (optional)</label>
+                                          <p className="text-xs text-white/50 mb-1">Export under a specific page in this space, or use the space root.</p>
+                                          {projectionScheduleFormConfluenceFoldersLoading ? (
+                                            <span className="text-sm text-white/60">Loading pages…</span>
+                                          ) : (
+                                            <select
+                                              className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none"
+                                              value={projectionScheduleFormConfluenceFolderId}
+                                              onChange={(e) => setProjectionScheduleFormConfluenceFolderId(e.target.value)}
+                                            >
+                                              <option value="">Space root</option>
+                                              {projectionScheduleFormConfluenceFolderOptions.map((f) => (
+                                                <option key={f.id} value={f.id}>
+                                                  {f.title || f.id}
+                                                </option>
+                                              ))}
+                                            </select>
+                                          )}
+                                        </div>
                                       )}
-                                    </div>
+                                    </>
                                   )}
                                 </div>
                               )}
