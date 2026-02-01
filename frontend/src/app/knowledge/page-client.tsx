@@ -837,81 +837,6 @@ function DiffPrototypePanel() {
             {diffFilterTab === 'filters' && (
               <>
                 <SidebarGroup>
-                  <SidebarGroupLabel>Time range (UTC)</SidebarGroupLabel>
-                  <SidebarGroupContent>
-                    <Popover open={diffCalendarOpen} onOpenChange={(open) => {
-                      setDiffCalendarOpen(open);
-                      if (open) {
-                        setPendingRangeFrom(diffInput.start_timestamp ? isoToCalendarDate(diffInput.start_timestamp) : undefined);
-                        setPendingRangeTo(diffInput.end_timestamp ? isoToCalendarDate(diffInput.end_timestamp) : undefined);
-                      }
-                    }}>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          className={cn(
-                            'w-full justify-start text-left font-normal h-10 rounded-lg border border-white/60 bg-neutral-800 text-white hover:bg-neutral-700 hover:border-white/50',
-                            !diffInput.start_timestamp && 'text-white/50'
-                          )}
-                        >
-                          <CalendarIcon className="mr-2 h-4 w-4" />
-                          {diffInput.start_timestamp && diffInput.end_timestamp ? (
-                            <>
-                              {formatDateUTC(diffInput.start_timestamp)} – {formatDateUTC(diffInput.end_timestamp)}
-                            </>
-                          ) : (
-                            'Pick a date range'
-                          )}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0 border-white/10 bg-neutral-900" align="start">
-                        <Calendar
-                          mode="range"
-                          defaultMonth={pendingRangeFrom ?? (diffInput.start_timestamp ? isoToCalendarDate(diffInput.start_timestamp) : new Date())}
-                          selected={{
-                            from: pendingRangeFrom ?? (diffInput.start_timestamp ? isoToCalendarDate(diffInput.start_timestamp) : undefined),
-                            to: pendingRangeTo ?? (diffInput.end_timestamp ? isoToCalendarDate(diffInput.end_timestamp) : undefined),
-                          }}
-                          onSelect={(range: DateRange | undefined) => {
-                            if (!range?.from) return;
-                            setPendingRangeFrom(range.from);
-                            setPendingRangeTo(range.to ?? range.from);
-                          }}
-                          numberOfMonths={1}
-                          className="rounded-lg border-0"
-                        />
-                        <div className="flex justify-end gap-2 border-t border-white/10 p-3">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="border-white/20 bg-neutral-800 text-white hover:bg-neutral-700"
-                            onClick={() => setDiffCalendarOpen(false)}
-                          >
-                            Cancel
-                          </Button>
-                          <Button
-                            size="sm"
-                            className="bg-white text-black hover:bg-neutral-200"
-                            onClick={() => {
-                              if (pendingRangeFrom) {
-                                const to = pendingRangeTo ?? pendingRangeFrom;
-                                setDiffInput((prev) => ({
-                                  ...prev,
-                                  start_timestamp: new Date(Date.UTC(pendingRangeFrom.getFullYear(), pendingRangeFrom.getMonth(), pendingRangeFrom.getDate(), 0, 0, 0, 0)).toISOString(),
-                                  end_timestamp: new Date(Date.UTC(to.getFullYear(), to.getMonth(), to.getDate(), 23, 59, 59, 999)).toISOString(),
-                                }));
-                              }
-                              setDiffCalendarOpen(false);
-                            }}
-                          >
-                            Apply
-                          </Button>
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-                  </SidebarGroupContent>
-                </SidebarGroup>
-                <SidebarGroup>
                   <SidebarGroupLabel>Sources</SidebarGroupLabel>
                   <SidebarGroupContent>
                     {connectedSources.length === 0 ? (
@@ -1000,6 +925,81 @@ function DiffPrototypePanel() {
                         </div>
                       </>
                     )}
+                  </SidebarGroupContent>
+                </SidebarGroup>
+                <SidebarGroup>
+                  <SidebarGroupLabel>Time range (UTC)</SidebarGroupLabel>
+                  <SidebarGroupContent>
+                    <Popover open={diffCalendarOpen} onOpenChange={(open) => {
+                      setDiffCalendarOpen(open);
+                      if (open) {
+                        setPendingRangeFrom(diffInput.start_timestamp ? isoToCalendarDate(diffInput.start_timestamp) : undefined);
+                        setPendingRangeTo(diffInput.end_timestamp ? isoToCalendarDate(diffInput.end_timestamp) : undefined);
+                      }
+                    }}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          className={cn(
+                            'w-full justify-start text-left font-normal h-10 rounded-lg border border-white/60 bg-neutral-800 text-white hover:bg-neutral-700 hover:border-white/50',
+                            !diffInput.start_timestamp && 'text-white/50'
+                          )}
+                        >
+                          <CalendarIcon className="mr-2 h-4 w-4" />
+                          {diffInput.start_timestamp && diffInput.end_timestamp ? (
+                            <>
+                              {formatDateUTC(diffInput.start_timestamp)} – {formatDateUTC(diffInput.end_timestamp)}
+                            </>
+                          ) : (
+                            'Pick a date range'
+                          )}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0 border-white/10 bg-neutral-900" align="start">
+                        <Calendar
+                          mode="range"
+                          defaultMonth={pendingRangeFrom ?? (diffInput.start_timestamp ? isoToCalendarDate(diffInput.start_timestamp) : new Date())}
+                          selected={{
+                            from: pendingRangeFrom ?? (diffInput.start_timestamp ? isoToCalendarDate(diffInput.start_timestamp) : undefined),
+                            to: pendingRangeTo ?? (diffInput.end_timestamp ? isoToCalendarDate(diffInput.end_timestamp) : undefined),
+                          }}
+                          onSelect={(range: DateRange | undefined) => {
+                            if (!range?.from) return;
+                            setPendingRangeFrom(range.from);
+                            setPendingRangeTo(range.to ?? range.from);
+                          }}
+                          numberOfMonths={1}
+                          className="rounded-lg border-0"
+                        />
+                        <div className="flex justify-end gap-2 border-t border-white/10 p-3">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="border-white/20 bg-neutral-800 text-white hover:bg-neutral-700"
+                            onClick={() => setDiffCalendarOpen(false)}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            size="sm"
+                            className="bg-white text-black hover:bg-neutral-200"
+                            onClick={() => {
+                              if (pendingRangeFrom) {
+                                const to = pendingRangeTo ?? pendingRangeFrom;
+                                setDiffInput((prev) => ({
+                                  ...prev,
+                                  start_timestamp: new Date(Date.UTC(pendingRangeFrom.getFullYear(), pendingRangeFrom.getMonth(), pendingRangeFrom.getDate(), 0, 0, 0, 0)).toISOString(),
+                                  end_timestamp: new Date(Date.UTC(to.getFullYear(), to.getMonth(), to.getDate(), 23, 59, 59, 999)).toISOString(),
+                                }));
+                              }
+                              setDiffCalendarOpen(false);
+                            }}
+                          >
+                            Apply
+                          </Button>
+                        </div>
+                      </PopoverContent>
+                    </Popover>
                   </SidebarGroupContent>
                 </SidebarGroup>
               </>

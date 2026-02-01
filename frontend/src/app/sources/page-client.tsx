@@ -21,6 +21,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { IntegrationLogos } from '@/components/IntegrationLogos';
 import { Input } from '@/components/ui/input';
 
@@ -111,6 +112,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
   const [availableGithub, setAvailableGithub] = useState<Array<{ id: string; full_name: string; name: string; default_branch: string }>>([]);
   const [availableJira, setAvailableJira] = useState<Array<{ id: string; key: string; name: string; cloudId?: string }>>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [addSourceTab, setAddSourceTab] = useState<'single' | 'multi'>('multi');
   const [sourceSearch, setSourceSearch] = useState('');
   const [deletingRepoId, setDeletingRepoId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -338,12 +340,16 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
   }, [showSourceDialog, loadAvailableSources]);
 
   const toggleSelection = (id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+    if (addSourceTab === 'single') {
+      setSelectedIds((prev) => (prev.has(id) ? new Set() : new Set([id])));
+    } else {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+    }
   };
 
   const createSources = async () => {
@@ -611,6 +617,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
           setShowSourceDialog(open);
           if (!open) {
             setSelectedIds(new Set());
+            setAddSourceTab('multi');
             setCreateError('');
             setLoadError('');
           }
@@ -621,100 +628,184 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
           <p className="text-sm text-white/70">
             Select the sources you want to connect, then click “Add sources”. We’ll start ingesting them in the background.
           </p>
-          <div className="space-y-6">
-            {loadError && <p className="text-sm text-red-300">{loadError}</p>}
-            {loadingSources && (
-              <div className="flex items-center gap-2 text-sm text-white/70">
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" aria-label="Loading" />
-                <span>Loading sources…</span>
-              </div>
-            )}
 
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center gap-3">
-                <Input
-                  placeholder="Search sources"
-                  value={sourceSearch}
-                  onChange={(e) => setSourceSearch(e.currentTarget.value)}
-                  className="flex-1 min-w-[220px] max-w-xl !bg-neutral-800 !border-white text-white placeholder:text-white/70"
-                />
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    onClick={() =>
-                      setSelectedIds((prev) => {
-                        const next = new Set(prev);
-                        filteredAvailableSources.forEach((src) => next.add(src.key));
-                        return next;
-                      })
-                    }
-                    disabled={filteredAvailableSources.length === 0}
-                  >
-                    Select All
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setSelectedIds(new Set())}
-                    disabled={selectedIds.size === 0}
-                  >
-                    Clear
-                  </Button>
+          <Tabs
+            value={addSourceTab}
+            onValueChange={(v) => {
+              setAddSourceTab(v as 'single' | 'multi');
+              setSelectedIds(new Set());
+            }}
+            className="w-full"
+          >
+            <TabsList className="w-full sm:w-auto">
+              <TabsTrigger value="single">Single source</TabsTrigger>
+              <TabsTrigger value="multi">Multi source</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="single" className="mt-4 space-y-6">
+              {loadError && <p className="text-sm text-red-300">{loadError}</p>}
+              {loadingSources && (
+                <div className="flex items-center gap-2 text-sm text-white/70">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" aria-label="Loading" />
+                  <span>Loading sources…</span>
+                </div>
+              )}
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <Input
+                    placeholder="Search sources"
+                    value={sourceSearch}
+                    onChange={(e) => setSourceSearch(e.currentTarget.value)}
+                    className="flex-1 min-w-[220px] max-w-xl !bg-neutral-800 !border-white text-white placeholder:text-white/70"
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() =>
+                        setSelectedIds(
+                          filteredAvailableSources.length ? new Set([filteredAvailableSources[0].key]) : new Set()
+                        )
+                      }
+                      disabled={filteredAvailableSources.length === 0}
+                    >
+                      Select one
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setSelectedIds(new Set())}
+                      disabled={selectedIds.size === 0}
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                </div>
+                <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+                  {filteredAvailableSources.length === 0 && !loadingSources && (
+                    <p className="text-sm text-white/60">No available sources found. Connect integrations first.</p>
+                  )}
+                  {filteredAvailableSources.map((src) => {
+                    const selected = selectedIds.has(src.key);
+                    return (
+                      <label
+                        key={src.key}
+                        className="flex cursor-pointer items-center gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/80 hover:border-white/30"
+                      >
+                        <input
+                          type="radio"
+                          name="single-source"
+                          className="h-4 w-4 accent-indigo-500"
+                          checked={selected}
+                          onChange={() => toggleSelection(src.key)}
+                        />
+                        <IntegrationLogos provider={src.provider} size={18} color="#ffffff" />
+                        <div className="flex flex-col">
+                          <span className="font-medium text-white">{src.label}</span>
+                          <span className="text-xs text-white/60">{src.subtitle}</span>
+                        </div>
+                      </label>
+                    );
+                  })}
                 </div>
               </div>
+            </TabsContent>
 
-              <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
-                {filteredAvailableSources.length === 0 && !loadingSources && (
-                <p className="text-sm text-white/60">No available sources found. Connect integrations first.</p>
-                )}
-                {filteredAvailableSources.map((src) => {
-                  const selected = selectedIds.has(src.key);
-                  return (
-                    <label
-                      key={src.key}
-                      className="flex cursor-pointer items-center gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/80 hover:border-white/30"
+            <TabsContent value="multi" className="mt-4 space-y-6">
+              {loadError && <p className="text-sm text-red-300">{loadError}</p>}
+              {loadingSources && (
+                <div className="flex items-center gap-2 text-sm text-white/70">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" aria-label="Loading" />
+                  <span>Loading sources…</span>
+                </div>
+              )}
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <Input
+                    placeholder="Search sources"
+                    value={sourceSearch}
+                    onChange={(e) => setSourceSearch(e.currentTarget.value)}
+                    className="flex-1 min-w-[220px] max-w-xl !bg-neutral-800 !border-white text-white placeholder:text-white/70"
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() =>
+                        setSelectedIds((prev) => {
+                          const next = new Set(prev);
+                          filteredAvailableSources.forEach((src) => next.add(src.key));
+                          return next;
+                        })
+                      }
+                      disabled={filteredAvailableSources.length === 0}
                     >
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 accent-indigo-500"
-                        checked={selected}
-                        onChange={() => toggleSelection(src.key)}
-                      />
-                      <IntegrationLogos provider={src.provider} size={18} color="#ffffff" />
-                      <div className="flex flex-col">
-                        <span className="font-medium text-white">{src.label}</span>
-                        <span className="text-xs text-white/60">{src.subtitle}</span>
-                      </div>
-                    </label>
-                  );
-                })}
+                      Select All
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setSelectedIds(new Set())}
+                      disabled={selectedIds.size === 0}
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                </div>
+                <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+                  {filteredAvailableSources.length === 0 && !loadingSources && (
+                    <p className="text-sm text-white/60">No available sources found. Connect integrations first.</p>
+                  )}
+                  {filteredAvailableSources.map((src) => {
+                    const selected = selectedIds.has(src.key);
+                    return (
+                      <label
+                        key={src.key}
+                        className="flex cursor-pointer items-center gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/80 hover:border-white/30"
+                      >
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 accent-indigo-500"
+                          checked={selected}
+                          onChange={() => toggleSelection(src.key)}
+                        />
+                        <IntegrationLogos provider={src.provider} size={18} color="#ffffff" />
+                        <div className="flex flex-col">
+                          <span className="font-medium text-white">{src.label}</span>
+                          <span className="text-xs text-white/60">{src.subtitle}</span>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
+            </TabsContent>
+          </Tabs>
 
-            {createError && <p className="text-sm text-red-300">{createError}</p>}
+          {createError && <p className="text-sm text-red-300">{createError}</p>}
 
-            <div className="flex justify-end gap-3">
-              <Button
-                variant="secondary"
-                size="lg"
-                className="h-11 !rounded-full !border !border-white/50 !bg-white/10 px-5 text-white shadow-sm transition hover:!bg-white/20 hover:shadow"
-                onClick={() => setShowSourceDialog(false)}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="default"
-                size="lg"
-                className="h-11 !rounded-full !bg-white px-6 !text-slate-900 font-semibold shadow-lg transition hover:!bg-slate-100 hover:shadow-xl focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
-                onClick={createSources}
-                disabled={creating}
-              >
-                {creating ? 'Adding…' : 'Add sources'}
-              </Button>
-            </div>
+          <div className="flex justify-end gap-3">
+            <Button
+              variant="secondary"
+              size="lg"
+              className="h-11 !rounded-full !border !border-white/50 !bg-white/10 px-5 text-white shadow-sm transition hover:!bg-white/20 hover:shadow"
+              onClick={() => setShowSourceDialog(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="default"
+              size="lg"
+              className="h-11 !rounded-full !bg-white px-6 !text-slate-900 font-semibold shadow-lg transition hover:!bg-slate-100 hover:shadow-xl focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+              onClick={createSources}
+              disabled={creating}
+            >
+              {creating ? 'Adding…' : 'Add sources'}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
