@@ -13,6 +13,14 @@ function fileContentHash(content: string): string {
 const DEFAULT_AUDIENCES = ['Executive', 'Sales', 'Marketing', 'Engineering', 'Support', 'Customer'];
 
 export type IngestOptions = { mode?: 'single' | 'multi'; createdSourceIds?: string[] };
+export type SourceSetupStage =
+  | 'queueing'
+  | 'fetching'
+  | 'indexing'
+  | 'summarizing'
+  | 'building_akus'
+  | 'ready'
+  | 'failed';
 
 export type WorkspaceSource = {
   id: string;
@@ -51,11 +59,15 @@ type JiraSearchFailure = { ok: false; status: number; body: string };
 async function updateStatus(
   supabase: SupabaseClient,
   sourceId: string,
-  status: string,
+  status: SourceSetupStage | string,
   progress: number | null = null,
   extras: Record<string, unknown> = {}
 ) {
-  const payload = { status, ...(progress !== null ? { progress_pct: progress } : {}), ...extras };
+  const payload = {
+    status,
+    ...(progress !== null ? { progress_pct: progress } : {}),
+    ...extras,
+  };
   await supabase
     .from('workspace_sources')
     .update({
@@ -64,6 +76,17 @@ async function updateStatus(
       updated_at: new Date().toISOString(),
     })
     .eq('id', sourceId);
+}
+
+async function updateStage(
+  supabase: SupabaseClient,
+  sourceId: string,
+  stage: SourceSetupStage,
+  progress: number,
+  stepLabel: string,
+  extras: Record<string, unknown> = {}
+) {
+  await updateStatus(supabase, sourceId, stage, progress, { step_label: stepLabel, ...extras });
 }
 
 function normalizeRepoId(repoUrl: string): string {
@@ -94,7 +117,7 @@ export async function ingestGitHubSource(
 
   try {
     console.log(`Source ingest: GitHub start for ${repo}@${branch}`, { sourceId: source.id });
-    await updateStatus(supabase, source.id, 'ingesting', 0);
+    await updateStage(supabase, source.id, 'fetching', 10, 'Fetching repository');
 
     const repoUrl = repo.startsWith('http') ? repo : `https://github.com/${repo}`;
     const analysis = await analyzeRepository({
@@ -106,15 +129,22 @@ export async function ingestGitHubSource(
     });
 
     const files = analysis.rawFiles || [];
+    await updateStage(supabase, source.id, 'indexing', 35, 'Indexing repository files', {
+      total_files: files.length,
+    });
     const sourceKey = normalizeRepoId(repoUrl);
     const manager = new FileSummaryManager(supabase, source.id, sourceKey, branch);
     console.log(`Source ingest: summarizing ${files.length} files`);
+    await updateStage(supabase, source.id, 'summarizing', 60, 'Summarizing source data', {
+      total_files: files.length,
+    });
     await manager.updateSummaries(
       files.map((f) => ({ path: f.path, content: f.content })),
       { model: 'openai/gpt-4o-mini', regenerationReason: 'initial' }
     );
 
     // Build AKUs: per-source (single tab) or merged from selected sources only (multi tab)
+    await updateStage(supabase, source.id, 'building_akus', 85, 'Building knowledge outputs');
     if (options?.mode === 'single') {
       console.log('Source ingest: building per-source AKUs for GitHub source', { audiences: DEFAULT_AUDIENCES });
       await buildAkusForSources(supabase, source.user_id, [source.id], DEFAULT_AUDIENCES, { perSource: true });
@@ -130,7 +160,7 @@ export async function ingestGitHubSource(
       await buildAkusForSources(supabase, source.user_id, sourceIds, DEFAULT_AUDIENCES);
     }
 
-    await updateStatus(supabase, source.id, 'ready', 100);
+    await updateStage(supabase, source.id, 'ready', 100, 'Setup complete');
     console.log(`Source ingest: finished ${repo}@${branch} (${files.length} files)`);
   } catch (err) {
     console.error('Source ingest: GitHub failed', err);
@@ -152,7 +182,7 @@ export async function ingestIssueSource(
 
   try {
     console.log(`Source ingest: Issue provider start (${provider})`, { scope: source.scope });
-    await updateStatus(supabase, source.id, 'ingesting', 0);
+    await updateStage(supabase, source.id, 'fetching', 10, 'Fetching source data');
 
     const projectKey = typeof source.scope?.project === 'string' ? source.scope.project : null;
     const cloudId = typeof source.scope?.cloudId === 'string' ? source.scope.cloudId : null;
@@ -262,6 +292,10 @@ export async function ingestIssueSource(
       issues = [];
     }
 
+    await updateStage(supabase, source.id, 'indexing', 45, 'Indexing source records', {
+      total_items: issues.length,
+    });
+
     // Upsert into issue_index (schema has no description column; full issue is in raw)
     const rows = issues.map((issue) => {
       const fields = issue.fields || {};
@@ -305,6 +339,7 @@ export async function ingestIssueSource(
     }
 
     // Build AKUs: per-source (single tab) or merged from selected sources only (multi tab)
+    await updateStage(supabase, source.id, 'building_akus', 85, 'Building knowledge outputs');
     if (options?.mode === 'single') {
       console.log('Source ingest: building per-source AKUs from issues', { issues: rows.length, audiences: DEFAULT_AUDIENCES });
       await buildAkusForSources(supabase, source.user_id, [source.id], DEFAULT_AUDIENCES, { perSource: true });
@@ -320,7 +355,7 @@ export async function ingestIssueSource(
       await buildAkusForSources(supabase, source.user_id, sourceIds, DEFAULT_AUDIENCES);
     }
 
-    await updateStatus(supabase, source.id, 'ready', 100);
+    await updateStage(supabase, source.id, 'ready', 100, 'Setup complete');
   } catch (err) {
     console.error('Source ingest: issue ingest failed', err);
     await updateStatus(supabase, source.id, 'failed', 0, {
@@ -337,7 +372,7 @@ export async function ingestSource(supabase: SupabaseClient, source: WorkspaceSo
     await ingestIssueSource(supabase, source, options);
   } else {
     // Unknown provider; mark ready without processing
-    await updateStatus(supabase, source.id, 'ready', 100);
+    await updateStage(supabase, source.id, 'ready', 100, 'Setup complete');
   }
 }
 

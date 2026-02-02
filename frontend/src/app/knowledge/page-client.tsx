@@ -69,7 +69,7 @@ type DiffDelta = {
   repos_removed: string[];
 };
 
-/** Connected source from /api/repos (workspace_sources) for Diff panel */
+/** Connected source from /api/sources (workspace_sources) for Diff panel */
 type ConnectedDiffSource = {
   id: string;
   name: string;
@@ -384,7 +384,7 @@ function DiffPrototypePanel() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch('/api/repos');
+        const res = await fetch('/api/sources');
         if (!res.ok || cancelled) return;
         const data = await res.json();
         const list = Array.isArray(data) ? data : [];
@@ -849,7 +849,7 @@ function DiffPrototypePanel() {
                               variant="outline"
                               role="combobox"
                               aria-expanded={diffSourceMenuOpen}
-                              className="w-full justify-between border-white/20 bg-neutral-800 hover:bg-neutral-700 hover:border-white/30"
+                              className="w-full justify-between border border-white bg-neutral-800 hover:bg-neutral-700 hover:border-white"
                               onClick={() => setDiffSourceMenuOpen(!diffSourceMenuOpen)}
                             >
                               <span className="truncate">
@@ -941,7 +941,7 @@ function DiffPrototypePanel() {
                         <Button
                           variant="outline"
                           className={cn(
-                            'w-full justify-start text-left font-normal h-10 rounded-lg border border-white/60 bg-neutral-800 text-white hover:bg-neutral-700 hover:border-white/50',
+                            'w-full justify-start text-left font-normal h-10 rounded-lg border border-white bg-neutral-800 text-white hover:bg-neutral-700 hover:border-white',
                             !diffInput.start_timestamp && 'text-white/50'
                           )}
                         >
@@ -975,7 +975,7 @@ function DiffPrototypePanel() {
                           <Button
                             variant="outline"
                             size="sm"
-                            className="border-white/20 bg-neutral-800 text-white hover:bg-neutral-700"
+                            className="border border-white bg-neutral-800 text-white hover:bg-neutral-700"
                             onClick={() => setDiffCalendarOpen(false)}
                           >
                             Cancel
@@ -1059,7 +1059,7 @@ function DiffPrototypePanel() {
                           value={diffScheduleFormName}
                           onChange={(e) => setDiffScheduleFormName(e.target.value)}
                           placeholder="e.g. Weekly diff report"
-                          className="h-9 border-white/20 bg-neutral-800 text-white text-sm"
+                          className="h-9 border border-white bg-neutral-800 text-white text-sm"
                         />
                       </div>
                       <div>
@@ -1070,7 +1070,7 @@ function DiffPrototypePanel() {
                               variant="outline"
                               role="combobox"
                               aria-expanded={diffScheduleCadenceMenuOpen}
-                              className="w-full justify-between border-white/20 bg-neutral-800 hover:bg-neutral-700 hover:border-white/30 text-white text-sm h-9"
+                              className="w-full justify-between border border-white bg-neutral-800 hover:bg-neutral-700 hover:border-white text-white text-sm h-9"
                             >
                               <span className="truncate">{getCadenceLabel(diffScheduleFormCadence)}</span>
                               <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
@@ -1154,7 +1154,7 @@ function DiffPrototypePanel() {
                           <PopoverTrigger asChild>
                             <Button
                               variant="outline"
-                              className="w-full justify-between border-white/20 bg-neutral-800 hover:bg-neutral-700 hover:border-white/30 text-white text-sm"
+                              className="w-full justify-between border border-white bg-neutral-800 hover:bg-neutral-700 hover:border-white text-white text-sm"
                             >
                               <span className="truncate">
                                 {diffScheduleFormSourceIds.length > 0
@@ -2012,7 +2012,7 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
   };
 
   const itemsFilteredBySources = useMemo(() => {
-    if (selectedSourceIds.length === 0) return items;
+    if (selectedSourceIds.length === 0) return [];
     return items.filter((item) =>
       Array.isArray(item.source_ids) && item.source_ids.some((id) => selectedSourceIds.includes(id))
     );
@@ -2227,7 +2227,7 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                                 variant="outline"
                                 role="combobox"
                                 aria-expanded={sourceMenuOpen}
-                                className="w-full justify-between border-white/20 bg-neutral-800 hover:bg-neutral-700 hover:border-white/30"
+                                className="w-full justify-between border border-white bg-neutral-800 hover:bg-neutral-700 hover:border-white"
                                 onClick={() => setSourceMenuOpen(!sourceMenuOpen)}
                               >
                                 <span className="truncate">
@@ -2323,7 +2323,7 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                                     className={cn(
                                       'border',
                                       active
-                                        ? 'border-white/70 bg-white text-black shadow-[0_18px_50px_rgba(0,0,0,0.5)] ring-2 ring-white ring-offset-1 ring-offset-black'
+                                        ? 'border-white/70 bg-white !text-black shadow-[0_18px_50px_rgba(0,0,0,0.5)] ring-2 ring-white ring-offset-1 ring-offset-black'
                                         : 'border-white/15 text-white/80 hover:border-white/25 hover:text-white'
                                     )}
                                     onClick={() => toggleAudience(aud)}
@@ -2367,7 +2367,7 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                                     className={cn(
                                       'border',
                                       active
-                                        ? 'border-white/70 bg-white text-black shadow-[0_18px_50px_rgba(0,0,0,0.5)] ring-2 ring-white ring-offset-1 ring-offset-black'
+                                        ? 'border-white/70 bg-white !text-black shadow-[0_18px_50px_rgba(0,0,0,0.5)] ring-2 ring-white ring-offset-1 ring-offset-black'
                                         : 'border-white/15 text-white/80 hover:border-white/25 hover:text-white'
                                     )}
                                     onClick={() => toggleCategory(cat)}
@@ -2456,7 +2456,7 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                                 value={projectionScheduleFormName}
                                 onChange={(e) => setProjectionScheduleFormName(e.target.value)}
                                 placeholder="e.g. Weekly projection report"
-                                className="h-9 border-white/20 bg-neutral-800 text-white text-sm"
+                                className="h-9 border border-white bg-neutral-800 text-white text-sm"
                               />
                             </div>
                             <div>
@@ -2467,7 +2467,7 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                                     variant="outline"
                                     role="combobox"
                                     aria-expanded={projectionScheduleCadenceMenuOpen}
-                                    className="w-full justify-between border-white/20 bg-neutral-800 hover:bg-neutral-700 hover:border-white/30 text-white text-sm h-9"
+                                    className="w-full justify-between border border-white bg-neutral-800 hover:bg-neutral-700 hover:border-white text-white text-sm h-9"
                                   >
                                     <span className="truncate">{getCadenceLabel(projectionScheduleFormCadence)}</span>
                                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
@@ -2551,7 +2551,7 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                                 <PopoverTrigger asChild>
                                   <Button
                                     variant="outline"
-                                    className="w-full justify-between border-white/20 bg-neutral-800 hover:bg-neutral-700 hover:border-white/30 text-white text-sm"
+                                    className="w-full justify-between border border-white bg-neutral-800 hover:bg-neutral-700 hover:border-white text-white text-sm"
                                   >
                                     <span className="truncate">
                                       {projectionScheduleFormSourceIds.length > 0
@@ -2596,7 +2596,7 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                                       variant="outline"
                                       role="combobox"
                                       aria-expanded={projectionScheduleAudienceMenuOpen}
-                                      className="w-full justify-between border-white/20 bg-neutral-800 hover:bg-neutral-700 hover:border-white/30 text-white text-sm h-9"
+                                      className="w-full justify-between border border-white bg-neutral-800 hover:bg-neutral-700 hover:border-white text-white text-sm h-9"
                                     >
                                       <span className="truncate">
                                         {projectionScheduleFormAudiences.length > 0
@@ -2670,7 +2670,7 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                                     variant="outline"
                                     role="combobox"
                                     aria-expanded={projectionScheduleUnitsMenuOpen}
-                                    className="w-full justify-between border-white/20 bg-neutral-800 hover:bg-neutral-700 hover:border-white/30 text-white text-sm h-9"
+                                    className="w-full justify-between border border-white bg-neutral-800 hover:bg-neutral-700 hover:border-white text-white text-sm h-9"
                                   >
                                     <span className="truncate">
                                       {projectionScheduleFormUnits.length > 0

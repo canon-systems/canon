@@ -24,6 +24,7 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { IntegrationLogos } from '@/components/IntegrationLogos';
 import { Input } from '@/components/ui/input';
+import { Progress } from '@/components/ui/progress';
 
 interface Repository {
   id: string;
@@ -46,10 +47,69 @@ type StatusFilter = 'all' | 'ready' | 'processing' | 'failed' | 'not_started';
 type GithubRepo = { id: string; full_name: string; name: string; default_branch: string };
 type JiraProject = { id: string; key: string; name: string; cloudId?: string };
 
+const processingStatuses = new Set([
+  'queueing',
+  'ingesting',
+  'fetching',
+  'indexing',
+  'summarizing',
+  'building_akus',
+]);
+
+const terminalStatuses = new Set(['ready', 'draft_ready', 'failed', 'error']);
+
+const progressByStatus: Record<string, number> = {
+  queueing: 5,
+  fetching: 12,
+  indexing: 40,
+  summarizing: 65,
+  building_akus: 85,
+  ingesting: 60,
+  ready: 100,
+  draft_ready: 100,
+  failed: 0,
+  error: 0,
+};
+
+const stepByStatus: Record<string, string> = {
+  queueing: 'Queued for setup',
+  fetching: 'Fetching source data',
+  indexing: 'Indexing source data',
+  summarizing: 'Summarizing source data',
+  building_akus: 'Building knowledge outputs',
+  ingesting: 'Ingesting source data',
+  ready: 'Setup complete',
+  draft_ready: 'Draft ready',
+  failed: 'Setup failed',
+  error: 'Setup failed',
+};
+
 const repoNameOnly = (value: string) => {
   if (typeof value !== 'string') return '';
   const lastSlash = value.lastIndexOf('/');
   return lastSlash >= 0 ? value.slice(lastSlash + 1) : value;
+};
+
+const addedDateFormatter = new Intl.DateTimeFormat(undefined, {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+});
+
+const addedTimeFormatter = new Intl.DateTimeFormat(undefined, {
+  hour: 'numeric',
+  minute: '2-digit',
+});
+
+const formatAddedAt = (value: string) => {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return { date: '—', time: '' };
+  }
+  return {
+    date: addedDateFormatter.format(parsed),
+    time: addedTimeFormatter.format(parsed),
+  };
 };
 
 const parseGithubRepos = (data: unknown): GithubRepo[] => {
@@ -105,14 +165,40 @@ const parseJiraProjects = (data: unknown): JiraProject[] => {
     .filter((project): project is JiraProject => project !== null);
 };
 
+const getRawStatus = (repo: Repository) => ((repo.status_payload?.status as string) || '').toLowerCase();
+
+const getStatusBucket = (repo: Repository): Exclude<StatusFilter, 'all'> => {
+  const status = getRawStatus(repo);
+  if (status === 'ready' || status === 'draft_ready') return 'ready';
+  if (status === 'failed' || status === 'error') return 'failed';
+  if (processingStatuses.has(status)) return 'processing';
+  return 'not_started';
+};
+
+const getProgressPct = (repo: Repository): number => {
+  const raw = repo.status_payload?.progress_pct;
+  const status = getRawStatus(repo);
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    return Math.max(0, Math.min(100, Math.round(raw)));
+  }
+  return progressByStatus[status] ?? 0;
+};
+
+const getStepLabel = (repo: Repository): string => {
+  const explicit = repo.status_payload?.step_label;
+  if (typeof explicit === 'string' && explicit.trim().length > 0) return explicit;
+  return stepByStatus[getRawStatus(repo)] || 'Waiting to start';
+};
+
 export default function SourcesPageClient({ repositories }: SourcesPageClientProps) {
+  const [repoList, setRepoList] = useState<Repository[]>(repositories);
   const [showSourceDialog, setShowSourceDialog] = useState(false);
   const [loadingSources, setLoadingSources] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [availableGithub, setAvailableGithub] = useState<Array<{ id: string; full_name: string; name: string; default_branch: string }>>([]);
   const [availableJira, setAvailableJira] = useState<Array<{ id: string; key: string; name: string; cloudId?: string }>>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [addSourceTab, setAddSourceTab] = useState<'single' | 'multi'>('multi');
+  const [addSourceTab, setAddSourceTab] = useState<'single' | 'multi'>('single');
   const [sourceSearch, setSourceSearch] = useState('');
   const [deletingRepoId, setDeletingRepoId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -120,6 +206,22 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState('');
+  const [setupWatchIds, setSetupWatchIds] = useState<string[]>([]);
+
+  const refreshSources = useCallback(async () => {
+    const response = await fetch('/api/sources');
+    if (!response.ok) {
+      throw new Error('Failed to load sources');
+    }
+    const data = await response.json();
+    const rows = Array.isArray(data) ? (data as Repository[]) : [];
+    setRepoList(rows);
+    return rows;
+  }, []);
+
+  useEffect(() => {
+    setRepoList(repositories);
+  }, [repositories]);
 
   const handleConnectRepository = () => {
     setShowSourceDialog(true);
@@ -132,9 +234,9 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
   const handleDeleteRepository = async (repoId: string, _repoName: string) => {
     setDeletingRepoId(repoId);
     try {
-      const response = await fetch(`/api/repos/${repoId}`, { method: 'DELETE' });
+      const response = await fetch(`/api/sources/${repoId}`, { method: 'DELETE' });
       if (response.ok) {
-        window.location.reload();
+        setRepoList((prev) => prev.filter((repo) => repo.id !== repoId));
       } else {
         const error = await response.json();
         alert(`Failed to disconnect repository: ${error.error || 'Unknown error'}`);
@@ -148,28 +250,16 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
   };
 
   const statusCounts = useMemo(() => {
-    const ready = repositories.filter((r) => {
-      const status = (r.status_payload?.status as string) || '';
-      return status === 'ready' || status === 'draft_ready';
-    }).length;
-    const processing = repositories.filter((r) => {
-      const status = (r.status_payload?.status as string) || '';
-      return status === 'queueing' || status === 'ingesting';
-    }).length;
-    const failed = repositories.filter((r) => {
-      const status = (r.status_payload?.status as string) || '';
-      return status === 'failed' || status === 'error';
-    }).length;
-    const notStarted = repositories.filter((r) => {
-      const status = (r.status_payload?.status as string) || '';
-      return !status || status === 'pending';
-    }).length;
-    return { total: repositories.length, ready, processing, failed, notStarted };
-  }, [repositories]);
+    const ready = repoList.filter((r) => getStatusBucket(r) === 'ready').length;
+    const processing = repoList.filter((r) => getStatusBucket(r) === 'processing').length;
+    const failed = repoList.filter((r) => getStatusBucket(r) === 'failed').length;
+    const notStarted = repoList.filter((r) => getStatusBucket(r) === 'not_started').length;
+    return { total: repoList.length, ready, processing, failed, notStarted };
+  }, [repoList]);
 
   const existingSourceKeys = useMemo(() => {
     const set = new Set<string>();
-    repositories.forEach((r) => {
+    repoList.forEach((r) => {
       if (r.provider === 'github' && typeof (r.scope as { repo?: unknown })?.repo === 'string') {
         set.add(`github:${String((r.scope as { repo?: string }).repo).toLowerCase()}`);
       }
@@ -178,7 +268,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
       }
     });
     return set;
-  }, [repositories]);
+  }, [repoList]);
 
   const availableSources = useMemo(() => {
     const repos = availableGithub
@@ -219,40 +309,31 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
   }, [availableSources, sourceSearch]);
 
   const filteredRepos = useMemo(() => {
-    return repositories.filter((repo) => {
+    return repoList.filter((repo) => {
       const term = searchQuery.toLowerCase();
       const matchesSearch =
         !term ||
         repo.name.toLowerCase().includes(term) ||
         JSON.stringify(repo.scope || {}).toLowerCase().includes(term);
 
-      const statusValue = (repo.status_payload?.status as string) || '';
-      const status =
-        statusValue === 'ready' || statusValue === 'draft_ready'
-          ? 'ready'
-          : statusValue === 'queueing' || statusValue === 'ingesting'
-            ? 'processing'
-            : statusValue === 'failed' || statusValue === 'error'
-              ? 'failed'
-              : 'not_started';
-
+      const status = getStatusBucket(repo);
       const matchesStatus = statusFilter === 'all' || statusFilter === status;
       return matchesSearch && matchesStatus;
     });
-  }, [repositories, searchQuery, statusFilter]);
+  }, [repoList, searchQuery, statusFilter]);
 
   const getStatusMeta = (repo: Repository) => {
-    const status = (repo.status_payload?.status as string) || '';
-    if (status === 'ready' || status === 'draft_ready') {
-      return { label: 'Connected', color: 'success', tone: 'text-emerald-200', icon: <CheckCircle2 className="h-4 w-4" /> };
+    const status = getStatusBucket(repo);
+    if (status === 'ready') {
+      return { label: 'Connected', color: 'success', tone: 'text-emerald-200', isProcessing: false, icon: <CheckCircle2 className="h-4 w-4" /> };
     }
-    if (status === 'queueing' || status === 'ingesting') {
-      return { label: 'Processing', color: 'default', tone: 'text-blue-200', icon: <Clock className="h-4 w-4" /> };
+    if (status === 'processing') {
+      return { label: 'Processing', color: 'default', tone: 'text-blue-200', isProcessing: true, icon: <Clock className="h-4 w-4" /> };
     }
-    if (status === 'failed' || status === 'error') {
-      return { label: 'Failed', color: 'destructive', tone: 'text-red-200', icon: <AlertTriangle className="h-4 w-4" /> };
+    if (status === 'failed') {
+      return { label: 'Failed', color: 'destructive', tone: 'text-red-200', isProcessing: false, icon: <AlertTriangle className="h-4 w-4" /> };
     }
-    return { label: 'Not started', color: 'outline', tone: 'text-white/70', icon: <Activity className="h-4 w-4" /> };
+    return { label: 'Not started', color: 'outline', tone: 'text-white/70', isProcessing: false, icon: <Activity className="h-4 w-4" /> };
   };
 
   const displayScope = (repo: Repository) => {
@@ -339,6 +420,53 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
     }
   }, [showSourceDialog, loadAvailableSources]);
 
+  const processingRepos = useMemo(
+    () => repoList.filter((repo) => getStatusBucket(repo) === 'processing'),
+    [repoList]
+  );
+  const shouldPollSources = processingRepos.length > 0 || setupWatchIds.length > 0;
+
+  useEffect(() => {
+    if (!shouldPollSources) return;
+
+    let cancelled = false;
+
+    const tick = async () => {
+      try {
+        const rows = await refreshSources();
+        if (cancelled || setupWatchIds.length === 0) return;
+
+        const pending = setupWatchIds.filter((id) => {
+          const row = rows.find((repo) => repo.id === id);
+          if (!row) return false;
+          return !terminalStatuses.has(getRawStatus(row));
+        });
+
+        if (!cancelled) {
+          setSetupWatchIds(pending);
+          if (pending.length === 0 && showSourceDialog) {
+            setShowSourceDialog(false);
+            setSelectedIds(new Set());
+            setCreateError('');
+            setLoadError('');
+          }
+        }
+      } catch {
+        // Keep previous state; polling will retry.
+      }
+    };
+
+    void tick();
+    const timer = window.setInterval(() => {
+      void tick();
+    }, 2500);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [refreshSources, setupWatchIds, shouldPollSources, showSourceDialog]);
+
   const toggleSelection = (id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -387,7 +515,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
 
       const payload = { sources, mode: addSourceTab };
 
-      const response = await fetch('/api/repos', {
+      const response = await fetch('/api/sources', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -397,9 +525,13 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
         throw new Error(data.error || data.detail || 'Failed to create sources');
       }
 
+      const createdRows = Array.isArray(data) ? (data as Array<{ id?: string }>) : [];
+      const createdIds = createdRows.map((row) => String(row.id || '')).filter(Boolean);
+      setSelectedIds(new Set());
+      setSourceSearch('');
+      setSetupWatchIds(createdIds);
+      await refreshSources();
       setShowSourceDialog(false);
-      // reload to show new sources
-      window.location.reload();
     } catch (err: unknown) {
       setCreateError(err instanceof Error ? err.message : 'Failed to create sources');
     } finally {
@@ -485,9 +617,6 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
             </select>
           </div>
           <div className="flex gap-2">
-            <Button variant="secondary" onClick={() => { setSearchQuery(''); setStatusFilter('all'); }}>
-              Clear filters
-            </Button>
             <Button onClick={handleConnectRepository}>
               <Plus className="h-4 w-4" />
               Add Source
@@ -511,16 +640,27 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
         </Card>
       ) : (
         <div className="flex flex-col gap-3 px-1 sm:px-2 md:px-0">
+          {/* Column headers — grid at all breakpoints so Added column always has a slot */}
+          <div
+            className="grid grid-cols-[1fr_auto_minmax(10rem,1fr)_auto] gap-2 rounded-t-2xl border border-b-0 border-white/10 bg-white/5 px-4 py-3 sm:gap-3 sm:px-5 md:grid-cols-[minmax(200px,1.6fr)_minmax(140px,1fr)_minmax(10rem,auto)_auto] md:items-center"
+            aria-hidden="true"
+          >
+            <div className="text-xs font-semibold uppercase tracking-wider text-white/60">Source</div>
+            <div className="text-xs font-semibold uppercase tracking-wider text-white/60">Status</div>
+            <div className="min-w-0 text-xs font-semibold uppercase tracking-wider text-white/60">Added</div>
+            <div className="text-right text-xs font-semibold uppercase tracking-wider text-white/60">Actions</div>
+          </div>
           {filteredRepos.map((repo) => {
             const statusMeta = getStatusMeta(repo);
             const repoLabel = repoNameOnly(repo.name);
+            const addedAt = formatAddedAt(repo.created_at);
             return (
               <div
                 key={repo.id}
-                className="grid gap-3 rounded-2xl border border-white/10 bg-gradient-to-r from-white/5 to-black/60 px-5 py-4 md:min-h-[88px] md:grid-cols-[minmax(280px,1.6fr)_minmax(220px,1fr)_auto] md:items-center"
+                className="grid grid-cols-[1fr_auto_minmax(10rem,1fr)_auto] gap-2 rounded-2xl border border-white/10 bg-gradient-to-r from-white/5 to-black/60 px-4 py-4 sm:gap-3 sm:px-5 md:min-h-[88px] md:grid-cols-[minmax(200px,1.6fr)_minmax(140px,1fr)_minmax(10rem,auto)_auto] md:items-center"
               >
-                <div className="flex items-center gap-4">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-md shadow-indigo-500/20">
+                <div className="flex min-w-0 items-center gap-4">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-md shadow-indigo-500/20">
                     <IntegrationLogos provider={repo.provider as 'github' | 'jira' | 'slack'} size={20} color="#ffffff" />
                   </div>
                   <div className="min-w-0">
@@ -529,21 +669,34 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2 md:justify-start">
-                  <Badge variant={statusMeta.color as 'default' | 'secondary' | 'destructive' | 'outline'} className="flex items-center gap-1">
-                    {statusMeta.icon}
-                    {statusMeta.label}
-                  </Badge>
-                  {typeof repo.status_payload?.progress_pct === 'number' && repo.status_payload.progress_pct > 0 && repo.status_payload.progress_pct < 100 && (
-                    <Badge variant="outline" className="text-white/80">
-                      {Math.round(repo.status_payload.progress_pct)}%
+                <div className="min-w-[180px] space-y-2 md:justify-start">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant={statusMeta.color as 'default' | 'secondary' | 'destructive' | 'outline'} className="flex items-center gap-1">
+                      {statusMeta.icon}
+                      {statusMeta.label}
                     </Badge>
+                    {statusMeta.isProcessing && (
+                      <Badge variant="outline" className="text-white/80">
+                        {getProgressPct(repo)}%
+                      </Badge>
+                    )}
+                  </div>
+                  {statusMeta.isProcessing && (
+                    <div className="space-y-1">
+                      <p className="truncate text-xs text-white/70">{getStepLabel(repo)}</p>
+                      <Progress value={getProgressPct(repo)} className="h-1.5 bg-white/15" />
+                    </div>
                   )}
                   {repo.last_error && statusMeta.label === 'Failed' && (
-                    <Badge variant="destructive" className="text-white/90">
+                    <Badge variant="destructive" className="max-w-[220px] truncate text-white/90">
                       {repo.last_error.slice(0, 48)}
                     </Badge>
                   )}
+                </div>
+
+                <div className="min-w-0 text-right md:text-left">
+                  <p className="text-sm text-white">{addedAt.date}</p>
+                  {addedAt.time && <p className="text-xs text-white/60">{addedAt.time}</p>}
                 </div>
 
                 <div className="flex flex-wrap items-center justify-end gap-2">
@@ -613,9 +766,10 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
           setShowSourceDialog(open);
           if (!open) {
             setSelectedIds(new Set());
-            setAddSourceTab('multi');
+            setAddSourceTab('single');
             setCreateError('');
             setLoadError('');
+            setSourceSearch('');
           }
         }}
       >
@@ -624,7 +778,6 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
           <p className="text-sm text-white/70">
             Select the sources you want to connect, then click “Add sources”. We’ll start ingesting them in the background.
           </p>
-
           <Tabs
             value={addSourceTab}
             onValueChange={(v) => {

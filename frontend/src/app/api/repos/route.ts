@@ -113,7 +113,11 @@ export async function POST(request: NextRequest) {
         provider: src.provider,
         scope: src.scope,
         connection_id: resolvedConnId,
-        status_payload: { status: 'queueing', progress_pct: 0 },
+        status_payload: {
+          status: 'queueing',
+          progress_pct: 5,
+          step_label: 'Queued for setup',
+        },
         last_error: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
