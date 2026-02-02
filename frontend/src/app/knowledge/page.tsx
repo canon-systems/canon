@@ -21,5 +21,10 @@ export default async function KnowledgePage() {
     console.error('Failed to load sources:', error);
   }
 
-  return <KnowledgeClient sources={sources || []} />;
+  // Knowledge source options: only GitHub repos for now
+  const knowledgeSources = (sources || []).filter(
+    (s) => (s?.provider ?? '').toString().toLowerCase() === 'github'
+  );
+
+  return <KnowledgeClient sources={knowledgeSources} />;
 }

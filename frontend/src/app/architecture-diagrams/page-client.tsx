@@ -548,7 +548,7 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
                                             <DropdownMenuTrigger asChild>
                                                 <Button
                                                     variant="outline"
-                                                    className="w-full justify-between border-white/20 text-white bg-slate-900/60 hover:bg-slate-800/80"
+                                                    className="w-full justify-between border border-white text-white bg-slate-900/60 hover:bg-slate-800/80"
                                                 >
                                                     <span>
                                                         {selectedRepoIds.length

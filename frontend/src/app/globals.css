@@ -85,9 +85,9 @@ svg {
   max-width: 100%;
 }
 
-button,
-input,
-textarea {
+/* Reset only native/unstyled inputs and textareas; .input-ui and .textarea-ui are styled by components */
+input:not(.input-ui),
+textarea:not(.textarea-ui) {
   font: inherit;
   color: inherit;
   background: none;
@@ -95,6 +95,8 @@ textarea {
 }
 
 button {
+  font: inherit;
+  color: inherit;
   cursor: pointer;
 }
 

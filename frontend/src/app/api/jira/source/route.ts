@@ -105,7 +105,7 @@ export async function POST(request: NextRequest) {
       'jira'
     ).catch((err) => console.warn('Failed to track Jira source connected:', err));
 
-    // Fetch Jira issues and write to issue_index (same pattern as POST /api/repos)
+    // Fetch Jira issues and write to issue_index (same pattern as POST /api/sources)
     ingestSource(supabase, data).catch((err) => {
       console.error('[ingestSource] Jira source failed', err);
     });

@@ -36,7 +36,7 @@ const TabsList = ({ children, className }: TabsListProps) => {
   return (
     <div
       className={cn(
-        "inline-flex h-10 items-center justify-center gap-1 rounded-full border border-white/10 bg-white/5 p-1 text-white/70",
+        "inline-flex h-10 items-center justify-center gap-1 rounded-2xl border border-white/10 bg-white/5 p-1 text-white/70",
         className
       )}
     >
@@ -66,10 +66,10 @@ const TabsTrigger = ({ value, children, className, disabled = false }: TabsTrigg
       onClick={() => !disabled && onValueChange(value)}
       disabled={disabled}
       className={cn(
-        "inline-flex items-center justify-center whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:ring-offset-2 focus-visible:ring-offset-black disabled:pointer-events-none disabled:opacity-50",
+        "inline-flex items-center justify-center whitespace-nowrap rounded-xl px-3.5 py-1.5 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:ring-offset-2 focus-visible:ring-offset-black disabled:pointer-events-none disabled:opacity-50",
         isActive
-          ? "bg-white text-black shadow-[0_10px_30px_rgba(255,255,255,0.12)]"
-          : "text-white/70 hover:text-white hover:bg-white/10",
+          ? "border border-white/20 !bg-white !text-black shadow-[0_12px_40px_rgba(255,255,255,0.08)]"
+          : "border border-transparent text-white/70 hover:text-white hover:bg-white/10 hover:border-white/10",
         className
       )}
       data-state={isActive ? "active" : "inactive"}
@@ -100,7 +100,7 @@ const TabsContent = ({ value, children, className }: TabsContentProps) => {
   return (
     <div
       className={cn(
-        "mt-2 ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:ring-offset-2",
+        "mt-4 ring-offset-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:ring-offset-2",
         className
       )}
     >
