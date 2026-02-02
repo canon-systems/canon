@@ -8,6 +8,12 @@ function deterministicAkuId(userId: string, clusterKey: string): string {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
 }
 
+/** Per-source AKU id so the same cluster key from different sources gets different rows. */
+function deterministicAkuIdWithSource(userId: string, clusterKey: string, sourceId: string): string {
+  const h = createHash('sha256').update(`${userId}:${clusterKey}:${sourceId}`).digest('hex').slice(0, 32);
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
+}
+
 /** 32-char hash of evidence ids for AKU uniqueness (fits btree index limit). */
 function akuHashFromEvidenceIds(evidenceIds: string[]): string {
   const composite = evidenceIds.slice().sort().join(':');
@@ -274,13 +280,17 @@ async function generateProjection(
   }
 }
 
+export type BuildAkusOptions = { perSource?: boolean };
+
 export async function buildAkusForSources(
   supabase: SupabaseClient,
   userId: string,
   sourceIds: string[],
-  audiences: string[] = []
+  audiences: string[] = [],
+  options: BuildAkusOptions = {}
 ) {
   if (sourceIds.length === 0) return { akus: [], projections: [] };
+  const perSource = options.perSource === true && sourceIds.length >= 1;
 
   const evidence: Evidence[] = [];
 
@@ -384,7 +394,9 @@ export async function buildAkusForSources(
     const source_ids = Array.from(new Set(items.map((i) => i.source_id)));
     const scope_refs = Array.from(new Set(items.map((i) => i.scope_ref)));
     const hash = akuHashFromEvidenceIds(items.map((i) => i.id));
-    const akuId = idByHash.get(hash) ?? deterministicAkuId(userId, clusterKey);
+    const akuId = perSource
+      ? deterministicAkuIdWithSource(userId, clusterKey, sourceIds[0])
+      : (idByHash.get(hash) ?? deterministicAkuId(userId, clusterKey));
 
     const crit = scoreText(title + canonical, criticalKeywords);
     const promise = scoreText(title + canonical, promiseKeywords);
@@ -429,8 +441,6 @@ export async function buildAkusForSources(
     `[AKU builder] Summary: ${akus.length} AKU(s), ${projections.length} audience projection(s) (${audiences.length} audiences × ${akus.length} AKUs)`
   );
 
-  const currentAkuIds = new Set(akus.map((a) => a.id));
-
   if (akus.length > 0) {
     const now = new Date().toISOString();
     // Upsert by id so we update existing rows (including those with old hash) instead of
@@ -460,19 +470,6 @@ export async function buildAkusForSources(
       { onConflict: 'aku_id,audience' }
     );
     if (projErr) console.error('AKU builder: failed to save projections', projErr);
-  }
-
-  // Remove AKUs (and their audience_views) that no longer have a cluster (e.g. evidence removed)
-  if (currentAkuIds.size > 0) {
-    const { data: existingForUser } = await supabase
-      .from('akus')
-      .select('id')
-      .eq('user_id', userId);
-    const orphanIds = (existingForUser || []).map((r) => r.id).filter((id) => !currentAkuIds.has(id));
-    if (orphanIds.length > 0) {
-      await supabase.from('audience_views').delete().eq('user_id', userId).in('aku_id', orphanIds);
-      await supabase.from('akus').delete().eq('user_id', userId).in('id', orphanIds);
-    }
   }
 
   // console.log('AKU builder: finished', { userId, akus: akus.length, projections: projections.length });

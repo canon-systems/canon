@@ -12,6 +12,8 @@ function fileContentHash(content: string): string {
 
 const DEFAULT_AUDIENCES = ['Executive', 'Sales', 'Marketing', 'Engineering', 'Support', 'Customer'];
 
+export type IngestOptions = { mode?: 'single' | 'multi'; createdSourceIds?: string[] };
+
 export type WorkspaceSource = {
   id: string;
   user_id: string;
@@ -70,9 +72,18 @@ function normalizeRepoId(repoUrl: string): string {
   return `github.com/${parsed.owner}/${parsed.repo}`;
 }
 
+async function getAllUserSourceIds(supabase: SupabaseClient, userId: string): Promise<string[]> {
+  const { data } = await supabase
+    .from('workspace_sources')
+    .select('id')
+    .eq('user_id', userId);
+  return (data || []).map((r) => r.id);
+}
+
 export async function ingestGitHubSource(
   supabase: SupabaseClient,
-  source: WorkspaceSource
+  source: WorkspaceSource,
+  options?: IngestOptions
 ) {
   const repo = typeof source.scope?.repo === 'string' ? source.scope.repo : '';
   const branch = typeof source.scope?.branch === 'string' ? source.scope.branch : 'main';
@@ -103,9 +114,21 @@ export async function ingestGitHubSource(
       { model: 'openai/gpt-4o-mini', regenerationReason: 'initial' }
     );
 
-    // Build AKUs for this source and generate default audience projections
-    console.log('Source ingest: building AKUs for GitHub source', { audiences: DEFAULT_AUDIENCES });
-    await buildAkusForSources(supabase, source.user_id, [source.id], DEFAULT_AUDIENCES);
+    // Build AKUs: per-source (single tab) or merged from selected sources only (multi tab)
+    if (options?.mode === 'single') {
+      console.log('Source ingest: building per-source AKUs for GitHub source', { audiences: DEFAULT_AUDIENCES });
+      await buildAkusForSources(supabase, source.user_id, [source.id], DEFAULT_AUDIENCES, { perSource: true });
+    } else {
+      let sourceIds: string[];
+      const createdIds = options?.createdSourceIds;
+      if (createdIds && createdIds.length > 0) {
+        sourceIds = createdIds;
+      } else {
+        sourceIds = await getAllUserSourceIds(supabase, source.user_id);
+      }
+      console.log('Source ingest: building merged AKUs for selected sources', { sourceCount: sourceIds.length, audiences: DEFAULT_AUDIENCES });
+      await buildAkusForSources(supabase, source.user_id, sourceIds, DEFAULT_AUDIENCES);
+    }
 
     await updateStatus(supabase, source.id, 'ready', 100);
     console.log(`Source ingest: finished ${repo}@${branch} (${files.length} files)`);
@@ -119,7 +142,8 @@ export async function ingestGitHubSource(
 
 export async function ingestIssueSource(
   supabase: SupabaseClient,
-  source: WorkspaceSource
+  source: WorkspaceSource,
+  options?: IngestOptions
 ) {
   const provider = source.provider.toLowerCase();
   if (!['jira', 'linear', 'asana'].includes(provider)) {
@@ -280,9 +304,21 @@ export async function ingestIssueSource(
       console.log('Source ingest: no issues to store for this source');
     }
 
-    // Build AKUs for this issue source as well (with default projections)
-    console.log('Source ingest: building AKUs from issues', { issues: rows.length, audiences: DEFAULT_AUDIENCES });
-    await buildAkusForSources(supabase, source.user_id, [source.id], DEFAULT_AUDIENCES);
+    // Build AKUs: per-source (single tab) or merged from selected sources only (multi tab)
+    if (options?.mode === 'single') {
+      console.log('Source ingest: building per-source AKUs from issues', { issues: rows.length, audiences: DEFAULT_AUDIENCES });
+      await buildAkusForSources(supabase, source.user_id, [source.id], DEFAULT_AUDIENCES, { perSource: true });
+    } else {
+      let sourceIds: string[];
+      const createdIds = options?.createdSourceIds;
+      if (createdIds && createdIds.length > 0) {
+        sourceIds = createdIds;
+      } else {
+        sourceIds = await getAllUserSourceIds(supabase, source.user_id);
+      }
+      console.log('Source ingest: building merged AKUs for selected sources', { sourceCount: sourceIds.length, audiences: DEFAULT_AUDIENCES });
+      await buildAkusForSources(supabase, source.user_id, sourceIds, DEFAULT_AUDIENCES);
+    }
 
     await updateStatus(supabase, source.id, 'ready', 100);
   } catch (err) {
@@ -293,12 +329,12 @@ export async function ingestIssueSource(
   }
 }
 
-export async function ingestSource(supabase: SupabaseClient, source: WorkspaceSource) {
+export async function ingestSource(supabase: SupabaseClient, source: WorkspaceSource, options?: IngestOptions) {
   const provider = source.provider.toLowerCase();
   if (provider === 'github') {
-    await ingestGitHubSource(supabase, source);
+    await ingestGitHubSource(supabase, source, options);
   } else if (['jira', 'linear', 'asana'].includes(provider)) {
-    await ingestIssueSource(supabase, source);
+    await ingestIssueSource(supabase, source, options);
   } else {
     // Unknown provider; mark ready without processing
     await updateStatus(supabase, source.id, 'ready', 100);
@@ -384,8 +420,9 @@ export async function syncGitHubSourceDelta(
     const anyChange = removed > 0 || result.processed > 0;
 
     if (anyChange) {
-      console.log(`[knowledge-sync] Rebuilding AKUs for source(s) (files/tickets changed), source: ${scopeLabel}`);
-      await buildAkusForSources(supabase, source.user_id, [source.id], DEFAULT_AUDIENCES);
+      const allSourceIds = await getAllUserSourceIds(supabase, source.user_id);
+      console.log(`[knowledge-sync] Rebuilding merged AKUs for all user sources (files changed), source: ${scopeLabel}, sourceCount: ${allSourceIds.length}`);
+      await buildAkusForSources(supabase, source.user_id, allSourceIds, DEFAULT_AUDIENCES);
       return { added, removed, rebuilt: true, addedPaths, removedPaths };
     }
     return { added, removed, rebuilt: false, addedPaths, removedPaths };
@@ -515,7 +552,9 @@ export async function syncIssueSourceDelta(
 
   const anyChange = added > 0 || removed > 0;
   if (anyChange) {
-    await buildAkusForSources(supabase, source.user_id, [source.id], DEFAULT_AUDIENCES);
+    const allSourceIds = await getAllUserSourceIds(supabase, source.user_id);
+    console.log(`[knowledge-sync] Rebuilding merged AKUs for all user sources (issues changed), sourceCount: ${allSourceIds.length}`);
+    await buildAkusForSources(supabase, source.user_id, allSourceIds, DEFAULT_AUDIENCES);
     return { added, removed, rebuilt: true, addedKeys, removedKeys };
   }
   return { added, removed, rebuilt: false, addedKeys, removedKeys };

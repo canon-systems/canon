@@ -385,7 +385,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
         }
       }
 
-      const payload = { sources };
+      const payload = { sources, mode: addSourceTab };
 
       const response = await fetch('/api/repos', {
         method: 'POST',

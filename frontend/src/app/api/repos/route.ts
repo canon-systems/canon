@@ -62,11 +62,12 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = await createClient();
-    const body = (await request.json()) as { sources?: CreateSource[] } & CreateSource;
+    const body = (await request.json()) as { sources?: CreateSource[]; mode?: 'single' | 'multi' } & CreateSource;
 
     const sources: CreateSource[] = Array.isArray((body as { sources?: CreateSource[] }).sources)
       ? (body as { sources: CreateSource[] }).sources
       : [body as CreateSource];
+    const mode = body.mode === 'single' || body.mode === 'multi' ? body.mode : 'multi';
 
     if (sources.length === 0) {
       return NextResponse.json({ error: 'No sources provided' }, { status: 400 });
@@ -139,9 +140,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Kick off ingestion sequentially (could be parallelized with workers)
+    const createdSourceIds = (data || []).map((r) => r.id);
     for (const row of data || []) {
-      // Fire and forget; don't block the response
-      ingestSource(supabase, row as WorkspaceSource).catch((err) => {
+      // Fire and forget; don't block the response. Pass mode and createdSourceIds so merged AKUs use only the sources just added.
+      ingestSource(supabase, row as WorkspaceSource, { mode, createdSourceIds }).catch((err) => {
         console.error('[ingestSource] failed', err);
       });
     }

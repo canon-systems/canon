@@ -2048,12 +2048,12 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
 
   const categories = useMemo(() => {
     const set = new Set<string>();
-    items.forEach((item) => {
+    itemsFilteredBySources.forEach((item) => {
       const title = typeof item.title === 'string' ? item.title.trim() : '';
       if (title) set.add(title);
     });
     return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [items]);
+  }, [itemsFilteredBySources]);
 
   const visibleItems = useMemo(() => {
     return projectedItems.filter((item) => {
