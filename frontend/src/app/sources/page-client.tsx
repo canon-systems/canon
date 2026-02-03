@@ -239,11 +239,11 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
         setRepoList((prev) => prev.filter((repo) => repo.id !== repoId));
       } else {
         const error = await response.json();
-        alert(`Failed to disconnect repository: ${error.error || 'Unknown error'}`);
+        alert(`Failed to disconnect source: ${error.error || 'Unknown error'}`);
       }
     } catch (error) {
-      console.error('Delete repository error:', error);
-      alert('Failed to disconnect repository. Please try again.');
+      console.error('Delete source error:', error);
+      alert('Failed to disconnect source. Please try again.');
     } finally {
       setDeletingRepoId(null);
     }
@@ -405,7 +405,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
       setAvailableGithub(ghRepos);
       setAvailableJira(jiraProjects);
       if (jiraProjects.length === 0) {
-        setLoadError((prev) => prev || 'No Jira projects found. Ensure Jira/Confluence OAuth is connected.');
+        setLoadError((prev) => prev || 'No Jira projects found. Ensure Atlassian is connected.');
       }
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Failed to load sources.');

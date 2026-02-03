@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
 import { ingestSource } from '@/lib/server/services/sourceIngest';
-import { trackRepoConnected } from '@/lib/server/services/usageTracking';
+import { trackSourceConnected } from '@/lib/server/services/usageTracking';
 
 export async function POST(request: NextRequest) {
   try {
@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
 
     if (!connection) {
       return NextResponse.json(
-        { error: 'No active Confluence connection. Connect Jira/Confluence in Settings first.' },
+        { error: 'No active Atlassian connection. Connect Atlassian in Settings first.' },
         { status: 404 }
       );
     }
@@ -97,12 +97,12 @@ export async function POST(request: NextRequest) {
       throw error || new Error('Failed to create Jira source');
     }
 
-    trackRepoConnected(
+    trackSourceConnected(
       supabase,
       user.id,
       data.id,
-      data.external_url ?? externalUrl,
-      'jira'
+      'jira',
+      data.external_url ?? externalUrl
     ).catch((err) => console.warn('Failed to track Jira source connected:', err));
 
     // Fetch Jira issues and write to issue_index (same pattern as POST /api/sources)

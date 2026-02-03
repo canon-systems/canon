@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (!connection?.connection_id) {
-      return NextResponse.json({ error: 'Confluence connection not found' }, { status: 404 });
+      return NextResponse.json({ error: 'Atlassian connection not found' }, { status: 404 });
     }
 
     const provider = getWorkspaceProvider('confluence');

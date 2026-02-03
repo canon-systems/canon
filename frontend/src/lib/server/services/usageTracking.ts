@@ -160,6 +160,21 @@ export async function trackRepoConnected(
 	});
 }
 
+/** Track connection of a non-repo source (e.g. Jira, Linear, Asana). Use trackRepoConnected for GitHub/GitLab. */
+export async function trackSourceConnected(
+	supabase: SupabaseClient,
+	workspaceId: string,
+	sourceId: string,
+	provider: string,
+	externalUrl?: string | null
+) {
+	await trackUsageEvent(supabase, workspaceId, 'source_connected', {
+		source_id: sourceId,
+		provider,
+		external_url: externalUrl ?? null,
+	});
+}
+
 export async function trackIntegrationConnected(
 	supabase: SupabaseClient,
 	workspaceId: string,

@@ -15,6 +15,7 @@ interface LogEntry {
   | 'document_deleted'
   | 'automation_execution'
   | 'repo_connection'
+  | 'source_connection'
   | 'integration_connection'
   | 'integration_disconnected'
   | 'diagram'
@@ -56,6 +57,7 @@ type TypeFilter =
   | 'document_deleted'
   | 'automation_execution'
   | 'repo_connection'
+  | 'source_connection'
   | 'integration_connection'
   | 'integration_disconnected'
   | 'diagram'
@@ -165,6 +167,8 @@ export function LogsPageClient({ logs }: LogsPageClientProps) {
         return Zap;
       case 'repo_connection':
         return Github;
+      case 'source_connection':
+        return LinkIcon;
       case 'integration_connection':
         return LinkIcon;
       case 'integration_disconnected':
@@ -191,6 +195,8 @@ export function LogsPageClient({ logs }: LogsPageClientProps) {
       case 'document_deleted':
         return 'bg-white/8 text-white/70';
       case 'repo_connection':
+        return 'bg-white/10 text-white/80';
+      case 'source_connection':
         return 'bg-white/10 text-white/80';
       case 'integration_connection':
         return 'bg-white/10 text-white/80';
@@ -279,6 +285,7 @@ export function LogsPageClient({ logs }: LogsPageClientProps) {
               <SelectItem value="document_regenerated">Regenerated</SelectItem>
               <SelectItem value="document_deleted">Deleted</SelectItem>
               <SelectItem value="repo_connection">Repository Connection</SelectItem>
+              <SelectItem value="source_connection">Source Connection</SelectItem>
               <SelectItem value="integration_connection">Integration Connected</SelectItem>
               <SelectItem value="integration_disconnected">Integration Disconnected</SelectItem>
               <SelectItem value="diagram">Diagram</SelectItem>

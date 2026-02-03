@@ -120,8 +120,8 @@ export async function GET(request: NextRequest) {
       );
 
     if (connectionError) {
-      console.error('Failed to store Confluence connection:', connectionError);
-      return redirectToSettings(request.nextUrl.origin, { error: 'Failed to store Confluence connection.' });
+      console.error('Failed to store Atlassian connection:', connectionError);
+      return redirectToSettings(request.nextUrl.origin, { error: 'Failed to store Atlassian connection.' });
     }
 
     const admin = createServiceRoleClient();
@@ -147,15 +147,15 @@ export async function GET(request: NextRequest) {
       );
 
     if (tokenError) {
-      console.error('Failed to store Confluence tokens:', tokenError);
-      return redirectToSettings(request.nextUrl.origin, { error: 'Failed to store Confluence tokens.' });
+      console.error('Failed to store Atlassian tokens:', tokenError);
+      return redirectToSettings(request.nextUrl.origin, { error: 'Failed to store Atlassian tokens.' });
     }
 
     await trackIntegrationConnected(supabase, user.id, 'confluence', connectionId);
     return redirectToSettings(request.nextUrl.origin, { success: 'true', provider: 'confluence' });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    console.error('Confluence OAuth callback error:', err);
+    console.error('Atlassian OAuth callback error:', err);
     return redirectToSettings(request.nextUrl.origin, { error: message });
   }
 }

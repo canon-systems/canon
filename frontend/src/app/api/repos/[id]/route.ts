@@ -119,14 +119,14 @@ export async function DELETE(
     const supabase = await createClient();
     const { id } = await params;
 
-    const { data: source, error: repoError } = await supabase
+    const { data: source, error: sourceError } = await supabase
       .from('workspace_sources')
       .select('*')
       .eq('id', id)
       .eq('user_id', user.id)
       .single();
 
-    if (repoError || !source) {
+    if (sourceError || !source) {
       return NextResponse.json({ error: 'Source not found' }, { status: 404 });
     }
 
@@ -150,15 +150,15 @@ export async function DELETE(
         source.provider
       );
     } catch (logError) {
-      console.warn('Failed to track repo disconnect:', logError);
+      console.warn('Failed to track source disconnect:', logError);
     }
 
     return NextResponse.json({ success: true }, { status: 200 });
   } catch (err: unknown) {
-    console.error('Delete repo error:', err);
+    console.error('Delete source error:', err);
     return NextResponse.json(
       {
-        error: 'Failed to delete repository',
+        error: 'Failed to delete source',
         detail: err instanceof Error ? err.message : String(err),
       },
       { status: 500 }

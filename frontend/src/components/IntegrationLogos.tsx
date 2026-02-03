@@ -4,7 +4,7 @@ import * as simpleIcons from 'simple-icons';
 
 interface IntegrationLogosProps {
   size?: number;
-  provider: 'notion' | 'slack' | 'confluence' | 'google-docs' | 'googledocs' | 'jira' | 'github' | 'coda';
+  provider: 'notion' | 'slack' | 'confluence' | 'atlassian' | 'google-docs' | 'googledocs' | 'jira' | 'github' | 'coda';
   color?: string;
 }
 
@@ -13,6 +13,7 @@ const iconMap: Record<string, keyof typeof simpleIcons> = {
   'notion': 'siNotion',
   'slack': 'siSlack',
   'confluence': 'siConfluence',
+  'atlassian': 'siAtlassian',
   'google-docs': 'siGoogledocs',
   'googledocs': 'siGoogledocs', // Also support the database format
   'jira': 'siJira',

@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
 import { ingestSource, type WorkspaceSource } from '@/lib/server/services/sourceIngest';
-import { trackRepoConnected } from '@/lib/server/services/usageTracking';
+import { isRepoProvider } from '@/lib/server/services/sourceProviders';
+import { trackRepoConnected, trackSourceConnected } from '@/lib/server/services/usageTracking';
 
 type CreateSource = {
   name: string;
@@ -43,10 +44,10 @@ export async function GET() {
 
     return NextResponse.json(data || [], { status: 200 });
   } catch (err: unknown) {
-    console.error('List repos error:', err);
+    console.error('List sources error:', err);
     return NextResponse.json(
       {
-        error: 'Failed to list repositories',
+        error: 'Failed to list sources',
         detail: err instanceof Error ? err.message : String(err),
       },
       { status: 500 }
@@ -131,16 +132,23 @@ export async function POST(request: NextRequest) {
       throw error;
     }
 
-    // Log connection for each new source so logs list them properly
+    // Log connection for each new source; use repo_connected only for repo providers (GitHub/GitLab)
     for (const row of data || []) {
       const ws = row as WorkspaceSource & { id: string; name?: string; provider?: string; external_url?: string };
-      trackRepoConnected(
-        supabase,
-        user.id,
-        ws.id,
-        ws.external_url ?? '',
-        ws.provider ?? 'unknown'
-      ).catch((err) => console.warn('Failed to track repo connected:', err));
+      const provider = (ws.provider ?? '').toLowerCase();
+      if (isRepoProvider(provider)) {
+        trackRepoConnected(
+          supabase,
+          user.id,
+          ws.id,
+          ws.external_url ?? '',
+          provider
+        ).catch((err) => console.warn('Failed to track repo connected:', err));
+      } else {
+        trackSourceConnected(supabase, user.id, ws.id, provider, ws.external_url ?? null).catch((err) =>
+          console.warn('Failed to track source connected:', err)
+        );
+      }
     }
 
     // Kick off ingestion sequentially (could be parallelized with workers)
@@ -154,7 +162,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(data, { status: 200 });
   } catch (err: unknown) {
-    console.error('Create repo error:', err);
+    console.error('Create source error:', err);
     return NextResponse.json(
       {
         error: 'Failed to connect to source',

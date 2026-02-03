@@ -21,7 +21,7 @@ export default async function KnowledgePage() {
     console.error('Failed to load sources:', error);
   }
 
-  // Knowledge source options: only GitHub repos for now
+  // Knowledge source options: only repo-based sources (e.g. GitHub) for diagram/source selection; Jira is issue-based and handled separately
   const knowledgeSources = (sources || []).filter(
     (s) => (s?.provider ?? '').toString().toLowerCase() === 'github'
   );

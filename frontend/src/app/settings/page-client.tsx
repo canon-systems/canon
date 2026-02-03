@@ -193,12 +193,14 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   function getProviderDisplayName(provider: string) {
     if (provider === 'googledocs' || provider === 'google-docs') return 'Google Docs';
     if (provider === 'github') return 'GitHub';
+    if (provider === 'confluence') return 'Atlassian';
     return provider.charAt(0).toUpperCase() + provider.slice(1);
   }
 
   function getProviderName(provider: string) {
     if (provider === 'googledocs') return 'Google Docs';
     if (provider === 'github') return 'GitHub';
+    if (provider === 'confluence') return 'Atlassian';
     return provider.charAt(0).toUpperCase() + provider.slice(1);
   }
 
@@ -458,9 +460,9 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                     },
                     {
                       provider: 'confluence',
-                      name: 'Confluence',
-                      description: 'Keep your Confluence spaces searchable and fresh.',
-                      icon: <IntegrationLogos provider="confluence" size={28} />
+                      name: 'Atlassian',
+                      description: 'Connect Jira and Confluence. Keep spaces and issues in sync.',
+                      icon: <IntegrationLogos provider="atlassian" size={28} />
                     },
                     {
                       provider: 'googledocs',

@@ -220,7 +220,7 @@ export async function ingestIssueSource(
 
     if (!accessToken) {
       await updateStatus(supabase, source.id, 'failed', 0, {
-        error: 'Missing access token for issue source. Connect Jira/Confluence OAuth.',
+        error: 'Missing access token for issue source. Connect Atlassian in Settings.',
       });
       console.error('Source ingest: missing access token for issue provider', { connectionId });
       return;

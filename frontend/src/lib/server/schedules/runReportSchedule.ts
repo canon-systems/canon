@@ -4,6 +4,7 @@ import { formatDateRange } from '@/lib/server/diff/renderers';
 import { buildAkusForSources } from '@/lib/server/services/akuBuilder';
 import { planKnowledgePush, createSinglePagePlan } from '@/lib/server/services/knowledgePushPlanner';
 import { runKnowledgePush } from '@/lib/server/services/knowledgePushRunner';
+import { trackAutomationRun } from '@/lib/server/services/usageTracking';
 import { getWindowForCadence } from './cadence';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -126,11 +127,21 @@ export async function runReportSchedule(
             })
             .eq('id', schedule.id)
             .eq('user_id', schedule.user_id);
+          const diffSourceId = sourceIds[0] ?? schedule.id;
+          trackAutomationRun(supabase, schedule.user_id, {
+            sourceId: diffSourceId,
+            triggerType: 'scheduled',
+            status: 'failed',
+            executionTimeMs,
+            automationRuleId: schedule.id,
+            errors: [kbMessage],
+          }).catch((e) => console.warn('[runReportSchedule] track automation run failed', e));
           return { status: 'failed', error: `KB push: ${kbMessage}` };
         }
       }
 
       const executionTimeMs = Date.now() - startedAt;
+      const sourceId = sourceIds[0] ?? schedule.id;
 
       const { data: runRow, error: runErr } = await supabase
         .from('report_schedule_runs')
@@ -179,6 +190,14 @@ export async function runReportSchedule(
         })
         .eq('id', schedule.id)
         .eq('user_id', schedule.user_id);
+
+      trackAutomationRun(supabase, schedule.user_id, {
+        sourceId,
+        triggerType: 'scheduled',
+        status: 'succeeded',
+        executionTimeMs,
+        automationRuleId: schedule.id,
+      }).catch((e) => console.warn('[runReportSchedule] track automation run failed', e));
 
       return { status: 'succeeded', runId: runRow?.id };
     }
@@ -262,6 +281,15 @@ export async function runReportSchedule(
           })
           .eq('id', schedule.id)
           .eq('user_id', schedule.user_id);
+        const projKbSourceId = sourceIds[0] ?? schedule.id;
+        trackAutomationRun(supabase, schedule.user_id, {
+          sourceId: projKbSourceId,
+          triggerType: 'scheduled',
+          status: 'failed',
+          executionTimeMs,
+          automationRuleId: schedule.id,
+          errors: [kbMessage],
+        }).catch((e) => console.warn('[runReportSchedule] track automation run failed', e));
         return { status: 'failed', error: `KB push: ${kbMessage}` };
       }
     }
@@ -315,6 +343,16 @@ export async function runReportSchedule(
       .eq('id', schedule.id)
       .eq('user_id', schedule.user_id);
 
+    const projSourceId = sourceIds[0] ?? schedule.id;
+    trackAutomationRun(supabase, schedule.user_id, {
+      sourceId: projSourceId,
+      triggerType: 'scheduled',
+      status: 'succeeded',
+      executionTimeMs,
+      automationRuleId: schedule.id,
+      documentsUpdated: projectionsInScope.length,
+    }).catch((e) => console.warn('[runReportSchedule] track automation run failed', e));
+
     return { status: 'succeeded', runId: runRow?.id };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -339,6 +377,16 @@ export async function runReportSchedule(
       execution_time_ms: Date.now() - startedAt,
       errors: [{ message }],
     });
+
+    const failSourceId = (Array.isArray(schedule.source_ids) ? schedule.source_ids[0] : null) ?? schedule.id;
+    trackAutomationRun(supabase, schedule.user_id, {
+      sourceId: failSourceId,
+      triggerType: 'scheduled',
+      status: 'failed',
+      executionTimeMs: Date.now() - startedAt,
+      automationRuleId: schedule.id,
+      errors: [message],
+    }).catch((e) => console.warn('[runReportSchedule] track automation run failed', e));
 
     return { status: 'failed', error: message };
   }
