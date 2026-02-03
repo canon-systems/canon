@@ -4,11 +4,11 @@ import { decryptSecret, encryptSecret, type EncryptedSecret } from '@/lib/server
 async function refreshConfluenceToken(params: {
   refreshToken: string;
 }) {
-  const clientId = process.env.CONFLUENCE_OAUTH_CLIENT_ID;
-  const clientSecret = process.env.CONFLUENCE_OAUTH_CLIENT_SECRET;
+  const clientId = process.env.ATLASSIAN_OAUTH_CLIENT_ID;
+  const clientSecret = process.env.ATLASSIAN_OAUTH_CLIENT_SECRET;
 
   if (!clientId || !clientSecret) {
-    throw new Error('Missing Confluence OAuth env for refresh.');
+    throw new Error('Missing Atlassian OAuth env for refresh.');
   }
 
   const response = await fetch('https://auth.atlassian.com/oauth/token', {
@@ -23,13 +23,13 @@ async function refreshConfluenceToken(params: {
   });
 
   if (!response.ok) {
-    const message = await response.text().catch(() => 'Failed to refresh Confluence token.');
+    const message = await response.text().catch(() => 'Failed to refresh Atlassian token.');
     try {
       const parsed = JSON.parse(message);
       const code = typeof parsed?.error === 'string' ? parsed.error : '';
       const description = typeof parsed?.error_description === 'string' ? parsed.error_description : '';
       if (code === 'unauthorized_client' || code === 'invalid_grant') {
-        throw new Error(`Confluence refresh token invalid. Reconnect required. (${description || code})`);
+        throw new Error(`Atlassian refresh token invalid. Reconnect required. (${description || code})`);
       }
     } catch {
       // fall through with raw message
@@ -139,7 +139,7 @@ export async function getProviderAccessToken(params: {
 
         return newAccessToken;
       } catch (refreshError) {
-        console.warn('Failed to refresh Confluence token:', refreshError);
+        console.warn('Failed to refresh Atlassian token:', refreshError);
         const errorMessage = refreshError instanceof Error ? refreshError.message : String(refreshError);
         await markConnectionError(supabase, connectionId, errorMessage);
         throw new Error(errorMessage);
@@ -166,11 +166,11 @@ export async function withConfluenceAccessToken<T>(params: {
     .maybeSingle();
 
   if (error || !data) {
-    throw new Error('Missing Confluence token.');
+    throw new Error('Missing Atlassian token.');
   }
 
   const encrypted = data.access_token as EncryptedSecret | undefined;
-  if (!encrypted) throw new Error('Missing Confluence token.');
+  if (!encrypted) throw new Error('Missing Atlassian token.');
   const accessToken = decryptSecret(encrypted);
 
   try {

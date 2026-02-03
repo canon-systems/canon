@@ -30,7 +30,7 @@ export default async function LogsPage() {
   // Build activity log entries
   const logEntries: Array<{
     id: string;
-    type: 'document' | 'document_error' | 'document_regenerated' | 'document_deleted' | 'automation_execution' | 'repo_connection' | 'integration_connection' | 'integration_disconnected' | 'diagram' | 'kb_push';
+    type: 'automation_execution' | 'repo_connection' | 'source_connection' | 'integration_connection' | 'integration_disconnected' | 'diagram' | 'kb_push';
     timestamp: string;
     title: string;
     message: string;
@@ -58,6 +58,10 @@ export default async function LogsPage() {
 
   const formatProviderName = (p: unknown): string => {
     if (p == null || typeof p !== 'string' || !p) return '';
+    const lower = p.toLowerCase();
+    if (lower === 'confluence') return 'Atlassian';
+    if (lower === 'github') return 'GitHub';
+    if (lower === 'googledocs' || lower === 'google-docs') return 'Google Docs';
     return p.charAt(0).toUpperCase() + p.slice(1).toLowerCase();
   };
 
@@ -115,6 +119,21 @@ export default async function LogsPage() {
           message: repoName ? `Connected repository ${repoName}` : 'Repository connected',
           status: 'completed',
           link: '/sources',
+        };
+      }
+      case 'source_connected': {
+        const sourceName = repoName || formatProviderName(meta.provider) || 'Source';
+        return {
+          ...base,
+          type: 'source_connection' as const,
+          title: `Source Connected: ${sourceName}`,
+          message: repoName ? `Connected source ${repoName}` : `Connected ${formatProviderName(meta.provider) || 'source'}`,
+          status: 'completed',
+          link: '/sources',
+          metadata: {
+            ...(base as { metadata?: Record<string, unknown> }).metadata,
+            repoUrl: typeof meta.external_url === 'string' ? meta.external_url : undefined,
+          },
         };
       }
       case 'repo_disconnected': {

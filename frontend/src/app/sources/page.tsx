@@ -12,15 +12,15 @@ export default async function SourcesPage() {
 
   const supabase = await createClient();
 
-  // Fetch sources (workspace_sources)
-  const { data: repositories, error: repoError } = await supabase
+  // Fetch sources (workspace_sources: GitHub repos, Jira projects, etc.)
+  const { data: repositories, error: sourceError } = await supabase
     .from('workspace_sources')
     .select('*')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false });
 
-  if (repoError) {
-    console.error('Failed to load repositories:', repoError);
+  if (sourceError) {
+    console.error('Failed to load sources:', sourceError);
   }
 
   return <SourcesPageClient repositories={repositories || []} />;

@@ -16,11 +16,11 @@ export function getConfluenceOAuthScopes(): string[] {
 }
 
 export function createConfluenceOAuthClient(redirectUri?: string) {
-  const clientId = process.env.CONFLUENCE_OAUTH_CLIENT_ID;
-  const clientSecret = process.env.CONFLUENCE_OAUTH_CLIENT_SECRET;
+  const clientId = process.env.ATLASSIAN_OAUTH_CLIENT_ID;
+  const clientSecret = process.env.ATLASSIAN_OAUTH_CLIENT_SECRET;
 
   if (!clientId || !clientSecret) {
-    throw new Error('Missing Confluence OAuth env. Set CONFLUENCE_OAUTH_CLIENT_ID and CONFLUENCE_OAUTH_CLIENT_SECRET.');
+    throw new Error('Missing Atlassian OAuth env. Set ATLASSIAN_OAUTH_CLIENT_ID and ATLASSIAN_OAUTH_CLIENT_SECRET.');
   }
 
   const issuer = new Issuer({
