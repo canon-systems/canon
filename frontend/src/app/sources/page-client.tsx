@@ -8,9 +8,11 @@ import {
   Clock,
   Github,
   Layers,
+  Link2,
   Plus,
   Trash2,
 } from 'lucide-react';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -631,10 +633,19 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
             <Layers className="h-6 w-6 text-white/70" />
           </div>
           <CardTitle className="mt-4 text-xl text-white">No sources yet</CardTitle>
-          <div className="mt-6 flex justify-center">
+          <p className="mt-2 text-sm text-white/60">
+            Add a source from your connected integrations, or connect GitHub or Jira in Settings.
+          </p>
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
             <Button onClick={handleConnectRepository}>
               <Plus className="h-4 w-4" />
               Add Source
+            </Button>
+            <Button variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white" asChild>
+              <Link href="/settings?tab=integrations">
+                <Link2 className="h-4 w-4" />
+                Connect integrations
+              </Link>
             </Button>
           </div>
         </Card>
