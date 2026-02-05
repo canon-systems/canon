@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { FileText, Layers3, AlertCircle, RefreshCw, ExternalLink, Calendar, GitBranch, Folder, Code, Clock, Hash, Zap, Github, XCircle, Link as LinkIcon, ScrollText } from 'lucide-react';
+import { FileText, Layers3, AlertCircle, RefreshCw, ExternalLink, GitBranch, Folder, Code, Clock, Hash, Zap, Github, XCircle, Link as LinkIcon, ScrollText } from 'lucide-react';
 import Link from 'next/link';
 import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -244,7 +244,6 @@ export function LogsPageClient({ logs }: LogsPageClientProps) {
 
         <div className="flex flex-col gap-4 sm:flex-row mt-2.5 mb-2.5">
           <div className="flex items-center gap-2">
-            <Calendar className="h-4 w-4 text-white/60" />
             <Select value={timeFilter} onValueChange={(value: TimeFilter) => setTimeFilter(value)}>
               <SelectTrigger className="w-full sm:w-[180px] bg-white/5 border-white/10">
                 <SelectValue placeholder="Filter by time" />

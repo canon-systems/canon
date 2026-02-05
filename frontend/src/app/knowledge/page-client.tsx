@@ -20,7 +20,7 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
-import { Loader2, ChevronsUpDown, Info, Check, BookOpen, GitCompare, CalendarIcon, Plus, Trash2, Pencil } from 'lucide-react';
+import { Loader2, ChevronsUpDown, Info, BookOpen, GitCompare, CalendarIcon, Plus, Trash2, Pencil } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/components/ui/utils';
 import {
@@ -220,6 +220,48 @@ function projectForAudience(item: KnowledgeItem, audience: string): string {
     default:
       return base;
   }
+}
+
+type ParsedProjectionSection = { label: string; text: string };
+
+function parseProjectionForDisplay(input: string): { warnings: string[]; sections: ParsedProjectionSection[] } {
+  const raw = (input || '').trim();
+  if (!raw) return { warnings: [], sections: [] };
+
+  const pendingMatch = raw.match(/^PENDING:\s*([\s\S]*?)(?:\n{2,}|\n)([\s\S]*)$/i);
+  const warnings = pendingMatch?.[1]
+    ? pendingMatch[1].split(';').map((w) => w.trim()).filter(Boolean)
+    : [];
+  const body = (pendingMatch?.[2] || raw).trim();
+
+  const blocks = body.split(/\n{2,}/).map((b) => b.trim()).filter(Boolean);
+  const sections: ParsedProjectionSection[] = [];
+
+  for (const block of blocks) {
+    const lines = block.split('\n');
+    const first = (lines[0] || '').trim();
+    const m = first.match(/^([A-Za-z][A-Za-z0-9 /&-]{1,80}):\s*$/);
+    if (m) {
+      sections.push({
+        label: m[1],
+        text: lines.slice(1).join('\n').trim(),
+      });
+      continue;
+    }
+    const inline = block.match(/^([A-Za-z][A-Za-z0-9 /&-]{1,80}):\s+([\s\S]+)$/);
+    if (inline) {
+      sections.push({ label: inline[1], text: inline[2].trim() });
+      continue;
+    }
+  }
+
+  if (sections.length === 0) {
+    return {
+      warnings,
+      sections: [{ label: 'Projection', text: body }],
+    };
+  }
+  return { warnings, sections };
 }
 
 function getDisplayName(repo: { name: string; provider: string; scope: Record<string, unknown> | null }): string {
@@ -3072,14 +3114,32 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                                 item.projections?.find((p) => p.audience === activeAudience) ||
                                 item.projections?.[0];
                               if (!proj) return null;
+                              const parsed = parseProjectionForDisplay(proj.projection);
                               return (
                                 <Card className="bg-white/5 border-white/10">
                                   <CardContent className="p-4 space-y-2">
-                                    <div className="text-sm text-white/80 whitespace-pre-wrap leading-relaxed">
-                                      {proj.projection}
+                                    {parsed.warnings.length > 0 && (
+                                      <div className="rounded-md border border-amber-400/30 bg-amber-400/10 p-2 text-xs text-amber-100">
+                                        <div className="font-medium mb-1">Needs verification</div>
+                                        <ul className="list-disc pl-4 space-y-0.5">
+                                          {parsed.warnings.slice(0, 5).map((w, idx) => (
+                                            <li key={`${idx}-${w.slice(0, 24)}`}>{w}</li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+                                    <div className="space-y-3">
+                                      {parsed.sections.map((section) => (
+                                        <div key={`${section.label}-${section.text.slice(0, 24)}`} className="space-y-1">
+                                          <div className="text-xs uppercase tracking-wide text-white/60">{section.label}</div>
+                                          <div className="text-sm text-white/85 whitespace-pre-wrap leading-relaxed">
+                                            {section.text}
+                                          </div>
+                                        </div>
+                                      ))}
                                     </div>
-                                    <div className="text-xs text-white/50">
-                                      Status: {proj.status || 'draft'}
+                                    <div className="text-xs text-white/50 pt-1">
+                                      Status: {proj.status || (parsed.warnings.length > 0 ? 'pending_verification' : 'draft')}
                                     </div>
                                   </CardContent>
                                 </Card>

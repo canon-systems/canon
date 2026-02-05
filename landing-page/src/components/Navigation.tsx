@@ -49,7 +49,6 @@ export function Navigation() {
 
     return (
         <header className="sticky top-0 z-50 w-full border-b border-white/10 bg-black/70 backdrop-blur-xl">
-            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(255,255,255,0.08),transparent_60%)]" />
             <nav className="relative mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
                 {/* Logo Section */}
                 <Link href="/" className="flex items-center gap-3 z-10">

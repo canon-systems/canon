@@ -653,7 +653,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
         <div className="flex flex-col gap-3 px-1 sm:px-2 md:px-0">
           {/* Column headers — grid at all breakpoints so Added column always has a slot */}
           <div
-            className="grid grid-cols-[1fr_auto_minmax(10rem,1fr)_auto] gap-2 rounded-t-2xl border border-b-0 border-white/10 bg-white/5 px-4 py-3 sm:gap-3 sm:px-5 md:grid-cols-[minmax(200px,1.6fr)_minmax(140px,1fr)_minmax(10rem,auto)_auto] md:items-center"
+            className="grid grid-cols-[1fr_auto_minmax(10rem,1fr)_auto] gap-2 rounded-t-2xl border border-b-0 border-white/10 bg-zinc-800/80 px-4 py-3 sm:gap-3 sm:px-5 md:grid-cols-[minmax(200px,1.6fr)_minmax(140px,1fr)_minmax(10rem,auto)_auto] md:items-center"
             aria-hidden="true"
           >
             <div className="text-xs font-semibold uppercase tracking-wider text-white/60">Source</div>

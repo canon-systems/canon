@@ -65,7 +65,8 @@ type AudienceSchema = {
 };
 
 const PROJECTION_MIN_WORDS = 800;
-const PROJECTION_MAX_WORDS = 1400;
+const PROJECTION_MAX_WORDS = 1250;
+const PROJECTION_MODEL = 'anthropic/claude-sonnet-4.5';
 
 const AUDIENCE_SCHEMAS: Record<string, AudienceSchema> = {
   Executive: {
@@ -147,6 +148,16 @@ function audienceSurface(title: string, body: string) {
 
 function normalizePath(value: string): string {
   return value.trim().replace(/\\/g, '/').replace(/\/+/g, '/').replace(/^\.?\//, '');
+}
+
+const AKU_CODE_EXTENSIONS = new Set([
+  'js', 'jsx', 'ts', 'tsx', 'py', 'java', 'go', 'rs', 'cpp', 'cc', 'cxx', 'c', 'cs', 'php', 'rb'
+]);
+
+function isCodeEvidencePath(filePath: string): boolean {
+  const normalized = normalizePath(filePath).toLowerCase();
+  const ext = normalized.split('.').pop() || '';
+  return AKU_CODE_EXTENSIONS.has(ext);
 }
 
 function sanitizeKey(value: string): string {
@@ -514,9 +525,69 @@ function buildGraphClusters(dependencies: DependencyInfo[], allKnownFiles: strin
   }
 
   const normalizedClusters = Array.from(clustersByLabel.values()).map((set) => Array.from(set).sort());
+  const clusterIndexByFile = new Map<string, number>();
+  normalizedClusters.forEach((clusterFiles, index) => {
+    clusterFiles.forEach((file) => clusterIndexByFile.set(file, index));
+  });
+
+  const minClusterSize = files.length >= 20 ? 3 : 2;
+  const scoreMergeTarget = (smallClusterIndex: number, targetClusterIndex: number): number => {
+    const smallFiles = normalizedClusters[smallClusterIndex];
+    const targetFiles = normalizedClusters[targetClusterIndex];
+    let score = 0;
+    for (const file of smallFiles) {
+      const neighbors = adjacency.get(file);
+      if (!neighbors) continue;
+      for (const [neighbor, weight] of neighbors.entries()) {
+        if (clusterIndexByFile.get(neighbor) === targetClusterIndex) score += weight;
+      }
+    }
+    if (score > 0) return score;
+
+    const smallPrefix = mostCommonPrefix(smallFiles);
+    const targetPrefix = mostCommonPrefix(targetFiles);
+    const smallParts = smallPrefix.split('/');
+    const targetParts = targetPrefix.split('/');
+    let commonDepth = 0;
+    const maxDepth = Math.min(smallParts.length, targetParts.length);
+    for (let i = 0; i < maxDepth; i++) {
+      if (smallParts[i] !== targetParts[i]) break;
+      commonDepth += 1;
+    }
+    return commonDepth * 0.1;
+  };
+
+  let mergedAny = true;
+  while (mergedAny) {
+    mergedAny = false;
+    for (let i = 0; i < normalizedClusters.length; i++) {
+      const clusterFiles = normalizedClusters[i];
+      if (!clusterFiles || clusterFiles.length === 0 || clusterFiles.length >= minClusterSize) continue;
+      let bestTarget = -1;
+      let bestScore = -1;
+      for (let j = 0; j < normalizedClusters.length; j++) {
+        if (i === j) continue;
+        const targetFiles = normalizedClusters[j];
+        if (!targetFiles || targetFiles.length === 0) continue;
+        const score = scoreMergeTarget(i, j);
+        if (score > bestScore || (score === bestScore && bestTarget >= 0 && targetFiles.length > normalizedClusters[bestTarget].length)) {
+          bestScore = score;
+          bestTarget = j;
+        }
+      }
+      if (bestTarget < 0) continue;
+      normalizedClusters[bestTarget].push(...clusterFiles);
+      normalizedClusters[bestTarget].sort();
+      normalizedClusters[i] = [];
+      normalizedClusters[bestTarget].forEach((file) => clusterIndexByFile.set(file, bestTarget));
+      mergedAny = true;
+    }
+  }
+
+  const compactClusters = normalizedClusters.filter((clusterFiles) => clusterFiles.length > 0);
 
   const result: GraphCluster[] = [];
-  for (const filesInCluster of normalizedClusters) {
+  for (const filesInCluster of compactClusters) {
     if (filesInCluster.length === 0) continue;
     const prefix = mostCommonPrefix(filesInCluster);
 
@@ -691,6 +762,14 @@ function canonicalEvidenceToText(canonical: CanonicalEvidence): string {
 }
 
 const FORBIDDEN_IF_NOT_PRESENT = ['sla', 'gdpr', 'hipaa', 'pci', 'encryption', 'privacy', 'compliance'];
+const TECHNICAL_AUDIENCES = new Set(['Engineering']);
+const TECHNICAL_JARGON_TERMS = [
+  'api', 'endpoint', 'jwt', 'oauth', 'token', 'sdk', 'cli', 'webhook', 'schema', 'orm',
+  'cache', 'redis', 'kafka', 'sqs', 'pubsub', 'sql', 'nosql', 'etl', 'ingress', 'egress',
+  'latency', 'throughput', 'idempotent', 'microservice', 'parser', 'ast', 'tree-sitter',
+  'wasm', 'typescript', 'javascript', 'python', 'yaml', 'json', 'http', 'grpc', 'queue',
+  'cron', 'dependency'
+];
 
 const CLAIM_VERBS = ['supports', 'enables', 'ensures', 'provides', 'guarantees', 'improves', 'reduces', 'prevents'];
 const PROCEDURAL_MARKERS = ['go to', 'click', 'configure', 'select', 'install', 'open', 'run'];
@@ -710,7 +789,15 @@ function unknownClaimTerms(sentence: string, canonicalTokens: Set<string>): stri
   return Array.from(new Set(terms));
 }
 
-function validateProjection(text: string, canonical: CanonicalEvidence, schema: AudienceSchema) {
+function technicalJargonHits(text: string): string[] {
+  const lower = text.toLowerCase();
+  return TECHNICAL_JARGON_TERMS.filter((term) => {
+    const pattern = new RegExp(`(^|\\W)${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\W|$)`, 'i');
+    return pattern.test(lower);
+  });
+}
+
+function validateProjection(text: string, canonical: CanonicalEvidence, schema: AudienceSchema, audience: string) {
   const lowerText = text.toLowerCase();
   const lowerCanon = canonicalEvidenceToText(canonical).toLowerCase();
   const failures: string[] = [];
@@ -735,7 +822,7 @@ function validateProjection(text: string, canonical: CanonicalEvidence, schema: 
     if (!hasClaimVerb) continue;
     const unknownTerms = unknownClaimTerms(lowerSentence, canonicalTokens);
     if (unknownTerms.length >= 3) {
-      failures.push(`Claim may exceed evidence: "${sentence.slice(0, 100)}"`);
+      failures.push(`Claim may exceed evidence: "${sentence.slice(0, 500)}"`);
     }
   }
 
@@ -743,6 +830,13 @@ function validateProjection(text: string, canonical: CanonicalEvidence, schema: 
   for (const section of schema.sections) {
     const sectionToken = section.label.toLowerCase().split(' ')[0];
     if (!lowerText.includes(sectionToken)) break;
+  }
+
+  if (!TECHNICAL_AUDIENCES.has(audience)) {
+    const jargonHits = technicalJargonHits(text);
+    if (jargonHits.length > 0) {
+      failures.push(`Non-technical audience contains technical jargon: ${jargonHits.slice(0, 8).join(', ')}`);
+    }
   }
 
   return failures;
@@ -774,14 +868,17 @@ function audienceGuidance(audience: string): string[] {
     Executive: [
       'Use executive language: capabilities, strategic impact, risk exposure, operating leverage, and decision trade-offs.',
       'Translate technical facts into business outcomes (cost, speed, reliability, risk) without inventing ROI numbers.',
+      'Do not use technical implementation terms (API, endpoint, schema, token, queue, cache, parser, framework names).',
       'Include concrete scope references for major capabilities and constraints.',
     ],
     Sales: [
       'Use sales language: customer problem, fit, integration readiness, blockers, and qualification signals.',
+      'Avoid implementation jargon; describe customer-facing capability and operational fit in plain language.',
       'State concrete limits and prerequisites clearly so deal teams do not overpromise.',
     ],
     Marketing: [
       'Use marketing language: positioning, narrative themes, and claim boundaries grounded in evidence.',
+      'Avoid technical terms; convert implementation facts into message-safe business value statements.',
       'Surface concrete language from evidence that can be safely reused in positioning.',
     ],
     Engineering: [
@@ -790,10 +887,12 @@ function audienceGuidance(audience: string): string[] {
     ],
     Support: [
       'Use support/runbook language: symptom, trigger, observable signal, impact, and mitigation context.',
+      'Use plain language for support reps and customer-facing responders; avoid deep implementation jargon.',
       'Avoid speculative runbook steps; include only observed troubleshooting facts.',
     ],
     Customer: [
       'Use customer-success language: expected outcome, onboarding prerequisites, usage boundaries, and known limitations.',
+      'Do not include internal technical terminology; explain in everyday product language.',
       'Call out prerequisites and known boundaries without technical overreach.',
     ],
   };
@@ -803,17 +902,17 @@ function audienceGuidance(audience: string): string[] {
 function audienceToneInstruction(audience: string): string {
   const map: Record<string, string> = {
     Executive:
-      'Tone: boardroom/business brief. Focus on capability maturity, strategic value, and business risk posture. Minimize code jargon.',
+      'Tone: boardroom/business brief. Focus on capability maturity, strategic value, and business risk posture. Do not use technical jargon.',
     Sales:
-      'Tone: deal support brief. Focus on customer fit, integration friction, proof points, and disqualifiers. Avoid speculative claims.',
+      'Tone: deal support brief. Focus on customer fit, integration friction, proof points, and disqualifiers. No implementation jargon.',
     Marketing:
-      'Tone: positioning brief. Focus on message-safe claims, narrative clarity, and explicit do-not-claim boundaries.',
+      'Tone: positioning brief. Focus on message-safe claims, narrative clarity, and explicit do-not-claim boundaries. No technical jargon.',
     Engineering:
       'Tone: technical design/operations brief. Use precise technical vocabulary and concrete implementation references.',
     Support:
-      'Tone: incident/support brief. Focus on user-visible failure patterns, diagnostics, and remediation context from evidence.',
+      'Tone: incident/support brief. Focus on user-visible failure patterns, diagnostics, and remediation context from evidence in plain language.',
     Customer:
-      'Tone: customer-facing guidance. Plain language, clear outcomes, and concrete usage limits; avoid internal-only jargon.',
+      'Tone: customer-facing guidance. Plain language, clear outcomes, and concrete usage limits; no internal technical jargon.',
   };
   return map[audience] || map.Engineering;
 }
@@ -843,6 +942,8 @@ async function generateProjection(
     `Audience style requirement: ${audienceToneInstruction(audience)}`,
     'Speak the audience language while staying evidence-grounded: same facts, different framing.',
     'For non-technical audiences, translate technical details into business/customer implications without changing factual meaning.',
+    'For non-technical audiences, never mention implementation internals (APIs, endpoints, auth/token protocols, queues, caches, schemas, frameworks, file paths, code artifacts).',
+    'For non-technical audiences, describe outcomes as: who is affected, what changes operationally, why it matters to business/customer.',
     'For technical audiences, preserve technical precision and include concrete implementation details from evidence.',
     'Rank evidence by relevance and include high-value facts first, then remaining relevant facts.',
   ].join(' ');
@@ -873,16 +974,18 @@ async function generateProjection(
       { role: 'system', content: system },
       { role: 'user', content: JSON.stringify(userContent) },
     ];
-    const respText = await llm.call(baseMessages, 'openai/gpt-4o-mini', 0.2);
+    const respText = await llm.call(baseMessages, PROJECTION_MODEL, 0.2);
     const projection = parseProjectionResponse(respText);
-    const validation = validateProjection(projection, canonical, schema);
+    const validation = validateProjection(projection, canonical, schema, audience);
 
     const status = validation.length === 0 ? 'draft' : 'pending_verification';
-    const finalText = validation.length === 0 ? projection : `PENDING: ${validation.join('; ')}\n\n${projection}`;
-    return { projection: finalText, status };
-  } catch (e) {
+    if (validation.length > 0) {
+      console.warn('[AKU builder] Projection validation warnings', { audience, title, validation });
+    }
+    return { projection, status };
+  } catch {
     return {
-      projection: `PENDING: projection generation failed (${(e as Error).message})`,
+      projection: '',
       status: 'pending_verification',
     };
   }
@@ -914,7 +1017,8 @@ export async function buildAkusForSources(
     .in('source_id', sourceIds);
   if (await shouldAbort()) return { akus: [], projections: [] };
 
-  const knownFiles = (summaries || []).map((s) => normalizePath(`${s.source_id}/${s.file_path}`));
+  const codeSummaries = (summaries || []).filter((s) => isCodeEvidencePath(s.file_path));
+  const knownFiles = codeSummaries.map((s) => normalizePath(`${s.source_id}/${s.file_path}`));
   const graphDependencies = await extractGraphDependencies(
     supabase,
     userId,
@@ -930,7 +1034,7 @@ export async function buildAkusForSources(
     for (const file of cluster.files) clusterByFile.set(normalizePath(file), cluster);
   }
 
-  summaries?.forEach((s) => {
+  codeSummaries.forEach((s) => {
     const normalized = normalizePath(`${s.source_id}/${s.file_path}`);
     evidence.push({
       id: s.id,

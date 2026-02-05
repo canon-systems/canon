@@ -81,6 +81,34 @@ const slug = (text: string) =>
 
 const hash = (markdown: string) => crypto.createHash('sha256').update(markdown, 'utf8').digest('hex');
 
+function normalizeProjectionMarkdown(input: string): string {
+  const raw = (input || '').trim();
+  if (!raw) return '';
+  const pendingMatch = raw.match(/^PENDING:\s*([\s\S]*?)(?:\n{2,}|\n)([\s\S]*)$/i);
+  const body = (pendingMatch?.[2] || raw).trim();
+
+  const blocks = body.split(/\n{2,}/).map((b) => b.trim()).filter(Boolean);
+  const sections: Array<{ label: string; text: string }> = [];
+  for (const block of blocks) {
+    const lines = block.split('\n');
+    const first = (lines[0] || '').trim();
+    const headerOnly = first.match(/^([A-Za-z][A-Za-z0-9 /&-]{1,80}):\s*$/);
+    if (headerOnly) {
+      sections.push({ label: headerOnly[1], text: lines.slice(1).join('\n').trim() });
+      continue;
+    }
+    const inline = block.match(/^([A-Za-z][A-Za-z0-9 /&-]{1,80}):\s+([\s\S]+)$/);
+    if (inline) {
+      sections.push({ label: inline[1], text: inline[2].trim() });
+    }
+  }
+
+  if (sections.length === 0) return body;
+  return sections
+    .map((s) => `## ${s.label}\n\n${s.text}`.trim())
+    .join('\n\n');
+}
+
 /**
  * Build the knowledge base publishing plan.
  */
@@ -89,7 +117,7 @@ export function planKnowledgePush(params: {
   systemTitle?: string;
   canonBaseUrl?: string;
 }): PlanResult {
-  const { akus, systemTitle = 'System Knowledge', canonBaseUrl = 'https://canon.internal' } = params;
+  const { akus, systemTitle = 'System Knowledge' } = params;
   const safeAkus = Array.isArray(akus) ? akus : [];
 
   // System page: no title in body (Confluence/Notion set page title); only projections, no AKU list
@@ -143,7 +171,7 @@ export function planKnowledgePush(params: {
         '',
         `Audience: ${view.audience}`,
         '',
-        view.projection.trim(),
+        normalizeProjectionMarkdown(view.projection),
       ].join('\n');
 
       audiencePages.push({
