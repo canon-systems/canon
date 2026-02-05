@@ -6,7 +6,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
-  Github,
+  Database,
   Layers,
   Link2,
   Plus,
@@ -587,7 +587,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
                 <CardContent className="p-4">
                   <div className="flex items-center gap-2">
                     <Badge variant="outline">Total</Badge>
-                    <Github className="h-4 w-4 text-white/70" />
+                    <Database className="h-4 w-4 text-white/70" />
                   </div>
                   <p className="mt-2 text-2xl font-semibold text-white">{statusCounts.total}</p>
                 </CardContent>
