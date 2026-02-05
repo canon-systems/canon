@@ -214,35 +214,58 @@ export class TreeSitterAnalyzer {
     private languages: Map<string, Parser.Language> = new Map();
     private initialized = false;
     private supportedLanguages: Set<string> = new Set();
+    private wasmBaseDir: string | null = null;
+
+    private resolveTreeSitterBaseDir(): string {
+        const candidates = [
+            path.join(process.cwd(), 'public', 'tree-sitter'),
+            path.join(process.cwd(), 'frontend', 'public', 'tree-sitter'),
+            path.resolve(process.cwd(), '..', 'frontend', 'public', 'tree-sitter'),
+        ];
+
+        for (const candidate of candidates) {
+            const coreWasm = path.join(candidate, 'tree-sitter.wasm');
+            if (fs.existsSync(coreWasm) && fs.statSync(coreWasm).size > 0) {
+                return candidate;
+            }
+        }
+
+        // Keep previous behavior as a last resort.
+        return path.join(process.cwd(), 'public', 'tree-sitter');
+    }
 
     async initialize(): Promise<void> {
         if (this.initialized) return;
 
+        this.wasmBaseDir = this.resolveTreeSitterBaseDir();
         await Parser.init({
-            locateFile: (filename: string) => path.join(process.cwd(), 'public', 'tree-sitter', filename)
+            locateFile: (filename: string) => {
+                const normalized = filename.replace(/^\/+/, '');
+                return path.join(this.wasmBaseDir || '', normalized);
+            }
         });
 
         // Load Tree-sitter languages from local WASM files
         const languageConfigs = [
-            { name: 'javascript', wasmPath: '/tree-sitter/tree-sitter-javascript.wasm' },
-            { name: 'typescript', wasmPath: '/tree-sitter/tree-sitter-typescript.wasm' },
-            { name: 'tsx', wasmPath: '/tree-sitter/tree-sitter-typescript.wasm' }, // TSX uses TypeScript parser
-            { name: 'python', wasmPath: '/tree-sitter/tree-sitter-python.wasm' },
-            { name: 'java', wasmPath: '/tree-sitter/tree-sitter-java.wasm' },
-            { name: 'go', wasmPath: '/tree-sitter/tree-sitter-go.wasm' },
-            { name: 'rust', wasmPath: '/tree-sitter/tree-sitter-rust.wasm' },
-            { name: 'cpp', wasmPath: '/tree-sitter/tree-sitter-cpp.wasm' },
-            { name: 'c', wasmPath: '/tree-sitter/tree-sitter-c.wasm' },
-            { name: 'csharp', wasmPath: '/tree-sitter/tree-sitter-c-sharp.wasm' }, // Note: WASM file uses c-sharp but config uses csharp
-            { name: 'php', wasmPath: '/tree-sitter/tree-sitter-php.wasm' },
-            { name: 'ruby', wasmPath: '/tree-sitter/tree-sitter-ruby.wasm' },
+            { name: 'javascript', wasmPath: 'tree-sitter-javascript.wasm' },
+            { name: 'typescript', wasmPath: 'tree-sitter-typescript.wasm' },
+            { name: 'tsx', wasmPath: 'tree-sitter-typescript.wasm' }, // TSX uses TypeScript parser
+            { name: 'python', wasmPath: 'tree-sitter-python.wasm' },
+            { name: 'java', wasmPath: 'tree-sitter-java.wasm' },
+            { name: 'go', wasmPath: 'tree-sitter-go.wasm' },
+            { name: 'rust', wasmPath: 'tree-sitter-rust.wasm' },
+            { name: 'cpp', wasmPath: 'tree-sitter-cpp.wasm' },
+            { name: 'c', wasmPath: 'tree-sitter-c.wasm' },
+            { name: 'csharp', wasmPath: 'tree-sitter-c-sharp.wasm' }, // Note: WASM file uses c-sharp but config uses csharp
+            { name: 'php', wasmPath: 'tree-sitter-php.wasm' },
+            { name: 'ruby', wasmPath: 'tree-sitter-ruby.wasm' },
         ];
 
         // Load Tree-sitter parsers - only support languages that successfully load
         for (const config of languageConfigs) {
             try {
                 // Check if WASM file exists locally
-                const wasmPath = path.join(process.cwd(), 'public', config.wasmPath);
+                const wasmPath = path.join(this.wasmBaseDir || '', config.wasmPath);
 
                 if (fs.existsSync(wasmPath) && fs.statSync(wasmPath).size > 0) {
                     try {
@@ -270,7 +293,7 @@ export class TreeSitterAnalyzer {
             }
         }
 
-        console.log(`🎯 Tree-sitter analyzer ready with ${this.parsers.size} working parsers`);
+        console.log(`🎯 Tree-sitter analyzer ready with ${this.parsers.size} working parsers (wasm dir: ${this.wasmBaseDir})`);
         if (this.parsers.size === 0) {
             console.warn(`⚠️ No Tree-sitter parsers loaded. Run 'node setup-tree-sitter.js' to download compatible WASM files.`);
         }
@@ -302,6 +325,17 @@ export class TreeSitterAnalyzer {
             groupMappings: toolGraph.groupMappings,
             mermaid
         };
+    }
+
+    async extractDependencyInfo(files: Array<{ path: string, content: string }>): Promise<DependencyInfo[]> {
+        await this.initialize();
+        const deps = await this.extractDependencies(files);
+        const byLang = new Map<string, number>();
+        deps.forEach((d) => byLang.set(d.language, (byLang.get(d.language) || 0) + 1));
+        console.log(
+            `[Tree-sitter] Dependency extraction summary: ${deps.length}/${files.length} files parsed, languages: ${JSON.stringify(Object.fromEntries(byLang.entries()))}`
+        );
+        return deps;
     }
 
     private async extractDependencies(files: Array<{ path: string, content: string }>): Promise<DependencyInfo[]> {

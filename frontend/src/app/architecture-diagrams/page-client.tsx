@@ -26,8 +26,7 @@ interface RepoWithSetup {
     repo_url?: string;
     external_url?: string;
     default_branch: string;
-    setup_branch: string;
-    setup_status: string;
+    status: string;
 }
 
 interface ArchitectureDiagram {
@@ -86,10 +85,10 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
             id,
             name,
             external_url,
-            scope,
-            source_setup!inner(setup_status, branch)
+            status_payload,
+            scope
           `)
-                    .eq('source_setup.setup_status', 'ready');
+                    .not('scope', 'is', null);
 
                 if (error) throw error;
 
@@ -102,31 +101,22 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
                     id: string;
                     name: string;
                     external_url?: string;
+                    status_payload?: Record<string, unknown> | null;
                     scope?: Record<string, unknown> | null;
-                    source_setup?: Array<{
-                        branch?: string;
-                        setup_status?: string;
-                    }> | {
-                        branch?: string;
-                        setup_status?: string;
-                    };
                 }) => {
-                    const setup = Array.isArray(repo.source_setup)
-                        ? repo.source_setup[0]
-                        : repo.source_setup;
-                    const defaultBranch = branchFromScope(repo.scope) || setup?.branch || 'main';
+                    const defaultBranch = branchFromScope(repo.scope) || 'main';
+                    const status = String(repo.status_payload?.status || '').toLowerCase();
                     return {
                         id: repo.id,
                         name: repo.name,
                         repo_url: repo.external_url,
                         external_url: repo.external_url,
                         default_branch: defaultBranch,
-                        setup_branch: setup?.branch || defaultBranch,
-                        setup_status: setup?.setup_status || 'unknown'
+                        status: status || 'unknown'
                     };
                 });
 
-                setAvailableRepos(reposWithSetup);
+                setAvailableRepos(reposWithSetup.filter((r) => r.status === 'ready' || r.status === 'draft_ready'));
             } catch (err) {
                 console.error('Failed to load repositories:', err);
                 setErrorMsg('Failed to load repositories');
@@ -593,7 +583,7 @@ export function ArchitectureDiagramsPageClient({ repos: initialRepos = [] }: Arc
                                                                     <div className="text-white/60 text-sm">{repo.repo_url || repo.external_url}</div>
                                                                     <div className="flex items-center gap-2 text-white/50 text-xs mt-1">
                                                                         <GitBranch className="w-4 h-4" />
-                                                                        <span>{repo.setup_branch}</span>
+                                                                        <span>{repo.default_branch}</span>
                                                                     </div>
                                                                 </div>
                                                             </label>

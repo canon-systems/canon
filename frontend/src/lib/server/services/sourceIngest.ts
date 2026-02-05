@@ -89,6 +89,24 @@ async function updateStage(
   await updateStatus(supabase, sourceId, stage, progress, { step_label: stepLabel, ...extras });
 }
 
+async function sourceStillExists(supabase: SupabaseClient, sourceId: string, userId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('workspace_sources')
+    .select('id')
+    .eq('id', sourceId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (error) return false;
+  return Boolean(data?.id);
+}
+
+async function abortIfDeleted(supabase: SupabaseClient, source: WorkspaceSource, stage: string): Promise<boolean> {
+  const exists = await sourceStillExists(supabase, source.id, source.user_id);
+  if (exists) return false;
+  console.log(`Source ingest: stopping ${source.id} at ${stage} because source was deleted`);
+  return true;
+}
+
 function normalizeRepoId(repoUrl: string): string {
   const parsed = parseRepoUrl(repoUrl);
   if (!parsed) throw new Error(`Invalid repo URL: ${repoUrl}`);
@@ -118,6 +136,7 @@ export async function ingestGitHubSource(
   try {
     console.log(`Source ingest: GitHub start for ${repo}@${branch}`, { sourceId: source.id });
     await updateStage(supabase, source.id, 'fetching', 10, 'Fetching repository');
+    if (await abortIfDeleted(supabase, source, 'fetching')) return;
 
     const repoUrl = repo.startsWith('http') ? repo : `https://github.com/${repo}`;
     const analysis = await analyzeRepository({
@@ -138,6 +157,7 @@ export async function ingestGitHubSource(
     await updateStage(supabase, source.id, 'summarizing', 60, 'Summarizing source data', {
       total_files: files.length,
     });
+    if (await abortIfDeleted(supabase, source, 'summarizing')) return;
     await manager.updateSummaries(
       files.map((f) => ({ path: f.path, content: f.content })),
       { model: 'openai/gpt-4o-mini', regenerationReason: 'initial' }
@@ -145,9 +165,14 @@ export async function ingestGitHubSource(
 
     // Build AKUs: per-source (single tab) or merged from selected sources only (multi tab)
     await updateStage(supabase, source.id, 'building_akus', 85, 'Building knowledge outputs');
+    if (await abortIfDeleted(supabase, source, 'building_akus')) return;
     if (options?.mode === 'single') {
       console.log('Source ingest: building per-source AKUs for GitHub source', { audiences: DEFAULT_AUDIENCES });
-      await buildAkusForSources(supabase, source.user_id, [source.id], DEFAULT_AUDIENCES, { perSource: true });
+      await buildAkusForSources(supabase, source.user_id, [source.id], DEFAULT_AUDIENCES, {
+        perSource: true,
+        extractionTargets: [{ sourceId: source.id, repoUrl, branch, fallbackName: source.id }],
+        shouldAbort: () => sourceStillExists(supabase, source.id, source.user_id).then((exists) => !exists),
+      });
     } else {
       let sourceIds: string[];
       const createdIds = options?.createdSourceIds;
@@ -157,7 +182,10 @@ export async function ingestGitHubSource(
         sourceIds = await getAllUserSourceIds(supabase, source.user_id);
       }
       console.log('Source ingest: building merged AKUs for selected sources', { sourceCount: sourceIds.length, audiences: DEFAULT_AUDIENCES });
-      await buildAkusForSources(supabase, source.user_id, sourceIds, DEFAULT_AUDIENCES);
+      await buildAkusForSources(supabase, source.user_id, sourceIds, DEFAULT_AUDIENCES, {
+        extractionTargets: [{ sourceId: source.id, repoUrl, branch, fallbackName: source.id }],
+        shouldAbort: () => sourceStillExists(supabase, source.id, source.user_id).then((exists) => !exists),
+      });
     }
 
     await updateStage(supabase, source.id, 'ready', 100, 'Setup complete');
@@ -183,6 +211,7 @@ export async function ingestIssueSource(
   try {
     console.log(`Source ingest: Issue provider start (${provider})`, { scope: source.scope });
     await updateStage(supabase, source.id, 'fetching', 10, 'Fetching source data');
+    if (await abortIfDeleted(supabase, source, 'fetching')) return;
 
     const projectKey = typeof source.scope?.project === 'string' ? source.scope.project : null;
     const cloudId = typeof source.scope?.cloudId === 'string' ? source.scope.cloudId : null;
@@ -295,6 +324,7 @@ export async function ingestIssueSource(
     await updateStage(supabase, source.id, 'indexing', 45, 'Indexing source records', {
       total_items: issues.length,
     });
+    if (await abortIfDeleted(supabase, source, 'indexing')) return;
 
     // Upsert into issue_index (schema has no description column; full issue is in raw)
     const rows = issues.map((issue) => {
@@ -334,15 +364,20 @@ export async function ingestIssueSource(
     if (rows.length > 0) {
       console.log(`Source ingest: storing ${rows.length} issues`);
       await supabase.from('issue_index').upsert(rows, { onConflict: 'source_id,issue_key' });
+      if (await abortIfDeleted(supabase, source, 'indexing')) return;
     } else {
       console.log('Source ingest: no issues to store for this source');
     }
 
     // Build AKUs: per-source (single tab) or merged from selected sources only (multi tab)
     await updateStage(supabase, source.id, 'building_akus', 85, 'Building knowledge outputs');
+    if (await abortIfDeleted(supabase, source, 'building_akus')) return;
     if (options?.mode === 'single') {
       console.log('Source ingest: building per-source AKUs from issues', { issues: rows.length, audiences: DEFAULT_AUDIENCES });
-      await buildAkusForSources(supabase, source.user_id, [source.id], DEFAULT_AUDIENCES, { perSource: true });
+      await buildAkusForSources(supabase, source.user_id, [source.id], DEFAULT_AUDIENCES, {
+        perSource: true,
+        shouldAbort: () => sourceStillExists(supabase, source.id, source.user_id).then((exists) => !exists),
+      });
     } else {
       let sourceIds: string[];
       const createdIds = options?.createdSourceIds;
@@ -352,7 +387,9 @@ export async function ingestIssueSource(
         sourceIds = await getAllUserSourceIds(supabase, source.user_id);
       }
       console.log('Source ingest: building merged AKUs for selected sources', { sourceCount: sourceIds.length, audiences: DEFAULT_AUDIENCES });
-      await buildAkusForSources(supabase, source.user_id, sourceIds, DEFAULT_AUDIENCES);
+      await buildAkusForSources(supabase, source.user_id, sourceIds, DEFAULT_AUDIENCES, {
+        shouldAbort: () => sourceStillExists(supabase, source.id, source.user_id).then((exists) => !exists),
+      });
     }
 
     await updateStage(supabase, source.id, 'ready', 100, 'Setup complete');

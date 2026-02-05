@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
 import { TreeSitterAnalyzer } from '@/lib/server/services/treeSitterAnalyzer';
+import { fetchSourceCodeArtifacts, type SourceExtractionTarget } from '@/lib/server/services/sourceCodeArtifacts';
 import { trackArchitectureDiagram } from '@/lib/server/services/usageTracking';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 
@@ -26,21 +27,16 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'sourceIds is required' }, { status: 400 });
         }
 
-        // Load all repos and verify ownership/setup
+        // Load all repos and verify ownership
         const repos: Array<{
             repo: {
                 id: string;
                 name: string;
                 repo_url?: string;
                 external_url?: string;
+                scope?: Record<string, unknown> | null;
                 default_branch: string;
                 user_id: string;
-                [key: string]: unknown;
-            };
-            setup: {
-                source_id: string;
-                setup_status: string;
-                branch?: string;
                 [key: string]: unknown;
             };
         }> = [];
@@ -56,52 +52,21 @@ export async function POST(request: NextRequest) {
                 return NextResponse.json({ error: `Repository not found: ${rid}` }, { status: 404 });
             }
 
-            const { data: repoSetup, error: setupError } = await supabase
-                .from('source_setup')
-                .select('*')
-                .eq('source_id', rid)
-                .single();
-
-            if (setupError || !repoSetup || repoSetup.setup_status !== 'ready') {
-                return NextResponse.json({
-                    error: `Repository setup not completed for ${repo.name || rid}`
-                }, { status: 400 });
-            }
-
-            repos.push({ repo, setup: repoSetup });
+            repos.push({ repo });
         }
 
         const primaryRepo = repos[0].repo;
-        const primarySetup = repos[0].setup;
 
         // For architecture diagrams, we don't need file summaries
         // Tree-sitter will fetch and analyze the actual source code directly from GitHub
 
-        const { analyzeRepository } = await import('@/lib/server/services/analyzeRepository');
-
-        const supportedExtensions = ['js', 'ts', 'tsx', 'jsx', 'py', 'java', 'go', 'rs', 'cpp', 'c', 'cs', 'php', 'rb'];
-
-        const allCodeFiles: Array<{ path: string; content: string }> = [];
-        const allManifestFiles: Array<{ path: string; content: string }> = [];
-
-        const slugForRepo = (repoUrl: string, fallback: string) => {
-            try {
-                const cleaned = repoUrl.replace(/\.git$/, '');
-                const parts = cleaned.split('/').filter(Boolean);
-                const owner = parts[parts.length - 2];
-                const name = parts[parts.length - 1];
-                return owner && name ? `${owner}/${name}` : fallback;
-            } catch {
-                return fallback;
-            }
-        };
-
+        const targets: SourceExtractionTarget[] = [];
         const branchFromScope = (scope: unknown): string | undefined =>
             scope && typeof scope === 'object' && 'branch' in scope
                 ? (scope as { branch?: string }).branch
                 : undefined;
 
-        for (const { repo, setup } of repos) {
+        for (const { repo } of repos) {
             const repoUrl = repo.repo_url || repo.external_url;
             if (!repoUrl) {
                 return NextResponse.json({
@@ -109,64 +74,20 @@ export async function POST(request: NextRequest) {
                 }, { status: 400 });
             }
 
-            const branch = setup.branch || repo.default_branch || branchFromScope(repo.scope) || 'main';
-            if (!branch) {
-                return NextResponse.json({
-                    error: `Branch not found for ${repo.name}`
-                }, { status: 400 });
-            }
-
-            const analysis = await analyzeRepository({
-                supabase,
-                userId: user.id,
+            targets.push({
+                sourceId: repo.id,
                 repoUrl,
-                branch,
+                branch: branchFromScope(repo.scope) || repo.default_branch || 'main',
+                fallbackName: repo.name || repo.id
             });
-
-            if (!analysis.success || !analysis.rawFiles) {
-                return NextResponse.json({
-                    error: `Failed to fetch repository files for ${repo.name}`
-                }, { status: 400 });
-            }
-
-            const slug = slugForRepo(repoUrl, repo.name || repo.id);
-
-            const codeFiles = analysis.rawFiles
-                .filter(file => {
-                    const ext = file.path.split('.').pop()?.toLowerCase();
-                    return supportedExtensions.includes(ext || '');
-                })
-                .map(file => ({
-                    path: `${slug}/${file.path}`,
-                    content: file.content
-                }));
-
-            const manifestFiles = analysis.rawFiles
-                .filter(file => {
-                    const lower = file.path.toLowerCase();
-                    return lower.endsWith('package.json') ||
-                        lower.endsWith('requirements.txt') ||
-                        lower.endsWith('pipfile') ||
-                        lower.endsWith('pyproject.toml') ||
-                        lower.endsWith('go.mod') ||
-                        lower.endsWith('cargo.toml') ||
-                        lower.endsWith('pom.xml') ||
-                        lower.endsWith('build.gradle') ||
-                        lower.endsWith('build.gradle.kts') ||
-                        lower.endsWith('composer.json') ||
-                        lower.endsWith('gemfile') ||
-                        lower.endsWith('gemfile.lock') ||
-                        lower.endsWith('.csproj') ||
-                        lower.endsWith('package.swift');
-                })
-                .map(file => ({
-                    path: `${slug}/${file.path}`,
-                    content: file.content
-                }));
-
-            allCodeFiles.push(...codeFiles);
-            allManifestFiles.push(...manifestFiles);
         }
+
+        const { codeFiles: allCodeFiles, manifestFiles: allManifestFiles } = await fetchSourceCodeArtifacts(
+            supabase,
+            user.id,
+            targets,
+            'repoSlug'
+        );
 
         if (allCodeFiles.length === 0) {
             return NextResponse.json({
@@ -360,7 +281,7 @@ export async function POST(request: NextRequest) {
             diagram.id,
             isNew,
             primaryRepo.repo_url || primaryRepo.external_url,
-            primarySetup?.branch || primaryRepo.default_branch
+            branchFromScope(primaryRepo.scope) || primaryRepo.default_branch
         );
 
         return NextResponse.json({

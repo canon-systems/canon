@@ -1512,6 +1512,8 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
   const [loading, setLoading] = useState(false);
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
   const [sourceMenuOpen, setSourceMenuOpen] = useState(false);
+  const [audienceMenuOpen, setAudienceMenuOpen] = useState(false);
+  const [unitsMenuOpen, setUnitsMenuOpen] = useState(false);
   const [selectedAudiences, setSelectedAudiences] = useState<string[]>([]);
   const [audienceOptions, setAudienceOptions] = useState<string[]>([]);
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
@@ -2311,88 +2313,186 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                       <SidebarGroup>
                         <SidebarGroupLabel>Audiences</SidebarGroupLabel>
                         <SidebarGroupContent>
-                          {audienceOptions.length > 0 ? (
-                            <div className="flex flex-wrap gap-2">
-                              {audienceOptions.map((aud) => {
-                                const active = selectedAudiences.includes(aud);
-                                return (
-                                  <Button
-                                    key={aud}
-                                    variant={active ? 'secondary' : 'ghost'}
-                                    size="sm"
-                                    className={cn(
-                                      'border',
-                                      active
-                                        ? 'border-white/70 bg-white !text-black shadow-[0_18px_50px_rgba(0,0,0,0.5)] ring-2 ring-white ring-offset-1 ring-offset-black'
-                                        : 'border-white/15 text-white/80 hover:border-white/25 hover:text-white'
-                                    )}
-                                    onClick={() => toggleAudience(aud)}
-                                  >
-                                    {active && <Check className="mr-1.5 h-4 w-4" />}
-                                    {aud}
-                                  </Button>
-                                );
-                              })}
-                            </div>
-                          ) : (
-                            <div className="rounded-md border border-white/10 bg-white/5 p-3 text-xs text-white/70">
-                              No audiences configured. Set them in Settings → Preferences.
+                          <Popover open={audienceMenuOpen} onOpenChange={setAudienceMenuOpen}>
+                            <PopoverTrigger asChild>
+                              <Button
+                                variant="outline"
+                                role="combobox"
+                                aria-expanded={audienceMenuOpen}
+                                className="w-full justify-between border border-white bg-neutral-800 hover:bg-neutral-700 hover:border-white"
+                                onClick={() => setAudienceMenuOpen(!audienceMenuOpen)}
+                              >
+                                <span className="truncate">
+                                  {selectedAudiences.length > 0
+                                    ? `${selectedAudiences.length} audience${selectedAudiences.length === 1 ? '' : 's'} selected`
+                                    : 'Choose audiences'}
+                                </span>
+                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                              {audienceOptions.length > 0 ? (
+                                <>
+                                  <Command>
+                                    <CommandInput placeholder="Search audiences..." />
+                                    <CommandList>
+                                      <CommandEmpty>No audiences found.</CommandEmpty>
+                                      <CommandGroup>
+                                        {audienceOptions.map((aud) => {
+                                          const checked = selectedAudiences.includes(aud);
+                                          return (
+                                            <CommandItem
+                                              key={aud}
+                                              value={aud}
+                                              onSelect={() => toggleAudience(aud)}
+                                              className="cursor-pointer"
+                                            >
+                                              <Checkbox
+                                                checked={checked}
+                                                onCheckedChange={() => toggleAudience(aud)}
+                                                className="mr-2"
+                                              />
+                                              <span className="flex-1 truncate">{aud}</span>
+                                            </CommandItem>
+                                          );
+                                        })}
+                                      </CommandGroup>
+                                    </CommandList>
+                                  </Command>
+                                  <Separator />
+                                  <div className="flex items-center justify-between px-3 py-2">
+                                    <span className="text-xs text-white/60">
+                                      {selectedAudiences.length} of {audienceOptions.length} selected
+                                    </span>
+                                    <div className="flex gap-2">
+                                      <Button variant="ghost" size="sm" onClick={clearAudiences}>
+                                        Clear
+                                      </Button>
+                                      <Button
+                                        variant="secondary"
+                                        size="sm"
+                                        onClick={() => {
+                                          selectAllAudiences();
+                                          setAudienceMenuOpen(false);
+                                        }}
+                                      >
+                                        {selectedAudiences.length === audienceOptions.length ? 'Deselect all' : 'Select all'}
+                                      </Button>
+                                    </div>
+                                  </div>
+                                </>
+                              ) : (
+                                <div className="rounded-md border border-white/10 bg-white/5 p-3 text-xs text-white/70">
+                                  No audiences configured. Set them in Settings → Preferences.
+                                </div>
+                              )}
+                            </PopoverContent>
+                          </Popover>
+                          {audienceOptions.length > 0 && (
+                            <div className="flex items-center justify-between text-xs text-white/60">
+                              <span>{selectedAudiences.length} chosen</span>
+                              <Button variant="ghost" size="sm" onClick={selectedAudiences.length === audienceOptions.length ? clearAudiences : selectAllAudiences}>
+                                {selectedAudiences.length === audienceOptions.length ? 'Clear all' : 'Select all'}
+                              </Button>
                             </div>
                           )}
-                          <div className="flex items-center justify-between text-xs text-white/70">
-                            <div className="flex gap-2">
-                              <Button variant="ghost" size="sm" onClick={clearAudiences}>
-                                Clear
-                              </Button>
-                              <Button variant="ghost" size="sm" onClick={selectAllAudiences}>
-                                All
-                              </Button>
-                            </div>
-                          </div>
                         </SidebarGroupContent>
                       </SidebarGroup>
 
                       <SidebarGroup>
                         <SidebarGroupLabel>Units</SidebarGroupLabel>
                         <SidebarGroupContent>
-                          {categories.length > 0 ? (
-                            <div className="flex flex-wrap gap-2">
-                              {categories.map((cat) => {
-                                const active = selectedCategories.includes(cat);
-                                return (
-                                  <Button
-                                    key={cat}
-                                    variant={active ? 'secondary' : 'ghost'}
-                                    size="sm"
-                                    className={cn(
-                                      'border',
-                                      active
-                                        ? 'border-white/70 bg-white !text-black shadow-[0_18px_50px_rgba(0,0,0,0.5)] ring-2 ring-white ring-offset-1 ring-offset-black'
-                                        : 'border-white/15 text-white/80 hover:border-white/25 hover:text-white'
-                                    )}
-                                    onClick={() => toggleCategory(cat)}
-                                  >
-                                    {active && <Check className="mr-1.5 h-4 w-4" />}
-                                    {cat}
-                                  </Button>
-                                );
-                              })}
-                            </div>
-                          ) : (
-                            <div className="rounded-md border border-white/10 bg-white/5 p-3 text-xs text-white/70">
-                              Categories will appear once knowledge is generated for selected sources.
+                          <Popover open={unitsMenuOpen} onOpenChange={setUnitsMenuOpen}>
+                            <PopoverTrigger asChild>
+                              <Button
+                                variant="outline"
+                                role="combobox"
+                                aria-expanded={unitsMenuOpen}
+                                className="w-full justify-between border border-white bg-neutral-800 hover:bg-neutral-700 hover:border-white"
+                                onClick={() => setUnitsMenuOpen(!unitsMenuOpen)}
+                              >
+                                <span className="truncate">
+                                  {selectedCategories.length > 0
+                                    ? `${selectedCategories.length} unit${selectedCategories.length === 1 ? '' : 's'} selected`
+                                    : 'Choose units'}
+                                </span>
+                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                              {categories.length > 0 ? (
+                                <>
+                                  <Command>
+                                    <CommandInput placeholder="Search units..." />
+                                    <CommandList>
+                                      <CommandEmpty>No units found.</CommandEmpty>
+                                      <CommandGroup>
+                                        {categories.map((cat) => {
+                                          const checked = selectedCategories.includes(cat);
+                                          return (
+                                            <CommandItem
+                                              key={cat}
+                                              value={cat}
+                                              onSelect={() => toggleCategory(cat)}
+                                              className="cursor-pointer"
+                                            >
+                                              <Checkbox
+                                                checked={checked}
+                                                onCheckedChange={() => toggleCategory(cat)}
+                                                className="mr-2"
+                                              />
+                                              <span className="flex-1 truncate">{cat}</span>
+                                            </CommandItem>
+                                          );
+                                        })}
+                                      </CommandGroup>
+                                    </CommandList>
+                                  </Command>
+                                  <Separator />
+                                  <div className="flex items-center justify-between px-3 py-2">
+                                    <span className="text-xs text-white/60">
+                                      {selectedCategories.length} of {categories.length} selected
+                                    </span>
+                                    <div className="flex gap-2">
+                                      <Button variant="ghost" size="sm" onClick={() => setSelectedCategories([])}>
+                                        Clear
+                                      </Button>
+                                      <Button
+                                        variant="secondary"
+                                        size="sm"
+                                        onClick={() => {
+                                          setSelectedCategories(categories);
+                                          setUnitsMenuOpen(false);
+                                        }}
+                                      >
+                                        {selectedCategories.length === categories.length ? 'Deselect all' : 'Select all'}
+                                      </Button>
+                                    </div>
+                                  </div>
+                                </>
+                              ) : (
+                                <div className="rounded-md border border-white/10 bg-white/5 p-3 text-xs text-white/70">
+                                  Categories will appear once knowledge is generated for selected sources.
+                                </div>
+                              )}
+                            </PopoverContent>
+                          </Popover>
+                          {categories.length > 0 && (
+                            <div className="flex items-center justify-between text-xs text-white/60">
+                              <span>{selectedCategories.length} chosen</span>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() =>
+                                  selectedCategories.length === categories.length
+                                    ? setSelectedCategories([])
+                                    : setSelectedCategories(categories)
+                                }
+                              >
+                                {selectedCategories.length === categories.length ? 'Clear all' : 'Select all'}
+                              </Button>
                             </div>
                           )}
-                          <div className="flex items-center justify-between text-xs text-white/70">
-                            <div className="flex gap-2">
-                              <Button variant="ghost" size="sm" onClick={() => setSelectedCategories([])}>
-                                Clear
-                              </Button>
-                              <Button variant="ghost" size="sm" onClick={() => setSelectedCategories(categories)}>
-                                All
-                              </Button>
-                            </div>
-                          </div>
                         </SidebarGroupContent>
                       </SidebarGroup>
                     </>
