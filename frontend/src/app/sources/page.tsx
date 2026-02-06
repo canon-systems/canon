@@ -23,5 +23,5 @@ export default async function SourcesPage() {
     console.error('Failed to load sources:', sourceError);
   }
 
-  return <SourcesPageClient repositories={repositories || []} />;
+  return <SourcesPageClient userId={user.id} repositories={repositories || []} />;
 }
