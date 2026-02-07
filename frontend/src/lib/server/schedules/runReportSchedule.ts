@@ -5,7 +5,7 @@ import { buildAkusForSources } from '@/lib/server/services/akuBuilder';
 import { planKnowledgePush, createSinglePagePlan } from '@/lib/server/services/knowledgePushPlanner';
 import { runKnowledgePush } from '@/lib/server/services/knowledgePushRunner';
 import { trackAutomationRun } from '@/lib/server/services/usageTracking';
-import { getWindowForCadence } from './cadence';
+import { getWindowForCadence, getWindowForDays } from './cadence';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 export type ReportScheduleRow = {
@@ -84,7 +84,19 @@ export async function runReportSchedule(
 
   try {
     if (schedule.type === 'diff') {
-      const primaryWindow = getWindowForCadence(schedule.cadence, now);
+      // Allow custom window length (in days) stored alongside communication config.
+      const comm = schedule.communication || {};
+      const rawWindowDays =
+        (typeof (comm as Record<string, unknown>).window === 'object' &&
+          (comm as { window?: { days?: unknown } }).window?.days != null &&
+          (comm as { window?: { days?: unknown } }).window?.days) ||
+        (comm as Record<string, unknown>).window_days;
+      const windowDays = Number(rawWindowDays);
+
+      const primaryWindow =
+        Number.isFinite(windowDays) && windowDays > 0
+          ? getWindowForDays(Math.floor(windowDays), now)
+          : getWindowForCadence(schedule.cadence, now);
       const baselineWindow = computeBaselineWindow(primaryWindow.start, primaryWindow.end);
       const sourceIds = Array.isArray(schedule.source_ids) ? schedule.source_ids : [];
 
@@ -97,7 +109,6 @@ export async function runReportSchedule(
       const delta = diffDelta(primaryCanonical, baselineCanonical);
 
       // KB delivery for diff: push report to Notion/Confluence if configured (same layout as Knowledge page)
-      const comm = schedule.communication || {};
       const kbEnabled = comm.kb === true;
       const kbProvider = comm.kb_provider === 'notion' || comm.kb_provider === 'confluence' ? comm.kb_provider : null;
       const kbResourceId = typeof comm.kb_resource_id === 'string' ? comm.kb_resource_id : null;

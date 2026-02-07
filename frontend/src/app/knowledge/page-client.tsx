@@ -23,6 +23,7 @@ import { Separator } from '@/components/ui/separator';
 import { Loader2, ChevronsUpDown, Info, BookOpen, GitCompare, CalendarIcon, Plus, Trash2, Pencil } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/components/ui/utils';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   Sidebar,
   SidebarContent,
@@ -131,6 +132,9 @@ type ScheduleCommunication = {
   email?: boolean;
   kb?: boolean;
   slack?: boolean;
+  /** Optional report window config stored here to avoid schema changes. */
+  window?: { days?: number };
+  window_days?: number;
   /** Knowledge base target (when kb is true) */
   kb_provider?: 'notion' | 'confluence';
   kb_resource_id?: string;
@@ -144,6 +148,7 @@ type DiffSchedule = {
   enabled: boolean;
   cadence: string; // 'daily' | 'weekly' | 'monthly'
   sourceIds: string[];
+  windowDays?: number;
   communication: ScheduleCommunication;
   runAtTime: string | null;
   runAtTimezone: string | null;
@@ -171,6 +176,29 @@ const CADENCE_PRESETS: Array<{ value: string; label: string }> = [
   { value: 'weekly', label: 'Weekly' },
   { value: 'monthly', label: 'Monthly' },
 ];
+
+const WINDOW_PRESETS: number[] = [1, 7, 14, 30];
+const WINDOW_TOOLTIP = 'Baseline automatically uses the same-length window immediately before the selected window.';
+
+function InfoTip({ message }: { message: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Info className="h-3.5 w-3.5 text-white/60 cursor-help" />
+      </TooltipTrigger>
+      <TooltipContent side="top">{message}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function defaultWindowDaysForCadence(cadence: string): number {
+  switch (cadence) {
+    case 'daily': return 1;
+    case 'weekly': return 7;
+    case 'monthly': return 30;
+    default: return 7;
+  }
+}
 
 /** Day of week for run-at (0 = Sunday .. 6 = Saturday). Used for weekly/custom. */
 const WEEKDAY_OPTIONS: Array<{ value: number; label: string }> = [
@@ -368,6 +396,7 @@ function DiffPrototypePanel() {
   const [diffScheduleFormKbResources, setDiffScheduleFormKbResources] = useState<Array<{ id: string; title: string; type?: string; metadata?: Record<string, unknown> }>>([]);
   const [diffScheduleFormKbRootMetadata, setDiffScheduleFormKbRootMetadata] = useState<Record<string, unknown> | undefined>(undefined);
   const [diffScheduleFormKbResourcesLoading, setDiffScheduleFormKbResourcesLoading] = useState(false);
+  const [diffScheduleFormWindowDays, setDiffScheduleFormWindowDays] = useState<number>(1);
   const [diffScheduleFormConfluenceFolderId, setDiffScheduleFormConfluenceFolderId] = useState('');
   const [diffScheduleFormConfluenceFolderOptions, setDiffScheduleFormConfluenceFolderOptions] = useState<Array<{ id: string; title: string }>>([]);
   const [diffScheduleFormConfluenceFoldersLoading, setDiffScheduleFormConfluenceFoldersLoading] = useState(false);
@@ -377,6 +406,7 @@ function DiffPrototypePanel() {
   const [diffScheduleFormRunAtMonthDay, setDiffScheduleFormRunAtMonthDay] = useState<number>(1); // 1st
   const [diffScheduleSourceMenuOpen, setDiffScheduleSourceMenuOpen] = useState(false);
   const [diffScheduleCadenceMenuOpen, setDiffScheduleCadenceMenuOpen] = useState(false);
+  const [diffScheduleWindowMenuOpen, setDiffScheduleWindowMenuOpen] = useState(false);
 
   const diffAllSourceIds = useMemo(() => connectedSources.map((s) => s.id), [connectedSources]);
 
@@ -401,23 +431,31 @@ function DiffPrototypePanel() {
           runAtMonthDay?: number | null;
         }>;
         setDiffSchedules(
-          list.map((s) => ({
-            id: s.id,
-            name: typeof s.name === 'string' ? s.name : 'Diff report',
-            enabled: s.enabled !== false,
-            cadence: typeof s.cadence === 'string' ? s.cadence : 'daily',
-            sourceIds: Array.isArray(s.sourceIds) ? s.sourceIds : [],
-            communication: {
-              ...s.communication,
-              email: !!s.communication?.email,
-              kb: !!s.communication?.kb,
-              slack: !!s.communication?.slack,
-            },
-            runAtTime: s.runAtTime ?? null,
-            runAtTimezone: s.runAtTimezone ?? null,
-            runAtWeekday: s.runAtWeekday ?? null,
-            runAtMonthDay: s.runAtMonthDay ?? null,
-          }))
+          list.map((s) => {
+            const cadence = typeof s.cadence === 'string' ? s.cadence : 'daily';
+            const maybeWindow = (s.communication as { window?: { days?: unknown }; window_days?: unknown }) || {};
+            const windowDays =
+              (maybeWindow.window && Number(maybeWindow.window.days)) ||
+              Number(maybeWindow.window_days);
+            return {
+              id: s.id,
+              name: typeof s.name === 'string' ? s.name : 'Diff report',
+              enabled: s.enabled !== false,
+              cadence,
+              sourceIds: Array.isArray(s.sourceIds) ? s.sourceIds : [],
+              windowDays: Number.isFinite(windowDays) && windowDays! > 0 ? Math.floor(windowDays!) : defaultWindowDaysForCadence(cadence),
+              communication: {
+                ...s.communication,
+                email: !!s.communication?.email,
+                kb: !!s.communication?.kb,
+                slack: !!s.communication?.slack,
+              },
+              runAtTime: s.runAtTime ?? null,
+              runAtTimezone: s.runAtTimezone ?? null,
+              runAtWeekday: s.runAtWeekday ?? null,
+              runAtMonthDay: s.runAtMonthDay ?? null,
+            };
+          })
         );
       } catch {
         if (!cancelled) setDiffSchedules([]);
@@ -538,14 +576,19 @@ function DiffPrototypePanel() {
     }
   };
 
+  // Only load Confluence folders when the selected resource is a known space (in the loaded list).
+  // When editing, the initial value may be a folder id; we wait until spaces have loaded and the form has a space id.
   useEffect(() => {
-    if (diffScheduleFormKbProvider === 'confluence' && diffScheduleFormKbResourceId) {
+    const isKnownSpace =
+      diffScheduleFormKbResourceId &&
+      diffScheduleFormKbResources.some((r) => r.id === diffScheduleFormKbResourceId);
+    if (diffScheduleFormKbProvider === 'confluence' && isKnownSpace) {
       loadDiffScheduleConfluenceFolders(diffScheduleFormKbResourceId);
     } else {
       setDiffScheduleFormConfluenceFolderId('');
       setDiffScheduleFormConfluenceFolderOptions([]);
     }
-  }, [diffScheduleFormKbProvider, diffScheduleFormKbResourceId]);
+  }, [diffScheduleFormKbProvider, diffScheduleFormKbResourceId, diffScheduleFormKbResources]);
 
   useEffect(() => {
     if (
@@ -565,6 +608,17 @@ function DiffPrototypePanel() {
       setDiffScheduleFormCadence(schedule.cadence);
       setDiffScheduleFormSourceIds(schedule.sourceIds);
       setDiffScheduleFormCommunication(schedule.communication);
+      const existingWindow = typeof schedule.windowDays === 'number' && schedule.windowDays > 0
+        ? schedule.windowDays
+        : (() => {
+          const comm = schedule.communication || {};
+          const maybeWindow = (comm as { window?: { days?: unknown }; window_days?: unknown });
+          const windowDays =
+            (maybeWindow.window && Number(maybeWindow.window.days)) ||
+            Number(maybeWindow.window_days);
+          return Number.isFinite(windowDays) && windowDays > 0 ? Math.floor(windowDays) : defaultWindowDaysForCadence(schedule.cadence);
+        })();
+      setDiffScheduleFormWindowDays(existingWindow);
       setDiffScheduleFormRunAtTime(schedule.runAtTime ?? '09:00');
       setDiffScheduleFormRunAtWeekday(schedule.runAtWeekday ?? 1);
       setDiffScheduleFormRunAtMonthDay(schedule.runAtMonthDay ?? 1);
@@ -588,6 +642,7 @@ function DiffPrototypePanel() {
       setDiffScheduleFormCadence('daily');
       setDiffScheduleFormSourceIds(connectedSources.length > 0 ? connectedSources.map((s) => s.id) : []);
       setDiffScheduleFormCommunication({ email: false, kb: false, slack: false });
+      setDiffScheduleFormWindowDays(defaultWindowDaysForCadence('daily'));
       setDiffScheduleFormRunAtTime('09:00');
       setDiffScheduleFormRunAtWeekday(1);
       setDiffScheduleFormRunAtMonthDay(1);
@@ -611,6 +666,13 @@ function DiffPrototypePanel() {
   const saveDiffSchedule = async () => {
     const name = diffScheduleFormName.trim() || 'Diff report';
     const comm = { ...diffScheduleFormCommunication };
+    if (diffScheduleFormWindowDays > 0) {
+      comm.window = { days: diffScheduleFormWindowDays };
+      comm.window_days = diffScheduleFormWindowDays;
+    } else {
+      delete comm.window;
+      delete (comm as Record<string, unknown>).window_days;
+    }
     if (comm.kb) {
       if (diffScheduleFormKbProvider && diffScheduleFormKbResourceId) {
         comm.kb_provider = diffScheduleFormKbProvider as 'notion' | 'confluence';
@@ -665,6 +727,14 @@ function DiffPrototypePanel() {
                 enabled: s.enabled !== false,
                 cadence: typeof s.cadence === 'string' ? s.cadence : body.cadence,
                 sourceIds: Array.isArray(s.sourceIds) ? s.sourceIds : body.sourceIds,
+                windowDays: (() => {
+                  const maybeWindow = (s.communication as { window?: { days?: unknown }; window_days?: unknown }) || {};
+                  const windowDays =
+                    (maybeWindow.window && Number(maybeWindow.window.days)) ||
+                    Number(maybeWindow.window_days) ||
+                    diffScheduleFormWindowDays;
+                  return Number.isFinite(windowDays) && windowDays! > 0 ? Math.floor(windowDays!) : diffScheduleFormWindowDays;
+                })(),
                 communication: {
                   ...s.communication,
                   email: !!s.communication?.email,
@@ -700,6 +770,14 @@ function DiffPrototypePanel() {
             enabled: s.enabled !== false,
             cadence: typeof s.cadence === 'string' ? s.cadence : body.cadence,
             sourceIds: Array.isArray(s.sourceIds) ? s.sourceIds : body.sourceIds,
+            windowDays: (() => {
+              const maybeWindow = (s.communication as { window?: { days?: unknown }; window_days?: unknown }) || {};
+              const windowDays =
+                (maybeWindow.window && Number(maybeWindow.window.days)) ||
+                Number(maybeWindow.window_days) ||
+                diffScheduleFormWindowDays;
+              return Number.isFinite(windowDays) && windowDays! > 0 ? Math.floor(windowDays!) : diffScheduleFormWindowDays;
+            })(),
             communication: {
               ...s.communication,
               email: !!s.communication?.email,
@@ -1104,7 +1182,9 @@ function DiffPrototypePanel() {
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
-                        <p className="text-xs text-white/50 mt-1">{getCadenceLabel(sched.cadence)} · {sched.sourceIds.length} source{sched.sourceIds.length === 1 ? '' : 's'}</p>
+                        <p className="text-xs text-white/50 mt-1">
+                          {getCadenceLabel(sched.cadence)} · {sched.sourceIds.length} source{sched.sourceIds.length === 1 ? '' : 's'} · window {sched.windowDays ?? defaultWindowDaysForCadence(sched.cadence)}d
+                        </p>
                         <div className="flex flex-wrap gap-1 mt-1.5">
                           {sched.communication.email && <Badge variant="outline" className="text-[10px] border-white/20 bg-white/10 text-white/70">Email</Badge>}
                           {sched.communication.kb && <Badge variant="outline" className="text-[10px] border-white/20 bg-white/10 text-white/70">KB</Badge>}
@@ -1121,11 +1201,14 @@ function DiffPrototypePanel() {
                   </SidebarGroupContent>
                 </SidebarGroup>
                 {diffScheduleFormOpen && (
-                  <SidebarGroup>
+                  <SidebarGroup className="space-y-4">
                     <SidebarGroupLabel>{diffScheduleEditingId ? 'Edit schedule' : 'New schedule'}</SidebarGroupLabel>
-                    <SidebarGroupContent className="space-y-3">
+                    <SidebarGroupContent className="space-y-4">
                       <div>
-                        <label className="text-xs text-white/60 block mb-1">Name</label>
+                        <label className="text-xs text-white/60 flex items-center gap-2 mb-1">
+                          Name
+                          <InfoTip message="Label your scheduled diff report." />
+                        </label>
                         <Input
                           value={diffScheduleFormName}
                           onChange={(e) => setDiffScheduleFormName(e.target.value)}
@@ -1134,7 +1217,10 @@ function DiffPrototypePanel() {
                         />
                       </div>
                       <div>
-                        <label className="text-xs text-white/60 block mb-1.5">Cadence</label>
+                        <label className="text-xs text-white/60 flex items-center gap-2 mb-1.5">
+                          Cadence
+                          <InfoTip message="How often this diff report runs (daily, weekly, or monthly)." />
+                        </label>
                         <Popover open={diffScheduleCadenceMenuOpen} onOpenChange={setDiffScheduleCadenceMenuOpen}>
                           <PopoverTrigger asChild>
                             <Button
@@ -1178,7 +1264,10 @@ function DiffPrototypePanel() {
                         <div className="flex flex-col gap-2">
                           {cadenceUsesMonthDay(diffScheduleFormCadence) && (
                             <div>
-                              <label className="text-[11px] text-white/50 block mb-1">Day of month</label>
+                              <label className="text-[11px] text-white/50 flex items-center gap-2 mb-1">
+                                Day of month
+                                <InfoTip message="Which day of the month to run the report." />
+                              </label>
                               <select
                                 value={diffScheduleFormRunAtMonthDay}
                                 onChange={(e) => setDiffScheduleFormRunAtMonthDay(Number(e.target.value))}
@@ -1194,7 +1283,10 @@ function DiffPrototypePanel() {
                           )}
                           {cadenceUsesWeekday(diffScheduleFormCadence) && (
                             <div>
-                              <label className="text-[11px] text-white/50 block mb-1">Day of week</label>
+                              <label className="text-[11px] text-white/50 flex items-center gap-2 mb-1">
+                                Day of week
+                                <InfoTip message="Which weekday to run the report." />
+                              </label>
                               <select
                                 value={diffScheduleFormRunAtWeekday}
                                 onChange={(e) => setDiffScheduleFormRunAtWeekday(Number(e.target.value))}
@@ -1209,7 +1301,10 @@ function DiffPrototypePanel() {
                             </div>
                           )}
                           <div>
-                            <label className="text-[11px] text-white/50 block mb-1">Time</label>
+                            <label className="text-[11px] text-white/50 flex items-center gap-2 mb-1">
+                              Time
+                              <InfoTip message="UTC time to run the report." />
+                            </label>
                             <input
                               type="time"
                               value={diffScheduleFormRunAtTime}
@@ -1220,7 +1315,59 @@ function DiffPrototypePanel() {
                         </div>
                       </div>
                       <div>
-                        <SidebarGroupLabel className="text-xs text-white/60 mb-1.5">Sources</SidebarGroupLabel>
+                        <label className="text-xs text-white/60 flex items-center gap-2 mb-1.5">
+                          Report window
+                          <InfoTip message={WINDOW_TOOLTIP} />
+                        </label>
+                        <Popover open={diffScheduleWindowMenuOpen} onOpenChange={setDiffScheduleWindowMenuOpen}>
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant="outline"
+                              role="combobox"
+                              aria-expanded={diffScheduleWindowMenuOpen}
+                              className="w-full justify-between border border-white bg-neutral-800 hover:bg-neutral-700 hover:border-white text-white text-sm h-9"
+                            >
+                              <span className="truncate">
+                                {diffScheduleFormWindowDays} day{diffScheduleFormWindowDays === 1 ? '' : 's'}
+                              </span>
+                              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 border-white/10 bg-neutral-900" align="start">
+                            <Command>
+                              <CommandList>
+                                <CommandGroup>
+                                  {WINDOW_PRESETS.map((preset) => (
+                                    <CommandItem
+                                      key={preset}
+                                      value={`${preset}`}
+                                      onSelect={() => {
+                                        setDiffScheduleFormWindowDays(preset);
+                                        setDiffScheduleWindowMenuOpen(false);
+                                      }}
+                                      className="cursor-pointer"
+                                      title={WINDOW_TOOLTIP}
+                                    >
+                                      <Checkbox
+                                        checked={diffScheduleFormWindowDays === preset}
+                                        className="mr-2 pointer-events-none"
+                                      />
+                                      <span className="flex-1 truncate text-white/90">
+                                        {preset} day{preset === 1 ? '' : 's'}
+                                      </span>
+                                    </CommandItem>
+                                  ))}
+                                </CommandGroup>
+                              </CommandList>
+                            </Command>
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+                      <div>
+                        <SidebarGroupLabel className="text-xs text-white/60 mb-1.5 flex items-center gap-2">
+                          Sources
+                          <InfoTip message="Which connected sources to include in the diff." />
+                        </SidebarGroupLabel>
                         <Popover open={diffScheduleSourceMenuOpen} onOpenChange={setDiffScheduleSourceMenuOpen}>
                           <PopoverTrigger asChild>
                             <Button
@@ -1262,7 +1409,10 @@ function DiffPrototypePanel() {
                         </Popover>
                       </div>
                       <div>
-                        <label className="text-xs text-white/60 block mb-1.5">Communication</label>
+                        <label className="text-xs text-white/60 flex items-center gap-2 mb-1.5">
+                          Communication
+                          <InfoTip message="Where the report is delivered (Email, KB, Slack)." />
+                        </label>
                         <div className="flex flex-wrap gap-2">
                           <label className="flex items-center gap-2 cursor-pointer text-sm text-white/80">
                             <Checkbox
@@ -1316,7 +1466,10 @@ function DiffPrototypePanel() {
                             {diffScheduleFormKbProvider && (
                               <>
                                 <div>
-                                  <label className="text-xs text-white/60 block mb-1">Page or space</label>
+                                  <label className="text-xs text-white/60 flex items-center gap-2 mb-1">
+                                    Page or space
+                                    <InfoTip message="Choose the Confluence space or Notion page for delivery." />
+                                  </label>
                                   {diffScheduleFormKbResourcesLoading ? (
                                     <span className="text-sm text-white/60">Loading...</span>
                                   ) : diffScheduleFormKbResources.length === 0 ? (
@@ -1343,7 +1496,10 @@ function DiffPrototypePanel() {
                                 </div>
                                 {diffScheduleFormKbProvider === 'confluence' && diffScheduleFormKbResourceId && (
                                   <div className="pt-2 border-t border-white/10">
-                                    <label className="text-xs text-white/60 block mb-1">Folder (optional)</label>
+                                    <label className="text-xs text-white/60 flex items-center gap-2 mb-1">
+                                      Folder (optional)
+                                      <InfoTip message="Optionally place the report under a specific page/folder." />
+                                    </label>
                                     {diffScheduleFormConfluenceFoldersLoading ? (
                                       <span className="text-sm text-white/60">Loading pages…</span>
                                     ) : (
@@ -1969,14 +2125,19 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
     }
   };
 
+  // Only load Confluence folders when the selected resource is a known space (in the loaded list).
+  // When editing, the initial value may be a folder id; we wait until spaces have loaded and the form has a space id.
   useEffect(() => {
-    if (projectionScheduleFormKbProvider === 'confluence' && projectionScheduleFormKbResourceId) {
+    const isKnownSpace =
+      projectionScheduleFormKbResourceId &&
+      projectionScheduleFormKbResources.some((r) => r.id === projectionScheduleFormKbResourceId);
+    if (projectionScheduleFormKbProvider === 'confluence' && isKnownSpace) {
       loadProjectionScheduleConfluenceFolders(projectionScheduleFormKbResourceId);
     } else {
       setProjectionScheduleFormConfluenceFolderId('');
       setProjectionScheduleFormConfluenceFolderOptions([]);
     }
-  }, [projectionScheduleFormKbProvider, projectionScheduleFormKbResourceId]);
+  }, [projectionScheduleFormKbProvider, projectionScheduleFormKbResourceId, projectionScheduleFormKbResources]);
 
   useEffect(() => {
     if (
@@ -2408,551 +2569,178 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
 
   return (
     <>
-      <div className="mb-6 space-y-4">
-        <ModeSwitcher active={activeTab} onChange={setActiveTab} />
-      </div>
+      <TooltipProvider delayDuration={150}>
+        <div className="mb-6 space-y-4">
+          <ModeSwitcher active={activeTab} onChange={setActiveTab} />
+        </div>
 
-      {activeTab === 'knowledge' ? (
-        <SidebarProvider defaultOpen className="w-full">
-          <div className="grid gap-6 lg:grid-cols-[340px_1fr]">
-            <div className="flex flex-col gap-6 lg:self-start">
-              <Sidebar className="lg:self-start">
-                <SidebarHeader>
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-4">
-                      {(['filters', 'schedule'] as FilterTab[]).map((tab) => {
-                        const active = knowledgeFilterTab === tab;
-                        return (
-                          <button
-                            key={tab}
-                            type="button"
-                            onClick={() => setKnowledgeFilterTab(tab)}
-                            className={cn(
-                              'relative pb-1 font-normal transition-colors',
-                              active ? 'after:absolute after:left-0 after:bottom-0 after:h-[2px] after:w-full after:bg-white after:content-[""]' : 'hover:[&_.tab-label]:text-white/80'
-                            )}
-                          >
-                            <span className={cn('tab-label text-[11px] uppercase tracking-[0.2em] text-white/50', active && 'text-white')}>
-                              {tab}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </SidebarHeader>
-
-                <SidebarContent>
-                  {knowledgeFilterTab === 'filters' && (
-                    <>
-                      <SidebarGroup>
-                        <SidebarGroupLabel>Sources</SidebarGroupLabel>
-                        <SidebarGroupContent>
-                          <Popover open={sourceMenuOpen} onOpenChange={setSourceMenuOpen}>
-                            <PopoverTrigger asChild>
-                              <Button
-                                id="source-select"
-                                variant="outline"
-                                role="combobox"
-                                aria-expanded={sourceMenuOpen}
-                                className="w-full justify-between border border-white bg-neutral-800 hover:bg-neutral-700 hover:border-white"
-                                onClick={() => setSourceMenuOpen(!sourceMenuOpen)}
-                              >
-                                <span className="truncate">
-                                  {selectedSourceIds.length > 0
-                                    ? `${selectedSourceIds.length} source${selectedSourceIds.length === 1 ? '' : 's'} selected`
-                                    : 'Choose sources'}
-                                </span>
-                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-                              <Command>
-                                <CommandInput placeholder="Search sources..." />
-                                <CommandList>
-                                  <CommandEmpty>No sources found.</CommandEmpty>
-                                  <CommandGroup>
-                                    {sources.map((s) => {
-                                      const checked = selectedSourceIds.includes(s.id);
-                                      const handleToggle = () => toggleSource(s.id);
-                                      return (
-                                        <CommandItem
-                                          key={s.id}
-                                          value={`${s.name} ${s.provider}`}
-                                          onSelect={() => {
-                                            handleToggle();
-                                          }}
-                                          className="cursor-pointer"
-                                        >
-                                          <Checkbox
-                                            checked={checked}
-                                            onCheckedChange={() => {
-                                              handleToggle();
-                                            }}
-                                            className="mr-2"
-                                          />
-                                          <span className="flex-1 truncate">
-                                            <span className="text-white/60">[{s.provider}]</span> {s.name}
-                                          </span>
-                                        </CommandItem>
-                                      );
-                                    })}
-                                  </CommandGroup>
-                                </CommandList>
-                              </Command>
-                              <Separator />
-                              <div className="flex items-center justify-between px-3 py-2">
-                                <span className="text-xs text-white/60">
-                                  {selectedSourceIds.length} of {allSourceIds.length} selected
-                                </span>
-                                <div className="flex gap-2">
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => setSelectedSourceIds([])}
-                                  >
-                                    Clear
-                                  </Button>
-                                  <Button
-                                    variant="secondary"
-                                    size="sm"
-                                    onClick={() => {
-                                      toggleAllSources();
-                                      setSourceMenuOpen(false);
-                                    }}
-                                  >
-                                    {selectedSourceIds.length === allSourceIds.length ? 'Deselect all' : 'Select all'}
-                                  </Button>
-                                </div>
-                              </div>
-                            </PopoverContent>
-                          </Popover>
-                          <div className="flex items-center justify-between text-xs text-white/60">
-                            <span>{selectedSourceIds.length} chosen</span>
-                            <Button variant="ghost" size="sm" onClick={toggleAllSources}>
-                              {selectedSourceIds.length === allSourceIds.length ? 'Clear all' : 'Select all'}
-                            </Button>
-                          </div>
-                        </SidebarGroupContent>
-                      </SidebarGroup>
-
-                      <SidebarGroup>
-                        <SidebarGroupLabel>Audiences</SidebarGroupLabel>
-                        <SidebarGroupContent>
-                          <Popover open={audienceMenuOpen} onOpenChange={setAudienceMenuOpen}>
-                            <PopoverTrigger asChild>
-                              <Button
-                                variant="outline"
-                                role="combobox"
-                                aria-expanded={audienceMenuOpen}
-                                className="w-full justify-between border border-white bg-neutral-800 hover:bg-neutral-700 hover:border-white"
-                                onClick={() => setAudienceMenuOpen(!audienceMenuOpen)}
-                              >
-                                <span className="truncate">
-                                  {selectedAudiences.length > 0
-                                    ? `${selectedAudiences.length} audience${selectedAudiences.length === 1 ? '' : 's'} selected`
-                                    : 'Choose audiences'}
-                                </span>
-                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-                              {audienceOptions.length > 0 ? (
-                                <>
-                                  <Command>
-                                    <CommandInput placeholder="Search audiences..." />
-                                    <CommandList>
-                                      <CommandEmpty>No audiences found.</CommandEmpty>
-                                      <CommandGroup>
-                                        {audienceOptions.map((aud) => {
-                                          const checked = selectedAudiences.includes(aud);
-                                          return (
-                                            <CommandItem
-                                              key={aud}
-                                              value={aud}
-                                              onSelect={() => toggleAudience(aud)}
-                                              className="cursor-pointer"
-                                            >
-                                              <Checkbox
-                                                checked={checked}
-                                                onCheckedChange={() => toggleAudience(aud)}
-                                                className="mr-2"
-                                              />
-                                              <span className="flex-1 truncate">{aud}</span>
-                                            </CommandItem>
-                                          );
-                                        })}
-                                      </CommandGroup>
-                                    </CommandList>
-                                  </Command>
-                                  <Separator />
-                                  <div className="flex items-center justify-between px-3 py-2">
-                                    <span className="text-xs text-white/60">
-                                      {selectedAudiences.length} of {audienceOptions.length} selected
-                                    </span>
-                                    <div className="flex gap-2">
-                                      <Button variant="ghost" size="sm" onClick={clearAudiences}>
-                                        Clear
-                                      </Button>
-                                      <Button
-                                        variant="secondary"
-                                        size="sm"
-                                        onClick={() => {
-                                          selectAllAudiences();
-                                          setAudienceMenuOpen(false);
-                                        }}
-                                      >
-                                        {selectedAudiences.length === audienceOptions.length ? 'Deselect all' : 'Select all'}
-                                      </Button>
-                                    </div>
-                                  </div>
-                                </>
-                              ) : (
-                                <div className="rounded-md border border-white/10 bg-white/5 p-3 text-xs text-white/70">
-                                  No audiences configured. Set them in Settings → Preferences.
-                                </div>
-                              )}
-                            </PopoverContent>
-                          </Popover>
-                          {audienceOptions.length > 0 && (
-                            <div className="flex items-center justify-between text-xs text-white/60">
-                              <span>{selectedAudiences.length} chosen</span>
-                              <Button variant="ghost" size="sm" onClick={selectedAudiences.length === audienceOptions.length ? clearAudiences : selectAllAudiences}>
-                                {selectedAudiences.length === audienceOptions.length ? 'Clear all' : 'Select all'}
-                              </Button>
-                            </div>
-                          )}
-                        </SidebarGroupContent>
-                      </SidebarGroup>
-
-                      <SidebarGroup>
-                        <SidebarGroupLabel>Units</SidebarGroupLabel>
-                        <SidebarGroupContent>
-                          <Popover open={unitsMenuOpen} onOpenChange={setUnitsMenuOpen}>
-                            <PopoverTrigger asChild>
-                              <Button
-                                variant="outline"
-                                role="combobox"
-                                aria-expanded={unitsMenuOpen}
-                                className="w-full justify-between border border-white bg-neutral-800 hover:bg-neutral-700 hover:border-white"
-                                onClick={() => setUnitsMenuOpen(!unitsMenuOpen)}
-                              >
-                                <span className="truncate">
-                                  {selectedCategories.length > 0
-                                    ? `${selectedCategories.length} unit${selectedCategories.length === 1 ? '' : 's'} selected`
-                                    : 'Choose units'}
-                                </span>
-                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-                              {categories.length > 0 ? (
-                                <>
-                                  <Command>
-                                    <CommandInput placeholder="Search units..." />
-                                    <CommandList>
-                                      <CommandEmpty>No units found.</CommandEmpty>
-                                      <CommandGroup>
-                                        {categories.map((cat) => {
-                                          const checked = selectedCategories.includes(cat);
-                                          return (
-                                            <CommandItem
-                                              key={cat}
-                                              value={cat}
-                                              onSelect={() => toggleCategory(cat)}
-                                              className="cursor-pointer"
-                                            >
-                                              <Checkbox
-                                                checked={checked}
-                                                onCheckedChange={() => toggleCategory(cat)}
-                                                className="mr-2"
-                                              />
-                                              <span className="flex-1 truncate">{cat}</span>
-                                            </CommandItem>
-                                          );
-                                        })}
-                                      </CommandGroup>
-                                    </CommandList>
-                                  </Command>
-                                  <Separator />
-                                  <div className="flex items-center justify-between px-3 py-2">
-                                    <span className="text-xs text-white/60">
-                                      {selectedCategories.length} of {categories.length} selected
-                                    </span>
-                                    <div className="flex gap-2">
-                                      <Button variant="ghost" size="sm" onClick={() => setSelectedCategories([])}>
-                                        Clear
-                                      </Button>
-                                      <Button
-                                        variant="secondary"
-                                        size="sm"
-                                        onClick={() => {
-                                          setSelectedCategories(categories);
-                                          setUnitsMenuOpen(false);
-                                        }}
-                                      >
-                                        {selectedCategories.length === categories.length ? 'Deselect all' : 'Select all'}
-                                      </Button>
-                                    </div>
-                                  </div>
-                                </>
-                              ) : (
-                                <div className="rounded-md border border-white/10 bg-white/5 p-3 text-xs text-white/70">
-                                  Categories will appear once knowledge is generated for selected sources.
-                                </div>
-                              )}
-                            </PopoverContent>
-                          </Popover>
-                          {categories.length > 0 && (
-                            <div className="flex items-center justify-between text-xs text-white/60">
-                              <span>{selectedCategories.length} chosen</span>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() =>
-                                  selectedCategories.length === categories.length
-                                    ? setSelectedCategories([])
-                                    : setSelectedCategories(categories)
-                                }
-                              >
-                                {selectedCategories.length === categories.length ? 'Clear all' : 'Select all'}
-                              </Button>
-                            </div>
-                          )}
-                        </SidebarGroupContent>
-                      </SidebarGroup>
-                    </>
-                  )}
-
-                  {knowledgeFilterTab === 'schedule' && (
-                    <>
-                      <SidebarGroup>
-                        <SidebarGroupContent className="space-y-3">
-                          {projectionSchedules.length === 0 && !projectionScheduleFormOpen && (
-                            <p className="text-xs text-white/50">No schedules yet. Add one to run projection reports on a cadence.</p>
-                          )}
-                          {projectionSchedules.map((sched) => (
-                            <div
-                              key={sched.id}
+        {activeTab === 'knowledge' ? (
+          <SidebarProvider defaultOpen className="w-full">
+            <div className="grid gap-6 lg:grid-cols-[340px_1fr]">
+              <div className="flex flex-col gap-6 lg:self-start">
+                <Sidebar className="lg:self-start">
+                  <SidebarHeader>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-4">
+                        {(['filters', 'schedule'] as FilterTab[]).map((tab) => {
+                          const active = knowledgeFilterTab === tab;
+                          return (
+                            <button
+                              key={tab}
+                              type="button"
+                              onClick={() => setKnowledgeFilterTab(tab)}
                               className={cn(
-                                'rounded-xl border p-3 text-left transition',
-                                sched.enabled ? 'border-white/30 bg-white/10' : 'border-white/10 bg-white/5'
+                                'relative pb-1 font-normal transition-colors',
+                                active ? 'after:absolute after:left-0 after:bottom-0 after:h-[2px] after:w-full after:bg-white after:content-[""]' : 'hover:[&_.tab-label]:text-white/80'
                               )}
                             >
-                              <p className="text-sm font-medium text-white truncate">{sched.name}</p>
-                              <div className="flex items-center justify-start gap-1 mt-1">
-                                <Switch
-                                  checked={sched.enabled}
-                                  onCheckedChange={() => toggleProjectionScheduleEnabled(sched.id)}
-                                />
-                                <Button variant="ghost" size="icon" className="h-8 w-8 text-white/70 hover:text-white" onClick={() => openProjectionScheduleForm(sched)}>
-                                  <Pencil className="h-4 w-4" />
-                                </Button>
-                                <Button variant="ghost" size="icon" className="h-8 w-8 text-white/70 hover:text-red-300" onClick={() => deleteProjectionSchedule(sched.id)}>
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </div>
-                              <p className="text-xs text-white/50 mt-1">
-                                {getCadenceLabel(sched.cadence)} · {sched.sourceIds.length} source{sched.sourceIds.length === 1 ? '' : 's'}
-                                {sched.audiences.length > 0 && ` · ${sched.audiences.length} audience${sched.audiences.length === 1 ? '' : 's'}`}
-                                {sched.units.length > 0 && ` · ${sched.units.length} unit${sched.units.length === 1 ? '' : 's'}`}
-                              </p>
-                              <div className="flex flex-wrap gap-1 mt-1.5">
-                                {sched.communication.email && <Badge variant="outline" className="text-[10px] border-white/20 bg-white/10 text-white/70">Email</Badge>}
-                                {sched.communication.kb && <Badge variant="outline" className="text-[10px] border-white/20 bg-white/10 text-white/70">KB</Badge>}
-                                {sched.communication.slack && <Badge variant="outline" className="text-[10px] border-white/20 bg-white/10 text-white/70">Slack</Badge>}
-                              </div>
-                            </div>
-                          ))}
-                          {!projectionScheduleFormOpen && (
-                            <Button variant="outline" size="sm" className="w-full border-white/20 bg-white/5 hover:bg-white/10 text-white" onClick={() => openProjectionScheduleForm()}>
-                              <Plus className="h-4 w-4 mr-2" />
-                              Add schedule
-                            </Button>
-                          )}
-                        </SidebarGroupContent>
-                      </SidebarGroup>
-                      {projectionScheduleFormOpen && (
+                              <span className={cn('tab-label text-[11px] uppercase tracking-[0.2em] text-white/50', active && 'text-white')}>
+                                {tab}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </SidebarHeader>
+
+                  <SidebarContent>
+                    {knowledgeFilterTab === 'filters' && (
+                      <>
                         <SidebarGroup>
-                          <SidebarGroupLabel>{projectionScheduleEditingId ? 'Edit schedule' : 'New schedule'}</SidebarGroupLabel>
-                          <SidebarGroupContent className="space-y-3">
-                            <div>
-                              <label className="text-xs text-white/60 block mb-1">Name</label>
-                              <Input
-                                value={projectionScheduleFormName}
-                                onChange={(e) => setProjectionScheduleFormName(e.target.value)}
-                                placeholder="e.g. Weekly projection report"
-                                className="h-9 border border-white bg-neutral-800 text-white text-sm"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-xs text-white/60 block mb-1.5">Cadence</label>
-                              <Popover open={projectionScheduleCadenceMenuOpen} onOpenChange={setProjectionScheduleCadenceMenuOpen}>
-                                <PopoverTrigger asChild>
-                                  <Button
-                                    variant="outline"
-                                    role="combobox"
-                                    aria-expanded={projectionScheduleCadenceMenuOpen}
-                                    className="w-full justify-between border border-white bg-neutral-800 hover:bg-neutral-700 hover:border-white text-white text-sm h-9"
-                                  >
-                                    <span className="truncate">{getCadenceLabel(projectionScheduleFormCadence)}</span>
-                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                  </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 border-white/10 bg-neutral-900" align="start">
-                                  <Command>
-                                    <CommandList>
-                                      <CommandGroup>
-                                        {CADENCE_PRESETS.map((p) => (
+                          <SidebarGroupLabel>Sources</SidebarGroupLabel>
+                          <SidebarGroupContent>
+                            <Popover open={sourceMenuOpen} onOpenChange={setSourceMenuOpen}>
+                              <PopoverTrigger asChild>
+                                <Button
+                                  id="source-select"
+                                  variant="outline"
+                                  role="combobox"
+                                  aria-expanded={sourceMenuOpen}
+                                  className="w-full justify-between border border-white bg-neutral-800 hover:bg-neutral-700 hover:border-white"
+                                  onClick={() => setSourceMenuOpen(!sourceMenuOpen)}
+                                >
+                                  <span className="truncate">
+                                    {selectedSourceIds.length > 0
+                                      ? `${selectedSourceIds.length} source${selectedSourceIds.length === 1 ? '' : 's'} selected`
+                                      : 'Choose sources'}
+                                  </span>
+                                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                                <Command>
+                                  <CommandInput placeholder="Search sources..." />
+                                  <CommandList>
+                                    <CommandEmpty>No sources found.</CommandEmpty>
+                                    <CommandGroup>
+                                      {sources.map((s) => {
+                                        const checked = selectedSourceIds.includes(s.id);
+                                        const handleToggle = () => toggleSource(s.id);
+                                        return (
                                           <CommandItem
-                                            key={p.value}
-                                            value={p.label}
+                                            key={s.id}
+                                            value={`${s.name} ${s.provider}`}
                                             onSelect={() => {
-                                              setProjectionScheduleFormCadence(p.value);
-                                              setProjectionScheduleCadenceMenuOpen(false);
+                                              handleToggle();
                                             }}
                                             className="cursor-pointer"
                                           >
                                             <Checkbox
-                                              checked={projectionScheduleFormCadence === p.value}
-                                              className="mr-2 pointer-events-none"
+                                              checked={checked}
+                                              onCheckedChange={() => {
+                                                handleToggle();
+                                              }}
+                                              className="mr-2"
                                             />
-                                            <span className="text-white/90">{p.label}</span>
+                                            <span className="flex-1 truncate">
+                                              <span className="text-white/60">[{s.provider}]</span> {s.name}
+                                            </span>
                                           </CommandItem>
-                                        ))}
-                                      </CommandGroup>
-                                    </CommandList>
-                                  </Command>
-                                </PopoverContent>
-                              </Popover>
-                            </div>
-                            <div>
-                              <div className="flex flex-col gap-2">
-                                {cadenceUsesMonthDay(projectionScheduleFormCadence) && (
-                                  <div>
-                                    <label className="text-[11px] text-white/50 block mb-1">Day of month</label>
-                                    <select
-                                      value={projectionScheduleFormRunAtMonthDay}
-                                      onChange={(e) => setProjectionScheduleFormRunAtMonthDay(Number(e.target.value))}
-                                      className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none"
-                                    >
-                                      {MONTH_DAY_OPTIONS.map((d) => (
-                                        <option key={d.value} value={d.value}>
-                                          {d.label}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </div>
-                                )}
-                                {cadenceUsesWeekday(projectionScheduleFormCadence) && (
-                                  <div>
-                                    <label className="text-[11px] text-white/50 block mb-1">Day of week</label>
-                                    <select
-                                      value={projectionScheduleFormRunAtWeekday}
-                                      onChange={(e) => setProjectionScheduleFormRunAtWeekday(Number(e.target.value))}
-                                      className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none"
-                                    >
-                                      {WEEKDAY_OPTIONS.map((d) => (
-                                        <option key={d.value} value={d.value}>
-                                          {d.label}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </div>
-                                )}
-                                <div>
-                                  <label className="text-[11px] text-white/50 block mb-1">Time (UTC)</label>
-                                  <input
-                                    type="time"
-                                    value={projectionScheduleFormRunAtTime}
-                                    onChange={(e) => setProjectionScheduleFormRunAtTime(e.target.value)}
-                                    className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none [color-scheme:dark]"
-                                  />
-                                </div>
-                              </div>
-                            </div>
-                            <div>
-                              <SidebarGroupLabel className="text-xs text-white/60 mb-1.5">Sources</SidebarGroupLabel>
-                              <Popover open={projectionScheduleSourceMenuOpen} onOpenChange={setProjectionScheduleSourceMenuOpen}>
-                                <PopoverTrigger asChild>
-                                  <Button
-                                    variant="outline"
-                                    className="w-full justify-between border border-white bg-neutral-800 hover:bg-neutral-700 hover:border-white text-white text-sm"
-                                  >
-                                    <span className="truncate">
-                                      {projectionScheduleFormSourceIds.length > 0
-                                        ? `${projectionScheduleFormSourceIds.length} source${projectionScheduleFormSourceIds.length === 1 ? '' : 's'} selected`
-                                        : 'Choose sources'}
-                                    </span>
-                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                  </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 border-white/10 bg-neutral-900" align="start">
-                                  <Command>
-                                    <CommandInput placeholder="Search sources..." className="text-white" />
-                                    <CommandList>
-                                      <CommandEmpty>No sources found.</CommandEmpty>
-                                      <CommandGroup>
-                                        {sources.map((src) => {
-                                          const checked = projectionScheduleFormSourceIds.includes(src.id);
-                                          return (
-                                            <CommandItem
-                                              key={src.id}
-                                              value={`${src.name} ${src.provider}`}
-                                              onSelect={() => toggleProjectionScheduleFormSource(src.id)}
-                                              className="cursor-pointer"
-                                            >
-                                              <Checkbox checked={checked} onCheckedChange={() => toggleProjectionScheduleFormSource(src.id)} className="mr-2" />
-                                              <span className="flex-1 truncate text-white/90">[{src.provider}] {src.name}</span>
-                                            </CommandItem>
-                                          );
-                                        })}
-                                      </CommandGroup>
-                                    </CommandList>
-                                  </Command>
-                                </PopoverContent>
-                              </Popover>
-                            </div>
-                            {audienceOptions.length > 0 && (
-                              <div>
-                                <label className="text-xs text-white/60 block mb-1.5">Audiences</label>
-                                <Popover open={projectionScheduleAudienceMenuOpen} onOpenChange={setProjectionScheduleAudienceMenuOpen}>
-                                  <PopoverTrigger asChild>
+                                        );
+                                      })}
+                                    </CommandGroup>
+                                  </CommandList>
+                                </Command>
+                                <Separator />
+                                <div className="flex items-center justify-between px-3 py-2">
+                                  <span className="text-xs text-white/60">
+                                    {selectedSourceIds.length} of {allSourceIds.length} selected
+                                  </span>
+                                  <div className="flex gap-2">
                                     <Button
-                                      variant="outline"
-                                      role="combobox"
-                                      aria-expanded={projectionScheduleAudienceMenuOpen}
-                                      className="w-full justify-between border border-white bg-neutral-800 hover:bg-neutral-700 hover:border-white text-white text-sm h-9"
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => setSelectedSourceIds([])}
                                     >
-                                      <span className="truncate">
-                                        {projectionScheduleFormAudiences.length > 0
-                                          ? `${projectionScheduleFormAudiences.length} audience${projectionScheduleFormAudiences.length === 1 ? '' : 's'} selected`
-                                          : 'Choose audiences'}
-                                      </span>
-                                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                      Clear
                                     </Button>
-                                  </PopoverTrigger>
-                                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 border-white/10 bg-neutral-900" align="start">
+                                    <Button
+                                      variant="secondary"
+                                      size="sm"
+                                      onClick={() => {
+                                        toggleAllSources();
+                                        setSourceMenuOpen(false);
+                                      }}
+                                    >
+                                      {selectedSourceIds.length === allSourceIds.length ? 'Deselect all' : 'Select all'}
+                                    </Button>
+                                  </div>
+                                </div>
+                              </PopoverContent>
+                            </Popover>
+                            <div className="flex items-center justify-between text-xs text-white/60">
+                              <span>{selectedSourceIds.length} chosen</span>
+                              <Button variant="ghost" size="sm" onClick={toggleAllSources}>
+                                {selectedSourceIds.length === allSourceIds.length ? 'Clear all' : 'Select all'}
+                              </Button>
+                            </div>
+                          </SidebarGroupContent>
+                        </SidebarGroup>
+
+                        <SidebarGroup>
+                          <SidebarGroupLabel>Audiences</SidebarGroupLabel>
+                          <SidebarGroupContent>
+                            <Popover open={audienceMenuOpen} onOpenChange={setAudienceMenuOpen}>
+                              <PopoverTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  role="combobox"
+                                  aria-expanded={audienceMenuOpen}
+                                  className="w-full justify-between border border-white bg-neutral-800 hover:bg-neutral-700 hover:border-white"
+                                  onClick={() => setAudienceMenuOpen(!audienceMenuOpen)}
+                                >
+                                  <span className="truncate">
+                                    {selectedAudiences.length > 0
+                                      ? `${selectedAudiences.length} audience${selectedAudiences.length === 1 ? '' : 's'} selected`
+                                      : 'Choose audiences'}
+                                  </span>
+                                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                                {audienceOptions.length > 0 ? (
+                                  <>
                                     <Command>
-                                      <CommandInput placeholder="Search audiences..." className="text-white" />
+                                      <CommandInput placeholder="Search audiences..." />
                                       <CommandList>
                                         <CommandEmpty>No audiences found.</CommandEmpty>
                                         <CommandGroup>
                                           {audienceOptions.map((aud) => {
-                                            const checked = projectionScheduleFormAudiences.includes(aud);
+                                            const checked = selectedAudiences.includes(aud);
                                             return (
                                               <CommandItem
                                                 key={aud}
                                                 value={aud}
-                                                onSelect={() => toggleProjectionScheduleFormAudience(aud)}
+                                                onSelect={() => toggleAudience(aud)}
                                                 className="cursor-pointer"
                                               >
                                                 <Checkbox
                                                   checked={checked}
-                                                  onCheckedChange={() => toggleProjectionScheduleFormAudience(aud)}
+                                                  onCheckedChange={() => toggleAudience(aud)}
                                                   className="mr-2"
                                                 />
-                                                <span className="flex-1 truncate text-white/90">{aud}</span>
+                                                <span className="flex-1 truncate">{aud}</span>
                                               </CommandItem>
                                             );
                                           })}
@@ -2962,73 +2750,392 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                                     <Separator />
                                     <div className="flex items-center justify-between px-3 py-2">
                                       <span className="text-xs text-white/60">
-                                        {projectionScheduleFormAudiences.length} of {audienceOptions.length} selected
+                                        {selectedAudiences.length} of {audienceOptions.length} selected
                                       </span>
                                       <div className="flex gap-2">
-                                        <Button
-                                          variant="ghost"
-                                          size="sm"
-                                          onClick={() => setProjectionScheduleFormAudiences([])}
-                                        >
+                                        <Button variant="ghost" size="sm" onClick={clearAudiences}>
                                           Clear
                                         </Button>
                                         <Button
                                           variant="secondary"
                                           size="sm"
                                           onClick={() => {
-                                            setProjectionScheduleFormAudiences([...audienceOptions]);
-                                            setProjectionScheduleAudienceMenuOpen(false);
+                                            selectAllAudiences();
+                                            setAudienceMenuOpen(false);
                                           }}
                                         >
-                                          {projectionScheduleFormAudiences.length === audienceOptions.length ? 'Deselect all' : 'Select all'}
+                                          {selectedAudiences.length === audienceOptions.length ? 'Deselect all' : 'Select all'}
                                         </Button>
                                       </div>
                                     </div>
+                                  </>
+                                ) : (
+                                  <div className="rounded-md border border-white/10 bg-white/5 p-3 text-xs text-white/70">
+                                    No audiences configured. Set them in Settings → Preferences.
+                                  </div>
+                                )}
+                              </PopoverContent>
+                            </Popover>
+                            {audienceOptions.length > 0 && (
+                              <div className="flex items-center justify-between text-xs text-white/60">
+                                <span>{selectedAudiences.length} chosen</span>
+                                <Button variant="ghost" size="sm" onClick={selectedAudiences.length === audienceOptions.length ? clearAudiences : selectAllAudiences}>
+                                  {selectedAudiences.length === audienceOptions.length ? 'Clear all' : 'Select all'}
+                                </Button>
+                              </div>
+                            )}
+                          </SidebarGroupContent>
+                        </SidebarGroup>
+
+                        <SidebarGroup>
+                          <SidebarGroupLabel>Units</SidebarGroupLabel>
+                          <SidebarGroupContent>
+                            <Popover open={unitsMenuOpen} onOpenChange={setUnitsMenuOpen}>
+                              <PopoverTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  role="combobox"
+                                  aria-expanded={unitsMenuOpen}
+                                  className="w-full justify-between border border-white bg-neutral-800 hover:bg-neutral-700 hover:border-white"
+                                  onClick={() => setUnitsMenuOpen(!unitsMenuOpen)}
+                                >
+                                  <span className="truncate">
+                                    {selectedCategories.length > 0
+                                      ? `${selectedCategories.length} unit${selectedCategories.length === 1 ? '' : 's'} selected`
+                                      : 'Choose units'}
+                                  </span>
+                                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                                {categories.length > 0 ? (
+                                  <>
+                                    <Command>
+                                      <CommandInput placeholder="Search units..." />
+                                      <CommandList>
+                                        <CommandEmpty>No units found.</CommandEmpty>
+                                        <CommandGroup>
+                                          {categories.map((cat) => {
+                                            const checked = selectedCategories.includes(cat);
+                                            return (
+                                              <CommandItem
+                                                key={cat}
+                                                value={cat}
+                                                onSelect={() => toggleCategory(cat)}
+                                                className="cursor-pointer"
+                                              >
+                                                <Checkbox
+                                                  checked={checked}
+                                                  onCheckedChange={() => toggleCategory(cat)}
+                                                  className="mr-2"
+                                                />
+                                                <span className="flex-1 truncate">{cat}</span>
+                                              </CommandItem>
+                                            );
+                                          })}
+                                        </CommandGroup>
+                                      </CommandList>
+                                    </Command>
+                                    <Separator />
+                                    <div className="flex items-center justify-between px-3 py-2">
+                                      <span className="text-xs text-white/60">
+                                        {selectedCategories.length} of {categories.length} selected
+                                      </span>
+                                      <div className="flex gap-2">
+                                        <Button variant="ghost" size="sm" onClick={() => setSelectedCategories([])}>
+                                          Clear
+                                        </Button>
+                                        <Button
+                                          variant="secondary"
+                                          size="sm"
+                                          onClick={() => {
+                                            setSelectedCategories(categories);
+                                            setUnitsMenuOpen(false);
+                                          }}
+                                        >
+                                          {selectedCategories.length === categories.length ? 'Deselect all' : 'Select all'}
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  </>
+                                ) : (
+                                  <div className="rounded-md border border-white/10 bg-white/5 p-3 text-xs text-white/70">
+                                    Categories will appear once knowledge is generated for selected sources.
+                                  </div>
+                                )}
+                              </PopoverContent>
+                            </Popover>
+                            {categories.length > 0 && (
+                              <div className="flex items-center justify-between text-xs text-white/60">
+                                <span>{selectedCategories.length} chosen</span>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() =>
+                                    selectedCategories.length === categories.length
+                                      ? setSelectedCategories([])
+                                      : setSelectedCategories(categories)
+                                  }
+                                >
+                                  {selectedCategories.length === categories.length ? 'Clear all' : 'Select all'}
+                                </Button>
+                              </div>
+                            )}
+                          </SidebarGroupContent>
+                        </SidebarGroup>
+                      </>
+                    )}
+
+                    {knowledgeFilterTab === 'schedule' && (
+                      <>
+                        <SidebarGroup>
+                          <SidebarGroupContent className="space-y-3">
+                            {projectionSchedules.length === 0 && !projectionScheduleFormOpen && (
+                              <p className="text-xs text-white/50">No schedules yet. Add one to run projection reports on a cadence.</p>
+                            )}
+                            {projectionSchedules.map((sched) => (
+                              <div
+                                key={sched.id}
+                                className={cn(
+                                  'rounded-xl border p-3 text-left transition',
+                                  sched.enabled ? 'border-white/30 bg-white/10' : 'border-white/10 bg-white/5'
+                                )}
+                              >
+                                <p className="text-sm font-medium text-white truncate">{sched.name}</p>
+                                <div className="flex items-center justify-start gap-1 mt-1">
+                                  <Switch
+                                    checked={sched.enabled}
+                                    onCheckedChange={() => toggleProjectionScheduleEnabled(sched.id)}
+                                  />
+                                  <Button variant="ghost" size="icon" className="h-8 w-8 text-white/70 hover:text-white" onClick={() => openProjectionScheduleForm(sched)}>
+                                    <Pencil className="h-4 w-4" />
+                                  </Button>
+                                  <Button variant="ghost" size="icon" className="h-8 w-8 text-white/70 hover:text-red-300" onClick={() => deleteProjectionSchedule(sched.id)}>
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                                <p className="text-xs text-white/50 mt-1">
+                                  {getCadenceLabel(sched.cadence)} · {sched.sourceIds.length} source{sched.sourceIds.length === 1 ? '' : 's'}
+                                  {sched.audiences.length > 0 && ` · ${sched.audiences.length} audience${sched.audiences.length === 1 ? '' : 's'}`}
+                                  {sched.units.length > 0 && ` · ${sched.units.length} unit${sched.units.length === 1 ? '' : 's'}`}
+                                </p>
+                                <div className="flex flex-wrap gap-1 mt-1.5">
+                                  {sched.communication.email && <Badge variant="outline" className="text-[10px] border-white/20 bg-white/10 text-white/70">Email</Badge>}
+                                  {sched.communication.kb && <Badge variant="outline" className="text-[10px] border-white/20 bg-white/10 text-white/70">KB</Badge>}
+                                  {sched.communication.slack && <Badge variant="outline" className="text-[10px] border-white/20 bg-white/10 text-white/70">Slack</Badge>}
+                                </div>
+                              </div>
+                            ))}
+                            {!projectionScheduleFormOpen && (
+                              <Button variant="outline" size="sm" className="w-full border-white/20 bg-white/5 hover:bg-white/10 text-white" onClick={() => openProjectionScheduleForm()}>
+                                <Plus className="h-4 w-4 mr-2" />
+                                Add schedule
+                              </Button>
+                            )}
+                          </SidebarGroupContent>
+                        </SidebarGroup>
+                        {projectionScheduleFormOpen && (
+                          <SidebarGroup className="space-y-4">
+                            <SidebarGroupLabel>{projectionScheduleEditingId ? 'Edit schedule' : 'New schedule'}</SidebarGroupLabel>
+                            <SidebarGroupContent className="space-y-4">
+                              <div>
+                                <label className="text-xs text-white/60 flex items-center gap-2 mb-1">
+                                  Name
+                                  <InfoTip message="Label your scheduled projection report." />
+                                </label>
+                                <Input
+                                  value={projectionScheduleFormName}
+                                  onChange={(e) => setProjectionScheduleFormName(e.target.value)}
+                                  placeholder="e.g. Weekly projection report"
+                                  className="h-9 border border-white bg-neutral-800 text-white text-sm"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-xs text-white/60 flex items-center gap-2 mb-1.5">
+                                  Cadence
+                                  <InfoTip message="How often this projection runs (daily, weekly, monthly)." />
+                                </label>
+                                <Popover open={projectionScheduleCadenceMenuOpen} onOpenChange={setProjectionScheduleCadenceMenuOpen}>
+                                  <PopoverTrigger asChild>
+                                    <Button
+                                      variant="outline"
+                                      role="combobox"
+                                      aria-expanded={projectionScheduleCadenceMenuOpen}
+                                      className="w-full justify-between border border-white bg-neutral-800 hover:bg-neutral-700 hover:border-white text-white text-sm h-9"
+                                    >
+                                      <span className="truncate">{getCadenceLabel(projectionScheduleFormCadence)}</span>
+                                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                    </Button>
+                                  </PopoverTrigger>
+                                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 border-white/10 bg-neutral-900" align="start">
+                                    <Command>
+                                      <CommandList>
+                                        <CommandGroup>
+                                          {CADENCE_PRESETS.map((p) => (
+                                            <CommandItem
+                                              key={p.value}
+                                              value={p.label}
+                                              onSelect={() => {
+                                                setProjectionScheduleFormCadence(p.value);
+                                                setProjectionScheduleCadenceMenuOpen(false);
+                                              }}
+                                              className="cursor-pointer"
+                                            >
+                                              <Checkbox
+                                                checked={projectionScheduleFormCadence === p.value}
+                                                className="mr-2 pointer-events-none"
+                                              />
+                                              <span className="text-white/90">{p.label}</span>
+                                            </CommandItem>
+                                          ))}
+                                        </CommandGroup>
+                                      </CommandList>
+                                    </Command>
                                   </PopoverContent>
                                 </Popover>
                               </div>
-                            )}
-                            <div>
-                              <label className="text-xs text-white/60 block mb-1.5">Units</label>
-                              <Popover open={projectionScheduleUnitsMenuOpen} onOpenChange={setProjectionScheduleUnitsMenuOpen}>
-                                <PopoverTrigger asChild>
-                                  <Button
-                                    variant="outline"
-                                    role="combobox"
-                                    aria-expanded={projectionScheduleUnitsMenuOpen}
-                                    className="w-full justify-between border border-white bg-neutral-800 hover:bg-neutral-700 hover:border-white text-white text-sm h-9"
-                                  >
-                                    <span className="truncate">
-                                      {projectionScheduleFormUnits.length > 0
-                                        ? `${projectionScheduleFormUnits.length} unit${projectionScheduleFormUnits.length === 1 ? '' : 's'} selected`
-                                        : 'Choose units'}
-                                    </span>
-                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                  </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 border-white/10 bg-neutral-900" align="start">
-                                  {categories.length > 0 ? (
-                                    <>
+                              <div>
+                                <div className="flex flex-col gap-2">
+                                  {cadenceUsesMonthDay(projectionScheduleFormCadence) && (
+                                    <div>
+                                      <label className="text-[11px] text-white/50 flex items-center gap-2 mb-1">
+                                        Day of month
+                                        <InfoTip message="Which day of the month to run the projection report." />
+                                      </label>
+                                      <select
+                                        value={projectionScheduleFormRunAtMonthDay}
+                                        onChange={(e) => setProjectionScheduleFormRunAtMonthDay(Number(e.target.value))}
+                                        className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none"
+                                      >
+                                        {MONTH_DAY_OPTIONS.map((d) => (
+                                          <option key={d.value} value={d.value}>
+                                            {d.label}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                  )}
+                                  {cadenceUsesWeekday(projectionScheduleFormCadence) && (
+                                    <div>
+                                      <label className="text-[11px] text-white/50 flex items-center gap-2 mb-1">
+                                        Day of week
+                                        <InfoTip message="Which weekday to run the projection report." />
+                                      </label>
+                                      <select
+                                        value={projectionScheduleFormRunAtWeekday}
+                                        onChange={(e) => setProjectionScheduleFormRunAtWeekday(Number(e.target.value))}
+                                        className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none"
+                                      >
+                                        {WEEKDAY_OPTIONS.map((d) => (
+                                          <option key={d.value} value={d.value}>
+                                            {d.label}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                  )}
+                                  <div>
+                                    <label className="text-[11px] text-white/50 flex items-center gap-2 mb-1">
+                                      Time (UTC)
+                                      <InfoTip message="UTC time to run the projection report." />
+                                    </label>
+                                    <input
+                                      type="time"
+                                      value={projectionScheduleFormRunAtTime}
+                                      onChange={(e) => setProjectionScheduleFormRunAtTime(e.target.value)}
+                                      className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none [color-scheme:dark]"
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                              <div>
+                                <SidebarGroupLabel className="text-xs text-white/60 mb-1.5 flex items-center gap-2">
+                                  Sources
+                                  <InfoTip message="Which connected sources feed this projection." />
+                                </SidebarGroupLabel>
+                                <Popover open={projectionScheduleSourceMenuOpen} onOpenChange={setProjectionScheduleSourceMenuOpen}>
+                                  <PopoverTrigger asChild>
+                                    <Button
+                                      variant="outline"
+                                      className="w-full justify-between border border-white bg-neutral-800 hover:bg-neutral-700 hover:border-white text-white text-sm"
+                                    >
+                                      <span className="truncate">
+                                        {projectionScheduleFormSourceIds.length > 0
+                                          ? `${projectionScheduleFormSourceIds.length} source${projectionScheduleFormSourceIds.length === 1 ? '' : 's'} selected`
+                                          : 'Choose sources'}
+                                      </span>
+                                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                    </Button>
+                                  </PopoverTrigger>
+                                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 border-white/10 bg-neutral-900" align="start">
+                                    <Command>
+                                      <CommandInput placeholder="Search sources..." className="text-white" />
+                                      <CommandList>
+                                        <CommandEmpty>No sources found.</CommandEmpty>
+                                        <CommandGroup>
+                                          {sources.map((src) => {
+                                            const checked = projectionScheduleFormSourceIds.includes(src.id);
+                                            return (
+                                              <CommandItem
+                                                key={src.id}
+                                                value={`${src.name} ${src.provider}`}
+                                                onSelect={() => toggleProjectionScheduleFormSource(src.id)}
+                                                className="cursor-pointer"
+                                              >
+                                                <Checkbox checked={checked} onCheckedChange={() => toggleProjectionScheduleFormSource(src.id)} className="mr-2" />
+                                                <span className="flex-1 truncate text-white/90">[{src.provider}] {src.name}</span>
+                                              </CommandItem>
+                                            );
+                                          })}
+                                        </CommandGroup>
+                                      </CommandList>
+                                    </Command>
+                                  </PopoverContent>
+                                </Popover>
+                              </div>
+                              {audienceOptions.length > 0 && (
+                                <div>
+                                  <label className="text-xs text-white/60 flex items-center gap-2 mb-1.5">
+                                    Audiences
+                                    <InfoTip message="Select which audiences receive the projection report." />
+                                  </label>
+                                  <Popover open={projectionScheduleAudienceMenuOpen} onOpenChange={setProjectionScheduleAudienceMenuOpen}>
+                                    <PopoverTrigger asChild>
+                                      <Button
+                                        variant="outline"
+                                        role="combobox"
+                                        aria-expanded={projectionScheduleAudienceMenuOpen}
+                                        className="w-full justify-between border border-white bg-neutral-800 hover:bg-neutral-700 hover:border-white text-white text-sm h-9"
+                                      >
+                                        <span className="truncate">
+                                          {projectionScheduleFormAudiences.length > 0
+                                            ? `${projectionScheduleFormAudiences.length} audience${projectionScheduleFormAudiences.length === 1 ? '' : 's'} selected`
+                                            : 'Choose audiences'}
+                                        </span>
+                                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                      </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 border-white/10 bg-neutral-900" align="start">
                                       <Command>
-                                        <CommandInput placeholder="Search units..." className="text-white" />
+                                        <CommandInput placeholder="Search audiences..." className="text-white" />
                                         <CommandList>
-                                          <CommandEmpty>No units found.</CommandEmpty>
+                                          <CommandEmpty>No audiences found.</CommandEmpty>
                                           <CommandGroup>
-                                            {categories.map((cat) => {
-                                              const checked = projectionScheduleFormUnits.includes(cat);
+                                            {audienceOptions.map((aud) => {
+                                              const checked = projectionScheduleFormAudiences.includes(aud);
                                               return (
                                                 <CommandItem
-                                                  key={cat}
-                                                  value={cat}
-                                                  onSelect={() => toggleProjectionScheduleFormUnit(cat)}
+                                                  key={aud}
+                                                  value={aud}
+                                                  onSelect={() => toggleProjectionScheduleFormAudience(aud)}
                                                   className="cursor-pointer"
                                                 >
                                                   <Checkbox
                                                     checked={checked}
-                                                    onCheckedChange={() => toggleProjectionScheduleFormUnit(cat)}
+                                                    onCheckedChange={() => toggleProjectionScheduleFormAudience(aud)}
                                                     className="mr-2"
                                                   />
-                                                  <span className="flex-1 truncate text-white/90">{cat}</span>
+                                                  <span className="flex-1 truncate text-white/90">{aud}</span>
                                                 </CommandItem>
                                               );
                                             })}
@@ -3038,13 +3145,13 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                                       <Separator />
                                       <div className="flex items-center justify-between px-3 py-2">
                                         <span className="text-xs text-white/60">
-                                          {projectionScheduleFormUnits.length} of {categories.length} selected
+                                          {projectionScheduleFormAudiences.length} of {audienceOptions.length} selected
                                         </span>
                                         <div className="flex gap-2">
                                           <Button
                                             variant="ghost"
                                             size="sm"
-                                            onClick={() => setProjectionScheduleFormUnits([])}
+                                            onClick={() => setProjectionScheduleFormAudiences([])}
                                           >
                                             Clear
                                           </Button>
@@ -3052,282 +3159,371 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                                             variant="secondary"
                                             size="sm"
                                             onClick={() => {
-                                              setProjectionScheduleFormUnits([...categories]);
-                                              setProjectionScheduleUnitsMenuOpen(false);
+                                              setProjectionScheduleFormAudiences([...audienceOptions]);
+                                              setProjectionScheduleAudienceMenuOpen(false);
                                             }}
                                           >
-                                            {projectionScheduleFormUnits.length === categories.length ? 'Deselect all' : 'Select all'}
+                                            {projectionScheduleFormAudiences.length === audienceOptions.length ? 'Deselect all' : 'Select all'}
                                           </Button>
                                         </div>
                                       </div>
-                                    </>
-                                  ) : (
-                                    <div className="px-3 py-4 text-sm text-white/60">
-                                      No units available yet. Units will appear once knowledge is generated for selected sources.
-                                    </div>
-                                  )}
-                                </PopoverContent>
-                              </Popover>
-                            </div>
-                            <div>
-                              <label className="text-xs text-white/60 block mb-1.5">Communication</label>
-                              <div className="flex flex-wrap gap-2">
-                                <label className="flex items-center gap-2 cursor-pointer text-sm text-white/80">
-                                  <Checkbox
-                                    checked={projectionScheduleFormCommunication.email ?? false}
-                                    onCheckedChange={(c) => setProjectionScheduleFormCommunication((prev) => ({ ...prev, email: !!c }))}
-                                  />
-                                  Email
+                                    </PopoverContent>
+                                  </Popover>
+                                </div>
+                              )}
+                              <div>
+                                <label className="text-xs text-white/60 flex items-center gap-2 mb-1.5">
+                                  Units
+                                  <InfoTip message="Choose which knowledge units to include." />
                                 </label>
-                                <label className="flex items-center gap-2 cursor-pointer text-sm text-white/80">
-                                  <Checkbox
-                                    checked={projectionScheduleFormCommunication.kb ?? false}
-                                    onCheckedChange={(c) => {
-                                      const kb = !!c;
-                                      setProjectionScheduleFormCommunication((prev) => ({ ...prev, kb }));
-                                      if (!kb) {
-                                        setProjectionScheduleFormKbProvider('');
-                                        setProjectionScheduleFormKbResourceId('');
-                                        setProjectionScheduleFormKbResources([]);
-                                        setProjectionScheduleFormKbRootMetadata(undefined);
-                                        setProjectionScheduleFormConfluenceFolderId('');
-                                        setProjectionScheduleFormConfluenceFolderOptions([]);
-                                      }
-                                    }}
-                                  />
-                                  KB
-                                </label>
-                                <label className="flex items-center gap-2 cursor-pointer text-sm text-white/80">
-                                  <Checkbox
-                                    checked={projectionScheduleFormCommunication.slack ?? false}
-                                    onCheckedChange={(c) => setProjectionScheduleFormCommunication((prev) => ({ ...prev, slack: !!c }))}
-                                  />
-                                  Slack
-                                </label>
-                              </div>
-                              {projectionScheduleFormCommunication.kb && (
-                                <div className="mt-3 space-y-2 rounded-md border border-white/10 bg-white/5 p-3">
-                                  <span className="text-xs text-white/60">KB target</span>
-                                  <select
-                                    className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none"
-                                    value={projectionScheduleFormKbProvider}
-                                    onChange={(e) => {
-                                      const provider = e.target.value as '' | 'notion' | 'confluence';
-                                      setProjectionScheduleFormKbProvider(provider);
-                                      if (provider) loadProjectionScheduleKbResources(provider);
-                                    }}
-                                  >
-                                    <option value="">Select provider</option>
-                                    <option value="notion">Notion</option>
-                                    <option value="confluence">Confluence</option>
-                                  </select>
-                                  {projectionScheduleFormKbProvider && (
-                                    <>
-                                      <div>
-                                        <label className="text-xs text-white/60 block mb-1">Page or space</label>
-                                        {projectionScheduleFormKbResourcesLoading ? (
-                                          <span className="text-sm text-white/60">Loading...</span>
-                                        ) : projectionScheduleFormKbResources.length === 0 ? (
-                                          <span className="text-sm text-white/60">No resources found. Connect {projectionScheduleFormKbProvider} in Settings.</span>
-                                        ) : (
-                                          <select
-                                            className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none"
-                                            value={projectionScheduleFormKbResourceId}
-                                            onChange={(e) => {
-                                              const id = e.target.value;
-                                              const r = projectionScheduleFormKbResources.find((res) => res.id === id);
-                                              setProjectionScheduleFormKbResourceId(id);
-                                              setProjectionScheduleFormKbRootMetadata(r?.metadata);
-                                              setProjectionScheduleFormConfluenceFolderId('');
-                                            }}
-                                          >
-                                            {projectionScheduleFormKbResources.map((r) => (
-                                              <option key={r.id} value={r.id}>
-                                                {r.title || r.id}
-                                              </option>
-                                            ))}
-                                          </select>
-                                        )}
+                                <Popover open={projectionScheduleUnitsMenuOpen} onOpenChange={setProjectionScheduleUnitsMenuOpen}>
+                                  <PopoverTrigger asChild>
+                                    <Button
+                                      variant="outline"
+                                      role="combobox"
+                                      aria-expanded={projectionScheduleUnitsMenuOpen}
+                                      className="w-full justify-between border border-white bg-neutral-800 hover:bg-neutral-700 hover:border-white text-white text-sm h-9"
+                                    >
+                                      <span className="truncate">
+                                        {projectionScheduleFormUnits.length > 0
+                                          ? `${projectionScheduleFormUnits.length} unit${projectionScheduleFormUnits.length === 1 ? '' : 's'} selected`
+                                          : 'Choose units'}
+                                      </span>
+                                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                    </Button>
+                                  </PopoverTrigger>
+                                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 border-white/10 bg-neutral-900" align="start">
+                                    {categories.length > 0 ? (
+                                      <>
+                                        <Command>
+                                          <CommandInput placeholder="Search units..." className="text-white" />
+                                          <CommandList>
+                                            <CommandEmpty>No units found.</CommandEmpty>
+                                            <CommandGroup>
+                                              {categories.map((cat) => {
+                                                const checked = projectionScheduleFormUnits.includes(cat);
+                                                return (
+                                                  <CommandItem
+                                                    key={cat}
+                                                    value={cat}
+                                                    onSelect={() => toggleProjectionScheduleFormUnit(cat)}
+                                                    className="cursor-pointer"
+                                                  >
+                                                    <Checkbox
+                                                      checked={checked}
+                                                      onCheckedChange={() => toggleProjectionScheduleFormUnit(cat)}
+                                                      className="mr-2"
+                                                    />
+                                                    <span className="flex-1 truncate text-white/90">{cat}</span>
+                                                  </CommandItem>
+                                                );
+                                              })}
+                                            </CommandGroup>
+                                          </CommandList>
+                                        </Command>
+                                        <Separator />
+                                        <div className="flex items-center justify-between px-3 py-2">
+                                          <span className="text-xs text-white/60">
+                                            {projectionScheduleFormUnits.length} of {categories.length} selected
+                                          </span>
+                                          <div className="flex gap-2">
+                                            <Button
+                                              variant="ghost"
+                                              size="sm"
+                                              onClick={() => setProjectionScheduleFormUnits([])}
+                                            >
+                                              Clear
+                                            </Button>
+                                            <Button
+                                              variant="secondary"
+                                              size="sm"
+                                              onClick={() => {
+                                                setProjectionScheduleFormUnits([...categories]);
+                                                setProjectionScheduleUnitsMenuOpen(false);
+                                              }}
+                                            >
+                                              {projectionScheduleFormUnits.length === categories.length ? 'Deselect all' : 'Select all'}
+                                            </Button>
+                                          </div>
+                                        </div>
+                                      </>
+                                    ) : (
+                                      <div className="px-3 py-4 text-sm text-white/60">
+                                        No units available yet. Units will appear once knowledge is generated for selected sources.
                                       </div>
-                                      {projectionScheduleFormKbProvider === 'confluence' && projectionScheduleFormKbResourceId && (
-                                        <div className="pt-2 border-t border-white/10">
-                                          <label className="text-xs text-white/60 block mb-1">Folder (optional)</label>
-                                          {projectionScheduleFormConfluenceFoldersLoading ? (
-                                            <span className="text-sm text-white/60">Loading pages…</span>
+                                    )}
+                                  </PopoverContent>
+                                </Popover>
+                              </div>
+                              <div>
+                                <label className="text-xs text-white/60 flex items-center gap-2 mb-1.5">
+                                  Communication
+                                  <InfoTip message="Delivery targets for the projection report." />
+                                </label>
+                                <div className="flex flex-wrap gap-2">
+                                  <label className="flex items-center gap-2 cursor-pointer text-sm text-white/80">
+                                    <Checkbox
+                                      checked={projectionScheduleFormCommunication.email ?? false}
+                                      onCheckedChange={(c) => setProjectionScheduleFormCommunication((prev) => ({ ...prev, email: !!c }))}
+                                    />
+                                    Email
+                                  </label>
+                                  <label className="flex items-center gap-2 cursor-pointer text-sm text-white/80">
+                                    <Checkbox
+                                      checked={projectionScheduleFormCommunication.kb ?? false}
+                                      onCheckedChange={(c) => {
+                                        const kb = !!c;
+                                        setProjectionScheduleFormCommunication((prev) => ({ ...prev, kb }));
+                                        if (!kb) {
+                                          setProjectionScheduleFormKbProvider('');
+                                          setProjectionScheduleFormKbResourceId('');
+                                          setProjectionScheduleFormKbResources([]);
+                                          setProjectionScheduleFormKbRootMetadata(undefined);
+                                          setProjectionScheduleFormConfluenceFolderId('');
+                                          setProjectionScheduleFormConfluenceFolderOptions([]);
+                                        }
+                                      }}
+                                    />
+                                    KB
+                                  </label>
+                                  <label className="flex items-center gap-2 cursor-pointer text-sm text-white/80">
+                                    <Checkbox
+                                      checked={projectionScheduleFormCommunication.slack ?? false}
+                                      onCheckedChange={(c) => setProjectionScheduleFormCommunication((prev) => ({ ...prev, slack: !!c }))}
+                                    />
+                                    Slack
+                                  </label>
+                                </div>
+                                {projectionScheduleFormCommunication.kb && (
+                                  <div className="mt-3 space-y-2 rounded-md border border-white/10 bg-white/5 p-3">
+                                    <span className="text-xs text-white/60">KB target</span>
+                                    <select
+                                      className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none"
+                                      value={projectionScheduleFormKbProvider}
+                                      onChange={(e) => {
+                                        const provider = e.target.value as '' | 'notion' | 'confluence';
+                                        setProjectionScheduleFormKbProvider(provider);
+                                        if (provider) loadProjectionScheduleKbResources(provider);
+                                      }}
+                                    >
+                                      <option value="">Select provider</option>
+                                      <option value="notion">Notion</option>
+                                      <option value="confluence">Confluence</option>
+                                    </select>
+                                    {projectionScheduleFormKbProvider && (
+                                      <>
+                                        <div>
+                                          <label className="text-xs text-white/60 flex items-center gap-2 mb-1">
+                                            Page or space
+                                            <InfoTip message="Choose the destination page/space." />
+                                          </label>
+                                          {projectionScheduleFormKbResourcesLoading ? (
+                                            <span className="text-sm text-white/60">Loading...</span>
+                                          ) : projectionScheduleFormKbResources.length === 0 ? (
+                                            <span className="text-sm text-white/60">No resources found. Connect {projectionScheduleFormKbProvider} in Settings.</span>
                                           ) : (
                                             <select
                                               className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none"
-                                              value={projectionScheduleFormConfluenceFolderId}
-                                              onChange={(e) => setProjectionScheduleFormConfluenceFolderId(e.target.value)}
+                                              value={projectionScheduleFormKbResourceId}
+                                              onChange={(e) => {
+                                                const id = e.target.value;
+                                                const r = projectionScheduleFormKbResources.find((res) => res.id === id);
+                                                setProjectionScheduleFormKbResourceId(id);
+                                                setProjectionScheduleFormKbRootMetadata(r?.metadata);
+                                                setProjectionScheduleFormConfluenceFolderId('');
+                                              }}
                                             >
-                                              <option value="">Space root</option>
-                                              {projectionScheduleFormConfluenceFolderOptions.map((f) => (
-                                                <option key={f.id} value={f.id}>
-                                                  {f.title || f.id}
+                                              {projectionScheduleFormKbResources.map((r) => (
+                                                <option key={r.id} value={r.id}>
+                                                  {r.title || r.id}
                                                 </option>
                                               ))}
                                             </select>
                                           )}
                                         </div>
-                                      )}
-                                    </>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                            <div className="flex gap-2 pt-1">
-                              <Button variant="secondary" size="sm" className="flex-1 border-white/20 bg-white/10 text-white hover:bg-white/15" onClick={saveProjectionSchedule}>
-                                Save
-                              </Button>
-                              <Button variant="ghost" size="sm" className="text-white/70 hover:text-white" onClick={closeProjectionScheduleForm}>
-                                Cancel
-                              </Button>
-                            </div>
-                          </SidebarGroupContent>
-                        </SidebarGroup>
-                      )}
-                    </>
+                                        {projectionScheduleFormKbProvider === 'confluence' && projectionScheduleFormKbResourceId && (
+                                          <div className="pt-2 border-t border-white/10">
+                                            <label className="text-xs text-white/60 flex items-center gap-2 mb-1">
+                                              Folder (optional)
+                                              <InfoTip message="Optional subpage/folder under the space." />
+                                            </label>
+                                            {projectionScheduleFormConfluenceFoldersLoading ? (
+                                              <span className="text-sm text-white/60">Loading pages…</span>
+                                            ) : (
+                                              <select
+                                                className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none"
+                                                value={projectionScheduleFormConfluenceFolderId}
+                                                onChange={(e) => setProjectionScheduleFormConfluenceFolderId(e.target.value)}
+                                              >
+                                                <option value="">Space root</option>
+                                                {projectionScheduleFormConfluenceFolderOptions.map((f) => (
+                                                  <option key={f.id} value={f.id}>
+                                                    {f.title || f.id}
+                                                  </option>
+                                                ))}
+                                              </select>
+                                            )}
+                                          </div>
+                                        )}
+                                      </>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="flex gap-2 pt-1">
+                                <Button variant="secondary" size="sm" className="flex-1 border-white/20 bg-white/10 text-white hover:bg-white/15" onClick={saveProjectionSchedule}>
+                                  Save
+                                </Button>
+                                <Button variant="ghost" size="sm" className="text-white/70 hover:text-white" onClick={closeProjectionScheduleForm}>
+                                  Cancel
+                                </Button>
+                              </div>
+                            </SidebarGroupContent>
+                          </SidebarGroup>
+                        )}
+                      </>
+                    )}
+
+                  </SidebarContent>
+
+                </Sidebar>
+
+                <div
+                  className={cn(
+                    'group/sidebar relative w-full max-w-xl sm:max-w-xs sm:w-80 lg:max-w-[320px] rounded-2xl border border-white/10 bg-white/5 p-4 shadow-[0_30px_80px_rgba(0,0,0,0.45)] backdrop-blur-2xl',
+                    'transition-all duration-300 ease-in-out translate-y-0 opacity-100 pointer-events-auto'
                   )}
-
-                </SidebarContent>
-
-              </Sidebar>
-
-              <div
-                className={cn(
-                  'group/sidebar relative w-full max-w-xl sm:max-w-xs sm:w-80 lg:max-w-[320px] rounded-2xl border border-white/10 bg-white/5 p-4 shadow-[0_30px_80px_rgba(0,0,0,0.45)] backdrop-blur-2xl',
-                  'transition-all duration-300 ease-in-out translate-y-0 opacity-100 pointer-events-auto'
-                )}
-              >
-                <Button
-                  variant="secondary"
-                  onClick={openPushModal}
-                  className="w-full border-white/30 bg-white/10 text-white hover:bg-white/15"
                 >
-                  Push to KB
-                </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={openPushModal}
+                    className="w-full border-white/30 bg-white/10 text-white hover:bg-white/15"
+                  >
+                    Push to KB
+                  </Button>
+                </div>
               </div>
-            </div>
 
-            <SidebarInset className="space-y-6">
-              <div className="flex items-start justify-between gap-3">
-                <div className="space-y-1">
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {selectedSourceIds.length > 0 && (
-                      <Badge variant="secondary" className="text-xs">
-                        {selectedSourceIds.length} source{selectedSourceIds.length === 1 ? '' : 's'}
-                      </Badge>
-                    )}
-                    {selectedAudiences.length > 0 && (
-                      <Badge variant="outline" className="text-xs">
-                        {selectedAudiences.join(' · ')}
-                      </Badge>
-                    )}
-                    {selectedCategories.length > 0 && (
-                      <Badge variant="outline" className="text-xs">
-                        {selectedCategories.join(' · ')}
-                      </Badge>
-                    )}
+              <SidebarInset className="space-y-6">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {selectedSourceIds.length > 0 && (
+                        <Badge variant="secondary" className="text-xs">
+                          {selectedSourceIds.length} source{selectedSourceIds.length === 1 ? '' : 's'}
+                        </Badge>
+                      )}
+                      {selectedAudiences.length > 0 && (
+                        <Badge variant="outline" className="text-xs">
+                          {selectedAudiences.join(' · ')}
+                        </Badge>
+                      )}
+                      {selectedCategories.length > 0 && (
+                        <Badge variant="outline" className="text-xs">
+                          {selectedCategories.join(' · ')}
+                        </Badge>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {loading && (
-                <Alert>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <AlertDescription>Loading knowledge units...</AlertDescription>
-                </Alert>
-              )}
+                {loading && (
+                  <Alert>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <AlertDescription>Loading knowledge units...</AlertDescription>
+                  </Alert>
+                )}
 
-              {!loading && items.length === 0 && (
-                <Alert variant="default">
-                  <Info className="h-4 w-4" />
-                  <AlertDescription>
-                    No knowledge loaded yet. Click “Refresh knowledge” to pull everything, or pick filters to view a subset.
-                  </AlertDescription>
-                </Alert>
-              )}
+                {!loading && items.length === 0 && (
+                  <Alert variant="default">
+                    <Info className="h-4 w-4" />
+                    <AlertDescription>
+                      No knowledge loaded yet. Click “Refresh knowledge” to pull everything, or pick filters to view a subset.
+                    </AlertDescription>
+                  </Alert>
+                )}
 
-              {!loading && filtersReady && visibleItems.length === 0 && (
-                <Alert variant="default">
-                  <Info className="h-4 w-4" />
-                  <AlertDescription>
-                    No knowledge units found. Try adjusting your filters or selecting different sources.
-                  </AlertDescription>
-                </Alert>
-              )}
+                {!loading && filtersReady && visibleItems.length === 0 && (
+                  <Alert variant="default">
+                    <Info className="h-4 w-4" />
+                    <AlertDescription>
+                      No knowledge units found. Try adjusting your filters or selecting different sources.
+                    </AlertDescription>
+                  </Alert>
+                )}
 
-              {visibleItems.length > 0 && (
-                <div className="space-y-4">
-                  {visibleItems.map((item) => (
-                    <Card key={item.id}>
-                      <CardHeader>
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="flex-1 min-w-0">
-                            <CardTitle className="text-white text-lg mb-1">{item.title}</CardTitle>
-                            <CardDescription className="flex items-center gap-2 mt-1">
-                              {item.updated_at && (
-                                <>
-                                  <span>{new Date(item.updated_at).toLocaleDateString()}</span>
-                                </>
-                              )}
-                            </CardDescription>
+                {visibleItems.length > 0 && (
+                  <div className="space-y-4">
+                    {visibleItems.map((item) => (
+                      <Card key={item.id}>
+                        <CardHeader>
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="flex-1 min-w-0">
+                              <CardTitle className="text-white text-lg mb-1">{item.title}</CardTitle>
+                              <CardDescription className="flex items-center gap-2 mt-1">
+                                {item.updated_at && (
+                                  <>
+                                    <span>{new Date(item.updated_at).toLocaleDateString()}</span>
+                                  </>
+                                )}
+                              </CardDescription>
+                            </div>
                           </div>
-                        </div>
-                      </CardHeader>
-                      <CardContent className="space-y-4">
-                        {selectedAudiences.length > 0 && (
-                          <div className="space-y-3">
-                            {(() => {
-                              const activeAudience = selectedAudiences[0];
-                              const proj =
-                                item.projections?.find((p) => p.audience === activeAudience) ||
-                                item.projections?.[0];
-                              if (!proj) return null;
-                              const parsed = parseProjectionForDisplay(proj.projection);
-                              return (
-                                <Card className="bg-white/5 border-white/10">
-                                  <CardContent className="p-4 space-y-2">
-                                    {parsed.warnings.length > 0 && (
-                                      <div className="rounded-md border border-amber-400/30 bg-amber-400/10 p-2 text-xs text-amber-100">
-                                        <div className="font-medium mb-1">Needs verification</div>
-                                        <ul className="list-disc pl-4 space-y-0.5">
-                                          {parsed.warnings.slice(0, 5).map((w, idx) => (
-                                            <li key={`${idx}-${w.slice(0, 24)}`}>{w}</li>
-                                          ))}
-                                        </ul>
-                                      </div>
-                                    )}
-                                    <div className="space-y-3">
-                                      {parsed.sections.map((section) => (
-                                        <div key={`${section.label}-${section.text.slice(0, 24)}`} className="space-y-1">
-                                          <div className="text-xs uppercase tracking-wide text-white/60">{section.label}</div>
-                                          <div className="text-sm text-white/85 whitespace-pre-wrap leading-relaxed">
-                                            {section.text}
-                                          </div>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          {selectedAudiences.length > 0 && (
+                            <div className="space-y-3">
+                              {(() => {
+                                const activeAudience = selectedAudiences[0];
+                                const proj =
+                                  item.projections?.find((p) => p.audience === activeAudience) ||
+                                  item.projections?.[0];
+                                if (!proj) return null;
+                                const parsed = parseProjectionForDisplay(proj.projection);
+                                return (
+                                  <Card className="bg-white/5 border-white/10">
+                                    <CardContent className="p-4 space-y-2">
+                                      {parsed.warnings.length > 0 && (
+                                        <div className="rounded-md border border-amber-400/30 bg-amber-400/10 p-2 text-xs text-amber-100">
+                                          <div className="font-medium mb-1">Needs verification</div>
+                                          <ul className="list-disc pl-4 space-y-0.5">
+                                            {parsed.warnings.slice(0, 5).map((w, idx) => (
+                                              <li key={`${idx}-${w.slice(0, 24)}`}>{w}</li>
+                                            ))}
+                                          </ul>
                                         </div>
-                                      ))}
-                                    </div>
-                                    <div className="text-xs text-white/50 pt-1">
-                                      Status: {proj.status || (parsed.warnings.length > 0 ? 'pending_verification' : 'draft')}
-                                    </div>
-                                  </CardContent>
-                                </Card>
-                              );
-                            })()}
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              )}
-            </SidebarInset>
-          </div>
-        </SidebarProvider>
-      ) : (
-        <DiffPrototypePanel />
-      )}
+                                      )}
+                                      <div className="space-y-3">
+                                        {parsed.sections.map((section) => (
+                                          <div key={`${section.label}-${section.text.slice(0, 24)}`} className="space-y-1">
+                                            <div className="text-xs uppercase tracking-wide text-white/60">{section.label}</div>
+                                            <div className="text-sm text-white/85 whitespace-pre-wrap leading-relaxed">
+                                              {section.text}
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                      <div className="text-xs text-white/50 pt-1">
+                                        Status: {proj.status || (parsed.warnings.length > 0 ? 'pending_verification' : 'draft')}
+                                      </div>
+                                    </CardContent>
+                                  </Card>
+                                );
+                              })()}
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </SidebarInset>
+            </div>
+          </SidebarProvider>
+        ) : (
+          <DiffPrototypePanel />
+        )}
+      </TooltipProvider>
 
       <Dialog open={showPushModal} onOpenChange={setShowPushModal}>
         <DialogContent className="max-w-3xl border border-white/15 bg-neutral-950/95 text-white">
