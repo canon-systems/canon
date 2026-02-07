@@ -6,11 +6,14 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
-  Github,
+  Database,
   Layers,
+  Link2,
   Plus,
+  Square,
   Trash2,
 } from 'lucide-react';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -55,8 +58,6 @@ const processingStatuses = new Set([
   'summarizing',
   'building_akus',
 ]);
-
-const terminalStatuses = new Set(['ready', 'draft_ready', 'failed', 'error']);
 
 const progressByStatus: Record<string, number> = {
   queueing: 5,
@@ -206,8 +207,6 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState('');
-  const [setupWatchIds, setSetupWatchIds] = useState<string[]>([]);
-
   const refreshSources = useCallback(async () => {
     const response = await fetch('/api/sources');
     if (!response.ok) {
@@ -420,53 +419,6 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
     }
   }, [showSourceDialog, loadAvailableSources]);
 
-  const processingRepos = useMemo(
-    () => repoList.filter((repo) => getStatusBucket(repo) === 'processing'),
-    [repoList]
-  );
-  const shouldPollSources = processingRepos.length > 0 || setupWatchIds.length > 0;
-
-  useEffect(() => {
-    if (!shouldPollSources) return;
-
-    let cancelled = false;
-
-    const tick = async () => {
-      try {
-        const rows = await refreshSources();
-        if (cancelled || setupWatchIds.length === 0) return;
-
-        const pending = setupWatchIds.filter((id) => {
-          const row = rows.find((repo) => repo.id === id);
-          if (!row) return false;
-          return !terminalStatuses.has(getRawStatus(row));
-        });
-
-        if (!cancelled) {
-          setSetupWatchIds(pending);
-          if (pending.length === 0 && showSourceDialog) {
-            setShowSourceDialog(false);
-            setSelectedIds(new Set());
-            setCreateError('');
-            setLoadError('');
-          }
-        }
-      } catch {
-        // Keep previous state; polling will retry.
-      }
-    };
-
-    void tick();
-    const timer = window.setInterval(() => {
-      void tick();
-    }, 2500);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [refreshSources, setupWatchIds, shouldPollSources, showSourceDialog]);
-
   const toggleSelection = (id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -525,11 +477,8 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
         throw new Error(data.error || data.detail || 'Failed to create sources');
       }
 
-      const createdRows = Array.isArray(data) ? (data as Array<{ id?: string }>) : [];
-      const createdIds = createdRows.map((row) => String(row.id || '')).filter(Boolean);
       setSelectedIds(new Set());
       setSourceSearch('');
-      setSetupWatchIds(createdIds);
       await refreshSources();
       setShowSourceDialog(false);
     } catch (err: unknown) {
@@ -585,7 +534,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
                 <CardContent className="p-4">
                   <div className="flex items-center gap-2">
                     <Badge variant="outline">Total</Badge>
-                    <Github className="h-4 w-4 text-white/70" />
+                    <Database className="h-4 w-4 text-white/70" />
                   </div>
                   <p className="mt-2 text-2xl font-semibold text-white">{statusCounts.total}</p>
                 </CardContent>
@@ -631,10 +580,19 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
             <Layers className="h-6 w-6 text-white/70" />
           </div>
           <CardTitle className="mt-4 text-xl text-white">No sources yet</CardTitle>
-          <div className="mt-6 flex justify-center">
+          <p className="mt-2 text-sm text-white/60">
+            Add a source from your connected integrations, or connect GitHub or Jira in Settings.
+          </p>
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
             <Button onClick={handleConnectRepository}>
               <Plus className="h-4 w-4" />
               Add Source
+            </Button>
+            <Button variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white" asChild>
+              <Link href="/settings?tab=integrations">
+                <Link2 className="h-4 w-4" />
+                Connect integrations
+              </Link>
             </Button>
           </div>
         </Card>
@@ -642,7 +600,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
         <div className="flex flex-col gap-3 px-1 sm:px-2 md:px-0">
           {/* Column headers — grid at all breakpoints so Added column always has a slot */}
           <div
-            className="grid grid-cols-[1fr_auto_minmax(10rem,1fr)_auto] gap-2 rounded-t-2xl border border-b-0 border-white/10 bg-white/5 px-4 py-3 sm:gap-3 sm:px-5 md:grid-cols-[minmax(200px,1.6fr)_minmax(140px,1fr)_minmax(10rem,auto)_auto] md:items-center"
+            className="grid grid-cols-[1fr_auto_minmax(10rem,1fr)_auto] gap-2 rounded-t-2xl border border-b-0 border-white/10 bg-zinc-800/80 px-4 py-3 sm:gap-3 sm:px-5 md:grid-cols-[minmax(200px,1.6fr)_minmax(140px,1fr)_minmax(10rem,auto)_auto] md:items-center"
             aria-hidden="true"
           >
             <div className="text-xs font-semibold uppercase tracking-wider text-white/60">Source</div>
@@ -676,7 +634,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
                       {statusMeta.label}
                     </Badge>
                     {statusMeta.isProcessing && (
-                      <Badge variant="outline" className="text-white/80">
+                      <Badge variant="outline">
                         {getProgressPct(repo)}%
                       </Badge>
                     )}
@@ -701,22 +659,45 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
 
                 <div className="flex flex-wrap items-center justify-end gap-2">
                   <div className="relative group">
-                    <Button
-                      size="icon"
-                      variant="destructive"
-                      className="border border-red-500/40 bg-red-500/10 text-red-200 hover:bg-red-500/20"
-                      aria-label="Disconnect"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setDeleteTarget({ id: repo.id, name: repoLabel });
-                      }}
-                      disabled={deletingRepoId === repo.id}
-                    >
-                      <Trash2 className="h-4 w-4 text-red-300" />
-                    </Button>
-                    <span className="pointer-events-none absolute right-1/2 top-0 z-10 -translate-y-10 translate-x-1/2 whitespace-nowrap rounded-md border border-white/10 bg-black/90 px-2 py-1 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100">
-                      Disconnect
-                    </span>
+                    {getStatusBucket(repo) === 'processing' ? (
+                      <>
+                        <Button
+                          size="icon"
+                          variant="destructive"
+                          className="border border-red-500/40 bg-red-500/10 text-red-200 hover:bg-red-500/20"
+                          aria-label="Stop setup"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleteTarget({ id: repo.id, name: repoLabel });
+                          }}
+                          disabled={deletingRepoId === repo.id}
+                        >
+                          <Square className="h-4 w-4 fill-current text-red-300" />
+                        </Button>
+                        <span className="pointer-events-none absolute right-1/2 top-0 z-10 -translate-y-10 translate-x-1/2 whitespace-nowrap rounded-md border border-white/10 bg-black/90 px-2 py-1 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100">
+                          Stop setup
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <Button
+                          size="icon"
+                          variant="destructive"
+                          className="border border-red-500/40 bg-red-500/10 text-red-200 hover:bg-red-500/20"
+                          aria-label="Disconnect"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleteTarget({ id: repo.id, name: repoLabel });
+                          }}
+                          disabled={deletingRepoId === repo.id}
+                        >
+                          <Trash2 className="h-4 w-4 text-red-300" />
+                        </Button>
+                        <span className="pointer-events-none absolute right-1/2 top-0 z-10 -translate-y-10 translate-x-1/2 whitespace-nowrap rounded-md border border-white/10 bg-black/90 px-2 py-1 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100">
+                          Disconnect
+                        </span>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>

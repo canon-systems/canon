@@ -20,7 +20,7 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
-import { Loader2, ChevronsUpDown, Info, Check, BookOpen, GitCompare, CalendarIcon, Plus, Trash2, Pencil } from 'lucide-react';
+import { Loader2, ChevronsUpDown, Info, BookOpen, GitCompare, CalendarIcon, Plus, Trash2, Pencil } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/components/ui/utils';
 import {
@@ -220,6 +220,48 @@ function projectForAudience(item: KnowledgeItem, audience: string): string {
     default:
       return base;
   }
+}
+
+type ParsedProjectionSection = { label: string; text: string };
+
+function parseProjectionForDisplay(input: string): { warnings: string[]; sections: ParsedProjectionSection[] } {
+  const raw = (input || '').trim();
+  if (!raw) return { warnings: [], sections: [] };
+
+  const pendingMatch = raw.match(/^PENDING:\s*([\s\S]*?)(?:\n{2,}|\n)([\s\S]*)$/i);
+  const warnings = pendingMatch?.[1]
+    ? pendingMatch[1].split(';').map((w) => w.trim()).filter(Boolean)
+    : [];
+  const body = (pendingMatch?.[2] || raw).trim();
+
+  const blocks = body.split(/\n{2,}/).map((b) => b.trim()).filter(Boolean);
+  const sections: ParsedProjectionSection[] = [];
+
+  for (const block of blocks) {
+    const lines = block.split('\n');
+    const first = (lines[0] || '').trim();
+    const m = first.match(/^([A-Za-z][A-Za-z0-9 /&-]{1,80}):\s*$/);
+    if (m) {
+      sections.push({
+        label: m[1],
+        text: lines.slice(1).join('\n').trim(),
+      });
+      continue;
+    }
+    const inline = block.match(/^([A-Za-z][A-Za-z0-9 /&-]{1,80}):\s+([\s\S]+)$/);
+    if (inline) {
+      sections.push({ label: inline[1], text: inline[2].trim() });
+      continue;
+    }
+  }
+
+  if (sections.length === 0) {
+    return {
+      warnings,
+      sections: [{ label: 'Projection', text: body }],
+    };
+  }
+  return { warnings, sections };
 }
 
 function getDisplayName(repo: { name: string; provider: string; scope: Record<string, unknown> | null }): string {
@@ -1512,6 +1554,8 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
   const [loading, setLoading] = useState(false);
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
   const [sourceMenuOpen, setSourceMenuOpen] = useState(false);
+  const [audienceMenuOpen, setAudienceMenuOpen] = useState(false);
+  const [unitsMenuOpen, setUnitsMenuOpen] = useState(false);
   const [selectedAudiences, setSelectedAudiences] = useState<string[]>([]);
   const [audienceOptions, setAudienceOptions] = useState<string[]>([]);
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
@@ -2311,88 +2355,186 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                       <SidebarGroup>
                         <SidebarGroupLabel>Audiences</SidebarGroupLabel>
                         <SidebarGroupContent>
-                          {audienceOptions.length > 0 ? (
-                            <div className="flex flex-wrap gap-2">
-                              {audienceOptions.map((aud) => {
-                                const active = selectedAudiences.includes(aud);
-                                return (
-                                  <Button
-                                    key={aud}
-                                    variant={active ? 'secondary' : 'ghost'}
-                                    size="sm"
-                                    className={cn(
-                                      'border',
-                                      active
-                                        ? 'border-white/70 bg-white !text-black shadow-[0_18px_50px_rgba(0,0,0,0.5)] ring-2 ring-white ring-offset-1 ring-offset-black'
-                                        : 'border-white/15 text-white/80 hover:border-white/25 hover:text-white'
-                                    )}
-                                    onClick={() => toggleAudience(aud)}
-                                  >
-                                    {active && <Check className="mr-1.5 h-4 w-4" />}
-                                    {aud}
-                                  </Button>
-                                );
-                              })}
-                            </div>
-                          ) : (
-                            <div className="rounded-md border border-white/10 bg-white/5 p-3 text-xs text-white/70">
-                              No audiences configured. Set them in Settings → Preferences.
+                          <Popover open={audienceMenuOpen} onOpenChange={setAudienceMenuOpen}>
+                            <PopoverTrigger asChild>
+                              <Button
+                                variant="outline"
+                                role="combobox"
+                                aria-expanded={audienceMenuOpen}
+                                className="w-full justify-between border border-white bg-neutral-800 hover:bg-neutral-700 hover:border-white"
+                                onClick={() => setAudienceMenuOpen(!audienceMenuOpen)}
+                              >
+                                <span className="truncate">
+                                  {selectedAudiences.length > 0
+                                    ? `${selectedAudiences.length} audience${selectedAudiences.length === 1 ? '' : 's'} selected`
+                                    : 'Choose audiences'}
+                                </span>
+                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                              {audienceOptions.length > 0 ? (
+                                <>
+                                  <Command>
+                                    <CommandInput placeholder="Search audiences..." />
+                                    <CommandList>
+                                      <CommandEmpty>No audiences found.</CommandEmpty>
+                                      <CommandGroup>
+                                        {audienceOptions.map((aud) => {
+                                          const checked = selectedAudiences.includes(aud);
+                                          return (
+                                            <CommandItem
+                                              key={aud}
+                                              value={aud}
+                                              onSelect={() => toggleAudience(aud)}
+                                              className="cursor-pointer"
+                                            >
+                                              <Checkbox
+                                                checked={checked}
+                                                onCheckedChange={() => toggleAudience(aud)}
+                                                className="mr-2"
+                                              />
+                                              <span className="flex-1 truncate">{aud}</span>
+                                            </CommandItem>
+                                          );
+                                        })}
+                                      </CommandGroup>
+                                    </CommandList>
+                                  </Command>
+                                  <Separator />
+                                  <div className="flex items-center justify-between px-3 py-2">
+                                    <span className="text-xs text-white/60">
+                                      {selectedAudiences.length} of {audienceOptions.length} selected
+                                    </span>
+                                    <div className="flex gap-2">
+                                      <Button variant="ghost" size="sm" onClick={clearAudiences}>
+                                        Clear
+                                      </Button>
+                                      <Button
+                                        variant="secondary"
+                                        size="sm"
+                                        onClick={() => {
+                                          selectAllAudiences();
+                                          setAudienceMenuOpen(false);
+                                        }}
+                                      >
+                                        {selectedAudiences.length === audienceOptions.length ? 'Deselect all' : 'Select all'}
+                                      </Button>
+                                    </div>
+                                  </div>
+                                </>
+                              ) : (
+                                <div className="rounded-md border border-white/10 bg-white/5 p-3 text-xs text-white/70">
+                                  No audiences configured. Set them in Settings → Preferences.
+                                </div>
+                              )}
+                            </PopoverContent>
+                          </Popover>
+                          {audienceOptions.length > 0 && (
+                            <div className="flex items-center justify-between text-xs text-white/60">
+                              <span>{selectedAudiences.length} chosen</span>
+                              <Button variant="ghost" size="sm" onClick={selectedAudiences.length === audienceOptions.length ? clearAudiences : selectAllAudiences}>
+                                {selectedAudiences.length === audienceOptions.length ? 'Clear all' : 'Select all'}
+                              </Button>
                             </div>
                           )}
-                          <div className="flex items-center justify-between text-xs text-white/70">
-                            <div className="flex gap-2">
-                              <Button variant="ghost" size="sm" onClick={clearAudiences}>
-                                Clear
-                              </Button>
-                              <Button variant="ghost" size="sm" onClick={selectAllAudiences}>
-                                All
-                              </Button>
-                            </div>
-                          </div>
                         </SidebarGroupContent>
                       </SidebarGroup>
 
                       <SidebarGroup>
                         <SidebarGroupLabel>Units</SidebarGroupLabel>
                         <SidebarGroupContent>
-                          {categories.length > 0 ? (
-                            <div className="flex flex-wrap gap-2">
-                              {categories.map((cat) => {
-                                const active = selectedCategories.includes(cat);
-                                return (
-                                  <Button
-                                    key={cat}
-                                    variant={active ? 'secondary' : 'ghost'}
-                                    size="sm"
-                                    className={cn(
-                                      'border',
-                                      active
-                                        ? 'border-white/70 bg-white !text-black shadow-[0_18px_50px_rgba(0,0,0,0.5)] ring-2 ring-white ring-offset-1 ring-offset-black'
-                                        : 'border-white/15 text-white/80 hover:border-white/25 hover:text-white'
-                                    )}
-                                    onClick={() => toggleCategory(cat)}
-                                  >
-                                    {active && <Check className="mr-1.5 h-4 w-4" />}
-                                    {cat}
-                                  </Button>
-                                );
-                              })}
-                            </div>
-                          ) : (
-                            <div className="rounded-md border border-white/10 bg-white/5 p-3 text-xs text-white/70">
-                              Categories will appear once knowledge is generated for selected sources.
+                          <Popover open={unitsMenuOpen} onOpenChange={setUnitsMenuOpen}>
+                            <PopoverTrigger asChild>
+                              <Button
+                                variant="outline"
+                                role="combobox"
+                                aria-expanded={unitsMenuOpen}
+                                className="w-full justify-between border border-white bg-neutral-800 hover:bg-neutral-700 hover:border-white"
+                                onClick={() => setUnitsMenuOpen(!unitsMenuOpen)}
+                              >
+                                <span className="truncate">
+                                  {selectedCategories.length > 0
+                                    ? `${selectedCategories.length} unit${selectedCategories.length === 1 ? '' : 's'} selected`
+                                    : 'Choose units'}
+                                </span>
+                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                              {categories.length > 0 ? (
+                                <>
+                                  <Command>
+                                    <CommandInput placeholder="Search units..." />
+                                    <CommandList>
+                                      <CommandEmpty>No units found.</CommandEmpty>
+                                      <CommandGroup>
+                                        {categories.map((cat) => {
+                                          const checked = selectedCategories.includes(cat);
+                                          return (
+                                            <CommandItem
+                                              key={cat}
+                                              value={cat}
+                                              onSelect={() => toggleCategory(cat)}
+                                              className="cursor-pointer"
+                                            >
+                                              <Checkbox
+                                                checked={checked}
+                                                onCheckedChange={() => toggleCategory(cat)}
+                                                className="mr-2"
+                                              />
+                                              <span className="flex-1 truncate">{cat}</span>
+                                            </CommandItem>
+                                          );
+                                        })}
+                                      </CommandGroup>
+                                    </CommandList>
+                                  </Command>
+                                  <Separator />
+                                  <div className="flex items-center justify-between px-3 py-2">
+                                    <span className="text-xs text-white/60">
+                                      {selectedCategories.length} of {categories.length} selected
+                                    </span>
+                                    <div className="flex gap-2">
+                                      <Button variant="ghost" size="sm" onClick={() => setSelectedCategories([])}>
+                                        Clear
+                                      </Button>
+                                      <Button
+                                        variant="secondary"
+                                        size="sm"
+                                        onClick={() => {
+                                          setSelectedCategories(categories);
+                                          setUnitsMenuOpen(false);
+                                        }}
+                                      >
+                                        {selectedCategories.length === categories.length ? 'Deselect all' : 'Select all'}
+                                      </Button>
+                                    </div>
+                                  </div>
+                                </>
+                              ) : (
+                                <div className="rounded-md border border-white/10 bg-white/5 p-3 text-xs text-white/70">
+                                  Categories will appear once knowledge is generated for selected sources.
+                                </div>
+                              )}
+                            </PopoverContent>
+                          </Popover>
+                          {categories.length > 0 && (
+                            <div className="flex items-center justify-between text-xs text-white/60">
+                              <span>{selectedCategories.length} chosen</span>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() =>
+                                  selectedCategories.length === categories.length
+                                    ? setSelectedCategories([])
+                                    : setSelectedCategories(categories)
+                                }
+                              >
+                                {selectedCategories.length === categories.length ? 'Clear all' : 'Select all'}
+                              </Button>
                             </div>
                           )}
-                          <div className="flex items-center justify-between text-xs text-white/70">
-                            <div className="flex gap-2">
-                              <Button variant="ghost" size="sm" onClick={() => setSelectedCategories([])}>
-                                Clear
-                              </Button>
-                              <Button variant="ghost" size="sm" onClick={() => setSelectedCategories(categories)}>
-                                All
-                              </Button>
-                            </div>
-                          </div>
                         </SidebarGroupContent>
                       </SidebarGroup>
                     </>
@@ -2907,12 +3049,12 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                       </Badge>
                     )}
                     {selectedAudiences.length > 0 && (
-                      <Badge variant="outline" className="border-white/20 text-xs text-white/80">
+                      <Badge variant="outline" className="text-xs">
                         {selectedAudiences.join(' · ')}
                       </Badge>
                     )}
                     {selectedCategories.length > 0 && (
-                      <Badge variant="outline" className="border-white/20 text-xs text-white/80">
+                      <Badge variant="outline" className="text-xs">
                         {selectedCategories.join(' · ')}
                       </Badge>
                     )}
@@ -2972,14 +3114,32 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                                 item.projections?.find((p) => p.audience === activeAudience) ||
                                 item.projections?.[0];
                               if (!proj) return null;
+                              const parsed = parseProjectionForDisplay(proj.projection);
                               return (
                                 <Card className="bg-white/5 border-white/10">
                                   <CardContent className="p-4 space-y-2">
-                                    <div className="text-sm text-white/80 whitespace-pre-wrap leading-relaxed">
-                                      {proj.projection}
+                                    {parsed.warnings.length > 0 && (
+                                      <div className="rounded-md border border-amber-400/30 bg-amber-400/10 p-2 text-xs text-amber-100">
+                                        <div className="font-medium mb-1">Needs verification</div>
+                                        <ul className="list-disc pl-4 space-y-0.5">
+                                          {parsed.warnings.slice(0, 5).map((w, idx) => (
+                                            <li key={`${idx}-${w.slice(0, 24)}`}>{w}</li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+                                    <div className="space-y-3">
+                                      {parsed.sections.map((section) => (
+                                        <div key={`${section.label}-${section.text.slice(0, 24)}`} className="space-y-1">
+                                          <div className="text-xs uppercase tracking-wide text-white/60">{section.label}</div>
+                                          <div className="text-sm text-white/85 whitespace-pre-wrap leading-relaxed">
+                                            {section.text}
+                                          </div>
+                                        </div>
+                                      ))}
                                     </div>
-                                    <div className="text-xs text-white/50">
-                                      Status: {proj.status || 'draft'}
+                                    <div className="text-xs text-white/50 pt-1">
+                                      Status: {proj.status || (parsed.warnings.length > 0 ? 'pending_verification' : 'draft')}
                                     </div>
                                   </CardContent>
                                 </Card>
@@ -3043,7 +3203,7 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                 </div>
                 <div className="flex items-center justify-between">
                   <span>Audiences</span>
-                  <Badge variant="outline" className="border-white/20 text-white">
+                  <Badge variant="outline">
                     {selectedAudiences.length > 0 ? selectedAudiences.join(' · ') : 'All configured'}
                   </Badge>
                 </div>
@@ -3155,7 +3315,7 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                       <div className="mt-2 text-xs text-white/80 space-y-1 max-h-48 overflow-y-auto">
                         {pushResult.details.map((d: PushResultDetail, idx: number) => (
                           <div key={d.key != null ? `${String(d.key)}-${idx}` : `detail-${idx}`}>
-                            <Badge variant="outline" className="mr-2 border-white/20 text-white/70">
+                            <Badge variant="outline" className="mr-2">
                               {d.status?.toUpperCase()}
                             </Badge>
                             {d.title}

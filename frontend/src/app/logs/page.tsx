@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
+import { isRepoProvider } from '@/lib/server/services/sourceProviders';
 import { LogsPageClient } from './page-client';
 
 export default async function LogsPage() {
@@ -137,11 +138,24 @@ export default async function LogsPage() {
         };
       }
       case 'repo_disconnected': {
+        const provider = typeof meta.provider === 'string' ? meta.provider : '';
+        const isRepo = isRepoProvider(provider);
+        if (isRepo) {
+          return {
+            ...base,
+            type: 'repo_connection' as const,
+            title: repoName ? `Repository Disconnected: ${repoName}` : 'Repository Disconnected',
+            message: repoName ? `Disconnected repository ${repoName}` : 'Repository disconnected',
+            status: 'completed',
+            link: '/sources',
+          };
+        }
+        const sourceLabel = formatProviderName(provider) || repoName || 'Source';
         return {
           ...base,
-          type: 'repo_connection' as const,
-          title: repoName ? `Repository Disconnected: ${repoName}` : 'Repository Disconnected',
-          message: repoName ? `Disconnected repository ${repoName}` : 'Repository disconnected',
+          type: 'source_connection' as const,
+          title: `Source Disconnected: ${sourceLabel}`,
+          message: repoName ? `Disconnected source ${repoName}` : `Disconnected ${sourceLabel.toLowerCase()}`,
           status: 'completed',
           link: '/sources',
         };

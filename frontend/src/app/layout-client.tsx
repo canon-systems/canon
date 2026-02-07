@@ -80,6 +80,7 @@ export function RootLayoutClient({
 
   return (
     <div className="app-shell">
+      {/* Grid background (same as sources page) for every page */}
       <div className="app-shell__backdrop" aria-hidden="true">
         <div className="app-shell__grid" />
       </div>

@@ -56,7 +56,8 @@ async function getJiraConnection(userId: string) {
 
 export async function setupJiraSourceSimple(
   supabase: SupabaseClient,
-  setupId: string,
+  // kept for backward compatibility with call sites
+  _setupId: string,
   params: JiraSetupParams
 ) {
   const connection = await getJiraConnection(params.userId);
@@ -110,16 +111,19 @@ export async function setupJiraSourceSimple(
     if (startAt === 0) {
       total = typeof data?.total === 'number' ? data.total : issues.length;
       await supabase
-        .from('source_setup')
+        .from('workspace_sources')
         .update({
-          total_files: total,
-          summarized_files: 0,
-          processing_status: 'scanning',
-          progress_percentage: 0,
-          current_item: null,
-          last_progress_update: new Date().toISOString(),
+          status_payload: {
+            status: 'indexing',
+            progress_pct: 0,
+            step_label: 'Indexing source records',
+            total_items: total,
+            processed_items: 0,
+          },
+          updated_at: new Date().toISOString(),
         })
-        .eq('id', setupId);
+        .eq('id', params.repoId)
+        .eq('user_id', params.userId);
     }
 
     if (!issues.length) break;
@@ -158,15 +162,20 @@ export async function setupJiraSourceSimple(
 
       if (processed % 25 === 0 || processed === total) {
         await supabase
-          .from('source_setup')
+          .from('workspace_sources')
           .update({
-            summarized_files: processed,
-            current_item: record.key,
-            processing_status: 'scanning',
-            progress_percentage: total ? Math.round((processed / total) * 100) : 0,
-            last_progress_update: new Date().toISOString(),
+            status_payload: {
+              status: 'indexing',
+              progress_pct: total ? Math.round((processed / total) * 100) : 0,
+              step_label: 'Indexing source records',
+              total_items: total,
+              processed_items: processed,
+              current_item: record.key,
+            },
+            updated_at: new Date().toISOString(),
           })
-          .eq('id', setupId);
+          .eq('id', params.repoId)
+          .eq('user_id', params.userId);
       }
     }
 
@@ -175,17 +184,17 @@ export async function setupJiraSourceSimple(
   }
 
   await supabase
-    .from('source_setup')
+    .from('workspace_sources')
     .update({
-      setup_status: 'ready',
-      setup_completed_at: new Date().toISOString(),
-      last_analyzed: new Date().toISOString(),
-      summarized_files: processed,
-      total_files: total || processed,
-      processing_status: 'ready',
-      progress_percentage: 100,
-      current_item: null,
-      last_progress_update: new Date().toISOString(),
+      status_payload: {
+        status: 'ready',
+        progress_pct: 100,
+        step_label: 'Setup complete',
+        total_items: total || processed,
+        processed_items: processed,
+      },
+      updated_at: new Date().toISOString(),
     })
-    .eq('id', setupId);
+    .eq('id', params.repoId)
+    .eq('user_id', params.userId);
 }

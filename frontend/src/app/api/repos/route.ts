@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
 import { ingestSource, type WorkspaceSource } from '@/lib/server/services/sourceIngest';
 import { isRepoProvider } from '@/lib/server/services/sourceProviders';
@@ -154,8 +154,15 @@ export async function POST(request: NextRequest) {
     // Kick off ingestion sequentially (could be parallelized with workers)
     const createdSourceIds = (data || []).map((r) => r.id);
     for (const row of data || []) {
-      // Fire and forget; don't block the response. Pass mode and createdSourceIds so merged AKUs use only the sources just added.
-      ingestSource(supabase, row as WorkspaceSource, { mode, createdSourceIds }).catch((err) => {
+      // Fire and forget; use service-role client to avoid auth-context loss in background work.
+      const ingestClient = (() => {
+        try {
+          return createServiceRoleClient();
+        } catch {
+          return supabase;
+        }
+      })();
+      ingestSource(ingestClient, row as WorkspaceSource, { mode, createdSourceIds }).catch((err) => {
         console.error('[ingestSource] failed', err);
       });
     }

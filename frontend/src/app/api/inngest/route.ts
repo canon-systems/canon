@@ -1,5 +1,5 @@
 import { serve } from "inngest/next";
-import { inngest, syncKnowledgeSources, reportScheduleTick, reportScheduleBootstrap } from "../../../inngest";
+import { inngest, syncKnowledgeSources, reportScheduleTick, reportScheduleBootstrap, refreshJiraWebhooks } from "../../../inngest";
 
 export const runtime = 'nodejs';
 
@@ -10,5 +10,6 @@ export const { GET, POST, PUT } = serve({
     syncKnowledgeSources,
     reportScheduleTick,
     reportScheduleBootstrap,
+    refreshJiraWebhooks,
   ],
 });
