@@ -77,6 +77,14 @@ const applyEventToIncrements = (inc: DailyIncrements, event: CanonicalEvent) => 
   }
 };
 
+const normalizeReposTouched = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value.filter((v) => typeof v === 'string' && v.trim().length > 0) as string[];
+  }
+  if (typeof value === 'string' && value.trim().length > 0) return [value];
+  return [];
+};
+
 export async function insertRawEvent(params: {
   supabase: SupabaseClient;
   sourceId: string;
@@ -160,20 +168,38 @@ export async function upsertDailyMetrics(params: {
   }
 
   for (const [day, inc] of byDay.entries()) {
-    await supabase.rpc('upsert_diff_daily_metrics', {
-      p_source_id: sourceId,
-      p_day: day,
-      p_provider: provider,
-      p_prs_opened: inc.prs_opened,
-      p_prs_merged: inc.prs_merged,
-      p_prs_closed: inc.prs_closed,
-      p_commits_default: inc.commits_default,
-      p_tickets_moved: inc.tickets_moved,
-      p_tickets_completed: inc.tickets_completed,
-      p_tickets_regressed: inc.tickets_regressed,
-      p_tickets_created: inc.tickets_created,
-      p_repos_touched: [...inc.repos_touched],
-    });
+    const { data: existing } = await supabase
+      .from('diff_daily_metrics')
+      .select(
+        'prs_opened, prs_merged, prs_closed, commits_default, tickets_moved, tickets_completed, tickets_regressed, tickets_created, repos_touched'
+      )
+      .eq('source_id', sourceId)
+      .eq('day', day)
+      .maybeSingle();
+
+    const existingRepos = normalizeReposTouched(existing?.repos_touched);
+    const mergedRepos = Array.from(new Set([...existingRepos, ...inc.repos_touched]));
+
+    await supabase
+      .from('diff_daily_metrics')
+      .upsert(
+        {
+          source_id: sourceId,
+          day,
+          provider,
+          prs_opened: (existing?.prs_opened ?? 0) + inc.prs_opened,
+          prs_merged: (existing?.prs_merged ?? 0) + inc.prs_merged,
+          prs_closed: (existing?.prs_closed ?? 0) + inc.prs_closed,
+          commits_default: (existing?.commits_default ?? 0) + inc.commits_default,
+          tickets_moved: (existing?.tickets_moved ?? 0) + inc.tickets_moved,
+          tickets_completed: (existing?.tickets_completed ?? 0) + inc.tickets_completed,
+          tickets_regressed: (existing?.tickets_regressed ?? 0) + inc.tickets_regressed,
+          tickets_created: (existing?.tickets_created ?? 0) + inc.tickets_created,
+          repos_touched: mergedRepos,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'source_id,day' }
+      );
   }
 }
 
