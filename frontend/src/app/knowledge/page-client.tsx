@@ -1452,10 +1452,10 @@ function DiffPrototypePanel() {
                     <dd className="flex items-center gap-2 font-semibold text-white">
                       <span>{row.value}</span>
                       {deltaObject && (
-                        <Badge variant="outline" className={cn('text-xs border-white/20', row.delta >= 0 ? 'text-emerald-300' : 'text-rose-300')}>
+                        <span className={cn('tab-label text-[11px] uppercase tracking-[0.2em]', row.delta >= 0 ? 'text-emerald-300' : 'text-rose-300')}>
                           {row.delta >= 0 ? '+' : ''}
                           {row.delta}
-                        </Badge>
+                        </span>
                       )}
                     </dd>
                   </div>
@@ -1464,11 +1464,15 @@ function DiffPrototypePanel() {
                   <dt className="text-white/80">Repos touched</dt>
                   <dd className="flex items-center gap-2 font-semibold text-white">
                     <span>{diffObject.repos_touched.length}</span>
-                    {deltaObject && (
-                      <Badge variant="outline" className="text-xs border-white/20 text-emerald-300">
-                        +{deltaObject.repos_added?.length ?? 0} / -{deltaObject.repos_removed?.length ?? 0}
-                      </Badge>
-                    )}
+                    {deltaObject && (() => {
+                      const delta = (deltaObject.repos_added?.length ?? 0) - (deltaObject.repos_removed?.length ?? 0);
+                      return (
+                        <span className={cn('tab-label text-[11px] uppercase tracking-[0.2em]', delta >= 0 ? 'text-emerald-300' : 'text-rose-300')}>
+                          {delta >= 0 ? '+' : ''}
+                          {delta}
+                        </span>
+                      );
+                    })()}
                   </dd>
                 </div>
               </dl>
@@ -1479,7 +1483,7 @@ function DiffPrototypePanel() {
                 <div className="rounded-lg border border-white/10 bg-neutral-900/80 p-4">
                   <div className="flex items-center justify-between">
                   <h3 className="text-sm font-semibold text-white">Jira Workspace Trail</h3>
-                    <Badge variant="outline" className="text-[10px] border-white/20 text-white/70">Tickets</Badge>
+                    <span className="tab-label text-[11px] uppercase tracking-[0.2em] text-white">Tickets</span>
                   </div>
                   <div className="mt-3 space-y-4 text-xs text-white/75">
                     <div>
@@ -1535,7 +1539,7 @@ function DiffPrototypePanel() {
                 <div className="rounded-lg border border-white/10 bg-neutral-900/80 p-4">
                   <div className="flex items-center justify-between">
                   <h3 className="text-sm font-semibold text-white">GitHub Activity Stream</h3>
-                    <Badge variant="outline" className="text-[10px] border-white/20 text-white/70">Code</Badge>
+                    <span className="tab-label text-[11px] uppercase tracking-[0.2em] text-white">Code</span>
                   </div>
                   <div className="mt-3 space-y-4 text-xs text-white/75">
                     <div>
@@ -1764,6 +1768,10 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
       if (stored === 'knowledge' || stored === 'diffs') {
         setActiveTab(stored);
       }
+      const storedKnowledgeFilter = window.localStorage.getItem('knowledge.filterTab');
+      if (storedKnowledgeFilter === 'filters' || storedKnowledgeFilter === 'schedule') {
+        setKnowledgeFilterTab(storedKnowledgeFilter);
+      }
     } catch {
       // Ignore storage access failures (e.g. privacy mode).
     }
@@ -1777,6 +1785,15 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
       // Ignore storage access failures (e.g. privacy mode).
     }
   }, [activeTab]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem('knowledge.filterTab', knowledgeFilterTab);
+    } catch {
+      // Ignore storage access failures (e.g. privacy mode).
+    }
+  }, [knowledgeFilterTab]);
 
   // Initialize audiences directly from Supabase preference (persisted in auth metadata)
   useEffect(() => {

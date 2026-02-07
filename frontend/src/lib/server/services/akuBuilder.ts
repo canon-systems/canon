@@ -67,6 +67,7 @@ type AudienceSchema = {
 const PROJECTION_MIN_WORDS = 800;
 const PROJECTION_MAX_WORDS = 1250;
 const PROJECTION_MODEL = 'anthropic/claude-sonnet-4.5';
+const PROJECTION_CONCURRENCY = 6;
 
 const AUDIENCE_SCHEMAS: Record<string, AudienceSchema> = {
   Executive: {
@@ -130,6 +131,25 @@ const blastKeywords = ['queue', 'kafka', 'sqs', 'pubsub', 'cron', 'job', 'worker
 function scoreText(text: string, keys: string[]) {
   const lower = text.toLowerCase();
   return keys.reduce((acc, k) => (lower.includes(k) ? acc + 1 : acc), 0);
+}
+
+async function runWithConcurrency<T>(tasks: Array<() => Promise<T>>, limit: number): Promise<T[]> {
+  if (tasks.length === 0) return [];
+  const results: T[] = new Array(tasks.length);
+  let index = 0;
+
+  const worker = async () => {
+    while (true) {
+      const current = index;
+      index += 1;
+      if (current >= tasks.length) return;
+      results[current] = await tasks[current]();
+    }
+  };
+
+  const workers = Array.from({ length: Math.min(limit, tasks.length) }, () => worker());
+  await Promise.all(workers);
+  return results;
 }
 
 function audienceSurface(title: string, body: string) {
@@ -1105,17 +1125,50 @@ export async function buildAkusForSources(
     `[AKU builder] Starting: ${evidence.length} evidence (${codeCount} file summaries, ${issueCount} issues), ${clusterCount} clusters, unmatched: ${unmatchedCodeEvidence} code / ${unmatchedIssueEvidence} issue, audiences: [${audiences.join(', ')}]`
   );
 
-  const hashesForRun: string[] = [];
-  for (const [, cluster] of clusters.entries()) {
-    const items = cluster.items;
-    if (items.length === 0) continue;
-    hashesForRun.push(akuHashFromEvidenceIds(items.map((i) => i.id)));
-  }
+  const clusterEntries = Array.from(clusters.entries())
+    .map(([clusterKey, cluster]) => ({ clusterKey, cluster }))
+    .filter(({ cluster }) => cluster.items.length > 0);
+
+  const hashesForRun = clusterEntries.map(({ cluster }) => akuHashFromEvidenceIds(cluster.items.map((i) => i.id)));
   const { data: existingByHash } =
     hashesForRun.length > 0
       ? await supabase.from('akus').select('id, hash').eq('user_id', userId).in('hash', hashesForRun)
       : { data: [] };
   const idByHash = new Map<string, string>((existingByHash || []).map((r) => [r.hash, r.id]));
+
+  const candidateAkuIds: string[] = [];
+  const hashByAkuId = new Map<string, string>();
+  const akuIdByClusterKey = new Map<string, string>();
+  const hashByClusterKey = new Map<string, string>();
+  for (const entry of clusterEntries) {
+    const hash = akuHashFromEvidenceIds(entry.cluster.items.map((i) => i.id));
+    const akuId = perSource
+      ? deterministicAkuIdWithSource(userId, entry.clusterKey, sourceIds[0])
+      : (idByHash.get(hash) ?? deterministicAkuId(userId, entry.clusterKey));
+    candidateAkuIds.push(akuId);
+    hashByAkuId.set(akuId, hash);
+    akuIdByClusterKey.set(entry.clusterKey, akuId);
+    hashByClusterKey.set(entry.clusterKey, hash);
+  }
+
+  const { data: existingById } =
+    candidateAkuIds.length > 0
+      ? await supabase.from('akus').select('id, hash').eq('user_id', userId).in('id', candidateAkuIds)
+      : { data: [] };
+  const existingHashById = new Map<string, string>((existingById || []).map((r) => [r.id, r.hash]));
+
+  const { data: existingProjections } =
+    candidateAkuIds.length > 0 && audiences.length > 0
+      ? await supabase
+        .from('audience_views')
+        .select('id, aku_id, audience, projection, status')
+        .eq('user_id', userId)
+        .in('aku_id', candidateAkuIds)
+        .in('audience', audiences)
+      : { data: [] };
+  const existingProjectionByKey = new Map<string, { id: string; projection: string; status: string }>(
+    (existingProjections || []).map((p) => [`${p.aku_id}:${p.audience}`, { id: p.id, projection: p.projection, status: p.status }])
+  );
 
   type AkuRecord = {
     id: string;
@@ -1138,14 +1191,14 @@ export async function buildAkusForSources(
   const akus: AkuRecord[] = [];
   const projections: ProjectionRecord[] = [];
   const llm = new LLMGateway();
+  const projectionTasks: Array<() => Promise<ProjectionRecord | null>> = [];
 
-  for (const [clusterKey, cluster] of clusters.entries()) {
+  for (const { clusterKey, cluster } of clusterEntries) {
     if (await shouldAbort()) {
       console.log('[AKU builder] Aborting AKU generation due to source cancellation');
       return { akus: [], projections: [] };
     }
     const items = cluster.items;
-    if (items.length === 0) continue;
     const hasIssue = items.some((e) => e.kind === 'issue');
 
     const title = buildHumanReadableAkuTitle(cluster.label, items);
@@ -1155,10 +1208,11 @@ export async function buildAkusForSources(
 
     const source_ids = Array.from(new Set(items.map((i) => i.source_id)));
     const scope_refs = Array.from(new Set(items.map((i) => i.scope_ref)));
-    const hash = akuHashFromEvidenceIds(items.map((i) => i.id));
-    const akuId = perSource
+    const hash = hashByClusterKey.get(clusterKey) ?? akuHashFromEvidenceIds(items.map((i) => i.id));
+    const akuId = akuIdByClusterKey.get(clusterKey) ?? (perSource
       ? deterministicAkuIdWithSource(userId, clusterKey, sourceIds[0])
-      : (idByHash.get(hash) ?? deterministicAkuId(userId, clusterKey));
+      : (idByHash.get(hash) ?? deterministicAkuId(userId, clusterKey)));
+    const hashUnchanged = existingHashById.get(akuId) === hash;
 
     const factualText = canonicalEvidenceToText(canonicalEvidence);
     const crit = scoreText(title + factualText, criticalKeywords);
@@ -1187,20 +1241,41 @@ export async function buildAkusForSources(
     });
 
     for (const aud of audiences) {
-      if (await shouldAbort()) {
-        console.log('[AKU builder] Aborting projection generation due to source cancellation');
-        return { akus: [], projections: [] };
+      const existing = existingProjectionByKey.get(`${akuId}:${aud}`);
+      if (hashUnchanged && existing) {
+        projections.push({
+          id: existing.id,
+          aku_id: akuId,
+          audience: aud,
+          projection: existing.projection,
+          status: existing.status,
+        });
+        continue;
       }
-      const schema = AUDIENCE_SCHEMAS[aud] || AUDIENCE_SCHEMAS.Engineering;
-      console.log(`[LLM] Generating audience projection: audience=${aud}, AKU="${title}"`);
-      const { projection, status } = await generateProjection(llm, aud, schema, title, canonicalEvidence);
-      projections.push({
-        id: randomUUID(),
-        aku_id: akuId,
-        audience: aud,
-        projection,
-        status,
+
+      projectionTasks.push(async () => {
+        if (await shouldAbort()) {
+          console.log('[AKU builder] Aborting projection generation due to source cancellation');
+          return null;
+        }
+        const schema = AUDIENCE_SCHEMAS[aud] || AUDIENCE_SCHEMAS.Engineering;
+        console.log(`[LLM] Generating audience projection: audience=${aud}, AKU="${title}"`);
+        const { projection, status } = await generateProjection(llm, aud, schema, title, canonicalEvidence);
+        return {
+          id: randomUUID(),
+          aku_id: akuId,
+          audience: aud,
+          projection,
+          status,
+        };
       });
+    }
+  }
+
+  if (projectionTasks.length > 0) {
+    const generated = await runWithConcurrency(projectionTasks, PROJECTION_CONCURRENCY);
+    for (const proj of generated) {
+      if (proj) projections.push(proj);
     }
   }
 

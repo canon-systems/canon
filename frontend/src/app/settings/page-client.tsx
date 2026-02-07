@@ -354,7 +354,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                       return (
                         <Badge
                           key={aud}
-                          variant={active ? 'default' : 'outline'}
+                          variant={active ? 'outline' : 'muted'}
                           className="cursor-pointer transition-all hover:scale-105"
                           onClick={() => toggleAudience(aud)}
                           role="button"
