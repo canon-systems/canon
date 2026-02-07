@@ -5,12 +5,11 @@ import { FileSummaryManager } from './fileSummaryManager';
 import { parseRepoUrl } from '../github/github';
 import { getProviderAccessToken } from '../oauth/tokenStore';
 import { buildAkusForSources } from './akuBuilder';
+import { DEFAULT_AUDIENCES, type Audience } from '@/lib/constants/audiences';
 
 function fileContentHash(content: string): string {
   return createHash('sha256').update(content).digest('hex');
 }
-
-const DEFAULT_AUDIENCES = ['Executive', 'Sales', 'Marketing', 'Engineering', 'Support', 'Customer'];
 
 async function resolvePreferredAudiences(
   supabase: SupabaseClient,
@@ -27,13 +26,15 @@ async function resolvePreferredAudiences(
       const cleaned = Array.from(new Set(
         (preferred || []).filter((aud): aud is string => typeof aud === 'string' && aud.trim().length > 0)
       ));
-      const filtered = cleaned.filter((aud) => DEFAULT_AUDIENCES.includes(aud));
+      const filtered = cleaned.filter((aud): aud is Audience =>
+        (DEFAULT_AUDIENCES as readonly string[]).includes(aud)
+      );
       if (filtered.length > 0) return filtered;
     }
   } catch (err) {
     console.warn('[sourceIngest] Failed to load preferred audiences; falling back to defaults', err);
   }
-  return DEFAULT_AUDIENCES;
+  return [...DEFAULT_AUDIENCES];
 }
 
 export type IngestOptions = { mode?: 'single' | 'multi'; createdSourceIds?: string[] };

@@ -3,6 +3,45 @@
  * Supports GitHub, GitLab, Bitbucket, etc.
  */
 
+export type GitHubRepoParts = {
+  owner: string;
+  repo: string;
+  branch?: string;
+  subdir?: string;
+};
+
+/**
+ * Parse a GitHub repository URL (optionally including /tree/<branch>/<subdir>)
+ * Accepts URLs with or without protocol.
+ */
+export function parseGitHubRepoUrl(input: string): GitHubRepoParts | null {
+  const normalized = input.startsWith('http') ? input : `https://${input}`;
+
+  try {
+    const u = new URL(normalized);
+    if (!u.hostname.includes('github.com')) return null;
+
+    const parts = u.pathname.split('/').filter(Boolean);
+    if (parts.length < 2) return null;
+
+    const [owner, rawRepo, maybeTree, maybeBranch, ...rest] = parts;
+    const repo = rawRepo.replace(/\.git$/, '');
+
+    if (maybeTree === 'tree' && maybeBranch) {
+      return {
+        owner,
+        repo,
+        branch: maybeBranch,
+        subdir: rest.length > 0 ? rest.join('/') : undefined,
+      };
+    }
+
+    return { owner, repo };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Detect repository provider from URL
  * Returns 'github', 'gitlab', 'bitbucket', etc., or null if unknown
@@ -123,4 +162,3 @@ export function buildFileChangeUrl(
         return { view: repoUrl };
     }
 }
-
