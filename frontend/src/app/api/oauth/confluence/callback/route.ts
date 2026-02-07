@@ -4,6 +4,7 @@ import { getSession } from '@/lib/auth';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { encryptSecret } from '@/lib/server/oauth/tokenCrypto';
 import { createConfluenceOAuthClient } from '@/lib/server/oauth/confluenceClient';
+import { registerJiraWebhooks } from '@/lib/server/jira/webhooks';
 import { trackIntegrationConnected } from '@/lib/server/services/usageTracking';
 
 export const runtime = 'nodejs';
@@ -33,6 +34,12 @@ async function fetchAccessibleResources(accessToken: string) {
   }
 
   return response.json().catch(() => []);
+}
+
+function pickJiraResource(resources: Array<{ id?: string; url?: string; name?: string; scopes?: string[] }>) {
+  return resources.find((resource) =>
+    Array.isArray(resource?.scopes) && resource.scopes.some((scope) => scope.includes('jira'))
+  ) || null;
 }
 
 export async function GET(request: NextRequest) {
@@ -81,7 +88,17 @@ export async function GET(request: NextRequest) {
     }
 
     const resources = await fetchAccessibleResources(accessToken);
-    const primaryResource = Array.isArray(resources) ? resources[0] : null;
+    const resourceList = Array.isArray(resources) ? resources : [];
+    const primaryResource = resourceList[0] || null;
+    const jiraResource = pickJiraResource(resourceList);
+
+    // Debug logging (scopes + resources) to troubleshoot missing Jira webhook scope
+    console.log('[confluence/oauth/callback] scopes:', tokenSet.scope);
+    console.log('[confluence/oauth/callback] accessible resources count:', resourceList.length);
+    console.log(
+      '[confluence/oauth/callback] jira resource:',
+      jiraResource ? { id: jiraResource.id, url: jiraResource.url, name: jiraResource.name } : null
+    );
 
     const supabase = await createClient();
     const { data: existingConnection } = await supabase
@@ -112,6 +129,9 @@ export async function GET(request: NextRequest) {
             cloud_id: primaryResource?.id || null,
             site_url: primaryResource?.url || null,
             site_name: primaryResource?.name || null,
+            jira_cloud_id: jiraResource?.id || null,
+            jira_site_url: jiraResource?.url || null,
+            jira_site_name: jiraResource?.name || null,
             resource_count: Array.isArray(resources) ? resources.length : 0,
           },
           updated_at: new Date().toISOString(),
@@ -149,6 +169,45 @@ export async function GET(request: NextRequest) {
     if (tokenError) {
       console.error('Failed to store Atlassian tokens:', tokenError);
       return redirectToSettings(request.nextUrl.origin, { error: 'Failed to store Atlassian tokens.' });
+    }
+
+    if (jiraResource?.id) {
+      try {
+        console.log('[confluence/oauth/callback] registering Jira webhook', {
+          cloudId: jiraResource.id,
+          baseUrl: process.env.CANON_WEBHOOK_BASE_URL || 'https://dev.usecanon.com',
+        });
+        await registerJiraWebhooks({
+          connectionId,
+          cloudId: jiraResource.id,
+          jqlFilter: null,
+        });
+        console.log('[confluence/oauth/callback] Jira webhook registered');
+      } catch (webhookError) {
+        const message = webhookError instanceof Error ? webhookError.message : String(webhookError);
+        console.error('Failed to register Jira webhooks:', message);
+        await supabase
+          .from('oauth_connections')
+          .update({
+            metadata: {
+              ...existingMetadata,
+              source: 'oauth',
+              connected_at: new Date().toISOString(),
+              cloud_id: primaryResource?.id || null,
+              site_url: primaryResource?.url || null,
+              site_name: primaryResource?.name || null,
+              jira_cloud_id: jiraResource?.id || null,
+              jira_site_url: jiraResource?.url || null,
+              jira_site_name: jiraResource?.name || null,
+              resource_count: Array.isArray(resources) ? resources.length : 0,
+              jira_webhook_status: 'degraded',
+              jira_webhook_error: message,
+            },
+            updated_at: new Date().toISOString(),
+          })
+          .eq('user_id', user.id)
+          .eq('provider', 'confluence');
+      }
     }
 
     await trackIntegrationConnected(supabase, user.id, 'confluence', connectionId);

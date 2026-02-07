@@ -42,7 +42,6 @@ interface Repository {
 }
 
 interface SourcesPageClientProps {
-  userId: string;
   repositories: Repository[];
 }
 
@@ -59,8 +58,6 @@ const processingStatuses = new Set([
   'summarizing',
   'building_akus',
 ]);
-
-const terminalStatuses = new Set(['ready', 'draft_ready', 'failed', 'error']);
 
 const progressByStatus: Record<string, number> = {
   queueing: 5,
@@ -194,21 +191,7 @@ const getStepLabel = (repo: Repository): string => {
   return stepByStatus[getRawStatus(repo)] || 'Waiting to start';
 };
 
-function rowToRepository(row: Record<string, unknown>): Repository {
-  return {
-    id: String(row.id ?? ''),
-    name: String(row.name ?? ''),
-    provider: String(row.provider ?? ''),
-    scope: (row.scope as Record<string, unknown>) ?? {},
-    connection_id: row.connection_id as string | null | undefined,
-    status_payload: (row.status_payload as Record<string, unknown>) ?? null,
-    last_error: row.last_error as string | null | undefined,
-    created_at: String(row.created_at ?? ''),
-    updated_at: String(row.updated_at ?? ''),
-  };
-}
-
-export default function SourcesPageClient({ userId, repositories }: SourcesPageClientProps) {
+export default function SourcesPageClient({ repositories }: SourcesPageClientProps) {
   const [repoList, setRepoList] = useState<Repository[]>(repositories);
   const [showSourceDialog, setShowSourceDialog] = useState(false);
   const [loadingSources, setLoadingSources] = useState(false);
@@ -651,7 +634,7 @@ export default function SourcesPageClient({ userId, repositories }: SourcesPageC
                       {statusMeta.label}
                     </Badge>
                     {statusMeta.isProcessing && (
-                      <Badge variant="outline" className="text-white/80">
+                      <Badge variant="outline">
                         {getProgressPct(repo)}%
                       </Badge>
                     )}

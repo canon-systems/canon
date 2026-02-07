@@ -32,6 +32,7 @@ function inWindow(ts: string | null | undefined, start: number, end: number): bo
 
 export async function getGitHubDiffForRepo(params: DiffParams): Promise<GitHubDiffResult> {
   const { owner, repo, start, end } = params;
+  console.log('[github/diff] start', { repo: `${owner}/${repo}`, start, end });
   const octokit = await getGitHubAppOctokitForRepo(owner, repo);
 
   const startMs = Date.parse(start);
@@ -52,6 +53,7 @@ export async function getGitHubDiffForRepo(params: DiffParams): Promise<GitHubDi
   let page = 1;
   const perPage = 100;
   const maxPages = 50;
+  let prPageCount = 0;
   while (page <= maxPages) {
     const { data: prs } = await octokit.pulls.list({
       owner,
@@ -64,6 +66,7 @@ export async function getGitHubDiffForRepo(params: DiffParams): Promise<GitHubDi
     });
 
     if (!prs.length) break;
+    prPageCount += 1;
 
     let shouldContinue = false;
     for (const pr of prs) {
@@ -113,6 +116,7 @@ export async function getGitHubDiffForRepo(params: DiffParams): Promise<GitHubDi
   let commitPage = 1;
   const commitsPerPage = 100;
   const maxCommitPages = 50;
+  let commitPageCount = 0;
   while (commitPage <= maxCommitPages) {
     const { data: commitData } = await octokit.repos.listCommits({
       owner,
@@ -125,6 +129,7 @@ export async function getGitHubDiffForRepo(params: DiffParams): Promise<GitHubDi
     });
 
     if (!commitData?.length) break;
+    commitPageCount += 1;
 
     for (const commit of commitData) {
       const ts = commit.commit?.author?.date || commit.commit?.committer?.date;
@@ -140,6 +145,16 @@ export async function getGitHubDiffForRepo(params: DiffParams): Promise<GitHubDi
     if (commitData.length < commitsPerPage) break;
     commitPage += 1;
   }
+
+  console.log('[github/diff] done', {
+    repo: `${owner}/${repo}`,
+    pr_pages: prPageCount,
+    commit_pages: commitPageCount,
+    prs_opened: prs_opened.length,
+    prs_merged: prs_merged.length,
+    prs_closed_unmerged: prs_closed_unmerged.length,
+    commits: commits.length,
+  });
 
   return {
     repo: `${owner}/${repo}`,

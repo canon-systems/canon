@@ -3049,12 +3049,12 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                       </Badge>
                     )}
                     {selectedAudiences.length > 0 && (
-                      <Badge variant="outline" className="border-white/20 text-xs text-white/80">
+                      <Badge variant="outline" className="text-xs">
                         {selectedAudiences.join(' · ')}
                       </Badge>
                     )}
                     {selectedCategories.length > 0 && (
-                      <Badge variant="outline" className="border-white/20 text-xs text-white/80">
+                      <Badge variant="outline" className="text-xs">
                         {selectedCategories.join(' · ')}
                       </Badge>
                     )}
@@ -3203,7 +3203,7 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                 </div>
                 <div className="flex items-center justify-between">
                   <span>Audiences</span>
-                  <Badge variant="outline" className="border-white/20 text-white">
+                  <Badge variant="outline">
                     {selectedAudiences.length > 0 ? selectedAudiences.join(' · ') : 'All configured'}
                   </Badge>
                 </div>
@@ -3315,7 +3315,7 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                       <div className="mt-2 text-xs text-white/80 space-y-1 max-h-48 overflow-y-auto">
                         {pushResult.details.map((d: PushResultDetail, idx: number) => (
                           <div key={d.key != null ? `${String(d.key)}-${idx}` : `detail-${idx}`}>
-                            <Badge variant="outline" className="mr-2 border-white/20 text-white/70">
+                            <Badge variant="outline" className="mr-2">
                               {d.status?.toUpperCase()}
                             </Badge>
                             {d.title}
