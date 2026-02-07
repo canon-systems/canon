@@ -46,12 +46,20 @@ async function computeCanonicalDiff(params: {
 
   let jiraResult = undefined;
   if (useJira) {
-    jiraResult = await getJiraDiffForProject({
-      userId,
-      projectKey: input.jira_project_key!,
-      start: window.start,
-      end: window.end,
-    });
+    try {
+      jiraResult = await getJiraDiffForProject({
+        userId,
+        projectKey: input.jira_project_key!,
+        start: window.start,
+        end: window.end,
+      });
+    } catch (err) {
+      console.warn('[diff] Jira diff skipped (connection missing or fetch failed)', {
+        project: input.jira_project_key,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      jiraResult = undefined;
+    }
   }
 
   const githubEvents: Awaited<ReturnType<typeof getGitHubDiffForRepo>>[] = [];
@@ -59,8 +67,15 @@ async function computeCanonicalDiff(params: {
     for (const repo of input.github_repos!) {
       const [owner, name] = repo.split('/');
       if (!owner || !name) continue;
-      const res = await getGitHubDiffForRepo({ owner, repo: name, start: window.start, end: window.end });
-      githubEvents.push(res);
+      try {
+        const res = await getGitHubDiffForRepo({ owner, repo: name, start: window.start, end: window.end });
+        githubEvents.push(res);
+      } catch (err) {
+        console.warn('[diff] GitHub diff skipped for repo', {
+          repo,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
   }
 
@@ -150,8 +165,27 @@ export async function runDiffForSources(
   window: { start: string; end: string },
   supabase: SupabaseClient
 ): Promise<CanonicalDiff> {
+  const { aggregate } = await runDiffForSourcesWithBreakdown(userId, sourceIds, window, supabase);
+  return aggregate;
+}
+
+export type DiffAggWithBreakdown = {
+  aggregate: CanonicalDiff;
+  bySource: Record<string, CanonicalDiff>;
+  sources: DiffSourceInfo[];
+};
+
+/**
+ * Run diff for the given sources and return both the aggregate and per-source breakdowns.
+ */
+export async function runDiffForSourcesWithBreakdown(
+  userId: string,
+  sourceIds: string[],
+  window: { start: string; end: string },
+  supabase: SupabaseClient
+): Promise<DiffAggWithBreakdown> {
   if (sourceIds.length === 0) {
-    return emptyCanonicalDiff(window);
+    return { aggregate: emptyCanonicalDiff(window), bySource: {}, sources: [] };
   }
 
   const { data: sourceRows, error } = await supabase
@@ -161,19 +195,22 @@ export async function runDiffForSources(
     .in('id', sourceIds);
 
   if (error || !sourceRows?.length) {
-    return emptyCanonicalDiff(window);
+    return { aggregate: emptyCanonicalDiff(window), bySource: {}, sources: [] };
   }
 
   const sources = resolveSourceIdsToTargets(
     sourceRows as Array<{ id: string; name: string; provider: string; scope: Record<string, unknown> | null }>
   );
   if (sources.length === 0) {
-    return emptyCanonicalDiff(window);
+    return { aggregate: emptyCanonicalDiff(window), bySource: {}, sources: [] };
   }
 
   const primaryAgg = emptyCanonicalDiff(window);
+  const bySource: Record<string, CanonicalDiff> = {};
+
   for (const source of sources) {
     const primary = await computeCanonicalDiffForOneSource({ source, window, userId });
+    bySource[source.id] = primary;
     primaryAgg.tickets_moved += primary.tickets_moved;
     primaryAgg.tickets_completed += primary.tickets_completed;
     primaryAgg.tickets_regressed += primary.tickets_regressed;
@@ -185,5 +222,5 @@ export async function runDiffForSources(
     const repoSet = new Set([...primaryAgg.repos_touched, ...primary.repos_touched]);
     primaryAgg.repos_touched = Array.from(repoSet);
   }
-  return primaryAgg;
+  return { aggregate: primaryAgg, bySource, sources };
 }

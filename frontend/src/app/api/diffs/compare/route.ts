@@ -366,28 +366,6 @@ function resolveSourceIdsToTargets(
   return out;
 }
 
-async function computeCanonicalDiffForOneSource(params: {
-  source: DiffSourceInfo;
-  window: { start: string; end: string };
-  userId: string;
-}): Promise<CanonicalDiff> {
-  const { source, window, userId } = params;
-  const input: RequestBody = {
-    start_timestamp: window.start,
-    end_timestamp: window.end,
-    sources: [source.provider as 'jira' | 'github'],
-    scope: 'org',
-  };
-  if (source.provider === 'github') {
-    // display_name for github is "owner/repo"
-    input.github_repos = [source.display_name];
-  } else {
-    const projectKey = source.display_name.startsWith('jira/') ? source.display_name.slice(5) : source.display_name;
-    input.jira_project_key = projectKey;
-  }
-  return computeCanonicalDiff({ input, window, userId });
-}
-
 export async function POST(req: NextRequest) {
   const { user } = await getSession();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -485,47 +463,6 @@ export async function POST(req: NextRequest) {
 
         Object.assign(primaryAgg, primaryRollups.agg);
         Object.assign(baselineAgg, baselineRollups.agg);
-      } else {
-        console.log('[diffs/compare] rollups empty, falling back to API diffs');
-        console.log('[diffs/compare] baselineWindow', baselineWindow.start, '→', baselineWindow.end);
-        for (const source of sources) {
-          const primary = await computeCanonicalDiffForOneSource({
-            source,
-            window: primaryWindow,
-            userId: user.id,
-          });
-          const baseline = await computeCanonicalDiffForOneSource({
-            source,
-            window: baselineWindow,
-            userId: user.id,
-          });
-          console.log('[diffs/compare] baseline', source.display_name, 'tickets_moved=', baseline.tickets_moved, 'prs_merged=', baseline.prs_merged, 'commits_default=', baseline.commits_default);
-          const delta = diffDelta(primary, baseline);
-          by_source[source.display_name] = { primary, baseline, delta };
-
-          // Aggregate
-          primaryAgg.tickets_moved += primary.tickets_moved;
-          primaryAgg.tickets_completed += primary.tickets_completed;
-          primaryAgg.tickets_regressed += primary.tickets_regressed;
-          primaryAgg.tickets_created += primary.tickets_created;
-          primaryAgg.prs_opened += primary.prs_opened;
-          primaryAgg.prs_merged += primary.prs_merged;
-          primaryAgg.prs_closed += primary.prs_closed;
-          primaryAgg.commits_default += primary.commits_default;
-          const repoSet = new Set([...primaryAgg.repos_touched, ...primary.repos_touched]);
-          primaryAgg.repos_touched = Array.from(repoSet);
-
-          baselineAgg.tickets_moved += baseline.tickets_moved;
-          baselineAgg.tickets_completed += baseline.tickets_completed;
-          baselineAgg.tickets_regressed += baseline.tickets_regressed;
-          baselineAgg.tickets_created += baseline.tickets_created;
-          baselineAgg.prs_opened += baseline.prs_opened;
-          baselineAgg.prs_merged += baseline.prs_merged;
-          baselineAgg.prs_closed += baseline.prs_closed;
-          baselineAgg.commits_default += baseline.commits_default;
-          const baseRepos = new Set([...baselineAgg.repos_touched, ...baseline.repos_touched]);
-          baselineAgg.repos_touched = Array.from(baseRepos);
-        }
       }
     } catch (err) {
       console.error('[diffs/compare] compute by-source error', err);

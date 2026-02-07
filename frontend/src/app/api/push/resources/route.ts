@@ -37,7 +37,14 @@ export async function GET(request: NextRequest) {
     const connection = connectionData as OAuthConnectionRow | null;
 
     if (!connection?.connection_id) {
-      return NextResponse.json({ error: `No active ${provider} connection found` }, { status: 404 });
+      return NextResponse.json(
+        {
+          success: false,
+          resources: [],
+          message: `No active ${provider} connection found`,
+        },
+        { status: 200 }
+      );
     }
 
     let resources;

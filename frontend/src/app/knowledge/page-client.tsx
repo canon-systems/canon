@@ -1106,9 +1106,9 @@ function DiffPrototypePanel() {
                         </div>
                         <p className="text-xs text-white/50 mt-1">{getCadenceLabel(sched.cadence)} · {sched.sourceIds.length} source{sched.sourceIds.length === 1 ? '' : 's'}</p>
                         <div className="flex flex-wrap gap-1 mt-1.5">
-                          {sched.communication.email && <Badge variant="outline" className="text-[10px] border-white/20 text-white/70">Email</Badge>}
-                          {sched.communication.kb && <Badge variant="outline" className="text-[10px] border-white/20 text-white/70">KB</Badge>}
-                          {sched.communication.slack && <Badge variant="outline" className="text-[10px] border-white/20 text-white/70">Slack</Badge>}
+                          {sched.communication.email && <Badge variant="outline" className="text-[10px] border-white/20 bg-white/10 text-white/70">Email</Badge>}
+                          {sched.communication.kb && <Badge variant="outline" className="text-[10px] border-white/20 bg-white/10 text-white/70">KB</Badge>}
+                          {sched.communication.slack && <Badge variant="outline" className="text-[10px] border-white/20 bg-white/10 text-white/70">Slack</Badge>}
                         </div>
                       </div>
                     ))}
@@ -1300,32 +1300,19 @@ function DiffPrototypePanel() {
                         {diffScheduleFormCommunication.kb && (
                           <div className="mt-3 space-y-2 rounded-md border border-white/10 bg-white/5 p-3">
                             <span className="text-xs text-white/60">KB target</span>
-                            <div className="flex gap-2">
-                              <Button
-                                type="button"
-                                variant={diffScheduleFormKbProvider === 'notion' ? 'secondary' : 'ghost'}
-                                size="sm"
-                                className={diffScheduleFormKbProvider === 'notion' ? 'border-white/30 bg-white/10 text-white' : 'text-white/70 hover:text-white'}
-                                onClick={() => {
-                                  setDiffScheduleFormKbProvider('notion');
-                                  loadDiffScheduleKbResources('notion');
-                                }}
-                              >
-                                Notion
-                              </Button>
-                              <Button
-                                type="button"
-                                variant={diffScheduleFormKbProvider === 'confluence' ? 'secondary' : 'ghost'}
-                                size="sm"
-                                className={diffScheduleFormKbProvider === 'confluence' ? 'border-white/30 bg-white/10 text-white' : 'text-white/70 hover:text-white'}
-                                onClick={() => {
-                                  setDiffScheduleFormKbProvider('confluence');
-                                  loadDiffScheduleKbResources('confluence');
-                                }}
-                              >
-                                Confluence
-                              </Button>
-                            </div>
+                            <select
+                              className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none"
+                              value={diffScheduleFormKbProvider}
+                              onChange={(e) => {
+                                const provider = e.target.value as '' | 'notion' | 'confluence';
+                                setDiffScheduleFormKbProvider(provider);
+                                if (provider) loadDiffScheduleKbResources(provider);
+                              }}
+                            >
+                              <option value="">Select provider</option>
+                              <option value="notion">Notion</option>
+                              <option value="confluence">Confluence</option>
+                            </select>
                             {diffScheduleFormKbProvider && (
                               <>
                                 <div>
@@ -1357,7 +1344,6 @@ function DiffPrototypePanel() {
                                 {diffScheduleFormKbProvider === 'confluence' && diffScheduleFormKbResourceId && (
                                   <div className="pt-2 border-t border-white/10">
                                     <label className="text-xs text-white/60 block mb-1">Folder (optional)</label>
-                                    <p className="text-xs text-white/50 mb-1">Export under a specific page in this space, or use the space root.</p>
                                     {diffScheduleFormConfluenceFoldersLoading ? (
                                       <span className="text-sm text-white/60">Loading pages…</span>
                                     ) : (
@@ -1482,7 +1468,7 @@ function DiffPrototypePanel() {
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="rounded-lg border border-white/10 bg-neutral-900/80 p-4">
                   <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-white">Jira Workspace Trail</h3>
+                    <h3 className="text-sm font-semibold text-white">Jira Workspace Trail</h3>
                     <span className="tab-label text-[11px] uppercase tracking-[0.2em] text-white">Tickets</span>
                   </div>
                   <div className="mt-3 space-y-4 text-xs text-white/75">
@@ -1506,12 +1492,12 @@ function DiffPrototypePanel() {
                         <p className="text-[11px] uppercase tracking-[0.2em] text-white/50">Completed</p>
                         <ul className="mt-2 space-y-2">
                           {(diffDetails.jira?.completed || []).slice(0, 5).map((item, idx) => (
-                          <li key={`jira-done-${idx}`} className="flex flex-col gap-1">
-                            <span className="text-white/90">{item.summary ?? 'Untitled'} ({item.issue_key ?? '—'})</span>
-                            <span className="text-white/60">{item.status ?? 'Done'}</span>
-                            <span className="text-white/40">{formatDateTimeUTC(item.occurred_at)}</span>
-                          </li>
-                        ))}
+                            <li key={`jira-done-${idx}`} className="flex flex-col gap-1">
+                              <span className="text-white/90">{item.summary ?? 'Untitled'} ({item.issue_key ?? '—'})</span>
+                              <span className="text-white/60">{item.status ?? 'Done'}</span>
+                              <span className="text-white/40">{formatDateTimeUTC(item.occurred_at)}</span>
+                            </li>
+                          ))}
                           {(!diffDetails.jira?.completed || diffDetails.jira.completed.length === 0) && (
                             <li className="text-white/40">No completions in window.</li>
                           )}
@@ -1521,12 +1507,12 @@ function DiffPrototypePanel() {
                         <p className="text-[11px] uppercase tracking-[0.2em] text-white/50">Regressed</p>
                         <ul className="mt-2 space-y-2">
                           {(diffDetails.jira?.regressed || []).slice(0, 5).map((item, idx) => (
-                          <li key={`jira-regressed-${idx}`} className="flex flex-col gap-1">
-                            <span className="text-white/90">{item.summary ?? 'Untitled'} ({item.issue_key ?? '—'})</span>
-                            <span className="text-white/60">{item.status ?? 'Backlog'}</span>
-                            <span className="text-white/40">{formatDateTimeUTC(item.occurred_at)}</span>
-                          </li>
-                        ))}
+                            <li key={`jira-regressed-${idx}`} className="flex flex-col gap-1">
+                              <span className="text-white/90">{item.summary ?? 'Untitled'} ({item.issue_key ?? '—'})</span>
+                              <span className="text-white/60">{item.status ?? 'Backlog'}</span>
+                              <span className="text-white/40">{formatDateTimeUTC(item.occurred_at)}</span>
+                            </li>
+                          ))}
                           {(!diffDetails.jira?.regressed || diffDetails.jira.regressed.length === 0) && (
                             <li className="text-white/40">No regressions in window.</li>
                           )}
@@ -1538,7 +1524,7 @@ function DiffPrototypePanel() {
 
                 <div className="rounded-lg border border-white/10 bg-neutral-900/80 p-4">
                   <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-white">GitHub Activity Stream</h3>
+                    <h3 className="text-sm font-semibold text-white">GitHub Activity Stream</h3>
                     <span className="tab-label text-[11px] uppercase tracking-[0.2em] text-white">Code</span>
                   </div>
                   <div className="mt-3 space-y-4 text-xs text-white/75">
@@ -1562,12 +1548,12 @@ function DiffPrototypePanel() {
                         <p className="text-[11px] uppercase tracking-[0.2em] text-white/50">PRs opened</p>
                         <ul className="mt-2 space-y-2">
                           {(diffDetails.github?.prs_opened || []).slice(0, 5).map((item, idx) => (
-                          <li key={`gh-pr-open-${idx}`} className="flex flex-col gap-1">
-                            <span className="font-mono text-white/90">#{item.number ?? '—'}</span>
-                            <span className="text-white/60">{item.repo ?? '—'}</span>
-                            <span className="text-white/40">{formatDateTimeUTC(item.occurred_at)}</span>
-                          </li>
-                        ))}
+                            <li key={`gh-pr-open-${idx}`} className="flex flex-col gap-1">
+                              <span className="font-mono text-white/90">#{item.number ?? '—'}</span>
+                              <span className="text-white/60">{item.repo ?? '—'}</span>
+                              <span className="text-white/40">{formatDateTimeUTC(item.occurred_at)}</span>
+                            </li>
+                          ))}
                           {(!diffDetails.github?.prs_opened || diffDetails.github.prs_opened.length === 0) && (
                             <li className="text-white/40">No PRs opened.</li>
                           )}
@@ -1577,12 +1563,12 @@ function DiffPrototypePanel() {
                         <p className="text-[11px] uppercase tracking-[0.2em] text-white/50">PRs merged</p>
                         <ul className="mt-2 space-y-2">
                           {(diffDetails.github?.prs_merged || []).slice(0, 5).map((item, idx) => (
-                          <li key={`gh-pr-merged-${idx}`} className="flex flex-col gap-1">
-                            <span className="font-mono text-white/90">#{item.number ?? '—'}</span>
-                            <span className="text-white/60">{item.repo ?? '—'}</span>
-                            <span className="text-white/40">{formatDateTimeUTC(item.occurred_at)}</span>
-                          </li>
-                        ))}
+                            <li key={`gh-pr-merged-${idx}`} className="flex flex-col gap-1">
+                              <span className="font-mono text-white/90">#{item.number ?? '—'}</span>
+                              <span className="text-white/60">{item.repo ?? '—'}</span>
+                              <span className="text-white/40">{formatDateTimeUTC(item.occurred_at)}</span>
+                            </li>
+                          ))}
                           {(!diffDetails.github?.prs_merged || diffDetails.github.prs_merged.length === 0) && (
                             <li className="text-white/40">No PRs merged.</li>
                           )}
@@ -2772,9 +2758,9 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                                 {sched.units.length > 0 && ` · ${sched.units.length} unit${sched.units.length === 1 ? '' : 's'}`}
                               </p>
                               <div className="flex flex-wrap gap-1 mt-1.5">
-                                {sched.communication.email && <Badge variant="outline" className="text-[10px] border-white/20 text-white/70">Email</Badge>}
-                                {sched.communication.kb && <Badge variant="outline" className="text-[10px] border-white/20 text-white/70">KB</Badge>}
-                                {sched.communication.slack && <Badge variant="outline" className="text-[10px] border-white/20 text-white/70">Slack</Badge>}
+                                {sched.communication.email && <Badge variant="outline" className="text-[10px] border-white/20 bg-white/10 text-white/70">Email</Badge>}
+                                {sched.communication.kb && <Badge variant="outline" className="text-[10px] border-white/20 bg-white/10 text-white/70">KB</Badge>}
+                                {sched.communication.slack && <Badge variant="outline" className="text-[10px] border-white/20 bg-white/10 text-white/70">Slack</Badge>}
                               </div>
                             </div>
                           ))}
@@ -3122,32 +3108,19 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                               {projectionScheduleFormCommunication.kb && (
                                 <div className="mt-3 space-y-2 rounded-md border border-white/10 bg-white/5 p-3">
                                   <span className="text-xs text-white/60">KB target</span>
-                                  <div className="flex gap-2">
-                                    <Button
-                                      type="button"
-                                      variant={projectionScheduleFormKbProvider === 'notion' ? 'secondary' : 'ghost'}
-                                      size="sm"
-                                      className={projectionScheduleFormKbProvider === 'notion' ? 'border-white/30 bg-white/10 text-white' : 'text-white/70 hover:text-white'}
-                                      onClick={() => {
-                                        setProjectionScheduleFormKbProvider('notion');
-                                        loadProjectionScheduleKbResources('notion');
-                                      }}
-                                    >
-                                      Notion
-                                    </Button>
-                                    <Button
-                                      type="button"
-                                      variant={projectionScheduleFormKbProvider === 'confluence' ? 'secondary' : 'ghost'}
-                                      size="sm"
-                                      className={projectionScheduleFormKbProvider === 'confluence' ? 'border-white/30 bg-white/10 text-white' : 'text-white/70 hover:text-white'}
-                                      onClick={() => {
-                                        setProjectionScheduleFormKbProvider('confluence');
-                                        loadProjectionScheduleKbResources('confluence');
-                                      }}
-                                    >
-                                      Confluence
-                                    </Button>
-                                  </div>
+                                  <select
+                                    className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none"
+                                    value={projectionScheduleFormKbProvider}
+                                    onChange={(e) => {
+                                      const provider = e.target.value as '' | 'notion' | 'confluence';
+                                      setProjectionScheduleFormKbProvider(provider);
+                                      if (provider) loadProjectionScheduleKbResources(provider);
+                                    }}
+                                  >
+                                    <option value="">Select provider</option>
+                                    <option value="notion">Notion</option>
+                                    <option value="confluence">Confluence</option>
+                                  </select>
                                   {projectionScheduleFormKbProvider && (
                                     <>
                                       <div>
@@ -3179,7 +3152,6 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                                       {projectionScheduleFormKbProvider === 'confluence' && projectionScheduleFormKbResourceId && (
                                         <div className="pt-2 border-t border-white/10">
                                           <label className="text-xs text-white/60 block mb-1">Folder (optional)</label>
-                                          <p className="text-xs text-white/50 mb-1">Export under a specific page in this space, or use the space root.</p>
                                           {projectionScheduleFormConfluenceFoldersLoading ? (
                                             <span className="text-sm text-white/60">Loading pages…</span>
                                           ) : (
@@ -3369,28 +3341,19 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
           <div className="grid gap-4 lg:grid-cols-[240px_1fr]">
             <div className="space-y-3 rounded-lg border border-white/10 bg-white/5 p-3">
               <p className="text-xs uppercase tracking-[0.2em] text-white/60">Provider</p>
-              <div className="grid gap-2">
-                <Button
-                  variant={pushProvider === 'notion' ? 'secondary' : 'outline'}
-                  className="justify-start border-white/20 bg-white/5 hover:bg-white/10"
-                  onClick={() => handleProviderSelect('notion')}
-                >
-                  <span className="flex items-center gap-2">
-                    <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                    Notion
-                  </span>
-                </Button>
-                <Button
-                  variant={pushProvider === 'confluence' ? 'secondary' : 'outline'}
-                  className="justify-start border-white/20 bg-white/5 hover:bg-white/10"
-                  onClick={() => handleProviderSelect('confluence')}
-                >
-                  <span className="flex items-center gap-2">
-                    <span className="h-2 w-2 rounded-full bg-sky-400" />
-                    Confluence
-                  </span>
-                </Button>
-              </div>
+              <select
+                className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none"
+                value={pushProvider ?? ''}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === 'notion' || v === 'confluence') handleProviderSelect(v);
+                  else setPushProvider(null);
+                }}
+              >
+                <option value="">Select provider</option>
+                <option value="notion">Notion</option>
+                <option value="confluence">Confluence</option>
+              </select>
 
               <div className="space-y-2 pt-2 text-sm text-white/70">
                 <div className="flex items-center justify-between">

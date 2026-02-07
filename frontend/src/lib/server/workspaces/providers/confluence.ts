@@ -8,6 +8,8 @@ import { getProviderAccessToken, withConfluenceAccessToken } from '@/lib/server/
 
 const CONFLUENCE_API_BASE = 'https://api.atlassian.com/ex/confluence';
 
+type SpaceRef = { id: string; key?: string | null };
+
 function convertHtmlToConfluenceStorage(html: string): string {
 	// Basic conversion - replace common HTML tags with Confluence storage format
 	return html
@@ -62,14 +64,21 @@ export class ConfluenceProvider implements WorkspaceProvider {
 			const storageValue = convertHtmlToConfluenceStorage(html);
 
 			if (_createNew) {
-				const spaceId = String(workspaceInfo.metadata?.spaceId || resourceId || '');
-				const spaceKey = workspaceInfo.metadata?.spaceKey ? String(workspaceInfo.metadata.spaceKey) : null;
+				const desiredSpaceId = workspaceInfo.metadata?.spaceId ? String(workspaceInfo.metadata.spaceId) : null;
+				const desiredSpaceKey = workspaceInfo.metadata?.spaceKey ? String(workspaceInfo.metadata.spaceKey) : null;
 				const parentId = workspaceInfo.metadata?.parentId ? String(workspaceInfo.metadata.parentId) : null;
 
-				if (!spaceId) {
-					console.error('Confluence push error: missing space id.');
+				const space = await resolveSpace(connectionId, cloudInfo.cloudId, {
+					spaceId: desiredSpaceId || resourceId || null,
+					spaceKey: desiredSpaceKey || (workspaceInfo.metadata?.spaceResourceId as string | null) || null,
+				});
+
+				if (!space) {
+					console.error('Confluence push error: unable to resolve space (provide spaceId or spaceKey).');
 					return null;
 				}
+				const spaceId = space.id;
+				const spaceKey = space.key ?? desiredSpaceKey;
 
 				// If a page with this title already exists in this space (and under this parent), update it instead of creating
 				let existingPageId = await findPageByTitle(
@@ -129,10 +138,17 @@ export class ConfluenceProvider implements WorkspaceProvider {
 					createPayload.parentId = parentId;
 				}
 
+				const createUrl = `${CONFLUENCE_API_BASE}/${cloudInfo.cloudId}/wiki/api/v2/pages`;
+				console.debug('[Confluence] create page', {
+					createUrl,
+					spaceId,
+					parentId,
+					title: content.title,
+				});
 				const createResponse = await withConfluenceAccessToken({
 					connectionId,
 					run: async (token) =>
-						fetch(`${CONFLUENCE_API_BASE}/${cloudInfo.cloudId}/wiki/api/v2/pages`, {
+						fetch(createUrl, {
 							method: 'POST',
 							headers: confluenceHeaders(token),
 							body: JSON.stringify(createPayload),
@@ -141,7 +157,12 @@ export class ConfluenceProvider implements WorkspaceProvider {
 
 				if (!createResponse.ok) {
 					const errorText = await createResponse.text().catch(() => '');
-					console.error(`Confluence create error: ${errorText}`);
+					console.error(`Confluence create error (${createResponse.status}): ${errorText}`, {
+						createUrl,
+						spaceId,
+						parentId,
+						title: content.title,
+					});
 					return null;
 				}
 
@@ -342,6 +363,12 @@ async function findPageByTitle(
 }
 
 async function resolveCloudInfo(accessToken: string, preferredCloudId?: string | null): Promise<{ cloudId: string; siteUrl?: string | null } | null> {
+	// If caller already gave us a cloudId, use it directly
+	if (preferredCloudId) {
+		return { cloudId: preferredCloudId, siteUrl: `${CONFLUENCE_API_BASE}/${preferredCloudId}` };
+	}
+
+	// Otherwise, discover accessible Confluence sites
 	const response = await fetch('https://api.atlassian.com/oauth/token/accessible-resources', {
 		headers: {
 			Authorization: `Bearer ${accessToken}`,
@@ -350,22 +377,57 @@ async function resolveCloudInfo(accessToken: string, preferredCloudId?: string |
 	});
 
 	if (!response.ok) {
-		return preferredCloudId ? { cloudId: preferredCloudId, siteUrl: null } : null;
+		return null;
 	}
 
 	const resources = await response.json().catch(() => []);
 	const list = Array.isArray(resources) ? resources : [];
-	const resource = preferredCloudId
-		? list.find((item) => item?.id === preferredCloudId)
-		: list[0];
+	const resource = list[0];
 	if (!resource?.id) {
-		return preferredCloudId ? { cloudId: preferredCloudId, siteUrl: null } : null;
+		return null;
 	}
 
 	return {
 		cloudId: resource.id,
-		siteUrl: resource.url || null,
+		siteUrl: resource.url || `${CONFLUENCE_API_BASE}/${resource.id}`,
 	};
+}
+
+async function resolveSpace(
+	connectionId: string,
+	cloudId: string,
+	desired: { spaceId?: string | null; spaceKey?: string | null }
+): Promise<SpaceRef | null> {
+	// 1) If spaceId already provided, trust it
+	if (desired.spaceId) return { id: desired.spaceId, key: desired.spaceKey ?? null };
+
+	// 2) If spaceKey provided, look it up
+	if (desired.spaceKey) {
+		const url = new URL(`${CONFLUENCE_API_BASE}/${cloudId}/wiki/api/v2/spaces`);
+		url.searchParams.set('keys', desired.spaceKey);
+		const resp = await withConfluenceAccessToken({
+			connectionId,
+			run: async (token) => fetch(url.toString(), { headers: confluenceHeaders(token) }),
+		});
+		if (resp.ok) {
+			const payload = await resp.json().catch(() => null);
+			const space = Array.isArray(payload?.results) && payload.results.length ? payload.results[0] : null;
+			if (space?.id) return { id: String(space.id), key: space.key ?? null };
+		}
+	}
+
+	// 3) Fallback: pick first accessible space
+	const url = new URL(`${CONFLUENCE_API_BASE}/${cloudId}/wiki/api/v2/spaces`);
+	url.searchParams.set('limit', '1');
+	const resp = await withConfluenceAccessToken({
+		connectionId,
+		run: async (token) => fetch(url.toString(), { headers: confluenceHeaders(token) }),
+	});
+	if (!resp.ok) return null;
+	const payload = await resp.json().catch(() => null);
+	const space = Array.isArray(payload?.results) && payload.results.length ? payload.results[0] : null;
+	if (space?.id) return { id: String(space.id), key: space.key ?? null };
+	return null;
 }
 
 async function updateConfluencePage(

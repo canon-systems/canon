@@ -182,7 +182,8 @@ async function getConfluencePages(params: {
     return [];
   }
 
-  const pages: WorkspaceResource[] = [];
+  type RawPage = { id?: string; title?: string; parentId?: string | null; _links?: { webui?: string } };
+  const pages: RawPage[] = [];
   let nextUrl: string | null = `https://api.atlassian.com/ex/confluence/${cloudId}/wiki/api/v2/pages?limit=200&space-id=${encodeURIComponent(spaceId)}`;
 
   while (nextUrl) {
@@ -204,20 +205,15 @@ async function getConfluencePages(params: {
 
     const payload = await response.json().catch(() => null);
     const results = Array.isArray(payload?.results) ? payload.results : [];
-
-    for (const page of results) {
-      if (!page?.id) continue;
-      pages.push({
-        id: `${cloudId}:${page.id}`,
-        type: 'page',
-        title: page.title || `Page ${page.id}`,
-        url: page?._links?.webui || page?.links?.webui || undefined,
-        metadata: {
-          cloudId,
-          spaceId,
-        },
-      });
-    }
+    type ConfluencePageResult = { id?: string; title?: string; parentId?: string | null; _links?: { webui?: string } };
+    pages.push(
+      ...(results as ConfluencePageResult[]).map((p) => ({
+        id: p?.id ? String(p.id) : undefined,
+        title: p?.title,
+        parentId: p?.parentId ?? null,
+        _links: p?._links,
+      }))
+    );
 
     const nextLink = payload?._links?.next || payload?.next;
     if (nextLink) {
@@ -229,7 +225,53 @@ async function getConfluencePages(params: {
     }
   }
 
-  return pages;
+  // Build hierarchical labels so users can pick any page as a folder (similar to Notion).
+  const pageMap = new Map<string, RawPage>();
+  pages.forEach((p) => {
+    if (p.id) pageMap.set(p.id, p);
+  });
+
+  const pathCache = new Map<string, string>();
+  const buildPath = (pageId: string): string => {
+    if (pathCache.has(pageId)) return pathCache.get(pageId)!;
+
+    const segments: string[] = [];
+    const visited = new Set<string>();
+    let currentId: string | undefined = pageId;
+
+    while (currentId && !visited.has(currentId)) {
+      visited.add(currentId);
+      const current = pageMap.get(currentId);
+      if (!current) break;
+      const label = current.title?.trim() || `Page ${currentId}`;
+      segments.push(label);
+      const parentId =
+        typeof current.parentId === 'string' && current.parentId.trim().length > 0
+          ? current.parentId
+          : undefined;
+      currentId = parentId;
+    }
+
+    const path = segments.reverse().join(' / ');
+    pathCache.set(pageId, path);
+    return path;
+  };
+
+  const resources: WorkspaceResource[] = pages
+    .filter((p) => p.id)
+    .map((p) => {
+      const pageId = String(p.id);
+      return {
+        id: `${cloudId}:${pageId}`,
+        type: 'page',
+        title: buildPath(pageId),
+        url: p._links?.webui,
+        metadata: { cloudId, spaceId, parentId: p.parentId ?? null },
+      };
+    })
+    .sort((a, b) => a.title.localeCompare(b.title));
+
+  return resources;
 }
 
 async function getCodaResources(connectionId: string): Promise<WorkspaceResource[]> {
