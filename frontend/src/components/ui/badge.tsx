@@ -10,6 +10,7 @@ const badgeVariants = cva(
         default: "bg-white/10 text-white border border-white/10",
         secondary: "bg-white text-black border border-black/10",
         outline: "bg-white text-black border border-black/20",
+        muted: "bg-gray-800 text-white border border-gray-700",
         success: "border-white/20 bg-white/10 text-white/80",
         warning: "border-white/20 bg-white/5 text-white/70",
         destructive: "border-white/25 bg-white/8 text-white/80",

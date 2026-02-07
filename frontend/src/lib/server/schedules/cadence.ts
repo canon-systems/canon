@@ -72,3 +72,17 @@ export function getWindowForCadence(cadence: string, now: Date = new Date()): { 
 
   return { start: toISO(start), end: toISO(end) };
 }
+
+/**
+ * Returns a primary window of the given length (in whole days) ending yesterday (UTC).
+ * Example: windowDays=1 on Feb 3 → Feb 2 00:00:00.000 → Feb 2 23:59:59.999.
+ */
+export function getWindowForDays(windowDays: number, now: Date = new Date()): { start: string; end: string } {
+  const days = Number.isFinite(windowDays) && windowDays > 0 ? Math.floor(windowDays) : 1;
+  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
+  end.setUTCDate(end.getUTCDate() - 1); // end yesterday
+  const start = new Date(end);
+  start.setUTCDate(start.getUTCDate() - (days - 1));
+  start.setUTCHours(0, 0, 0, 0);
+  return { start: toISO(start), end: toISO(end) };
+}

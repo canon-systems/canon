@@ -24,6 +24,144 @@ type RequestBody = DiffInput & {
   source_ids?: string[]; // workspace_sources.id — when set, use connected sources only
 };
 
+type DiffDetails = {
+  jira: {
+    moved: Array<{ issue_key: string | null; summary: string | null; from: string | null; to: string | null; occurred_at: string | null }>;
+    completed: Array<{ issue_key: string | null; summary: string | null; status: string | null; occurred_at: string | null }>;
+    regressed: Array<{ issue_key: string | null; summary: string | null; status: string | null; occurred_at: string | null }>;
+    created: Array<{ issue_key: string | null; summary: string | null; status: string | null; occurred_at: string | null }>;
+  };
+  github: {
+    commits: Array<{ sha: string | null; repo: string | null; occurred_at: string | null }>;
+    prs_opened: Array<{ number: string | null; repo: string | null; occurred_at: string | null }>;
+    prs_merged: Array<{ number: string | null; repo: string | null; occurred_at: string | null }>;
+    prs_closed: Array<{ number: string | null; repo: string | null; occurred_at: string | null }>;
+  };
+};
+
+type CanonicalEventRow = {
+  provider?: string | null;
+  event_kind?: string | null;
+  occurred_at?: string | null;
+  entity_id?: string | null;
+  repo_full_name?: string | null;
+  metadata?: Record<string, unknown> | null;
+};
+
+type JiraSummaryMap = Map<string, string>;
+
+const DETAIL_LIMIT = 12;
+
+function emptyDetails(): DiffDetails {
+  return {
+    jira: { moved: [], completed: [], regressed: [], created: [] },
+    github: { commits: [], prs_opened: [], prs_merged: [], prs_closed: [] },
+  };
+}
+
+function coerceString(value: unknown): string | null {
+  if (typeof value === 'string' && value.trim().length > 0) return value;
+  return null;
+}
+
+function buildDetails(rows: CanonicalEventRow[] | null | undefined, jiraSummaryMap?: JiraSummaryMap): DiffDetails {
+  const details = emptyDetails();
+  if (!rows || rows.length === 0) return details;
+
+  for (const row of rows) {
+    const provider = (row.provider || '').toLowerCase();
+    const kind = row.event_kind || '';
+    const occurred_at = row.occurred_at ?? null;
+    const entityId = row.entity_id ?? null;
+    const repo = row.repo_full_name ?? null;
+    const metadata = row.metadata || {};
+    const summary =
+      coerceString((metadata as Record<string, unknown>).summary) ||
+      coerceString((metadata as Record<string, unknown>).title) ||
+      coerceString((metadata as Record<string, unknown>).name) ||
+      coerceString((metadata as Record<string, unknown>).toString) ||
+      (entityId && jiraSummaryMap ? jiraSummaryMap.get(entityId) || null : null);
+
+    if (provider === 'jira') {
+      if (kind === 'ticket_moved' && details.jira.moved.length < DETAIL_LIMIT) {
+        details.jira.moved.push({
+          issue_key: entityId,
+          summary,
+          from: coerceString(metadata.from),
+          to: coerceString(metadata.to),
+          occurred_at,
+        });
+      } else if (kind === 'ticket_completed' && details.jira.completed.length < DETAIL_LIMIT) {
+        details.jira.completed.push({
+          issue_key: entityId,
+          summary,
+          status: coerceString(metadata.status),
+          occurred_at,
+        });
+      } else if (kind === 'ticket_regressed' && details.jira.regressed.length < DETAIL_LIMIT) {
+        details.jira.regressed.push({
+          issue_key: entityId,
+          summary,
+          status: coerceString(metadata.status),
+          occurred_at,
+        });
+      } else if (kind === 'ticket_created' && details.jira.created.length < DETAIL_LIMIT) {
+        details.jira.created.push({
+          issue_key: entityId,
+          summary,
+          status: coerceString(metadata.status),
+          occurred_at,
+        });
+      }
+      continue;
+    }
+
+    if (provider === 'github') {
+      if (kind === 'commit' && details.github.commits.length < DETAIL_LIMIT) {
+        details.github.commits.push({
+          sha: entityId,
+          repo,
+          occurred_at,
+        });
+      } else if (kind === 'pr_opened' && details.github.prs_opened.length < DETAIL_LIMIT) {
+        details.github.prs_opened.push({
+          number: entityId,
+          repo,
+          occurred_at,
+        });
+      } else if (kind === 'pr_merged' && details.github.prs_merged.length < DETAIL_LIMIT) {
+        details.github.prs_merged.push({
+          number: entityId,
+          repo,
+          occurred_at,
+        });
+      } else if (kind === 'pr_closed' && details.github.prs_closed.length < DETAIL_LIMIT) {
+        details.github.prs_closed.push({
+          number: entityId,
+          repo,
+          occurred_at,
+        });
+      }
+    }
+  }
+
+  return details;
+}
+
+function buildJiraSummaryMap(rows: Array<{ payload?: Record<string, unknown> | null }>): JiraSummaryMap {
+  const map: JiraSummaryMap = new Map();
+  for (const row of rows) {
+    const payload = row.payload || {};
+    const issue = (payload as { issue?: { key?: string; fields?: { summary?: unknown } } }).issue;
+    const key = typeof issue?.key === 'string' ? issue.key : null;
+    const summary = typeof issue?.fields?.summary === 'string' ? issue.fields.summary : null;
+    if (key && summary && !map.has(key)) {
+      map.set(key, summary);
+    }
+  }
+  return map;
+}
+
 function validateInput(body: Record<string, unknown> | null): { ok: boolean; value?: RequestBody; error?: string } {
   const { start_timestamp, end_timestamp, sources, scope, compare_start_timestamp, compare_end_timestamp, jira_project_key, github_repos, source_ids } = body || {};
   if (typeof start_timestamp !== 'string' || typeof end_timestamp !== 'string' || !start_timestamp || !end_timestamp) {
@@ -228,28 +366,6 @@ function resolveSourceIdsToTargets(
   return out;
 }
 
-async function computeCanonicalDiffForOneSource(params: {
-  source: DiffSourceInfo;
-  window: { start: string; end: string };
-  userId: string;
-}): Promise<CanonicalDiff> {
-  const { source, window, userId } = params;
-  const input: RequestBody = {
-    start_timestamp: window.start,
-    end_timestamp: window.end,
-    sources: [source.provider as 'jira' | 'github'],
-    scope: 'org',
-  };
-  if (source.provider === 'github') {
-    // display_name for github is "owner/repo"
-    input.github_repos = [source.display_name];
-  } else {
-    const projectKey = source.display_name.startsWith('jira/') ? source.display_name.slice(5) : source.display_name;
-    input.jira_project_key = projectKey;
-  }
-  return computeCanonicalDiff({ input, window, userId });
-}
-
 export async function POST(req: NextRequest) {
   const { user } = await getSession();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -298,9 +414,34 @@ export async function POST(req: NextRequest) {
     const by_source: Record<string, { primary: CanonicalDiff; baseline: CanonicalDiff; delta: DiffDelta }> = {};
     const primaryAgg: CanonicalDiff = emptyCanonicalDiff(primaryWindow);
     const baselineAgg: CanonicalDiff = emptyCanonicalDiff(baselineWindow);
+    let details: DiffDetails | null = null;
 
     try {
       const sourceIds = sources.map((s) => s.id);
+      const { data: detailRows } = await userSupabase
+        .from('diff_event_canonical')
+        .select('provider, event_kind, occurred_at, entity_id, repo_full_name, metadata')
+        .in('source_id', sourceIds)
+        .gte('occurred_at', primaryWindow.start)
+        .lte('occurred_at', primaryWindow.end)
+        .order('occurred_at', { ascending: false })
+        .limit(200);
+
+      let jiraSummaryMap: JiraSummaryMap | undefined;
+      if ((detailRows || []).some((row) => (row as CanonicalEventRow).provider === 'jira')) {
+        const { data: rawRows } = await userSupabase
+          .from('diff_event_raw')
+          .select('payload')
+          .in('source_id', sourceIds)
+          .eq('provider', 'jira')
+          .gte('event_time', primaryWindow.start)
+          .lte('event_time', primaryWindow.end)
+          .limit(400);
+        jiraSummaryMap = buildJiraSummaryMap((rawRows || []) as Array<{ payload?: Record<string, unknown> | null }>);
+      }
+
+      details = buildDetails(detailRows as CanonicalEventRow[], jiraSummaryMap);
+
       const primaryRollups = await computeCanonicalDiffFromRollups({
         supabase: userSupabase,
         sourceIds,
@@ -322,47 +463,6 @@ export async function POST(req: NextRequest) {
 
         Object.assign(primaryAgg, primaryRollups.agg);
         Object.assign(baselineAgg, baselineRollups.agg);
-      } else {
-        console.log('[diffs/compare] rollups empty, falling back to API diffs');
-        console.log('[diffs/compare] baselineWindow', baselineWindow.start, '→', baselineWindow.end);
-        for (const source of sources) {
-          const primary = await computeCanonicalDiffForOneSource({
-            source,
-            window: primaryWindow,
-            userId: user.id,
-          });
-          const baseline = await computeCanonicalDiffForOneSource({
-            source,
-            window: baselineWindow,
-            userId: user.id,
-          });
-          console.log('[diffs/compare] baseline', source.display_name, 'tickets_moved=', baseline.tickets_moved, 'prs_merged=', baseline.prs_merged, 'commits_default=', baseline.commits_default);
-          const delta = diffDelta(primary, baseline);
-          by_source[source.display_name] = { primary, baseline, delta };
-
-          // Aggregate
-          primaryAgg.tickets_moved += primary.tickets_moved;
-          primaryAgg.tickets_completed += primary.tickets_completed;
-          primaryAgg.tickets_regressed += primary.tickets_regressed;
-          primaryAgg.tickets_created += primary.tickets_created;
-          primaryAgg.prs_opened += primary.prs_opened;
-          primaryAgg.prs_merged += primary.prs_merged;
-          primaryAgg.prs_closed += primary.prs_closed;
-          primaryAgg.commits_default += primary.commits_default;
-          const repoSet = new Set([...primaryAgg.repos_touched, ...primary.repos_touched]);
-          primaryAgg.repos_touched = Array.from(repoSet);
-
-          baselineAgg.tickets_moved += baseline.tickets_moved;
-          baselineAgg.tickets_completed += baseline.tickets_completed;
-          baselineAgg.tickets_regressed += baseline.tickets_regressed;
-          baselineAgg.tickets_created += baseline.tickets_created;
-          baselineAgg.prs_opened += baseline.prs_opened;
-          baselineAgg.prs_merged += baseline.prs_merged;
-          baselineAgg.prs_closed += baseline.prs_closed;
-          baselineAgg.commits_default += baseline.commits_default;
-          const baseRepos = new Set([...baselineAgg.repos_touched, ...baseline.repos_touched]);
-          baselineAgg.repos_touched = Array.from(baseRepos);
-        }
       }
     } catch (err) {
       console.error('[diffs/compare] compute by-source error', err);
@@ -373,12 +473,13 @@ export async function POST(req: NextRequest) {
     }
 
     const delta = diffDelta(primaryAgg, baselineAgg);
-    const comparison: DiffComparisonWithSources = {
+    const comparison: DiffComparisonWithSources & { details?: DiffDetails | null } = {
       primary: primaryAgg,
       baseline: baselineAgg,
       delta,
       by_source,
       sources,
+      details,
       metadata: {
         source_ids: input.source_ids,
         baseline_strategy: input.compare_start_timestamp ? 'manual' : 'auto_previous_window',

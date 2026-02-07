@@ -12,6 +12,7 @@ type PushBody = {
   rootMetadata?: Record<string, unknown>;
   audiences?: string[];
   connectionId?: string | null;
+  existingRootResourceId?: string | null;
 };
 
 export async function POST(req: NextRequest) {
@@ -20,7 +21,7 @@ export async function POST(req: NextRequest) {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = (await req.json().catch(() => ({}))) as PushBody;
-    const { provider, rootResourceId, rootMetadata, audiences, connectionId } = body;
+    const { provider, rootResourceId, rootMetadata, audiences, connectionId, existingRootResourceId } = body;
 
     if (!provider || (provider !== 'notion' && provider !== 'confluence')) {
       return NextResponse.json({ error: 'provider must be notion or confluence' }, { status: 400 });
@@ -53,7 +54,7 @@ export async function POST(req: NextRequest) {
 
     console.log('[knowledge/push] planning', { akus: filteredAkus.length, provider, rootResourceId });
 
-    const { results } = await runKnowledgePush({
+    const { results, rootPageId } = await runKnowledgePush({
       supabase,
       userId: user.id,
       provider,
@@ -61,6 +62,7 @@ export async function POST(req: NextRequest) {
       rootResourceId,
       rootMetadata,
       connectionId,
+      existingRootResourceId,
     });
 
     console.log('[knowledge/push] completed', {
@@ -70,7 +72,7 @@ export async function POST(req: NextRequest) {
       failed: results.filter((r) => r.status === 'failed').length,
     });
 
-    return NextResponse.json({ success: true, results });
+    return NextResponse.json({ success: true, results, rootPageId });
   } catch (err: unknown) {
     console.error('knowledge/push error', err);
     return NextResponse.json(

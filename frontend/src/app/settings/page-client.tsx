@@ -10,6 +10,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { createClient } from '@/lib/supabase/client';
+import { DEFAULT_AUDIENCES } from '@/lib/constants/audiences';
 
 interface Connection {
   id: string;
@@ -47,7 +48,6 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   const [disconnectModalOpen, setDisconnectModalOpen] = useState(false);
   const [connectionToDisconnect, setConnectionToDisconnect] = useState<{ connectionId: string; provider: string } | null>(null);
   const [uninstallOnDisconnect, setUninstallOnDisconnect] = useState(false);
-  const DEFAULT_AUDIENCES = ['Executive', 'Sales', 'Marketing', 'Engineering', 'Support', 'Customer'];
   const [preferredAudiences, setPreferredAudiences] = useState<string[]>(() => {
     const meta = initialUser?.user_metadata?.preferred_audiences;
     if (Array.isArray(meta) && meta.length) return meta as string[];
@@ -354,7 +354,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                       return (
                         <Badge
                           key={aud}
-                          variant={active ? 'default' : 'outline'}
+                          variant={active ? 'outline' : 'muted'}
                           className="cursor-pointer transition-all hover:scale-105"
                           onClick={() => toggleAudience(aud)}
                           role="button"

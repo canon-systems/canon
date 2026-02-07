@@ -6,6 +6,7 @@
  */
 
 import { Octokit } from '@octokit/rest';
+import { parseGitHubRepoUrl } from '@/lib/utils/repoUrls';
 import type { RepoProvider } from './base';
 import type { RepoInfo, WebhookResult } from '../types';
 import { getGitHubAppOctokitForRepo } from '../../github/appAuth';
@@ -34,32 +35,9 @@ export class GitHubProvider implements RepoProvider {
     }
 
     parseRepoUrl(repoUrl: string): RepoInfo | null {
-        try {
-            const u = new URL(repoUrl);
-            if (u.hostname !== 'github.com' && !u.hostname.includes('github.com')) {
-                return null;
-            }
-
-            const parts = u.pathname.split('/').filter(Boolean);
-            if (parts.length < 2) return null;
-
-            const [owner, repo, maybeTree, maybeBranch, ...rest] = parts;
-
-            // Case 1: a /tree URL
-            if (maybeTree === 'tree' && maybeBranch) {
-                return {
-                    owner,
-                    repo,
-                    branch: maybeBranch,
-                    subdir: rest.length > 0 ? rest.join('/') : undefined
-                };
-            }
-
-            // Case 2: plain owner/repo URL
-            return { owner, repo };
-        } catch {
-            return null;
-        }
+        const parsed = parseGitHubRepoUrl(repoUrl);
+        if (!parsed) return null;
+        return parsed;
     }
 
     async getBranchCommitSha(repoInfo: RepoInfo, branch: string, connectionId?: string): Promise<string | null> {

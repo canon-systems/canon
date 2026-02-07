@@ -1,11 +1,11 @@
-import { computeBaselineWindow, diffDelta } from '@/lib/server/diff/contracts';
-import { runDiffForSources } from '@/lib/server/diff/runDiffForSources';
+import { computeBaselineWindow, diffDelta, emptyCanonicalDiff } from '@/lib/server/diff/contracts';
+import { runDiffForSourcesWithBreakdown, type DiffAggWithBreakdown } from '@/lib/server/diff/runDiffForSources';
 import { formatDateRange } from '@/lib/server/diff/renderers';
 import { buildAkusForSources } from '@/lib/server/services/akuBuilder';
 import { planKnowledgePush, createSinglePagePlan } from '@/lib/server/services/knowledgePushPlanner';
 import { runKnowledgePush } from '@/lib/server/services/knowledgePushRunner';
 import { trackAutomationRun } from '@/lib/server/services/usageTracking';
-import { getWindowForCadence } from './cadence';
+import { getWindowForCadence, getWindowForDays } from './cadence';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 export type ReportScheduleRow = {
@@ -34,6 +34,44 @@ export type ReportScheduleRow = {
   next_run_at?: string | null;
 };
 
+function buildPerSourceSection(
+  primary: DiffAggWithBreakdown,
+  baseline: DiffAggWithBreakdown,
+  formatMetric: (label: string, value: number, deltaValue: number) => string
+): string {
+  if (!primary.sources.length) return '';
+
+  const blocks: string[] = ['### By source'];
+
+  for (const source of primary.sources) {
+    const p = primary.bySource[source.id] || emptyCanonicalDiff(primary.aggregate.window);
+    const b = baseline.bySource[source.id] || emptyCanonicalDiff(baseline.aggregate.window);
+    const d = diffDelta(p, b);
+    const repoDelta = `- **Repos touched:** ${p.repos_touched.length} (Δ +${d.repos_added.length} / -${d.repos_removed.length})`;
+    const repoList = p.repos_touched.length ? `  - Repos: ${p.repos_touched.join(', ')}` : '';
+
+    blocks.push(
+      [
+        `#### ${source.display_name}`,
+        formatMetric('Tickets moved', p.tickets_moved, d.tickets_moved),
+        formatMetric('Tickets completed', p.tickets_completed, d.tickets_completed),
+        formatMetric('Tickets regressed', p.tickets_regressed, d.tickets_regressed),
+        formatMetric('Tickets created', p.tickets_created, d.tickets_created),
+        formatMetric('PRs merged', p.prs_merged, d.prs_merged),
+        formatMetric('PRs opened', p.prs_opened, d.prs_opened),
+        formatMetric('PRs closed', p.prs_closed, d.prs_closed),
+        formatMetric('Commits to default', p.commits_default, d.commits_default),
+        repoDelta,
+        repoList,
+      ]
+        .filter(Boolean)
+        .join('\n')
+    );
+  }
+
+  return blocks.join('\n\n');
+}
+
 /**
  * Run a single report schedule: execute diff or projection, then record the run.
  */
@@ -46,50 +84,70 @@ export async function runReportSchedule(
 
   try {
     if (schedule.type === 'diff') {
-      const primaryWindow = getWindowForCadence(schedule.cadence, now);
+      // Allow custom window length (in days) stored alongside communication config.
+      const comm = schedule.communication || {};
+      const rawWindowDays =
+        (typeof (comm as Record<string, unknown>).window === 'object' &&
+          (comm as { window?: { days?: unknown } }).window?.days != null &&
+          (comm as { window?: { days?: unknown } }).window?.days) ||
+        (comm as Record<string, unknown>).window_days;
+      const windowDays = Number(rawWindowDays);
+
+      const primaryWindow =
+        Number.isFinite(windowDays) && windowDays > 0
+          ? getWindowForDays(Math.floor(windowDays), now)
+          : getWindowForCadence(schedule.cadence, now);
       const baselineWindow = computeBaselineWindow(primaryWindow.start, primaryWindow.end);
       const sourceIds = Array.isArray(schedule.source_ids) ? schedule.source_ids : [];
 
-      const [primaryCanonical, baselineCanonical] = await Promise.all([
-        runDiffForSources(schedule.user_id, sourceIds, primaryWindow, supabase),
-        runDiffForSources(schedule.user_id, sourceIds, baselineWindow, supabase),
+      const [primaryResult, baselineResult] = await Promise.all([
+        runDiffForSourcesWithBreakdown(schedule.user_id, sourceIds, primaryWindow, supabase),
+        runDiffForSourcesWithBreakdown(schedule.user_id, sourceIds, baselineWindow, supabase),
       ]);
+      const primaryCanonical = primaryResult.aggregate;
+      const baselineCanonical = baselineResult.aggregate;
       const delta = diffDelta(primaryCanonical, baselineCanonical);
 
       // KB delivery for diff: push report to Notion/Confluence if configured (same layout as Knowledge page)
-      const comm = schedule.communication || {};
       const kbEnabled = comm.kb === true;
       const kbProvider = comm.kb_provider === 'notion' || comm.kb_provider === 'confluence' ? comm.kb_provider : null;
       const kbResourceId = typeof comm.kb_resource_id === 'string' ? comm.kb_resource_id : null;
       if (kbEnabled && kbProvider && kbResourceId) {
         try {
           const title = schedule.name || 'Diff Report';
-          const formatDelta = (n: number) => (n >= 0 ? `+${n}` : String(n));
+          const formatDelta = (n: number) => (n === 0 ? '0' : n > 0 ? `+${n}` : `${n}`);
+          const formatMetric = (label: string, value: number, deltaValue: number) =>
+            `- **${label}:** ${value} (Δ ${formatDelta(deltaValue)})`;
+
+          const perSourceLines = buildPerSourceSection(primaryResult, baselineResult, formatMetric);
+
           const lines = [
             '## High-level metrics (all sources)',
             '',
             `**Primary:** ${formatDateRange(primaryWindow.start, primaryWindow.end)}`,
             `**Baseline:** ${formatDateRange(baselineWindow.start, baselineWindow.end)}`,
             '',
-            '| Metric | Value | Delta |',
-            '| --- | ---: | ---: |',
-            `| Tickets moved | ${primaryCanonical.tickets_moved} | ${formatDelta(delta.tickets_moved)} |`,
-            `| Tickets completed | ${primaryCanonical.tickets_completed} | ${formatDelta(delta.tickets_completed)} |`,
-            `| Tickets regressed | ${primaryCanonical.tickets_regressed} | ${formatDelta(delta.tickets_regressed)} |`,
-            `| Tickets created | ${primaryCanonical.tickets_created} | ${formatDelta(delta.tickets_created)} |`,
-            `| PRs merged | ${primaryCanonical.prs_merged} | ${formatDelta(delta.prs_merged)} |`,
-            `| PRs opened | ${primaryCanonical.prs_opened} | ${formatDelta(delta.prs_opened)} |`,
-            `| PRs closed | ${primaryCanonical.prs_closed} | ${formatDelta(delta.prs_closed)} |`,
-            `| Commits to default | ${primaryCanonical.commits_default} | ${formatDelta(delta.commits_default)} |`,
-            `| Repos touched | ${primaryCanonical.repos_touched?.length ?? 0} | +${delta.repos_added?.length ?? 0} / -${delta.repos_removed?.length ?? 0} |`,
+            '### Metrics',
+            formatMetric('Tickets moved', primaryCanonical.tickets_moved, delta.tickets_moved),
+            formatMetric('Tickets completed', primaryCanonical.tickets_completed, delta.tickets_completed),
+            formatMetric('Tickets regressed', primaryCanonical.tickets_regressed, delta.tickets_regressed),
+            formatMetric('Tickets created', primaryCanonical.tickets_created, delta.tickets_created),
+            formatMetric('PRs merged', primaryCanonical.prs_merged, delta.prs_merged),
+            formatMetric('PRs opened', primaryCanonical.prs_opened, delta.prs_opened),
+            formatMetric('PRs closed', primaryCanonical.prs_closed, delta.prs_closed),
+            formatMetric('Commits to default', primaryCanonical.commits_default, delta.commits_default),
+            `- **Repos touched:** ${primaryCanonical.repos_touched?.length ?? 0} (Δ +${delta.repos_added?.length ?? 0} / -${delta.repos_removed?.length ?? 0})`,
             '',
-            primaryCanonical.repos_touched?.length
-              ? `**Repos:** ${primaryCanonical.repos_touched.join(', ')}`
-              : '',
+            primaryCanonical.repos_touched?.length ? `**Repos:** ${primaryCanonical.repos_touched.join(', ')}` : '',
+            '',
+            perSourceLines,
           ].filter(Boolean);
           const diffMarkdown = lines.join('\n');
           const plan = createSinglePagePlan(title, diffMarkdown);
-          await runKnowledgePush({
+          const existingRootResourceId =
+            comm && typeof comm.kb_page_id === 'string' && comm.kb_page_id.trim().length ? comm.kb_page_id : null;
+
+          const { rootPageId } = await runKnowledgePush({
             supabase,
             userId: schedule.user_id,
             provider: kbProvider,
@@ -97,7 +155,17 @@ export async function runReportSchedule(
             rootResourceId: kbResourceId,
             rootMetadata: (comm.kb_root_metadata as Record<string, unknown>) || undefined,
             connectionId: (comm.kb_connection_id as string | null) || null,
+            existingRootResourceId,
           });
+
+          if (rootPageId && rootPageId !== existingRootResourceId) {
+            const nextComm = { ...comm, kb_page_id: rootPageId };
+            await supabase
+              .from('report_schedules')
+              .update({ communication: nextComm, updated_at: new Date().toISOString() })
+              .eq('id', schedule.id)
+              .eq('user_id', schedule.user_id);
+          }
         } catch (kbErr) {
           const kbMessage = kbErr instanceof Error ? kbErr.message : String(kbErr);
           console.error('[runReportSchedule] diff KB push failed', kbErr);
@@ -243,7 +311,10 @@ export async function runReportSchedule(
           systemTitle: schedule.name || 'Knowledge',
           canonBaseUrl: process.env.NEXT_PUBLIC_APP_URL,
         });
-        await runKnowledgePush({
+        const existingRootResourceId =
+          comm && typeof comm.kb_page_id === 'string' && comm.kb_page_id.trim().length ? comm.kb_page_id : null;
+
+        const { rootPageId } = await runKnowledgePush({
           supabase,
           userId: schedule.user_id,
           provider: kbProvider,
@@ -251,7 +322,17 @@ export async function runReportSchedule(
           rootResourceId: kbResourceId,
           rootMetadata: (comm.kb_root_metadata as Record<string, unknown>) || undefined,
           connectionId: (comm.kb_connection_id as string | null) || null,
+          existingRootResourceId,
         });
+
+        if (rootPageId && rootPageId !== existingRootResourceId) {
+          const nextComm = { ...comm, kb_page_id: rootPageId };
+          await supabase
+            .from('report_schedules')
+            .update({ communication: nextComm, updated_at: new Date().toISOString() })
+            .eq('id', schedule.id)
+            .eq('user_id', schedule.user_id);
+        }
       } catch (kbErr) {
         const kbMessage = kbErr instanceof Error ? kbErr.message : String(kbErr);
         console.error('[runReportSchedule] KB push failed', kbErr);

@@ -14,6 +14,8 @@ type PushParams = {
   rootResourceId: string; // Notion: parent page/database. Confluence: cloudId:spaceId
   rootMetadata?: Record<string, unknown>; // e.g., { spaceId, spaceKey, cloudId, type }
   connectionId?: string | null; // optional override
+  /** Existing root page resource ID to update instead of creating a new one (e.g., diff single-page report) */
+  existingRootResourceId?: string | null;
 };
 
 type PageResult = {
@@ -94,21 +96,68 @@ function buildWorkspaceInfo(
   // confluence
   if (provider === 'confluence') {
     if (createNew) {
-      const { cloudId, id } = parseConfluenceResourceId(parentResourceId);
-      if (!cloudId || !id) return null;
-      // When root page was deleted, create at space root (parentId omitted); need spaceId from metadata
-      const spaceId = createAtSpaceRoot
-        ? (rootMetadata?.spaceId as string)
-        : ((rootMetadata?.spaceId as string) || id);
-      if (!spaceId) return null;
-      const parentPageId = createAtSpaceRoot ? undefined : (id || undefined);
+      // For Confluence we require cloudId and spaceId. parentResourceId is:
+      // - System page: typically a space id (or cloudId:spaceId). We create at space root.
+      // - Child pages: parentResourceId should be the system page id (cloudId:pageId).
+      const parsedParent = parseConfluenceResourceId(parentResourceId);
+      // Handle configs that pass only the cloudId as kb_resource_id (no colon)
+      const cloudIdCandidate =
+        (rootMetadata?.cloudId as string) ||
+        parsedParent.cloudId ||
+        (parsedParent.id && pageType === 'system' ? parsedParent.id : null);
+      const cloudId = cloudIdCandidate || null;
+
+      const spaceId =
+        pageType === 'system'
+          ? (rootMetadata?.spaceId as string) ||
+            (rootMetadata?.spaceResourceId as string) ||
+            parsedParent.id ||
+            parentResourceId
+          : (rootMetadata?.spaceId as string) || (rootMetadata?.spaceResourceId as string);
+
+      const parentPageId =
+        pageType === 'system'
+          ? undefined
+          : parsedParent.id || (rootMetadata?.parentId as string | undefined);
+
+      console.debug('[KB Push][confluence] buildWorkspaceInfo', {
+        createNew,
+        pageType,
+        parentResourceId,
+        parsedParent,
+        cloudId,
+        spaceId,
+        parentPageId,
+        createAtSpaceRoot,
+      });
+
+      if (!cloudId) {
+        console.error('[KB Push] Confluence create: missing cloudId (set communication.kb_root_metadata.cloudId)');
+        return null;
+      }
+      // Common misconfig: kb_resource_id set to cloudId only; spaceId ends up identical to cloudId and Confluence returns 404.
+      const normalizedSpaceId =
+        spaceId ||
+        (rootMetadata?.spaceId as string) ||
+        (rootMetadata?.spaceResourceId as string) ||
+        (rootMetadata?.spaceKey as string) ||
+        null;
+
+      if (!normalizedSpaceId) {
+        console.error(
+          '[KB Push] Confluence create: missing spaceId (set communication.kb_root_metadata.spaceId or pass cloudId:spaceId as kb_resource_id)'
+        );
+        return null;
+      }
+
       return {
         provider,
-        resourceId: `${cloudId}:${spaceId}`,
+        resourceId: `${cloudId}:${normalizedSpaceId}`, // for create we address the space; parent handled via metadata.parentId
         metadata: {
           ...rootMetadata,
-          spaceId,
-          parentId: parentPageId,
+          cloudId,
+          spaceId: normalizedSpaceId,
+          parentId: pageType === 'system' ? undefined : parentPageId,
         },
       };
     }
@@ -128,7 +177,7 @@ async function upsertKnowledgePush(
   parentResourceId: string,
   contentHash: string
 ) {
-  // We only persist AKU and audience pages; system is an immutable root and has no aku_id/audience
+  // System pages are tracked via existingRootResourceId; skip DB upsert to avoid FK constraints on aku_id
   if (page.type === 'system') return;
   if (!page.akuId) {
     console.warn('[KB Push] missing aku_id, skipping persistence', { page });
@@ -161,8 +210,17 @@ async function upsertKnowledgePush(
   }
 }
 
-export async function runKnowledgePush(params: PushParams): Promise<{ results: PageResult[] }> {
-  const { supabase, userId, provider, plan, rootResourceId, rootMetadata, connectionId: desiredConnectionId } = params;
+export async function runKnowledgePush(params: PushParams): Promise<{ results: PageResult[]; rootPageId: string | null }> {
+  const {
+    supabase,
+    userId,
+    provider,
+    plan,
+    rootResourceId,
+    rootMetadata,
+    connectionId: desiredConnectionId,
+    existingRootResourceId,
+  } = params;
   const providerImpl = getWorkspaceProvider(provider);
   if (!providerImpl) throw new Error(`Unsupported provider ${provider}`);
 
@@ -186,9 +244,21 @@ export async function runKnowledgePush(params: PushParams): Promise<{ results: P
     const key = `${row.entity_type}:${row.aku_id || 'root'}:${row.audience || ''}`;
     existingMap.set(key, row);
   });
+  if (existingRootResourceId) {
+    existingMap.set('system:root:', {
+      entity_type: 'system',
+      aku_id: 'root',
+      audience: '',
+      resource_id: existingRootResourceId,
+      parent_resource_id: rootResourceId,
+      content_hash: null,
+      title: null,
+    });
+  }
 
   const results: PageResult[] = [];
   const producedResourceIds = new Map<string, string>(); // page.key -> resourceId
+  let rootPageId: string | null = existingRootResourceId || null;
   const parentLookup = (page: PlannedPage): string | null => {
     if (page.parentKey === null) return rootResourceId;
     return producedResourceIds.get(page.parentKey) ?? null;
@@ -239,7 +309,7 @@ export async function runKnowledgePush(params: PushParams): Promise<{ results: P
       }
     }
 
-    const createNew = !prior?.resource_id || forceCreate;
+    let createNew = !prior?.resource_id || forceCreate;
     // When creating the system page under Confluence, if the selected root page was deleted, create at space root instead
     let createAtSpaceRoot = false;
     if (
@@ -259,6 +329,20 @@ export async function runKnowledgePush(params: PushParams): Promise<{ results: P
         console.log(`[KB Push] root page no longer exists, creating System Knowledge at space root`);
       }
     }
+    // If we plan to update an existing page, verify it still exists; otherwise fall back to create.
+    if (!createNew && typeof providerImpl.resourceExists === 'function') {
+      const existsInfo: WorkspaceInfo = {
+        provider,
+        resourceId: prior?.resource_id || '',
+        metadata: rootMetadata,
+      };
+      const exists = await providerImpl.resourceExists(existsInfo, connectionId);
+      if (!exists) {
+        createNew = true;
+        console.log(`[KB Push] target missing, will recreate`, { key: page.key, title: page.title });
+      }
+    }
+
     const workspaceInfo = buildWorkspaceInfo(
       provider,
       createNew,
@@ -288,6 +372,9 @@ export async function runKnowledgePush(params: PushParams): Promise<{ results: P
     }
 
     producedResourceIds.set(page.key, pushed.resourceId);
+    if (page.parentKey === null) {
+      rootPageId = pushed.resourceId;
+    }
     if (page.type !== 'system') {
       await upsertKnowledgePush(supabase, userId, provider, page, pushed.resourceId, parentResourceId, page.hash);
     }
@@ -308,5 +395,5 @@ export async function runKnowledgePush(params: PushParams): Promise<{ results: P
     });
   }
 
-  return { results };
+  return { results, rootPageId };
 }

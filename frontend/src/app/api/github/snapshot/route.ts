@@ -2,19 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getUserOctokit } from '@/lib/server/github/getUserOctokit';
 import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
-
-function parseRepoUrl(repoUrl: string): { owner: string; repo: string } | null {
-  try {
-    const noProto = repoUrl.replace(/^https?:\/\//, '');
-    const parts = noProto.split('/').filter(Boolean);
-    const owner = parts[1];
-    const repo = parts[2]?.replace(/\.git$/, '');
-    if (!owner || !repo) return null;
-    return { owner, repo };
-  } catch {
-    return null;
-  }
-}
+import { parseGitHubRepoUrl } from '@/lib/utils/repoUrls';
 
 export async function POST(request: NextRequest) {
   try {
@@ -29,7 +17,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'selectedFiles array is required' }, { status: 400 });
     }
 
-    const parsed = parseRepoUrl(repoUrl);
+    const parsed = parseGitHubRepoUrl(repoUrl);
     if (!parsed || !parsed.owner || !parsed.repo) {
       return NextResponse.json({ error: 'Invalid GitHub URL' }, { status: 400 });
     }

@@ -5,12 +5,37 @@ import { FileSummaryManager } from './fileSummaryManager';
 import { parseRepoUrl } from '../github/github';
 import { getProviderAccessToken } from '../oauth/tokenStore';
 import { buildAkusForSources } from './akuBuilder';
+import { DEFAULT_AUDIENCES, type Audience } from '@/lib/constants/audiences';
 
 function fileContentHash(content: string): string {
   return createHash('sha256').update(content).digest('hex');
 }
 
-const DEFAULT_AUDIENCES = ['Executive', 'Sales', 'Marketing', 'Engineering', 'Support', 'Customer'];
+async function resolvePreferredAudiences(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<string[]> {
+  try {
+    const admin = (supabase as unknown as { auth?: { admin?: { getUserById: (id: string) => Promise<{ data?: { user?: { user_metadata?: Record<string, unknown> } } }>; } } }).auth?.admin;
+    if (admin?.getUserById) {
+      const { data } = await admin.getUserById(userId);
+      const meta = data?.user?.user_metadata as Record<string, unknown> | undefined;
+      const preferred = Array.isArray(meta?.preferred_audiences)
+        ? meta?.preferred_audiences
+        : (typeof meta?.preferred_audience === 'string' ? [meta.preferred_audience] : []);
+      const cleaned = Array.from(new Set(
+        (preferred || []).filter((aud): aud is string => typeof aud === 'string' && aud.trim().length > 0)
+      ));
+      const filtered = cleaned.filter((aud): aud is Audience =>
+        (DEFAULT_AUDIENCES as readonly string[]).includes(aud)
+      );
+      if (filtered.length > 0) return filtered;
+    }
+  } catch (err) {
+    console.warn('[sourceIngest] Failed to load preferred audiences; falling back to defaults', err);
+  }
+  return [...DEFAULT_AUDIENCES];
+}
 
 export type IngestOptions = { mode?: 'single' | 'multi'; createdSourceIds?: string[] };
 export type SourceSetupStage =
@@ -135,6 +160,7 @@ export async function ingestGitHubSource(
 
   try {
     console.log(`Source ingest: GitHub start for ${repo}@${branch}`, { sourceId: source.id });
+    const preferredAudiences = await resolvePreferredAudiences(supabase, source.user_id);
     await updateStage(supabase, source.id, 'fetching', 10, 'Fetching repository');
     if (await abortIfDeleted(supabase, source, 'fetching')) return;
 
@@ -167,8 +193,8 @@ export async function ingestGitHubSource(
     await updateStage(supabase, source.id, 'building_akus', 85, 'Building knowledge outputs');
     if (await abortIfDeleted(supabase, source, 'building_akus')) return;
     if (options?.mode === 'single') {
-      console.log('Source ingest: building per-source AKUs for GitHub source', { audiences: DEFAULT_AUDIENCES });
-      await buildAkusForSources(supabase, source.user_id, [source.id], DEFAULT_AUDIENCES, {
+      console.log('Source ingest: building per-source AKUs for GitHub source', { audiences: preferredAudiences });
+      await buildAkusForSources(supabase, source.user_id, [source.id], preferredAudiences, {
         perSource: true,
         extractionTargets: [{ sourceId: source.id, repoUrl, branch, fallbackName: source.id }],
         shouldAbort: () => sourceStillExists(supabase, source.id, source.user_id).then((exists) => !exists),
@@ -181,8 +207,8 @@ export async function ingestGitHubSource(
       } else {
         sourceIds = await getAllUserSourceIds(supabase, source.user_id);
       }
-      console.log('Source ingest: building merged AKUs for selected sources', { sourceCount: sourceIds.length, audiences: DEFAULT_AUDIENCES });
-      await buildAkusForSources(supabase, source.user_id, sourceIds, DEFAULT_AUDIENCES, {
+      console.log('Source ingest: building merged AKUs for selected sources', { sourceCount: sourceIds.length, audiences: preferredAudiences });
+      await buildAkusForSources(supabase, source.user_id, sourceIds, preferredAudiences, {
         extractionTargets: [{ sourceId: source.id, repoUrl, branch, fallbackName: source.id }],
         shouldAbort: () => sourceStillExists(supabase, source.id, source.user_id).then((exists) => !exists),
       });
@@ -210,6 +236,7 @@ export async function ingestIssueSource(
 
   try {
     console.log(`Source ingest: Issue provider start (${provider})`, { scope: source.scope });
+    const preferredAudiences = await resolvePreferredAudiences(supabase, source.user_id);
     await updateStage(supabase, source.id, 'fetching', 10, 'Fetching source data');
     if (await abortIfDeleted(supabase, source, 'fetching')) return;
 
@@ -373,8 +400,8 @@ export async function ingestIssueSource(
     await updateStage(supabase, source.id, 'building_akus', 85, 'Building knowledge outputs');
     if (await abortIfDeleted(supabase, source, 'building_akus')) return;
     if (options?.mode === 'single') {
-      console.log('Source ingest: building per-source AKUs from issues', { issues: rows.length, audiences: DEFAULT_AUDIENCES });
-      await buildAkusForSources(supabase, source.user_id, [source.id], DEFAULT_AUDIENCES, {
+      console.log('Source ingest: building per-source AKUs from issues', { issues: rows.length, audiences: preferredAudiences });
+      await buildAkusForSources(supabase, source.user_id, [source.id], preferredAudiences, {
         perSource: true,
         shouldAbort: () => sourceStillExists(supabase, source.id, source.user_id).then((exists) => !exists),
       });
@@ -386,8 +413,8 @@ export async function ingestIssueSource(
       } else {
         sourceIds = await getAllUserSourceIds(supabase, source.user_id);
       }
-      console.log('Source ingest: building merged AKUs for selected sources', { sourceCount: sourceIds.length, audiences: DEFAULT_AUDIENCES });
-      await buildAkusForSources(supabase, source.user_id, sourceIds, DEFAULT_AUDIENCES, {
+      console.log('Source ingest: building merged AKUs for selected sources', { sourceCount: sourceIds.length, audiences: preferredAudiences });
+      await buildAkusForSources(supabase, source.user_id, sourceIds, preferredAudiences, {
         shouldAbort: () => sourceStillExists(supabase, source.id, source.user_id).then((exists) => !exists),
       });
     }
@@ -441,6 +468,7 @@ export async function syncGitHubSourceDelta(
 
   try {
     const repoUrl = repo.startsWith('http') ? repo : `https://github.com/${repo}`;
+    const preferredAudiences = await resolvePreferredAudiences(supabase, source.user_id);
     const analysis = await analyzeRepository({
       supabase,
       userId: source.user_id,
@@ -494,7 +522,7 @@ export async function syncGitHubSourceDelta(
     if (anyChange) {
       const allSourceIds = await getAllUserSourceIds(supabase, source.user_id);
       console.log(`[knowledge-sync] Rebuilding merged AKUs for all user sources (files changed), source: ${scopeLabel}, sourceCount: ${allSourceIds.length}`);
-      await buildAkusForSources(supabase, source.user_id, allSourceIds, DEFAULT_AUDIENCES);
+      await buildAkusForSources(supabase, source.user_id, allSourceIds, preferredAudiences);
       return { added, removed, rebuilt: true, addedPaths, removedPaths };
     }
     return { added, removed, rebuilt: false, addedPaths, removedPaths };
@@ -541,6 +569,7 @@ export async function syncIssueSourceDelta(
     console.warn('[knowledge-sync] Issue source skipped: no OAuth connection', { provider, project: projectKey });
     return empty;
   }
+  const preferredAudiences = await resolvePreferredAudiences(supabase, source.user_id);
 
   const accessToken = await getProviderAccessToken({
     provider: provider === 'jira' ? 'confluence' : provider,
@@ -626,7 +655,7 @@ export async function syncIssueSourceDelta(
   if (anyChange) {
     const allSourceIds = await getAllUserSourceIds(supabase, source.user_id);
     console.log(`[knowledge-sync] Rebuilding merged AKUs for all user sources (issues changed), sourceCount: ${allSourceIds.length}`);
-    await buildAkusForSources(supabase, source.user_id, allSourceIds, DEFAULT_AUDIENCES);
+    await buildAkusForSources(supabase, source.user_id, allSourceIds, preferredAudiences);
     return { added, removed, rebuilt: true, addedKeys, removedKeys };
   }
   return { added, removed, rebuilt: false, addedKeys, removedKeys };

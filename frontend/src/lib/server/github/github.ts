@@ -21,6 +21,8 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
+import { parseGitHubRepoUrl } from '@/lib/utils/repoUrls';
+
 // OPTIONAL: GitHub token to raise rate limits / avoid certain org restrictions.
 //  - The code works without a token for public repos (under anonymous limits).
 const GH_TOKEN = process.env.GITHUB_TOKEN || "";
@@ -35,37 +37,7 @@ const GH_TOKEN = process.env.GITHUB_TOKEN || "";
  *     { owner, repo, branch?: string, subdir?: string }
  * - If the URL is invalid or not github.com → returns null.
  */
-export function parseRepoUrl(
-    input: string
-): { owner: string; repo: string; branch?: string; subdir?: string } | null {
-    try {
-        const u = new URL(input);
-        if (u.hostname !== "github.com") return null;
-
-        // Example path pieces:
-        //   /John-Sellers/documentation-generator/tree/master/backend
-        // → ["John-Sellers","documentation-generator","tree","master","backend"]
-        const parts = u.pathname.split("/").filter(Boolean);
-        if (parts.length < 2) return null;
-
-        const [owner, repo, maybeTree, maybeBranch, ...rest] = parts;
-
-        // Case 1: a /tree URL
-        if (maybeTree === "tree" && maybeBranch) {
-            return {
-                owner,
-                repo,
-                branch: maybeBranch,                 // e.g., "master"
-                subdir: rest.length > 0 ? rest.join("/") : undefined // e.g., "backend"
-            };
-        }
-
-        // Case 2: plain owner/repo URL
-        return { owner, repo };
-    } catch {
-        return null;
-    }
-}
+export const parseRepoUrl = parseGitHubRepoUrl;
 
 /**
  * Small helper to GET JSON from GitHub with correct headers.

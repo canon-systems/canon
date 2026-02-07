@@ -130,7 +130,7 @@ export const SidebarGroupLabel = React.forwardRef<HTMLParagraphElement, React.HT
     return (
       <p
         ref={ref}
-        className={cn('text-xs uppercase tracking-[0.2em] text-white/50', className)}
+        className={cn('text-xs text-white/60 block mb-1', className)}
         {...props}
       />
     );
