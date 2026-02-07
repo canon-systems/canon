@@ -325,6 +325,16 @@ export function extractJiraCanonicalEvents(
   const issue = payload.issue as { key?: string; fields?: Record<string, unknown> } | undefined;
   const issueKey = issue?.key || null;
   const fields = issue?.fields || {};
+  const changelog = payload.changelog as { created?: string; items?: Array<Record<string, unknown>> } | undefined;
+  const items = Array.isArray(changelog?.items) ? changelog?.items : [];
+  const summaryFromFields = typeof fields.summary === 'string' ? fields.summary : null;
+  const summaryFromChangelog = items.find((item) => item?.field === 'summary')?.toString;
+  const summary =
+    typeof summaryFromFields === 'string'
+      ? summaryFromFields
+      : typeof summaryFromChangelog === 'string'
+        ? summaryFromChangelog
+        : null;
   const updatedAt = typeof fields.updated === 'string' ? fields.updated : null;
   const status = fields.status as { name?: string; statusCategory?: { name?: string } } | undefined;
   const statusCategory = status?.statusCategory?.name || null;
@@ -334,12 +344,10 @@ export function extractJiraCanonicalEvents(
       event_kind: 'ticket_created',
       occurred_at: typeof fields.created === 'string' ? fields.created : new Date().toISOString(),
       entity_id: issueKey,
-      metadata: { status: status?.name || null },
+      metadata: { status: status?.name || null, summary },
     });
   }
 
-  const changelog = payload.changelog as { created?: string; items?: Array<Record<string, unknown>> } | undefined;
-  const items = Array.isArray(changelog?.items) ? changelog?.items : [];
   const statusItems = items.filter((item) => item?.field === 'status');
   const changeTime = changelog?.created || updatedAt || new Date().toISOString();
 
@@ -357,6 +365,7 @@ export function extractJiraCanonicalEvents(
         to: item?.toString ?? null,
         from_id: fromId,
         to_id: toId,
+        summary,
       },
     });
 
@@ -365,7 +374,7 @@ export function extractJiraCanonicalEvents(
         event_kind: 'ticket_completed',
         occurred_at: changeTime,
         entity_id: issueKey,
-        metadata: { status: status?.name || null },
+        metadata: { status: status?.name || null, summary },
       });
     }
 
@@ -377,7 +386,7 @@ export function extractJiraCanonicalEvents(
         event_kind: 'ticket_regressed',
         occurred_at: changeTime,
         entity_id: issueKey,
-        metadata: { status: status?.name || null },
+        metadata: { status: status?.name || null, summary },
       });
     }
   }

@@ -101,6 +101,21 @@ type DiffObject = {
   architecture_changes: Array<{ label: 'node_added' | 'node_modified' | 'node_removed'; detail: string }>;
 };
 
+type DiffDetails = {
+  jira?: {
+    moved?: Array<{ issue_key: string | null; summary: string | null; from: string | null; to: string | null; occurred_at: string | null }>;
+    completed?: Array<{ issue_key: string | null; summary: string | null; status: string | null; occurred_at: string | null }>;
+    regressed?: Array<{ issue_key: string | null; summary: string | null; status: string | null; occurred_at: string | null }>;
+    created?: Array<{ issue_key: string | null; summary: string | null; status: string | null; occurred_at: string | null }>;
+  };
+  github?: {
+    commits?: Array<{ sha: string | null; repo: string | null; occurred_at: string | null }>;
+    prs_opened?: Array<{ number: string | null; repo: string | null; occurred_at: string | null }>;
+    prs_merged?: Array<{ number: string | null; repo: string | null; occurred_at: string | null }>;
+    prs_closed?: Array<{ number: string | null; repo: string | null; occurred_at: string | null }>;
+  };
+};
+
 type ModeSwitcherProps = { active: Mode; onChange: (mode: Mode) => void };
 type FilterTab = 'filters' | 'schedule';
 type ModeCardProps = {
@@ -289,6 +304,17 @@ function formatDateUTC(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { timeZone: 'UTC' });
 }
 
+function formatDateTimeUTC(iso?: string | null): string {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString(undefined, {
+    timeZone: 'UTC',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 /** Parse ISO string to UTC date parts and return a Date at noon UTC for that day (for calendar display). */
 function isoToCalendarDate(iso: string): Date {
   const d = new Date(iso);
@@ -328,6 +354,7 @@ function DiffPrototypePanel() {
   const [connectedSources, setConnectedSources] = useState<ConnectedDiffSource[]>([]);
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
   const [reportSources, setReportSources] = useState<Array<{ id: string; name: string; display_name: string; provider: string }>>([]);
+  const [diffDetails, setDiffDetails] = useState<DiffDetails | null>(null);
   const [diffSourceMenuOpen, setDiffSourceMenuOpen] = useState(false);
   const [diffSchedules, setDiffSchedules] = useState<DiffSchedule[]>([]);
   const [diffScheduleFormOpen, setDiffScheduleFormOpen] = useState(false);
@@ -808,6 +835,7 @@ function DiffPrototypePanel() {
       } else {
         setReportSources([]);
       }
+      setDiffDetails(data?.details || null);
 
     } catch (e: unknown) {
       setCompareError(e instanceof Error ? e.message : 'Failed to generate diff');
@@ -820,6 +848,7 @@ function DiffPrototypePanel() {
   useEffect(() => {
     setBaselineWindow(null);
     setDeltaObject(null);
+    setDiffDetails(null);
   }, [diffInput.start_timestamp, diffInput.end_timestamp]);
 
   // Regenerate diff whenever date range or source selection changes.
@@ -1398,7 +1427,7 @@ function DiffPrototypePanel() {
             )}
 
             <div className="rounded-lg border border-white/10 bg-neutral-900 p-4 font-mono text-xs text-white/80">
-              <h3 className="text-sm font-semibold text-white mb-2">High-level metrics (all sources)</h3>
+              <h3 className="text-sm font-semibold text-white mb-2">High-Level Metrics (All Sources)</h3>
               <div className="mb-2 flex flex-col gap-1 text-white/70">
                 <span>Primary: {formatDateUTC(canonicalInput.start_timestamp)} → {formatDateUTC(canonicalInput.end_timestamp)} (UTC)</span>
                 {baselineWindow && (
@@ -1444,6 +1473,137 @@ function DiffPrototypePanel() {
                 </div>
               </dl>
             </div>
+
+            {diffDetails && (
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="rounded-lg border border-white/10 bg-neutral-900/80 p-4">
+                  <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-white">Jira Workspace Trail</h3>
+                    <Badge variant="outline" className="text-[10px] border-white/20 text-white/70">Tickets</Badge>
+                  </div>
+                  <div className="mt-3 space-y-4 text-xs text-white/75">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.2em] text-white/50">Moved</p>
+                      <ul className="mt-2 space-y-2">
+                        {(diffDetails.jira?.moved || []).slice(0, 8).map((item, idx) => (
+                          <li key={`jira-moved-${idx}`} className="flex flex-col gap-1">
+                            <span className="text-white/90">{item.summary ?? 'Untitled'} ({item.issue_key ?? '—'})</span>
+                            <span className="text-white/60">{item.from ?? '—'} → {item.to ?? '—'}</span>
+                            <span className="text-white/40">{formatDateTimeUTC(item.occurred_at)}</span>
+                          </li>
+                        ))}
+                        {(!diffDetails.jira?.moved || diffDetails.jira.moved.length === 0) && (
+                          <li className="text-white/40">No status changes detected.</li>
+                        )}
+                      </ul>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <p className="text-[11px] uppercase tracking-[0.2em] text-white/50">Completed</p>
+                        <ul className="mt-2 space-y-2">
+                          {(diffDetails.jira?.completed || []).slice(0, 5).map((item, idx) => (
+                          <li key={`jira-done-${idx}`} className="flex flex-col gap-1">
+                            <span className="text-white/90">{item.summary ?? 'Untitled'} ({item.issue_key ?? '—'})</span>
+                            <span className="text-white/60">{item.status ?? 'Done'}</span>
+                            <span className="text-white/40">{formatDateTimeUTC(item.occurred_at)}</span>
+                          </li>
+                        ))}
+                          {(!diffDetails.jira?.completed || diffDetails.jira.completed.length === 0) && (
+                            <li className="text-white/40">No completions in window.</li>
+                          )}
+                        </ul>
+                      </div>
+                      <div>
+                        <p className="text-[11px] uppercase tracking-[0.2em] text-white/50">Regressed</p>
+                        <ul className="mt-2 space-y-2">
+                          {(diffDetails.jira?.regressed || []).slice(0, 5).map((item, idx) => (
+                          <li key={`jira-regressed-${idx}`} className="flex flex-col gap-1">
+                            <span className="text-white/90">{item.summary ?? 'Untitled'} ({item.issue_key ?? '—'})</span>
+                            <span className="text-white/60">{item.status ?? 'Backlog'}</span>
+                            <span className="text-white/40">{formatDateTimeUTC(item.occurred_at)}</span>
+                          </li>
+                        ))}
+                          {(!diffDetails.jira?.regressed || diffDetails.jira.regressed.length === 0) && (
+                            <li className="text-white/40">No regressions in window.</li>
+                          )}
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-white/10 bg-neutral-900/80 p-4">
+                  <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-white">GitHub Activity Stream</h3>
+                    <Badge variant="outline" className="text-[10px] border-white/20 text-white/70">Code</Badge>
+                  </div>
+                  <div className="mt-3 space-y-4 text-xs text-white/75">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.2em] text-white/50">Commits</p>
+                      <ul className="mt-2 space-y-2">
+                        {(diffDetails.github?.commits || []).slice(0, 8).map((item, idx) => (
+                          <li key={`gh-commit-${idx}`} className="flex flex-col gap-1">
+                            <span className="font-mono text-white/90">{item.sha ? item.sha.slice(0, 7) : '—'}</span>
+                            <span className="text-white/60">{item.repo ?? '—'}</span>
+                            <span className="text-white/40">{formatDateTimeUTC(item.occurred_at)}</span>
+                          </li>
+                        ))}
+                        {(!diffDetails.github?.commits || diffDetails.github.commits.length === 0) && (
+                          <li className="text-white/40">No commits in window.</li>
+                        )}
+                      </ul>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <p className="text-[11px] uppercase tracking-[0.2em] text-white/50">PRs opened</p>
+                        <ul className="mt-2 space-y-2">
+                          {(diffDetails.github?.prs_opened || []).slice(0, 5).map((item, idx) => (
+                          <li key={`gh-pr-open-${idx}`} className="flex flex-col gap-1">
+                            <span className="font-mono text-white/90">#{item.number ?? '—'}</span>
+                            <span className="text-white/60">{item.repo ?? '—'}</span>
+                            <span className="text-white/40">{formatDateTimeUTC(item.occurred_at)}</span>
+                          </li>
+                        ))}
+                          {(!diffDetails.github?.prs_opened || diffDetails.github.prs_opened.length === 0) && (
+                            <li className="text-white/40">No PRs opened.</li>
+                          )}
+                        </ul>
+                      </div>
+                      <div>
+                        <p className="text-[11px] uppercase tracking-[0.2em] text-white/50">PRs merged</p>
+                        <ul className="mt-2 space-y-2">
+                          {(diffDetails.github?.prs_merged || []).slice(0, 5).map((item, idx) => (
+                          <li key={`gh-pr-merged-${idx}`} className="flex flex-col gap-1">
+                            <span className="font-mono text-white/90">#{item.number ?? '—'}</span>
+                            <span className="text-white/60">{item.repo ?? '—'}</span>
+                            <span className="text-white/40">{formatDateTimeUTC(item.occurred_at)}</span>
+                          </li>
+                        ))}
+                          {(!diffDetails.github?.prs_merged || diffDetails.github.prs_merged.length === 0) && (
+                            <li className="text-white/40">No PRs merged.</li>
+                          )}
+                        </ul>
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.2em] text-white/50">PRs closed</p>
+                      <ul className="mt-2 space-y-2">
+                        {(diffDetails.github?.prs_closed || []).slice(0, 5).map((item, idx) => (
+                          <li key={`gh-pr-closed-${idx}`} className="flex flex-col gap-1">
+                            <span className="font-mono text-white/90">#{item.number ?? '—'}</span>
+                            <span className="text-white/60">{item.repo ?? '—'}</span>
+                            <span className="text-white/40">{formatDateTimeUTC(item.occurred_at)}</span>
+                          </li>
+                        ))}
+                        {(!diffDetails.github?.prs_closed || diffDetails.github.prs_closed.length === 0) && (
+                          <li className="text-white/40">No PRs closed.</li>
+                        )}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -1596,6 +1756,27 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
   const [projectionScheduleCadenceMenuOpen, setProjectionScheduleCadenceMenuOpen] = useState(false);
   const [projectionScheduleAudienceMenuOpen, setProjectionScheduleAudienceMenuOpen] = useState(false);
   const [projectionScheduleUnitsMenuOpen, setProjectionScheduleUnitsMenuOpen] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const stored = window.localStorage.getItem('knowledge.activeTab');
+      if (stored === 'knowledge' || stored === 'diffs') {
+        setActiveTab(stored);
+      }
+    } catch {
+      // Ignore storage access failures (e.g. privacy mode).
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem('knowledge.activeTab', activeTab);
+    } catch {
+      // Ignore storage access failures (e.g. privacy mode).
+    }
+  }, [activeTab]);
 
   // Initialize audiences directly from Supabase preference (persisted in auth metadata)
   useEffect(() => {
