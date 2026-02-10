@@ -20,6 +20,32 @@ body {
   font-family: var(--font-space-grotesk);
 }
 
+/* Grid background — same as frontend app (sources, knowledge, etc.) */
+.app-shell {
+  position: relative;
+  min-height: 100vh;
+  isolation: isolate;
+  background: #000;
+}
+
+.app-shell__backdrop {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.app-shell__grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.12) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.12) 1px, transparent 1px);
+  background-size: 72px 72px;
+  opacity: 0.85;
+}
+
 .animate-rise {
   animation: rise 0.85s ease-out both;
 }

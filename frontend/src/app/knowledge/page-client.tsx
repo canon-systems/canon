@@ -125,6 +125,24 @@ type ModeCardProps = {
   subtitle: string;
   icon: React.ComponentType<{ className?: string }>;
   onClick: () => void;
+  mode: Mode;
+};
+
+const MODE_COPY: Record<Mode, { title: string; subtitle: string; description: string; empty: string }> = {
+  knowledge: {
+    title: 'Canon View',
+    subtitle: 'The current, authoritative understanding of your system.',
+    description:
+      'Canon View represents what is true right now. It is continuously derived from your code, tools, and workflows, and kept in sync automatically.',
+    empty: 'Canon is building your source of truth.',
+  },
+  diffs: {
+    title: 'Canon History',
+    subtitle: 'A record of how your system has evolved.',
+    description:
+      'Canon History tracks meaningful changes over time and explains how they impact your system understanding.',
+    empty: 'No material changes detected yet.',
+  },
 };
 
 /** Schedule communication channels. When kb is true, kb_provider and kb_resource_id are required for delivery. */
@@ -410,6 +428,31 @@ function DiffPrototypePanel() {
 
   const diffAllSourceIds = useMemo(() => connectedSources.map((s) => s.id), [connectedSources]);
 
+  const hasMaterialChanges = useMemo(() => {
+    const numeric = [
+      diffObject.tickets_moved,
+      diffObject.tickets_completed,
+      diffObject.tickets_regressed,
+      diffObject.tickets_created,
+      diffObject.prs_opened,
+      diffObject.prs_merged,
+      diffObject.prs_closed,
+      diffObject.commits_default,
+    ].some((n) => n > 0);
+
+    const detailCounts =
+      (diffDetails?.jira?.moved?.length ?? 0) +
+      (diffDetails?.jira?.completed?.length ?? 0) +
+      (diffDetails?.jira?.regressed?.length ?? 0) +
+      (diffDetails?.jira?.created?.length ?? 0) +
+      (diffDetails?.github?.commits?.length ?? 0) +
+      (diffDetails?.github?.prs_opened?.length ?? 0) +
+      (diffDetails?.github?.prs_merged?.length ?? 0) +
+      (diffDetails?.github?.prs_closed?.length ?? 0);
+
+    return numeric || detailCounts > 0;
+  }, [diffObject, diffDetails]);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -439,7 +482,7 @@ function DiffPrototypePanel() {
               Number(maybeWindow.window_days);
             return {
               id: s.id,
-              name: typeof s.name === 'string' ? s.name : 'Diff report',
+              name: typeof s.name === 'string' ? s.name : 'Canon History report',
               enabled: s.enabled !== false,
               cadence,
               sourceIds: Array.isArray(s.sourceIds) ? s.sourceIds : [],
@@ -664,7 +707,7 @@ function DiffPrototypePanel() {
   };
 
   const saveDiffSchedule = async () => {
-    const name = diffScheduleFormName.trim() || 'Diff report';
+    const name = diffScheduleFormName.trim() || 'Canon History report';
     const comm = { ...diffScheduleFormCommunication };
     if (diffScheduleFormWindowDays > 0) {
       comm.window = { days: diffScheduleFormWindowDays };
@@ -1549,10 +1592,16 @@ function DiffPrototypePanel() {
       <div className="space-y-6">
         <Card className="border-white/10 bg-black/50">
           <CardHeader>
-            <CardTitle>Diff report</CardTitle>
-            <CardDescription>Results for the selected window (auto-baseline applied)</CardDescription>
+            <CardTitle>{MODE_COPY.diffs.title}</CardTitle>
+            <CardDescription>{MODE_COPY.diffs.description}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
+            {!hasMaterialChanges && (
+              <Alert variant="default">
+                <Info className="h-4 w-4" />
+                <AlertDescription>{MODE_COPY.diffs.empty}</AlertDescription>
+              </Alert>
+            )}
             {reportSources.length > 0 && (
               <div className="rounded-lg border border-white/10 bg-neutral-900/80 p-4">
                 <h3 className="text-sm font-semibold text-white mb-2">Sources in this report</h3>
@@ -1798,23 +1847,25 @@ function ModeSwitcher({ active, onChange }: ModeSwitcherProps) {
     <div className="grid gap-3 sm:grid-cols-2">
       <ModeCard
         active={active === 'knowledge'}
-        title="Knowledge"
-        subtitle="Audience-ready AKUs, pushes, and projections."
+        title={MODE_COPY.knowledge.title}
+        subtitle={MODE_COPY.knowledge.subtitle}
         icon={BookOpen}
+        mode="knowledge"
         onClick={() => onChange('knowledge')}
       />
       <ModeCard
         active={active === 'diffs'}
-        title="Diffs"
-        subtitle="Timeboxed truth: Jira + GitHub diffs, weekly markdown, snapshots."
+        title={MODE_COPY.diffs.title}
+        subtitle={MODE_COPY.diffs.subtitle}
         icon={GitCompare}
+        mode="diffs"
         onClick={() => onChange('diffs')}
       />
     </div>
   );
 }
 
-function ModeCard({ active, title, subtitle, icon: Icon, onClick }: ModeCardProps) {
+function ModeCard({ active, title, subtitle, icon: Icon, onClick, mode }: ModeCardProps) {
   return (
     <button
       type="button"
@@ -1844,7 +1895,7 @@ function ModeCard({ active, title, subtitle, icon: Icon, onClick }: ModeCardProp
         </div>
         <p className="text-sm text-white/70">{subtitle}</p>
         <p className="text-xs text-white/50">
-          {title === 'Knowledge' ? 'Uses source + audience filters' : 'Uses timebox + sources'}
+          {mode === 'knowledge' ? 'Uses source + audience filters' : 'Uses timebox + sources'}
         </p>
       </div>
     </button>
@@ -1853,9 +1904,12 @@ function ModeCard({ active, title, subtitle, icon: Icon, onClick }: ModeCardProp
 
 interface KnowledgeClientProps {
   sources: Source[];
+  mode?: Mode;
+  showModeSwitcher?: boolean;
 }
 
-export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
+export default function KnowledgeClient({ sources, mode, showModeSwitcher = true }: KnowledgeClientProps) {
+  const fixedMode = mode === 'knowledge' || mode === 'diffs' ? mode : null;
   const [items, setItems] = useState<KnowledgeItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
@@ -1875,7 +1929,7 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
   const [loadingConfluenceFolders, setLoadingConfluenceFolders] = useState(false);
   type PushResultDetail = { key?: string; title?: string; status?: string };
   const [pushResult, setPushResult] = useState<{ status: 'idle' | 'pushing' | 'done' | 'error'; message?: string; details?: PushResultDetail[] }>({ status: 'idle' });
-  const [activeTab, setActiveTab] = useState<Mode>('knowledge');
+  const [activeTab, setActiveTab] = useState<Mode>(fixedMode ?? 'knowledge');
   const [knowledgeFilterTab, setKnowledgeFilterTab] = useState<FilterTab>('filters');
   const [projectionSchedules, setProjectionSchedules] = useState<ProjectionSchedule[]>([]);
   const [projectionScheduleFormOpen, setProjectionScheduleFormOpen] = useState(false);
@@ -1904,6 +1958,10 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
   const [projectionScheduleUnitsMenuOpen, setProjectionScheduleUnitsMenuOpen] = useState(false);
 
   useEffect(() => {
+    if (fixedMode) {
+      setActiveTab(fixedMode);
+      return;
+    }
     if (typeof window === 'undefined') return;
     try {
       const stored = window.localStorage.getItem('knowledge.activeTab');
@@ -1920,13 +1978,14 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
   }, []);
 
   useEffect(() => {
+    if (fixedMode) return;
     if (typeof window === 'undefined') return;
     try {
       window.localStorage.setItem('knowledge.activeTab', activeTab);
     } catch {
       // Ignore storage access failures (e.g. privacy mode).
     }
-  }, [activeTab]);
+  }, [activeTab, fixedMode]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1984,7 +2043,7 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
   const loadItems = async () => {
     setLoading(true);
     try {
-      const listRes = await fetch(`/api/knowledge`);
+      const listRes = await fetch(`/api/canon-view`);
       const data = await listRes.json();
       const normalized = (Array.isArray(data) ? data : []).map((item, idx) => {
         const title = typeof item?.title === 'string' && item.title.trim().length > 0
@@ -2547,7 +2606,7 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
         pushProvider === 'confluence' && confluenceFolderId && selectedSpace?.metadata
           ? selectedSpace.metadata
           : resourceMeta;
-      const resp = await fetch('/api/knowledge/push', {
+      const resp = await fetch('/api/canon-view/push', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2570,8 +2629,10 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
   return (
     <>
       <TooltipProvider delayDuration={150}>
-        <div className="mb-6 space-y-4">
-          <ModeSwitcher active={activeTab} onChange={setActiveTab} />
+        <div className="mb-6 space-y-3">
+          {showModeSwitcher && !fixedMode && (
+            <ModeSwitcher active={activeTab} onChange={setActiveTab} />
+          )}
         </div>
 
         {activeTab === 'knowledge' ? (
@@ -2860,7 +2921,7 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                                   </>
                                 ) : (
                                   <div className="rounded-md border border-white/10 bg-white/5 p-3 text-xs text-white/70">
-                                    Categories will appear once knowledge is generated for selected sources.
+                                    Categories will appear once Canon View entries are generated for selected sources.
                                   </div>
                                 )}
                               </PopoverContent>
@@ -3174,7 +3235,7 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                               <div>
                                 <label className="text-xs text-white/60 flex items-center gap-2 mb-1.5">
                                   Units
-                                  <InfoTip message="Choose which knowledge units to include." />
+                                  <InfoTip message="Choose which Canon View entries to include." />
                                 </label>
                                 <Popover open={projectionScheduleUnitsMenuOpen} onOpenChange={setProjectionScheduleUnitsMenuOpen}>
                                   <PopoverTrigger asChild>
@@ -3249,7 +3310,7 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                                       </>
                                     ) : (
                                       <div className="px-3 py-4 text-sm text-white/60">
-                                        No units available yet. Units will appear once knowledge is generated for selected sources.
+                                        No entries available yet. Entries will appear once Canon View is generated for selected sources.
                                       </div>
                                     )}
                                   </PopoverContent>
@@ -3428,29 +3489,29 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
                 </div>
 
                 {loading && (
-                  <Alert>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <AlertDescription>Loading knowledge units...</AlertDescription>
-                  </Alert>
-                )}
+          <Alert>
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <AlertDescription>Loading Canon View entries...</AlertDescription>
+          </Alert>
+        )}
 
-                {!loading && items.length === 0 && (
-                  <Alert variant="default">
-                    <Info className="h-4 w-4" />
-                    <AlertDescription>
-                      No knowledge loaded yet. Click “Refresh knowledge” to pull everything, or pick filters to view a subset.
-                    </AlertDescription>
-                  </Alert>
-                )}
+        {!loading && items.length === 0 && (
+          <Alert variant="default">
+            <Info className="h-4 w-4" />
+            <AlertDescription>
+              {MODE_COPY.knowledge.empty}
+            </AlertDescription>
+          </Alert>
+        )}
 
-                {!loading && filtersReady && visibleItems.length === 0 && (
-                  <Alert variant="default">
-                    <Info className="h-4 w-4" />
-                    <AlertDescription>
-                      No knowledge units found. Try adjusting your filters or selecting different sources.
-                    </AlertDescription>
-                  </Alert>
-                )}
+        {!loading && filtersReady && visibleItems.length === 0 && (
+          <Alert variant="default">
+            <Info className="h-4 w-4" />
+            <AlertDescription>
+              {MODE_COPY.knowledge.empty}
+            </AlertDescription>
+          </Alert>
+        )}
 
                 {visibleItems.length > 0 && (
                   <div className="space-y-4">
@@ -3528,7 +3589,7 @@ export default function KnowledgeClient({ sources }: KnowledgeClientProps) {
       <Dialog open={showPushModal} onOpenChange={setShowPushModal}>
         <DialogContent className="max-w-3xl border border-white/15 bg-neutral-950/95 text-white">
           <DialogHeader className="space-y-1">
-            <DialogTitle className="text-xl">Push to Knowledge Base</DialogTitle>
+            <DialogTitle className="text-xl">Push Canon View to Knowledge Base</DialogTitle>
             <DialogDescription className="text-white/70">
               Select where to publish your audience views.
             </DialogDescription>

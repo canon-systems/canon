@@ -1,6 +1,6 @@
 /**
- * Knowledge Base push planner
- * ---------------------------
+ * Canon View push planner
+ * -----------------------
  * Builds a deterministic tree describing what to publish to an external KB.
  * Structure:
  *   - System page (root)
@@ -9,7 +9,7 @@
  *
  * Notes:
  * - Canonical AKU content stays in Canon; KB only gets audience projections plus links back.
- * - Each page includes a “Managed by Canon” banner and a link back to the Canon AKU.
+ * - Each page includes a “Managed by Canon” banner and a link back to the Canon entry.
  * - A hash of the rendered markdown is included so callers can skip unchanged pages.
  */
 
@@ -49,10 +49,10 @@ export type PlanResult = {
 const MANAGED_BANNER = '> Managed by Canon';
 
 /**
- * Create a single-page plan (e.g. for diff reports) to push to a KB root.
+ * Create a single-page plan (e.g. for Canon History reports) to push to a KB root.
  * The page is created as a system-type page under the given root.
  */
-export function createSinglePagePlan(title: string, markdown: string): PlanResult {
+export function createCanonHistoryPagePlan(title: string, markdown: string): PlanResult {
   const withBanner = [markdown.trim(), '', MANAGED_BANNER].join('\n');
   const systemPage: PlannedPage = {
     key: 'system',
@@ -110,21 +110,21 @@ function normalizeProjectionMarkdown(input: string): string {
 }
 
 /**
- * Build the knowledge base publishing plan.
+ * Build the Canon View publishing plan.
  */
-export function planKnowledgePush(params: {
+export function planCanonViewPush(params: {
   akus: Aku[];
   systemTitle?: string;
   canonBaseUrl?: string;
 }): PlanResult {
-  const { akus, systemTitle = 'System Knowledge' } = params;
+  const { akus, systemTitle = 'Canon View' } = params;
   const safeAkus = Array.isArray(akus) ? akus : [];
 
   // System page: no title in body (Confluence/Notion set page title); only projections, no AKU list
   const systemLines = [
     MANAGED_BANNER,
     '',
-    'This space lists audience projections from Canon.',
+    'This space lists Canon View projections.',
   ];
 
   const systemMarkdown = systemLines.join('\n');
@@ -209,4 +209,4 @@ export function formatPlanSummary(plan: PlanResult): string {
 }
 
 // CommonJS interop for node -e tests
-module.exports = { planKnowledgePush, formatPlanSummary };
+module.exports = { planCanonViewPush, createCanonHistoryPagePlan, formatPlanSummary };

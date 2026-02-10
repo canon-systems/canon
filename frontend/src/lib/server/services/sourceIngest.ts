@@ -206,7 +206,7 @@ export async function ingestGitHubSource(
     );
 
     // Build AKUs: per-source (single tab) or merged from selected sources only (multi tab)
-    await updateStage(supabase, source.id, 'building_akus', 85, 'Building knowledge outputs');
+    await updateStage(supabase, source.id, 'building_akus', 85, 'Building Canon View outputs');
     if (await abortIfDeleted(supabase, source, 'building_akus')) return;
     let lastAkuPct = 85;
     const akuProgress = (processed: number, total: number) => {
@@ -215,7 +215,7 @@ export async function ingestGitHubSource(
       if (pct <= lastAkuPct && processed < total) return;
       lastAkuPct = pct;
       const stepLabel =
-        total > 1 ? `Building knowledge outputs (${processed} / ${total})` : 'Building knowledge outputs';
+        total > 1 ? `Building Canon View outputs (${processed} / ${total})` : 'Building Canon View outputs';
       void updateStage(supabase, source.id, 'building_akus', pct, stepLabel, {
         aku_projections_done: processed,
         aku_projections_total: total,
@@ -512,11 +512,11 @@ export async function syncGitHubSourceDelta(
         .eq('branch', branch)
         .in('file_path', removedPaths);
       if (!delErr) removed = removedPaths.length;
-      else console.warn('[knowledge-sync] GitHub: failed to remove deleted file rows', { repo, count: removedPaths.length });
+      else console.warn('[canon-sync] GitHub: failed to remove deleted file rows', { repo, count: removedPaths.length });
     }
 
     const scopeLabel = typeof source.scope?.repo === 'string' ? source.scope.repo : source.id;
-    console.log(`[knowledge-sync] Checking ${rawFiles.length} files for summary updates (hash comparison), source: ${scopeLabel}`);
+    console.log(`[canon-sync] Checking ${rawFiles.length} files for summary updates (hash comparison), source: ${scopeLabel}`);
     const result = await manager.updateSummariesIfNeeded(
       rawFiles.map((f) => ({
         path: f.path,
@@ -530,13 +530,13 @@ export async function syncGitHubSourceDelta(
 
     if (anyChange) {
       const allSourceIds = await getAllUserSourceIds(supabase, source.user_id);
-      console.log(`[knowledge-sync] Rebuilding merged AKUs for all user sources (files changed), source: ${scopeLabel}, sourceCount: ${allSourceIds.length}`);
+      console.log(`[canon-sync] Rebuilding merged AKUs for all user sources (files changed), source: ${scopeLabel}, sourceCount: ${allSourceIds.length}`);
       await buildAkusForSources(supabase, source.user_id, allSourceIds, preferredAudiences);
       return { added, removed, rebuilt: true, addedPaths, removedPaths };
     }
     return { added, removed, rebuilt: false, addedPaths, removedPaths };
   } catch (err) {
-    console.error('[knowledge-sync] GitHub delta sync failed', { repo: typeof source.scope?.repo === 'string' ? source.scope.repo : source.id, error: err instanceof Error ? err.message : String(err) });
+    console.error('[canon-sync] GitHub delta sync failed', { repo: typeof source.scope?.repo === 'string' ? source.scope.repo : source.id, error: err instanceof Error ? err.message : String(err) });
     return empty;
   }
 }
@@ -575,7 +575,7 @@ export async function syncIssueSourceDelta(
   }
   const connectionId = connectionIdForTokens || source.connection_id || null;
   if (!connectionId) {
-    console.warn('[knowledge-sync] Issue source skipped: no OAuth connection', { provider, project: projectKey });
+    console.warn('[canon-sync] Issue source skipped: no OAuth connection', { provider, project: projectKey });
     return empty;
   }
   const accessToken = await getProviderAccessToken({
@@ -583,7 +583,7 @@ export async function syncIssueSourceDelta(
     connectionId,
   });
   if (!accessToken) {
-    console.warn('[knowledge-sync] Issue source skipped: no access token', { provider, project: projectKey });
+    console.warn('[canon-sync] Issue source skipped: no access token', { provider, project: projectKey });
     return empty;
   }
 
@@ -604,7 +604,7 @@ export async function syncIssueSourceDelta(
       const data = await res.json();
       issues = Array.isArray(data?.issues) ? data.issues : [];
     } else {
-      console.warn('[knowledge-sync] Jira fetch failed', { project: projectKey, status: res.status });
+      console.warn('[canon-sync] Jira fetch failed', { project: projectKey, status: res.status });
     }
   }
 
@@ -655,12 +655,12 @@ export async function syncIssueSourceDelta(
       .eq('source_id', source.id)
       .in('issue_key', removedKeys);
     if (!delErr) removed = removedKeys.length;
-    else console.warn('[knowledge-sync] Issues: failed to remove obsolete rows', { provider, project: projectKey, count: removedKeys.length });
+    else console.warn('[canon-sync] Issues: failed to remove obsolete rows', { provider, project: projectKey, count: removedKeys.length });
   }
 
   const anyChange = added > 0 || removed > 0;
   if (anyChange) {
-    console.log('[knowledge-sync] Issue delta applied; skipping AKU rebuild for issue-only sources');
+    console.log('[canon-sync] Issue delta applied; skipping AKU rebuild for issue-only sources');
     return { added, removed, rebuilt: false, addedKeys, removedKeys };
   }
   return { added, removed, rebuilt: false, addedKeys, removedKeys };

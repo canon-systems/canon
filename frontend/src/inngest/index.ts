@@ -1,5 +1,5 @@
 // Export all Inngest functions
-export { syncKnowledgeSources } from "./functions/knowledgeSync";
+export { syncCanonSources } from "./functions/canonSync";
 export { reportScheduleTick, reportScheduleBootstrap } from "./functions/reportSchedules";
 export { refreshJiraWebhooks } from "./functions/jiraWebhooks";
 

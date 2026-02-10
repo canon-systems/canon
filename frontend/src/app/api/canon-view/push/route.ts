@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
-import { planKnowledgePush } from '@/lib/server/services/knowledgePushPlanner';
-import { runKnowledgePush } from '@/lib/server/services/knowledgePushRunner';
+import { planCanonViewPush } from '@/lib/server/services/canonViewPushPlanner';
+import { runCanonViewPush } from '@/lib/server/services/canonViewPushRunner';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,8 +37,8 @@ export async function POST(req: NextRequest) {
       .select('id, title, body, audience_views:audience_views(audience, projection, status)')
       .eq('user_id', user.id);
     if (akuErr) {
-      console.error('[knowledge/push] failed to load akus', akuErr);
-      return NextResponse.json({ error: 'Failed to load AKUs' }, { status: 500 });
+      console.error('[canon-view/push] failed to load entries', akuErr);
+      return NextResponse.json({ error: 'Failed to load Canon View entries' }, { status: 500 });
     }
 
     const filteredAkus = Array.isArray(akus)
@@ -50,11 +50,11 @@ export async function POST(req: NextRequest) {
         }))
       : [];
 
-    const plan = planKnowledgePush({ akus: filteredAkus });
+    const plan = planCanonViewPush({ akus: filteredAkus });
 
-    console.log('[knowledge/push] planning', { akus: filteredAkus.length, provider, rootResourceId });
+    console.log('[canon-view/push] planning', { entries: filteredAkus.length, provider, rootResourceId });
 
-    const { results, rootPageId } = await runKnowledgePush({
+    const { results, rootPageId } = await runCanonViewPush({
       supabase,
       userId: user.id,
       provider,
@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
       existingRootResourceId,
     });
 
-    console.log('[knowledge/push] completed', {
+    console.log('[canon-view/push] completed', {
       created: results.filter((r) => r.status === 'created').length,
       updated: results.filter((r) => r.status === 'updated').length,
       skipped: results.filter((r) => r.status === 'skipped').length,
@@ -74,9 +74,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, results, rootPageId });
   } catch (err: unknown) {
-    console.error('knowledge/push error', err);
+    console.error('canon-view/push error', err);
     return NextResponse.json(
-      { error: 'Failed to push knowledge', detail: err instanceof Error ? err.message : String(err) },
+      { error: 'Failed to push Canon View', detail: err instanceof Error ? err.message : String(err) },
       { status: 500 }
     );
   }

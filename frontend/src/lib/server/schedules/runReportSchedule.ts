@@ -2,8 +2,8 @@ import { computeBaselineWindow, diffDelta, emptyCanonicalDiff } from '@/lib/serv
 import { runDiffForSourcesWithBreakdown, type DiffAggWithBreakdown } from '@/lib/server/diff/runDiffForSources';
 import { formatDateRange } from '@/lib/server/diff/renderers';
 import { buildAkusForSources } from '@/lib/server/services/akuBuilder';
-import { planKnowledgePush, createSinglePagePlan } from '@/lib/server/services/knowledgePushPlanner';
-import { runKnowledgePush } from '@/lib/server/services/knowledgePushRunner';
+import { planCanonViewPush, createCanonHistoryPagePlan } from '@/lib/server/services/canonViewPushPlanner';
+import { runCanonViewPush } from '@/lib/server/services/canonViewPushRunner';
 import { trackAutomationRun } from '@/lib/server/services/usageTracking';
 import { getWindowForCadence, getWindowForDays } from './cadence';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -108,13 +108,13 @@ export async function runReportSchedule(
       const baselineCanonical = baselineResult.aggregate;
       const delta = diffDelta(primaryCanonical, baselineCanonical);
 
-      // KB delivery for diff: push report to Notion/Confluence if configured (same layout as Knowledge page)
+      // KB delivery for diff: push report to Notion/Confluence if configured (same layout as Canon History)
       const kbEnabled = comm.kb === true;
       const kbProvider = comm.kb_provider === 'notion' || comm.kb_provider === 'confluence' ? comm.kb_provider : null;
       const kbResourceId = typeof comm.kb_resource_id === 'string' ? comm.kb_resource_id : null;
       if (kbEnabled && kbProvider && kbResourceId) {
         try {
-          const title = schedule.name || 'Diff Report';
+          const title = schedule.name || 'Canon History Report';
           const formatDelta = (n: number) => (n === 0 ? '0' : n > 0 ? `+${n}` : `${n}`);
           const formatMetric = (label: string, value: number, deltaValue: number) =>
             `- **${label}:** ${value} (Δ ${formatDelta(deltaValue)})`;
@@ -143,11 +143,11 @@ export async function runReportSchedule(
             perSourceLines,
           ].filter(Boolean);
           const diffMarkdown = lines.join('\n');
-          const plan = createSinglePagePlan(title, diffMarkdown);
+          const plan = createCanonHistoryPagePlan(title, diffMarkdown);
           const existingRootResourceId =
             comm && typeof comm.kb_page_id === 'string' && comm.kb_page_id.trim().length ? comm.kb_page_id : null;
 
-          const { rootPageId } = await runKnowledgePush({
+          const { rootPageId } = await runCanonViewPush({
             supabase,
             userId: schedule.user_id,
             provider: kbProvider,
@@ -306,15 +306,15 @@ export async function runReportSchedule(
             .filter((p) => p.aku_id === aku.id)
             .map((p) => ({ audience: p.audience, projection: p.projection, status: p.status })),
         }));
-        const plan = planKnowledgePush({
+        const plan = planCanonViewPush({
           akus: akusForPush,
-          systemTitle: schedule.name || 'Knowledge',
+          systemTitle: schedule.name || 'Canon View',
           canonBaseUrl: process.env.NEXT_PUBLIC_APP_URL,
         });
         const existingRootResourceId =
           comm && typeof comm.kb_page_id === 'string' && comm.kb_page_id.trim().length ? comm.kb_page_id : null;
 
-        const { rootPageId } = await runKnowledgePush({
+        const { rootPageId } = await runCanonViewPush({
           supabase,
           userId: schedule.user_id,
           provider: kbProvider,

@@ -226,7 +226,7 @@ function humanizeClusterLabel(label: string): string {
     .replace(/[\/:_-]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-  if (!cleaned) return 'Knowledge Unit';
+  if (!cleaned) return 'Canon Unit';
   return toTitleCase(cleaned);
 }
 

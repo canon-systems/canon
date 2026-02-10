@@ -11,7 +11,7 @@ export default function LandingPage() {
   const appHref = 'https://sync-swart.vercel.app/login';
 
   return (
-    <div className="relative min-h-screen bg-black text-white">
+    <div className="relative min-h-screen text-white">
       <Navigation />
 
       <main className="relative">
@@ -20,12 +20,12 @@ export default function LandingPage() {
             <div className="animate-rise space-y-6">
 
               <h1 className="font-display text-4xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">
-                Keep Shared Understanding Aligned With Reality.
+                Canon keeps shared understanding aligned with reality.
               </h1>
 
               <p className="text-lg leading-relaxed text-white/70">
-                Canon observes what ships, detects drift, and refreshes small knowledge units. It projects the right view
-                for engineering, go-to-market, customers, and system interaction diagrams—without another doc project.
+                Canon watches what actually changes—code, configs, tickets, diagrams—and keeps your teams synced by
+                detecting drift, drafting refreshed context, and routing it into the places where people work.
               </p>
 
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -42,16 +42,16 @@ export default function LandingPage() {
 
               <div className="mt-10 grid gap-4 sm:grid-cols-3">
                 <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                  <p className="text-sm font-medium text-white">Reality-Linked</p>
-                  <p className="mt-1 text-sm text-white/60">Every unit traces to code and behavior.</p>
+                  <p className="text-sm font-medium text-white">Authoritative</p>
+                  <p className="mt-1 text-sm text-white/60">Canon View reflects what is true right now.</p>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                  <p className="text-sm font-medium text-white">Audience-Aware</p>
-                  <p className="mt-1 text-sm text-white/60">One truth, many projections.</p>
+                  <p className="text-sm font-medium text-white">Derived</p>
+                  <p className="mt-1 text-sm text-white/60">Built from code, tooling, and workflows—kept in sync.</p>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                  <p className="text-sm font-medium text-white">Living Diagrams</p>
-                  <p className="mt-1 text-sm text-white/60">System interaction diagrams refresh as dependencies change.</p>
+                  <p className="text-sm font-medium text-white">History</p>
+                  <p className="mt-1 text-sm text-white/60">Canon History explains the meaningful changes, not noise.</p>
                 </div>
               </div>
             </div>
@@ -109,36 +109,36 @@ export default function LandingPage() {
         <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8">
           <div className="grid gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:gap-12">
             <div className="space-y-6">
-              <Badge variant="secondary">The Drift Problem</Badge>
+              <Badge variant="secondary">Why Canon</Badge>
               <h2 className="font-display text-2xl font-semibold text-white sm:text-3xl">
-                Systems Change Continuously. Shared Understanding Updates Manually.
+                One source of truth, plus a clear record of change.
               </h2>
               <p className="text-white/70">
-                Reality lives in code, configs, infrastructure, and behavior. Knowledge lives in docs, pages, and tribal
-                memory. Without a causal link, teams drift, explanations repeat, and trust in shared context erodes.
+                Canon View is the single agreed present state. Canon History captures the meaningful shifts—so engineering,
+                go-to-market, and customers see what changed, why it matters, and what to do next without re-explaining.
               </p>
             </div>
             <div className="space-y-4">
               <Card className="animate-rise animate-rise-delay-1">
                 <CardHeader>
-                  <CardTitle className="font-display">Reality</CardTitle>
-                  <CardDescription>Code, configs, infra, and runtime behavior.</CardDescription>
+                  <CardTitle className="font-display">Canon View</CardTitle>
+                  <CardDescription>The current, derived understanding of your system.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-sm text-white/70">Always Moving. Always True.</p>
+                  <p className="text-sm text-white/70">Continuously refreshed from code, tools, and workflows—grounded in evidence.</p>
                 </CardContent>
               </Card>
               <Card className="animate-rise animate-rise-delay-2">
                 <CardHeader>
-                  <CardTitle className="font-display">Understanding</CardTitle>
-                  <CardDescription>Docs, mental models, and explanations.</CardDescription>
+                  <CardTitle className="font-display">Canon History</CardTitle>
+                  <CardDescription>Meaningful changes with context and impact.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-sm text-white/70">Updated Episodically, If Ever.</p>
+                  <p className="text-sm text-white/70">Filters noise, links to the source, and explains impact for every audience.</p>
                 </CardContent>
               </Card>
               <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 text-sm text-white/70">
-                Drift Is Inevitable When Humans Are the Only Sensors and Synchronizers.
+                Trust comes from “authoritative now” plus “explainable change,” not more manual docs.
               </div>
             </div>
           </div>
@@ -147,47 +147,47 @@ export default function LandingPage() {
         <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8 scroll-mt-[77px]" id="workflow">
           <div className="flex flex-col gap-6">
             <div>
-              <Badge variant="secondary">Canon Alignment Loop</Badge>
+              <Badge variant="secondary">Canon Loop</Badge>
               <h2 className="mt-4 font-display text-2xl font-semibold sm:text-3xl">
-                An Automated Knowledge Infrastructure Built for Continuous Change.
+                How Canon keeps View authoritative and History meaningful.
               </h2>
               <p className="mt-3 max-w-2xl text-white/70">
-                Canon sits between what changes and what people believe. It observes reality, forms addressable knowledge
-                units, and projects them to each audience with the right level of review.
+                Canon sits between what changes and what people believe. It observes reality, derives Canon View, and explains
+                the meaningful deltas in Canon History.
               </p>
             </div>
 
             <div className="grid gap-6 sm:grid-cols-3">
               <Card className="animate-rise">
                 <CardHeader>
-                  <CardTitle className="font-display">Observe Reality</CardTitle>
-                  <CardDescription>Systems of Record First, Narratives Second.</CardDescription>
+                  <CardTitle className="font-display">Observe</CardTitle>
+                  <CardDescription>Systems of record first.</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <p className="text-sm text-white/70">
-                    Ingest broadly by default so importance can emerge from actual usage; teams opt out, not in.
+                    Ingest code, tools, and workflows so Canon View is derived, not declared.
                   </p>
                 </CardContent>
               </Card>
               <Card className="animate-rise animate-rise-delay-1">
                 <CardHeader>
-                  <CardTitle className="font-display">Addressable Units</CardTitle>
-                  <CardDescription>Small, Bounded Chunks of Truth.</CardDescription>
+                  <CardTitle className="font-display">View</CardTitle>
+                  <CardDescription>Authoritative now.</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <p className="text-sm text-white/70">
-                    One unit answers one question, stays traceable, and refreshes without touching everything else.
+                    Canon View is the current state—small, traceable units that refresh without manual docs.
                   </p>
                 </CardContent>
               </Card>
               <Card className="animate-rise animate-rise-delay-2">
                 <CardHeader>
-                  <CardTitle className="font-display">Audience Projection</CardTitle>
-                  <CardDescription>Same Truth, Different Views.</CardDescription>
+                  <CardTitle className="font-display">History</CardTitle>
+                  <CardDescription>Meaningful change.</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <p className="text-sm text-white/70">
-                    Engineering, sales, marketing, leadership, and customers each get the right slice of reality.
+                    Canon History filters noise and explains impact across engineering, go-to-market, and customers.
                   </p>
                 </CardContent>
               </Card>
@@ -200,11 +200,11 @@ export default function LandingPage() {
             <div className="space-y-3">
               <Badge variant="secondary">Visual Flow</Badge>
               <h2 className="font-display text-2xl font-semibold text-white sm:text-3xl">
-                How Canon Moves From Change to Aligned Understanding.
+                From change to Canon View and Canon History.
               </h2>
               <p className="max-w-3xl text-white/70">
-                One sweep: connect once, Canon tracks change, flags drift, drafts updates, and routes them where teams
-                actually work.
+                One sweep: connect once, Canon derives the authoritative present and explains the meaningful changes, then
+                routes both where teams actually work.
               </p>
             </div>
 
@@ -213,27 +213,27 @@ export default function LandingPage() {
                 {[
                   {
                     title: 'Connect',
-                    body: 'Sign in and choose repos/spaces.',
+                    body: 'Sign in and connect repos, workspaces, and tools.',
                     accent: 'from-cyan-400/30 via-blue-400/20 to-white/0',
                   },
                   {
                     title: 'Observe',
-                    body: 'Watch diffs and updates.',
+                    body: 'Ingest reality—code, tickets, configs, workflows.',
                     accent: 'from-emerald-400/30 via-teal-400/20 to-white/0',
                   },
                   {
                     title: 'Detect',
-                    body: 'Spot drift as it happens.',
+                    body: 'Spot drift and surface meaningful changes.',
                     accent: 'from-amber-400/30 via-orange-400/20 to-white/0',
                   },
                   {
-                    title: 'Draft',
-                    body: 'Refresh small knowledge units.',
+                    title: 'View',
+                    body: 'Maintain Canon View: the authoritative current state.',
                     accent: 'from-fuchsia-400/30 via-pink-400/20 to-white/0',
                   },
                   {
-                    title: 'Review & Publish',
-                    body: 'Approve, then push to teams.',
+                    title: 'History',
+                    body: 'Explain the change and impact for each audience.',
                     accent: 'from-violet-400/30 via-purple-400/20 to-white/0',
                   },
                 ].map((step, idx) => (
@@ -282,17 +282,17 @@ export default function LandingPage() {
               <Card className="h-full bg-gradient-to-br from-white/[0.06] via-white/[0.03] to-white/[0.01]">
                 <CardHeader>
                   <CardTitle className="text-white">Code & Reviews</CardTitle>
-                  <CardDescription className="text-white/70">Surface Drift Alongside Diffs and PRs.</CardDescription>
+                  <CardDescription className="text-white/70">Canon History beside commits, diffs, and PRs.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-sm text-white/70">Stay Grounded in What Actually Shipped.</p>
+                  <p className="text-sm text-white/70">Stay grounded in what actually shipped.</p>
                 </CardContent>
               </Card>
 
               <Card className="h-full">
                 <CardHeader>
                   <CardTitle className="text-white">Knowledge Bases</CardTitle>
-                  <CardDescription className="text-white/70">Push Updates Into Notion or Confluence.</CardDescription>
+                  <CardDescription className="text-white/70">Push updates into Notion or Atlassian.</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <p className="text-sm text-white/70">Fresh Context Where Everyone Already Looks.</p>
@@ -311,11 +311,11 @@ export default function LandingPage() {
 
               <Card className="h-full">
                 <CardHeader>
-                  <CardTitle className="text-white">System Interaction Diagrams</CardTitle>
-                  <CardDescription className="text-white/70">Maps That Redraw as Dependencies Change.</CardDescription>
+                  <CardTitle className="text-white">Operational Command Center</CardTitle>
+                  <CardDescription className="text-white/70">Signals, alerts, and summaries in one pane.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-sm text-white/70">Keep Architecture Views Trustworthy Without Manual Updates.</p>
+                  <p className="text-sm text-white/70">Stay ahead of drift by surfacing what matters in a unified dashboard.</p>
                 </CardContent>
               </Card>
             </div>
@@ -430,22 +430,23 @@ export default function LandingPage() {
               </Card>
 
               <Card className="h-full">
-                <CardHeader>
-                  <div className="flex items-center gap-3 mb-2">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white/5 border border-white/10">
-                      <IntegrationLogos provider="confluence" size={24} />
+                  <CardHeader>
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white/5 border border-white/10">
+                        <IntegrationLogos provider="atlassian" size={24} />
+                      </div>
+                      <CardTitle className="text-white">Atlassian</CardTitle>
                     </div>
-                    <CardTitle className="text-white">Confluence</CardTitle>
-                  </div>
-                  <CardDescription className="text-white/70">
-                    Sync knowledge updates to your Confluence spaces.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-white/70">
-                    Maintain accurate documentation in Confluence without manual updates or stale pages.
-                  </p>
-                </CardContent>
+                    <CardDescription className="text-white/70">
+                      Sync knowledge updates into Atlassian workspaces.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-white/70">
+                      Keep Jira projects current while pushing refreshed context into Atlassian docs—automated summaries,
+                      status updates, and drift signals without stale pages.
+                    </p>
+                  </CardContent>
               </Card>
             </div>
 
@@ -502,7 +503,7 @@ export default function LandingPage() {
                   <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:gap-4">
                     <div className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-medium text-white">
                       Connect
-                      <p className="text-xs font-normal text-white/60">OAuth to GitHub / Notion / Confluence</p>
+                    <p className="text-xs font-normal text-white/60">OAuth to GitHub / Notion / Atlassian</p>
                     </div>
                     <div className="hidden h-px flex-1 bg-white/10 sm:block" />
                     <div className="text-xs uppercase tracking-[0.25em] text-white/60 sm:mr-2">Tamper Checks</div>
@@ -518,7 +519,7 @@ export default function LandingPage() {
                   <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:gap-4">
                     <div className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-medium text-white">
                       Outputs
-                      <p className="text-xs font-normal text-white/60">Pages, summaries, alerts, SIDs</p>
+                      <p className="text-xs font-normal text-white/60">Pages, summaries, alerts</p>
                     </div>
                     <div className="hidden h-px flex-1 bg-white/10 sm:block" />
                     <div className="text-xs uppercase tracking-[0.25em] text-white/60 sm:mr-2">Review + Publish</div>

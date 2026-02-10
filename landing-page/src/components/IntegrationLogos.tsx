@@ -5,14 +5,14 @@ import { cn } from '@/lib/utils';
 
 interface IntegrationLogosProps {
   size?: number;
-  provider: 'notion' | 'confluence' | 'github';
+  provider: 'notion' | 'atlassian' | 'github';
   className?: string;
 }
 
 // Map provider names to simple-icons export names
 const iconMap: Record<string, keyof typeof simpleIcons> = {
   notion: 'siNotion',
-  confluence: 'siConfluence',
+  atlassian: 'siAtlassian',
   github: 'siGithub',
 };
 

@@ -76,8 +76,8 @@ const tutorials: VideoTutorial[] = [
   },
   {
     id: 'publish-docs',
-    title: 'Publish Documentation to Knowledge Base',
-    description: 'Learn how to publish your generated documentation to external knowledge bases after connecting to your repository provider and setting up your repository.',
+    title: 'Publish Canon View to Knowledge Base',
+    description: 'Learn how to publish Canon View to external knowledge bases after connecting your repository provider and setting up your repository.',
     duration: '6 min',
     loomUrl: 'https://www.loom.com/share/1977426904b34c1e946394e3c422616b',
     embedUrl: 'https://www.loom.com/embed/1977426904b34c1e946394e3c422616b',
@@ -86,7 +86,7 @@ const tutorials: VideoTutorial[] = [
       'Click the "Publish" button in the documentation interface',
       'Select your preferred knowledge base platform (Notion, Confluence, Coda, etc.)',
       'Choose the destination workspace, page, or space for publishing',
-      'Click "Publish" to send the documentation to your knowledge base',
+      'Click "Publish" to send Canon View to your knowledge base',
       'Verify the publication by checking your knowledge base platform',
     ]
   }
@@ -186,4 +186,3 @@ export default function DocumentationPage() {
     </div>
   );
 }
-

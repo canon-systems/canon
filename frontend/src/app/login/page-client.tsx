@@ -207,83 +207,83 @@ export function LoginPageClient() {
                 </>
               ) : (
                 <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (mode === 'login') {
-                    handleLogin();
-                  } else {
-                    handleSignup();
-                  }
-                }}
-                className="space-y-4"
-              >
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                    autoComplete="email"
-                    placeholder="you@company.com"
-                    disabled={loading}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="password">Password</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !loading && email && password) {
-                        e.preventDefault();
-                        if (mode === 'login') {
-                          handleLogin();
-                        } else {
-                          handleSignup();
-                        }
-                      }
-                    }}
-                    required
-                    autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-                    placeholder={mode === 'login' ? 'Enter your password' : 'Create a strong password'}
-                    disabled={loading}
-                  />
-                </div>
-
-                {mode === 'login' && (
-                  <div className="flex items-center justify-end text-sm text-white/70">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-auto px-0 text-white/70 hover:text-white"
-                      onClick={() => switchMode('forgot')}
-                    >
-                      Forgot password?
-                    </Button>
-                  </div>
-                )}
-
-                <Button
-                  type="submit"
-                  className="w-full"
-                  disabled={loading || !email || !password}
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (mode === 'login') {
+                      handleLogin();
+                    } else {
+                      handleSignup();
+                    }
+                  }}
+                  className="space-y-4"
                 >
-                  {loading ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      {mode === 'login' ? 'Signing in...' : 'Creating account...'}
-                    </>
-                  ) : (
-                    mode === 'login' ? 'Sign in' : 'Create account'
+                  <div className="space-y-2">
+                    <Label htmlFor="email">Email</Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      required
+                      autoComplete="email"
+                      placeholder="you@company.com"
+                      disabled={loading}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="password">Password</Label>
+                    <Input
+                      id="password"
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !loading && email && password) {
+                          e.preventDefault();
+                          if (mode === 'login') {
+                            handleLogin();
+                          } else {
+                            handleSignup();
+                          }
+                        }
+                      }}
+                      required
+                      autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                      placeholder={mode === 'login' ? 'Enter your password' : 'Create a strong password'}
+                      disabled={loading}
+                    />
+                  </div>
+
+                  {mode === 'login' && (
+                    <div className="flex items-center justify-end text-sm text-white/70">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-auto px-0 text-white/70 hover:text-white"
+                        onClick={() => switchMode('forgot')}
+                      >
+                        Forgot password?
+                      </Button>
+                    </div>
                   )}
-                </Button>
-              </form>
+
+                  <Button
+                    type="submit"
+                    className="w-full"
+                    disabled={loading || !email || !password}
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        {mode === 'login' ? 'Signing in...' : 'Creating account...'}
+                      </>
+                    ) : (
+                      mode === 'login' ? 'Sign in' : 'Create account'
+                    )}
+                  </Button>
+                </form>
               )}
 
               {mode === 'login' && (
