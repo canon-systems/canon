@@ -208,12 +208,26 @@ export async function ingestGitHubSource(
     // Build AKUs: per-source (single tab) or merged from selected sources only (multi tab)
     await updateStage(supabase, source.id, 'building_akus', 85, 'Building knowledge outputs');
     if (await abortIfDeleted(supabase, source, 'building_akus')) return;
+    let lastAkuPct = 85;
+    const akuProgress = (processed: number, total: number) => {
+      if (!total) return;
+      const pct = Math.min(100, 85 + Math.round((15 * processed) / total));
+      if (pct <= lastAkuPct && processed < total) return;
+      lastAkuPct = pct;
+      const stepLabel =
+        total > 1 ? `Building knowledge outputs (${processed} / ${total})` : 'Building knowledge outputs';
+      void updateStage(supabase, source.id, 'building_akus', pct, stepLabel, {
+        aku_projections_done: processed,
+        aku_projections_total: total,
+      });
+    };
     if (options?.mode === 'single') {
       console.log('Source ingest: building per-source AKUs for GitHub source', { audiences: preferredAudiences });
       await buildAkusForSources(supabase, source.user_id, [source.id], preferredAudiences, {
         perSource: true,
         extractionTargets: [{ sourceId: source.id, repoUrl, branch, fallbackName: source.id }],
         shouldAbort: () => sourceStillExists(supabase, source.id, source.user_id).then((exists) => !exists),
+        onProgress: akuProgress,
       });
     } else {
       let sourceIds: string[];
@@ -227,6 +241,7 @@ export async function ingestGitHubSource(
       await buildAkusForSources(supabase, source.user_id, sourceIds, preferredAudiences, {
         extractionTargets: [{ sourceId: source.id, repoUrl, branch, fallbackName: source.id }],
         shouldAbort: () => sourceStillExists(supabase, source.id, source.user_id).then((exists) => !exists),
+        onProgress: akuProgress,
       });
     }
 
@@ -252,7 +267,6 @@ export async function ingestIssueSource(
 
   try {
     console.log(`Source ingest: Issue provider start (${provider})`, { scope: source.scope });
-    const preferredAudiences = await resolvePreferredAudiences(supabase, source.user_id);
     await updateStage(supabase, source.id, 'fetching', 10, 'Fetching source data');
     if (await abortIfDeleted(supabase, source, 'fetching')) return;
 
@@ -412,30 +426,9 @@ export async function ingestIssueSource(
       console.log('Source ingest: no issues to store for this source');
     }
 
-    // Build AKUs: per-source (single tab) or merged from selected sources only (multi tab)
-    await updateStage(supabase, source.id, 'building_akus', 85, 'Building knowledge outputs');
-    if (await abortIfDeleted(supabase, source, 'building_akus')) return;
-    if (options?.mode === 'single') {
-      console.log('Source ingest: building per-source AKUs from issues', { issues: rows.length, audiences: preferredAudiences });
-      await buildAkusForSources(supabase, source.user_id, [source.id], preferredAudiences, {
-        perSource: true,
-        shouldAbort: () => sourceStillExists(supabase, source.id, source.user_id).then((exists) => !exists),
-      });
-    } else {
-      let sourceIds: string[];
-      const createdIds = options?.createdSourceIds;
-      if (createdIds && createdIds.length > 0) {
-        sourceIds = createdIds;
-      } else {
-        sourceIds = await getAllUserSourceIds(supabase, source.user_id);
-      }
-      console.log('Source ingest: building merged AKUs for selected sources', { sourceCount: sourceIds.length, audiences: preferredAudiences });
-      await buildAkusForSources(supabase, source.user_id, sourceIds, preferredAudiences, {
-        shouldAbort: () => sourceStillExists(supabase, source.id, source.user_id).then((exists) => !exists),
-      });
-    }
-
-    await updateStage(supabase, source.id, 'ready', 100, 'Setup complete');
+    // Skip AKU build for issue-only sources to speed up ingest; projections can be run separately if needed.
+    await updateStage(supabase, source.id, 'ready', 100, 'Setup complete (issues only, AKU build skipped)');
+    console.log('Source ingest: issue provider finished (AKU skipped)', { provider, issues: rows.length });
   } catch (err) {
     console.error('Source ingest: issue ingest failed', err);
     await updateStatus(supabase, source.id, 'failed', 0, {
@@ -585,8 +578,6 @@ export async function syncIssueSourceDelta(
     console.warn('[knowledge-sync] Issue source skipped: no OAuth connection', { provider, project: projectKey });
     return empty;
   }
-  const preferredAudiences = await resolvePreferredAudiences(supabase, source.user_id);
-
   const accessToken = await getProviderAccessToken({
     provider: provider === 'jira' ? 'confluence' : provider,
     connectionId,
@@ -669,10 +660,8 @@ export async function syncIssueSourceDelta(
 
   const anyChange = added > 0 || removed > 0;
   if (anyChange) {
-    const allSourceIds = await getAllUserSourceIds(supabase, source.user_id);
-    console.log(`[knowledge-sync] Rebuilding merged AKUs for all user sources (issues changed), sourceCount: ${allSourceIds.length}`);
-    await buildAkusForSources(supabase, source.user_id, allSourceIds, preferredAudiences);
-    return { added, removed, rebuilt: true, addedKeys, removedKeys };
+    console.log('[knowledge-sync] Issue delta applied; skipping AKU rebuild for issue-only sources');
+    return { added, removed, rebuilt: false, addedKeys, removedKeys };
   }
   return { added, removed, rebuilt: false, addedKeys, removedKeys };
 }

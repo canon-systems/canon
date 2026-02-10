@@ -35,7 +35,7 @@ export const syncKnowledgeSources = inngest.createFunction(
     id: "knowledge-sync",
     name: "Knowledge Sync (repo_file_summaries + issue_index)",
     retries: 2,
-    concurrency: { limit: 1 },
+    concurrency: { limit: 3 }, // allow Jira runs in parallel with GitHub without overwhelming gateway
   },
   { cron: "*/5 * * * *" }, // every 5 minutes
   async () => {
