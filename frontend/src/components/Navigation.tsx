@@ -54,16 +54,11 @@ export function Navigation({ user, session, onLogout }: NavigationProps) {
     return pathname === item.href;
   };
 
-  const navLinkClass = (active: boolean) =>
-    cn(
-      'flex items-center gap-2 rounded-full px-3 py-2 text-sm transition border border-transparent',
-      active
-        ? 'bg-white text-black shadow-[0_10px_30px_rgba(255,255,255,0.12)]'
-        : 'bg-white/0 text-white/80 hover:bg-white/10 hover:border-white/10 hover:text-white'
-    );
-
   return (
-    <div className="sticky top-0 z-40 border-b border-white/10 bg-black/70 backdrop-blur-xl" ref={containerRef}>
+    <div
+      className="sticky top-0 z-40 border-b border-white/10 bg-white/[0.06] backdrop-blur-xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]"
+      ref={containerRef}
+    >
       <nav className="relative flex items-center justify-between px-4 py-4 md:px-6 lg:px-8">
         <Link href="/" className="flex items-center gap-3 rounded-xl border border-white/5 bg-white/5 px-3 py-2 transition hover:border-white/10 hover:bg-white/10">
           <Image
@@ -79,14 +74,27 @@ export function Navigation({ user, session, onLogout }: NavigationProps) {
           </div>
         </Link>
 
-        <div className="hidden items-center gap-2 rounded-full border border-white/10 bg-white/5 px-2 py-2 shadow-inner shadow-black/30 lg:flex">
+        <div className="hidden items-center gap-8 lg:flex">
           {primaryNav.map((item) => {
             const active = isActive(item);
-            const Icon = item.icon;
             return (
-              <Link key={item.href} href={item.href} className={navLinkClass(active)}>
-                <Icon className={cn('h-4 w-4', active ? 'text-black/70' : 'text-white/70')} />
-                <span className={active ? 'text-black/80' : 'text-white/90'}>{item.label}</span>
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  'relative pb-3 pt-1 text-sm font-medium transition-colors',
+                  active
+                    ? 'text-white'
+                    : 'text-white/60 hover:text-white/90'
+                )}
+              >
+                {item.label}
+                {active && (
+                  <span
+                    className="absolute bottom-0 left-0 right-0 h-0.5 bg-white"
+                    aria-hidden
+                  />
+                )}
               </Link>
             );
           })}
@@ -144,7 +152,7 @@ export function Navigation({ user, session, onLogout }: NavigationProps) {
       </nav>
 
       {mobileOpen && (
-        <div className="relative border-t border-white/10 bg-black/85 px-4 py-4 backdrop-blur-xl lg:hidden">
+        <div className="relative border-t border-white/10 bg-white/[0.06] px-4 py-4 backdrop-blur-xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)] lg:hidden">
           <div className="grid gap-2">
             {primaryNav.map((item) => {
               const active = isActive(item);

@@ -27,7 +27,7 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { IntegrationLogos } from '@/components/IntegrationLogos';
 import { Input } from '@/components/ui/input';
-import { Progress } from '@/components/ui/progress';
+import { ProgressWithLabel } from '@/components/ui/progress';
 
 interface Repository {
   id: string;
@@ -221,6 +221,13 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
   useEffect(() => {
     setRepoList(repositories);
   }, [repositories]);
+
+  const hasProcessing = repoList.some((r) => getStatusBucket(r) === 'processing');
+  useEffect(() => {
+    if (!hasProcessing) return;
+    const interval = setInterval(() => void refreshSources(), 3000);
+    return () => clearInterval(interval);
+  }, [hasProcessing, refreshSources]);
 
   const handleConnectRepository = () => {
     setShowSourceDialog(true);
@@ -633,17 +640,13 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
                       {statusMeta.icon}
                       {statusMeta.label}
                     </Badge>
-                    {statusMeta.isProcessing && (
-                      <Badge variant="outline">
-                        {getProgressPct(repo)}%
-                      </Badge>
-                    )}
                   </div>
                   {statusMeta.isProcessing && (
-                    <div className="space-y-1">
-                      <p className="truncate text-xs text-white/70">{getStepLabel(repo)}</p>
-                      <Progress value={getProgressPct(repo)} className="h-1.5 bg-white/15" />
-                    </div>
+                    <ProgressWithLabel
+                      label={getStepLabel(repo)}
+                      value={getProgressPct(repo)}
+                      className="min-w-[180px]"
+                    />
                   )}
                   {repo.last_error && statusMeta.label === 'Failed' && (
                     <Badge variant="destructive" className="max-w-[220px] truncate text-white/90">
