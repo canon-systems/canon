@@ -133,17 +133,33 @@ function scoreText(text: string, keys: string[]) {
   return keys.reduce((acc, k) => (lower.includes(k) ? acc + 1 : acc), 0);
 }
 
-async function runWithConcurrency<T>(tasks: Array<() => Promise<T>>, limit: number): Promise<T[]> {
+async function runWithConcurrency<T>(
+  tasks: Array<() => Promise<T>>,
+  limit: number,
+  onProgress?: (processed: number, total: number) => void
+): Promise<T[]>;
+async function runWithConcurrency<T>(
+  tasks: Array<() => Promise<T>>,
+  limit: number,
+  onProgress?: (processed: number, total: number) => void
+): Promise<T[]> {
   if (tasks.length === 0) return [];
   const results: T[] = new Array(tasks.length);
   let index = 0;
+  let completed = 0;
+  const total = tasks.length;
 
   const worker = async () => {
     while (true) {
       const current = index;
       index += 1;
       if (current >= tasks.length) return;
-      results[current] = await tasks[current]();
+      try {
+        results[current] = await tasks[current]();
+      } finally {
+        completed += 1;
+        onProgress?.(completed, total);
+      }
     }
   };
 
@@ -1015,6 +1031,8 @@ export type BuildAkusOptions = {
   perSource?: boolean;
   extractionTargets?: SourceExtractionTarget[];
   shouldAbort?: () => Promise<boolean>;
+  /** Called during projection generation with (completed, total) so ingest can report 85→100% */
+  onProgress?: (processed: number, total: number) => void;
 };
 
 export async function buildAkusForSources(
@@ -1273,7 +1291,11 @@ export async function buildAkusForSources(
   }
 
   if (projectionTasks.length > 0) {
-    const generated = await runWithConcurrency(projectionTasks, PROJECTION_CONCURRENCY);
+    const generated = await runWithConcurrency(
+      projectionTasks,
+      PROJECTION_CONCURRENCY,
+      options.onProgress
+    );
     for (const proj of generated) {
       if (proj) projections.push(proj);
     }
