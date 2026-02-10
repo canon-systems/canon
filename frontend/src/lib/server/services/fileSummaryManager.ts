@@ -3,6 +3,27 @@ import { createHash } from 'crypto';
 // Removed unused imports: getUserOctokit, parseRepoUrl
 import { generateFileSummary } from './fileSummarizer';
 
+// Single config for all environments (keep simple, predictable load on gateway)
+const DEFAULT_BATCH_SIZE = 10;
+const DEFAULT_CONCURRENCY = 5;
+
+async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T, index: number) => Promise<void>) {
+  const safeLimit = Math.max(1, limit);
+  let cursor = 0;
+
+  async function runWorker() {
+    while (true) {
+      const current = cursor;
+      cursor += 1;
+      if (current >= items.length) break;
+      await worker(items[current], current);
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(safeLimit, items.length) }, () => runWorker());
+  await Promise.all(workers);
+}
+
 /**
  * File summary status information
  */
@@ -177,7 +198,7 @@ export class FileSummaryManager {
   ): Promise<UpdateResult> {
     const {
       force = false,
-      batchSize = 30,
+      batchSize = DEFAULT_BATCH_SIZE,
       onProgress,
       model = 'openai/gpt-4o-mini',
       regenerationReason = 'initial',
@@ -187,6 +208,11 @@ export class FileSummaryManager {
     const skipped = 0;
     let failed = 0;
     const updatedFiles: string[] = [];
+
+    console.log(
+      `[LLM] Summaries start: total=${files.length}, force=${force}, batchSize=${batchSize}, ` +
+      `concurrency=${DEFAULT_CONCURRENCY}, model=${model}, reason=${regenerationReason}`
+    );
 
     // Check which files need updates
     const statusMap = await this.checkMultipleSummaryStatus(files);
@@ -212,59 +238,61 @@ export class FileSummaryManager {
       batches.push(filesNeedingUpdate.slice(i, i + batchSize));
     }
 
+    batches.forEach((batch, i) =>
+      console.log(
+        `[LLM] Summaries batching: batch ${i + 1}/${batches.length} size=${batch.length} (concurrency ${DEFAULT_CONCURRENCY})`
+      )
+    );
+
     for (const batch of batches) {
-      // Process batch in parallel
-      await Promise.all(
-        batch.map(async (file) => {
-          try {
-            const status = statusMap.get(file.path);
-            const reason = !status?.exists ? 'new file (added)' : 'content changed (hash mismatch)';
-            console.log(`[LLM] Generating file summary: ${file.path} — reason: ${reason}`);
+      await runWithConcurrency(batch, DEFAULT_CONCURRENCY, async (file) => {
+        try {
+          const status = statusMap.get(file.path);
+          const reason = !status?.exists ? 'new file (added)' : 'content changed (hash mismatch)';
+          console.log(`[LLM] Generating file summary: ${file.path} — reason: ${reason}`);
 
-            onProgress?.({
-              processed: processed + skipped,
-              total: filesNeedingUpdate.length,
-              currentFile: file.path,
-              status: 'processing'
-            });
+          onProgress?.({
+            processed: processed + skipped,
+            total: filesNeedingUpdate.length,
+            currentFile: file.path,
+            status: 'processing'
+          });
 
-            const fileHash = file.hash || this.calculateFileHash(file.content);
-            const summary = await generateFileSummary(file.content, file.path, model);
+          const fileHash = file.hash || this.calculateFileHash(file.content);
+          const summary = await generateFileSummary(file.content, file.path, model);
 
-            // Save to database using direct SQL to avoid last_regenerated column reference
-            const { error } = await this.supabase
-              .from('repo_file_summaries')
-              .upsert(
-                {
-                  source_id: this.sourceId,
-                  source_key: this.sourceKey,
-                  file_path: this.normalizeFilePath(file.path),
-                  file_hash: fileHash,
-                  summary_text: summary.summary_text,
-                  summary_model: model,
-                  branch: this.branch,
-                  regeneration_reason: regenerationReason,
-                  updated_at: new Date().toISOString(),
-                },
-                {
-                  onConflict: 'source_id,file_path,branch',
-                  ignoreDuplicates: false
-                }
-              );
+          const { error } = await this.supabase
+            .from('repo_file_summaries')
+            .upsert(
+              {
+                source_id: this.sourceId,
+                source_key: this.sourceKey,
+                file_path: this.normalizeFilePath(file.path),
+                file_hash: fileHash,
+                summary_text: summary.summary_text,
+                summary_model: model,
+                branch: this.branch,
+                regeneration_reason: regenerationReason,
+                updated_at: new Date().toISOString(),
+              },
+              {
+                onConflict: 'source_id,file_path,branch',
+                ignoreDuplicates: false
+              }
+            );
 
-            if (error) {
-              console.error(`Failed to save summary for ${file.path}:`, error);
-              failed++;
-            } else {
-              processed++;
-              updatedFiles.push(file.path);
-            }
-          } catch (error) {
-            console.error(`Failed to generate summary for ${file.path}:`, error);
+          if (error) {
+            console.error(`Failed to save summary for ${file.path}:`, error);
             failed++;
+          } else {
+            processed++;
+            updatedFiles.push(file.path);
           }
-        })
-      );
+        } catch (error) {
+          console.error(`Failed to generate summary for ${file.path}:`, error);
+          failed++;
+        }
+      });
     }
 
     onProgress?.({

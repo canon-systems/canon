@@ -1,6 +1,11 @@
 const GATEWAY_URL = process.env.VERCEL_AI_GATEWAY_URL || '';
 const GATEWAY_API_KEY = process.env.VERCEL_AI_GATEWAY_API_KEY || '';
 
+// Single, fixed values for all environments to keep behavior predictable
+const DEFAULT_TIMEOUT_MS = 60000;
+const MAX_RETRIES = 2;
+const RETRY_BASE_DELAY_MS = 1000;
+
 export type Message = { role: 'system' | 'user' | 'assistant'; content: string };
 
 /**
@@ -102,64 +107,94 @@ export class LLMGateway {
 		}
 	}
 
-	async call(messages: Message[], model: string, temperature?: number, context?: string, abortSignal?: AbortSignal): Promise<string> {
+  async call(
+    messages: Message[],
+    model: string,
+    temperature?: number,
+    context?: string,
+    abortSignal?: AbortSignal,
+    options: { timeoutMs?: number; maxRetries?: number; retryDelayMs?: number } = {}
+  ): Promise<string> {
 
-		try {
-			// Use provided AbortSignal or create one for timeout
-			let controller: AbortController;
-			let timeoutId: NodeJS.Timeout | undefined;
+    const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    const maxRetries = Math.max(0, options.maxRetries ?? MAX_RETRIES);
+    const retryDelayMs = options.retryDelayMs ?? RETRY_BASE_DELAY_MS;
 
-			if (abortSignal) {
-				// Use the provided signal
-				controller = { signal: abortSignal } as AbortController;
-			} else {
-				// Create our own for timeout (3 minutes for LLM calls)
-				controller = new AbortController();
-				timeoutId = setTimeout(() => controller.abort(), 180000);
-			}
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const isLast = attempt === maxRetries;
+      try {
+        console.log(
+          `[LLMGateway] ▶️ call start: model=${model} attempt=${attempt + 1}/${maxRetries + 1} timeout=${timeoutMs}ms`
+        );
+        // Use provided AbortSignal or create one for timeout
+        let controller: AbortController;
+        let timeoutId: NodeJS.Timeout | undefined;
 
-			const response = await fetch(`${this.url}/chat/completions`, {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					authorization: `Bearer ${this.apiKey}`,
-					'x-vercel-ai-key': this.apiKey,
-				},
-				body: JSON.stringify({
-					model,
-					temperature: temperature ?? this.defaultTemperature,
-					messages,
-				}),
-				signal: controller.signal,
-			});
+        if (abortSignal) {
+          controller = { signal: abortSignal } as AbortController;
+        } else {
+          controller = new AbortController();
+          timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        }
 
-			if (timeoutId) clearTimeout(timeoutId);
+        const response = await fetch(`${this.url}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            authorization: `Bearer ${this.apiKey}`,
+            'x-vercel-ai-key': this.apiKey,
+          },
+          body: JSON.stringify({
+            model,
+            temperature: temperature ?? this.defaultTemperature,
+            messages,
+          }),
+          signal: controller.signal,
+        });
 
-			const payload = await response.json().catch(() => ({}));
-			if (!response.ok) {
-				console.error(`[LLMGateway] ❌ API call failed: ${payload?.error?.message || payload?.message || `HTTP ${response.status}`}`);
-				throw new Error(payload?.error?.message || payload?.message || `LLM HTTP ${response.status}`);
-			}
+        if (timeoutId) clearTimeout(timeoutId);
 
-			const usage = payload?.usage || {};
-			console.log(
-				`🤖 [LLM] model=${model} prompt_tokens=${usage.prompt_tokens ?? '?'} completion_tokens=${usage.completion_tokens ?? '?'} total=${usage.total_tokens ?? '?'}`
-			);
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const message = payload?.error?.message || payload?.message || `HTTP ${response.status}`;
+          const retryable = response.status === 429 || response.status >= 500;
+          console.error(`[LLMGateway] ❌ API call failed (attempt ${attempt + 1}/${maxRetries + 1}): ${message}`);
+          if (!isLast && retryable) {
+            const delay = retryDelayMs * Math.pow(2, attempt);
+            console.log(`[LLMGateway] 🔁 retrying in ${delay}ms after ${message}`);
+            await new Promise((r) => setTimeout(r, delay));
+            continue;
+          }
+          throw new Error(message);
+        }
 
-			const content = payload?.choices?.[0]?.message?.content;
-			return typeof content === 'string' ? content.trim() : '';
-		} catch (error: unknown) {
-			// Handle specific error types
-			if (error instanceof Error && error.name === 'AbortError') {
-				console.error(`[LLMGateway] ⏰ Request timed out after 180 seconds`);
-				throw new Error('LLM API call timed out after 180 seconds');
-			}
+        const usage = payload?.usage || {};
+        console.log(
+          `🤖 [LLM] model=${model} prompt_tokens=${usage.prompt_tokens ?? '?'} completion_tokens=${usage.completion_tokens ?? '?'} total=${usage.total_tokens ?? '?'} (attempt ${attempt + 1})`
+        );
 
-			console.error(`[LLMGateway] 💥 Network or parsing error:`, error);
-			const errorMessage = error instanceof Error ? error.message : 'Unknown network error';
-			throw new Error(`LLM API call failed: ${errorMessage}`);
-		}
-	}
+        const content = payload?.choices?.[0]?.message?.content;
+        return typeof content === 'string' ? content.trim() : '';
+      } catch (error: unknown) {
+        const isAbort = error instanceof Error && error.name === 'AbortError';
+        const message = isAbort ? `timeout after ${timeoutMs}ms` : (error instanceof Error ? error.message : 'Unknown network error');
+        const retryable = isAbort || (error instanceof Error && /ECONNRESET|ETIMEDOUT|ENOTFOUND|fetch failed/i.test(error.message));
+
+        console.error(`[LLMGateway] ${isAbort ? '⏰' : '💥'} Attempt ${attempt + 1}/${maxRetries + 1} failed: ${message}`);
+
+        if (!isLast && retryable) {
+          const delay = retryDelayMs * Math.pow(2, attempt);
+          console.log(`[LLMGateway] 🔁 retrying in ${delay}ms after ${message}`);
+          await new Promise((r) => setTimeout(r, delay));
+          continue;
+        }
+
+        throw new Error(isAbort ? `LLM API call timed out after ${timeoutMs}ms` : `LLM API call failed: ${message}`);
+      }
+    }
+
+    throw new Error('LLM call failed after retries');
+  }
 
 	async *stream(messages: Message[], model: string, temperature?: number) {
 		const response = await fetch(`${this.url}/chat/completions`, {

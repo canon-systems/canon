@@ -180,13 +180,29 @@ export async function ingestGitHubSource(
     const sourceKey = normalizeRepoId(repoUrl);
     const manager = new FileSummaryManager(supabase, source.id, sourceKey, branch);
     console.log(`Source ingest: summarizing ${files.length} files`);
+    const totalFiles = files.length;
     await updateStage(supabase, source.id, 'summarizing', 60, 'Summarizing source data', {
-      total_files: files.length,
+      total_files: totalFiles,
     });
     if (await abortIfDeleted(supabase, source, 'summarizing')) return;
+    let lastPct = 60;
     await manager.updateSummaries(
       files.map((f) => ({ path: f.path, content: f.content })),
-      { model: 'openai/gpt-4o-mini', regenerationReason: 'initial' }
+      {
+        model: 'openai/gpt-4o-mini',
+        regenerationReason: 'initial',
+        onProgress: ({ processed, total }) => {
+          if (!total) return;
+          const pct = Math.min(85, 60 + Math.round((25 * processed) / total));
+          if (pct <= lastPct && pct < 85) return;
+          lastPct = pct;
+          const stepLabel = `Summarizing files (${processed} / ${total})`;
+          void updateStage(supabase, source.id, 'summarizing', pct, stepLabel, {
+            total_files: total,
+            summarized_files: processed,
+          });
+        },
+      }
     );
 
     // Build AKUs: per-source (single tab) or merged from selected sources only (multi tab)

@@ -6,22 +6,44 @@ interface ProgressProps extends React.HTMLAttributes<HTMLDivElement> {
 }
 
 const Progress = React.forwardRef<HTMLDivElement, ProgressProps>(
-  ({ className, value = 0, ...props }, ref) => (
-    <div
-      ref={ref}
-      className={cn(
-        "relative h-2 w-full overflow-hidden rounded-full bg-white/10",
-        className
-      )}
-      {...props}
-    >
+  ({ className, value = 0, ...props }, ref) => {
+    const pct = Math.min(100, Math.max(0, value));
+    return (
       <div
-        className="h-full w-full flex-1 bg-gradient-to-r from-white/80 via-white/60 to-white/30"
-        style={{ transform: `translateX(-${100 - Math.min(100, Math.max(0, value))}%)` }}
-      />
-    </div>
-  )
+        ref={ref}
+        className={cn(
+          "relative h-2 w-full overflow-hidden rounded-full bg-white/10",
+          className
+        )}
+        {...props}
+      >
+        <div
+          className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-[transform] duration-300 ease-out"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    );
+  }
 );
 Progress.displayName = "Progress";
 
-export { Progress };
+interface ProgressWithLabelProps {
+  label: string;
+  value: number;
+  className?: string;
+}
+
+function ProgressWithLabel({ label, value, className }: ProgressWithLabelProps) {
+  const pct = Math.min(100, Math.max(0, Math.round(value)));
+  return (
+    <div className={cn("w-full space-y-2", className)}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm font-medium text-white truncate">{label}</span>
+        <span className="text-sm font-medium text-white tabular-nums shrink-0">{pct}%</span>
+      </div>
+      <Progress value={pct} className="h-1.5 bg-white/15" />
+    </div>
+  );
+}
+
+export { Progress, ProgressWithLabel };
