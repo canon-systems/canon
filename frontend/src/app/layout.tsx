@@ -19,7 +19,7 @@ const interDisplay = Inter({
 
 export const metadata: Metadata = {
   title: "Canon - Automated Knowledge Infrastructure",
-  description: "Automatically generate clear, non-technical summaries that explain the business purpose and value of any code.",
+  description: "Keep shared understanding aligned with reality across code, tools, and workflows.",
 };
 
 export default async function RootLayout({

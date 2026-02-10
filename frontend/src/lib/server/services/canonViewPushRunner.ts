@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { type PlanResult, type PlannedPage } from './knowledgePushPlanner';
+import { type PlanResult, type PlannedPage } from './canonViewPushPlanner';
 import { getWorkspaceProvider } from '../workspaces/workspaceFactory';
 import type { WorkspaceInfo, WorkspaceContent } from '../workspaces/base';
 import { marked } from 'marked';
@@ -168,7 +168,7 @@ function buildWorkspaceInfo(
   return null;
 }
 
-async function upsertKnowledgePush(
+async function upsertCanonViewPush(
   supabase: SupabaseClient,
   userId: string,
   provider: Provider,
@@ -210,7 +210,7 @@ async function upsertKnowledgePush(
   }
 }
 
-export async function runKnowledgePush(params: PushParams): Promise<{ results: PageResult[]; rootPageId: string | null }> {
+export async function runCanonViewPush(params: PushParams): Promise<{ results: PageResult[]; rootPageId: string | null }> {
   const {
     supabase,
     userId,
@@ -326,7 +326,7 @@ export async function runKnowledgePush(params: PushParams): Promise<{ results: P
       const rootExists = await providerImpl.resourceExists(rootExistsInfo, connectionId);
       if (!rootExists) {
         createAtSpaceRoot = true;
-        console.log(`[KB Push] root page no longer exists, creating System Knowledge at space root`);
+        console.log(`[KB Push] root page no longer exists, creating Canon View at space root`);
       }
     }
     // If we plan to update an existing page, verify it still exists; otherwise fall back to create.
@@ -376,7 +376,7 @@ export async function runKnowledgePush(params: PushParams): Promise<{ results: P
       rootPageId = pushed.resourceId;
     }
     if (page.type !== 'system') {
-      await upsertKnowledgePush(supabase, userId, provider, page, pushed.resourceId, parentResourceId, page.hash);
+      await upsertCanonViewPush(supabase, userId, provider, page, pushed.resourceId, parentResourceId, page.hash);
     }
 
     console.log(`[KB Push] ${createNew ? 'created' : 'updated'}`, {

@@ -16,24 +16,24 @@ function logChangedItems(
   if (added.length > 0) {
     const show = added.slice(0, MAX_LOG_ITEMS);
     const more = added.length > MAX_LOG_ITEMS ? ` (+${added.length - MAX_LOG_ITEMS} more)` : "";
-    console.log(`[knowledge-sync]   ${kind}s added: ${show.join(", ")}${more}`);
+    console.log(`[canon-sync]   ${kind}s added: ${show.join(", ")}${more}`);
   }
   if (removed.length > 0) {
     const show = removed.slice(0, MAX_LOG_ITEMS);
     const more = removed.length > MAX_LOG_ITEMS ? ` (+${removed.length - MAX_LOG_ITEMS} more)` : "";
-    console.log(`[knowledge-sync]   ${kind}s removed: ${show.join(", ")}${more}`);
+    console.log(`[canon-sync]   ${kind}s removed: ${show.join(", ")}${more}`);
   }
 }
 
 /**
- * Knowledge sync: runs every 1 minute (for testing; adjust cron as needed).
+ * Canon sync: runs every 1 minute (for testing; adjust cron as needed).
  * For each workspace source, performs delta sync of repo_file_summaries and
  * issue_index (additions, changes, deletions), then rebuilds AKUs when needed.
  */
-export const syncKnowledgeSources = inngest.createFunction(
+export const syncCanonSources = inngest.createFunction(
   {
-    id: "knowledge-sync",
-    name: "Knowledge Sync (repo_file_summaries + issue_index)",
+    id: "canon-sync",
+    name: "Canon Sync (repo_file_summaries + issue_index)",
     retries: 2,
     concurrency: { limit: 3 }, // allow Jira runs in parallel with GitHub without overwhelming gateway
   },
@@ -42,7 +42,7 @@ export const syncKnowledgeSources = inngest.createFunction(
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const serviceKey = process.env.SUPABASE_SERVICE_KEY;
     if (!supabaseUrl || !serviceKey) {
-      console.error("[knowledge-sync] Missing Supabase env");
+      console.error("[canon-sync] Missing Supabase env");
       return { error: "Missing Supabase env" };
     }
 
@@ -54,16 +54,16 @@ export const syncKnowledgeSources = inngest.createFunction(
       .in("provider", ["github", "jira", "linear", "asana"]);
 
     if (error) {
-      console.error("[knowledge-sync] Failed to fetch sources", error);
+      console.error("[canon-sync] Failed to fetch sources", error);
       return { error: error.message };
     }
 
     if (!sources?.length) {
-      console.log("[knowledge-sync] No sources to sync");
+      console.log("[canon-sync] No sources to sync");
       return { synced: 0, timestamp: new Date().toISOString() };
     }
 
-    console.log(`[knowledge-sync] Starting: ${sources.length} source(s)`);
+    console.log(`[canon-sync] Starting: ${sources.length} source(s)`);
 
     let githubAdded = 0;
     let githubRemoved = 0;
@@ -84,7 +84,7 @@ export const syncKnowledgeSources = inngest.createFunction(
           githubRemoved += r.removed;
           if (r.added > 0 || r.removed > 0) {
             console.log(
-              `[knowledge-sync] GitHub ${scopeLabel}: ${r.added} file(s) added, ${r.removed} removed${r.rebuilt ? ", AKUs rebuilt" : ""}`
+              `[canon-sync] GitHub ${scopeLabel}: ${r.added} file(s) added, ${r.removed} removed${r.rebuilt ? ", AKUs rebuilt" : ""}`
             );
             logChangedItems(r.addedPaths, r.removedPaths, "file");
           }
@@ -94,7 +94,7 @@ export const syncKnowledgeSources = inngest.createFunction(
           issueRemoved += r.removed;
           if (r.added > 0 || r.removed > 0) {
             console.log(
-              `[knowledge-sync] ${provider} ${scopeLabel}: ${r.added} issue(s) added, ${r.removed} removed${r.rebuilt ? ", AKUs rebuilt" : ""}`
+              `[canon-sync] ${provider} ${scopeLabel}: ${r.added} issue(s) added, ${r.removed} removed${r.rebuilt ? ", AKUs rebuilt" : ""}`
             );
             logChangedItems(r.addedKeys, r.removedKeys, "ticket");
           }
@@ -102,12 +102,12 @@ export const syncKnowledgeSources = inngest.createFunction(
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         errors.push(`${row.id} (${provider}): ${msg}`);
-        console.error(`[knowledge-sync] Failed ${provider} ${scopeLabel}: ${msg}`);
+        console.error(`[canon-sync] Failed ${provider} ${scopeLabel}: ${msg}`);
       }
     }
 
     console.log(
-      `[knowledge-sync] Done: ${sources.length} source(s), ` +
+      `[canon-sync] Done: ${sources.length} source(s), ` +
       `GitHub +${githubAdded}/-${githubRemoved}, issues +${issueAdded}/-${issueRemoved}` +
       (errors.length ? `, ${errors.length} error(s)` : "")
     );

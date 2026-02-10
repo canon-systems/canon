@@ -1,16 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { ArrowRight, Menu, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import {
-    NavigationMenu,
-    NavigationMenuItem,
-    NavigationMenuLink,
-    NavigationMenuList,
-    navigationMenuTriggerStyle,
-} from '@/components/ui/navigation-menu';
 import { cn } from '@/lib/utils';
 
 const appHref = 'https://sync-swart.vercel.app/login';
@@ -48,118 +42,87 @@ export function Navigation() {
     };
 
     return (
-        <header className="sticky top-0 z-50 w-full border-b border-white/10 bg-black/70 backdrop-blur-xl">
-            <nav className="relative mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
-                {/* Logo Section */}
-                <Link href="/" className="flex items-center gap-3 z-10">
-                    <img
+        <header className="sticky top-0 z-50 w-full border-b border-white/10 bg-white/[0.06] backdrop-blur-xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]">
+            <nav className="relative mx-auto flex max-w-7xl items-center justify-between px-4 py-4 md:px-6 lg:px-8">
+                <Link href="/" className="flex items-center gap-3 rounded-xl border border-white/5 bg-white/5 px-3 py-2 transition hover:border-white/10 hover:bg-white/10">
+                    <Image
                         src="/web-app-manifest-512x512.png"
                         alt="Canon"
-                        className="h-10 w-10 rounded-xl border border-white/10"
+                        width={40}
+                        height={40}
+                        className="h-10 w-10 rounded-lg border border-white/10"
                     />
-                    <div>
-                        <p className="text-base font-semibold text-white">Canon</p>
+                    <div className="flex flex-col leading-tight">
+                        <span className="text-sm font-semibold text-white">Canon</span>
+                        <span className="text-[11px] uppercase tracking-[0.2em] text-white/60">Workspace</span>
                     </div>
                 </Link>
 
-                {/* Desktop Navigation */}
-                <div className="hidden md:flex items-center gap-6 z-10">
-                    <NavigationMenu>
-                        <NavigationMenuList>
-                            {navLinks.map((link) => (
-                                <NavigationMenuItem key={link.title}>
-                                    <a
-                                        href={link.href}
-                                        className={cn(
-                                            navigationMenuTriggerStyle(),
-                                            'text-white/80 hover:text-white'
-                                        )}
-                                        onClick={(e) => handleNavLinkClick(e, link.href)}
-                                    >
-                                        {link.title}
-                                    </a>
-                                </NavigationMenuItem>
-                            ))}
-                        </NavigationMenuList>
-                    </NavigationMenu>
-
-                    <div className="flex items-center gap-3 ml-4">
-                        <Button variant="ghost" asChild>
-                            <a href={appHref} target="_blank" rel="noopener noreferrer">
-                                Sign In
-                            </a>
-                        </Button>
-                        <Button asChild>
-                            <a href={appHref} target="_blank" rel="noopener noreferrer">
-                                Get Started
-                                <ArrowRight className="h-4 w-4" />
-                            </a>
-                        </Button>
-                    </div>
+                <div className="hidden items-center gap-8 lg:flex">
+                    {navLinks.map((link) => (
+                        <a
+                            key={link.title}
+                            href={link.href}
+                            className="relative pb-3 pt-1 text-sm font-medium text-white/70 transition-colors hover:text-white"
+                            onClick={(e) => handleNavLinkClick(e, link.href)}
+                        >
+                            {link.title}
+                        </a>
+                    ))}
                 </div>
 
-                {/* Mobile Navigation */}
-                <div className="flex items-center gap-2 md:hidden z-10">
+                <div className="hidden items-center gap-3 lg:flex">
+                    <Button variant="secondary" className="border-white/10 bg-white/5 text-white hover:border-white/20 hover:bg-white/10" asChild>
+                        <a href={appHref} target="_blank" rel="noopener noreferrer">
+                            Sign In
+                        </a>
+                    </Button>
+                    <Button className="border-white/10 bg-white text-black hover:bg-white/90" asChild>
+                        <a href={appHref} target="_blank" rel="noopener noreferrer">
+                            Get Started
+                            <ArrowRight className="h-4 w-4" />
+                        </a>
+                    </Button>
+                </div>
+
+                <div className="flex items-center gap-2 lg:hidden">
                     <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-10 w-10"
+                        variant="secondary"
+                        className="h-11 w-11 rounded-full border-white/10 bg-white/5 p-0"
                         onClick={() => setMobileOpen(!mobileOpen)}
                         aria-label="Toggle menu"
                     >
-                        {mobileOpen ? (
-                            <X className="h-5 w-5 text-white" />
-                        ) : (
-                            <Menu className="h-5 w-5 text-white" />
-                        )}
+                        {mobileOpen ? <X className="h-5 w-5 text-white" /> : <Menu className="h-5 w-5 text-white" />}
                     </Button>
                 </div>
             </nav>
 
-            {/* Mobile Menu */}
             {mobileOpen && (
-                <div className="relative border-t border-white/10 bg-black/95 backdrop-blur-xl md:hidden">
-                    <div className="mx-auto max-w-7xl px-4 py-4">
-                        <nav className="flex flex-col gap-2">
-                            {navLinks.map((link) => (
-                                <Link
-                                    key={link.title}
-                                    href={link.href}
-                                    className={cn(
-                                        'rounded-lg px-4 py-3 text-sm font-medium text-white/80 transition-colors hover:bg-white/10 hover:text-white'
-                                    )}
-                                    onClick={(e) => {
-                                        handleNavLinkClick(e, link.href);
-                                        setMobileOpen(false);
-                                    }}
-                                >
-                                    {link.title}
-                                </Link>
-                            ))}
-                            <div className="mt-2 flex flex-col gap-2 border-t border-white/10 pt-4">
-                                <Button variant="ghost" className="w-full justify-start" asChild>
-                                    <a
-                                        href={appHref}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        onClick={() => setMobileOpen(false)}
-                                    >
-                                        Sign In
-                                    </a>
-                                </Button>
-                                <Button className="w-full" asChild>
-                                    <a
-                                        href={appHref}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        onClick={() => setMobileOpen(false)}
-                                    >
-                                        Get Started
-                                        <ArrowRight className="h-4 w-4" />
-                                    </a>
-                                </Button>
-                            </div>
-                        </nav>
+                <div className="relative border-t border-white/10 bg-white/[0.06] px-4 py-4 backdrop-blur-xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)] lg:hidden">
+                    <nav className="grid gap-2">
+                        {navLinks.map((link) => (
+                            <a
+                                key={link.title}
+                                href={link.href}
+                                className="flex items-center gap-3 rounded-xl border border-white/10 px-3 py-3 text-sm text-white/90 transition hover:bg-white/10"
+                                onClick={(e) => handleNavLinkClick(e, link.href)}
+                            >
+                                {link.title}
+                            </a>
+                        ))}
+                    </nav>
+                    <div className="mt-3 grid gap-2">
+                        <Button variant="ghost" className="w-full justify-start text-white/80 hover:text-white" asChild>
+                            <a href={appHref} target="_blank" rel="noopener noreferrer" onClick={() => setMobileOpen(false)}>
+                                Sign In
+                            </a>
+                        </Button>
+                        <Button className="w-full border-white/10 bg-white text-black hover:bg-white/90" asChild>
+                            <a href={appHref} target="_blank" rel="noopener noreferrer" onClick={() => setMobileOpen(false)}>
+                                Get Started
+                                <ArrowRight className="h-4 w-4" />
+                            </a>
+                        </Button>
                     </div>
                 </div>
             )}

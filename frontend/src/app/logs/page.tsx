@@ -204,7 +204,7 @@ export default async function LogsPage() {
           ...base,
           type: 'kb_push' as const,
           title: `Pushed to ${kbLabel}`,
-          message: 'Documentation pushed to knowledge base',
+          message: 'Canon View pushed to knowledge base',
           status: 'completed',
           link: undefined,
         };

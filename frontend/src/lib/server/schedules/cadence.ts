@@ -2,7 +2,7 @@
  * Cadence helpers for report_schedules.
  * Scheduling is handled by RRULE + Inngest (reportScheduleTick). This module provides
  * the primary time window for diff reports; baseline is computed via computeBaselineWindow
- * (same as Knowledge page compare). All times are UTC.
+ * (same as Canon History compare). All times are UTC.
  */
 
 function toISO(date: Date): string {
@@ -11,7 +11,7 @@ function toISO(date: Date): string {
 
 /**
  * Returns the primary window { start, end } in ISO format for the given cadence.
- * Matches how the Knowledge page diff works: primary is the report period, baseline
+ * Matches how the Canon History diff works: primary is the report period, baseline
  * is computed separately via computeBaselineWindow(primary.start, primary.end).
  *
  * - daily: current day (today 00:00 → 23:59:59 UTC)

@@ -1,9 +1,9 @@
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
-import KnowledgeClient from './page-client';
+import KnowledgeClient from '../knowledge/page-client';
 
-export default async function KnowledgePage() {
+export default async function CanonViewPage() {
   const { session, user } = await getSession();
 
   if (!session) {
@@ -21,10 +21,9 @@ export default async function KnowledgePage() {
     console.error('Failed to load sources:', error);
   }
 
-  // Knowledge source options: only repo-based sources (e.g. GitHub) for diagram/source selection; Jira is issue-based and handled separately
-  const knowledgeSources = (sources || []).filter(
+  const canonSources = (sources || []).filter(
     (s) => (s?.provider ?? '').toString().toLowerCase() === 'github'
   );
 
-  return <KnowledgeClient sources={knowledgeSources} />;
+  return <KnowledgeClient sources={canonSources} mode="knowledge" showModeSwitcher={false} />;
 }

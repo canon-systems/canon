@@ -8,6 +8,7 @@ import {
   BookOpen,
   Database,
   FileText,
+  GitCompare,
   LogOut,
   Menu,
   ScrollText,
@@ -33,7 +34,8 @@ type NavItem = {
 
 const primaryNav: NavItem[] = [
   { href: '/sources', label: 'Sources', icon: Database },
-  { href: '/knowledge', label: 'Knowledge', icon: FileText },
+  { href: '/canon-view', label: 'Canon View', icon: FileText },
+  { href: '/canon-history', label: 'Canon History', icon: GitCompare },
   { href: '/logs', label: 'Logs', icon: ScrollText },
 ];
 

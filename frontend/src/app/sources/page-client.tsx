@@ -77,7 +77,7 @@ const stepByStatus: Record<string, string> = {
   fetching: 'Fetching source data',
   indexing: 'Indexing source data',
   summarizing: 'Summarizing source data',
-  building_akus: 'Building knowledge outputs',
+  building_akus: 'Building Canon View outputs',
   ingesting: 'Ingesting source data',
   ready: 'Setup complete',
   draft_ready: 'Draft ready',
