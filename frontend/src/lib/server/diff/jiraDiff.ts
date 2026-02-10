@@ -173,6 +173,19 @@ export async function getJiraDiffForProject(params: JiraDiffParams): Promise<Jir
   const tickets_completed: JiraTicketEvent[] = [];
   const tickets_regressed: JiraTicketEvent[] = [];
   const tickets_new: JiraTicketEvent[] = [];
+  const dedupeLatest = (events: JiraTicketEvent[]) => {
+    const byTicket = new Map<string, JiraTicketEvent>();
+    for (const evt of events) {
+      const prev = byTicket.get(evt.ticket_id);
+      const prevTs = prev ? Date.parse(prev.timestamp) : -Infinity;
+      const ts = Date.parse(evt.timestamp);
+      if (!Number.isFinite(ts)) continue;
+      if (ts >= prevTs) {
+        byTicket.set(evt.ticket_id, evt);
+      }
+    }
+    return Array.from(byTicket.values());
+  };
 
   const statusCategoryMap = await getStatusCategoryMap(accessToken, cloudId);
 
@@ -275,9 +288,9 @@ export async function getJiraDiffForProject(params: JiraDiffParams): Promise<Jir
     projectKey,
     start,
     end,
-    tickets_moved,
-    tickets_completed,
-    tickets_regressed,
-    tickets_new,
+    tickets_moved: dedupeLatest(tickets_moved),
+    tickets_completed: dedupeLatest(tickets_completed),
+    tickets_regressed: dedupeLatest(tickets_regressed),
+    tickets_new: dedupeLatest(tickets_new),
   };
 }
