@@ -40,6 +40,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Calendar, type DateRange } from '@/components/ui/calendar';
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
+import { Combobox } from '@/components/ui/combobox';
 
 type KnowledgeItem = {
   id: string;
@@ -1484,19 +1485,21 @@ function DiffPrototypePanel() {
                         {diffScheduleFormCommunication.kb && (
                           <div className="mt-3 space-y-2 rounded-md border border-white/10 bg-white/5 p-3">
                             <span className="text-xs text-white/60">KB target</span>
-                            <select
-                              className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none"
+                            <Combobox
+                              options={[
+                                { value: '', label: 'Select provider' },
+                                { value: 'notion', label: 'Notion' },
+                                { value: 'confluence', label: 'Confluence' },
+                              ]}
                               value={diffScheduleFormKbProvider}
-                              onChange={(e) => {
-                                const provider = e.target.value as '' | 'notion' | 'confluence';
+                              onChange={(v) => {
+                                const provider = v as '' | 'notion' | 'confluence';
                                 setDiffScheduleFormKbProvider(provider);
                                 if (provider) loadDiffScheduleKbResources(provider);
                               }}
-                            >
-                              <option value="">Select provider</option>
-                              <option value="notion">Notion</option>
-                              <option value="confluence">Confluence</option>
-                            </select>
+                              placeholder="Select provider"
+                              searchPlaceholder="Search providers..."
+                            />
                             {diffScheduleFormKbProvider && (
                               <>
                                 <div>
@@ -1509,23 +1512,21 @@ function DiffPrototypePanel() {
                                   ) : diffScheduleFormKbResources.length === 0 ? (
                                     <span className="text-sm text-white/60">No resources found. Connect {diffScheduleFormKbProvider} in Settings.</span>
                                   ) : (
-                                    <select
-                                      className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none"
+                                    <Combobox
+                                      options={diffScheduleFormKbResources.map((r) => ({
+                                        value: r.id,
+                                        label: r.title || r.id,
+                                      }))}
                                       value={diffScheduleFormKbResourceId}
-                                      onChange={(e) => {
-                                        const id = e.target.value;
+                                      onChange={(id) => {
                                         const r = diffScheduleFormKbResources.find((res) => res.id === id);
                                         setDiffScheduleFormKbResourceId(id);
                                         setDiffScheduleFormKbRootMetadata(r?.metadata);
                                         setDiffScheduleFormConfluenceFolderId('');
                                       }}
-                                    >
-                                      {diffScheduleFormKbResources.map((r) => (
-                                        <option key={r.id} value={r.id}>
-                                          {r.title || r.id}
-                                        </option>
-                                      ))}
-                                    </select>
+                                      placeholder="Select page or space"
+                                      searchPlaceholder="Search pages..."
+                                    />
                                   )}
                                 </div>
                                 {diffScheduleFormKbProvider === 'confluence' && diffScheduleFormKbResourceId && (
@@ -1537,18 +1538,19 @@ function DiffPrototypePanel() {
                                     {diffScheduleFormConfluenceFoldersLoading ? (
                                       <span className="text-sm text-white/60">Loading pages…</span>
                                     ) : (
-                                      <select
-                                        className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none"
+                                      <Combobox
+                                        options={[
+                                          { value: '', label: 'Space root' },
+                                          ...diffScheduleFormConfluenceFolderOptions.map((f) => ({
+                                            value: f.id,
+                                            label: f.title || f.id,
+                                          })),
+                                        ]}
                                         value={diffScheduleFormConfluenceFolderId}
-                                        onChange={(e) => setDiffScheduleFormConfluenceFolderId(e.target.value)}
-                                      >
-                                        <option value="">Space root</option>
-                                        {diffScheduleFormConfluenceFolderOptions.map((f) => (
-                                          <option key={f.id} value={f.id}>
-                                            {f.title || f.id}
-                                          </option>
-                                        ))}
-                                      </select>
+                                        onChange={setDiffScheduleFormConfluenceFolderId}
+                                        placeholder="Space root"
+                                        searchPlaceholder="Search folders..."
+                                      />
                                     )}
                                   </div>
                                 )}
@@ -3263,19 +3265,21 @@ export default function KnowledgeClient({ sources, mode }: KnowledgeClientProps)
                                 {projectionScheduleFormCommunication.kb && (
                                   <div className="mt-3 space-y-2 rounded-md border border-white/10 bg-white/5 p-3">
                                     <span className="text-xs text-white/60">KB target</span>
-                                    <select
-                                      className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none"
+                                    <Combobox
+                                      options={[
+                                        { value: '', label: 'Select provider' },
+                                        { value: 'notion', label: 'Notion' },
+                                        { value: 'confluence', label: 'Confluence' },
+                                      ]}
                                       value={projectionScheduleFormKbProvider}
-                                      onChange={(e) => {
-                                        const provider = e.target.value as '' | 'notion' | 'confluence';
+                                      onChange={(v) => {
+                                        const provider = v as '' | 'notion' | 'confluence';
                                         setProjectionScheduleFormKbProvider(provider);
                                         if (provider) loadProjectionScheduleKbResources(provider);
                                       }}
-                                    >
-                                      <option value="">Select provider</option>
-                                      <option value="notion">Notion</option>
-                                      <option value="confluence">Confluence</option>
-                                    </select>
+                                      placeholder="Select provider"
+                                      searchPlaceholder="Search providers..."
+                                    />
                                     {projectionScheduleFormKbProvider && (
                                       <>
                                         <div>
@@ -3288,23 +3292,21 @@ export default function KnowledgeClient({ sources, mode }: KnowledgeClientProps)
                                           ) : projectionScheduleFormKbResources.length === 0 ? (
                                             <span className="text-sm text-white/60">No resources found. Connect {projectionScheduleFormKbProvider} in Settings.</span>
                                           ) : (
-                                            <select
-                                              className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none"
+                                            <Combobox
+                                              options={projectionScheduleFormKbResources.map((r) => ({
+                                                value: r.id,
+                                                label: r.title || r.id,
+                                              }))}
                                               value={projectionScheduleFormKbResourceId}
-                                              onChange={(e) => {
-                                                const id = e.target.value;
+                                              onChange={(id) => {
                                                 const r = projectionScheduleFormKbResources.find((res) => res.id === id);
                                                 setProjectionScheduleFormKbResourceId(id);
                                                 setProjectionScheduleFormKbRootMetadata(r?.metadata);
                                                 setProjectionScheduleFormConfluenceFolderId('');
                                               }}
-                                            >
-                                              {projectionScheduleFormKbResources.map((r) => (
-                                                <option key={r.id} value={r.id}>
-                                                  {r.title || r.id}
-                                                </option>
-                                              ))}
-                                            </select>
+                                              placeholder="Select page or space"
+                                              searchPlaceholder="Search pages..."
+                                            />
                                           )}
                                         </div>
                                         {projectionScheduleFormKbProvider === 'confluence' && projectionScheduleFormKbResourceId && (
@@ -3316,18 +3318,19 @@ export default function KnowledgeClient({ sources, mode }: KnowledgeClientProps)
                                             {projectionScheduleFormConfluenceFoldersLoading ? (
                                               <span className="text-sm text-white/60">Loading pages…</span>
                                             ) : (
-                                              <select
-                                                className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none"
+                                              <Combobox
+                                                options={[
+                                                  { value: '', label: 'Space root' },
+                                                  ...projectionScheduleFormConfluenceFolderOptions.map((f) => ({
+                                                    value: f.id,
+                                                    label: f.title || f.id,
+                                                  })),
+                                                ]}
                                                 value={projectionScheduleFormConfluenceFolderId}
-                                                onChange={(e) => setProjectionScheduleFormConfluenceFolderId(e.target.value)}
-                                              >
-                                                <option value="">Space root</option>
-                                                {projectionScheduleFormConfluenceFolderOptions.map((f) => (
-                                                  <option key={f.id} value={f.id}>
-                                                    {f.title || f.id}
-                                                  </option>
-                                                ))}
-                                              </select>
+                                                onChange={setProjectionScheduleFormConfluenceFolderId}
+                                                placeholder="Space root"
+                                                searchPlaceholder="Search folders..."
+                                              />
                                             )}
                                           </div>
                                         )}
@@ -3503,19 +3506,20 @@ export default function KnowledgeClient({ sources, mode }: KnowledgeClientProps)
           <div className="grid gap-4 lg:grid-cols-[240px_1fr]">
             <div className="space-y-3 rounded-lg border border-white/10 bg-white/5 p-3">
               <p className="text-xs uppercase tracking-[0.2em] text-white/60">Provider</p>
-              <select
-                className="w-full rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none"
+              <Combobox
+                options={[
+                  { value: '', label: 'Select provider' },
+                  { value: 'notion', label: 'Notion' },
+                  { value: 'confluence', label: 'Confluence' },
+                ]}
                 value={pushProvider ?? ''}
-                onChange={(e) => {
-                  const v = e.target.value;
+                onChange={(v) => {
                   if (v === 'notion' || v === 'confluence') handleProviderSelect(v);
                   else setPushProvider(null);
                 }}
-              >
-                <option value="">Select provider</option>
-                <option value="notion">Notion</option>
-                <option value="confluence">Confluence</option>
-              </select>
+                placeholder="Select provider"
+                searchPlaceholder="Search providers..."
+              />
 
               <div className="space-y-2 pt-2 text-sm text-white/70">
                 <div className="flex items-center justify-between">
@@ -3559,18 +3563,16 @@ export default function KnowledgeClient({ sources, mode }: KnowledgeClientProps)
                       No resources found for this provider. Connect a space/page and try again.
                     </div>
                   ) : (
-                    <select
-                      className="w-full rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none"
+                    <Combobox
+                      options={resources.map((r) => ({
+                        value: r.id,
+                        label: `${r.title || r.id}${r.type ? ` (${r.type})` : ''}`,
+                      }))}
                       value={selectedResourceId}
-                      onChange={(e) => setSelectedResourceId(e.target.value)}
-                    >
-                      {resources.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {r.title || r.id}
-                          {r.type ? ` (${r.type})` : ''}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={setSelectedResourceId}
+                      placeholder="Select destination"
+                      searchPlaceholder="Search resources..."
+                    />
                   )}
 
                   {pushProvider === 'confluence' && selectedResourceId && (
@@ -3584,18 +3586,19 @@ export default function KnowledgeClient({ sources, mode }: KnowledgeClientProps)
                           <Loader2 className="h-4 w-4 animate-spin" /> Loading pages…
                         </div>
                       ) : (
-                        <select
-                          className="w-full rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-sm text-white focus:border-white/40 focus:outline-none"
+                        <Combobox
+                          options={[
+                            { value: '', label: 'Space root' },
+                            ...confluenceFolderOptions.map((f) => ({
+                              value: f.id,
+                              label: f.title || f.id,
+                            })),
+                          ]}
                           value={confluenceFolderId}
-                          onChange={(e) => setConfluenceFolderId(e.target.value)}
-                        >
-                          <option value="">Space root</option>
-                          {confluenceFolderOptions.map((f) => (
-                            <option key={f.id} value={f.id}>
-                              {f.title || f.id}
-                            </option>
-                          ))}
-                        </select>
+                          onChange={setConfluenceFolderId}
+                          placeholder="Space root"
+                          searchPlaceholder="Search folders..."
+                        />
                       )}
                     </div>
                   )}
