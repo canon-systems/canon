@@ -5,6 +5,7 @@ import {
   extractGithubCanonicalEvents,
   insertCanonicalEvents,
   insertRawEvent,
+  filterNewCanonicalEvents,
   resolveGithubSourceId,
   upsertDailyMetrics,
 } from '@/lib/server/diff/webhookIngest';
@@ -70,8 +71,11 @@ export async function POST(request: NextRequest) {
 
   const canonicalEvents = extractGithubCanonicalEvents(payload);
   if (canonicalEvents.length > 0) {
-    await insertCanonicalEvents({ supabase, sourceId, provider: 'github', events: canonicalEvents });
-    await upsertDailyMetrics({ supabase, sourceId, provider: 'github', events: canonicalEvents });
+    const newEvents = await filterNewCanonicalEvents({ supabase, sourceId, events: canonicalEvents });
+    if (newEvents.length > 0) {
+      await insertCanonicalEvents({ supabase, sourceId, provider: 'github', events: newEvents });
+      await upsertDailyMetrics({ supabase, sourceId, provider: 'github', events: newEvents });
+    }
   }
 
   return NextResponse.json({ ok: true });

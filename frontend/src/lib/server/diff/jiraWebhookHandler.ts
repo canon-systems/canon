@@ -5,6 +5,7 @@ import {
   extractJiraCanonicalEvents,
   insertCanonicalEvents,
   insertRawEvent,
+  filterNewCanonicalEvents,
   resolveJiraSourceId,
   upsertDailyMetrics,
 } from '@/lib/server/diff/webhookIngest';
@@ -139,8 +140,16 @@ export async function handleJiraWebhook(request: NextRequest, tenantId?: string)
     eventTypes: canonicalEvents.map((event) => event.event_kind),
   });
   if (canonicalEvents.length > 0) {
-    await insertCanonicalEvents({ supabase, sourceId, provider: 'jira', events: canonicalEvents });
-    await upsertDailyMetrics({ supabase, sourceId, provider: 'jira', events: canonicalEvents });
+    const newEvents = await filterNewCanonicalEvents({ supabase, sourceId, events: canonicalEvents });
+    if (newEvents.length > 0) {
+      await insertCanonicalEvents({ supabase, sourceId, provider: 'jira', events: newEvents });
+      await upsertDailyMetrics({ supabase, sourceId, provider: 'jira', events: newEvents });
+    } else {
+      console.log('[jira/webhook] all canonical events already recorded; skipping insert/metrics', {
+        issueKey,
+        eventTypes: canonicalEvents.map((event) => event.event_kind),
+      });
+    }
   }
 
   return NextResponse.json({ ok: true });
