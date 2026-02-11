@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { FileText, Layers3, AlertCircle, RefreshCw, ExternalLink, GitBranch, Folder, Code, Clock, Hash, Zap, Github, XCircle, Link as LinkIcon, ScrollText } from 'lucide-react';
+import { FileText, Layers3, RefreshCw, ExternalLink, GitBranch, Folder, Code, Clock, Hash, Zap, XCircle, Link as LinkIcon, ScrollText } from 'lucide-react';
 import Link from 'next/link';
 import { Card, CardContent } from '@/components/ui/card';
 import { Combobox } from '@/components/ui/combobox';
@@ -9,17 +9,13 @@ import { Combobox } from '@/components/ui/combobox';
 interface LogEntry {
   id: string;
   type:
-  | 'document'
-  | 'document_error'
-  | 'document_regenerated'
-  | 'document_deleted'
   | 'automation_execution'
-  | 'repo_connection'
   | 'source_connection'
   | 'integration_connection'
   | 'integration_disconnected'
   | 'diagram'
-  | 'kb_push';
+  | 'kb_push'
+  | 'aku_generated';
   timestamp: string;
   title: string;
   message: string;
@@ -51,17 +47,13 @@ type TimeFilter = '24h' | '3d' | '7d' | '14d' | '30d' | '90d' | '180d' | '1y' | 
 type StatusFilter = 'all' | 'completed' | 'processing' | 'failed';
 type TypeFilter =
   | 'all'
-  | 'document'
-  | 'document_error'
-  | 'document_regenerated'
-  | 'document_deleted'
   | 'automation_execution'
-  | 'repo_connection'
   | 'source_connection'
   | 'integration_connection'
   | 'integration_disconnected'
   | 'diagram'
-  | 'kb_push';
+  | 'kb_push'
+  | 'aku_generated';
 
 // Removed unused interface: Repo
 
@@ -155,18 +147,10 @@ export function LogsPageClient({ logs }: LogsPageClientProps) {
 
   const getIcon = (type: LogEntry['type']) => {
     switch (type) {
-      case 'document':
-        return FileText;
-      case 'document_error':
-        return AlertCircle;
-      case 'document_regenerated':
-        return RefreshCw;
-      case 'document_deleted':
-        return XCircle;
       case 'automation_execution':
         return Zap;
-      case 'repo_connection':
-        return Github;
+      case 'aku_generated':
+        return Layers3;
       case 'source_connection':
         return LinkIcon;
       case 'integration_connection':
@@ -184,18 +168,10 @@ export function LogsPageClient({ logs }: LogsPageClientProps) {
 
   const getTypeColor = (type: LogEntry['type']) => {
     switch (type) {
-      case 'document':
-        return 'bg-[#f97316]/15 text-white';
       case 'automation_execution':
         return 'bg-[#f97316]/20 text-white';
-      case 'document_error':
-        return 'bg-white/10 text-white/80';
-      case 'document_regenerated':
-        return 'bg-[#f97316]/20 text-white border border-[#f97316]/40';
-      case 'document_deleted':
-        return 'bg-white/8 text-white/70';
-      case 'repo_connection':
-        return 'bg-white/10 text-white/80';
+      case 'aku_generated':
+        return 'bg-[#f97316]/15 text-white';
       case 'source_connection':
         return 'bg-white/10 text-white/80';
       case 'integration_connection':
@@ -279,17 +255,13 @@ export function LogsPageClient({ logs }: LogsPageClientProps) {
           <Combobox
             options={[
               { value: 'all', label: 'All types' },
-              { value: 'automation_execution', label: 'Automation Execution' },
-              { value: 'document', label: 'Document' },
-              { value: 'document_error', label: 'Document Error' },
-              { value: 'document_regenerated', label: 'Regenerated' },
-              { value: 'document_deleted', label: 'Deleted' },
-              { value: 'repo_connection', label: 'Repository Connection' },
-              { value: 'source_connection', label: 'Source Connection' },
-              { value: 'integration_connection', label: 'Integration Connected' },
-              { value: 'integration_disconnected', label: 'Integration Disconnected' },
-              { value: 'diagram', label: 'Diagram' },
-              { value: 'kb_push', label: 'KB Push' },
+              { value: 'aku_generated', label: 'Canon View generated' },
+              { value: 'automation_execution', label: 'Automation' },
+              { value: 'source_connection', label: 'Source' },
+              { value: 'integration_connection', label: 'Integration connected' },
+              { value: 'integration_disconnected', label: 'Integration disconnected' },
+              { value: 'diagram', label: 'Architecture diagram' },
+              { value: 'kb_push', label: 'Push to KB' },
             ]}
             value={typeFilter}
             onChange={(v) => setTypeFilter(v as TypeFilter)}
@@ -320,27 +292,17 @@ export function LogsPageClient({ logs }: LogsPageClientProps) {
                 <div className="max-h-[70vh] overflow-y-auto pr-2 space-y-2">
                   {filteredEntries.map((entry, idx) => {
                     const Icon = getIcon(entry.type);
-                    const isRegenerated = entry.type === 'document_regenerated';
                     const rowTone = idx % 2 === 0 ? 'bg-white/5' : 'bg-white/0';
                     const content = (
-                      <div className={`flex items-start gap-4 p-4 rounded-xl border transition-all ${isRegenerated
-                        ? 'border-[#f97316]/50 bg-gradient-to-br from-[#f97316]/10 to-white/5 hover:border-[#f97316]/70 hover:from-[#f97316]/15 hover:to-white/10 shadow-lg shadow-black/30'
-                        : `border-white/10 hover:border-white/20 ${rowTone}`
-                        }`}>
-                        <div className={`rounded-lg p-2 ${getTypeColor(entry.type)} flex-shrink-0 ${isRegenerated ? 'animate-pulse' : ''}`}>
-                          <Icon className={`h-4 w-4`} />
+                      <div className={`flex items-start gap-4 p-4 rounded-xl border transition-all border-white/10 hover:border-white/20 ${rowTone}`}>
+                        <div className={`rounded-lg p-2 ${getTypeColor(entry.type)} flex-shrink-0`}>
+                          <Icon className="h-4 w-4" />
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-4 mb-2">
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 mb-1">
-                                <h3 className={`font-medium truncate ${isRegenerated ? 'text-white' : 'text-white'}`}>{entry.title}</h3>
-                                {isRegenerated && (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#f97316]/20 text-white text-xs font-semibold border border-[#f97316]/40">
-                                    <RefreshCw className="h-3 w-3" />
-                                    Regenerated
-                                  </span>
-                                )}
+                                <h3 className="font-medium truncate text-white">{entry.title}</h3>
                               </div>
                               <p className="text-sm text-white/75">{entry.message}</p>
                             </div>

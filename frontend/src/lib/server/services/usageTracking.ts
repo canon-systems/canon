@@ -231,6 +231,25 @@ export async function trackArchitectureDiagramDeleted(
 	});
 }
 
+export async function trackAkusGenerated(
+	supabase: SupabaseClient,
+	workspaceId: string,
+	data: {
+		sourceIds: string[];
+		akusCount: number;
+		projectionsCount: number;
+		audiences?: string[];
+	}
+) {
+	await trackUsageEvent(supabase, workspaceId, 'akus_generated', {
+		source_ids: data.sourceIds,
+		source_count: data.sourceIds.length,
+		akus_count: data.akusCount,
+		projections_count: data.projectionsCount,
+		audiences: data.audiences ?? null,
+	});
+}
+
 export async function trackRepoDisconnected(
 	supabase: SupabaseClient,
 	workspaceId: string,

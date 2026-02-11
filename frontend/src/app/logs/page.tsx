@@ -1,7 +1,6 @@
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
-import { isRepoProvider } from '@/lib/server/services/sourceProviders';
 import { LogsPageClient } from './page-client';
 
 export default async function LogsPage() {
@@ -31,7 +30,7 @@ export default async function LogsPage() {
   // Build activity log entries
   const logEntries: Array<{
     id: string;
-    type: 'automation_execution' | 'repo_connection' | 'source_connection' | 'integration_connection' | 'integration_disconnected' | 'diagram' | 'kb_push';
+    type: 'automation_execution' | 'source_connection' | 'integration_connection' | 'integration_disconnected' | 'diagram' | 'kb_push' | 'aku_generated';
     timestamp: string;
     title: string;
     message: string;
@@ -86,38 +85,15 @@ export default async function LogsPage() {
 
     switch (event.event_type) {
       case 'doc_generated':
-        return {
-          ...base,
-          type: 'document' as const,
-          title: meta.title || 'Document generated',
-          message: repoName ? `Document generated from ${repoName}` : 'Document generated',
-          status: 'completed',
-          link: undefined,
-        };
       case 'doc_auto_published':
-        return {
-          ...base,
-          type: 'document_regenerated' as const,
-          title: meta.title || 'Document auto-published',
-          message: meta.reason ? `Auto-published: ${meta.reason}` : 'Document auto-published',
-          status: 'completed',
-          link: undefined,
-        };
       case 'doc_deleted':
-        return {
-          ...base,
-          type: 'document_deleted' as const,
-          title: meta.title || 'Document deleted',
-          message: repoName ? `Deleted document from ${repoName}` : 'Document deleted',
-          status: 'completed',
-          link: undefined,
-        };
+        return null;
       case 'repo_connected': {
         return {
           ...base,
-          type: 'repo_connection' as const,
-          title: repoName ? `Repository Connected: ${repoName}` : 'Repository Connected',
-          message: repoName ? `Connected repository ${repoName}` : 'Repository connected',
+          type: 'source_connection' as const,
+          title: repoName ? `Source Connected: ${repoName}` : 'Source Connected',
+          message: repoName ? `Connected source ${repoName}` : 'Source connected',
           status: 'completed',
           link: '/sources',
         };
@@ -139,22 +115,11 @@ export default async function LogsPage() {
       }
       case 'repo_disconnected': {
         const provider = typeof meta.provider === 'string' ? meta.provider : '';
-        const isRepo = isRepoProvider(provider);
-        if (isRepo) {
-          return {
-            ...base,
-            type: 'repo_connection' as const,
-            title: repoName ? `Repository Disconnected: ${repoName}` : 'Repository Disconnected',
-            message: repoName ? `Disconnected repository ${repoName}` : 'Repository disconnected',
-            status: 'completed',
-            link: '/sources',
-          };
-        }
         const sourceLabel = formatProviderName(provider) || repoName || 'Source';
         return {
           ...base,
           type: 'source_connection' as const,
-          title: `Source Disconnected: ${sourceLabel}`,
+          title: repoName ? `Source Disconnected: ${repoName}` : `Source Disconnected: ${sourceLabel}`,
           message: repoName ? `Disconnected source ${repoName}` : `Disconnected ${sourceLabel.toLowerCase()}`,
           status: 'completed',
           link: '/sources',
@@ -207,6 +172,26 @@ export default async function LogsPage() {
           message: 'Canon View pushed to knowledge base',
           status: 'completed',
           link: undefined,
+        };
+      }
+      case 'akus_generated': {
+        const projectionsCount = typeof meta.projections_count === 'number' ? meta.projections_count : 0;
+        const sourceIds = Array.isArray(meta.source_ids) ? (meta.source_ids as string[]) : [];
+        const sourceNames = sourceIds
+          .map((id) => repoMap.get(id)?.name)
+          .filter(Boolean) as string[];
+        const sourceLabel = sourceNames.length > 0
+          ? sourceNames.join(', ')
+          : sourceIds.length > 0
+            ? `${sourceIds.length} source(s)`
+            : 'sources';
+        return {
+          ...base,
+          type: 'aku_generated' as const,
+          title: `Canon View generated: ${projectionsCount} projection${projectionsCount !== 1 ? 's' : ''}`,
+          message: `${projectionsCount} audience projection${projectionsCount !== 1 ? 's' : ''} from ${sourceLabel}`,
+          status: 'completed',
+          link: '/view',
         };
       }
       case 'repo_scan_run':
