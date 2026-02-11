@@ -258,6 +258,7 @@ export async function ingestGitHubSource(
 export async function ingestIssueSource(
   supabase: SupabaseClient,
   source: WorkspaceSource,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- options reserved for future use (mode, createdSourceIds)
   options?: IngestOptions
 ) {
   const provider = source.provider.toLowerCase();

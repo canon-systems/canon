@@ -68,7 +68,7 @@ export async function GET(req: Request) {
 
   const { data, error } = (await query) as { data: AkuRow[] | null; error: unknown };
   if (error) {
-    console.error('canon view list error', error);
+    console.error('view list error', error);
     return NextResponse.json({ error: 'Failed to fetch Canon View entries' }, { status: 500 });
   }
 

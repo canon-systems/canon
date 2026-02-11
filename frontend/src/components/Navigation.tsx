@@ -5,13 +5,13 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import {
+  Activity,
   BookOpen,
-  Database,
-  FileText,
-  GitCompare,
+  Focus,
+  History,
+  Layers,
   LogOut,
   Menu,
-  ScrollText,
   Settings,
 } from 'lucide-react';
 import type { Session, User } from '@supabase/supabase-js';
@@ -28,15 +28,15 @@ interface NavigationProps {
 type NavItem = {
   href: string;
   label: string;
-  icon: typeof FileText;
+  icon: typeof Focus;
   matchPrefix?: boolean;
 };
 
 const primaryNav: NavItem[] = [
-  { href: '/sources', label: 'Sources', icon: Database },
-  { href: '/canon-view', label: 'Canon View', icon: FileText },
-  { href: '/canon-history', label: 'Canon History', icon: GitCompare },
-  { href: '/logs', label: 'Logs', icon: ScrollText },
+  { href: '/sources', label: 'Sources', icon: Layers },
+  { href: '/view', label: 'Canon View', icon: Focus },
+  { href: '/history', label: 'Canon History', icon: History },
+  { href: '/logs', label: 'Logs', icon: Activity },
 ];
 
 const secondaryNav: NavItem[] = [
@@ -62,38 +62,45 @@ export function Navigation({ user, session, onLogout }: NavigationProps) {
       ref={containerRef}
     >
       <nav className="relative flex items-center justify-between px-4 py-4 md:px-6 lg:px-8">
-        <Link href="/" className="flex items-center gap-3 rounded-xl border border-white/5 bg-white/5 px-3 py-2 transition hover:border-white/10 hover:bg-white/10">
-          <Image
-            src="/web-app-manifest-512x512.png"
-            alt="Canon AI docs & automation"
-            width={40}
-            height={40}
-            className="h-10 w-10 rounded-lg border border-white/10"
-          />
+        <Link
+          href="/"
+          className="group flex items-center gap-3 rounded-xl border border-white/5 bg-white/[0.04] px-3 py-2 transition hover:border-white/10 hover:bg-white/10 hover:shadow-[0_0_20px_rgba(255,255,255,0.03)]"
+        >
+          <div className="rounded-lg border border-white/10 bg-gradient-to-br from-white/10 to-white/5 p-0.5 transition group-hover:from-white/15 group-hover:to-white/10">
+            <Image
+              src="/web-app-manifest-512x512.png"
+              alt="Canon AI docs & automation"
+              width={40}
+              height={40}
+              className="h-10 w-10 rounded-lg border border-white/10"
+            />
+          </div>
           <div className="flex flex-col leading-tight">
             <span className="text-sm font-semibold text-white">Canon</span>
             <span className="text-[11px] uppercase tracking-[0.2em] text-white/60">Workspace</span>
           </div>
         </Link>
 
-        <div className="hidden items-center gap-8 lg:flex">
+        <div className="hidden items-center gap-1 rounded-xl border border-white/5 bg-white/[0.02] px-2 py-1.5 lg:flex">
           {primaryNav.map((item) => {
             const active = isActive(item);
+            const Icon = item.icon;
             return (
               <Link
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  'relative pb-3 pt-1 text-sm font-medium transition-colors',
+                  'relative flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all duration-200',
                   active
                     ? 'text-white'
-                    : 'text-white/60 hover:text-white/90'
+                    : 'text-white/60 hover:bg-white/5 hover:text-white/90'
                 )}
               >
+                <Icon className={cn('h-4 w-4 shrink-0', active ? 'text-white' : 'text-white/50')} />
                 {item.label}
                 {active && (
                   <span
-                    className="absolute bottom-0 left-0 right-0 h-0.5 bg-white"
+                    className="absolute bottom-1 left-4 right-4 h-px bg-white"
                     aria-hidden
                   />
                 )}
@@ -107,9 +114,9 @@ export function Navigation({ user, session, onLogout }: NavigationProps) {
             <DropdownMenuTrigger asChild>
               <Button
                 variant="secondary"
-                className="flex items-center gap-3 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-left text-sm text-white/80 transition hover:border-white/20 hover:bg-white/10"
+                className="flex items-center gap-3 rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-left text-sm text-white/80 transition hover:border-white/20 hover:bg-white/10 hover:shadow-[0_0_20px_rgba(255,255,255,0.04)]"
               >
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-black font-semibold">
+                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-white to-white/90 text-black font-semibold shadow-[0_0_12px_rgba(255,255,255,0.15)]">
                   {initials}
                 </div>
                 <div className="flex flex-col leading-tight">
@@ -145,7 +152,7 @@ export function Navigation({ user, session, onLogout }: NavigationProps) {
         <div className="flex shrink-0 items-center gap-2 lg:hidden">
           <Button
             variant="secondary"
-            className="h-11 min-h-11 w-11 min-w-11 shrink-0 rounded-full border-white/10 bg-white/5 p-0"
+            className="h-11 min-h-11 w-11 min-w-11 shrink-0 rounded-full border border-white/10 bg-white/5 p-0 transition hover:border-white/15 hover:bg-white/10"
             onClick={() => setMobileOpen((v) => !v)}
           >
             <Menu className="h-5 w-5 shrink-0 text-white" />
@@ -164,12 +171,14 @@ export function Navigation({ user, session, onLogout }: NavigationProps) {
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    'flex items-center gap-3 rounded-xl border border-white/10 px-3 py-3 text-sm text-white/90 transition',
-                    active ? 'bg-white/10' : 'bg-white/5 hover:bg-white/10'
+                    'flex items-center gap-3 rounded-xl border px-3 py-3 text-sm transition',
+                    active
+                      ? 'border-white/15 bg-white/10 text-white'
+                      : 'border-white/10 bg-white/5 text-white/90 hover:border-white/15 hover:bg-white/10'
                   )}
                   onClick={() => setMobileOpen(false)}
                 >
-                  <Icon className="h-4 w-4 text-white/70" />
+                  <Icon className={cn('h-4 w-4', active ? 'text-white' : 'text-white/70')} />
                   {item.label}
                 </Link>
               );
@@ -184,19 +193,21 @@ export function Navigation({ user, session, onLogout }: NavigationProps) {
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    'flex items-center gap-3 rounded-xl border border-white/10 px-3 py-3 text-sm text-white/80 transition',
-                    active ? 'bg-white/10' : 'bg-white/5 hover:bg-white/10'
+                    'flex items-center gap-3 rounded-xl border px-3 py-3 text-sm transition',
+                    active
+                      ? 'border-white/15 bg-white/10 text-white/90'
+                      : 'border-white/10 bg-white/5 text-white/80 hover:border-white/15 hover:bg-white/10'
                   )}
                   onClick={() => setMobileOpen(false)}
                 >
-                  <Icon className="h-4 w-4 text-white/60" />
+                  <Icon className={cn('h-4 w-4', active ? 'text-white/80' : 'text-white/60')} />
                   {item.label}
                 </Link>
               );
             })}
           </div>
           {session && user && (
-            <div className="mt-4 flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-white/80">
+            <div className="mt-4 flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.04] px-3 py-3 text-sm text-white/80">
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-black font-semibold">
                   {initials}

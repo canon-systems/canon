@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'crypto';
 import { UndirectedGraph } from 'graphology';
 import louvain from 'graphology-communities-louvain';
 import { LLMGateway, type Message } from './llmGateway';
+import { trackAkusGenerated } from './usageTracking';
 import { buildExtractionTargetsFromSourceIds, fetchSourceCodeArtifacts, type SourceExtractionTarget } from './sourceCodeArtifacts';
 import { TreeSitterAnalyzer, type DependencyInfo } from './treeSitterAnalyzer';
 
@@ -1336,6 +1337,14 @@ export async function buildAkusForSources(
     if (projErr) console.error('AKU builder: failed to save projections', projErr);
   }
 
-  // console.log('AKU builder: finished', { userId, akus: akus.length, projections: projections.length });
+  if (akus.length > 0) {
+    void trackAkusGenerated(supabase, userId, {
+      sourceIds,
+      akusCount: akus.length,
+      projectionsCount: projections.length,
+      audiences,
+    });
+  }
+
   return { akus, projections };
 }

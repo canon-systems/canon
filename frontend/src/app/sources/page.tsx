@@ -20,7 +20,7 @@ export default async function SourcesPage() {
     .order('created_at', { ascending: false });
 
   if (sourceError) {
-    console.error('Failed to load sources:', sourceError);
+    console.error('Failed to load sources:', sourceError?.message ?? sourceError?.code ?? JSON.stringify(sourceError));
   }
 
   return <SourcesPageClient repositories={repositories || []} />;

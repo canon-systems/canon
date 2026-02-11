@@ -1,25 +1,21 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { FileText, Layers3, AlertCircle, RefreshCw, ExternalLink, GitBranch, Folder, Code, Clock, Hash, Zap, Github, XCircle, Link as LinkIcon, ScrollText } from 'lucide-react';
+import { FileText, Layers3, RefreshCw, ExternalLink, GitBranch, Folder, Code, Clock, Hash, Zap, XCircle, Link as LinkIcon, ScrollText } from 'lucide-react';
 import Link from 'next/link';
 import { Card, CardContent } from '@/components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Combobox } from '@/components/ui/combobox';
 
 interface LogEntry {
   id: string;
   type:
-  | 'document'
-  | 'document_error'
-  | 'document_regenerated'
-  | 'document_deleted'
   | 'automation_execution'
-  | 'repo_connection'
   | 'source_connection'
   | 'integration_connection'
   | 'integration_disconnected'
   | 'diagram'
-  | 'kb_push';
+  | 'kb_push'
+  | 'aku_generated';
   timestamp: string;
   title: string;
   message: string;
@@ -51,17 +47,13 @@ type TimeFilter = '24h' | '3d' | '7d' | '14d' | '30d' | '90d' | '180d' | '1y' | 
 type StatusFilter = 'all' | 'completed' | 'processing' | 'failed';
 type TypeFilter =
   | 'all'
-  | 'document'
-  | 'document_error'
-  | 'document_regenerated'
-  | 'document_deleted'
   | 'automation_execution'
-  | 'repo_connection'
   | 'source_connection'
   | 'integration_connection'
   | 'integration_disconnected'
   | 'diagram'
-  | 'kb_push';
+  | 'kb_push'
+  | 'aku_generated';
 
 // Removed unused interface: Repo
 
@@ -155,18 +147,10 @@ export function LogsPageClient({ logs }: LogsPageClientProps) {
 
   const getIcon = (type: LogEntry['type']) => {
     switch (type) {
-      case 'document':
-        return FileText;
-      case 'document_error':
-        return AlertCircle;
-      case 'document_regenerated':
-        return RefreshCw;
-      case 'document_deleted':
-        return XCircle;
       case 'automation_execution':
         return Zap;
-      case 'repo_connection':
-        return Github;
+      case 'aku_generated':
+        return Layers3;
       case 'source_connection':
         return LinkIcon;
       case 'integration_connection':
@@ -184,18 +168,10 @@ export function LogsPageClient({ logs }: LogsPageClientProps) {
 
   const getTypeColor = (type: LogEntry['type']) => {
     switch (type) {
-      case 'document':
-        return 'bg-[#f97316]/15 text-white';
       case 'automation_execution':
         return 'bg-[#f97316]/20 text-white';
-      case 'document_error':
-        return 'bg-white/10 text-white/80';
-      case 'document_regenerated':
-        return 'bg-[#f97316]/20 text-white border border-[#f97316]/40';
-      case 'document_deleted':
-        return 'bg-white/8 text-white/70';
-      case 'repo_connection':
-        return 'bg-white/10 text-white/80';
+      case 'aku_generated':
+        return 'bg-[#f97316]/15 text-white';
       case 'source_connection':
         return 'bg-white/10 text-white/80';
       case 'integration_connection':
@@ -244,53 +220,55 @@ export function LogsPageClient({ logs }: LogsPageClientProps) {
 
         <div className="flex flex-col gap-4 sm:flex-row mt-2.5 mb-2.5">
           <div className="flex items-center gap-2">
-            <Select value={timeFilter} onValueChange={(value: TimeFilter) => setTimeFilter(value)}>
-              <SelectTrigger className="w-full sm:w-[180px] bg-white/5 border-white/10">
-                <SelectValue placeholder="Filter by time" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All time</SelectItem>
-                <SelectItem value="24h">Last 24 hours</SelectItem>
-                <SelectItem value="3d">Last 3 days</SelectItem>
-                <SelectItem value="7d">Last 7 days</SelectItem>
-                <SelectItem value="14d">Last 2 weeks</SelectItem>
-                <SelectItem value="30d">Last 30 days</SelectItem>
-                <SelectItem value="90d">Last 3 months</SelectItem>
-                <SelectItem value="180d">Last 6 months</SelectItem>
-                <SelectItem value="1y">Last year</SelectItem>
-              </SelectContent>
-            </Select>
+            <Combobox
+              options={[
+                { value: 'all', label: 'All time' },
+                { value: '24h', label: 'Last 24 hours' },
+                { value: '3d', label: 'Last 3 days' },
+                { value: '7d', label: 'Last 7 days' },
+                { value: '14d', label: 'Last 2 weeks' },
+                { value: '30d', label: 'Last 30 days' },
+                { value: '90d', label: 'Last 3 months' },
+                { value: '180d', label: 'Last 6 months' },
+                { value: '1y', label: 'Last year' },
+              ]}
+              value={timeFilter}
+              onChange={(v) => setTimeFilter(v as TimeFilter)}
+              placeholder="Filter by time"
+              searchPlaceholder="Search..."
+              className="w-full sm:w-[180px]"
+            />
           </div>
-          <Select value={statusFilter} onValueChange={(value: StatusFilter) => setStatusFilter(value)}>
-            <SelectTrigger className="w-full sm:w-[180px] bg-white/5 border-white/10">
-              <SelectValue placeholder="Filter by status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All statuses</SelectItem>
-              <SelectItem value="completed">Completed</SelectItem>
-              <SelectItem value="processing">Processing</SelectItem>
-              <SelectItem value="failed">Failed</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={typeFilter} onValueChange={(value: TypeFilter) => setTypeFilter(value)}>
-            <SelectTrigger className="w-full sm:w-[200px] bg-white/5 border-white/10">
-              <SelectValue placeholder="Filter by type" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All types</SelectItem>
-              <SelectItem value="automation_execution">Automation Execution</SelectItem>
-              <SelectItem value="document">Document</SelectItem>
-              <SelectItem value="document_error">Document Error</SelectItem>
-              <SelectItem value="document_regenerated">Regenerated</SelectItem>
-              <SelectItem value="document_deleted">Deleted</SelectItem>
-              <SelectItem value="repo_connection">Repository Connection</SelectItem>
-              <SelectItem value="source_connection">Source Connection</SelectItem>
-              <SelectItem value="integration_connection">Integration Connected</SelectItem>
-              <SelectItem value="integration_disconnected">Integration Disconnected</SelectItem>
-              <SelectItem value="diagram">Diagram</SelectItem>
-              <SelectItem value="kb_push">KB Push</SelectItem>
-            </SelectContent>
-          </Select>
+          <Combobox
+            options={[
+              { value: 'all', label: 'All statuses' },
+              { value: 'completed', label: 'Completed' },
+              { value: 'processing', label: 'Processing' },
+              { value: 'failed', label: 'Failed' },
+            ]}
+            value={statusFilter}
+            onChange={(v) => setStatusFilter(v as StatusFilter)}
+            placeholder="Filter by status"
+            searchPlaceholder="Search..."
+            className="w-full sm:w-[180px]"
+          />
+          <Combobox
+            options={[
+              { value: 'all', label: 'All types' },
+              { value: 'aku_generated', label: 'Canon View generated' },
+              { value: 'automation_execution', label: 'Automation' },
+              { value: 'source_connection', label: 'Source' },
+              { value: 'integration_connection', label: 'Integration connected' },
+              { value: 'integration_disconnected', label: 'Integration disconnected' },
+              { value: 'diagram', label: 'Architecture diagram' },
+              { value: 'kb_push', label: 'Push to KB' },
+            ]}
+            value={typeFilter}
+            onChange={(v) => setTypeFilter(v as TypeFilter)}
+            placeholder="Filter by type"
+            searchPlaceholder="Search..."
+            className="w-full sm:w-[200px]"
+          />
         </div>
 
         {(logs.errors.usageEvents || logs.errors.automationRuns) && (
@@ -314,27 +292,17 @@ export function LogsPageClient({ logs }: LogsPageClientProps) {
                 <div className="max-h-[70vh] overflow-y-auto pr-2 space-y-2">
                   {filteredEntries.map((entry, idx) => {
                     const Icon = getIcon(entry.type);
-                    const isRegenerated = entry.type === 'document_regenerated';
                     const rowTone = idx % 2 === 0 ? 'bg-white/5' : 'bg-white/0';
                     const content = (
-                      <div className={`flex items-start gap-4 p-4 rounded-xl border transition-all ${isRegenerated
-                        ? 'border-[#f97316]/50 bg-gradient-to-br from-[#f97316]/10 to-white/5 hover:border-[#f97316]/70 hover:from-[#f97316]/15 hover:to-white/10 shadow-lg shadow-black/30'
-                        : `border-white/10 hover:border-white/20 ${rowTone}`
-                        }`}>
-                        <div className={`rounded-lg p-2 ${getTypeColor(entry.type)} flex-shrink-0 ${isRegenerated ? 'animate-pulse' : ''}`}>
-                          <Icon className={`h-4 w-4`} />
+                      <div className={`flex items-start gap-4 p-4 rounded-xl border transition-all border-white/10 hover:border-white/20 ${rowTone}`}>
+                        <div className={`rounded-lg p-2 ${getTypeColor(entry.type)} flex-shrink-0`}>
+                          <Icon className="h-4 w-4" />
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-4 mb-2">
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 mb-1">
-                                <h3 className={`font-medium truncate ${isRegenerated ? 'text-white' : 'text-white'}`}>{entry.title}</h3>
-                                {isRegenerated && (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#f97316]/20 text-white text-xs font-semibold border border-[#f97316]/40">
-                                    <RefreshCw className="h-3 w-3" />
-                                    Regenerated
-                                  </span>
-                                )}
+                                <h3 className="font-medium truncate text-white">{entry.title}</h3>
                               </div>
                               <p className="text-sm text-white/75">{entry.message}</p>
                             </div>

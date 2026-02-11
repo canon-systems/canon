@@ -3,7 +3,7 @@ import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
 import KnowledgeClient from '../knowledge/page-client';
 
-export default async function CanonViewPage() {
+export default async function ViewPage() {
   const { session, user } = await getSession();
 
   if (!session) {
@@ -25,5 +25,5 @@ export default async function CanonViewPage() {
     (s) => (s?.provider ?? '').toString().toLowerCase() === 'github'
   );
 
-  return <KnowledgeClient sources={canonSources} mode="knowledge" showModeSwitcher={false} />;
+  return <KnowledgeClient sources={canonSources} mode="knowledge" />;
 }
