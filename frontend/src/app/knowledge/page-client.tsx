@@ -20,7 +20,7 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
-import { Loader2, ChevronsUpDown, Info, BookOpen, GitCompare, CalendarIcon, Plus, Trash2, Pencil } from 'lucide-react';
+import { Loader2, ChevronsUpDown, Info, CalendarIcon, Plus, Trash2, Pencil } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/components/ui/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -117,16 +117,7 @@ type DiffDetails = {
   };
 };
 
-type ModeSwitcherProps = { active: Mode; onChange: (mode: Mode) => void };
 type FilterTab = 'filters' | 'schedule';
-type ModeCardProps = {
-  active: boolean;
-  title: string;
-  subtitle: string;
-  icon: React.ComponentType<{ className?: string }>;
-  onClick: () => void;
-  mode: Mode;
-};
 
 const MODE_COPY: Record<Mode, { title: string; subtitle: string; description: string; empty: string }> = {
   knowledge: {
@@ -1842,74 +1833,12 @@ function buildArchitectureChanges(scope: DiffScope): Array<{ label: 'node_added'
   ];
 }
 
-function ModeSwitcher({ active, onChange }: ModeSwitcherProps) {
-  return (
-    <div className="grid gap-3 sm:grid-cols-2">
-      <ModeCard
-        active={active === 'knowledge'}
-        title={MODE_COPY.knowledge.title}
-        subtitle={MODE_COPY.knowledge.subtitle}
-        icon={BookOpen}
-        mode="knowledge"
-        onClick={() => onChange('knowledge')}
-      />
-      <ModeCard
-        active={active === 'diffs'}
-        title={MODE_COPY.diffs.title}
-        subtitle={MODE_COPY.diffs.subtitle}
-        icon={GitCompare}
-        mode="diffs"
-        onClick={() => onChange('diffs')}
-      />
-    </div>
-  );
-}
-
-function ModeCard({ active, title, subtitle, icon: Icon, onClick, mode }: ModeCardProps) {
-  return (
-    <button
-      type="button"
-      aria-pressed={active}
-      onClick={onClick}
-      className={cn(
-        'group flex items-start gap-3 rounded-xl border p-4 text-left transition',
-        active
-          ? 'border-white/60 bg-white/10 shadow-[0_12px_40px_rgba(255,255,255,0.08)]'
-          : 'border-white/10 bg-white/5 hover:border-white/25 hover:bg-white/10'
-      )}
-    >
-      <div className={cn(
-        'flex h-10 w-10 items-center justify-center rounded-lg border text-white',
-        active ? 'border-white/70 bg-white text-black' : 'border-white/15 bg-white/5'
-      )}>
-        <Icon className={cn('h-5 w-5', active ? 'text-black' : 'text-white/80')} />
-      </div>
-      <div className="flex-1 space-y-1">
-        <div className="flex items-center gap-2">
-          <span className="text-base font-semibold text-white">{title}</span>
-          {active && (
-            <Badge variant="secondary" className="bg-white/10 text-white">
-              Active
-            </Badge>
-          )}
-        </div>
-        <p className="text-sm text-white/70">{subtitle}</p>
-        <p className="text-xs text-white/50">
-          {mode === 'knowledge' ? 'Uses source + audience filters' : 'Uses timebox + sources'}
-        </p>
-      </div>
-    </button>
-  );
-}
-
 interface KnowledgeClientProps {
   sources: Source[];
-  mode?: Mode;
-  showModeSwitcher?: boolean;
+  mode: Mode;
 }
 
-export default function KnowledgeClient({ sources, mode, showModeSwitcher = true }: KnowledgeClientProps) {
-  const fixedMode = mode === 'knowledge' || mode === 'diffs' ? mode : null;
+export default function KnowledgeClient({ sources, mode }: KnowledgeClientProps) {
   const [items, setItems] = useState<KnowledgeItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
@@ -1929,7 +1858,6 @@ export default function KnowledgeClient({ sources, mode, showModeSwitcher = true
   const [loadingConfluenceFolders, setLoadingConfluenceFolders] = useState(false);
   type PushResultDetail = { key?: string; title?: string; status?: string };
   const [pushResult, setPushResult] = useState<{ status: 'idle' | 'pushing' | 'done' | 'error'; message?: string; details?: PushResultDetail[] }>({ status: 'idle' });
-  const [activeTab, setActiveTab] = useState<Mode>(fixedMode ?? 'knowledge');
   const [knowledgeFilterTab, setKnowledgeFilterTab] = useState<FilterTab>('filters');
   const [projectionSchedules, setProjectionSchedules] = useState<ProjectionSchedule[]>([]);
   const [projectionScheduleFormOpen, setProjectionScheduleFormOpen] = useState(false);
@@ -1958,34 +1886,17 @@ export default function KnowledgeClient({ sources, mode, showModeSwitcher = true
   const [projectionScheduleUnitsMenuOpen, setProjectionScheduleUnitsMenuOpen] = useState(false);
 
   useEffect(() => {
-    if (fixedMode) {
-      setActiveTab(fixedMode);
-      return;
-    }
+    if (mode !== 'knowledge') return;
     if (typeof window === 'undefined') return;
     try {
-      const stored = window.localStorage.getItem('knowledge.activeTab');
-      if (stored === 'knowledge' || stored === 'diffs') {
-        setActiveTab(stored);
-      }
-      const storedKnowledgeFilter = window.localStorage.getItem('knowledge.filterTab');
-      if (storedKnowledgeFilter === 'filters' || storedKnowledgeFilter === 'schedule') {
-        setKnowledgeFilterTab(storedKnowledgeFilter);
+      const stored = window.localStorage.getItem('knowledge.filterTab');
+      if (stored === 'filters' || stored === 'schedule') {
+        setKnowledgeFilterTab(stored);
       }
     } catch {
       // Ignore storage access failures (e.g. privacy mode).
     }
-  }, []);
-
-  useEffect(() => {
-    if (fixedMode) return;
-    if (typeof window === 'undefined') return;
-    try {
-      window.localStorage.setItem('knowledge.activeTab', activeTab);
-    } catch {
-      // Ignore storage access failures (e.g. privacy mode).
-    }
-  }, [activeTab, fixedMode]);
+  }, [mode]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -2043,7 +1954,7 @@ export default function KnowledgeClient({ sources, mode, showModeSwitcher = true
   const loadItems = async () => {
     setLoading(true);
     try {
-      const listRes = await fetch(`/api/canon-view`);
+      const listRes = await fetch(`/api/view`);
       const data = await listRes.json();
       const normalized = (Array.isArray(data) ? data : []).map((item, idx) => {
         const title = typeof item?.title === 'string' && item.title.trim().length > 0
@@ -2606,7 +2517,7 @@ export default function KnowledgeClient({ sources, mode, showModeSwitcher = true
         pushProvider === 'confluence' && confluenceFolderId && selectedSpace?.metadata
           ? selectedSpace.metadata
           : resourceMeta;
-      const resp = await fetch('/api/canon-view/push', {
+      const resp = await fetch('/api/view/push', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2629,13 +2540,7 @@ export default function KnowledgeClient({ sources, mode, showModeSwitcher = true
   return (
     <>
       <TooltipProvider delayDuration={150}>
-        <div className="mb-6 space-y-3">
-          {showModeSwitcher && !fixedMode && (
-            <ModeSwitcher active={activeTab} onChange={setActiveTab} />
-          )}
-        </div>
-
-        {activeTab === 'knowledge' ? (
+        {mode === 'knowledge' ? (
           <SidebarProvider defaultOpen className="w-full">
             <div className="grid gap-6 lg:grid-cols-[340px_1fr]">
               <div className="flex flex-col gap-6 lg:self-start">
@@ -3489,29 +3394,29 @@ export default function KnowledgeClient({ sources, mode, showModeSwitcher = true
                 </div>
 
                 {loading && (
-          <Alert>
-            <Loader2 className="h-4 w-4 animate-spin" />
-            <AlertDescription>Loading Canon View entries...</AlertDescription>
-          </Alert>
-        )}
+                  <Alert>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <AlertDescription>Loading Canon View entries...</AlertDescription>
+                  </Alert>
+                )}
 
-        {!loading && items.length === 0 && (
-          <Alert variant="default">
-            <Info className="h-4 w-4" />
-            <AlertDescription>
-              {MODE_COPY.knowledge.empty}
-            </AlertDescription>
-          </Alert>
-        )}
+                {!loading && items.length === 0 && (
+                  <Alert variant="default">
+                    <Info className="h-4 w-4" />
+                    <AlertDescription>
+                      {MODE_COPY.knowledge.empty}
+                    </AlertDescription>
+                  </Alert>
+                )}
 
-        {!loading && filtersReady && visibleItems.length === 0 && (
-          <Alert variant="default">
-            <Info className="h-4 w-4" />
-            <AlertDescription>
-              {MODE_COPY.knowledge.empty}
-            </AlertDescription>
-          </Alert>
-        )}
+                {!loading && filtersReady && visibleItems.length === 0 && (
+                  <Alert variant="default">
+                    <Info className="h-4 w-4" />
+                    <AlertDescription>
+                      {MODE_COPY.knowledge.empty}
+                    </AlertDescription>
+                  </Alert>
+                )}
 
                 {visibleItems.length > 0 && (
                   <div className="space-y-4">

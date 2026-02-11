@@ -34,8 +34,8 @@ type NavItem = {
 
 const primaryNav: NavItem[] = [
   { href: '/sources', label: 'Sources', icon: Database },
-  { href: '/canon-view', label: 'Canon View', icon: FileText },
-  { href: '/canon-history', label: 'Canon History', icon: GitCompare },
+  { href: '/view', label: 'Canon View', icon: FileText },
+  { href: '/history', label: 'Canon History', icon: GitCompare },
   { href: '/logs', label: 'Logs', icon: ScrollText },
 ];
 

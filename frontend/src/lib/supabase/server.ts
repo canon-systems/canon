@@ -44,14 +44,14 @@ export function createServiceRoleClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   // Support common naming variants for the service role key
   const supabaseServiceRoleKey =
-    process.env.SUPABASE_SERVICE_KEY ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
     process.env.SUPABASE_SERVICE_KEY ||
     process.env.SUPABASE_SECRET_KEY;
 
   if (!supabaseUrl || !supabaseServiceRoleKey) {
     throw new Error(
       'Missing Supabase environment variables. Please set NEXT_PUBLIC_SUPABASE_URL and one of: ' +
-      'SUPABASE_SERVICE_KEY, SUPABASE_SERVICE_KEY, or SUPABASE_SECRET_KEY'
+      'SUPABASE_SERVICE_ROLE_KEY, SUPABASE_SERVICE_KEY, or SUPABASE_SECRET_KEY'
     );
   }
 

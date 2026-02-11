@@ -105,7 +105,7 @@ export async function insertRawEvent(params: {
   };
 
   const query = supabase.from('diff_event_raw');
-  const { data, error } = externalEventId
+  const { error } = externalEventId
     ? await query.upsert(row, { onConflict: 'provider,external_event_id' })
     : await query.insert(row);
   if (error) {
