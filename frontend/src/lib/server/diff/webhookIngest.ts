@@ -43,6 +43,66 @@ const coerceIso = (value?: string | null): string => {
   return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
 };
 
+const canonicalEventKey = (event: Pick<CanonicalEvent, 'event_kind' | 'entity_id' | 'occurred_at'>) =>
+  `${event.event_kind}::${event.entity_id ?? ''}::${event.occurred_at}`;
+
+export async function filterNewCanonicalEvents(params: {
+  supabase: SupabaseClient;
+  sourceId: string;
+  events: CanonicalEvent[];
+}): Promise<CanonicalEvent[]> {
+  const normalized = params.events.map((event) => ({
+    ...event,
+    occurred_at: coerceIso(event.occurred_at),
+  }));
+
+  if (normalized.length === 0) return normalized;
+
+  const kinds = Array.from(new Set(normalized.map((event) => event.event_kind)));
+  const timestamps = normalized
+    .map((event) => Date.parse(event.occurred_at))
+    .filter((t) => Number.isFinite(t)) as number[];
+
+  if (timestamps.length === 0) return [];
+
+  const minTs = Math.min(...timestamps);
+  const maxTs = Math.max(...timestamps);
+
+  const { data: existing, error } = await params.supabase
+    .from('diff_event_canonical')
+    .select('event_kind, entity_id, occurred_at')
+    .eq('source_id', params.sourceId)
+    .in('event_kind', kinds)
+    .gte('occurred_at', new Date(minTs).toISOString())
+    .lte('occurred_at', new Date(maxTs).toISOString());
+
+  if (error) {
+    console.error('[diff_event_canonical] dedupe query failed', {
+      sourceId: params.sourceId,
+      error: error.message,
+    });
+  }
+
+  const existingKeys = new Set(
+    (existing ?? []).map((row) =>
+      canonicalEventKey({
+        event_kind: row.event_kind as string,
+        entity_id: (row.entity_id as string | null) ?? null,
+        occurred_at: coerceIso(row.occurred_at as string),
+      })
+    )
+  );
+
+  const seen = new Set<string>();
+  return normalized.filter((event) => {
+    const key = canonicalEventKey(event);
+    if (existingKeys.has(key)) return false;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 const applyEventToIncrements = (inc: DailyIncrements, event: CanonicalEvent) => {
   switch (event.event_kind) {
     case 'pr_opened':
