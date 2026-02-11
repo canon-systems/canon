@@ -20,7 +20,24 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
-import { Loader2, ChevronsUpDown, Info, CalendarIcon, Plus, Trash2, Pencil } from 'lucide-react';
+import {
+  ArrowDownRight,
+  ArrowUpRight,
+  CalendarIcon,
+  ChevronsUpDown,
+  GitCommit,
+  GitMerge,
+  GitPullRequest,
+  FolderGit2,
+  Info,
+  Loader2,
+  Pencil,
+  Plus,
+  Ticket,
+  Trash2,
+} from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/components/ui/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -359,6 +376,75 @@ function isoToCalendarDate(iso: string): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 12, 0, 0, 0));
 }
 
+function DeltaBadge({ delta }: { delta: number }) {
+  const positive = delta >= 0;
+  const Icon = positive ? ArrowUpRight : ArrowDownRight;
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] uppercase tracking-[0.2em]',
+        positive ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-100' : 'border-rose-400/40 bg-rose-500/10 text-rose-100'
+      )}
+    >
+      <Icon className="h-3 w-3" />
+      {positive ? '+' : ''}
+      {delta}
+    </span>
+  );
+}
+
+function DiffSkeleton() {
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-white/10 bg-neutral-900/60 p-4">
+        <Skeleton className="h-4 w-48" />
+        <div className="mt-3 flex flex-wrap gap-2">
+          {Array.from({ length: 4 }).map((_, idx) => (
+            <Skeleton key={`source-skel-${idx}`} className="h-7 w-24 rounded-full" />
+          ))}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-white/10 bg-neutral-900/60 p-5">
+        <div className="flex flex-wrap gap-3">
+          <Skeleton className="h-4 w-40" />
+          <Skeleton className="h-4 w-32" />
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {Array.from({ length: 8 }).map((_, idx) => (
+            <div key={`metric-skel-${idx}`} className="rounded-xl border border-white/10 bg-black/30 p-4">
+              <div className="flex items-center justify-between">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-4 w-12" />
+              </div>
+              <Skeleton className="mt-3 h-6 w-16" />
+              <Skeleton className="mt-2 h-3 w-32" />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        {['jira', 'github'].map((key) => (
+          <div key={key} className="rounded-xl border border-white/10 bg-neutral-900/60 p-4">
+            <Skeleton className="h-4 w-48" />
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              {Array.from({ length: 4 }).map((_, idx) => (
+                <div key={`${key}-section-${idx}`} className="space-y-2 rounded-lg border border-white/10 bg-black/20 p-3">
+                  <Skeleton className="h-3 w-20" />
+                  {Array.from({ length: 3 }).map((__, jdx) => (
+                    <Skeleton key={`${key}-line-${idx}-${jdx}`} className="h-3 w-full" />
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function DiffPrototypePanel() {
   const defaultStart = useMemo(() => startOfTodayUTC(), []);
   const defaultEnd = useMemo(() => endOfTodayUTC(), []);
@@ -387,6 +473,7 @@ function DiffPrototypePanel() {
   const [pendingRangeTo, setPendingRangeTo] = useState<Date | undefined>(undefined);
   const [baselineWindow, setBaselineWindow] = useState<{ start: string; end: string } | null>(null);
   const [compareLoading, setCompareLoading] = useState(false);
+  const [, setDiffLoaded] = useState(false);
   const [compareError, setCompareError] = useState<string | null>(null);
   const [deltaObject, setDeltaObject] = useState<DiffDelta | null>(null);
   const [connectedSources, setConnectedSources] = useState<ConnectedDiffSource[]>([]);
@@ -518,7 +605,11 @@ function DiffPrototypePanel() {
   );
 
   const deltaOrZero = useCallback(
-    (field: keyof DiffDelta) => (deltaObject ? deltaObject[field] : 0),
+    (field: keyof DiffDelta): number => {
+      if (!deltaObject) return 0;
+      const v = deltaObject[field];
+      return typeof v === 'number' ? v : 0;
+    },
     [deltaObject]
   );
 
@@ -875,29 +966,32 @@ function DiffPrototypePanel() {
 
   const runDiffCompare = useCallback(async () => {
     setCompareError(null);
+    setDiffLoaded(false);
     setCompareLoading(true);
     type CanonicalDiffResponse = {
-      tickets_moved?: number;
-      tickets_completed?: number;
-      tickets_regressed?: number;
-      tickets_created?: number;
-      prs_opened?: number;
-      prs_merged?: number;
-      prs_closed?: number;
+      tickets_moved?: number | unknown[];
+      tickets_completed?: number | unknown[];
+      tickets_regressed?: number | unknown[];
+      tickets_created?: number | unknown[];
+      prs_opened?: number | unknown[];
+      prs_merged?: number | unknown[];
+      prs_closed?: number | unknown[];
       commits_default?: number;
       repos_touched?: string[];
     };
+    const toNum = (v: unknown): number =>
+      typeof v === 'number' && !Number.isNaN(v) ? v : Array.isArray(v) ? v.length : 0;
     const toDiffObj = (d: CanonicalDiffResponse | null | undefined): DiffObject | null => {
       if (!d) return null;
       return {
-        tickets_moved: d.tickets_moved ?? 0,
-        tickets_completed: d.tickets_completed ?? 0,
-        tickets_regressed: d.tickets_regressed ?? 0,
-        tickets_created: d.tickets_created ?? 0,
-        prs_opened: d.prs_opened ?? 0,
-        prs_merged: d.prs_merged ?? 0,
-        prs_closed: d.prs_closed ?? 0,
-        commits_default: d.commits_default ?? 0,
+        tickets_moved: toNum(d.tickets_moved),
+        tickets_completed: toNum(d.tickets_completed),
+        tickets_regressed: toNum(d.tickets_regressed),
+        tickets_created: toNum(d.tickets_created),
+        prs_opened: toNum(d.prs_opened),
+        prs_merged: toNum(d.prs_merged),
+        prs_closed: toNum(d.prs_closed),
+        commits_default: toNum(d.commits_default),
         repos_touched: Array.isArray(d.repos_touched) ? d.repos_touched : [],
         architecture_changes: [],
       };
@@ -953,6 +1047,7 @@ function DiffPrototypePanel() {
     } catch (e: unknown) {
       setCompareError(e instanceof Error ? e.message : 'Failed to generate diff');
     } finally {
+      setDiffLoaded(true);
       setCompareLoading(false);
     }
   }, [selectedSourceIds, diffInput]);
@@ -962,6 +1057,7 @@ function DiffPrototypePanel() {
     setBaselineWindow(null);
     setDeltaObject(null);
     setDiffDetails(null);
+    setDiffLoaded(false);
   }, [diffInput.start_timestamp, diffInput.end_timestamp]);
 
   // Regenerate diff whenever date range or source selection changes.
@@ -984,6 +1080,27 @@ function DiffPrototypePanel() {
     connectedSources.length,
     runDiffCompare,
   ]);
+
+  const canShowDiff = connectedSources.length > 0 && selectedSourceIds.length > 0;
+  const repoDelta = deltaObject ? (deltaObject.repos_added?.length ?? 0) - (deltaObject.repos_removed?.length ?? 0) : 0;
+  const repoCaption =
+    diffObject.repos_touched.length > 0
+      ? `${diffObject.repos_touched.slice(0, 3).join(', ')}${diffObject.repos_touched.length > 3 ? ` +${diffObject.repos_touched.length - 3} more` : ''}`
+      : 'No repositories touched in this window.';
+  const toMetricValue = (v: unknown): number =>
+    typeof v === 'number' && !Number.isNaN(v) ? v : Array.isArray(v) ? v.length : 0;
+  const metricCards: Array<{ key: string; label: string; value: number; delta: number; icon: LucideIcon; caption?: string }> = [
+    { key: 'tickets_moved', label: 'Tickets moved', value: toMetricValue(diffObject.tickets_moved), delta: deltaOrZero('tickets_moved'), icon: Ticket },
+    { key: 'tickets_completed', label: 'Tickets completed', value: toMetricValue(diffObject.tickets_completed), delta: deltaOrZero('tickets_completed'), icon: Ticket },
+    { key: 'tickets_regressed', label: 'Tickets regressed', value: toMetricValue(diffObject.tickets_regressed), delta: deltaOrZero('tickets_regressed'), icon: Ticket },
+    { key: 'tickets_created', label: 'Tickets created', value: toMetricValue(diffObject.tickets_created), delta: deltaOrZero('tickets_created'), icon: Ticket },
+    { key: 'prs_opened', label: 'PRs opened', value: toMetricValue(diffObject.prs_opened), delta: deltaOrZero('prs_opened'), icon: GitPullRequest },
+    { key: 'prs_merged', label: 'PRs merged', value: toMetricValue(diffObject.prs_merged), delta: deltaOrZero('prs_merged'), icon: GitMerge },
+    { key: 'prs_closed', label: 'PRs closed', value: toMetricValue(diffObject.prs_closed), delta: deltaOrZero('prs_closed'), icon: GitPullRequest },
+    { key: 'commits_default', label: 'Commits to default', value: toMetricValue(diffObject.commits_default), delta: deltaOrZero('commits_default'), icon: GitCommit },
+    { key: 'repos_touched', label: 'Repos touched', value: diffObject.repos_touched.length, delta: repoDelta, icon: FolderGit2, caption: repoCaption },
+  ];
+  const showDelta = !!deltaObject;
 
   return (
     <div className="grid gap-6 lg:grid-cols-[340px_1fr]">
@@ -1589,208 +1706,207 @@ function DiffPrototypePanel() {
             <CardDescription>{MODE_COPY.diffs.description}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            {!hasMaterialChanges && (
-              <Alert variant="default">
-                <Info className="h-4 w-4" />
-                <AlertDescription>{MODE_COPY.diffs.empty}</AlertDescription>
-              </Alert>
-            )}
-            {reportSources.length > 0 && (
-              <div className="rounded-lg border border-white/10 bg-neutral-900/80 p-4">
-                <h3 className="text-sm font-semibold text-white mb-2">Sources in this report</h3>
-                <ul className="flex flex-wrap gap-2">
-                  {reportSources.map((s) => (
-                    <li key={s.id}>
-                      <Badge variant="secondary" className="font-mono text-xs bg-white/10 text-white/90">
-                        {s.display_name}
-                      </Badge>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            <div className="rounded-lg border border-white/10 bg-neutral-900 p-4 font-mono text-xs text-white/80">
-              <h3 className="text-sm font-semibold text-white mb-2">High-Level Metrics (All Sources)</h3>
-              <div className="mb-2 flex flex-col gap-1 text-white/70">
-                <span>Primary: {formatDateUTC(canonicalInput.start_timestamp)} → {formatDateUTC(canonicalInput.end_timestamp)} (UTC)</span>
-                {baselineWindow && (
-                  <span>Baseline: {formatDateUTC(baselineWindow.start)} → {formatDateUTC(baselineWindow.end)} (UTC)</span>
+            {!canShowDiff ? (
+              <DiffSkeleton />
+            ) : (
+              <>
+                {compareError && (
+                  <Alert variant="destructive" className="border-red-400/30 bg-red-950/40 text-red-50">
+                    <Info className="h-4 w-4" />
+                    <AlertDescription>{compareError}</AlertDescription>
+                  </Alert>
                 )}
-              </div>
-              <dl className="space-y-2 text-sm">
-                {(
-                  [
-                    { label: 'Tickets moved', value: diffObject.tickets_moved, delta: deltaOrZero('tickets_moved') },
-                    { label: 'Tickets completed', value: diffObject.tickets_completed, delta: deltaOrZero('tickets_completed') },
-                    { label: 'Tickets regressed', value: diffObject.tickets_regressed, delta: deltaOrZero('tickets_regressed') },
-                    { label: 'Tickets created', value: diffObject.tickets_created, delta: deltaOrZero('tickets_created') },
-                    { label: 'PRs merged', value: diffObject.prs_merged, delta: deltaOrZero('prs_merged') },
-                    { label: 'PRs opened', value: diffObject.prs_opened, delta: deltaOrZero('prs_opened') },
-                    { label: 'PRs closed', value: diffObject.prs_closed, delta: deltaOrZero('prs_closed') },
-                    { label: 'Commits to default', value: diffObject.commits_default, delta: deltaOrZero('commits_default') },
-                  ] as Array<{ label: string; value: number; delta: number }>
-                ).map((row) => (
-                  <div key={row.label} className="flex items-center justify-between">
-                    <dt className="text-white/80">{row.label}</dt>
-                    <dd className="flex items-center gap-2 font-semibold text-white">
-                      <span>{row.value}</span>
-                      {deltaObject && (
-                        <span className={cn('tab-label text-[11px] uppercase tracking-[0.2em]', row.delta >= 0 ? 'text-emerald-300' : 'text-rose-300')}>
-                          {row.delta >= 0 ? '+' : ''}
-                          {row.delta}
+
+                {!hasMaterialChanges && (
+                  <Alert variant="default">
+                    <Info className="h-4 w-4" />
+                    <AlertDescription>{MODE_COPY.diffs.empty}</AlertDescription>
+                  </Alert>
+                )}
+
+                {reportSources.length > 0 && (
+                  <div className="rounded-xl border border-white/10 bg-gradient-to-r from-neutral-900/80 via-neutral-900/70 to-black/60 p-4 shadow-lg">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-[11px] uppercase tracking-[0.2em] text-white/60">Sources in this report</p>
+                        <p className="text-sm text-white/75">Pulled from {reportSources.length} connected source{reportSources.length === 1 ? '' : 's'}.</p>
+                      </div>
+                      <Badge variant="secondary" className="bg-white/10 text-white/90">
+                        Scope: {diffInput.scope}
+                      </Badge>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {reportSources.map((s) => (
+                        <Badge key={s.id} variant="secondary" className="font-mono text-xs bg-white/10 text-white/90">
+                          {s.display_name}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="rounded-2xl border border-white/10 bg-neutral-900/80 p-5 shadow-lg">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.2em] text-white/60">High-Level Metrics</p>
+                      <p className="text-sm text-white/75">Activity across sources for the selected window.</p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-white/70">
+                      <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">
+                        Primary {formatDateUTC(canonicalInput.start_timestamp)} → {formatDateUTC(canonicalInput.end_timestamp)} (UTC)
+                      </span>
+                      {baselineWindow && (
+                        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">
+                          Baseline {formatDateUTC(baselineWindow.start)} → {formatDateUTC(baselineWindow.end)} (UTC)
                         </span>
                       )}
-                    </dd>
+                    </div>
                   </div>
-                ))}
-                <div className="flex items-center justify-between">
-                  <dt className="text-white/80">Repos touched</dt>
-                  <dd className="flex items-center gap-2 font-semibold text-white">
-                    <span>{diffObject.repos_touched.length}</span>
-                    {deltaObject && (() => {
-                      const delta = (deltaObject.repos_added?.length ?? 0) - (deltaObject.repos_removed?.length ?? 0);
+
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    {metricCards.map((metric) => {
+                      const Icon = metric.icon;
                       return (
-                        <span className={cn('tab-label text-[11px] uppercase tracking-[0.2em]', delta >= 0 ? 'text-emerald-300' : 'text-rose-300')}>
-                          {delta >= 0 ? '+' : ''}
-                          {delta}
-                        </span>
+                        <div key={metric.key} className="rounded-xl border border-white/10 bg-black/40 p-4 shadow-inner">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 text-white/80">
+                              <span className="rounded-lg bg-white/5 p-2 text-white/70">
+                                <Icon className="h-4 w-4" />
+                              </span>
+                              <span className="text-sm font-semibold text-white">{metric.label}</span>
+                            </div>
+                            {showDelta && <DeltaBadge delta={metric.delta} />}
+                          </div>
+                          <div className="mt-3 flex items-end gap-2">
+                            {compareLoading ? (
+                              <Spinner className="size-6 text-white/60" aria-hidden />
+                            ) : (
+                              <span className="text-2xl font-semibold text-white">{metric.value}</span>
+                            )}
+                            {!showDelta && !compareLoading && <span className="text-[11px] uppercase tracking-[0.2em] text-white/40">Loading delta…</span>}
+                          </div>
+                          {metric.caption && <p className="text-xs text-white/60">{metric.caption}</p>}
+                        </div>
                       );
-                    })()}
-                  </dd>
-                </div>
-              </dl>
-            </div>
-
-            {diffDetails && (
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="rounded-lg border border-white/10 bg-neutral-900/80 p-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold text-white">Jira Workspace Trail</h3>
-                    <span className="tab-label text-[11px] uppercase tracking-[0.2em] text-white">Tickets</span>
-                  </div>
-                  <div className="mt-3 space-y-4 text-xs text-white/75">
-                    <div>
-                      <p className="text-[11px] uppercase tracking-[0.2em] text-white/50">Moved</p>
-                      <ul className="mt-2 space-y-2">
-                        {(diffDetails.jira?.moved || []).slice(0, 8).map((item, idx) => (
-                          <li key={`jira-moved-${idx}`} className="flex flex-col gap-1">
-                            <span className="text-white/90">{item.summary ?? 'Untitled'} ({item.issue_key ?? '—'})</span>
-                            <span className="text-white/60">{item.from ?? '—'} → {item.to ?? '—'}</span>
-                            <span className="text-white/40">{formatDateTimeUTC(item.occurred_at)}</span>
-                          </li>
-                        ))}
-                        {(!diffDetails.jira?.moved || diffDetails.jira.moved.length === 0) && (
-                          <li className="text-white/40">No status changes detected.</li>
-                        )}
-                      </ul>
-                    </div>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div>
-                        <p className="text-[11px] uppercase tracking-[0.2em] text-white/50">Completed</p>
-                        <ul className="mt-2 space-y-2">
-                          {(diffDetails.jira?.completed || []).slice(0, 5).map((item, idx) => (
-                            <li key={`jira-done-${idx}`} className="flex flex-col gap-1">
-                              <span className="text-white/90">{item.summary ?? 'Untitled'} ({item.issue_key ?? '—'})</span>
-                              <span className="text-white/60">{item.status ?? 'Done'}</span>
-                              <span className="text-white/40">{formatDateTimeUTC(item.occurred_at)}</span>
-                            </li>
-                          ))}
-                          {(!diffDetails.jira?.completed || diffDetails.jira.completed.length === 0) && (
-                            <li className="text-white/40">No completions in window.</li>
-                          )}
-                        </ul>
-                      </div>
-                      <div>
-                        <p className="text-[11px] uppercase tracking-[0.2em] text-white/50">Regressed</p>
-                        <ul className="mt-2 space-y-2">
-                          {(diffDetails.jira?.regressed || []).slice(0, 5).map((item, idx) => (
-                            <li key={`jira-regressed-${idx}`} className="flex flex-col gap-1">
-                              <span className="text-white/90">{item.summary ?? 'Untitled'} ({item.issue_key ?? '—'})</span>
-                              <span className="text-white/60">{item.status ?? 'Backlog'}</span>
-                              <span className="text-white/40">{formatDateTimeUTC(item.occurred_at)}</span>
-                            </li>
-                          ))}
-                          {(!diffDetails.jira?.regressed || diffDetails.jira.regressed.length === 0) && (
-                            <li className="text-white/40">No regressions in window.</li>
-                          )}
-                        </ul>
-                      </div>
-                    </div>
+                    })}
                   </div>
                 </div>
 
-                <div className="rounded-lg border border-white/10 bg-neutral-900/80 p-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold text-white">GitHub Activity Stream</h3>
-                    <span className="tab-label text-[11px] uppercase tracking-[0.2em] text-white">Code</span>
-                  </div>
-                  <div className="mt-3 space-y-4 text-xs text-white/75">
-                    <div>
-                      <p className="text-[11px] uppercase tracking-[0.2em] text-white/50">Commits</p>
-                      <ul className="mt-2 space-y-2">
-                        {(diffDetails.github?.commits || []).slice(0, 8).map((item, idx) => (
-                          <li key={`gh-commit-${idx}`} className="flex flex-col gap-1">
-                            <span className="font-mono text-white/90">{item.sha ? item.sha.slice(0, 7) : '—'}</span>
-                            <span className="text-white/60">{item.repo ?? '—'}</span>
-                            <span className="text-white/40">{formatDateTimeUTC(item.occurred_at)}</span>
-                          </li>
-                        ))}
-                        {(!diffDetails.github?.commits || diffDetails.github.commits.length === 0) && (
-                          <li className="text-white/40">No commits in window.</li>
+                {(diffDetails || compareLoading) ? (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="rounded-xl border border-white/10 bg-neutral-900/80 p-4 shadow-lg">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-semibold text-white">Jira Workspace Trail</h3>
+                        {!compareLoading && diffDetails && (
+                          <span className="tab-label text-[11px] uppercase tracking-[0.2em] text-white/80">
+                            Tickets • {(diffDetails.jira?.moved?.length ?? 0) + (diffDetails.jira?.completed?.length ?? 0) + (diffDetails.jira?.regressed?.length ?? 0) + (diffDetails.jira?.created?.length ?? 0)}
+                          </span>
                         )}
-                      </ul>
-                    </div>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div>
-                        <p className="text-[11px] uppercase tracking-[0.2em] text-white/50">PRs opened</p>
-                        <ul className="mt-2 space-y-2">
-                          {(diffDetails.github?.prs_opened || []).slice(0, 5).map((item, idx) => (
-                            <li key={`gh-pr-open-${idx}`} className="flex flex-col gap-1">
-                              <span className="font-mono text-white/90">#{item.number ?? '—'}</span>
-                              <span className="text-white/60">{item.repo ?? '—'}</span>
-                              <span className="text-white/40">{formatDateTimeUTC(item.occurred_at)}</span>
-                            </li>
-                          ))}
-                          {(!diffDetails.github?.prs_opened || diffDetails.github.prs_opened.length === 0) && (
-                            <li className="text-white/40">No PRs opened.</li>
-                          )}
-                        </ul>
                       </div>
-                      <div>
-                        <p className="text-[11px] uppercase tracking-[0.2em] text-white/50">PRs merged</p>
-                        <ul className="mt-2 space-y-2">
-                          {(diffDetails.github?.prs_merged || []).slice(0, 5).map((item, idx) => (
-                            <li key={`gh-pr-merged-${idx}`} className="flex flex-col gap-1">
-                              <span className="font-mono text-white/90">#{item.number ?? '—'}</span>
-                              <span className="text-white/60">{item.repo ?? '—'}</span>
-                              <span className="text-white/40">{formatDateTimeUTC(item.occurred_at)}</span>
-                            </li>
-                          ))}
-                          {(!diffDetails.github?.prs_merged || diffDetails.github.prs_merged.length === 0) && (
-                            <li className="text-white/40">No PRs merged.</li>
-                          )}
-                        </ul>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                        {compareLoading ? (
+                          <div className="col-span-2 flex items-center justify-center py-8">
+                            <Spinner className="size-8 text-white/60" aria-hidden />
+                          </div>
+                        ) : (
+                          [
+                            { label: 'Moved', items: diffDetails?.jira?.moved || [], limit: 6 },
+                            { label: 'Completed', items: diffDetails?.jira?.completed || [], limit: 4 },
+                            { label: 'Regressed', items: diffDetails?.jira?.regressed || [], limit: 4 },
+                            { label: 'Created', items: diffDetails?.jira?.created || [], limit: 4 },
+                          ].map((section) => (
+                            <div key={section.label} className="rounded-lg border border-white/5 bg-black/20 p-3">
+                              <p className="flex items-center justify-between text-[11px] uppercase tracking-[0.2em] text-white/50">
+                                <span>{section.label}</span>
+                                <span className="text-white/40">{section.items.length}</span>
+                              </p>
+                              <ul className="mt-2 space-y-2 text-xs text-white/75">
+                                {section.items.slice(0, section.limit).map((item, idx) => (
+                                  <li key={`${section.label}-${idx}`} className="flex flex-col gap-1">
+                                    <span className="text-white/90">
+                                      {item.summary ?? 'Untitled'} ({item.issue_key ?? '—'})
+                                    </span>
+                                    <span className="text-white/60">
+                                      {section.label === 'Moved' ? `${'from' in item ? item.from ?? '—' : '—'} → ${'to' in item ? item.to ?? '—' : '—'}` : 'status' in item ? item.status ?? '—' : '—'}
+                                    </span>
+                                    <span className="text-white/40">{formatDateTimeUTC(item.occurred_at)}</span>
+                                  </li>
+                                ))}
+                                {section.items.length === 0 && <li className="text-white/40">No items in this window.</li>}
+                                {section.items.length > section.limit && (
+                                  <li className="text-white/50">+{section.items.length - section.limit} more not shown</li>
+                                )}
+                              </ul>
+                            </div>
+                          ))
+                        )}
                       </div>
                     </div>
-                    <div>
-                      <p className="text-[11px] uppercase tracking-[0.2em] text-white/50">PRs closed</p>
-                      <ul className="mt-2 space-y-2">
-                        {(diffDetails.github?.prs_closed || []).slice(0, 5).map((item, idx) => (
-                          <li key={`gh-pr-closed-${idx}`} className="flex flex-col gap-1">
-                            <span className="font-mono text-white/90">#{item.number ?? '—'}</span>
-                            <span className="text-white/60">{item.repo ?? '—'}</span>
-                            <span className="text-white/40">{formatDateTimeUTC(item.occurred_at)}</span>
-                          </li>
-                        ))}
-                        {(!diffDetails.github?.prs_closed || diffDetails.github.prs_closed.length === 0) && (
-                          <li className="text-white/40">No PRs closed.</li>
+
+                    <div className="rounded-xl border border-white/10 bg-neutral-900/80 p-4 shadow-lg">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-semibold text-white">GitHub Activity Stream</h3>
+                        {!compareLoading && diffDetails && (
+                          <span className="tab-label text-[11px] uppercase tracking-[0.2em] text-white/80">
+                            Code • {(diffDetails.github?.commits?.length ?? 0) + (diffDetails.github?.prs_opened?.length ?? 0) + (diffDetails.github?.prs_merged?.length ?? 0) + (diffDetails.github?.prs_closed?.length ?? 0)}
+                          </span>
                         )}
-                      </ul>
+                      </div>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                        {compareLoading ? (
+                          <div className="col-span-2 flex items-center justify-center py-8">
+                            <Spinner className="size-8 text-white/60" aria-hidden />
+                          </div>
+                        ) : (
+                          [
+                            {
+                              label: 'Commits', items: diffDetails?.github?.commits || [], limit: 8, renderer: (item: { sha?: string | null; repo?: string | null; occurred_at?: string | null }) => (
+                                <>
+                                  <span className="font-mono text-white/90">{item.sha ? item.sha.slice(0, 7) : '—'}</span>
+                                  <span className="text-white/60">{item.repo ?? '—'}</span>
+                                </>
+                              )
+                            },
+                          { label: 'PRs opened', items: diffDetails?.github?.prs_opened || [], limit: 5 },
+                          { label: 'PRs merged', items: diffDetails?.github?.prs_merged || [], limit: 5 },
+                          { label: 'PRs closed', items: diffDetails?.github?.prs_closed || [], limit: 5 },
+                        ].map((section) => (
+                            <div key={section.label} className="rounded-lg border border-white/5 bg-black/20 p-3">
+                              <p className="flex items-center justify-between text-[11px] uppercase tracking-[0.2em] text-white/50">
+                                <span>{section.label}</span>
+                                <span className="text-white/40">{section.items.length}</span>
+                              </p>
+                              <ul className="mt-2 space-y-2 text-xs text-white/75">
+                                {section.items.slice(0, section.limit).map((item: { sha?: string | null; number?: string | null; repo?: string | null; occurred_at?: string | null }, idx: number) => (
+                                  <li key={`${section.label}-${idx}`} className="flex flex-col gap-1">
+                                    {section.renderer ? (
+                                      section.renderer(item)
+                                    ) : (
+                                      <>
+                                        <span className="font-mono text-white/90">#{item.number ?? '—'}</span>
+                                        <span className="text-white/60">{item.repo ?? '—'}</span>
+                                      </>
+                                    )}
+                                    <span className="text-white/40">{formatDateTimeUTC(item.occurred_at)}</span>
+                                  </li>
+                                ))}
+                                {section.items.length === 0 && <li className="text-white/40">No activity recorded.</li>}
+                                {section.items.length > section.limit && (
+                                  <li className="text-white/50">+{section.items.length - section.limit} more not shown</li>
+                                )}
+                            </ul>
+                          </div>
+                        ))
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-white/15 bg-white/5 p-4 text-sm text-white/70">
+                    Detailed events will appear once the current window finishes loading.
+                  </div>
+                )}
+              </>
             )}
           </CardContent>
         </Card>
