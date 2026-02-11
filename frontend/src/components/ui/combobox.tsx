@@ -78,14 +78,15 @@ export function Combobox({
                     onChange(opt.value);
                     setOpen(false);
                   }}
+                  className="flex items-center justify-between"
                 >
+                  {opt.label}
                   <Check
                     className={cn(
-                      'mr-2 h-4 w-4',
+                      'ml-2 h-4 w-4 shrink-0',
                       value === opt.value ? 'opacity-100' : 'opacity-0'
                     )}
                   />
-                  {opt.label}
                 </CommandItem>
               ))}
             </CommandGroup>

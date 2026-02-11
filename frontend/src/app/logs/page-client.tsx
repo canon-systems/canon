@@ -4,7 +4,7 @@ import { useState, useMemo } from 'react';
 import { FileText, Layers3, AlertCircle, RefreshCw, ExternalLink, GitBranch, Folder, Code, Clock, Hash, Zap, Github, XCircle, Link as LinkIcon, ScrollText } from 'lucide-react';
 import Link from 'next/link';
 import { Card, CardContent } from '@/components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Combobox } from '@/components/ui/combobox';
 
 interface LogEntry {
   id: string;
@@ -244,53 +244,59 @@ export function LogsPageClient({ logs }: LogsPageClientProps) {
 
         <div className="flex flex-col gap-4 sm:flex-row mt-2.5 mb-2.5">
           <div className="flex items-center gap-2">
-            <Select value={timeFilter} onValueChange={(value: TimeFilter) => setTimeFilter(value)}>
-              <SelectTrigger className="w-full sm:w-[180px] bg-white/5 border-white/10">
-                <SelectValue placeholder="Filter by time" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All time</SelectItem>
-                <SelectItem value="24h">Last 24 hours</SelectItem>
-                <SelectItem value="3d">Last 3 days</SelectItem>
-                <SelectItem value="7d">Last 7 days</SelectItem>
-                <SelectItem value="14d">Last 2 weeks</SelectItem>
-                <SelectItem value="30d">Last 30 days</SelectItem>
-                <SelectItem value="90d">Last 3 months</SelectItem>
-                <SelectItem value="180d">Last 6 months</SelectItem>
-                <SelectItem value="1y">Last year</SelectItem>
-              </SelectContent>
-            </Select>
+            <Combobox
+              options={[
+                { value: 'all', label: 'All time' },
+                { value: '24h', label: 'Last 24 hours' },
+                { value: '3d', label: 'Last 3 days' },
+                { value: '7d', label: 'Last 7 days' },
+                { value: '14d', label: 'Last 2 weeks' },
+                { value: '30d', label: 'Last 30 days' },
+                { value: '90d', label: 'Last 3 months' },
+                { value: '180d', label: 'Last 6 months' },
+                { value: '1y', label: 'Last year' },
+              ]}
+              value={timeFilter}
+              onChange={(v) => setTimeFilter(v as TimeFilter)}
+              placeholder="Filter by time"
+              searchPlaceholder="Search..."
+              className="w-full sm:w-[180px]"
+            />
           </div>
-          <Select value={statusFilter} onValueChange={(value: StatusFilter) => setStatusFilter(value)}>
-            <SelectTrigger className="w-full sm:w-[180px] bg-white/5 border-white/10">
-              <SelectValue placeholder="Filter by status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All statuses</SelectItem>
-              <SelectItem value="completed">Completed</SelectItem>
-              <SelectItem value="processing">Processing</SelectItem>
-              <SelectItem value="failed">Failed</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={typeFilter} onValueChange={(value: TypeFilter) => setTypeFilter(value)}>
-            <SelectTrigger className="w-full sm:w-[200px] bg-white/5 border-white/10">
-              <SelectValue placeholder="Filter by type" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All types</SelectItem>
-              <SelectItem value="automation_execution">Automation Execution</SelectItem>
-              <SelectItem value="document">Document</SelectItem>
-              <SelectItem value="document_error">Document Error</SelectItem>
-              <SelectItem value="document_regenerated">Regenerated</SelectItem>
-              <SelectItem value="document_deleted">Deleted</SelectItem>
-              <SelectItem value="repo_connection">Repository Connection</SelectItem>
-              <SelectItem value="source_connection">Source Connection</SelectItem>
-              <SelectItem value="integration_connection">Integration Connected</SelectItem>
-              <SelectItem value="integration_disconnected">Integration Disconnected</SelectItem>
-              <SelectItem value="diagram">Diagram</SelectItem>
-              <SelectItem value="kb_push">KB Push</SelectItem>
-            </SelectContent>
-          </Select>
+          <Combobox
+            options={[
+              { value: 'all', label: 'All statuses' },
+              { value: 'completed', label: 'Completed' },
+              { value: 'processing', label: 'Processing' },
+              { value: 'failed', label: 'Failed' },
+            ]}
+            value={statusFilter}
+            onChange={(v) => setStatusFilter(v as StatusFilter)}
+            placeholder="Filter by status"
+            searchPlaceholder="Search..."
+            className="w-full sm:w-[180px]"
+          />
+          <Combobox
+            options={[
+              { value: 'all', label: 'All types' },
+              { value: 'automation_execution', label: 'Automation Execution' },
+              { value: 'document', label: 'Document' },
+              { value: 'document_error', label: 'Document Error' },
+              { value: 'document_regenerated', label: 'Regenerated' },
+              { value: 'document_deleted', label: 'Deleted' },
+              { value: 'repo_connection', label: 'Repository Connection' },
+              { value: 'source_connection', label: 'Source Connection' },
+              { value: 'integration_connection', label: 'Integration Connected' },
+              { value: 'integration_disconnected', label: 'Integration Disconnected' },
+              { value: 'diagram', label: 'Diagram' },
+              { value: 'kb_push', label: 'KB Push' },
+            ]}
+            value={typeFilter}
+            onChange={(v) => setTypeFilter(v as TypeFilter)}
+            placeholder="Filter by type"
+            searchPlaceholder="Search..."
+            className="w-full sm:w-[200px]"
+          />
         </div>
 
         {(logs.errors.usageEvents || logs.errors.automationRuns) && (
