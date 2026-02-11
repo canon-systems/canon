@@ -325,8 +325,16 @@ export function extractJiraCanonicalEvents(
   const issue = payload.issue as { key?: string; fields?: Record<string, unknown> } | undefined;
   const issueKey = issue?.key || null;
   const fields = issue?.fields || {};
-  const changelog = payload.changelog as { created?: string; items?: Array<Record<string, unknown>> } | undefined;
-  const items = Array.isArray(changelog?.items) ? changelog?.items : [];
+  const changelog = payload.changelog as {
+    created?: string;
+    items?: Array<Record<string, unknown>>;
+    histories?: Array<{ created?: string; items?: Array<Record<string, unknown>> }>;
+  } | undefined;
+  const items: Array<Record<string, unknown>> = Array.isArray(changelog?.items)
+    ? changelog.items
+    : Array.isArray(changelog?.histories)
+      ? changelog.histories.flatMap((h) => Array.isArray(h?.items) ? h.items : [])
+      : [];
   const summaryFromFields = typeof fields.summary === 'string' ? fields.summary : null;
   const summaryFromChangelog = items.find((item) => item?.field === 'summary')?.toString;
   const summary =
@@ -351,11 +359,20 @@ export function extractJiraCanonicalEvents(
   const statusItems = items.filter((item) => item?.field === 'status');
   const changeTime = changelog?.created || updatedAt || new Date().toISOString();
 
+  // Deduplicate by (from, to) so each unique transition counts once (avoids double-counting from
+  // multiple webhooks, duplicate changelog entries, or status+resolution in same change)
+  const seenTransitions = new Set<string>();
   for (const item of statusItems) {
-    const fromId = item?.from ? String(item.from) : null;
-    const toId = item?.to ? String(item.to) : null;
-    const fromCategory = fromId ? statusCategoryMap?.get(fromId) : undefined;
-    const toCategory = toId ? statusCategoryMap?.get(toId) : undefined;
+    const fromId = item?.from != null ? String(item.from) : '';
+    const toId = item?.to != null ? String(item.to) : '';
+    const transitionKey = `${fromId}::${toId}`;
+    if (seenTransitions.has(transitionKey)) continue;
+    seenTransitions.add(transitionKey);
+
+    const fromIdForCategory = fromId || null;
+    const toIdForCategory = toId || null;
+    const fromCategory = fromIdForCategory ? statusCategoryMap?.get(fromIdForCategory) : undefined;
+    const toCategory = toIdForCategory ? statusCategoryMap?.get(toIdForCategory) : undefined;
     events.push({
       event_kind: 'ticket_moved',
       occurred_at: changeTime,
@@ -363,8 +380,8 @@ export function extractJiraCanonicalEvents(
       metadata: {
         from: item?.fromString ?? null,
         to: item?.toString ?? null,
-        from_id: fromId,
-        to_id: toId,
+        from_id: fromIdForCategory,
+        to_id: toIdForCategory,
         summary,
       },
     });
