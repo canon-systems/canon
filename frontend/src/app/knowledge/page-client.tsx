@@ -74,7 +74,6 @@ type KnowledgeItem = {
 type Source = { id: string; name: string; provider: string };
 
 type DiffScope = 'repo' | 'project' | 'org';
-type DiffSource = 'jira' | 'github';
 type Mode = 'knowledge' | 'diffs';
 type DiffDelta = {
   tickets_moved: number;
@@ -101,11 +100,7 @@ type ConnectedDiffSource = {
 type DiffInput = {
   start_timestamp: string;
   end_timestamp: string;
-  sources: DiffSource[];
   scope: DiffScope;
-  jira_project_key?: string;
-  github_repos?: string[];
-  source_ids?: string[];
 };
 
 type DiffObject = {
@@ -477,10 +472,7 @@ function DiffPrototypePanel() {
   const [diffInput, setDiffInput] = useState<DiffInput>({
     start_timestamp: defaultStart.toISOString(),
     end_timestamp: defaultEnd.toISOString(),
-    sources: ['jira', 'github'],
     scope: 'org',
-    jira_project_key: '',
-    github_repos: [],
   });
   const [diffObject, setDiffObject] = useState<DiffObject>(emptyDiffObject);
   const [diffFilterTab, setDiffFilterTab] = useState<FilterTab>('filters');
@@ -612,12 +604,8 @@ function DiffPrototypePanel() {
     () => ({
       start_timestamp: new Date(diffInput.start_timestamp).toISOString(),
       end_timestamp: new Date(diffInput.end_timestamp).toISOString(),
-      sources: diffInput.sources,
-      scope: diffInput.scope,
-      jira_project_key: diffInput.jira_project_key,
-      github_repos: diffInput.github_repos,
     }),
-    [diffInput]
+    [diffInput.end_timestamp, diffInput.start_timestamp]
   );
 
   const deltaOrZero = useCallback(
@@ -1012,19 +1000,15 @@ function DiffPrototypePanel() {
       };
     };
     try {
-      const useSourceIds = selectedSourceIds.length > 0;
-      const body: Record<string, unknown> = {
+      if (selectedSourceIds.length === 0) {
+        throw new Error('Select at least one source to generate Canon History.');
+      }
+
+      const body = {
         start_timestamp: diffInput.start_timestamp,
         end_timestamp: diffInput.end_timestamp,
-        sources: diffInput.sources,
-        scope: diffInput.scope,
+        source_ids: selectedSourceIds,
       };
-      if (useSourceIds) {
-        body.source_ids = selectedSourceIds;
-      } else {
-        if (diffInput.jira_project_key) body.jira_project_key = diffInput.jira_project_key;
-        if (diffInput.github_repos?.length) body.github_repos = diffInput.github_repos;
-      }
 
       const res = await fetch('/api/diffs/compare', {
         method: 'POST',

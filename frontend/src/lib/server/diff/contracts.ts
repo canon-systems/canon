@@ -1,13 +1,9 @@
-// Shared diff contracts and helpers for Jira + GitHub timeboxed diffs.
-
-export type DiffSource = 'jira' | 'github';
-export type DiffScope = 'repo' | 'project' | 'org';
+// Shared diff contracts and helpers for source-scoped timeboxed diffs.
 
 export type DiffInput = {
   start_timestamp: string;
   end_timestamp: string;
-  sources: DiffSource[];
-  scope: DiffScope;
+  source_ids: string[];
   // Optional manual overrides; normally we compute baseline automatically.
   compare_start_timestamp?: string;
   compare_end_timestamp?: string;

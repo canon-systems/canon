@@ -2,26 +2,23 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import {
   CanonicalDiff,
-  DiffComparison,
   DiffComparisonWithSources,
   DiffDelta,
-  DiffInput,
   DiffSourceInfo,
   computeBaselineWindow,
   emptyCanonicalDiff,
   diffDelta,
 } from '@/lib/server/diff/contracts';
-import { buildCanonDiff } from '@/lib/server/diff/canon';
-import { getGitHubDiffForRepo, type GitHubDiffEvent } from '@/lib/server/diff/githubDiff';
-import { getJiraDiffForProject } from '@/lib/server/diff/jiraDiff';
 import { createClient } from '@/lib/supabase/server';
 
 export const dynamic = 'force-dynamic';
 
-type RequestBody = DiffInput & {
-  jira_project_key?: string;
-  github_repos?: string[]; // ["owner/repo"]
-  source_ids?: string[]; // workspace_sources.id — when set, use connected sources only
+type RequestBody = {
+  start_timestamp: string;
+  end_timestamp: string;
+  compare_start_timestamp?: string;
+  compare_end_timestamp?: string;
+  source_ids: string[]; // workspace_sources.id
 };
 
 type DiffDetails = {
@@ -163,52 +160,26 @@ function buildJiraSummaryMap(rows: Array<{ payload?: Record<string, unknown> | n
 }
 
 function validateInput(body: Record<string, unknown> | null): { ok: boolean; value?: RequestBody; error?: string } {
-  const { start_timestamp, end_timestamp, sources, scope, compare_start_timestamp, compare_end_timestamp, jira_project_key, github_repos, source_ids } = body || {};
+  const { start_timestamp, end_timestamp, compare_start_timestamp, compare_end_timestamp, source_ids } = body || {};
   if (typeof start_timestamp !== 'string' || typeof end_timestamp !== 'string' || !start_timestamp || !end_timestamp) {
     return { ok: false, error: 'start_timestamp and end_timestamp are required' };
   }
-  const scopeValue = scope === 'repo' || scope === 'project' || scope === 'org' ? scope : 'org';
-  const sourceList =
-    Array.isArray(sources) && sources.length
-      ? sources.filter((s) => s === 'jira' || s === 'github')
-      : (['jira', 'github'] as DiffInput['sources']);
-  const hasSourceIds = Array.isArray(source_ids) && source_ids.length > 0;
-  if (!sourceList.length && !hasSourceIds) return { ok: false, error: 'sources must include jira and/or github, or provide source_ids' };
+  const normalizedSourceIds = Array.isArray(source_ids)
+    ? source_ids.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+    : [];
+  if (normalizedSourceIds.length === 0) {
+    return { ok: false, error: 'source_ids is required and must include at least one source id' };
+  }
 
   return {
     ok: true,
     value: {
       start_timestamp,
       end_timestamp,
-      sources: sourceList,
-      scope: scopeValue,
       compare_start_timestamp: typeof compare_start_timestamp === 'string' ? compare_start_timestamp : undefined,
       compare_end_timestamp: typeof compare_end_timestamp === 'string' ? compare_end_timestamp : undefined,
-      jira_project_key: typeof jira_project_key === 'string' ? jira_project_key : undefined,
-      github_repos: Array.isArray(github_repos) ? github_repos.filter((r) => typeof r === 'string') : undefined,
-      source_ids: Array.isArray(source_ids) ? source_ids.filter((id) => typeof id === 'string') : undefined,
+      source_ids: normalizedSourceIds,
     },
-  };
-}
-
-type CanonDiffWithCommits = ReturnType<typeof buildCanonDiff> & { commits_default?: number };
-
-function canonToCounts(diff: CanonDiffWithCommits): CanonicalDiff {
-  const window = { start: diff.start, end: diff.end };
-  const repos = new Set(diff.repos_touched);
-  const commitsDefault = diff.commits_default ?? 0;
-
-  return {
-    window,
-    tickets_moved: diff.tickets_moved.length,
-    tickets_completed: diff.tickets_completed.length,
-    tickets_regressed: diff.tickets_regressed.length,
-    tickets_created: diff.tickets_new.length,
-    prs_opened: diff.prs_opened.length,
-    prs_merged: diff.prs_merged.length,
-    prs_closed: diff.prs_closed_unmerged.length,
-    commits_default: commitsDefault,
-    repos_touched: Array.from(repos),
   };
 }
 
@@ -302,73 +273,7 @@ async function computeCanonicalDiffFromRollups(params: {
   return { agg, bySource, hasRows: true };
 }
 
-async function computeCanonicalDiff(params: {
-  input: RequestBody;
-  window: { start: string; end: string };
-  userId: string;
-}): Promise<CanonicalDiff> {
-  const { input, window } = params;
-  const useJira = input.sources.includes('jira') && input.jira_project_key;
-  const useGitHub = input.sources.includes('github') && Array.isArray(input.github_repos) && input.github_repos.length > 0;
-
-  let jiraResult = undefined;
-  if (useJira) {
-    jiraResult = await getJiraDiffForProject({
-      userId: params.userId,
-      projectKey: input.jira_project_key,
-      start: window.start,
-      end: window.end,
-    });
-  }
-
-  const githubEvents: Awaited<ReturnType<typeof getGitHubDiffForRepo>>[] = [];
-  if (useGitHub) {
-    for (const repo of input.github_repos!) {
-      const [owner, name] = repo.split('/');
-      if (!owner || !name) continue;
-      const res = await getGitHubDiffForRepo({ owner, repo: name, start: window.start, end: window.end });
-      githubEvents.push(res);
-    }
-  }
-
-  const combinedGithub = githubEvents.length
-    ? githubEvents.reduce(
-      (acc, cur) => ({
-        repo: '',
-        start: window.start,
-        end: window.end,
-        prs_opened: [...acc.prs_opened, ...cur.prs_opened],
-        prs_merged: [...acc.prs_merged, ...cur.prs_merged],
-        prs_closed_unmerged: [...acc.prs_closed_unmerged, ...cur.prs_closed_unmerged],
-        commits: [...acc.commits, ...cur.commits],
-      }),
-      {
-        repo: '',
-        start: window.start,
-        end: window.end,
-        prs_opened: [] as GitHubDiffEvent[],
-        prs_merged: [] as GitHubDiffEvent[],
-        prs_closed_unmerged: [] as GitHubDiffEvent[],
-        commits: [] as GitHubDiffEvent[],
-      }
-    )
-    : undefined;
-
-  const canon = buildCanonDiff({
-    start: window.start,
-    end: window.end,
-    github: combinedGithub,
-    jira: jiraResult,
-  });
-
-  // Add commit count to match CanonicalDiff shape
-  const commitsCount = combinedGithub ? combinedGithub.commits.length : 0;
-  const canonWithCommits: CanonDiffWithCommits = { ...canon, commits_default: commitsCount };
-
-  return canonToCounts(canonWithCommits);
-}
-
-/** Resolve workspace_sources to diff targets (display_name + scope for API). */
+/** Resolve workspace_sources to diff targets (display_name for reporting + source IDs for rollups). */
 function resolveSourceIdsToTargets(
   rows: Array<{ id: string; name: string; provider: string; scope: Record<string, unknown> | null }>
 ): DiffSourceInfo[] {
@@ -390,6 +295,24 @@ function resolveSourceIdsToTargets(
   return out;
 }
 
+function enrichAggregateReposFromSources(params: {
+  aggregate: CanonicalDiff;
+  bySource: Record<string, CanonicalDiff>;
+  sources: DiffSourceInfo[];
+}): void {
+  const { aggregate, bySource, sources } = params;
+  const repos = new Set(aggregate.repos_touched);
+  for (const source of sources) {
+    const sourceDiff = bySource[source.id];
+    if (!sourceDiff) continue;
+    addJiraWorkspaceTouch(sourceDiff, source);
+    for (const repo of sourceDiff.repos_touched) {
+      repos.add(repo);
+    }
+  }
+  aggregate.repos_touched = Array.from(repos);
+}
+
 export async function POST(req: NextRequest) {
   const { user } = await getSession();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -407,144 +330,114 @@ export async function POST(req: NextRequest) {
       ? { start: input.compare_start_timestamp, end: input.compare_end_timestamp }
       : computeBaselineWindow(primaryWindow.start, primaryWindow.end);
 
-  const useSourceIds = Array.isArray(input.source_ids) && input.source_ids.length > 0;
+  // Resolve connected sources and compute per-source + aggregated diff
+  const userSupabase = await createClient();
+  const { data: sourceRows, error: srcErr } = await userSupabase
+    .from('workspace_sources')
+    .select('id, name, provider, scope')
+    .eq('user_id', user.id)
+    .in('id', input.source_ids);
 
-  if (useSourceIds) {
-    // Resolve connected sources and compute per-source + aggregated diff
-    const userSupabase = await createClient();
-    const { data: sourceRows, error: srcErr } = await userSupabase
-      .from('workspace_sources')
-      .select('id, name, provider, scope')
-      .eq('user_id', user.id)
-      .in('id', input.source_ids!);
-
-    if (srcErr || !sourceRows?.length) {
-      return NextResponse.json(
-        { error: 'No connected sources found for the given source_ids' },
-        { status: 400 }
-      );
-    }
-
-    const sources = resolveSourceIdsToTargets(
-      sourceRows as Array<{ id: string; name: string; provider: string; scope: Record<string, unknown> | null }>
+  if (srcErr || !sourceRows?.length) {
+    return NextResponse.json(
+      { error: 'No connected sources found for the given source_ids' },
+      { status: 400 }
     );
-    if (sources.length === 0) {
-      return NextResponse.json(
-        { error: 'No jira or github sources in selection' },
-        { status: 400 }
-      );
-    }
-
-    const by_source: Record<string, { primary: CanonicalDiff; baseline: CanonicalDiff; delta: DiffDelta }> = {};
-    const primaryAgg: CanonicalDiff = emptyCanonicalDiff(primaryWindow);
-    const baselineAgg: CanonicalDiff = emptyCanonicalDiff(baselineWindow);
-    let details: DiffDetails | null = null;
-
-    try {
-      const sourceIds = sources.map((s) => s.id);
-      const { data: detailRows } = await userSupabase
-        .from('diff_event_canonical')
-        .select('provider, event_kind, occurred_at, entity_id, repo_full_name, metadata')
-        .in('source_id', sourceIds)
-        .gte('occurred_at', primaryWindow.start)
-        .lte('occurred_at', primaryWindow.end)
-        .order('occurred_at', { ascending: false })
-        .limit(200);
-
-      let jiraSummaryMap: JiraSummaryMap | undefined;
-      if ((detailRows || []).some((row) => (row as CanonicalEventRow).provider === 'jira')) {
-        const { data: rawRows } = await userSupabase
-          .from('diff_event_raw')
-          .select('payload')
-          .in('source_id', sourceIds)
-          .eq('provider', 'jira')
-          .gte('event_time', primaryWindow.start)
-          .lte('event_time', primaryWindow.end)
-          .limit(400);
-        jiraSummaryMap = buildJiraSummaryMap((rawRows || []) as Array<{ payload?: Record<string, unknown> | null }>);
-      }
-
-      details = buildDetails(detailRows as CanonicalEventRow[], jiraSummaryMap);
-
-      const primaryRollups = await computeCanonicalDiffFromRollups({
-        supabase: userSupabase,
-        sourceIds,
-        window: primaryWindow,
-      });
-      const baselineRollups = await computeCanonicalDiffFromRollups({
-        supabase: userSupabase,
-        sourceIds,
-        window: baselineWindow,
-      });
-
-      if (primaryRollups.hasRows || baselineRollups.hasRows) {
-        for (const source of sources) {
-          const primary = primaryRollups.bySource[source.id] ?? emptyCanonicalDiff(primaryWindow);
-          const baseline = baselineRollups.bySource[source.id] ?? emptyCanonicalDiff(baselineWindow);
-          addJiraWorkspaceTouch(primary, source);
-          addJiraWorkspaceTouch(baseline, source);
-          const delta = diffDelta(primary, baseline);
-          by_source[source.display_name] = { primary, baseline, delta };
-        }
-
-        Object.assign(primaryAgg, primaryRollups.agg);
-        Object.assign(baselineAgg, baselineRollups.agg);
-
-        const primaryRepos = new Set(primaryAgg.repos_touched);
-        const baselineRepos = new Set(baselineAgg.repos_touched);
-        for (const source of sources) {
-          const bySource = by_source[source.display_name];
-          if (!bySource) continue;
-          for (const repo of bySource.primary.repos_touched) primaryRepos.add(repo);
-          for (const repo of bySource.baseline.repos_touched) baselineRepos.add(repo);
-        }
-        primaryAgg.repos_touched = Array.from(primaryRepos);
-        baselineAgg.repos_touched = Array.from(baselineRepos);
-      }
-    } catch (err) {
-      console.error('[diffs/compare] compute by-source error', err);
-      return NextResponse.json(
-        { error: 'Failed to compute diff', detail: err instanceof Error ? err.message : String(err) },
-        { status: 500 }
-      );
-    }
-
-    const delta = diffDelta(primaryAgg, baselineAgg);
-    const comparison: DiffComparisonWithSources & { details?: DiffDetails | null } = {
-      primary: primaryAgg,
-      baseline: baselineAgg,
-      delta,
-      by_source,
-      sources,
-      details,
-      metadata: {
-        source_ids: input.source_ids,
-        baseline_strategy: input.compare_start_timestamp ? 'manual' : 'auto_previous_window',
-      },
-    };
-    return NextResponse.json(comparison);
   }
 
-  // Original path: no source_ids, use jira_project_key / github_repos
-  let primaryDiff: CanonicalDiff = emptyCanonicalDiff(primaryWindow);
-  let baselineDiff: CanonicalDiff = emptyCanonicalDiff(baselineWindow);
+  const sources = resolveSourceIdsToTargets(
+    sourceRows as Array<{ id: string; name: string; provider: string; scope: Record<string, unknown> | null }>
+  );
+  if (sources.length === 0) {
+    return NextResponse.json(
+      { error: 'No jira or github sources in selection' },
+      { status: 400 }
+    );
+  }
+
+  const by_source: Record<string, { primary: CanonicalDiff; baseline: CanonicalDiff; delta: DiffDelta }> = {};
+  const primaryAgg: CanonicalDiff = emptyCanonicalDiff(primaryWindow);
+  const baselineAgg: CanonicalDiff = emptyCanonicalDiff(baselineWindow);
+  let details: DiffDetails | null = null;
 
   try {
-    primaryDiff = await computeCanonicalDiff({ input, window: primaryWindow, userId: user.id });
-    baselineDiff = await computeCanonicalDiff({ input, window: baselineWindow, userId: user.id });
+    const sourceIds = sources.map((s) => s.id);
+    const { data: detailRows } = await userSupabase
+      .from('diff_event_canonical')
+      .select('provider, event_kind, occurred_at, entity_id, repo_full_name, metadata')
+      .in('source_id', sourceIds)
+      .gte('occurred_at', primaryWindow.start)
+      .lte('occurred_at', primaryWindow.end)
+      .order('occurred_at', { ascending: false })
+      .limit(200);
+
+    let jiraSummaryMap: JiraSummaryMap | undefined;
+    if ((detailRows || []).some((row) => (row as CanonicalEventRow).provider === 'jira')) {
+      const { data: rawRows } = await userSupabase
+        .from('diff_event_raw')
+        .select('payload')
+        .in('source_id', sourceIds)
+        .eq('provider', 'jira')
+        .gte('event_time', primaryWindow.start)
+        .lte('event_time', primaryWindow.end)
+        .limit(400);
+      jiraSummaryMap = buildJiraSummaryMap((rawRows || []) as Array<{ payload?: Record<string, unknown> | null }>);
+    }
+
+    details = buildDetails(detailRows as CanonicalEventRow[], jiraSummaryMap);
+
+    const primaryRollups = await computeCanonicalDiffFromRollups({
+      supabase: userSupabase,
+      sourceIds,
+      window: primaryWindow,
+    });
+    const baselineRollups = await computeCanonicalDiffFromRollups({
+      supabase: userSupabase,
+      sourceIds,
+      window: baselineWindow,
+    });
+
+    if (primaryRollups.hasRows || baselineRollups.hasRows) {
+      for (const source of sources) {
+        const primary = primaryRollups.bySource[source.id] ?? emptyCanonicalDiff(primaryWindow);
+        const baseline = baselineRollups.bySource[source.id] ?? emptyCanonicalDiff(baselineWindow);
+        addJiraWorkspaceTouch(primary, source);
+        addJiraWorkspaceTouch(baseline, source);
+        const delta = diffDelta(primary, baseline);
+        by_source[source.display_name] = { primary, baseline, delta };
+      }
+
+      Object.assign(primaryAgg, primaryRollups.agg);
+      Object.assign(baselineAgg, baselineRollups.agg);
+      enrichAggregateReposFromSources({
+        aggregate: primaryAgg,
+        bySource: primaryRollups.bySource,
+        sources,
+      });
+      enrichAggregateReposFromSources({
+        aggregate: baselineAgg,
+        bySource: baselineRollups.bySource,
+        sources,
+      });
+    }
   } catch (err) {
-    console.error('[diffs/compare] compute error', err);
-    return NextResponse.json({ error: 'Failed to compute diff', detail: err instanceof Error ? err.message : String(err) }, { status: 500 });
+    console.error('[diffs/compare] compute by-source error', err);
+    return NextResponse.json(
+      { error: 'Failed to compute diff', detail: err instanceof Error ? err.message : String(err) },
+      { status: 500 }
+    );
   }
 
-  const delta = diffDelta(primaryDiff, baselineDiff);
-  const comparison: DiffComparison = {
-    primary: primaryDiff,
-    baseline: baselineDiff,
+  const delta = diffDelta(primaryAgg, baselineAgg);
+  const comparison: DiffComparisonWithSources & { details?: DiffDetails | null } = {
+    primary: primaryAgg,
+    baseline: baselineAgg,
     delta,
+    by_source,
+    sources,
+    details,
     metadata: {
-      sources: input.sources,
-      scope: input.scope,
+      source_ids: input.source_ids,
       baseline_strategy: input.compare_start_timestamp ? 'manual' : 'auto_previous_window',
     },
   };

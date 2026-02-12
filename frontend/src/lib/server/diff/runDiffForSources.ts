@@ -1,117 +1,6 @@
 import type { CanonicalDiff, DiffSourceInfo } from '@/lib/server/diff/contracts';
 import { emptyCanonicalDiff } from '@/lib/server/diff/contracts';
-import { buildCanonDiff } from '@/lib/server/diff/canon';
-import type { GitHubDiffEvent } from '@/lib/server/diff/githubDiff';
-import { getGitHubDiffForRepo } from '@/lib/server/diff/githubDiff';
-import { getJiraDiffForProject } from '@/lib/server/diff/jiraDiff';
 import type { SupabaseClient } from '@supabase/supabase-js';
-
-type CanonDiffWithCommits = ReturnType<typeof buildCanonDiff> & { commits_default?: number };
-
-type DiffInputForSource = {
-  start_timestamp: string;
-  end_timestamp: string;
-  sources: ('jira' | 'github')[];
-  scope: 'org';
-  jira_project_key?: string;
-  github_repos?: string[];
-};
-
-function canonToCounts(diff: CanonDiffWithCommits): CanonicalDiff {
-  const window = { start: diff.start, end: diff.end };
-  const repos = new Set(diff.repos_touched);
-  const commitsDefault = diff.commits_default ?? 0;
-  return {
-    window,
-    tickets_moved: diff.tickets_moved.length,
-    tickets_completed: diff.tickets_completed.length,
-    tickets_regressed: diff.tickets_regressed.length,
-    tickets_created: diff.tickets_new.length,
-    prs_opened: diff.prs_opened.length,
-    prs_merged: diff.prs_merged.length,
-    prs_closed: diff.prs_closed_unmerged.length,
-    commits_default: commitsDefault,
-    repos_touched: Array.from(repos),
-  };
-}
-
-async function computeCanonicalDiff(params: {
-  input: DiffInputForSource;
-  window: { start: string; end: string };
-  userId: string;
-}): Promise<CanonicalDiff> {
-  const { input, window, userId } = params;
-  const useJira = input.sources.includes('jira') && input.jira_project_key;
-  const useGitHub = input.sources.includes('github') && Array.isArray(input.github_repos) && input.github_repos.length > 0;
-
-  let jiraResult = undefined;
-  if (useJira) {
-    try {
-      jiraResult = await getJiraDiffForProject({
-        userId,
-        projectKey: input.jira_project_key!,
-        start: window.start,
-        end: window.end,
-      });
-    } catch (err) {
-      console.warn('[diff] Jira diff skipped (connection missing or fetch failed)', {
-        project: input.jira_project_key,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      jiraResult = undefined;
-    }
-  }
-
-  const githubEvents: Awaited<ReturnType<typeof getGitHubDiffForRepo>>[] = [];
-  if (useGitHub) {
-    for (const repo of input.github_repos!) {
-      const [owner, name] = repo.split('/');
-      if (!owner || !name) continue;
-      try {
-        const res = await getGitHubDiffForRepo({ owner, repo: name, start: window.start, end: window.end });
-        githubEvents.push(res);
-      } catch (err) {
-        console.warn('[diff] GitHub diff skipped for repo', {
-          repo,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
-  }
-
-  const combinedGithub = githubEvents.length
-    ? githubEvents.reduce(
-        (acc, cur) => ({
-          repo: '',
-          start: window.start,
-          end: window.end,
-          prs_opened: [...acc.prs_opened, ...cur.prs_opened],
-          prs_merged: [...acc.prs_merged, ...cur.prs_merged],
-          prs_closed_unmerged: [...acc.prs_closed_unmerged, ...cur.prs_closed_unmerged],
-          commits: [...acc.commits, ...cur.commits],
-        }),
-        {
-          repo: '',
-          start: window.start,
-          end: window.end,
-          prs_opened: [] as GitHubDiffEvent[],
-          prs_merged: [] as GitHubDiffEvent[],
-          prs_closed_unmerged: [] as GitHubDiffEvent[],
-          commits: [] as GitHubDiffEvent[],
-        }
-      )
-    : undefined;
-
-  const canon = buildCanonDiff({
-    start: window.start,
-    end: window.end,
-    github: combinedGithub,
-    jira: jiraResult,
-  });
-  const commitsCount = combinedGithub ? combinedGithub.commits.length : 0;
-  const canonWithCommits: CanonDiffWithCommits = { ...canon, commits_default: commitsCount };
-  return canonToCounts(canonWithCommits);
-}
 
 function resolveSourceIdsToTargets(
   rows: Array<{ id: string; name: string; provider: string; scope: Record<string, unknown> | null }>
@@ -134,25 +23,56 @@ function resolveSourceIdsToTargets(
   return out;
 }
 
-async function computeCanonicalDiffForOneSource(params: {
-  source: DiffSourceInfo;
-  window: { start: string; end: string };
-  userId: string;
-}): Promise<CanonicalDiff> {
-  const { source, window, userId } = params;
-  const input: DiffInputForSource = {
-    start_timestamp: window.start,
-    end_timestamp: window.end,
-    sources: [source.provider as 'jira' | 'github'],
-    scope: 'org',
-  };
-  if (source.provider === 'github') {
-    input.github_repos = [source.display_name];
-  } else {
-    const projectKey = source.display_name.startsWith('jira/') ? source.display_name.slice(5) : source.display_name;
-    input.jira_project_key = projectKey;
+function toUtcDay(value: string): string | null {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())).toISOString().slice(0, 10);
+}
+
+function mergeRepos(base: string[], extra: unknown): string[] {
+  const repos = new Set(base);
+  if (Array.isArray(extra)) {
+    for (const r of extra) {
+      if (typeof r === 'string' && r.trim().length > 0) repos.add(r);
+    }
   }
-  return computeCanonicalDiff({ input, window, userId });
+  return Array.from(repos);
+}
+
+function addRollupToDiff(diff: CanonicalDiff, row: Record<string, unknown>) {
+  diff.tickets_moved += Number(row.tickets_moved ?? 0);
+  diff.tickets_completed += Number(row.tickets_completed ?? 0);
+  diff.tickets_regressed += Number(row.tickets_regressed ?? 0);
+  diff.tickets_created += Number(row.tickets_created ?? 0);
+  diff.prs_opened += Number(row.prs_opened ?? 0);
+  diff.prs_merged += Number(row.prs_merged ?? 0);
+  diff.prs_closed += Number(row.prs_closed ?? 0);
+  diff.commits_default += Number(row.commits_default ?? 0);
+  diff.repos_touched = mergeRepos(diff.repos_touched, row.repos_touched);
+}
+
+function hasJiraTicketActivity(diff: CanonicalDiff): boolean {
+  return diff.tickets_moved + diff.tickets_completed + diff.tickets_regressed + diff.tickets_created > 0;
+}
+
+function jiraWorkspaceLabel(source: DiffSourceInfo): string {
+  const displayName = source.display_name.trim();
+  if (displayName.toLowerCase().startsWith('jira/')) {
+    const project = displayName.slice(5).trim();
+    if (project) return `Jira:${project}`;
+  }
+  const name = source.name.trim();
+  if (name) return `Jira:${name}`;
+  return 'Jira';
+}
+
+function addJiraWorkspaceTouch(diff: CanonicalDiff, source: DiffSourceInfo): void {
+  if (source.provider !== 'jira') return;
+  if (!hasJiraTicketActivity(diff)) return;
+  const workspace = jiraWorkspaceLabel(source);
+  if (!diff.repos_touched.includes(workspace)) {
+    diff.repos_touched = [...diff.repos_touched, workspace];
+  }
 }
 
 /**
@@ -205,22 +125,49 @@ export async function runDiffForSourcesWithBreakdown(
     return { aggregate: emptyCanonicalDiff(window), bySource: {}, sources: [] };
   }
 
-  const primaryAgg = emptyCanonicalDiff(window);
+  const startDay = toUtcDay(window.start);
+  const endDay = toUtcDay(window.end);
+  if (!startDay || !endDay) {
+    return { aggregate: emptyCanonicalDiff(window), bySource: {}, sources };
+  }
+
+  const sourceIdSet = new Set(sources.map((source) => source.id));
+  const { data: rows, error: rollupError } = await supabase
+    .from('diff_daily_metrics')
+    .select(
+      'source_id, day, prs_opened, prs_merged, prs_closed, commits_default, tickets_moved, tickets_completed, tickets_regressed, tickets_created, repos_touched'
+    )
+    .in('source_id', Array.from(sourceIdSet))
+    .gte('day', startDay)
+    .lte('day', endDay);
+
+  if (rollupError || !rows?.length) {
+    return { aggregate: emptyCanonicalDiff(window), bySource: {}, sources };
+  }
+
+  const aggregate = emptyCanonicalDiff(window);
   const bySource: Record<string, CanonicalDiff> = {};
 
-  for (const source of sources) {
-    const primary = await computeCanonicalDiffForOneSource({ source, window, userId });
-    bySource[source.id] = primary;
-    primaryAgg.tickets_moved += primary.tickets_moved;
-    primaryAgg.tickets_completed += primary.tickets_completed;
-    primaryAgg.tickets_regressed += primary.tickets_regressed;
-    primaryAgg.tickets_created += primary.tickets_created;
-    primaryAgg.prs_opened += primary.prs_opened;
-    primaryAgg.prs_merged += primary.prs_merged;
-    primaryAgg.prs_closed += primary.prs_closed;
-    primaryAgg.commits_default += primary.commits_default;
-    const repoSet = new Set([...primaryAgg.repos_touched, ...primary.repos_touched]);
-    primaryAgg.repos_touched = Array.from(repoSet);
+  for (const row of rows) {
+    const sourceId = String(row.source_id);
+    if (!sourceIdSet.has(sourceId)) continue;
+    if (!bySource[sourceId]) {
+      bySource[sourceId] = emptyCanonicalDiff(window);
+    }
+    addRollupToDiff(bySource[sourceId], row as Record<string, unknown>);
+    addRollupToDiff(aggregate, row as Record<string, unknown>);
   }
-  return { aggregate: primaryAgg, bySource, sources };
+
+  const aggregateRepos = new Set(aggregate.repos_touched);
+  for (const source of sources) {
+    const sourceDiff = bySource[source.id];
+    if (!sourceDiff) continue;
+    addJiraWorkspaceTouch(sourceDiff, source);
+    for (const repo of sourceDiff.repos_touched) {
+      aggregateRepos.add(repo);
+    }
+  }
+  aggregate.repos_touched = Array.from(aggregateRepos);
+
+  return { aggregate, bySource, sources };
 }
