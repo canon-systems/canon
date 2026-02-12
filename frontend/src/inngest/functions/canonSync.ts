@@ -26,18 +26,18 @@ function logChangedItems(
 }
 
 /**
- * Canon sync: runs every 1 minute (for testing; adjust cron as needed).
+ * Canon sync: runs hourly.
  * For each workspace source, performs delta sync of repo_file_summaries and
  * issue_index (additions, changes, deletions), then rebuilds AKUs when needed.
  */
 export const syncCanonSources = inngest.createFunction(
   {
     id: "canon-sync",
-    name: "Canon Sync (repo_file_summaries + issue_index)",
+    name: "Canon: Source Delta Sync",
     retries: 2,
     concurrency: { limit: 3 }, // allow Jira runs in parallel with GitHub without overwhelming gateway
   },
-  { cron: "*/5 * * * *" }, // every 5 minutes
+  { cron: "0 * * * *" }, // every hour
   async () => {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const serviceKey = process.env.SUPABASE_SERVICE_KEY;
