@@ -58,6 +58,7 @@ import { Calendar, type DateRange } from '@/components/ui/calendar';
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { Combobox } from '@/components/ui/combobox';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
 type KnowledgeItem = {
   id: string;
@@ -359,6 +360,18 @@ function formatDateUTC(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { timeZone: 'UTC' });
 }
 
+/** Format a date range in UTC; shows a single date when start and end are the same day. */
+function formatDateRangeUTC(start: string, end: string, separator = ' → '): string {
+  const d1 = new Date(start);
+  const d2 = new Date(end);
+  const sameDay =
+    d1.getUTCFullYear() === d2.getUTCFullYear() &&
+    d1.getUTCMonth() === d2.getUTCMonth() &&
+    d1.getUTCDate() === d2.getUTCDate();
+  if (sameDay) return formatDateUTC(start);
+  return `${formatDateUTC(start)}${separator}${formatDateUTC(end)}`;
+}
+
 function formatDateTimeUTC(iso?: string | null): string {
   if (!iso) return '—';
   return new Date(iso).toLocaleString(undefined, {
@@ -448,6 +461,18 @@ function DiffSkeleton() {
 function DiffPrototypePanel() {
   const defaultStart = useMemo(() => startOfTodayUTC(), []);
   const defaultEnd = useMemo(() => endOfTodayUTC(), []);
+  const emptyDiffObject = useMemo<DiffObject>(() => ({
+    tickets_moved: 0,
+    tickets_completed: 0,
+    tickets_regressed: 0,
+    tickets_created: 0,
+    prs_opened: 0,
+    prs_merged: 0,
+    prs_closed: 0,
+    commits_default: 0,
+    repos_touched: [],
+    architecture_changes: [],
+  }), []);
 
   const [diffInput, setDiffInput] = useState<DiffInput>({
     start_timestamp: defaultStart.toISOString(),
@@ -457,29 +482,20 @@ function DiffPrototypePanel() {
     jira_project_key: '',
     github_repos: [],
   });
-  const [diffObject, setDiffObject] = useState<DiffObject>(() =>
-    buildDiffFromInput({
-      start_timestamp: defaultStart.toISOString(),
-      end_timestamp: defaultEnd.toISOString(),
-      sources: ['jira', 'github'],
-      scope: 'org',
-      jira_project_key: '',
-      github_repos: [],
-    })
-  );
+  const [diffObject, setDiffObject] = useState<DiffObject>(emptyDiffObject);
   const [diffFilterTab, setDiffFilterTab] = useState<FilterTab>('filters');
   const [diffCalendarOpen, setDiffCalendarOpen] = useState(false);
   const [pendingRangeFrom, setPendingRangeFrom] = useState<Date | undefined>(undefined);
   const [pendingRangeTo, setPendingRangeTo] = useState<Date | undefined>(undefined);
   const [baselineWindow, setBaselineWindow] = useState<{ start: string; end: string } | null>(null);
   const [compareLoading, setCompareLoading] = useState(false);
-  const [, setDiffLoaded] = useState(false);
   const [compareError, setCompareError] = useState<string | null>(null);
   const [deltaObject, setDeltaObject] = useState<DiffDelta | null>(null);
   const [connectedSources, setConnectedSources] = useState<ConnectedDiffSource[]>([]);
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
   const [reportSources, setReportSources] = useState<Array<{ id: string; name: string; display_name: string; provider: string }>>([]);
   const [diffDetails, setDiffDetails] = useState<DiffDetails | null>(null);
+  const [diffSourceTab, setDiffSourceTab] = useState<'jira' | 'github'>('jira');
   const [diffSourceMenuOpen, setDiffSourceMenuOpen] = useState(false);
   const [diffSchedules, setDiffSchedules] = useState<DiffSchedule[]>([]);
   const [diffScheduleFormOpen, setDiffScheduleFormOpen] = useState(false);
@@ -966,7 +982,6 @@ function DiffPrototypePanel() {
 
   const runDiffCompare = useCallback(async () => {
     setCompareError(null);
-    setDiffLoaded(false);
     setCompareLoading(true);
     type CanonicalDiffResponse = {
       tickets_moved?: number | unknown[];
@@ -1019,7 +1034,7 @@ function DiffPrototypePanel() {
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Failed to generate diff');
 
-      const primaryObj = toDiffObj(data?.primary) || buildDiffFromInput(diffInput);
+      const primaryObj = toDiffObj(data?.primary) || emptyDiffObject;
       setDiffObject(primaryObj);
 
       if (data?.baseline?.window) {
@@ -1047,30 +1062,25 @@ function DiffPrototypePanel() {
     } catch (e: unknown) {
       setCompareError(e instanceof Error ? e.message : 'Failed to generate diff');
     } finally {
-      setDiffLoaded(true);
       setCompareLoading(false);
     }
-  }, [selectedSourceIds, diffInput]);
+  }, [selectedSourceIds, diffInput, emptyDiffObject]);
 
   // Clear report when date range changes so we never show a report that doesn't match the current selection.
   useEffect(() => {
     setBaselineWindow(null);
     setDeltaObject(null);
     setDiffDetails(null);
-    setDiffLoaded(false);
   }, [diffInput.start_timestamp, diffInput.end_timestamp]);
 
   // Regenerate diff whenever date range or source selection changes.
   // Intentionally omit compareLoading from deps: including it would re-run when loading
   // goes false after a compare, triggering another compare and an infinite loop.
   useEffect(() => {
-    if (
-      connectedSources.length === 0 ||
-      selectedSourceIds.length === 0 ||
-      compareLoading
-    ) {
+    if (compareLoading) {
       return;
     }
+    if (connectedSources.length === 0 || selectedSourceIds.length === 0) return;
     runDiffCompare();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- compareLoading is a guard only; omit to avoid loop
   }, [
@@ -1081,12 +1091,34 @@ function DiffPrototypePanel() {
     runDiffCompare,
   ]);
 
-  const canShowDiff = connectedSources.length > 0 && selectedSourceIds.length > 0;
-  const repoDelta = deltaObject ? (deltaObject.repos_added?.length ?? 0) - (deltaObject.repos_removed?.length ?? 0) : 0;
-  const repoCaption =
-    diffObject.repos_touched.length > 0
-      ? `${diffObject.repos_touched.slice(0, 3).join(', ')}${diffObject.repos_touched.length > 3 ? ` +${diffObject.repos_touched.length - 3} more` : ''}`
-      : 'No repositories touched in this window.';
+  const hasAnyDiffData =
+    reportSources.length > 0 ||
+    baselineWindow !== null ||
+    deltaObject !== null ||
+    diffDetails !== null ||
+    diffObject.tickets_moved > 0 ||
+    diffObject.tickets_completed > 0 ||
+    diffObject.tickets_regressed > 0 ||
+    diffObject.tickets_created > 0 ||
+    diffObject.prs_opened > 0 ||
+    diffObject.prs_merged > 0 ||
+    diffObject.prs_closed > 0 ||
+    diffObject.commits_default > 0 ||
+    diffObject.repos_touched.length > 0;
+  const showDiffSkeleton = !compareError && (compareLoading || !hasAnyDiffData);
+  const sourcesTouched = diffObject.repos_touched;
+  const reposTouched = sourcesTouched.filter((s) => s.includes('/'));
+  const workspacesTouched = sourcesTouched.filter((s) => !s.includes('/'));
+  const sourcesDelta = deltaObject ? (deltaObject.repos_added?.length ?? 0) - (deltaObject.repos_removed?.length ?? 0) : 0;
+  const sourcesCaption =
+    sourcesTouched.length > 0
+      ? [
+        reposTouched.length > 0 && `Repos: ${reposTouched.slice(0, 3).join(', ')}${reposTouched.length > 3 ? ` +${reposTouched.length - 3} more` : ''}`,
+        workspacesTouched.length > 0 && `Workspaces: ${workspacesTouched.slice(0, 3).join(', ')}${workspacesTouched.length > 3 ? ` +${workspacesTouched.length - 3} more` : ''}`,
+      ]
+        .filter(Boolean)
+        .join(' · ')
+      : 'No sources touched in this window.';
   const toMetricValue = (v: unknown): number =>
     typeof v === 'number' && !Number.isNaN(v) ? v : Array.isArray(v) ? v.length : 0;
   const metricCards: Array<{ key: string; label: string; value: number; delta: number; icon: LucideIcon; caption?: string }> = [
@@ -1098,7 +1130,13 @@ function DiffPrototypePanel() {
     { key: 'prs_merged', label: 'PRs merged', value: toMetricValue(diffObject.prs_merged), delta: deltaOrZero('prs_merged'), icon: GitMerge },
     { key: 'prs_closed', label: 'PRs closed', value: toMetricValue(diffObject.prs_closed), delta: deltaOrZero('prs_closed'), icon: GitPullRequest },
     { key: 'commits_default', label: 'Commits to default', value: toMetricValue(diffObject.commits_default), delta: deltaOrZero('commits_default'), icon: GitCommit },
-    { key: 'repos_touched', label: 'Repos touched', value: diffObject.repos_touched.length, delta: repoDelta, icon: FolderGit2, caption: repoCaption },
+    { key: 'repos_touched', label: 'Repos touched', value: reposTouched.length, delta: sourcesDelta, icon: FolderGit2 },
+    { key: 'workspaces_touched', label: 'Workspaces touched', value: workspacesTouched.length, delta: 0, icon: FolderGit2 },
+  ];
+  const metricGroups: Array<{ key: string; label: string; icon: LucideIcon; metrics: typeof metricCards; caption?: string }> = [
+    { key: 'jira', label: 'Jira', icon: Ticket, metrics: metricCards.filter((m) => m.key.startsWith('tickets_')) },
+    { key: 'github', label: 'GitHub', icon: GitPullRequest, metrics: metricCards.filter((m) => ['prs_opened', 'prs_merged', 'prs_closed', 'commits_default'].includes(m.key)) },
+    { key: 'sources', label: 'Sources', icon: FolderGit2, metrics: metricCards.filter((m) => ['repos_touched', 'workspaces_touched'].includes(m.key)), caption: sourcesCaption },
   ];
   const showDelta = !!deltaObject;
 
@@ -1141,7 +1179,9 @@ function DiffPrototypePanel() {
                   <SidebarGroupLabel>Sources</SidebarGroupLabel>
                   <SidebarGroupContent>
                     {connectedSources.length === 0 ? (
-                      <p className="text-xs text-white/50">No GitHub or Jira sources connected. Add them on the Sources page.</p>
+                      <p className="text-xs text-white/50">
+                        No sources connected. Add them on the Sources page <u><a href="/sources" className="text-white/80 hover:text-white">here</a></u>.
+                      </p>
                     ) : (
                       <>
                         <Popover open={diffSourceMenuOpen} onOpenChange={setDiffSourceMenuOpen}>
@@ -1248,9 +1288,7 @@ function DiffPrototypePanel() {
                         >
                           <CalendarIcon className="mr-2 h-4 w-4" />
                           {diffInput.start_timestamp && diffInput.end_timestamp ? (
-                            <>
-                              {formatDateUTC(diffInput.start_timestamp)} – {formatDateUTC(diffInput.end_timestamp)}
-                            </>
+                            formatDateRangeUTC(diffInput.start_timestamp, diffInput.end_timestamp, ' – ')
                           ) : (
                             'Pick a date range'
                           )}
@@ -1706,7 +1744,7 @@ function DiffPrototypePanel() {
             <CardDescription>{MODE_COPY.diffs.description}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            {!canShowDiff ? (
+            {showDiffSkeleton ? (
               <DiffSkeleton />
             ) : (
               <>
@@ -1753,154 +1791,183 @@ function DiffPrototypePanel() {
                     </div>
                     <div className="flex flex-wrap items-center gap-2 text-xs text-white/70">
                       <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">
-                        Primary {formatDateUTC(canonicalInput.start_timestamp)} → {formatDateUTC(canonicalInput.end_timestamp)} (UTC)
+                        Primary {formatDateRangeUTC(canonicalInput.start_timestamp, canonicalInput.end_timestamp)} (UTC)
                       </span>
                       {baselineWindow && (
                         <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">
-                          Baseline {formatDateUTC(baselineWindow.start)} → {formatDateUTC(baselineWindow.end)} (UTC)
+                          Baseline {formatDateRangeUTC(baselineWindow.start, baselineWindow.end)} (UTC)
                         </span>
                       )}
                     </div>
                   </div>
 
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                    {metricCards.map((metric) => {
-                      const Icon = metric.icon;
-                      return (
-                        <div key={metric.key} className="rounded-xl border border-white/10 bg-black/40 p-4 shadow-inner">
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2 text-white/80">
-                              <span className="rounded-lg bg-white/5 p-2 text-white/70">
-                                <Icon className="h-4 w-4" />
-                              </span>
-                              <span className="text-sm font-semibold text-white">{metric.label}</span>
-                            </div>
-                            {showDelta && <DeltaBadge delta={metric.delta} />}
-                          </div>
-                          <div className="mt-3 flex items-end gap-2">
-                            {compareLoading ? (
-                              <Spinner className="size-6 text-white/60" aria-hidden />
-                            ) : (
-                              <span className="text-2xl font-semibold text-white">{metric.value}</span>
-                            )}
-                            {!showDelta && !compareLoading && <span className="text-[11px] uppercase tracking-[0.2em] text-white/40">Loading delta…</span>}
-                          </div>
-                          {metric.caption && <p className="text-xs text-white/60">{metric.caption}</p>}
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {metricGroups.map((group) => (
+                      <div key={group.key} className="rounded-xl border border-white/10 bg-black/40 p-4 shadow-inner">
+                        <div className="flex items-center gap-2 mb-3">
+                          <span className="rounded-lg bg-white/5 p-2 text-white/70">
+                            <group.icon className="h-4 w-4" />
+                          </span>
+                          <span className="text-sm font-semibold text-white">{group.label}</span>
                         </div>
-                      );
-                    })}
+                        <div className="space-y-3">
+                          {group.metrics.map((metric) => (
+                            <div key={metric.key} className="flex items-center justify-between gap-2">
+                              <span className="text-sm text-white/80">{metric.label}</span>
+                              <div className="flex items-center gap-2">
+                                {compareLoading ? (
+                                  <Spinner className="size-4 text-white/60" aria-hidden />
+                                ) : (
+                                  <>
+                                    <span className="font-semibold text-white tabular-nums">{metric.value}</span>
+                                    {showDelta && <DeltaBadge delta={metric.delta} />}
+                                    {!showDelta && !compareLoading && <span className="text-[10px] uppercase tracking-wider text-white/40">…</span>}
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        {(group.caption ?? group.metrics.find((m) => m.caption)?.caption) && (
+                          <p className="mt-3 pt-3 border-t border-white/5 text-xs text-white/60">
+                            {group.caption ?? group.metrics.find((m) => m.caption)?.caption}
+                          </p>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 </div>
 
                 {(diffDetails || compareLoading) ? (
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="rounded-xl border border-white/10 bg-neutral-900/80 p-4 shadow-lg">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-sm font-semibold text-white">Jira Workspace Trail</h3>
+                  <Tabs value={diffSourceTab} onValueChange={(v) => setDiffSourceTab(v as 'jira' | 'github')} className="w-full">
+                    <TabsList className="bg-white/5 border border-white/10 mb-4">
+                      <TabsTrigger value="jira" className="!text-[9px] uppercase tracking-[0.2em] text-white/60 data-[state=active]:bg-white/10">
+                        Jira
                         {!compareLoading && diffDetails && (
-                          <span className="tab-label text-[11px] uppercase tracking-[0.2em] text-white/80">
-                            Tickets • {(diffDetails.jira?.moved?.length ?? 0) + (diffDetails.jira?.completed?.length ?? 0) + (diffDetails.jira?.regressed?.length ?? 0) + (diffDetails.jira?.created?.length ?? 0)}
+                          <span className="ml-2">
+                            ({(diffDetails.jira?.moved?.length ?? 0) + (diffDetails.jira?.completed?.length ?? 0) + (diffDetails.jira?.regressed?.length ?? 0) + (diffDetails.jira?.created?.length ?? 0)})
                           </span>
                         )}
-                      </div>
-                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                        {compareLoading ? (
-                          <div className="col-span-2 flex items-center justify-center py-8">
-                            <Spinner className="size-8 text-white/60" aria-hidden />
-                          </div>
-                        ) : (
-                          [
-                            { label: 'Moved', items: diffDetails?.jira?.moved || [], limit: 6 },
-                            { label: 'Completed', items: diffDetails?.jira?.completed || [], limit: 4 },
-                            { label: 'Regressed', items: diffDetails?.jira?.regressed || [], limit: 4 },
-                            { label: 'Created', items: diffDetails?.jira?.created || [], limit: 4 },
-                          ].map((section) => (
-                            <div key={section.label} className="rounded-lg border border-white/5 bg-black/20 p-3">
-                              <p className="flex items-center justify-between text-[11px] uppercase tracking-[0.2em] text-white/50">
-                                <span>{section.label}</span>
-                                <span className="text-white/40">{section.items.length}</span>
-                              </p>
-                              <ul className="mt-2 space-y-2 text-xs text-white/75">
-                                {section.items.slice(0, section.limit).map((item, idx) => (
-                                  <li key={`${section.label}-${idx}`} className="flex flex-col gap-1">
-                                    <span className="text-white/90">
-                                      {item.summary ?? 'Untitled'} ({item.issue_key ?? '—'})
-                                    </span>
-                                    <span className="text-white/60">
-                                      {section.label === 'Moved' ? `${'from' in item ? item.from ?? '—' : '—'} → ${'to' in item ? item.to ?? '—' : '—'}` : 'status' in item ? item.status ?? '—' : '—'}
-                                    </span>
-                                    <span className="text-white/40">{formatDateTimeUTC(item.occurred_at)}</span>
-                                  </li>
-                                ))}
-                                {section.items.length === 0 && <li className="text-white/40">No items in this window.</li>}
-                                {section.items.length > section.limit && (
-                                  <li className="text-white/50">+{section.items.length - section.limit} more not shown</li>
-                                )}
-                              </ul>
+                      </TabsTrigger>
+                      <TabsTrigger value="github" className="!text-[9px] uppercase tracking-[0.2em] text-white/60 data-[state=active]:bg-white/10">
+                        GitHub
+                        {!compareLoading && diffDetails && (
+                          <span className="ml-2">
+                            ({(diffDetails.github?.commits?.length ?? 0) + (diffDetails.github?.prs_opened?.length ?? 0) + (diffDetails.github?.prs_merged?.length ?? 0) + (diffDetails.github?.prs_closed?.length ?? 0)})
+                          </span>
+                        )}
+                      </TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="jira" className="mt-0">
+                      <div className="rounded-xl border border-white/10 bg-neutral-900/80 p-4 shadow-lg">
+                        <div className="flex items-center justify-between mb-4">
+                          <h3 className="text-[11px] uppercase tracking-[0.2em] text-white/60">Jira Workspace Trail</h3>
+                          {!compareLoading && diffDetails && (
+                            <span className="tab-label text-[11px] uppercase tracking-[0.2em] text-white/80">
+                              {(diffDetails.jira?.moved?.length ?? 0) + (diffDetails.jira?.completed?.length ?? 0) + (diffDetails.jira?.regressed?.length ?? 0) + (diffDetails.jira?.created?.length ?? 0)} tickets
+                            </span>
+                          )}
+                        </div>
+                        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                          {compareLoading ? (
+                            <div className="col-span-full flex items-center justify-center py-12">
+                              <Spinner className="size-8 text-white/60" aria-hidden />
                             </div>
-                          ))
-                        )}
+                          ) : (
+                            [
+                              { label: 'Moved', items: diffDetails?.jira?.moved || [], limit: 10 },
+                              { label: 'Completed', items: diffDetails?.jira?.completed || [], limit: 8 },
+                              { label: 'Regressed', items: diffDetails?.jira?.regressed || [], limit: 8 },
+                              { label: 'Created', items: diffDetails?.jira?.created || [], limit: 8 },
+                            ].map((section) => (
+                              <div key={section.label} className="rounded-lg border border-white/5 bg-black/20 p-3">
+                                <p className="flex items-center justify-between text-[11px] uppercase tracking-[0.2em] text-white/50">
+                                  <span>{section.label}</span>
+                                  <span className="text-white/40">{section.items.length}</span>
+                                </p>
+                                <ul className="mt-2 space-y-2 text-xs text-white/75">
+                                  {section.items.slice(0, section.limit).map((item, idx) => (
+                                    <li key={`${section.label}-${idx}`} className="flex flex-col gap-1">
+                                      <span className="text-white/90">
+                                        {item.summary ?? 'Untitled'} ({item.issue_key ?? '—'})
+                                      </span>
+                                      <span className="text-white/60">
+                                        {section.label === 'Moved' ? `${'from' in item ? item.from ?? '—' : '—'} → ${'to' in item ? item.to ?? '—' : '—'}` : 'status' in item ? item.status ?? '—' : '—'}
+                                      </span>
+                                      <span className="text-white/40">{formatDateTimeUTC(item.occurred_at)}</span>
+                                    </li>
+                                  ))}
+                                  {section.items.length === 0 && <li className="text-white/40">No items in this window.</li>}
+                                  {section.items.length > section.limit && (
+                                    <li className="text-white/50">+{section.items.length - section.limit} more not shown</li>
+                                  )}
+                                </ul>
+                              </div>
+                            ))
+                          )}
+                        </div>
                       </div>
-                    </div>
-
-                    <div className="rounded-xl border border-white/10 bg-neutral-900/80 p-4 shadow-lg">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-sm font-semibold text-white">GitHub Activity Stream</h3>
-                        {!compareLoading && diffDetails && (
-                          <span className="tab-label text-[11px] uppercase tracking-[0.2em] text-white/80">
-                            Code • {(diffDetails.github?.commits?.length ?? 0) + (diffDetails.github?.prs_opened?.length ?? 0) + (diffDetails.github?.prs_merged?.length ?? 0) + (diffDetails.github?.prs_closed?.length ?? 0)}
-                          </span>
-                        )}
+                    </TabsContent>
+                    <TabsContent value="github" className="mt-0">
+                      <div className="rounded-xl border border-white/10 bg-neutral-900/80 p-4 shadow-lg">
+                        <div className="flex items-center justify-between mb-4">
+                          <h3 className="text-[11px] uppercase tracking-[0.2em] text-white/60">GitHub Activity Stream</h3>
+                          {!compareLoading && diffDetails && (
+                            <span className="tab-label text-[11px] uppercase tracking-[0.2em] text-white/80">
+                              {(diffDetails.github?.commits?.length ?? 0) + (diffDetails.github?.prs_opened?.length ?? 0) + (diffDetails.github?.prs_merged?.length ?? 0) + (diffDetails.github?.prs_closed?.length ?? 0)} items
+                            </span>
+                          )}
+                        </div>
+                        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                          {compareLoading ? (
+                            <div className="col-span-full flex items-center justify-center py-12">
+                              <Spinner className="size-8 text-white/60" aria-hidden />
+                            </div>
+                          ) : (
+                            [
+                              {
+                                label: 'Commits', items: diffDetails?.github?.commits || [], limit: 12, renderer: (item: { sha?: string | null; repo?: string | null; occurred_at?: string | null }) => (
+                                  <>
+                                    <span className="font-mono text-white/90">{item.sha ? item.sha.slice(0, 7) : '—'}</span>
+                                    <span className="text-white/60">{item.repo ?? '—'}</span>
+                                  </>
+                                )
+                              },
+                              { label: 'PRs opened', items: diffDetails?.github?.prs_opened || [], limit: 8 },
+                              { label: 'PRs merged', items: diffDetails?.github?.prs_merged || [], limit: 8 },
+                              { label: 'PRs closed', items: diffDetails?.github?.prs_closed || [], limit: 8 },
+                            ].map((section) => (
+                              <div key={section.label} className="rounded-lg border border-white/5 bg-black/20 p-3">
+                                <p className="flex items-center justify-between text-[11px] uppercase tracking-[0.2em] text-white/50">
+                                  <span>{section.label}</span>
+                                  <span className="text-white/40">{section.items.length}</span>
+                                </p>
+                                <ul className="mt-2 space-y-2 text-xs text-white/75">
+                                  {section.items.slice(0, section.limit).map((item: { sha?: string | null; number?: string | null; repo?: string | null; occurred_at?: string | null }, idx: number) => (
+                                    <li key={`${section.label}-${idx}`} className="flex flex-col gap-1">
+                                      {section.renderer ? (
+                                        section.renderer(item)
+                                      ) : (
+                                        <>
+                                          <span className="font-mono text-white/90">#{item.number ?? '—'}</span>
+                                          <span className="text-white/60">{item.repo ?? '—'}</span>
+                                        </>
+                                      )}
+                                      <span className="text-white/40">{formatDateTimeUTC(item.occurred_at)}</span>
+                                    </li>
+                                  ))}
+                                  {section.items.length === 0 && <li className="text-white/40">No activity recorded.</li>}
+                                  {section.items.length > section.limit && (
+                                    <li className="text-white/50">+{section.items.length - section.limit} more not shown</li>
+                                  )}
+                                </ul>
+                              </div>
+                            ))
+                          )}
+                        </div>
                       </div>
-                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                        {compareLoading ? (
-                          <div className="col-span-2 flex items-center justify-center py-8">
-                            <Spinner className="size-8 text-white/60" aria-hidden />
-                          </div>
-                        ) : (
-                          [
-                            {
-                              label: 'Commits', items: diffDetails?.github?.commits || [], limit: 8, renderer: (item: { sha?: string | null; repo?: string | null; occurred_at?: string | null }) => (
-                                <>
-                                  <span className="font-mono text-white/90">{item.sha ? item.sha.slice(0, 7) : '—'}</span>
-                                  <span className="text-white/60">{item.repo ?? '—'}</span>
-                                </>
-                              )
-                            },
-                          { label: 'PRs opened', items: diffDetails?.github?.prs_opened || [], limit: 5 },
-                          { label: 'PRs merged', items: diffDetails?.github?.prs_merged || [], limit: 5 },
-                          { label: 'PRs closed', items: diffDetails?.github?.prs_closed || [], limit: 5 },
-                        ].map((section) => (
-                            <div key={section.label} className="rounded-lg border border-white/5 bg-black/20 p-3">
-                              <p className="flex items-center justify-between text-[11px] uppercase tracking-[0.2em] text-white/50">
-                                <span>{section.label}</span>
-                                <span className="text-white/40">{section.items.length}</span>
-                              </p>
-                              <ul className="mt-2 space-y-2 text-xs text-white/75">
-                                {section.items.slice(0, section.limit).map((item: { sha?: string | null; number?: string | null; repo?: string | null; occurred_at?: string | null }, idx: number) => (
-                                  <li key={`${section.label}-${idx}`} className="flex flex-col gap-1">
-                                    {section.renderer ? (
-                                      section.renderer(item)
-                                    ) : (
-                                      <>
-                                        <span className="font-mono text-white/90">#{item.number ?? '—'}</span>
-                                        <span className="text-white/60">{item.repo ?? '—'}</span>
-                                      </>
-                                    )}
-                                    <span className="text-white/40">{formatDateTimeUTC(item.occurred_at)}</span>
-                                  </li>
-                                ))}
-                                {section.items.length === 0 && <li className="text-white/40">No activity recorded.</li>}
-                                {section.items.length > section.limit && (
-                                  <li className="text-white/50">+{section.items.length - section.limit} more not shown</li>
-                                )}
-                            </ul>
-                          </div>
-                        ))
-                        )}
-                      </div>
-                    </div>
-                  </div>
+                    </TabsContent>
+                  </Tabs>
                 ) : (
                   <div className="rounded-xl border border-dashed border-white/15 bg-white/5 p-4 text-sm text-white/70">
                     Detailed events will appear once the current window finishes loading.
@@ -1913,42 +1980,6 @@ function DiffPrototypePanel() {
       </div>
     </div>
   );
-}
-
-function buildDiffFromInput(input: DiffInput): DiffObject {
-  const start = new Date(input.start_timestamp).getTime();
-  const end = new Date(input.end_timestamp).getTime();
-  const rangeDays = Math.max(1, Math.round(Math.abs(end - start) / (1000 * 60 * 60 * 24)));
-  const scopeWeight = input.scope === 'org' ? 3 : input.scope === 'project' ? 2 : 1;
-  const sourceWeight = Math.max(1, input.sources.length);
-  const base = rangeDays * scopeWeight * sourceWeight;
-
-  return {
-    tickets_moved: Math.max(1, Math.round(base * 0.3)),
-    tickets_completed: Math.max(1, Math.round(base * 0.18)),
-    tickets_regressed: Math.max(0, scopeWeight - 1),
-    tickets_created: Math.max(1, Math.round(rangeDays * 0.4)),
-    prs_opened: Math.max(1, scopeWeight + sourceWeight + 2),
-    prs_merged: Math.max(1, Math.round(base * 0.08)),
-    prs_closed: Math.max(0, sourceWeight - 1),
-    commits_default: Math.max(1, Math.round(base * 0.5)),
-    repos_touched: buildReposTouched(input.scope),
-    architecture_changes: buildArchitectureChanges(input.scope),
-  };
-}
-
-function buildReposTouched(scope: DiffScope): string[] {
-  if (scope === 'repo') return ['canon/frontend'];
-  if (scope === 'project') return ['canon/frontend', 'canon/backend'];
-  return ['canon/frontend', 'canon/backend', 'canon/ops'];
-}
-
-function buildArchitectureChanges(scope: DiffScope): Array<{ label: 'node_added' | 'node_modified' | 'node_removed'; detail: string }> {
-  return [
-    { label: 'node_added', detail: scope === 'repo' ? 'services/diff-engine' : 'platform/diff-engine' },
-    { label: 'node_modified', detail: 'infra/k8s/gateway.yaml' },
-    { label: 'node_removed', detail: 'legacy/etl-sync' },
-  ];
 }
 
 interface KnowledgeClientProps {
