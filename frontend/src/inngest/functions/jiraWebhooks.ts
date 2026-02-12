@@ -5,7 +5,7 @@ import { ensureJiraWebhookRegistration, markJiraWebhookError } from "@/lib/serve
 export const refreshJiraWebhooks = inngest.createFunction(
   {
     id: "jira-webhook-refresh",
-    name: "Jira Webhook Refresh (daily)",
+    name: "Canon: Jira Webhook Refresh",
     retries: 1,
     concurrency: { limit: 3 },
   },

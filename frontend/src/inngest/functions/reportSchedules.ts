@@ -14,7 +14,7 @@ const SCHEDULE_COLS =
 export const reportScheduleTick = inngest.createFunction(
   {
     id: "report-schedule-tick",
-    name: "Report Schedule Tick (Diff & Projection)",
+    name: "Canon: Report Schedule Tick",
     retries: 1,
     concurrency: { limit: 5 },
   },
@@ -136,7 +136,7 @@ export const reportScheduleTick = inngest.createFunction(
 export const reportScheduleBootstrap = inngest.createFunction(
   {
     id: "report-schedule-bootstrap",
-    name: "Report Schedule Bootstrap (start legacy schedules)",
+    name: "Canon: Report Schedule Bootstrap",
     retries: 1,
     concurrency: { limit: 1 },
   },

@@ -21,7 +21,7 @@ const log = createLogger('inngest.diff_backfill', {
 export const diffSourceBackfill = inngest.createFunction(
   {
     id: 'diff-source-backfill',
-    name: 'Diff Source Backfill',
+    name: 'Canon: Source Activity Backfill',
     retries: 1,
     concurrency: { limit: 1 },
   },
