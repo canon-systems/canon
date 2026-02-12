@@ -30,10 +30,17 @@ export function buildCanonDiff(params: {
   for (const event of [...prs_opened, ...prs_merged, ...prs_closed_unmerged, ...(github?.commits ?? [])]) {
     if (event.repo) repos_touched.add(event.repo);
   }
-  if (jira?.projectKey) {
-    repos_touched.add(`Jira:${jira.projectKey}`);
-  } else if (jira) {
-    repos_touched.add('Jira');
+  const jiraTouchedCount =
+    (jira?.tickets_moved?.length ?? 0) +
+    (jira?.tickets_completed?.length ?? 0) +
+    (jira?.tickets_regressed?.length ?? 0) +
+    (jira?.tickets_new?.length ?? 0);
+  if (jiraTouchedCount > 0) {
+    if (jira?.projectKey) {
+      repos_touched.add(`Jira:${jira.projectKey}`);
+    } else {
+      repos_touched.add('Jira');
+    }
   }
 
   return {

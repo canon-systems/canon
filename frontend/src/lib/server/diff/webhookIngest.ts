@@ -406,12 +406,16 @@ export function extractJiraCanonicalEvents(
   const updatedAt = typeof fields.updated === 'string' ? fields.updated : null;
   const status = fields.status as { name?: string; statusCategory?: { name?: string } } | undefined;
   const statusCategory = status?.statusCategory?.name || null;
+  const project = fields.project as { key?: string } | undefined;
+  const projectKey = typeof project?.key === 'string' ? project.key : null;
+  const jiraWorkspace = projectKey ? `Jira:${projectKey}` : 'Jira';
 
   if (webhookEvent === 'jira:issue_created' && issueKey) {
     events.push({
       event_kind: 'ticket_created',
       occurred_at: typeof fields.created === 'string' ? fields.created : new Date().toISOString(),
       entity_id: issueKey,
+      repo_full_name: jiraWorkspace,
       metadata: { status: status?.name || null, summary },
     });
   }
@@ -437,6 +441,7 @@ export function extractJiraCanonicalEvents(
       event_kind: 'ticket_moved',
       occurred_at: changeTime,
       entity_id: issueKey,
+      repo_full_name: jiraWorkspace,
       metadata: {
         from: item?.fromString ?? null,
         to: item?.toString ?? null,
@@ -451,6 +456,7 @@ export function extractJiraCanonicalEvents(
         event_kind: 'ticket_completed',
         occurred_at: changeTime,
         entity_id: issueKey,
+        repo_full_name: jiraWorkspace,
         metadata: { status: status?.name || null, summary },
       });
     }
@@ -463,6 +469,7 @@ export function extractJiraCanonicalEvents(
         event_kind: 'ticket_regressed',
         occurred_at: changeTime,
         entity_id: issueKey,
+        repo_full_name: jiraWorkspace,
         metadata: { status: status?.name || null, summary },
       });
     }

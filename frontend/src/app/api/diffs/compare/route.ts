@@ -240,6 +240,30 @@ function addRollupToDiff(diff: CanonicalDiff, row: Record<string, unknown>) {
   diff.repos_touched = mergeRepos(diff.repos_touched, row.repos_touched);
 }
 
+function hasJiraTicketActivity(diff: CanonicalDiff): boolean {
+  return diff.tickets_moved + diff.tickets_completed + diff.tickets_regressed + diff.tickets_created > 0;
+}
+
+function jiraWorkspaceLabel(source: DiffSourceInfo): string {
+  const displayName = source.display_name.trim();
+  if (displayName.toLowerCase().startsWith('jira/')) {
+    const project = displayName.slice(5).trim();
+    if (project) return `Jira:${project}`;
+  }
+  const name = source.name.trim();
+  if (name) return `Jira:${name}`;
+  return 'Jira';
+}
+
+function addJiraWorkspaceTouch(diff: CanonicalDiff, source: DiffSourceInfo): void {
+  if (source.provider !== 'jira') return;
+  if (!hasJiraTicketActivity(diff)) return;
+  const workspace = jiraWorkspaceLabel(source);
+  if (!diff.repos_touched.includes(workspace)) {
+    diff.repos_touched = [...diff.repos_touched, workspace];
+  }
+}
+
 async function computeCanonicalDiffFromRollups(params: {
   supabase: Awaited<ReturnType<typeof createClient>>;
   sourceIds: string[];
@@ -457,12 +481,25 @@ export async function POST(req: NextRequest) {
         for (const source of sources) {
           const primary = primaryRollups.bySource[source.id] ?? emptyCanonicalDiff(primaryWindow);
           const baseline = baselineRollups.bySource[source.id] ?? emptyCanonicalDiff(baselineWindow);
+          addJiraWorkspaceTouch(primary, source);
+          addJiraWorkspaceTouch(baseline, source);
           const delta = diffDelta(primary, baseline);
           by_source[source.display_name] = { primary, baseline, delta };
         }
 
         Object.assign(primaryAgg, primaryRollups.agg);
         Object.assign(baselineAgg, baselineRollups.agg);
+
+        const primaryRepos = new Set(primaryAgg.repos_touched);
+        const baselineRepos = new Set(baselineAgg.repos_touched);
+        for (const source of sources) {
+          const bySource = by_source[source.display_name];
+          if (!bySource) continue;
+          for (const repo of bySource.primary.repos_touched) primaryRepos.add(repo);
+          for (const repo of bySource.baseline.repos_touched) baselineRepos.add(repo);
+        }
+        primaryAgg.repos_touched = Array.from(primaryRepos);
+        baselineAgg.repos_touched = Array.from(baselineRepos);
       }
     } catch (err) {
       console.error('[diffs/compare] compute by-source error', err);
