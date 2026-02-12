@@ -4,6 +4,7 @@ import { getSession } from '@/lib/auth';
 import { ingestSource, type WorkspaceSource } from '@/lib/server/services/sourceIngest';
 import { isRepoProvider } from '@/lib/server/services/sourceProviders';
 import { trackRepoConnected, trackSourceConnected } from '@/lib/server/services/usageTracking';
+import { inngest } from '@/inngest';
 
 type CreateSource = {
   name: string;
@@ -165,6 +166,25 @@ export async function POST(request: NextRequest) {
       ingestSource(ingestClient, row as WorkspaceSource, { mode, createdSourceIds }).catch((err) => {
         console.error('[ingestSource] failed', err);
       });
+
+      const provider = typeof row.provider === 'string' ? row.provider.toLowerCase() : '';
+      if (provider === 'github' || provider === 'jira') {
+        try {
+          await inngest.send({
+            name: 'diff/source.backfill.requested',
+            data: {
+              sourceId: row.id,
+              userId: user.id,
+            },
+          });
+        } catch (err) {
+          console.warn('[diff/backfill] failed to enqueue source backfill', {
+            sourceId: row.id,
+            provider,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
     }
 
     return NextResponse.json(data, { status: 200 });

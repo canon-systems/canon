@@ -219,7 +219,10 @@ export async function getJiraDiffForProject(params: JiraDiffParams): Promise<Jir
 
     if (!response.ok) {
       const message = await response.text().catch(() => 'Failed to fetch Jira issues.');
-      throw new Error(message);
+      const error = new Error(message) as Error & { status?: number; retryAfter?: string | null };
+      error.status = response.status;
+      error.retryAfter = response.headers.get('retry-after');
+      throw error;
     }
 
     const data = await response.json();

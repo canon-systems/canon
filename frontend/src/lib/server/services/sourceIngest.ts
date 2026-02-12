@@ -6,6 +6,44 @@ import { parseRepoUrl } from '../github/github';
 import { getProviderAccessToken } from '../oauth/tokenStore';
 import { buildAkusForSources } from './akuBuilder';
 import { DEFAULT_AUDIENCES, type Audience } from '@/lib/constants/audiences';
+import { createLogger, errorMessage } from '@/lib/server/logging';
+
+const ingestLog = createLogger('source.ingest', {
+  label: 'Source Ingest',
+  eventLabels: {
+    preferred_audiences_fallback: 'Preferred Audiences Fallback',
+    aborted_source_deleted: 'Ingest Aborted Source Deleted',
+    github_start: 'GitHub Ingest Started',
+    github_summarize_start: 'GitHub Summarization Started',
+    github_aku_build_start: 'GitHub AKU Build Started',
+    github_complete: 'GitHub Ingest Completed',
+    github_failed: 'GitHub Ingest Failed',
+    issue_start: 'Issue Ingest Started',
+    issue_oauth_connection_missing: 'Issue OAuth Connection Missing',
+    issue_access_token_fetch: 'Issue Access Token Fetch',
+    issue_access_token_missing: 'Issue Access Token Missing',
+    jira_search_failed: 'Jira Search Failed',
+    issue_store_start: 'Issue Store Started',
+    issue_store_skipped: 'Issue Store Skipped',
+    issue_complete: 'Issue Ingest Completed',
+    issue_failed: 'Issue Ingest Failed',
+  },
+});
+const syncLog = createLogger('source.sync', {
+  label: 'Canon Sync',
+  eventLabels: {
+    github_removed_rows_delete_failed: 'GitHub Removed Rows Delete Failed',
+    github_delta_scan_start: 'GitHub Delta Scan Started',
+    github_aku_rebuild_start: 'GitHub AKU Rebuild Started',
+    github_delta_complete: 'GitHub Delta Completed',
+    github_delta_failed: 'GitHub Delta Failed',
+    issue_delta_skipped: 'Issue Delta Skipped',
+    jira_delta_fetch_failed: 'Jira Delta Fetch Failed',
+    issue_removed_rows_delete_failed: 'Issue Removed Rows Delete Failed',
+    issue_delta_complete: 'Issue Delta Completed',
+    issue_delta_noop: 'Issue Delta No Changes',
+  },
+});
 
 function fileContentHash(content: string): string {
   return createHash('sha256').update(content).digest('hex');
@@ -32,7 +70,10 @@ async function resolvePreferredAudiences(
       if (filtered.length > 0) return filtered;
     }
   } catch (err) {
-    console.warn('[sourceIngest] Failed to load preferred audiences; falling back to defaults', err);
+    ingestLog.warn('preferred_audiences_fallback', {
+      userId,
+      reason: errorMessage(err),
+    });
   }
   return [...DEFAULT_AUDIENCES];
 }
@@ -93,11 +134,28 @@ async function updateStatus(
     ...(progress !== null ? { progress_pct: progress } : {}),
     ...extras,
   };
+
+  const { data: existing } = await supabase
+    .from('workspace_sources')
+    .select('status_payload')
+    .eq('id', sourceId)
+    .maybeSingle();
+
+  const existingPayload =
+    existing?.status_payload && typeof existing.status_payload === 'object'
+      ? (existing.status_payload as Record<string, unknown>)
+      : {};
+
+  const mergedPayload = {
+    ...existingPayload,
+    ...payload,
+  };
+
   await supabase
     .from('workspace_sources')
     .update({
-      status_payload: payload,
-      last_error: ('error' in payload ? (payload as Record<string, unknown>).error : null) as string | null,
+      status_payload: mergedPayload,
+      last_error: ('error' in mergedPayload ? (mergedPayload as Record<string, unknown>).error : null) as string | null,
       updated_at: new Date().toISOString(),
     })
     .eq('id', sourceId);
@@ -128,7 +186,7 @@ async function sourceStillExists(supabase: SupabaseClient, sourceId: string, use
 async function abortIfDeleted(supabase: SupabaseClient, source: WorkspaceSource, stage: string): Promise<boolean> {
   const exists = await sourceStillExists(supabase, source.id, source.user_id);
   if (exists) return false;
-  console.log(`Source ingest: stopping ${source.id} at ${stage} because source was deleted`);
+  ingestLog.info('aborted_source_deleted', { sourceId: source.id, stage });
   return true;
 }
 
@@ -159,7 +217,7 @@ export async function ingestGitHubSource(
   }
 
   try {
-    console.log(`Source ingest: GitHub start for ${repo}@${branch}`, { sourceId: source.id });
+    ingestLog.info('github_start', { sourceId: source.id, repo, branch });
     const preferredAudiences = await resolvePreferredAudiences(supabase, source.user_id);
     await updateStage(supabase, source.id, 'fetching', 10, 'Fetching repository');
     if (await abortIfDeleted(supabase, source, 'fetching')) return;
@@ -179,7 +237,7 @@ export async function ingestGitHubSource(
     });
     const sourceKey = normalizeRepoId(repoUrl);
     const manager = new FileSummaryManager(supabase, source.id, sourceKey, branch);
-    console.log(`Source ingest: summarizing ${files.length} files`);
+    ingestLog.info('github_summarize_start', { sourceId: source.id, repo, branch, totalFiles: files.length });
     const totalFiles = files.length;
     await updateStage(supabase, source.id, 'summarizing', 60, 'Summarizing source data', {
       total_files: totalFiles,
@@ -222,7 +280,11 @@ export async function ingestGitHubSource(
       });
     };
     if (options?.mode === 'single') {
-      console.log('Source ingest: building per-source AKUs for GitHub source', { audiences: preferredAudiences });
+      ingestLog.info('github_aku_build_start', {
+        sourceId: source.id,
+        mode: 'single',
+        audiences: preferredAudiences,
+      });
       await buildAkusForSources(supabase, source.user_id, [source.id], preferredAudiences, {
         perSource: true,
         extractionTargets: [{ sourceId: source.id, repoUrl, branch, fallbackName: source.id }],
@@ -237,7 +299,12 @@ export async function ingestGitHubSource(
       } else {
         sourceIds = await getAllUserSourceIds(supabase, source.user_id);
       }
-      console.log('Source ingest: building merged AKUs for selected sources', { sourceCount: sourceIds.length, audiences: preferredAudiences });
+      ingestLog.info('github_aku_build_start', {
+        sourceId: source.id,
+        mode: 'multi',
+        sourceCount: sourceIds.length,
+        audiences: preferredAudiences,
+      });
       await buildAkusForSources(supabase, source.user_id, sourceIds, preferredAudiences, {
         extractionTargets: [{ sourceId: source.id, repoUrl, branch, fallbackName: source.id }],
         shouldAbort: () => sourceStillExists(supabase, source.id, source.user_id).then((exists) => !exists),
@@ -246,9 +313,14 @@ export async function ingestGitHubSource(
     }
 
     await updateStage(supabase, source.id, 'ready', 100, 'Setup complete');
-    console.log(`Source ingest: finished ${repo}@${branch} (${files.length} files)`);
+    ingestLog.info('github_complete', { sourceId: source.id, repo, branch, totalFiles: files.length });
   } catch (err) {
-    console.error('Source ingest: GitHub failed', err);
+    ingestLog.error('github_failed', {
+      sourceId: source.id,
+      repo,
+      branch,
+      error: errorMessage(err),
+    });
     await updateStatus(supabase, source.id, 'failed', 0, {
       error: err instanceof Error ? err.message : String(err),
     });
@@ -267,7 +339,11 @@ export async function ingestIssueSource(
   }
 
   try {
-    console.log(`Source ingest: Issue provider start (${provider})`, { scope: source.scope });
+    ingestLog.info('issue_start', {
+      sourceId: source.id,
+      provider,
+      projectKey: typeof source.scope?.project === 'string' ? source.scope.project : null,
+    });
     await updateStage(supabase, source.id, 'fetching', 10, 'Fetching source data');
     if (await abortIfDeleted(supabase, source, 'fetching')) return;
 
@@ -283,7 +359,11 @@ export async function ingestIssueSource(
         .eq('id', source.connection_id)
         .single();
       if (connError) {
-        console.warn('Source ingest: no OAuth connection found', { sourceId: source.id, provider, error: connError });
+        ingestLog.warn('issue_oauth_connection_missing', {
+          sourceId: source.id,
+          provider,
+          error: connError.message,
+        });
       } else {
         connectionIdForTokens = conn?.connection_id || null;
       }
@@ -298,7 +378,7 @@ export async function ingestIssueSource(
       return;
     }
 
-    console.log('Source ingest: fetching access token for issues', { connectionId });
+    ingestLog.debug('issue_access_token_fetch', { sourceId: source.id, provider, connectionId });
 
     const accessToken = await getProviderAccessToken({
       provider: provider === 'jira' ? 'confluence' : provider,
@@ -309,7 +389,7 @@ export async function ingestIssueSource(
       await updateStatus(supabase, source.id, 'failed', 0, {
         error: 'Missing access token for issue source. Connect Atlassian in Settings.',
       });
-      console.error('Source ingest: missing access token for issue provider', { connectionId });
+      ingestLog.error('issue_access_token_missing', { sourceId: source.id, provider, connectionId });
       return;
     }
 
@@ -368,7 +448,11 @@ export async function ingestIssueSource(
       if (!searchResult.ok) {
         const errMsg = `Jira search failed (${searchResult.status})${searchResult.body ? `: ${searchResult.body.slice(0, 200)}` : ''}`;
         await updateStatus(supabase, source.id, 'failed', 0, { error: errMsg });
-        console.error('Source ingest: Jira search failed', { status: searchResult.status, body: searchResult.body });
+        ingestLog.error('jira_search_failed', {
+          sourceId: source.id,
+          status: searchResult.status,
+          bodySnippet: searchResult.body.slice(0, 240),
+        });
         return;
       }
 
@@ -420,18 +504,22 @@ export async function ingestIssueSource(
     });
 
     if (rows.length > 0) {
-      console.log(`Source ingest: storing ${rows.length} issues`);
+      ingestLog.info('issue_store_start', { sourceId: source.id, provider, totalIssues: rows.length });
       await supabase.from('issue_index').upsert(rows, { onConflict: 'source_id,issue_key' });
       if (await abortIfDeleted(supabase, source, 'indexing')) return;
     } else {
-      console.log('Source ingest: no issues to store for this source');
+      ingestLog.info('issue_store_skipped', { sourceId: source.id, provider, reason: 'no_issues' });
     }
 
     // Skip AKU build for issue-only sources to speed up ingest; projections can be run separately if needed.
     await updateStage(supabase, source.id, 'ready', 100, 'Setup complete (issues only, AKU build skipped)');
-    console.log('Source ingest: issue provider finished (AKU skipped)', { provider, issues: rows.length });
+    ingestLog.info('issue_complete', { sourceId: source.id, provider, totalIssues: rows.length });
   } catch (err) {
-    console.error('Source ingest: issue ingest failed', err);
+    ingestLog.error('issue_failed', {
+      sourceId: source.id,
+      provider,
+      error: errorMessage(err),
+    });
     await updateStatus(supabase, source.id, 'failed', 0, {
       error: err instanceof Error ? err.message : String(err),
     });
@@ -513,11 +601,17 @@ export async function syncGitHubSourceDelta(
         .eq('branch', branch)
         .in('file_path', removedPaths);
       if (!delErr) removed = removedPaths.length;
-      else console.warn('[canon-sync] GitHub: failed to remove deleted file rows', { repo, count: removedPaths.length });
+      else syncLog.warn('github_removed_rows_delete_failed', { sourceId: source.id, repo, count: removedPaths.length });
     }
 
     const scopeLabel = typeof source.scope?.repo === 'string' ? source.scope.repo : source.id;
-    console.log(`[canon-sync] Checking ${rawFiles.length} files for summary updates (hash comparison), source: ${scopeLabel}`);
+    syncLog.info('github_delta_scan_start', {
+      sourceId: source.id,
+      source: scopeLabel,
+      totalFiles: rawFiles.length,
+      addedPaths: addedPaths.length,
+      removedPaths: removedPaths.length,
+    });
     const result = await manager.updateSummariesIfNeeded(
       rawFiles.map((f) => ({
         path: f.path,
@@ -531,13 +625,31 @@ export async function syncGitHubSourceDelta(
 
     if (anyChange) {
       const allSourceIds = await getAllUserSourceIds(supabase, source.user_id);
-      console.log(`[canon-sync] Rebuilding merged AKUs for all user sources (files changed), source: ${scopeLabel}, sourceCount: ${allSourceIds.length}`);
+      syncLog.info('github_aku_rebuild_start', {
+        sourceId: source.id,
+        source: scopeLabel,
+        sourceCount: allSourceIds.length,
+        changedFiles: result.processed,
+        removedFiles: removed,
+      });
       await buildAkusForSources(supabase, source.user_id, allSourceIds, preferredAudiences);
       return { added, removed, rebuilt: true, addedPaths, removedPaths };
     }
+    syncLog.info('github_delta_complete', {
+      sourceId: source.id,
+      source: scopeLabel,
+      added,
+      removed,
+      rebuilt: false,
+      summariesUpdated: result.processed,
+    });
     return { added, removed, rebuilt: false, addedPaths, removedPaths };
   } catch (err) {
-    console.error('[canon-sync] GitHub delta sync failed', { repo: typeof source.scope?.repo === 'string' ? source.scope.repo : source.id, error: err instanceof Error ? err.message : String(err) });
+    syncLog.error('github_delta_failed', {
+      sourceId: source.id,
+      repo: typeof source.scope?.repo === 'string' ? source.scope.repo : source.id,
+      error: errorMessage(err),
+    });
     return empty;
   }
 }
@@ -576,7 +688,12 @@ export async function syncIssueSourceDelta(
   }
   const connectionId = connectionIdForTokens || source.connection_id || null;
   if (!connectionId) {
-    console.warn('[canon-sync] Issue source skipped: no OAuth connection', { provider, project: projectKey });
+    syncLog.warn('issue_delta_skipped', {
+      sourceId: source.id,
+      provider,
+      project: projectKey,
+      reason: 'missing_oauth_connection',
+    });
     return empty;
   }
   const accessToken = await getProviderAccessToken({
@@ -584,7 +701,12 @@ export async function syncIssueSourceDelta(
     connectionId,
   });
   if (!accessToken) {
-    console.warn('[canon-sync] Issue source skipped: no access token', { provider, project: projectKey });
+    syncLog.warn('issue_delta_skipped', {
+      sourceId: source.id,
+      provider,
+      project: projectKey,
+      reason: 'missing_access_token',
+    });
     return empty;
   }
 
@@ -605,7 +727,11 @@ export async function syncIssueSourceDelta(
       const data = await res.json();
       issues = Array.isArray(data?.issues) ? data.issues : [];
     } else {
-      console.warn('[canon-sync] Jira fetch failed', { project: projectKey, status: res.status });
+      syncLog.warn('jira_delta_fetch_failed', {
+        sourceId: source.id,
+        project: projectKey,
+        status: res.status,
+      });
     }
   }
 
@@ -656,13 +782,30 @@ export async function syncIssueSourceDelta(
       .eq('source_id', source.id)
       .in('issue_key', removedKeys);
     if (!delErr) removed = removedKeys.length;
-    else console.warn('[canon-sync] Issues: failed to remove obsolete rows', { provider, project: projectKey, count: removedKeys.length });
+    else syncLog.warn('issue_removed_rows_delete_failed', {
+      sourceId: source.id,
+      provider,
+      project: projectKey,
+      count: removedKeys.length,
+    });
   }
 
   const anyChange = added > 0 || removed > 0;
   if (anyChange) {
-    console.log('[canon-sync] Issue delta applied; skipping AKU rebuild for issue-only sources');
+    syncLog.info('issue_delta_complete', {
+      sourceId: source.id,
+      provider,
+      project: projectKey,
+      added,
+      removed,
+      rebuilt: false,
+    });
     return { added, removed, rebuilt: false, addedKeys, removedKeys };
   }
+  syncLog.debug('issue_delta_noop', {
+    sourceId: source.id,
+    provider,
+    project: projectKey,
+  });
   return { added, removed, rebuilt: false, addedKeys, removedKeys };
 }

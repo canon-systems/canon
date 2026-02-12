@@ -3,6 +3,7 @@ import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
 import { ingestSource } from '@/lib/server/services/sourceIngest';
 import { trackSourceConnected } from '@/lib/server/services/usageTracking';
+import { inngest } from '@/inngest';
 
 export async function POST(request: NextRequest) {
   try {
@@ -109,6 +110,21 @@ export async function POST(request: NextRequest) {
     ingestSource(supabase, data).catch((err) => {
       console.error('[ingestSource] Jira source failed', err);
     });
+
+    try {
+      await inngest.send({
+        name: 'diff/source.backfill.requested',
+        data: {
+          sourceId: data.id,
+          userId: user.id,
+        },
+      });
+    } catch (err) {
+      console.warn('[diff/backfill] failed to enqueue Jira source backfill', {
+        sourceId: data.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
 
     return NextResponse.json(data, { status: 200 });
   } catch (err: unknown) {

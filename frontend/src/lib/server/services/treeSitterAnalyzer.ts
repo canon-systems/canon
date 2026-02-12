@@ -3,6 +3,7 @@ import Parser from 'web-tree-sitter';
 import fs from 'fs';
 import path from 'path';
 import { createServiceRoleClient } from '../../supabase/server';
+import { createLogger, errorMessage } from '@/lib/server/logging';
 export interface DependencyInfo {
     filePath: string;
     language: string;
@@ -126,6 +127,34 @@ type ArchitecturalPatterns = {
     isConfig: boolean;
     isAuth: boolean;
 };
+
+const log = createLogger('tree_sitter', {
+    label: 'Tree-sitter',
+    eventLabels: {
+        parser_loaded: 'Parser Loaded',
+        parser_load_failed: 'Parser Load Failed',
+        parser_skipped: 'Parser Skipped',
+        language_init_failed: 'Language Init Failed',
+        ready: 'Analyzer Ready',
+        no_parsers_loaded: 'No Parsers Loaded',
+        dependency_extraction_complete: 'Dependency Extraction Completed',
+        file_skipped_no_parser: 'File Skipped No Parser',
+        file_parsed: 'File Parsed',
+        file_parse_failed: 'File Parse Failed',
+        parse_import_statement_failed: 'Import Statement Parse Failed',
+        parse_require_call_failed: 'Require Call Parse Failed',
+        parse_export_statement_failed: 'Export Statement Parse Failed',
+        parse_python_imports_failed: 'Python Imports Parse Failed',
+        parse_python_exports_failed: 'Python Exports Parse Failed',
+        parse_java_imports_failed: 'Java Imports Parse Failed',
+        parse_java_exports_failed: 'Java Exports Parse Failed',
+        parse_go_imports_failed: 'Go Imports Parse Failed',
+        parse_go_exports_failed: 'Go Exports Parse Failed',
+        manifest_parse_failed: 'Manifest Parse Failed',
+        system_nodes_service_role_query_failed: 'System Nodes Service Role Query Failed',
+        system_nodes_load_failed: 'System Nodes Load Failed',
+    },
+});
 
 type ClusterMetadata = {
     language: string;
@@ -280,22 +309,30 @@ export class TreeSitterAnalyzer {
 
                         // Only mark as supported if Tree-sitter parser successfully loads
                         this.supportedLanguages.add(config.name);
-                        console.log(`✅ Loaded ${config.name} Tree-sitter parser`);
+                        log.debug('parser_loaded', { language: config.name });
                     } catch (error) {
-                        console.warn(`❌ Failed to load ${config.name} parser:`, error instanceof Error ? error.message : String(error));
-                        console.log(`⚠️ Skipping ${config.name} - no Tree-sitter support available`);
+                        log.warn('parser_load_failed', {
+                            language: config.name,
+                            error: errorMessage(error),
+                        });
+                        log.debug('parser_skipped', { language: config.name, reason: 'load_failed' });
                     }
                 } else {
-                    console.log(`⚠️ WASM file not found for ${config.name}, skipping`);
+                    log.debug('parser_skipped', { language: config.name, reason: 'wasm_missing' });
                 }
             } catch (error) {
-                console.warn(`❌ Error loading ${config.name} language:`, error);
+                log.warn('language_init_failed', {
+                    language: config.name,
+                    error: errorMessage(error),
+                });
             }
         }
 
-        console.log(`🎯 Tree-sitter analyzer ready with ${this.parsers.size} working parsers (wasm dir: ${this.wasmBaseDir})`);
+        log.info('ready', { parserCount: this.parsers.size, wasmDir: this.wasmBaseDir });
         if (this.parsers.size === 0) {
-            console.warn(`⚠️ No Tree-sitter parsers loaded. Run 'node setup-tree-sitter.js' to download compatible WASM files.`);
+            log.warn('no_parsers_loaded', {
+                hint: "Run 'node setup-tree-sitter.js' to download compatible WASM files.",
+            });
         }
 
         this.initialized = true;
@@ -332,9 +369,11 @@ export class TreeSitterAnalyzer {
         const deps = await this.extractDependencies(files);
         const byLang = new Map<string, number>();
         deps.forEach((d) => byLang.set(d.language, (byLang.get(d.language) || 0) + 1));
-        console.log(
-            `[Tree-sitter] Dependency extraction summary: ${deps.length}/${files.length} files parsed, languages: ${JSON.stringify(Object.fromEntries(byLang.entries()))}`
-        );
+        log.info('dependency_extraction_complete', {
+            parsedFiles: deps.length,
+            totalFiles: files.length,
+            languages: Object.fromEntries(byLang.entries()),
+        });
         return deps;
     }
 
@@ -344,7 +383,10 @@ export class TreeSitterAnalyzer {
         for (const file of files) {
             const language = this.detectLanguage(file.path);
             if (!language || !this.parsers.has(language)) {
-                console.log(`⚠️ Skipping ${file.path} - no Tree-sitter parser available for ${language || 'unknown language'}`);
+                log.debug('file_skipped_no_parser', {
+                    path: file.path,
+                    language: language || 'unknown',
+                });
                 continue; // Skip files without Tree-sitter parsers
             }
 
@@ -364,9 +406,9 @@ export class TreeSitterAnalyzer {
                     dependencies: imports
                 });
 
-                console.log(`✅ Parsed ${file.path} with Tree-sitter (${language})`);
+                log.debug('file_parsed', { path: file.path, language });
             } catch (error) {
-                console.warn(`Tree-sitter parsing failed for ${file.path}:`, error);
+                log.warn('file_parse_failed', { path: file.path, error: errorMessage(error) });
                 // Tree-sitter only - no fallback
             }
         }
@@ -459,7 +501,7 @@ export class TreeSitterAnalyzer {
                     imports.push(importPath);
                 }
             } catch (error) {
-                console.warn('Error parsing import statement:', error);
+                log.debug('parse_import_statement_failed', { error: errorMessage(error) });
             }
         }
 
@@ -482,7 +524,7 @@ export class TreeSitterAnalyzer {
                     }
                 }
             } catch (error) {
-                console.warn('Error parsing require call:', error);
+                log.debug('parse_require_call_failed', { error: errorMessage(error) });
             }
         }
 
@@ -530,7 +572,7 @@ export class TreeSitterAnalyzer {
                     exports.push('default');
                 }
             } catch (error) {
-                console.warn('Error parsing export statement:', error);
+                log.debug('parse_export_statement_failed', { error: errorMessage(error) });
             }
         }
 
@@ -560,7 +602,7 @@ export class TreeSitterAnalyzer {
                 }
             }
         } catch (error) {
-            console.warn('Error parsing Python imports:', error);
+            log.debug('parse_python_imports_failed', { error: errorMessage(error) });
         }
 
         return [...new Set(imports)]; // Remove duplicates
@@ -609,7 +651,7 @@ export class TreeSitterAnalyzer {
                 }
             }
         } catch (error) {
-            console.warn('Error parsing Python exports:', error);
+            log.debug('parse_python_exports_failed', { error: errorMessage(error) });
         }
 
         return [...new Set(exports)]; // Remove duplicates
@@ -629,7 +671,7 @@ export class TreeSitterAnalyzer {
                 }
             }
         } catch (error) {
-            console.warn('Error parsing Java imports:', error);
+            log.debug('parse_java_imports_failed', { error: errorMessage(error) });
         }
 
         return [...new Set(imports)]; // Remove duplicates
@@ -700,7 +742,7 @@ export class TreeSitterAnalyzer {
                 }
             }
         } catch (error) {
-            console.warn('Error parsing Java exports:', error);
+            log.debug('parse_java_exports_failed', { error: errorMessage(error) });
         }
 
         return [...new Set(exports)]; // Remove duplicates
@@ -736,7 +778,7 @@ export class TreeSitterAnalyzer {
                 }
             }
         } catch (error) {
-            console.warn('Error parsing Go imports:', error);
+            log.debug('parse_go_imports_failed', { error: errorMessage(error) });
         }
 
         return [...new Set(imports)]; // Remove duplicates
@@ -797,7 +839,7 @@ export class TreeSitterAnalyzer {
                 }
             }
         } catch (error) {
-            console.warn('Error parsing Go exports:', error);
+            log.debug('parse_go_exports_failed', { error: errorMessage(error) });
         }
 
         return [...new Set(exports)]; // Remove duplicates
@@ -2820,7 +2862,10 @@ export class TreeSitterAnalyzer {
                     urlMatches.forEach(u => packages.add(u));
                 }
             } catch (error) {
-                console.warn(`Unable to parse manifest ${file.path}:`, error);
+                log.warn('manifest_parse_failed', {
+                    path: file.path,
+                    error: errorMessage(error),
+                });
             }
         }
 
@@ -2857,7 +2902,9 @@ export class TreeSitterAnalyzer {
                 }
                 data = adminData || [];
             } catch (adminErr) {
-                console.warn('[SID] service role query failed, falling back to provided client:', adminErr);
+                log.warn('system_nodes_service_role_query_failed', {
+                    reason: errorMessage(adminErr),
+                });
             }
 
             if (!data) {
@@ -2919,7 +2966,7 @@ export class TreeSitterAnalyzer {
 
             return nodes;
         } catch (err) {
-            console.warn('Failed to load system_nodes:', err);
+            log.warn('system_nodes_load_failed', { reason: errorMessage(err) });
             return [];
         }
     }
