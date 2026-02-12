@@ -3,6 +3,7 @@ import { getGitHubAppOctokitForRepo } from '@/lib/server/github/appAuth';
 export type GitHubDiffEvent = {
   repo: string;
   pr_number: number | null;
+  entity_id?: string | null;
   action: 'opened' | 'merged' | 'closed_unmerged' | 'commit';
   timestamp: string;
 };
@@ -81,6 +82,7 @@ export async function getGitHubDiffForRepo(params: DiffParams): Promise<GitHubDi
         prs_opened.push({
           repo: `${owner}/${repo}`,
           pr_number: pr.number,
+          entity_id: String(pr.number),
           action: 'opened',
           timestamp: pr.created_at,
         });
@@ -89,6 +91,7 @@ export async function getGitHubDiffForRepo(params: DiffParams): Promise<GitHubDi
         prs_merged.push({
           repo: `${owner}/${repo}`,
           pr_number: pr.number,
+          entity_id: String(pr.number),
           action: 'merged',
           timestamp: pr.merged_at!,
         });
@@ -97,6 +100,7 @@ export async function getGitHubDiffForRepo(params: DiffParams): Promise<GitHubDi
         prs_closed_unmerged.push({
           repo: `${owner}/${repo}`,
           pr_number: pr.number,
+          entity_id: String(pr.number),
           action: 'closed_unmerged',
           timestamp: pr.closed_at!,
         });
@@ -137,6 +141,7 @@ export async function getGitHubDiffForRepo(params: DiffParams): Promise<GitHubDi
       commits.push({
         repo: `${owner}/${repo}`,
         pr_number: null,
+        entity_id: commit.sha || null,
         action: 'commit',
         timestamp: ts,
       });

@@ -93,11 +93,28 @@ async function updateStatus(
     ...(progress !== null ? { progress_pct: progress } : {}),
     ...extras,
   };
+
+  const { data: existing } = await supabase
+    .from('workspace_sources')
+    .select('status_payload')
+    .eq('id', sourceId)
+    .maybeSingle();
+
+  const existingPayload =
+    existing?.status_payload && typeof existing.status_payload === 'object'
+      ? (existing.status_payload as Record<string, unknown>)
+      : {};
+
+  const mergedPayload = {
+    ...existingPayload,
+    ...payload,
+  };
+
   await supabase
     .from('workspace_sources')
     .update({
-      status_payload: payload,
-      last_error: ('error' in payload ? (payload as Record<string, unknown>).error : null) as string | null,
+      status_payload: mergedPayload,
+      last_error: ('error' in mergedPayload ? (mergedPayload as Record<string, unknown>).error : null) as string | null,
       updated_at: new Date().toISOString(),
     })
     .eq('id', sourceId);

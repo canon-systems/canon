@@ -1,5 +1,12 @@
 import { serve } from "inngest/next";
-import { inngest, syncCanonSources, reportScheduleTick, reportScheduleBootstrap, refreshJiraWebhooks } from "../../../inngest";
+import {
+  inngest,
+  syncCanonSources,
+  reportScheduleTick,
+  reportScheduleBootstrap,
+  refreshJiraWebhooks,
+  diffSourceBackfill,
+} from "../../../inngest";
 
 export const runtime = 'nodejs';
 
@@ -11,5 +18,6 @@ export const { GET, POST, PUT } = serve({
     reportScheduleTick,
     reportScheduleBootstrap,
     refreshJiraWebhooks,
+    diffSourceBackfill,
   ],
 });

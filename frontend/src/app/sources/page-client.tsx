@@ -166,17 +166,55 @@ const parseJiraProjects = (data: unknown): JiraProject[] => {
     .filter((project): project is JiraProject => project !== null);
 };
 
+type BackfillStatus = {
+  status?: string;
+  progress_pct?: number;
+  step_label?: string;
+  error?: string | null;
+};
+
 const getRawStatus = (repo: Repository) => ((repo.status_payload?.status as string) || '').toLowerCase();
+
+const getBackfillStatus = (repo: Repository): BackfillStatus => {
+  const payload = repo.status_payload && typeof repo.status_payload === 'object'
+    ? repo.status_payload
+    : {};
+  const raw = (payload as { backfill?: unknown }).backfill;
+  return raw && typeof raw === 'object' ? (raw as BackfillStatus) : {};
+};
+
+const getRawBackfillStatus = (repo: Repository) => ((getBackfillStatus(repo).status as string) || '').toLowerCase();
+
+const isBackfillActive = (repo: Repository): boolean => {
+  const status = getRawBackfillStatus(repo);
+  return status === 'running' || status === 'queued';
+};
+
+const shouldShowBackfillStatus = (repo: Repository): boolean => {
+  const setupStatus = getRawStatus(repo);
+  if (processingStatuses.has(setupStatus)) return false;
+  if (setupStatus === 'failed' || setupStatus === 'error') return false;
+  const backfillStatus = getRawBackfillStatus(repo);
+  return backfillStatus === 'running' || backfillStatus === 'queued' || backfillStatus === 'failed';
+};
 
 const getStatusBucket = (repo: Repository): Exclude<StatusFilter, 'all'> => {
   const status = getRawStatus(repo);
+  const backfillStatus = getRawBackfillStatus(repo);
+  const showBackfill = shouldShowBackfillStatus(repo);
+  if (status === 'failed' || status === 'error' || (showBackfill && backfillStatus === 'failed')) return 'failed';
+  if (processingStatuses.has(status) || (showBackfill && (backfillStatus === 'running' || backfillStatus === 'queued'))) return 'processing';
   if (status === 'ready' || status === 'draft_ready') return 'ready';
-  if (status === 'failed' || status === 'error') return 'failed';
-  if (processingStatuses.has(status)) return 'processing';
   return 'not_started';
 };
 
 const getProgressPct = (repo: Repository): number => {
+  if (shouldShowBackfillStatus(repo) && isBackfillActive(repo)) {
+    const backfillProgress = getBackfillStatus(repo).progress_pct;
+    if (typeof backfillProgress === 'number' && Number.isFinite(backfillProgress)) {
+      return Math.max(0, Math.min(100, Math.round(backfillProgress)));
+    }
+  }
   const raw = repo.status_payload?.progress_pct;
   const status = getRawStatus(repo);
   if (typeof raw === 'number' && Number.isFinite(raw)) {
@@ -186,6 +224,17 @@ const getProgressPct = (repo: Repository): number => {
 };
 
 const getStepLabel = (repo: Repository): string => {
+  const backfill = getBackfillStatus(repo);
+  if (shouldShowBackfillStatus(repo) && isBackfillActive(repo)) {
+    const step = backfill.step_label;
+    if (typeof step === 'string' && step.trim().length > 0) return step;
+    return 'Syncing your recent activity...';
+  }
+  if (shouldShowBackfillStatus(repo) && getRawBackfillStatus(repo) === 'failed') {
+    const step = backfill.step_label;
+    if (typeof step === 'string' && step.trim().length > 0) return step;
+    return 'History sync paused';
+  }
   const explicit = repo.status_payload?.step_label;
   if (typeof explicit === 'string' && explicit.trim().length > 0) return explicit;
   return stepByStatus[getRawStatus(repo)] || 'Waiting to start';
@@ -329,6 +378,16 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
   }, [repoList, searchQuery, statusFilter]);
 
   const getStatusMeta = (repo: Repository) => {
+    if (shouldShowBackfillStatus(repo)) {
+      const backfillStatus = getRawBackfillStatus(repo);
+      if (backfillStatus === 'running' || backfillStatus === 'queued') {
+        return { label: 'Syncing history', color: 'default', tone: 'text-blue-200', isProcessing: true, icon: <Clock className="h-4 w-4" /> };
+      }
+      if (backfillStatus === 'failed') {
+        return { label: 'History sync paused', color: 'destructive', tone: 'text-red-200', isProcessing: false, icon: <AlertTriangle className="h-4 w-4" /> };
+      }
+    }
+
     const status = getStatusBucket(repo);
     if (status === 'ready') {
       return { label: 'Connected', color: 'success', tone: 'text-emerald-200', isProcessing: false, icon: <CheckCircle2 className="h-4 w-4" /> };
@@ -619,6 +678,13 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
             const statusMeta = getStatusMeta(repo);
             const repoLabel = repoNameOnly(repo.name);
             const addedAt = formatAddedAt(repo.created_at);
+            const backfillError = getBackfillStatus(repo).error;
+            const failureMessage =
+              (typeof repo.last_error === 'string' && repo.last_error.trim().length > 0
+                ? repo.last_error
+                : typeof backfillError === 'string' && backfillError.trim().length > 0
+                  ? backfillError
+                  : null);
             return (
               <div
                 key={repo.id}
@@ -648,9 +714,9 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
                       className="min-w-[180px]"
                     />
                   )}
-                  {repo.last_error && statusMeta.label === 'Failed' && (
+                  {failureMessage && getStatusBucket(repo) === 'failed' && (
                     <Badge variant="destructive" className="max-w-[220px] truncate text-white/90">
-                      {repo.last_error.slice(0, 48)}
+                      {failureMessage.slice(0, 72)}
                     </Badge>
                   )}
                 </div>
