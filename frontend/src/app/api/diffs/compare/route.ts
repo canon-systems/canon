@@ -309,25 +309,25 @@ async function computeCanonicalDiff(params: {
 
   const combinedGithub = githubEvents.length
     ? githubEvents.reduce(
-        (acc, cur) => ({
-          repo: '',
-          start: window.start,
-          end: window.end,
-          prs_opened: [...acc.prs_opened, ...cur.prs_opened],
-          prs_merged: [...acc.prs_merged, ...cur.prs_merged],
-          prs_closed_unmerged: [...acc.prs_closed_unmerged, ...cur.prs_closed_unmerged],
-          commits: [...acc.commits, ...cur.commits],
-        }),
-        {
-          repo: '',
-          start: window.start,
-          end: window.end,
-          prs_opened: [] as GitHubDiffEvent[],
-          prs_merged: [] as GitHubDiffEvent[],
-          prs_closed_unmerged: [] as GitHubDiffEvent[],
-          commits: [] as GitHubDiffEvent[],
-        }
-      )
+      (acc, cur) => ({
+        repo: '',
+        start: window.start,
+        end: window.end,
+        prs_opened: [...acc.prs_opened, ...cur.prs_opened],
+        prs_merged: [...acc.prs_merged, ...cur.prs_merged],
+        prs_closed_unmerged: [...acc.prs_closed_unmerged, ...cur.prs_closed_unmerged],
+        commits: [...acc.commits, ...cur.commits],
+      }),
+      {
+        repo: '',
+        start: window.start,
+        end: window.end,
+        prs_opened: [] as GitHubDiffEvent[],
+        prs_merged: [] as GitHubDiffEvent[],
+        prs_closed_unmerged: [] as GitHubDiffEvent[],
+        commits: [] as GitHubDiffEvent[],
+      }
+    )
     : undefined;
 
   const canon = buildCanonDiff({
