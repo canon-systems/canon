@@ -2,10 +2,22 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { createHash } from 'crypto';
 // Removed unused imports: getUserOctokit, parseRepoUrl
 import { generateFileSummary } from './fileSummarizer';
+import { createLogger, errorMessage } from '@/lib/server/logging';
 
 // Single config for all environments (keep simple, predictable load on gateway)
 const DEFAULT_BATCH_SIZE = 10;
 const DEFAULT_CONCURRENCY = 5;
+const log = createLogger('llm.summaries', {
+  label: 'File Summaries',
+  eventLabels: {
+    run_start: 'Summary Run Started',
+    run_complete: 'Summary Run Completed',
+    batch_start: 'Batch Started',
+    file_summary_start: 'File Summary Started',
+    file_summary_save_failed: 'File Summary Save Failed',
+    file_summary_generate_failed: 'File Summary Generation Failed',
+  },
+});
 
 async function runWithConcurrency<T>(items: T[], limit: number, worker: (item: T, index: number) => Promise<void>) {
   const safeLimit = Math.max(1, limit);
@@ -209,10 +221,14 @@ export class FileSummaryManager {
     let failed = 0;
     const updatedFiles: string[] = [];
 
-    console.log(
-      `[LLM] Summaries start: total=${files.length}, force=${force}, batchSize=${batchSize}, ` +
-      `concurrency=${DEFAULT_CONCURRENCY}, model=${model}, reason=${regenerationReason}`
-    );
+    log.info('run_start', {
+      totalFiles: files.length,
+      force,
+      batchSize,
+      concurrency: DEFAULT_CONCURRENCY,
+      model,
+      reason: regenerationReason,
+    });
 
     // Check which files need updates
     const statusMap = await this.checkMultipleSummaryStatus(files);
@@ -224,6 +240,13 @@ export class FileSummaryManager {
     });
 
     if (filesNeedingUpdate.length === 0) {
+      log.info('run_complete', {
+        totalFiles: files.length,
+        filesNeedingUpdate: 0,
+        processed: 0,
+        skipped: files.length,
+        failed: 0,
+      });
       onProgress?.({
         processed: files.length,
         total: files.length,
@@ -239,9 +262,12 @@ export class FileSummaryManager {
     }
 
     batches.forEach((batch, i) =>
-      console.log(
-        `[LLM] Summaries batching: batch ${i + 1}/${batches.length} size=${batch.length} (concurrency ${DEFAULT_CONCURRENCY})`
-      )
+      log.debug('batch_start', {
+        batch: i + 1,
+        totalBatches: batches.length,
+        batchSize: batch.length,
+        concurrency: DEFAULT_CONCURRENCY,
+      })
     );
 
     for (const batch of batches) {
@@ -249,7 +275,7 @@ export class FileSummaryManager {
         try {
           const status = statusMap.get(file.path);
           const reason = !status?.exists ? 'new file (added)' : 'content changed (hash mismatch)';
-          console.log(`[LLM] Generating file summary: ${file.path} — reason: ${reason}`);
+          log.debug('file_summary_start', { path: file.path, reason });
 
           onProgress?.({
             processed: processed + skipped,
@@ -282,14 +308,20 @@ export class FileSummaryManager {
             );
 
           if (error) {
-            console.error(`Failed to save summary for ${file.path}:`, error);
+            log.error('file_summary_save_failed', {
+              path: file.path,
+              error: error.message,
+            });
             failed++;
           } else {
             processed++;
             updatedFiles.push(file.path);
           }
         } catch (error) {
-          console.error(`Failed to generate summary for ${file.path}:`, error);
+          log.error('file_summary_generate_failed', {
+            path: file.path,
+            error: errorMessage(error),
+          });
           failed++;
         }
       });
@@ -299,6 +331,14 @@ export class FileSummaryManager {
       processed: processed + skipped,
       total: filesNeedingUpdate.length,
       status: 'complete'
+    });
+
+    log.info('run_complete', {
+      totalFiles: files.length,
+      filesNeedingUpdate: filesNeedingUpdate.length,
+      processed,
+      skipped: files.length - filesNeedingUpdate.length,
+      failed,
     });
 
     return {

@@ -2,12 +2,28 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { getGitHubDiffForRepo, type GitHubDiffEvent } from '@/lib/server/diff/githubDiff';
 import { getJiraDiffForProject, type JiraTicketEvent } from '@/lib/server/diff/jiraDiff';
 import { filterNewCanonicalEvents, insertCanonicalEvents, upsertDailyMetrics } from '@/lib/server/diff/webhookIngest';
+import { createLogger, errorMessage } from '@/lib/server/logging';
 
 const DEFAULT_DIFF_BACKFILL_DAYS = 7;
 const MAX_DIFF_BACKFILL_DAYS = 30;
 const MAX_RATE_LIMIT_RETRIES = 4;
 const RATE_LIMIT_BASE_DELAY_MS = 1_500;
 const RATE_LIMIT_MAX_DELAY_MS = 60_000;
+const log = createLogger('diff.backfill', {
+  label: 'Diff Backfill',
+  eventLabels: {
+    rate_limit_retry: 'Waiting For Rate Limit Reset',
+    status_payload_read_failed: 'Status Read Failed',
+    status_payload_write_failed: 'Status Write Failed',
+    skipped: 'Backfill Skipped',
+    start: 'Backfill Started',
+    day_start: 'Day Started',
+    day_retry_scheduled: 'Day Retry Scheduled',
+    day_complete: 'Day Completed',
+    complete: 'Backfill Completed',
+    failed: 'Backfill Failed',
+  },
+});
 
 type CanonicalEvent = {
   event_kind: string;
@@ -242,10 +258,10 @@ async function runWithRateLimitRetries<T>(
       if (delayMs === null || attempt >= MAX_RATE_LIMIT_RETRIES) {
         throw error;
       }
-      console.warn('[diff/backfill] rate limited; retrying', {
+      log.warn('rate_limit_retry', {
         task: taskLabel,
         attempt: attempt + 1,
-        wait_ms: delayMs,
+        waitMs: delayMs,
       });
       if (onRetry) {
         await onRetry({ attempt: attempt + 1, waitMs: delayMs });
@@ -336,7 +352,7 @@ async function updateBackfillStatus(params: {
     .maybeSingle();
 
   if (readError) {
-    console.warn('[diff/backfill] failed to read source status payload', {
+    log.warn('status_payload_read_failed', {
       sourceId,
       error: readError.message,
     });
@@ -365,7 +381,7 @@ async function updateBackfillStatus(params: {
     .eq('id', sourceId);
 
   if (writeError) {
-    console.warn('[diff/backfill] failed to write source status payload', {
+    log.warn('status_payload_write_failed', {
       sourceId,
       error: writeError.message,
     });
@@ -386,6 +402,7 @@ export async function runDiffBackfillForSource(params: {
   const providerLabel = providerName(provider);
 
   if (provider !== 'github' && provider !== 'jira') {
+    log.info('skipped', { sourceId: source.id, provider, reason: 'unsupported_provider' });
     return {
       source_id: source.id,
       provider,
@@ -397,6 +414,7 @@ export async function runDiffBackfillForSource(params: {
   }
 
   if (dailyWindows.length === 0) {
+    log.warn('skipped', { sourceId: source.id, provider, reason: 'invalid_window', windowStart: window.start, windowEnd: window.end });
     return {
       source_id: source.id,
       provider,
@@ -413,6 +431,7 @@ export async function runDiffBackfillForSource(params: {
 
   const ownerRepo = provider === 'github' ? parseGithubOwnerRepo(source.scope) : null;
   if (provider === 'github' && !ownerRepo) {
+    log.warn('skipped', { sourceId: source.id, provider, reason: 'missing_repo_scope' });
     return {
       source_id: source.id,
       provider,
@@ -430,6 +449,7 @@ export async function runDiffBackfillForSource(params: {
     ? source.scope.cloudId
     : null;
   if (provider === 'jira' && !projectKey) {
+    log.warn('skipped', { sourceId: source.id, provider, reason: 'missing_project_scope' });
     return {
       source_id: source.id,
       provider,
@@ -440,12 +460,12 @@ export async function runDiffBackfillForSource(params: {
     };
   }
 
-  console.log('[diff/backfill] start', {
+  log.info('start', {
     sourceId: source.id,
     provider,
-    window_start: window.start,
-    window_end: window.end,
-    total_days: totalDays,
+    windowStart: window.start,
+    windowEnd: window.end,
+    totalDays,
   });
 
   await updateBackfillStatus({
@@ -484,12 +504,12 @@ export async function runDiffBackfillForSource(params: {
         },
       });
 
-      console.log('[diff/backfill] day start', {
+      log.debug('day_start', {
         sourceId: source.id,
         provider,
         day: dailyWindow.day,
-        day_index: index + 1,
-        total_days: totalDays,
+        dayIndex: index + 1,
+        totalDays,
       });
 
       const onRetry = async (retryEvent: RateLimitRetryEvent) => {
@@ -504,12 +524,12 @@ export async function runDiffBackfillForSource(params: {
             completed_days: index,
           },
         });
-        console.warn('[diff/backfill] day retry scheduled', {
+        log.warn('day_retry_scheduled', {
           sourceId: source.id,
           provider,
           day: dailyWindow.day,
           attempt: retryEvent.attempt,
-          wait_ms: retryEvent.waitMs,
+          waitMs: retryEvent.waitMs,
         });
       };
 
@@ -600,14 +620,19 @@ export async function runDiffBackfillForSource(params: {
         },
       });
 
-      console.log('[diff/backfill] day done', {
+      const dayLogFields = {
         sourceId: source.id,
         provider,
         day: dailyWindow.day,
-        fetched_events: events.length,
-        inserted_events: insertedForDay,
-        deduped_events: Math.max(0, events.length - insertedForDay),
-      });
+        fetchedEvents: events.length,
+        insertedEvents: insertedForDay,
+        dedupedEvents: Math.max(0, events.length - insertedForDay),
+      };
+      if (events.length > 0 || insertedForDay > 0) {
+        log.info('day_complete', dayLogFields);
+      } else {
+        log.debug('day_complete', dayLogFields);
+      }
     }
 
     await updateBackfillStatus({
@@ -624,12 +649,12 @@ export async function runDiffBackfillForSource(params: {
       },
     });
 
-    console.log('[diff/backfill] complete', {
+    log.info('complete', {
       sourceId: source.id,
       provider,
-      fetched_events: fetchedEvents,
-      inserted_events: insertedEvents,
-      total_days: totalDays,
+      fetchedEvents,
+      insertedEvents,
+      totalDays,
     });
 
     return {
@@ -640,11 +665,10 @@ export async function runDiffBackfillForSource(params: {
       inserted_events: insertedEvents,
     };
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    console.error('[diff/backfill] failed', {
+    log.error('failed', {
       sourceId: source.id,
       provider,
-      error: detail,
+      error: errorMessage(error),
     });
 
     await updateBackfillStatus({

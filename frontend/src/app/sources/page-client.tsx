@@ -102,6 +102,17 @@ const addedTimeFormatter = new Intl.DateTimeFormat(undefined, {
   minute: '2-digit',
 });
 
+const DEFAULT_STATUS_POLL_INTERVAL_MS = 8000;
+const MIN_STATUS_POLL_INTERVAL_MS = 2000;
+const MAX_STATUS_POLL_INTERVAL_MS = 30000;
+const configuredStatusPollInterval = Number.parseInt(
+  process.env.NEXT_PUBLIC_SOURCES_POLL_INTERVAL_MS ?? '',
+  10
+);
+const STATUS_POLL_INTERVAL_MS = Number.isFinite(configuredStatusPollInterval)
+  ? Math.min(MAX_STATUS_POLL_INTERVAL_MS, Math.max(MIN_STATUS_POLL_INTERVAL_MS, configuredStatusPollInterval))
+  : DEFAULT_STATUS_POLL_INTERVAL_MS;
+
 const formatAddedAt = (value: string) => {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
@@ -274,7 +285,10 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
   const hasProcessing = repoList.some((r) => getStatusBucket(r) === 'processing');
   useEffect(() => {
     if (!hasProcessing) return;
-    const interval = setInterval(() => void refreshSources(), 3000);
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      void refreshSources();
+    }, STATUS_POLL_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [hasProcessing, refreshSources]);
 

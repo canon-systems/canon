@@ -1,12 +1,22 @@
 import { inngest } from '../client';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { runDiffBackfillForSource } from '@/lib/server/diff/backfill';
+import { createLogger, errorMessage } from '@/lib/server/logging';
 
 type BackfillRequestedEvent = {
   sourceId?: string;
   userId?: string;
   requestedDays?: number;
 };
+
+const log = createLogger('inngest.diff_backfill', {
+  label: 'Backfill Worker',
+  eventLabels: {
+    worker_start: 'Worker Started',
+    worker_complete: 'Worker Completed',
+    worker_failed: 'Worker Failed',
+  },
+});
 
 export const diffSourceBackfill = inngest.createFunction(
   {
@@ -43,7 +53,7 @@ export const diffSourceBackfill = inngest.createFunction(
     }
 
     const sourceRow = source as { id: string; user_id: string; provider: string; scope: Record<string, unknown> | null };
-    console.log('[diff/backfill] worker start', {
+    log.info('worker_start', {
       sourceId: sourceRow.id,
       userId,
       provider: sourceRow.provider,
@@ -59,14 +69,23 @@ export const diffSourceBackfill = inngest.createFunction(
         })
       );
 
-      console.log('[diff/backfill] worker done', result);
+      log.info('worker_complete', {
+        sourceId: sourceRow.id,
+        provider: sourceRow.provider,
+        requestedDays: requestedDays ?? null,
+        fetchedEvents: result.fetched_events,
+        insertedEvents: result.inserted_events,
+        windowStart: result.window.start,
+        windowEnd: result.window.end,
+        windowDays: result.window.days,
+      });
       return result;
     } catch (error) {
-      console.error('[diff/backfill] worker failed', {
+      log.error('worker_failed', {
         sourceId: sourceRow.id,
         userId,
         provider: sourceRow.provider,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage(error),
       });
       throw error;
     }

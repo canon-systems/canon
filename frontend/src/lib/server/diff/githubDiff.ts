@@ -1,4 +1,5 @@
 import { getGitHubAppOctokitForRepo } from '@/lib/server/github/appAuth';
+import { createLogger } from '@/lib/server/logging';
 
 export type GitHubDiffEvent = {
   repo: string;
@@ -25,6 +26,14 @@ type DiffParams = {
   end: string;
 };
 
+const log = createLogger('diff.github', {
+  label: 'GitHub Diff',
+  eventLabels: {
+    start: 'Window Fetch Started',
+    complete: 'Window Fetch Completed',
+  },
+});
+
 function inWindow(ts: string | null | undefined, start: number, end: number): boolean {
   if (!ts) return false;
   const t = Date.parse(ts);
@@ -33,7 +42,7 @@ function inWindow(ts: string | null | undefined, start: number, end: number): bo
 
 export async function getGitHubDiffForRepo(params: DiffParams): Promise<GitHubDiffResult> {
   const { owner, repo, start, end } = params;
-  console.log('[github/diff] start', { repo: `${owner}/${repo}`, start, end });
+  log.debug('start', { repo: `${owner}/${repo}`, start, end });
   const octokit = await getGitHubAppOctokitForRepo(owner, repo);
 
   const startMs = Date.parse(start);
@@ -151,13 +160,13 @@ export async function getGitHubDiffForRepo(params: DiffParams): Promise<GitHubDi
     commitPage += 1;
   }
 
-  console.log('[github/diff] done', {
+  log.debug('complete', {
     repo: `${owner}/${repo}`,
-    pr_pages: prPageCount,
-    commit_pages: commitPageCount,
-    prs_opened: prs_opened.length,
-    prs_merged: prs_merged.length,
-    prs_closed_unmerged: prs_closed_unmerged.length,
+    prPages: prPageCount,
+    commitPages: commitPageCount,
+    prsOpened: prs_opened.length,
+    prsMerged: prs_merged.length,
+    prsClosedUnmerged: prs_closed_unmerged.length,
     commits: commits.length,
   });
 

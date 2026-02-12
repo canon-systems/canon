@@ -1,3 +1,5 @@
+import { createLogger, errorMessage } from '@/lib/server/logging';
+
 const GATEWAY_URL = process.env.VERCEL_AI_GATEWAY_URL || '';
 const GATEWAY_API_KEY = process.env.VERCEL_AI_GATEWAY_API_KEY || '';
 
@@ -5,6 +7,17 @@ const GATEWAY_API_KEY = process.env.VERCEL_AI_GATEWAY_API_KEY || '';
 const DEFAULT_TIMEOUT_MS = 60000;
 const MAX_RETRIES = 2;
 const RETRY_BASE_DELAY_MS = 1000;
+const log = createLogger('llm.gateway', {
+  label: 'LLM Gateway',
+  eventLabels: {
+    initialized: 'Gateway Initialized',
+    call_start: 'Call Started',
+    api_retry: 'API Retry Scheduled',
+    usage: 'Token Usage',
+    network_retry: 'Network Retry Scheduled',
+    call_failed: 'Call Failed',
+  },
+});
 
 export type Message = { role: 'system' | 'user' | 'assistant'; content: string };
 
@@ -17,11 +30,10 @@ export class LLMGateway {
 		this.url = GATEWAY_URL.replace(/\/+$/, '');
 		this.apiKey = GATEWAY_API_KEY;
 
-		console.log(`🤖 [LLM] Gateway initialized`);
-
 		if (!this.url || !this.apiKey) {
 			throw new Error('LLM gateway configuration is missing. Please check VERCEL_AI_GATEWAY_URL and VERCEL_AI_GATEWAY_API_KEY environment variables.');
 		}
+    log.debug('initialized', { gatewayConfigured: true });
 	}
 
   async call(
@@ -39,9 +51,12 @@ export class LLMGateway {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       const isLast = attempt === maxRetries;
       try {
-        console.log(
-          `[LLMGateway] ▶️ call start: model=${model} attempt=${attempt + 1}/${maxRetries + 1} timeout=${timeoutMs}ms`
-        );
+        log.debug('call_start', {
+          model,
+          attempt: attempt + 1,
+          maxAttempts: maxRetries + 1,
+          timeoutMs,
+        });
         // Use provided AbortSignal or create one for timeout
         let controller: AbortController;
         let timeoutId: NodeJS.Timeout | undefined;
@@ -74,10 +89,16 @@ export class LLMGateway {
         if (!response.ok) {
           const message = payload?.error?.message || payload?.message || `HTTP ${response.status}`;
           const retryable = response.status === 429 || response.status >= 500;
-          console.error(`[LLMGateway] ❌ API call failed (attempt ${attempt + 1}/${maxRetries + 1}): ${message}`);
           if (!isLast && retryable) {
             const delay = retryDelayMs * Math.pow(2, attempt);
-            console.log(`[LLMGateway] 🔁 retrying in ${delay}ms after ${message}`);
+            log.warn('api_retry', {
+              model,
+              attempt: attempt + 1,
+              maxAttempts: maxRetries + 1,
+              status: response.status,
+              retryInMs: delay,
+              reason: message,
+            });
             await new Promise((r) => setTimeout(r, delay));
             continue;
           }
@@ -85,9 +106,13 @@ export class LLMGateway {
         }
 
         const usage = payload?.usage || {};
-        console.log(
-          `🤖 [LLM] model=${model} prompt_tokens=${usage.prompt_tokens ?? '?'} completion_tokens=${usage.completion_tokens ?? '?'} total=${usage.total_tokens ?? '?'} (attempt ${attempt + 1})`
-        );
+        log.debug('usage', {
+          model,
+          attempt: attempt + 1,
+          promptTokens: usage.prompt_tokens ?? null,
+          completionTokens: usage.completion_tokens ?? null,
+          totalTokens: usage.total_tokens ?? null,
+        });
 
         const content = payload?.choices?.[0]?.message?.content;
         return typeof content === 'string' ? content.trim() : '';
@@ -96,14 +121,26 @@ export class LLMGateway {
         const message = isAbort ? `timeout after ${timeoutMs}ms` : (error instanceof Error ? error.message : 'Unknown network error');
         const retryable = isAbort || (error instanceof Error && /ECONNRESET|ETIMEDOUT|ENOTFOUND|fetch failed/i.test(error.message));
 
-        console.error(`[LLMGateway] ${isAbort ? '⏰' : '💥'} Attempt ${attempt + 1}/${maxRetries + 1} failed: ${message}`);
-
         if (!isLast && retryable) {
           const delay = retryDelayMs * Math.pow(2, attempt);
-          console.log(`[LLMGateway] 🔁 retrying in ${delay}ms after ${message}`);
+          log.warn('network_retry', {
+            model,
+            attempt: attempt + 1,
+            maxAttempts: maxRetries + 1,
+            retryInMs: delay,
+            reason: message,
+          });
           await new Promise((r) => setTimeout(r, delay));
           continue;
         }
+
+        log.error('call_failed', {
+          model,
+          attempt: attempt + 1,
+          maxAttempts: maxRetries + 1,
+          reason: errorMessage(error),
+          timeoutMs,
+        });
 
         throw new Error(isAbort ? `LLM API call timed out after ${timeoutMs}ms` : `LLM API call failed: ${message}`);
       }

@@ -6,6 +6,7 @@ import { LLMGateway, type Message } from './llmGateway';
 import { trackAkusGenerated } from './usageTracking';
 import { buildExtractionTargetsFromSourceIds, fetchSourceCodeArtifacts, type SourceExtractionTarget } from './sourceCodeArtifacts';
 import { TreeSitterAnalyzer, type DependencyInfo } from './treeSitterAnalyzer';
+import { createLogger, errorMessage } from '@/lib/server/logging';
 
 /** Stable id for an AKU so we update the same row when evidence changes (no new record per file/ticket change). */
 function deterministicAkuId(userId: string, clusterKey: string): string {
@@ -69,6 +70,24 @@ const PROJECTION_MIN_WORDS = 800;
 const PROJECTION_MAX_WORDS = 1250;
 const PROJECTION_MODEL = 'anthropic/claude-sonnet-4.5';
 const PROJECTION_CONCURRENCY = 6;
+const log = createLogger('aku.builder', {
+  label: 'Building AKU',
+  eventLabels: {
+    louvain_resolution_failed: 'Louvain Resolution Failed',
+    graph_extraction_targets_missing: 'Graph Extraction Targets Missing',
+    graph_source_extracted: 'Graph Source Extracted',
+    graph_source_extraction_skipped: 'Graph Source Extraction Skipped',
+    projection_validation: 'Projection Validation Warning',
+    graph_clustering_complete: 'Graph Clustering Completed',
+    build_start: 'Build Started',
+    build_aborted: 'Build Aborted',
+    aku_created: 'AKU Created',
+    projection_start: 'Projection Generation Started',
+    build_complete: 'Build Completed',
+    save_akus_failed: 'AKU Save Failed',
+    save_projections_failed: 'Projection Save Failed',
+  },
+});
 
 const AUDIENCE_SCHEMAS: Record<string, AudienceSchema> = {
   Executive: {
@@ -523,7 +542,10 @@ function buildGraphClusters(dependencies: DependencyInfo[], allKnownFiles: strin
           communitiesByNode = map;
         }
       } catch (error) {
-        console.warn('[AKU builder] Louvain clustering failed for resolution', resolution, error);
+        log.warn('louvain_resolution_failed', {
+          resolution,
+          error: errorMessage(error),
+        });
       }
     }
   }
@@ -677,7 +699,7 @@ async function extractGraphDependencies(
     ...lookedUpTargets.filter((t) => !providedBySourceId.has(t.sourceId)),
   ];
   if (targets.length === 0) {
-    console.warn(`[AKU builder] No extraction targets resolved for sourceIds=${JSON.stringify(sourceIds)}`);
+    log.warn('graph_extraction_targets_missing', { sourceIds });
     return [];
   }
   const analyzer = new TreeSitterAnalyzer();
@@ -687,10 +709,17 @@ async function extractGraphDependencies(
       const { codeFiles } = await fetchSourceCodeArtifacts(supabase, userId, [target], 'sourceId');
       if (codeFiles.length === 0) continue;
       const sourceDeps = await analyzer.extractDependencyInfo(codeFiles);
-      console.log(`[AKU builder] Source dependency extraction: source=${target.sourceId} files=${codeFiles.length} deps=${sourceDeps.length}`);
+      log.debug('graph_source_extracted', {
+        sourceId: target.sourceId,
+        files: codeFiles.length,
+        dependencies: sourceDeps.length,
+      });
       deps.push(...sourceDeps);
     } catch (error) {
-      console.warn('[AKU builder] Graph extraction skipped for source', target.sourceId, error);
+      log.warn('graph_source_extraction_skipped', {
+        sourceId: target.sourceId,
+        error: errorMessage(error),
+      });
     }
   }
 
@@ -1017,7 +1046,12 @@ async function generateProjection(
 
     const status = validation.length === 0 ? 'draft' : 'pending_verification';
     if (validation.length > 0) {
-      console.warn('[AKU builder] Projection validation warnings', { audience, title, validation });
+      log.debug('projection_validation', {
+        audience,
+        title,
+        validationCount: validation.length,
+        sample: validation.slice(0, 3),
+      });
     }
     return { projection, status };
   } catch {
@@ -1065,9 +1099,11 @@ export async function buildAkusForSources(
     options.extractionTargets || []
   );
   const graphClusters = buildGraphClusters(graphDependencies, knownFiles);
-  console.log(
-    `[AKU builder] Graph clustering: ${graphDependencies.length} dependency nodes, ${knownFiles.length} known files -> ${graphClusters.length} clusters`
-  );
+  log.info('graph_clustering_complete', {
+    dependencyNodes: graphDependencies.length,
+    knownFiles: knownFiles.length,
+    clusters: graphClusters.length,
+  });
   const clusterByFile = new Map<string, GraphCluster>();
   for (const cluster of graphClusters) {
     for (const file of cluster.files) clusterByFile.set(normalizePath(file), cluster);
@@ -1140,9 +1176,15 @@ export async function buildAkusForSources(
   const clusterCount = clusters.size;
   const codeCount = evidence.filter((e) => e.kind === 'code').length;
   const issueCount = evidence.filter((e) => e.kind === 'issue').length;
-  console.log(
-    `[AKU builder] Starting: ${evidence.length} evidence (${codeCount} file summaries, ${issueCount} issues), ${clusterCount} clusters, unmatched: ${unmatchedCodeEvidence} code / ${unmatchedIssueEvidence} issue, audiences: [${audiences.join(', ')}]`
-  );
+  log.info('build_start', {
+    evidence: evidence.length,
+    codeEvidence: codeCount,
+    issueEvidence: issueCount,
+    clusters: clusterCount,
+    unmatchedCode: unmatchedCodeEvidence,
+    unmatchedIssue: unmatchedIssueEvidence,
+    audiences,
+  });
 
   const clusterEntries = Array.from(clusters.entries())
     .map(([clusterKey, cluster]) => ({ clusterKey, cluster }))
@@ -1214,14 +1256,18 @@ export async function buildAkusForSources(
 
   for (const { clusterKey, cluster } of clusterEntries) {
     if (await shouldAbort()) {
-      console.log('[AKU builder] Aborting AKU generation due to source cancellation');
+      log.info('build_aborted', { stage: 'aku_generation' });
       return { akus: [], projections: [] };
     }
     const items = cluster.items;
     const hasIssue = items.some((e) => e.kind === 'issue');
 
     const title = buildHumanReadableAkuTitle(cluster.label, items);
-    console.log(`[AKU builder] AKU: "${title}" (${items.length} evidence items: ${items.map((i) => i.scope_ref).slice(0, 3).join(', ')}${items.length > 3 ? '...' : ''})`);
+    log.debug('aku_created', {
+      title,
+      evidenceItems: items.length,
+      sampleScopeRefs: items.map((i) => i.scope_ref).slice(0, 3),
+    });
     const canonicalEvidence = buildCanonicalEvidence(title, items);
     const canonical = canonicalEvidenceToMarkdown(canonicalEvidence);
 
@@ -1274,11 +1320,11 @@ export async function buildAkusForSources(
 
       projectionTasks.push(async () => {
         if (await shouldAbort()) {
-          console.log('[AKU builder] Aborting projection generation due to source cancellation');
+          log.info('build_aborted', { stage: 'projection_generation' });
           return null;
         }
         const schema = AUDIENCE_SCHEMAS[aud] || AUDIENCE_SCHEMAS.Engineering;
-        console.log(`[LLM] Generating audience projection: audience=${aud}, AKU="${title}"`);
+        log.debug('projection_start', { audience: aud, akuTitle: title });
         const { projection, status } = await generateProjection(llm, aud, schema, title, canonicalEvidence);
         return {
           id: randomUUID(),
@@ -1302,9 +1348,11 @@ export async function buildAkusForSources(
     }
   }
 
-  console.log(
-    `[AKU builder] Summary: ${akus.length} AKU(s), ${projections.length} audience projection(s) (${audiences.length} audiences × ${akus.length} AKUs)`
-  );
+  log.info('build_complete', {
+    akus: akus.length,
+    projections: projections.length,
+    audiences: audiences.length,
+  });
 
   if (akus.length > 0) {
     const now = new Date().toISOString();
@@ -1319,7 +1367,7 @@ export async function buildAkusForSources(
       { onConflict: 'id' }
     );
     if (akuErr) {
-      console.error('AKU builder: failed to save AKUs', akuErr);
+      log.error('save_akus_failed', { error: errorMessage(akuErr) });
       return { akus, projections };
     }
   }
@@ -1334,7 +1382,7 @@ export async function buildAkusForSources(
       })),
       { onConflict: 'aku_id,audience' }
     );
-    if (projErr) console.error('AKU builder: failed to save projections', projErr);
+    if (projErr) log.error('save_projections_failed', { error: errorMessage(projErr) });
   }
 
   if (akus.length > 0) {

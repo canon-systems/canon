@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { createLogger } from '@/lib/server/logging';
 
 type CanonicalEvent = {
   event_kind: string;
@@ -45,6 +46,14 @@ const coerceIso = (value?: string | null): string => {
 
 const canonicalEventKey = (event: Pick<CanonicalEvent, 'event_kind' | 'entity_id' | 'occurred_at'>) =>
   `${event.event_kind}::${event.entity_id ?? ''}::${event.occurred_at}`;
+const log = createLogger('diff.webhook_ingest', {
+  label: 'Webhook Ingest',
+  eventLabels: {
+    canonical_dedupe_query_failed: 'Canonical Dedupe Query Failed',
+    raw_event_upsert_failed: 'Raw Event Upsert Failed',
+    raw_event_upserted: 'Raw Event Upserted',
+  },
+});
 
 export async function filterNewCanonicalEvents(params: {
   supabase: SupabaseClient;
@@ -77,9 +86,9 @@ export async function filterNewCanonicalEvents(params: {
     .lte('occurred_at', new Date(maxTs).toISOString());
 
   if (error) {
-    console.error('[diff_event_canonical] dedupe query failed', {
+    log.error('canonical_dedupe_query_failed', {
       sourceId: params.sourceId,
-      error: error.message,
+      reason: error.message,
     });
   }
 
@@ -169,15 +178,15 @@ export async function insertRawEvent(params: {
     ? await query.upsert(row, { onConflict: 'provider,external_event_id' })
     : await query.insert(row);
   if (error) {
-    console.error('[diff_event_raw] insert failed', {
+    log.error('raw_event_upsert_failed', {
       sourceId,
       provider,
       externalEventId,
       eventType,
-      error: error.message,
+      reason: error.message,
     });
   } else {
-    console.log('[diff_event_raw] upsert ok', {
+    log.debug('raw_event_upserted', {
       sourceId,
       provider,
       externalEventId,
