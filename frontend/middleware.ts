@@ -1,4 +1,7 @@
-import { type NextRequest, NextResponse } from 'next/server';
+// Import directly from spec-extension to avoid pulling in user-agent/ua-parser-js
+// which uses __dirname (not available in Edge runtime)
+import { NextRequest } from 'next/dist/server/web/spec-extension/request';
+import { NextResponse } from 'next/dist/server/web/spec-extension/response';
 
 export const config = {
   matcher: [
@@ -7,32 +10,44 @@ export const config = {
 };
 
 function hasLikelySupabaseSessionCookie(request: NextRequest): boolean {
-  const cookies = request.cookies.getAll();
-  return cookies.some(({ name, value }) => {
-    if (!value || value === 'deleted') return false;
-    if (name === 'sb-access-token' || name === 'sb-refresh-token' || name === 'supabase-auth-token') {
-      return true;
-    }
-    if (!name.startsWith('sb-')) return false;
-    return name.includes('-auth-token') || name.includes('-refresh-token') || name.includes('-access-token');
-  });
+  try {
+    const cookies = request.cookies.getAll();
+    return cookies.some(({ name, value }) => {
+      if (!value || value === 'deleted') return false;
+      if (name === 'sb-access-token' || name === 'sb-refresh-token' || name === 'supabase-auth-token') {
+        return true;
+      }
+      if (!name.startsWith('sb-')) return false;
+      return name.includes('-auth-token') || name.includes('-refresh-token') || name.includes('-access-token');
+    });
+  } catch {
+    const cookieHeader = request.headers.get('cookie');
+    if (!cookieHeader) return false;
+    return /sb-[a-z0-9]+-(?:auth-token|refresh-token|access-token)=[^;]+/i.test(cookieHeader);
+  }
 }
 
 export function middleware(request: NextRequest) {
-  const pathname = request.nextUrl.pathname;
-  const protectedPrefixes = ['/sources', '/view', '/history', '/logs', '/settings', '/docs', '/architecture-diagrams', '/signals'];
-  const isProtectedRoute = protectedPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+  try {
+    const pathname = request.nextUrl.pathname;
+    const protectedPrefixes = ['/sources', '/view', '/history', '/logs', '/settings', '/docs', '/architecture-diagrams', '/signals'];
+    const isProtectedRoute = protectedPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 
-  if (!isProtectedRoute) {
+    if (!isProtectedRoute) {
+      return NextResponse.next();
+    }
+
+    const hasSession = hasLikelySupabaseSessionCookie(request);
+    if (!hasSession) {
+      const url = request.nextUrl.clone();
+      url.pathname = '/login';
+      return NextResponse.redirect(url);
+    }
+
     return NextResponse.next();
-  }
-
-  const hasSession = hasLikelySupabaseSessionCookie(request);
-  if (!hasSession) {
+  } catch {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     return NextResponse.redirect(url);
   }
-
-  return NextResponse.next();
 }
