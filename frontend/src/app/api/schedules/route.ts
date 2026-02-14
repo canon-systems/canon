@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { inngest } from '@/inngest';
 import { getNextRunAt, simpleToRrule } from '@/lib/server/schedules/rrule';
 
-/** GET /api/schedules — list report schedules for the current user. Optional ?type=diff|projection */
+/** GET /api/schedules — list report schedules for the current user. Optional ?type=diff */
 export async function GET(request: NextRequest) {
   try {
     const { user } = await getSession();
@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const typeParam = searchParams.get('type'); // 'diff' | 'projection' | omit for all
+    const typeParam = searchParams.get('type'); // 'diff' | omit for all
 
     const supabase = await createClient();
     let query = supabase
@@ -22,8 +22,10 @@ export async function GET(request: NextRequest) {
       .eq('user_id', user.id)
       .order('created_at', { ascending: false });
 
-    if (typeParam === 'diff' || typeParam === 'projection') {
+    if (typeParam === 'diff') {
       query = query.eq('type', typeParam);
+    } else if (typeParam === 'projection') {
+      return NextResponse.json({ schedules: [] }, { status: 200 });
     }
 
     const { data: rows, error } = await query;
@@ -70,7 +72,10 @@ export async function POST(request: NextRequest) {
       units?: string[];
     };
 
-    const type = body.type === 'projection' ? 'projection' : 'diff';
+    if (body.type === 'projection') {
+      return NextResponse.json({ error: 'Projection schedules are deprecated.' }, { status: 400 });
+    }
+    const type = 'diff';
     const name = typeof body.name === 'string' ? body.name.trim() || null : null;
     const enabled = typeof body.enabled === 'boolean' ? body.enabled : true;
     const cadence = typeof body.cadence === 'string' ? body.cadence : 'daily';

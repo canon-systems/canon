@@ -680,12 +680,12 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
         <div className="flex flex-col gap-3 px-1 sm:px-2 md:px-0">
           {/* Column headers — grid at all breakpoints so Added column always has a slot */}
           <div
-            className="grid grid-cols-[1fr_auto_minmax(10rem,1fr)_auto] gap-2 rounded-t-2xl border border-b-0 border-white/10 bg-zinc-800/80 px-4 py-3 sm:gap-3 sm:px-5 md:grid-cols-[minmax(200px,1.6fr)_minmax(140px,1fr)_minmax(10rem,auto)_auto] md:items-center"
+            className="grid grid-cols-[1fr_auto_minmax(10rem,1fr)_auto] gap-2 rounded-2xl border border-white/10 bg-zinc-800/80 px-4 py-3 sm:gap-3 sm:px-5 md:grid-cols-[minmax(200px,1.6fr)_minmax(140px,1fr)_minmax(10rem,auto)_auto] md:items-center"
             aria-hidden="true"
           >
-            <div className="text-xs font-semibold uppercase tracking-wider text-white/60">Source</div>
-            <div className="text-xs font-semibold uppercase tracking-wider text-white/60">Status</div>
-            <div className="min-w-0 text-xs font-semibold uppercase tracking-wider text-white/60">Added</div>
+            <div className="text-left text-xs font-semibold uppercase tracking-wider text-white/60">Source</div>
+            <div className="text-center text-xs font-semibold uppercase tracking-wider text-white/60">Status</div>
+            <div className="min-w-0 text-center text-xs font-semibold uppercase tracking-wider text-white/60">Added</div>
             <div className="text-right text-xs font-semibold uppercase tracking-wider text-white/60">Actions</div>
           </div>
           {filteredRepos.map((repo) => {
@@ -714,7 +714,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
                   </div>
                 </div>
 
-                <div className="min-w-[180px] space-y-2 md:justify-start">
+                <div className="flex min-w-[180px] flex-col items-center space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge variant={statusMeta.color as 'default' | 'secondary' | 'destructive' | 'outline'} className="flex items-center gap-1">
                       {statusMeta.icon}
@@ -735,7 +735,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
                   )}
                 </div>
 
-                <div className="min-w-0 text-right md:text-left">
+                <div className="flex min-w-0 flex-col items-center justify-center text-center">
                   <p className="text-sm text-white">{addedAt.date}</p>
                   {addedAt.time && <p className="text-xs text-white/60">{addedAt.time}</p>}
                 </div>

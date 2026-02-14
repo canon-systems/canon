@@ -3,7 +3,7 @@
  */
 
 export type WorkspaceInfo = {
-	provider: string; // 'notion', 'confluence', 'googledocs', etc.
+	provider: string; // 'notion', 'confluence', etc.
 	resourceId: string; // page ID, document ID, etc. (provider-specific)
 	metadata?: Record<string, unknown>; // Additional provider-specific metadata
 };
@@ -14,4 +14,3 @@ export type WorkspaceContent = {
 	html?: string;
 	metadata?: Record<string, unknown>;
 };
-

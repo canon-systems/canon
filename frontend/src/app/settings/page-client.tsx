@@ -8,7 +8,7 @@ import { getIntegrationsCached, clearIntegrationsCache } from '@/lib/client/inte
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { createClient } from '@/lib/supabase/client';
 import { DEFAULT_AUDIENCES } from '@/lib/constants/audiences';
 
@@ -56,6 +56,11 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   const [savingPreferences, setSavingPreferences] = useState(false);
   const [preferencesMessage, setPreferencesMessage] = useState('');
   const [preferencesError, setPreferencesError] = useState('');
+  const [slackChannel, setSlackChannel] = useState('');
+  const [slackLoading, setSlackLoading] = useState(true);
+  const [slackSaving, setSlackSaving] = useState(false);
+  const [slackMessage, setSlackMessage] = useState('');
+  const [slackError, setSlackError] = useState('');
 
   const loadConnections = useCallback(async (force = false) => {
     setLoading(true);
@@ -117,6 +122,27 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   useEffect(() => {
     loadConnections();
   }, [loadConnections]);
+
+  const loadDeliverySettings = useCallback(async () => {
+    setSlackLoading(true);
+    try {
+      const response = await fetch('/api/settings/delivery', { credentials: 'include' });
+      if (!response.ok) {
+        throw new Error('Failed to load delivery settings');
+      }
+      const payload = await response.json();
+      const channel = payload?.slack_channel;
+      setSlackChannel(typeof channel === 'string' ? channel : '');
+    } catch (err: unknown) {
+      setSlackError(err instanceof Error ? err.message : 'Failed to load delivery settings');
+    } finally {
+      setSlackLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadDeliverySettings();
+  }, [loadDeliverySettings]);
 
   // Reload connections when switching to integrations tab
   useEffect(() => {
@@ -191,14 +217,12 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   }
 
   function getProviderDisplayName(provider: string) {
-    if (provider === 'googledocs' || provider === 'google-docs') return 'Google Docs';
     if (provider === 'github') return 'GitHub';
     if (provider === 'confluence') return 'Atlassian';
     return provider.charAt(0).toUpperCase() + provider.slice(1);
   }
 
   function getProviderName(provider: string) {
-    if (provider === 'googledocs') return 'Google Docs';
     if (provider === 'github') return 'GitHub';
     if (provider === 'confluence') return 'Atlassian';
     return provider.charAt(0).toUpperCase() + provider.slice(1);
@@ -255,6 +279,33 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   const toggleAudience = (aud: string) => {
     setPreferredAudiences(prev => prev.includes(aud) ? prev.filter(a => a !== aud) : [...prev, aud]);
   };
+
+  async function saveSlackChannel() {
+    setSlackSaving(true);
+    setSlackMessage('');
+    setSlackError('');
+    try {
+      const response = await fetch('/api/settings/delivery', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          slack_channel: slackChannel.trim() || null,
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || 'Failed to save Slack channel');
+      }
+
+      setSlackMessage('Slack delivery channel saved.');
+    } catch (err: unknown) {
+      setSlackError(err instanceof Error ? err.message : 'Failed to save Slack channel');
+    } finally {
+      setSlackSaving(false);
+    }
+  }
 
   return (
     <>
@@ -326,84 +377,133 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
 
           <TabsContent value="preferences" className="mt-6">
             {/* Preferences Tab */}
-            <div>
+            <div className="space-y-6">
               <div className="mb-6">
                 <h2 className="text-2xl font-semibold text-white mb-2">Preferences</h2>
-                <p className="text-white/70">Set your default audience so generated content starts in the right voice.</p>
+                <p className="text-white/70">
+                  Set your default communication style and delivery destination.
+                </p>
               </div>
 
-              <div className="rounded-xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm space-y-5">
-                {(preferencesMessage || preferencesError) && (
-                  <div
-                    className={`rounded-lg border p-3 text-sm ${preferencesError
-                      ? 'border-red-500/50 bg-red-500/10 text-red-200'
-                      : 'border-green-500/50 bg-green-500/10 text-green-200'
-                      }`}
-                  >
-                    {preferencesError || preferencesMessage}
+              <div className="space-y-4">
+                <div className="rounded-xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm space-y-5">
+                  <div>
+                    <h3 className="text-lg font-semibold text-white">Audience Defaults</h3>
+                    <p className="text-sm text-white/65">
+                      Select the audience perspectives Canon should prioritize by default.
+                    </p>
                   </div>
-                )}
 
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-white/80">
-                    Preferred audiences
-                  </label>
+                  <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-white/80">
+                    {preferredAudiences.length === 0
+                      ? 'No default audiences selected.'
+                      : `${preferredAudiences.length} default audience${preferredAudiences.length === 1 ? '' : 's'} selected.`}
+                  </div>
+
+                  {(preferencesMessage || preferencesError) && (
+                    <div
+                      className={`rounded-lg border p-3 text-sm ${preferencesError
+                        ? 'border-red-500/50 bg-red-500/10 text-red-200'
+                        : 'border-green-500/50 bg-green-500/10 text-green-200'
+                        }`}
+                    >
+                      {preferencesError || preferencesMessage}
+                    </div>
+                  )}
+
                   <div className="flex flex-wrap gap-2">
                     {DEFAULT_AUDIENCES.map((aud) => {
                       const active = preferredAudiences.includes(aud);
                       return (
-                        <Badge
+                        <button
                           key={aud}
-                          variant={active ? 'outline' : 'muted'}
-                          className="cursor-pointer transition-all hover:scale-105"
+                          type="button"
+                          className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition ${active
+                            ? 'border-blue-400/60 bg-blue-500/20 text-blue-100'
+                            : 'border-white/20 bg-white/5 text-white/80 hover:bg-white/10'
+                            }`}
                           onClick={() => toggleAudience(aud)}
-                          role="button"
-                          tabIndex={0}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault();
-                              toggleAudience(aud);
-                            }
-                          }}
                         >
-                          {aud}
-                        </Badge>
+                          {active ? <Check className="h-3.5 w-3.5" /> : null}
+                          <span>{aud}</span>
+                        </button>
                       );
                     })}
                   </div>
-                  <p className="text-xs text-white/60">
-                    These audiences will be the default for the new AKU workflow.
-                  </p>
+
+                  <div className="flex items-center gap-3">
+                    <Button
+                      onClick={savePreferences}
+                      disabled={savingPreferences}
+                      className="bg-blue-600 text-white hover:bg-blue-700"
+                    >
+                      {savingPreferences ? (
+                        <span className="flex items-center gap-2">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Saving...
+                        </span>
+                      ) : (
+                        'Save audience defaults'
+                      )}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="text-white/70 hover:text-white"
+                      onClick={() => {
+                        const meta = user?.user_metadata?.preferred_audiences;
+                        setPreferredAudiences(Array.isArray(meta) ? meta : []);
+                        setPreferencesError('');
+                        setPreferencesMessage('');
+                      }}
+                    >
+                      Reset
+                    </Button>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-3">
-                  <Button
-                    onClick={savePreferences}
-                    disabled={savingPreferences}
-                    className="bg-blue-600 text-white hover:bg-blue-700"
-                  >
-                    {savingPreferences ? (
-                      <span className="flex items-center gap-2">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Saving...
-                      </span>
-                    ) : (
-                      'Save preferences'
-                    )}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="text-white/70 hover:text-white"
-                    onClick={() => {
-                      const meta = user?.user_metadata?.preferred_audiences;
-                      setPreferredAudiences(Array.isArray(meta) ? meta : []);
-                      setPreferencesError('');
-                      setPreferencesMessage('');
-                    }}
-                  >
-                    Reset to default
-                  </Button>
+                <div className="rounded-xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm space-y-5">
+                  <div>
+                    <h3 className="text-lg font-semibold text-white">Slack Delivery</h3>
+                    <p className="text-sm text-white/65">
+                      Choose where Canon sends weekly digests and important alerts.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-white/80">
+                      Slack channel
+                    </label>
+                    <Input
+                      placeholder="#canon-signals"
+                      value={slackChannel}
+                      onChange={(event) => setSlackChannel(event.target.value)}
+                      disabled={slackLoading}
+                    />
+                    <p className="text-xs text-white/60">
+                      Example: <span className="text-white/80">#engineering-signals</span>
+                    </p>
+                  </div>
+
+                  {slackError ? <p className="text-xs text-red-300">{slackError}</p> : null}
+                  {slackMessage ? <p className="text-xs text-emerald-300">{slackMessage}</p> : null}
+
+                  <div className="flex items-center gap-3">
+                    <Button
+                      onClick={saveSlackChannel}
+                      disabled={slackSaving || slackLoading}
+                      className="bg-blue-600 text-white hover:bg-blue-700"
+                    >
+                      {slackSaving ? (
+                        <span className="flex items-center gap-2">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Saving...
+                        </span>
+                      ) : (
+                        'Save Slack channel'
+                      )}
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -463,13 +563,6 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                       name: 'Atlassian',
                       description: 'Connect Jira and Confluence. Keep spaces and issues in sync.',
                       icon: <IntegrationLogos provider="atlassian" size={28} />
-                    },
-                    {
-                      provider: 'googledocs',
-                      name: 'Google Docs',
-                      description: 'Bring docs into canon. Coming soon.',
-                      icon: <IntegrationLogos provider="google-docs" size={28} />,
-                      comingSoon: true
                     }
                   ].map(card => {
                     const connection = connections.find(c => c.provider === card.provider);

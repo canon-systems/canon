@@ -61,7 +61,6 @@ export default async function LogsPage() {
     const lower = p.toLowerCase();
     if (lower === 'confluence') return 'Atlassian';
     if (lower === 'github') return 'GitHub';
-    if (lower === 'googledocs' || lower === 'google-docs') return 'Google Docs';
     return p.charAt(0).toUpperCase() + p.slice(1).toLowerCase();
   };
 

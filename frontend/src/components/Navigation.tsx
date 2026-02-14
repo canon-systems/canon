@@ -7,13 +7,14 @@ import { usePathname } from 'next/navigation';
 import {
   Activity,
   BookOpen,
-  Focus,
+  BellRing,
   History,
   Layers,
   LogOut,
   Menu,
   Settings,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { Session, User } from '@supabase/supabase-js';
 import { Button } from './ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
@@ -28,14 +29,14 @@ interface NavigationProps {
 type NavItem = {
   href: string;
   label: string;
-  icon: typeof Focus;
+  icon: LucideIcon;
   matchPrefix?: boolean;
 };
 
 const primaryNav: NavItem[] = [
   { href: '/sources', label: 'Sources', icon: Layers },
-  { href: '/view', label: 'Canon View', icon: Focus },
-  { href: '/history', label: 'Canon History', icon: History },
+  { href: '/signals', label: 'Signals', icon: BellRing, matchPrefix: true },
+  { href: '/history', label: 'History', icon: History, matchPrefix: true },
   { href: '/logs', label: 'Logs', icon: Activity },
 ];
 
