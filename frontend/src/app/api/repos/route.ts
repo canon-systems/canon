@@ -5,6 +5,7 @@ import { ingestSource, type WorkspaceSource } from '@/lib/server/services/source
 import { isRepoProvider } from '@/lib/server/services/sourceProviders';
 import { trackRepoConnected, trackSourceConnected } from '@/lib/server/services/usageTracking';
 import { ensureJiraWebhookRegistrationsForConnection } from '@/lib/server/jira/webhooks';
+import { patchSourceBackfillStatus } from '@/lib/server/diff/backfillStatus';
 import { inngest } from '@/inngest';
 
 type CreateSource = {
@@ -179,6 +180,7 @@ export async function POST(request: NextRequest) {
     // Kick off ingestion sequentially (could be parallelized with workers)
     const createdSourceIds = (data || []).map((r) => r.id);
     for (const row of data || []) {
+      const provider = typeof row.provider === 'string' ? row.provider.toLowerCase() : '';
       // Fire and forget; use service-role client to avoid auth-context loss in background work.
       const ingestClient = (() => {
         try {
@@ -187,12 +189,28 @@ export async function POST(request: NextRequest) {
           return supabase;
         }
       })();
-      ingestSource(ingestClient, row as WorkspaceSource, { mode, createdSourceIds }).catch((err) => {
-        console.error('[ingestSource] failed', err);
-      });
+      if (provider === 'jira') {
+        // Jira setup is typically lightweight; await to avoid background task truncation in serverless.
+        await ingestSource(ingestClient, row as WorkspaceSource, { mode, createdSourceIds }).catch((err) => {
+          console.error('[ingestSource] failed', err);
+        });
+      } else {
+        ingestSource(ingestClient, row as WorkspaceSource, { mode, createdSourceIds }).catch((err) => {
+          console.error('[ingestSource] failed', err);
+        });
+      }
 
-      const provider = typeof row.provider === 'string' ? row.provider.toLowerCase() : '';
       if (provider === 'github' || provider === 'jira') {
+        await patchSourceBackfillStatus({
+          supabase,
+          sourceId: row.id,
+          patch: {
+            status: 'queued',
+            progress_pct: 0,
+            step_label: 'Queued for history sync',
+            error: null,
+          },
+        });
         try {
           await inngest.send({
             name: 'diff/source.backfill.requested',
@@ -202,6 +220,15 @@ export async function POST(request: NextRequest) {
             },
           });
         } catch (err) {
+          await patchSourceBackfillStatus({
+            supabase,
+            sourceId: row.id,
+            patch: {
+              status: 'failed',
+              step_label: 'History sync could not be queued',
+              error: err instanceof Error ? err.message : String(err),
+            },
+          });
           console.warn('[diff/backfill] failed to enqueue source backfill', {
             sourceId: row.id,
             provider,

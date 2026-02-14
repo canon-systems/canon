@@ -1,6 +1,7 @@
 import { inngest } from '../client';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { runDiffBackfillForSource } from '@/lib/server/diff/backfill';
+import { patchSourceBackfillStatus } from '@/lib/server/diff/backfillStatus';
 import { createLogger, errorMessage } from '@/lib/server/logging';
 
 type BackfillRequestedEvent = {
@@ -33,7 +34,7 @@ export const diffSourceBackfill = inngest.createFunction(
     const requestedDays = typeof data.requestedDays === 'number' ? data.requestedDays : undefined;
 
     if (!sourceId || !userId) {
-      return { error: 'Missing sourceId or userId' };
+      throw new Error('Missing sourceId or userId');
     }
 
     const supabase = createServiceRoleClient();
@@ -45,7 +46,16 @@ export const diffSourceBackfill = inngest.createFunction(
       .maybeSingle();
 
     if (error) {
-      return { error: error.message, sourceId, userId };
+      await patchSourceBackfillStatus({
+        supabase,
+        sourceId,
+        patch: {
+          status: 'failed',
+          step_label: 'History sync failed to start',
+          error: error.message,
+        },
+      });
+      throw new Error(`Failed to load source for backfill: ${error.message}`);
     }
 
     if (!source) {

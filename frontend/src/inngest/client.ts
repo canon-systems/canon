@@ -4,7 +4,5 @@ import { Inngest } from "inngest";
 export const inngest = new Inngest({
   id: "sync-automation",
   name: "Sync Automation Platform",
-  credentials: {
-    gem: process.env.INNGEST_EVENT_KEY!,
-  },
+  eventKey: process.env.INNGEST_EVENT_KEY,
 });

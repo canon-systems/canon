@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { ingestSource } from '@/lib/server/services/sourceIngest';
 import { trackSourceConnected } from '@/lib/server/services/usageTracking';
 import { ensureJiraWebhookRegistrationsForConnection } from '@/lib/server/jira/webhooks';
+import { patchSourceBackfillStatus } from '@/lib/server/diff/backfillStatus';
 import { inngest } from '@/inngest';
 
 export async function POST(request: NextRequest) {
@@ -118,12 +119,22 @@ export async function POST(request: NextRequest) {
       data.external_url ?? externalUrl
     ).catch((err) => console.warn('Failed to track Jira source connected:', err));
 
-    // Fetch Jira issues and write to issue_index (same pattern as POST /api/sources)
-    ingestSource(supabase, data).catch((err) => {
+    // For Jira, await ingest so status transitions are reliable in serverless runtimes.
+    await ingestSource(supabase, data).catch((err) => {
       console.error('[ingestSource] Jira source failed', err);
     });
 
     try {
+      await patchSourceBackfillStatus({
+        supabase,
+        sourceId: data.id,
+        patch: {
+          status: 'queued',
+          progress_pct: 0,
+          step_label: 'Queued for history sync',
+          error: null,
+        },
+      });
       await inngest.send({
         name: 'diff/source.backfill.requested',
         data: {
@@ -132,6 +143,15 @@ export async function POST(request: NextRequest) {
         },
       });
     } catch (err) {
+      await patchSourceBackfillStatus({
+        supabase,
+        sourceId: data.id,
+        patch: {
+          status: 'failed',
+          step_label: 'History sync could not be queued',
+          error: err instanceof Error ? err.message : String(err),
+        },
+      });
       console.warn('[diff/backfill] failed to enqueue Jira source backfill', {
         sourceId: data.id,
         error: err instanceof Error ? err.message : String(err),

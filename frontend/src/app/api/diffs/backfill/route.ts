@@ -3,6 +3,7 @@ import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
 import { inngest } from '@/inngest';
 import { resolveDiffBackfillDays } from '@/lib/server/diff/backfill';
+import { patchSourceBackfillStatus } from '@/lib/server/diff/backfillStatus';
 
 export const dynamic = 'force-dynamic';
 
@@ -67,6 +68,16 @@ export async function POST(request: NextRequest) {
 
   const enqueueResults = await Promise.all(
     eligibleSourceIds.map(async (sourceId) => {
+      await patchSourceBackfillStatus({
+        supabase,
+        sourceId,
+        patch: {
+          status: 'queued',
+          progress_pct: 0,
+          step_label: 'Queued for history sync',
+          error: null,
+        },
+      });
       try {
         await inngest.send({
           name: 'diff/source.backfill.requested',
@@ -78,6 +89,15 @@ export async function POST(request: NextRequest) {
         });
         return { sourceId, queued: true };
       } catch (err) {
+        await patchSourceBackfillStatus({
+          supabase,
+          sourceId,
+          patch: {
+            status: 'failed',
+            step_label: 'History sync could not be queued',
+            error: err instanceof Error ? err.message : String(err),
+          },
+        });
         return {
           sourceId,
           queued: false,
