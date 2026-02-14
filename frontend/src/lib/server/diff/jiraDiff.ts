@@ -28,6 +28,17 @@ type JiraDiffParams = {
 
 type JiraStatusCategoryName = 'To Do' | 'In Progress' | 'Done' | string;
 
+const normalizeStatusCategory = (value?: string | null): string | null => {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim().toLowerCase();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const isDoneCategory = (value?: string | null) => normalizeStatusCategory(value) === 'done';
+
+const looksLikeDone = (value?: string | null) =>
+  typeof value === 'string' && /done|closed|resolved|complete|completed|shipped|released/i.test(value);
+
 /** Date-only yyyy-MM-dd for JQL from an ISO timestamp. */
 function toJqlDateOnly(value: string): string {
   const date = new Date(value);
@@ -270,12 +281,14 @@ export async function getJiraDiffForProject(params: JiraDiffParams): Promise<Jir
 
           const fromCategory = fromId ? statusCategoryMap.get(fromId) : undefined;
           const toCategory = toId ? statusCategoryMap.get(toId) : undefined;
+          const fromIsDone = isDoneCategory(fromCategory) || (!fromCategory && looksLikeDone(previousStatus));
+          const toIsDone = isDoneCategory(toCategory) || (!toCategory && looksLikeDone(newStatus));
 
-          if (toCategory === 'Done') {
+          if (toIsDone) {
             tickets_completed.push(event);
           }
 
-          if (fromCategory === 'Done' && toCategory && toCategory !== 'Done') {
+          if (fromIsDone && !toIsDone) {
             tickets_regressed.push(event);
           }
         }

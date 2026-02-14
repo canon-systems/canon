@@ -28,10 +28,39 @@ interface SettingsPageClientProps {
   user: SupabaseUser | null;
 }
 
+type IntegrationCard = {
+  provider: string;
+  name: string;
+  description: string;
+  icon: React.ReactNode;
+  comingSoon?: boolean;
+};
+
 const tabs: Array<{ id: TabId; name: string; icon: React.ComponentType<{ className?: string }> }> = [
   { id: 'profile', name: 'Profile', icon: User },
   { id: 'preferences', name: 'Preferences', icon: Settings },
   { id: 'integrations', name: 'Integrations', icon: Link2 }
+];
+
+const integrationCards: IntegrationCard[] = [
+  {
+    provider: 'github',
+    name: 'GitHub',
+    description: 'Install our GitHub App to sync repos and PR context.',
+    icon: <Github className="h-7 w-7 text-white" />
+  },
+  {
+    provider: 'notion',
+    name: 'Notion',
+    description: 'Sync pages and databases for richer answers.',
+    icon: <IntegrationLogos provider="notion" size={28} />
+  },
+  {
+    provider: 'confluence',
+    name: 'Atlassian',
+    description: 'Connect Jira and Confluence. Keep spaces and issues in sync.',
+    icon: <IntegrationLogos provider="atlassian" size={28} />
+  }
 ];
 
 export function SettingsPageClient({ user: initialUser }: SettingsPageClientProps) {
@@ -545,26 +574,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                 </div>
 
                 <div className="space-y-3">
-                  {[
-                    {
-                      provider: 'github',
-                      name: 'GitHub',
-                      description: 'Install our GitHub App to sync repos and PR context.',
-                      icon: <Github className="h-7 w-7 text-white" />
-                    },
-                    {
-                      provider: 'notion',
-                      name: 'Notion',
-                      description: 'Sync pages and databases for richer answers.',
-                      icon: <IntegrationLogos provider="notion" size={28} />
-                    },
-                    {
-                      provider: 'confluence',
-                      name: 'Atlassian',
-                      description: 'Connect Jira and Confluence. Keep spaces and issues in sync.',
-                      icon: <IntegrationLogos provider="atlassian" size={28} />
-                    }
-                  ].map(card => {
+                  {integrationCards.map(card => {
                     const connection = connections.find(c => c.provider === card.provider);
                     const connected = connection?.status === 'active';
                     const connectedOn = connection?.created_at ? formatDate(connection.created_at) : null;

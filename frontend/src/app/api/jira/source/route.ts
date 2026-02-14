@@ -3,6 +3,7 @@ import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
 import { ingestSource } from '@/lib/server/services/sourceIngest';
 import { trackSourceConnected } from '@/lib/server/services/usageTracking';
+import { ensureJiraWebhookRegistrationsForConnection } from '@/lib/server/jira/webhooks';
 import { inngest } from '@/inngest';
 
 export async function POST(request: NextRequest) {
@@ -32,7 +33,7 @@ export async function POST(request: NextRequest) {
     const supabase = await createClient();
     const { data: connection } = await supabase
       .from('oauth_connections')
-      .select('id, metadata')
+      .select('id, connection_id, metadata')
       .eq('user_id', user.id)
       .eq('provider', 'confluence')
       .eq('status', 'active')
@@ -96,6 +97,17 @@ export async function POST(request: NextRequest) {
 
     if (error || !data) {
       throw error || new Error('Failed to create Jira source');
+    }
+
+    if (typeof connection.connection_id === 'string' && connection.connection_id.length > 0) {
+      try {
+        await ensureJiraWebhookRegistrationsForConnection(connection.connection_id);
+      } catch (webhookErr) {
+        console.warn('[jira/webhooks] failed to ensure registration after Jira source creation', {
+          connectionId: connection.connection_id,
+          error: webhookErr instanceof Error ? webhookErr.message : String(webhookErr),
+        });
+      }
     }
 
     trackSourceConnected(
