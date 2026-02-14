@@ -61,7 +61,32 @@ export function getJiraWebhookBaseUrl(): string {
 }
 
 export function buildJiraWebhookUrl(tenantId: string): string {
-  return `${getJiraWebhookBaseUrl()}/api/webhooks/jira/${tenantId}`;
+  const url = new URL(`${getJiraWebhookBaseUrl()}/api/webhooks/jira/${tenantId}`);
+  // Primary key for Vercel automation bypass. Keep legacy aliases for compatibility.
+  const protectionBypassKey =
+    process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+  if (typeof protectionBypassKey === 'string' && protectionBypassKey.trim().length > 0) {
+    url.searchParams.set('x-vercel-protection-bypass', protectionBypassKey.trim());
+    url.searchParams.set('x-vercel-set-bypass-cookie', 'true');
+  }
+  return url.toString();
+}
+
+function canonicalizeUrl(value?: string | null): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    const url = new URL(trimmed);
+    const sortedEntries = Array.from(url.searchParams.entries()).sort(([a], [b]) => a.localeCompare(b));
+    url.search = '';
+    for (const [key, entryValue] of sortedEntries) {
+      url.searchParams.append(key, entryValue);
+    }
+    return url.toString().replace(/\/$/, '');
+  } catch {
+    return trimmed.replace(/\/$/, '');
+  }
 }
 
 const normalizeWebhookIds = (value: unknown): number[] => (
@@ -545,10 +570,18 @@ export async function ensureJiraWebhookRegistrationForCloud(params: {
   const requestedJql = normalizeJql(params.jqlFilter);
   const existingJql = normalizeJql(cloudMetadata.webhook_jql);
   const existingIds = normalizeWebhookIds(cloudMetadata.webhook_ids);
+  const existingUrl = canonicalizeUrl(cloudMetadata.webhook_url);
+  const desiredUrl = canonicalizeUrl(buildJiraWebhookUrl(cloudIdValue));
 
   const desiredJql = requestedJql ?? existingJql;
 
-  if (existingIds.length > 0 && desiredJql && existingJql !== desiredJql) {
+  if (
+    existingIds.length > 0 &&
+    (
+      (desiredJql && existingJql !== desiredJql) ||
+      (desiredUrl && existingUrl !== desiredUrl)
+    )
+  ) {
     try {
       await deleteRegisteredWebhooks(params.connectionId, cloudIdValue, existingIds);
     } catch (error) {
