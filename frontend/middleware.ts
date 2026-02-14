@@ -1,7 +1,4 @@
-// Import directly from spec-extension to avoid pulling in user-agent/ua-parser-js
-// which uses __dirname (not available in Edge runtime)
-import { NextRequest } from 'next/dist/server/web/spec-extension/request';
-import { NextResponse } from 'next/dist/server/web/spec-extension/response';
+import { type NextRequest, NextResponse } from 'next/server';
 
 export const config = {
   matcher: [
