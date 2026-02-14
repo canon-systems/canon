@@ -18,7 +18,7 @@ function hasLikelySupabaseSessionCookie(request: NextRequest): boolean {
   });
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const protectedPrefixes = ['/sources', '/view', '/history', '/logs', '/settings', '/docs', '/architecture-diagrams'];
   const isProtectedRoute = protectedPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
