@@ -5,12 +5,14 @@ import { createServerClient } from '@supabase/ssr';
 // All dependencies must be Edge-compatible (no Node.js APIs like __dirname)
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };
 
 export async function middleware(request: NextRequest) {
   try {
+    const pathname = request.nextUrl.pathname;
+
     // Check if environment variables are set
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -21,9 +23,14 @@ export async function middleware(request: NextRequest) {
     }
 
     // Protected routes - declare early
-    const pathname = request.nextUrl.pathname;
     const protectedPrefixes = ['/sources', '/view', '/history', '/logs', '/settings', '/docs', '/architecture-diagrams'];
     const isProtectedRoute = protectedPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+    const isLoginRoute = pathname === '/login';
+
+    // No auth work needed for public routes.
+    if (!isProtectedRoute && !isLoginRoute) {
+      return NextResponse.next();
+    }
 
     let supabaseResponse = NextResponse.next({
       request,
@@ -38,13 +45,22 @@ export async function middleware(request: NextRequest) {
             return request.cookies.getAll();
           },
           setAll(cookiesToSet: Array<{ name: string; value: string; options?: { [key: string]: unknown } }>) {
-            cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+            try {
+              cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+            } catch {
+              // In some Edge runtime contexts request cookies are immutable.
+              // We still set response cookies below so session refresh can proceed.
+            }
             supabaseResponse = NextResponse.next({
               request,
             });
-            cookiesToSet.forEach(({ name, value, options }) =>
-              supabaseResponse.cookies.set(name, value, options)
-            );
+            try {
+              cookiesToSet.forEach(({ name, value, options }) =>
+                supabaseResponse.cookies.set(name, value, options)
+              );
+            } catch {
+              // If cookie writes are blocked for this request type, continue gracefully.
+            }
           },
         },
       }
@@ -94,7 +110,7 @@ export async function middleware(request: NextRequest) {
     }
 
     // Redirect logged-in users away from login
-    if (user && request.nextUrl.pathname === '/login') {
+    if (user && isLoginRoute) {
       const url = request.nextUrl.clone();
       url.pathname = '/view';
       return NextResponse.redirect(url);
