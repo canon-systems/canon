@@ -1,126 +1,38 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
 
-// Middleware runs on Edge Runtime by default (required for Vercel)
-// All dependencies must be Edge-compatible (no Node.js APIs like __dirname)
 export const config = {
   matcher: [
     '/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };
 
-export async function middleware(request: NextRequest) {
-  try {
-    const pathname = request.nextUrl.pathname;
-
-    // Check if environment variables are set
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-    if (!supabaseUrl || !supabaseAnonKey) {
-      // If Supabase is not configured, just continue without auth checks
-      return NextResponse.next();
+function hasLikelySupabaseSessionCookie(request: NextRequest): boolean {
+  const cookies = request.cookies.getAll();
+  return cookies.some(({ name, value }) => {
+    if (!value || value === 'deleted') return false;
+    if (name === 'sb-access-token' || name === 'sb-refresh-token' || name === 'supabase-auth-token') {
+      return true;
     }
+    if (!name.startsWith('sb-')) return false;
+    return name.includes('-auth-token') || name.includes('-refresh-token') || name.includes('-access-token');
+  });
+}
 
-    // Protected routes - declare early
-    const protectedPrefixes = ['/sources', '/view', '/history', '/logs', '/settings', '/docs', '/architecture-diagrams'];
-    const isProtectedRoute = protectedPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
-    const isLoginRoute = pathname === '/login';
+export function middleware(request: NextRequest) {
+  const pathname = request.nextUrl.pathname;
+  const protectedPrefixes = ['/sources', '/view', '/history', '/logs', '/settings', '/docs', '/architecture-diagrams'];
+  const isProtectedRoute = protectedPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 
-    // No auth work needed for public routes.
-    if (!isProtectedRoute && !isLoginRoute) {
-      return NextResponse.next();
-    }
-
-    let supabaseResponse = NextResponse.next({
-      request,
-    });
-
-    const supabase = createServerClient(
-      supabaseUrl,
-      supabaseAnonKey,
-      {
-        cookies: {
-          getAll() {
-            return request.cookies.getAll();
-          },
-          setAll(cookiesToSet: Array<{ name: string; value: string; options?: { [key: string]: unknown } }>) {
-            try {
-              cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
-            } catch {
-              // In some Edge runtime contexts request cookies are immutable.
-              // We still set response cookies below so session refresh can proceed.
-            }
-            supabaseResponse = NextResponse.next({
-              request,
-            });
-            try {
-              cookiesToSet.forEach(({ name, value, options }) =>
-                supabaseResponse.cookies.set(name, value, options)
-              );
-            } catch {
-              // If cookie writes are blocked for this request type, continue gracefully.
-            }
-          },
-        },
-      }
-    );
-
-    // Refresh session if expired - required for Server Components
-    const {
-      data: { user },
-      error,
-    } = await supabase.auth.getUser();
-
-    // Handle specific auth errors that require session cleanup
-    if (error) {
-      // Check for refresh token related errors
-      const isRefreshTokenError = error.message?.includes('refresh_token_not_found') ||
-                                  error.message?.includes('Invalid Refresh Token') ||
-                                  error.message?.includes('refresh token') ||
-                                  error.status === 400;
-
-      if (isRefreshTokenError) {
-        console.log('Refresh token error detected, clearing session cookies');
-
-        // Clear all auth-related cookies to prevent further errors
-        const response = NextResponse.next();
-        response.cookies.delete('sb-access-token');
-        response.cookies.delete('sb-refresh-token');
-        response.cookies.delete('supabase-auth-token');
-
-        // For protected routes, redirect to login
-        if (isProtectedRoute) {
-          const url = request.nextUrl.clone();
-          url.pathname = '/login';
-          return NextResponse.redirect(url);
-        }
-
-        return response;
-      }
-
-      // For other auth errors, continue without auth checks
-      return NextResponse.next();
-    }
-
-    if (!user && isProtectedRoute) {
-      const url = request.nextUrl.clone();
-      url.pathname = '/login';
-      return NextResponse.redirect(url);
-    }
-
-    // Redirect logged-in users away from login
-    if (user && isLoginRoute) {
-      const url = request.nextUrl.clone();
-      url.pathname = '/view';
-      return NextResponse.redirect(url);
-    }
-
-    return supabaseResponse;
-  } catch (error) {
-    // If anything fails, just continue without auth checks
-    // This prevents the middleware from breaking the entire app
-    console.error('Middleware error:', error);
+  if (!isProtectedRoute) {
     return NextResponse.next();
   }
+
+  const hasSession = hasLikelySupabaseSessionCookie(request);
+  if (!hasSession) {
+    const url = request.nextUrl.clone();
+    url.pathname = '/login';
+    return NextResponse.redirect(url);
+  }
+
+  return NextResponse.next();
 }
