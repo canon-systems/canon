@@ -4,6 +4,7 @@ import { getSession } from '@/lib/auth';
 import { ingestSource, type WorkspaceSource } from '@/lib/server/services/sourceIngest';
 import { isRepoProvider } from '@/lib/server/services/sourceProviders';
 import { trackRepoConnected, trackSourceConnected } from '@/lib/server/services/usageTracking';
+import { ensureJiraWebhookRegistrationsForConnection } from '@/lib/server/jira/webhooks';
 import { inngest } from '@/inngest';
 
 type CreateSource = {
@@ -131,6 +132,29 @@ export async function POST(request: NextRequest) {
     if (error) {
       console.error('Failed to create sources:', error);
       throw error;
+    }
+
+    const jiraConnectionIds = new Set<string>();
+    for (const row of data || []) {
+      const provider = typeof row.provider === 'string' ? row.provider.toLowerCase() : '';
+      if (provider !== 'jira') continue;
+      const workspaceConnectionId = typeof row.connection_id === 'string' ? row.connection_id : null;
+      if (!workspaceConnectionId) continue;
+      const oauthConnection = (connections || []).find((connection) => connection.id === workspaceConnectionId);
+      if (oauthConnection?.connection_id) {
+        jiraConnectionIds.add(oauthConnection.connection_id);
+      }
+    }
+
+    for (const jiraConnectionId of jiraConnectionIds) {
+      try {
+        await ensureJiraWebhookRegistrationsForConnection(jiraConnectionId);
+      } catch (webhookErr) {
+        console.warn('[jira/webhooks] failed to ensure registration after source creation', {
+          connectionId: jiraConnectionId,
+          error: webhookErr instanceof Error ? webhookErr.message : String(webhookErr),
+        });
+      }
     }
 
     // Log connection for each new source; use repo_connected only for repo providers (GitHub/GitLab)

@@ -5,12 +5,10 @@
 import type { WorkspaceProvider } from './base';
 import { NotionProvider } from './providers/notion';
 import { ConfluenceProvider } from './providers/confluence';
-import { GoogleDocsProvider } from './providers/googledocs';
 
 const providers: WorkspaceProvider[] = [
 	new NotionProvider(),
 	new ConfluenceProvider(),
-	new GoogleDocsProvider(),
 	// Add future providers here
 ];
 
@@ -34,4 +32,3 @@ export function detectWorkspaceProvider(workspaceInfo: { provider?: string }): s
 export function listWorkspaceProviders(): string[] {
 	return providers.map((p) => p.name);
 }
-

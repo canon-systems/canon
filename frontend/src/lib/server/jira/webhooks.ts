@@ -6,6 +6,20 @@ type JiraWebhookRegistration = {
   expirationDate?: string | null;
 };
 
+type JiraWebhookCloudMetadata = {
+  webhook_ids?: number[];
+  webhook_url?: string | null;
+  webhook_jql?: string | null;
+  webhook_expires_at?: string | null;
+  webhook_last_refresh_at?: string | null;
+  webhook_status?: string | null;
+  webhook_error?: string | null;
+};
+
+type JiraWebhookCloudRegistration = JiraWebhookRegistration & {
+  cloudId: string;
+};
+
 type JiraWebhookMetadata = {
   jira_cloud_id?: string | null;
   jira_site_url?: string | null;
@@ -16,6 +30,7 @@ type JiraWebhookMetadata = {
   jira_webhook_last_refresh_at?: string | null;
   jira_webhook_status?: string | null;
   jira_webhook_error?: string | null;
+  jira_webhooks_by_cloud?: Record<string, JiraWebhookCloudMetadata>;
 };
 
 const DEFAULT_WEBHOOK_EVENTS = [
@@ -39,6 +54,105 @@ export function getJiraWebhookBaseUrl(): string {
 
 export function buildJiraWebhookUrl(tenantId: string): string {
   return `${getJiraWebhookBaseUrl()}/api/webhooks/jira/${tenantId}`;
+}
+
+const normalizeWebhookIds = (value: unknown): number[] => (
+  Array.isArray(value)
+    ? value
+      .map((entry) => (typeof entry === 'number' ? entry : null))
+      .filter((entry): entry is number => typeof entry === 'number')
+    : []
+);
+
+const parseWebhookCloudMap = (
+  value: unknown
+): Record<string, JiraWebhookCloudMetadata> => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  const map = value as Record<string, unknown>;
+  const out: Record<string, JiraWebhookCloudMetadata> = {};
+  for (const [cloudId, raw] of Object.entries(map)) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+    const record = raw as Record<string, unknown>;
+    out[cloudId] = {
+      webhook_ids: normalizeWebhookIds(record.webhook_ids),
+      webhook_url: typeof record.webhook_url === 'string' ? record.webhook_url : null,
+      webhook_jql: typeof record.webhook_jql === 'string' ? record.webhook_jql : null,
+      webhook_expires_at: typeof record.webhook_expires_at === 'string' ? record.webhook_expires_at : null,
+      webhook_last_refresh_at: typeof record.webhook_last_refresh_at === 'string' ? record.webhook_last_refresh_at : null,
+      webhook_status: typeof record.webhook_status === 'string' ? record.webhook_status : null,
+      webhook_error: typeof record.webhook_error === 'string' ? record.webhook_error : null,
+    };
+  }
+
+  return out;
+};
+
+const normalizeJql = (value?: string | null): string | null => {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const getCloudRegistrationFromMetadata = (
+  metadata: JiraWebhookMetadata,
+  cloudId: string
+): JiraWebhookCloudMetadata => {
+  const byCloud = parseWebhookCloudMap(metadata.jira_webhooks_by_cloud);
+  const fromCloudMap = byCloud[cloudId];
+  if (fromCloudMap) return fromCloudMap;
+
+  // Legacy single-cloud metadata fallback
+  if (metadata.jira_cloud_id === cloudId) {
+    return {
+      webhook_ids: normalizeWebhookIds(metadata.jira_webhook_ids),
+      webhook_url: typeof metadata.jira_webhook_url === 'string' ? metadata.jira_webhook_url : null,
+      webhook_jql: normalizeJql(metadata.jira_webhook_jql),
+      webhook_expires_at: typeof metadata.jira_webhook_expires_at === 'string' ? metadata.jira_webhook_expires_at : null,
+      webhook_last_refresh_at: typeof metadata.jira_webhook_last_refresh_at === 'string' ? metadata.jira_webhook_last_refresh_at : null,
+      webhook_status: typeof metadata.jira_webhook_status === 'string' ? metadata.jira_webhook_status : null,
+      webhook_error: typeof metadata.jira_webhook_error === 'string' ? metadata.jira_webhook_error : null,
+    };
+  }
+
+  return {};
+};
+
+const buildMetadataPatchForCloud = (
+  metadata: JiraWebhookMetadata,
+  cloudId: string,
+  cloudRegistration: JiraWebhookCloudMetadata
+): JiraWebhookMetadata => {
+  const byCloud = parseWebhookCloudMap(metadata.jira_webhooks_by_cloud);
+  byCloud[cloudId] = cloudRegistration;
+
+  // Keep legacy top-level fields populated so existing dashboards/debugging continue to work.
+  return {
+    jira_webhooks_by_cloud: byCloud,
+    jira_webhook_ids: normalizeWebhookIds(cloudRegistration.webhook_ids),
+    jira_webhook_url: cloudRegistration.webhook_url ?? null,
+    jira_webhook_jql: normalizeJql(cloudRegistration.webhook_jql),
+    jira_webhook_expires_at: cloudRegistration.webhook_expires_at ?? null,
+    jira_webhook_last_refresh_at: cloudRegistration.webhook_last_refresh_at ?? null,
+    jira_webhook_status: cloudRegistration.webhook_status ?? null,
+    jira_webhook_error: cloudRegistration.webhook_error ?? null,
+  };
+};
+
+async function upsertCloudWebhookMetadata(
+  connectionId: string,
+  cloudId: string,
+  patch: JiraWebhookCloudMetadata
+) {
+  const metadata = await loadConnectionMetadata(connectionId);
+  const existingCloud = getCloudRegistrationFromMetadata(metadata, cloudId);
+  const mergedCloud = {
+    ...existingCloud,
+    ...patch,
+  };
+  await updateConnectionMetadata(connectionId, buildMetadataPatchForCloud(metadata, cloudId, mergedCloud));
 }
 
 async function loadConnectionMetadata(connectionId: string): Promise<JiraWebhookMetadata> {
@@ -166,6 +280,59 @@ async function fetchProjectKeys(connectionId: string, cloudId: string): Promise<
   return projects;
 }
 
+function quoteJqlString(value: string): string {
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+function buildProjectJqlFilter(projectKeys: string[]): string | null {
+  const normalized = Array.from(
+    new Set(
+      projectKeys
+        .map((key) => key.trim())
+        .filter((key) => key.length > 0)
+    )
+  );
+  if (!normalized.length) return null;
+  return `project IN (${normalized.map((key) => quoteJqlString(key)).join(', ')})`;
+}
+
+async function loadConnectedProjectsByCloud(connectionId: string): Promise<Map<string, Set<string>>> {
+  const supabase = createServiceRoleClient();
+
+  const { data: connectionRow } = await supabase
+    .from('oauth_connections')
+    .select('id')
+    .eq('provider', 'confluence')
+    .eq('status', 'active')
+    .eq('connection_id', connectionId)
+    .maybeSingle();
+
+  if (!connectionRow?.id) {
+    return new Map<string, Set<string>>();
+  }
+
+  const { data: sources } = await supabase
+    .from('workspace_sources')
+    .select('scope')
+    .eq('provider', 'jira')
+    .eq('connection_id', connectionRow.id);
+
+  const projectsByCloud = new Map<string, Set<string>>();
+  for (const source of sources || []) {
+    const scope = source.scope && typeof source.scope === 'object'
+      ? (source.scope as Record<string, unknown>)
+      : {};
+    const cloudId = typeof scope.cloudId === 'string' ? scope.cloudId : null;
+    const project = typeof scope.project === 'string' ? scope.project : null;
+    if (!cloudId || !project) continue;
+    const existing = projectsByCloud.get(cloudId) ?? new Set<string>();
+    existing.add(project);
+    projectsByCloud.set(cloudId, existing);
+  }
+
+  return projectsByCloud;
+}
+
 export async function registerJiraWebhooks(params: {
   connectionId: string;
   cloudId: string;
@@ -278,14 +445,14 @@ export async function registerJiraWebhooks(params: {
 
       if (retryIds.length) {
         const approxExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-        await updateConnectionMetadata(connectionId, {
-          jira_webhook_ids: retryIds,
-          jira_webhook_url: webhookUrl,
-          jira_webhook_jql: jqlFilter,
-          jira_webhook_expires_at: approxExpiresAt,
-          jira_webhook_last_refresh_at: new Date().toISOString(),
-          jira_webhook_status: 'active',
-          jira_webhook_error: null,
+        await upsertCloudWebhookMetadata(connectionId, cloudId, {
+          webhook_ids: retryIds,
+          webhook_url: webhookUrl,
+          webhook_jql: jqlFilter,
+          webhook_expires_at: approxExpiresAt,
+          webhook_last_refresh_at: new Date().toISOString(),
+          webhook_status: 'active',
+          webhook_error: null,
         });
         return { webhookIds: retryIds, expirationDate: approxExpiresAt };
       }
@@ -299,14 +466,14 @@ export async function registerJiraWebhooks(params: {
   }
 
   const approxExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-  await updateConnectionMetadata(connectionId, {
-    jira_webhook_ids: webhookIds,
-    jira_webhook_url: webhookUrl,
-    jira_webhook_jql: jqlFilter,
-    jira_webhook_expires_at: approxExpiresAt,
-    jira_webhook_last_refresh_at: new Date().toISOString(),
-    jira_webhook_status: 'active',
-    jira_webhook_error: null,
+  await upsertCloudWebhookMetadata(connectionId, cloudId, {
+    webhook_ids: webhookIds,
+    webhook_url: webhookUrl,
+    webhook_jql: jqlFilter,
+    webhook_expires_at: approxExpiresAt,
+    webhook_last_refresh_at: new Date().toISOString(),
+    webhook_status: 'active',
+    webhook_error: null,
   });
 
   return { webhookIds, expirationDate: approxExpiresAt };
@@ -347,14 +514,99 @@ export async function refreshJiraWebhooks(params: {
     ? data.expirationDate
     : null;
 
-  await updateConnectionMetadata(connectionId, {
-    jira_webhook_expires_at: expirationDate,
-    jira_webhook_last_refresh_at: new Date().toISOString(),
-    jira_webhook_status: 'active',
-    jira_webhook_error: null,
+  await upsertCloudWebhookMetadata(connectionId, cloudId, {
+    webhook_expires_at: expirationDate,
+    webhook_last_refresh_at: new Date().toISOString(),
+    webhook_status: 'active',
+    webhook_error: null,
   });
 
   return { webhookIds, expirationDate };
+}
+
+export async function ensureJiraWebhookRegistrationForCloud(params: {
+  connectionId: string;
+  cloudId: string;
+  jqlFilter?: string | null;
+}): Promise<JiraWebhookRegistration | null> {
+  const cloudIdValue = params.cloudId.trim();
+  if (!cloudIdValue) return null;
+
+  const metadata = await loadConnectionMetadata(params.connectionId);
+  const cloudMetadata = getCloudRegistrationFromMetadata(metadata, cloudIdValue);
+  const requestedJql = normalizeJql(params.jqlFilter);
+  const existingJql = normalizeJql(cloudMetadata.webhook_jql);
+  const existingIds = normalizeWebhookIds(cloudMetadata.webhook_ids);
+
+  const desiredJql = requestedJql ?? existingJql;
+
+  if (existingIds.length > 0 && desiredJql && existingJql !== desiredJql) {
+    try {
+      await deleteRegisteredWebhooks(params.connectionId, cloudIdValue, existingIds);
+    } catch (error) {
+      console.warn('[jira/webhooks] failed to delete stale webhook before re-registering', {
+        cloudId: cloudIdValue,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return registerJiraWebhooks({
+      connectionId: params.connectionId,
+      cloudId: cloudIdValue,
+      jqlFilter: desiredJql,
+    });
+  }
+
+  if (existingIds.length > 0) {
+    return refreshJiraWebhooks({
+      connectionId: params.connectionId,
+      cloudId: cloudIdValue,
+      webhookIds: existingIds,
+    });
+  }
+
+  return registerJiraWebhooks({
+    connectionId: params.connectionId,
+    cloudId: cloudIdValue,
+    jqlFilter: desiredJql,
+  });
+}
+
+export async function ensureJiraWebhookRegistrationsForConnection(
+  connectionId: string
+): Promise<JiraWebhookCloudRegistration[]> {
+  const metadata = await loadConnectionMetadata(connectionId);
+  const existingByCloud = parseWebhookCloudMap(metadata.jira_webhooks_by_cloud);
+  const cloudIds = new Set<string>(Object.keys(existingByCloud));
+  if (typeof metadata.jira_cloud_id === 'string' && metadata.jira_cloud_id.trim().length > 0) {
+    cloudIds.add(metadata.jira_cloud_id.trim());
+  }
+
+  const projectsByCloud = await loadConnectedProjectsByCloud(connectionId);
+  for (const cloudId of projectsByCloud.keys()) {
+    cloudIds.add(cloudId);
+  }
+
+  const results: JiraWebhookCloudRegistration[] = [];
+  for (const cloudId of cloudIds) {
+    const connectedProjects = Array.from(projectsByCloud.get(cloudId) ?? []);
+    const jqlFromSources = buildProjectJqlFilter(connectedProjects);
+    const existingJql = normalizeJql(getCloudRegistrationFromMetadata(metadata, cloudId).webhook_jql);
+    const registration = await ensureJiraWebhookRegistrationForCloud({
+      connectionId,
+      cloudId,
+      jqlFilter: jqlFromSources ?? existingJql,
+    });
+
+    if (registration) {
+      results.push({
+        cloudId,
+        webhookIds: registration.webhookIds,
+        expirationDate: registration.expirationDate,
+      });
+    }
+  }
+
+  return results;
 }
 
 export async function ensureJiraWebhookRegistration(connectionId: string): Promise<JiraWebhookRegistration | null> {
@@ -362,16 +614,39 @@ export async function ensureJiraWebhookRegistration(connectionId: string): Promi
   const cloudIdValue = (metadata.jira_cloud_id || null) as string | null;
   if (!cloudIdValue) return null;
 
-  const existingIds = Array.isArray(metadata.jira_webhook_ids) ? metadata.jira_webhook_ids : [];
-  if (existingIds.length > 0) {
-    return refreshJiraWebhooks({ connectionId, cloudId: cloudIdValue, webhookIds: existingIds });
-  }
+  const projectsByCloud = await loadConnectedProjectsByCloud(connectionId);
+  const jql = buildProjectJqlFilter(Array.from(projectsByCloud.get(cloudIdValue) ?? []));
 
-  return registerJiraWebhooks({ connectionId, cloudId: cloudIdValue, jqlFilter: metadata.jira_webhook_jql || null });
+  return ensureJiraWebhookRegistrationForCloud({
+    connectionId,
+    cloudId: cloudIdValue,
+    jqlFilter: jql ?? metadata.jira_webhook_jql ?? null,
+  });
 }
 
 export async function getJiraWebhookConnectionByTenant(tenantId: string): Promise<string | null> {
   const supabase = createServiceRoleClient();
+  const { data: sourceRow } = await supabase
+    .from('workspace_sources')
+    .select('connection_id')
+    .eq('provider', 'jira')
+    .contains('scope', { cloudId: tenantId })
+    .limit(1)
+    .maybeSingle();
+
+  if (sourceRow?.connection_id) {
+    const { data: connectionBySource } = await supabase
+      .from('oauth_connections')
+      .select('connection_id')
+      .eq('id', sourceRow.connection_id)
+      .eq('provider', 'confluence')
+      .eq('status', 'active')
+      .maybeSingle();
+    if (connectionBySource?.connection_id) {
+      return connectionBySource.connection_id;
+    }
+  }
+
   const { data } = await supabase
     .from('oauth_connections')
     .select('connection_id, metadata')

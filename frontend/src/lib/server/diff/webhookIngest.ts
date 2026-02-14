@@ -382,8 +382,22 @@ export function extractGithubCanonicalEvents(payload: Record<string, unknown>): 
   return events;
 }
 
+const normalizeStatusCategory = (value?: string | null): string | null => {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim().toLowerCase();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const isDoneCategory = (value?: string | null) => normalizeStatusCategory(value) === 'done';
+
 const looksLikeDone = (value?: string | null) =>
-  typeof value === 'string' && /done|closed|resolved/i.test(value);
+  typeof value === 'string' && /done|closed|resolved|complete|completed|shipped|released/i.test(value);
+
+const readOwnString = (record: Record<string, unknown>, key: string): string | null => {
+  if (!Object.prototype.hasOwnProperty.call(record, key)) return null;
+  const value = record[key];
+  return typeof value === 'string' ? value : null;
+};
 
 export function extractJiraCanonicalEvents(
   payload: Record<string, unknown>,
@@ -405,7 +419,11 @@ export function extractJiraCanonicalEvents(
       ? changelog.histories.flatMap((h) => Array.isArray(h?.items) ? h.items : [])
       : [];
   const summaryFromFields = typeof fields.summary === 'string' ? fields.summary : null;
-  const summaryFromChangelog = items.find((item) => item?.field === 'summary')?.toString;
+  const summaryFromChangelogItem = items.find((item) => item?.field === 'summary');
+  const summaryFromChangelog =
+    summaryFromChangelogItem && typeof summaryFromChangelogItem === 'object'
+      ? readOwnString(summaryFromChangelogItem, 'toString')
+      : null;
   const summary =
     typeof summaryFromFields === 'string'
       ? summaryFromFields
@@ -446,21 +464,28 @@ export function extractJiraCanonicalEvents(
     const toIdForCategory = toId || null;
     const fromCategory = fromIdForCategory ? statusCategoryMap?.get(fromIdForCategory) : undefined;
     const toCategory = toIdForCategory ? statusCategoryMap?.get(toIdForCategory) : undefined;
+    const fromStatusName = readOwnString(item, 'fromString');
+    const toStatusName = readOwnString(item, 'toString');
+    const fromIsDone = isDoneCategory(fromCategory) || (!fromCategory && looksLikeDone(fromStatusName));
+    const toIsDone =
+      isDoneCategory(toCategory) ||
+      (!toCategory && (looksLikeDone(toStatusName) || isDoneCategory(statusCategory)));
+
     events.push({
       event_kind: 'ticket_moved',
       occurred_at: changeTime,
       entity_id: issueKey,
       repo_full_name: jiraWorkspace,
       metadata: {
-        from: item?.fromString ?? null,
-        to: item?.toString ?? null,
+        from: fromStatusName,
+        to: toStatusName,
         from_id: fromIdForCategory,
         to_id: toIdForCategory,
         summary,
       },
     });
 
-    if (toCategory === 'Done' || (statusCategory === 'Done' && !toCategory)) {
+    if (toIsDone) {
       events.push({
         event_kind: 'ticket_completed',
         occurred_at: changeTime,
@@ -470,10 +495,7 @@ export function extractJiraCanonicalEvents(
       });
     }
 
-    if (
-      (fromCategory === 'Done' && toCategory && toCategory !== 'Done') ||
-      (!fromCategory && looksLikeDone(item?.fromString as string | undefined) && statusCategory !== 'Done')
-    ) {
+    if (fromIsDone && !toIsDone) {
       events.push({
         event_kind: 'ticket_regressed',
         occurred_at: changeTime,

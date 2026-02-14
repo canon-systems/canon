@@ -1,6 +1,6 @@
 import { inngest } from "../client";
 import { createServiceRoleClient } from "@/lib/supabase/server";
-import { ensureJiraWebhookRegistration, markJiraWebhookError } from "@/lib/server/jira/webhooks";
+import { ensureJiraWebhookRegistrationsForConnection, markJiraWebhookError } from "@/lib/server/jira/webhooks";
 
 export const refreshJiraWebhooks = inngest.createFunction(
   {
@@ -40,7 +40,7 @@ export const refreshJiraWebhooks = inngest.createFunction(
       if (!hasCloudId) continue;
 
       try {
-        await ensureJiraWebhookRegistration(row.connection_id as string);
+        await ensureJiraWebhookRegistrationsForConnection(row.connection_id as string);
         refreshed += 1;
       } catch (err) {
         failed += 1;

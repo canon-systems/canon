@@ -2,7 +2,7 @@
  * Base interface for workspace providers
  * 
  * Workspace providers handle integration with team collaboration platforms
- * like Notion, Confluence, Google Docs, etc.
+ * like Notion and Confluence.
  */
 
 import type { WorkspaceInfo, WorkspaceContent } from './types';
@@ -12,7 +12,7 @@ export type { WorkspaceInfo, WorkspaceContent };
 
 export interface WorkspaceProvider {
 	/**
-	 * Provider name (e.g., 'notion', 'confluence', 'googledocs')
+	 * Provider name (e.g., 'notion', 'confluence')
 	 */
 	name: string;
 
@@ -61,4 +61,3 @@ export interface WorkspaceProvider {
 	 */
 	resourceExists?(workspaceInfo: WorkspaceInfo, connectionId: string): Promise<boolean>;
 }
-

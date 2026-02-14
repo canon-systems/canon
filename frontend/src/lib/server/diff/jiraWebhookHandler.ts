@@ -31,6 +31,13 @@ const verifyHmacSignature = (rawBody: string, signature: string | null, secret: 
   return timingSafeEqual(digest, signature);
 };
 
+const shouldEnforceSignature = (): boolean => {
+  const raw = process.env.JIRA_WEBHOOK_REQUIRE_SIGNATURE;
+  if (!raw) return false;
+  const normalized = raw.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+};
+
 type JiraStatusCategoryName = 'To Do' | 'In Progress' | 'Done' | string;
 
 async function getStatusCategoryMap(connectionId: string, cloudId: string) {
@@ -63,13 +70,41 @@ async function getStatusCategoryMap(connectionId: string, cloudId: string) {
   return map;
 }
 
+async function getConnectionIdForSourceId(supabase: ReturnType<typeof createServiceRoleClient>, sourceId: string) {
+  const { data: sourceRow } = await supabase
+    .from('workspace_sources')
+    .select('connection_id')
+    .eq('id', sourceId)
+    .maybeSingle();
+
+  if (!sourceRow?.connection_id) {
+    return null;
+  }
+
+  const { data: connectionRow } = await supabase
+    .from('oauth_connections')
+    .select('connection_id')
+    .eq('id', sourceRow.connection_id)
+    .eq('provider', 'confluence')
+    .eq('status', 'active')
+    .maybeSingle();
+
+  return connectionRow?.connection_id ?? null;
+}
+
 export async function handleJiraWebhook(request: NextRequest, tenantId?: string) {
   const rawBody = await request.text();
   console.log('[jira/webhook] received', { tenantId: tenantId ?? null, size: rawBody.length });
   const signature = request.headers.get('x-hub-signature-256') || request.headers.get('x-hub-signature');
-
-  if (!verifyHmacSignature(rawBody, signature, process.env.JIRA_WEBHOOK_SECRET)) {
-    return NextResponse.json({ ok: false, error: 'Invalid signature' }, { status: 401 });
+  const signatureValid = verifyHmacSignature(rawBody, signature, process.env.JIRA_WEBHOOK_SECRET);
+  if (!signatureValid) {
+    if (shouldEnforceSignature()) {
+      return NextResponse.json({ ok: false, error: 'Invalid signature' }, { status: 401 });
+    }
+    console.warn('[jira/webhook] signature mismatch (non-blocking)', {
+      tenantId: tenantId ?? null,
+      hasSignature: Boolean(signature),
+    });
   }
 
   let payload: Record<string, unknown>;
@@ -83,9 +118,6 @@ export async function handleJiraWebhook(request: NextRequest, tenantId?: string)
   let connectionId: string | null = null;
   if (tenantId) {
     connectionId = await getJiraWebhookConnectionByTenant(tenantId);
-    if (!connectionId) {
-      return NextResponse.json({ ok: true, skipped: 'unknown tenant' });
-    }
   }
 
   const issue = payload.issue as { key?: string; fields?: { project?: { key?: string } } } | undefined;
@@ -100,6 +132,13 @@ export async function handleJiraWebhook(request: NextRequest, tenantId?: string)
   if (!sourceId) {
     console.warn('[jira/webhook] source not found', { projectKey, tenantId: tenantId ?? null });
     return NextResponse.json({ ok: true, skipped: 'source not found' });
+  }
+
+  if (!connectionId) {
+    connectionId = await getConnectionIdForSourceId(supabase, sourceId);
+    if (tenantId && !connectionId) {
+      console.warn('[jira/webhook] tenant resolved source but no active OAuth connection found', { tenantId, sourceId });
+    }
   }
 
   const webhookId =

@@ -6,7 +6,7 @@ import KnowledgeClient from '../knowledge/page-client';
 export default async function HistoryPage() {
   const { session, user } = await getSession();
 
-  if (!session) {
+  if (!session || !user) {
     redirect('/login');
   }
 
@@ -15,15 +15,12 @@ export default async function HistoryPage() {
     .from('workspace_sources')
     .select('id, name, provider')
     .eq('user_id', user.id)
+    .in('provider', ['github', 'jira'])
     .order('created_at', { ascending: false });
 
   if (error) {
-    console.error('Failed to load sources:', error);
+    console.error('Failed to load sources for history:', error);
   }
 
-  const canonSources = (sources || []).filter(
-    (s) => (s?.provider ?? '').toString().toLowerCase() === 'github'
-  );
-
-  return <KnowledgeClient sources={canonSources} mode="diffs" />;
+  return <KnowledgeClient sources={sources || []} mode="diffs" />;
 }
