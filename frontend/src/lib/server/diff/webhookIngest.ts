@@ -317,15 +317,29 @@ export async function resolveJiraSourceId(
     .eq('provider', 'jira');
 
   const keyLower = projectKey.toLowerCase();
-  const match = (allSources || []).find((row) => {
+  const projectMatches = (allSources || []).filter((row) => {
     const scope = (row.scope as { project?: string; cloudId?: string }) || {};
-    const projectMatches = typeof scope.project === 'string' && scope.project.toLowerCase() === keyLower;
-    if (!projectMatches) return false;
-    if (!cloudId) return true;
-    return typeof scope.cloudId === 'string' && scope.cloudId === cloudId;
+    return typeof scope.project === 'string' && scope.project.toLowerCase() === keyLower;
   });
 
-  return match ? (match.id as string) : null;
+  if (projectMatches.length === 0) return null;
+  if (!cloudId) return projectMatches[0].id as string;
+
+  const exactCloud = projectMatches.find((row) => {
+    const scope = (row.scope as { cloudId?: string }) || {};
+    return typeof scope.cloudId === 'string' && scope.cloudId === cloudId;
+  });
+  if (exactCloud) return exactCloud.id as string;
+
+  // Legacy fallback: older Jira sources may not include cloudId in scope.
+  const missingCloud = projectMatches.filter((row) => {
+    const scope = (row.scope as { cloudId?: string }) || {};
+    return typeof scope.cloudId !== 'string' || scope.cloudId.trim().length === 0;
+  });
+  if (projectMatches.length === 1) return projectMatches[0].id as string;
+  if (missingCloud.length === 1) return missingCloud[0].id as string;
+
+  return null;
 }
 
 export function extractGithubCanonicalEvents(payload: Record<string, unknown>): CanonicalEvent[] {

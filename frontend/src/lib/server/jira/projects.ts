@@ -25,7 +25,7 @@ async function getJiraConnection(userId: string) {
   const cloudId = typeof metadata.cloud_id === 'string' ? metadata.cloud_id : null;
   const jiraCloudId = typeof metadata.jira_cloud_id === 'string' ? metadata.jira_cloud_id : null;
 
-  if (!connection?.connection_id || !cloudId) {
+  if (!connection?.connection_id) {
     return null;
   }
 

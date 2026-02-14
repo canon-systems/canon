@@ -658,7 +658,12 @@ export async function getJiraWebhookConnectionByTenant(tenantId: string): Promis
       ? (row.metadata as Record<string, unknown>)
       : {};
     const jiraCloudId = typeof metadata.jira_cloud_id === 'string' ? metadata.jira_cloud_id : null;
-    return jiraCloudId === tenantId;
+    const cloudId = typeof metadata.cloud_id === 'string' ? metadata.cloud_id : null;
+    if (jiraCloudId === tenantId || cloudId === tenantId) {
+      return true;
+    }
+    const byCloud = parseWebhookCloudMap(metadata.jira_webhooks_by_cloud);
+    return Object.prototype.hasOwnProperty.call(byCloud, tenantId);
   });
 
   return match?.connection_id || null;

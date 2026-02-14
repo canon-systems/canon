@@ -85,7 +85,7 @@ async function getJiraConnection(userId: string) {
   const cloudId = typeof metadata.cloud_id === 'string' ? metadata.cloud_id : null;
   const jiraCloudId = typeof metadata.jira_cloud_id === 'string' ? metadata.jira_cloud_id : null;
 
-  if (!connection?.connection_id || !cloudId) {
+  if (!connection?.connection_id) {
     return null;
   }
 
@@ -124,7 +124,7 @@ export async function getJiraDiffForProject(params: JiraDiffParams): Promise<Jir
   if (!connection) {
     throw new Error('Jira connection not found.');
   }
-  let cloudId = cloudIdOverride || connection.jiraCloudId || null;
+  let cloudId = cloudIdOverride || connection.jiraCloudId || connection.cloudId || null;
   if (!cloudId) {
     // Fallback: find a Jira-capable cloudId from accessible resources.
     const resources = await withConfluenceAccessToken({

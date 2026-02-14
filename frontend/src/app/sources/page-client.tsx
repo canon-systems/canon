@@ -177,6 +177,27 @@ const parseJiraProjects = (data: unknown): JiraProject[] => {
     .filter((project): project is JiraProject => project !== null);
 };
 
+const jiraScopeKey = (projectKey: string, cloudId?: string | null): string => {
+  const normalizedProject = projectKey.trim().toLowerCase();
+  const normalizedCloud = typeof cloudId === 'string' && cloudId.trim().length > 0
+    ? cloudId.trim().toLowerCase()
+    : 'unscoped';
+  return `jira:${normalizedCloud}:${normalizedProject}`;
+};
+
+const dedupeJiraProjects = (
+  projects: Array<{ id: string; key: string; name: string; cloudId?: string }>
+): Array<{ id: string; key: string; name: string; cloudId?: string }> => {
+  const byScope = new Map<string, { id: string; key: string; name: string; cloudId?: string }>();
+  for (const project of projects) {
+    const key = jiraScopeKey(project.key, project.cloudId);
+    if (!byScope.has(key)) {
+      byScope.set(key, project);
+    }
+  }
+  return Array.from(byScope.values());
+};
+
 type BackfillStatus = {
   status?: string;
   progress_pct?: number;
@@ -333,7 +354,8 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
         set.add(`github:${String((r.scope as { repo?: string }).repo).toLowerCase()}`);
       }
       if (r.provider === 'jira' && typeof (r.scope as { project?: unknown })?.project === 'string') {
-        set.add(`jira:${String((r.scope as { project?: string }).project).toLowerCase()}`);
+        const scope = r.scope as { project?: string; cloudId?: string };
+        set.add(jiraScopeKey(String(scope.project), scope.cloudId));
       }
     });
     return set;
@@ -356,10 +378,11 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
 
     const jira = availableJira
       .map((p) => {
-        const scopeKey = `jira:${p.key.toLowerCase()}`;
+        const scopeKey = jiraScopeKey(p.key, p.cloudId);
         if (existingSourceKeys.has(scopeKey)) return null;
+        const cloudPart = p.cloudId && p.cloudId.trim().length > 0 ? p.cloudId : 'unscoped';
         return {
-          key: `jira:${p.id}`,
+          key: `jira:${cloudPart}:${p.id}`,
           scopeKey,
           label: p.name || p.key,
           subtitle: `Key: ${p.key}`,
@@ -460,29 +483,30 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
 
       let jiraProjects: Array<{ id: string; key: string; name: string; cloudId?: string }> = [];
 
-      // First attempt: default projects call
+      // Start with projects from currently selected/default cloud.
       if (jiraRes.status === 'fulfilled') {
         const jiraData = await jiraRes.value.json();
         jiraProjects = parseJiraProjects(jiraData);
       }
 
-      // Fallback: iterate sites until we find projects
-      if (jiraProjects.length === 0) {
-        const sitesRes = await fetch('/api/jira/sites');
-        if (sitesRes.ok) {
-          const sitesData = await sitesRes.json();
-          const sites = Array.isArray(sitesData?.sites) ? sitesData.sites : [];
-          for (const site of sites) {
-            if (!site?.id) continue;
-            jiraProjects = await fetchProjectsForCloud(String(site.id));
-            if (jiraProjects.length > 0) break;
-          }
+      // Then fetch projects for every accessible Jira cloud and merge.
+      const sitesRes = await fetch('/api/jira/sites');
+      if (sitesRes.ok) {
+        const sitesData = await sitesRes.json();
+        const sites = Array.isArray(sitesData?.sites) ? sitesData.sites : [];
+        const cloudIds = sites
+          .map((site: { id?: unknown }) => (site?.id ? String(site.id) : ''))
+          .filter((siteCloudId: string) => siteCloudId.length > 0);
+
+        if (cloudIds.length > 0) {
+          const perCloudProjects = await Promise.all(cloudIds.map((cloudId: string) => fetchProjectsForCloud(cloudId)));
+          jiraProjects = dedupeJiraProjects([...jiraProjects, ...perCloudProjects.flat()]);
         }
       }
 
       // Apply both sets at once to avoid staggered rendering
       setAvailableGithub(ghRepos);
-      setAvailableJira(jiraProjects);
+      setAvailableJira(dedupeJiraProjects(jiraProjects));
       if (jiraProjects.length === 0) {
         setLoadError((prev) => prev || 'No Jira projects found. Ensure Atlassian is connected.');
       }
@@ -533,13 +557,18 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
       }
 
       for (const project of availableJira) {
-        const key = `jira:${project.id}`;
-        const scopeKey = `jira:${project.key.toLowerCase()}`;
+        const cloudPart = project.cloudId && project.cloudId.trim().length > 0 ? project.cloudId : 'unscoped';
+        const key = `jira:${cloudPart}:${project.id}`;
+        const scopeKey = jiraScopeKey(project.key, project.cloudId);
         if (selectedIds.has(key) && !existingSourceKeys.has(scopeKey)) {
+          const scope: Record<string, unknown> = { project: project.key };
+          if (typeof project.cloudId === 'string' && project.cloudId.trim().length > 0) {
+            scope.cloudId = project.cloudId;
+          }
           sources.push({
             provider: 'jira',
             name: project.name || project.key,
-            scope: { project: project.key, cloudId: project.cloudId },
+            scope,
             connection_id: null,
           });
         }
