@@ -49,7 +49,15 @@ const normalizeBaseUrl = (value: string) => {
 };
 
 export function getJiraWebhookBaseUrl(): string {
-  return normalizeBaseUrl(process.env.CANON_WEBHOOK_BASE_URL || 'https://dev.usecanon.com');
+  const configured = process.env.CANON_WEBHOOK_BASE_URL;
+  if (typeof configured === 'string' && configured.trim().length > 0) {
+    return normalizeBaseUrl(configured);
+  }
+
+  throw new Error(
+    'Missing CANON_WEBHOOK_BASE_URL. Set it to the public base URL for this environment ' +
+    '(for local development use a tunnel URL such as ngrok/cloudflared).'
+  );
 }
 
 export function buildJiraWebhookUrl(tenantId: string): string {

@@ -4,7 +4,7 @@ import { getSession } from '@/lib/auth';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { encryptSecret } from '@/lib/server/oauth/tokenCrypto';
 import { createConfluenceOAuthClient } from '@/lib/server/oauth/confluenceClient';
-import { registerJiraWebhooks } from '@/lib/server/jira/webhooks';
+import { getJiraWebhookBaseUrl, registerJiraWebhooks } from '@/lib/server/jira/webhooks';
 import { trackIntegrationConnected } from '@/lib/server/services/usageTracking';
 
 export const runtime = 'nodejs';
@@ -175,7 +175,7 @@ export async function GET(request: NextRequest) {
       try {
         console.log('[confluence/oauth/callback] registering Jira webhook', {
           cloudId: jiraResource.id,
-          baseUrl: process.env.CANON_WEBHOOK_BASE_URL || 'https://dev.usecanon.com',
+          baseUrl: getJiraWebhookBaseUrl(),
         });
         await registerJiraWebhooks({
           connectionId,
