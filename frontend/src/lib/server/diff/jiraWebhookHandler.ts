@@ -19,7 +19,6 @@ type SignatureCheckResult = {
 
 type QueuedJiraWebhookEvent = {
   requestId: string;
-  tenantId: string | null;
   receivedAt: string;
   rawSize: number;
   signature: {
@@ -39,7 +38,6 @@ const log = createLogger('diff.jira_webhook_ingress', {
   eventLabels: {
     webhook_received: 'Webhook Received',
     signature_rejected: 'Signature Rejected',
-    signature_non_blocking: 'Signature Non Blocking',
     invalid_json: 'Invalid JSON',
     webhook_queued: 'Webhook Queued',
     queue_failed: 'Queue Failed',
@@ -51,13 +49,6 @@ const timingSafeEqual = (a: string, b: string): boolean => {
   const bufB = Buffer.from(b);
   if (bufA.length !== bufB.length) return false;
   return crypto.timingSafeEqual(bufA, bufB);
-};
-
-const shouldEnforceSignature = (): boolean => {
-  const raw = process.env.JIRA_WEBHOOK_REQUIRE_SIGNATURE;
-  if (!raw) return false;
-  const normalized = raw.trim().toLowerCase();
-  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
 };
 
 function verifyHmacSignature(rawBody: string, signature: string | null, secret: string | undefined): SignatureCheckResult {
@@ -95,29 +86,25 @@ function readWebhookId(request: NextRequest): string | null {
   return request.headers.get('x-atlassian-webhook-identifier') || request.headers.get('x-atlassian-webhook-id');
 }
 
-export async function handleJiraWebhook(request: NextRequest, tenantId?: string) {
+export async function handleJiraWebhook(request: NextRequest) {
   const requestId = crypto.randomUUID();
   const receivedAt = new Date().toISOString();
   const rawBody = await request.text();
   const signature = readSignature(request);
   const signatureResult = verifyHmacSignature(rawBody, signature, process.env.JIRA_WEBHOOK_SECRET);
-  const enforceSignature = shouldEnforceSignature();
 
   log.info('webhook_received', {
     requestId,
-    tenantId: tenantId ?? null,
     rawSize: rawBody.length,
     signaturePresent: signatureResult.signaturePresent,
     signatureValid: signatureResult.valid,
     signatureReason: signatureResult.reason,
-    enforceSignature,
     hasSecret: Boolean(process.env.JIRA_WEBHOOK_SECRET),
   });
 
-  if (!signatureResult.valid && enforceSignature) {
+  if (!signatureResult.valid) {
     log.warn('signature_rejected', {
       requestId,
-      tenantId: tenantId ?? null,
       signaturePresent: signatureResult.signaturePresent,
       signatureReason: signatureResult.reason,
     });
@@ -134,7 +121,6 @@ export async function handleJiraWebhook(request: NextRequest, tenantId?: string)
   } catch {
     log.warn('invalid_json', {
       requestId,
-      tenantId: tenantId ?? null,
       rawSize: rawBody.length,
     });
     return NextResponse.json({ ok: false, error: 'Invalid JSON' }, { status: 400 });
@@ -148,7 +134,6 @@ export async function handleJiraWebhook(request: NextRequest, tenantId?: string)
 
   const eventData: QueuedJiraWebhookEvent = {
     requestId,
-    tenantId: tenantId ?? null,
     receivedAt,
     rawSize: rawBody.length,
     signature: {
@@ -169,17 +154,8 @@ export async function handleJiraWebhook(request: NextRequest, tenantId?: string)
       data: eventData,
     });
 
-    if (!signatureResult.valid) {
-      log.warn('signature_non_blocking', {
-        requestId,
-        tenantId: tenantId ?? null,
-        signatureReason: signatureResult.reason,
-      });
-    }
-
     log.info('webhook_queued', {
       requestId,
-      tenantId: tenantId ?? null,
       webhookId,
       webhookEvent,
       issueKey,
@@ -191,7 +167,6 @@ export async function handleJiraWebhook(request: NextRequest, tenantId?: string)
   } catch (error) {
     log.error('queue_failed', {
       requestId,
-      tenantId: tenantId ?? null,
       webhookId,
       webhookEvent,
       issueKey,

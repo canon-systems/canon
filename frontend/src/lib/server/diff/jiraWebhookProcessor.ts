@@ -7,7 +7,6 @@ import {
   resolveJiraSourceId,
   upsertDailyMetrics,
 } from '@/lib/server/diff/webhookIngest';
-import { getJiraWebhookConnectionByTenant } from '@/lib/server/jira/webhooks';
 import { createLogger, errorMessage } from '@/lib/server/logging';
 import { withConfluenceAccessToken } from '@/lib/server/oauth/tokenStore';
 
@@ -15,7 +14,6 @@ type JiraStatusCategoryName = 'To Do' | 'In Progress' | 'Done' | string;
 
 export type ProcessJiraWebhookPayloadParams = {
   payload: Record<string, unknown>;
-  tenantId?: string | null;
   requestId?: string | null;
   webhookId?: string | null;
   rawSize?: number | null;
@@ -27,7 +25,6 @@ export type ProcessJiraWebhookPayloadParams = {
 type JiraWebhookProcessResult = {
   ok: true;
   requestId?: string | null;
-  tenantId?: string | null;
   projectKey?: string | null;
   issueKey?: string | null;
   sourceId?: string | null;
@@ -52,7 +49,6 @@ const log = createLogger('diff.jira_webhook_processor', {
     status_map_loaded: 'Status Map Loaded',
     status_map_failed: 'Status Map Failed',
     process_complete: 'Process Completed',
-    process_failed: 'Process Failed',
   },
 });
 
@@ -86,15 +82,20 @@ async function getStatusCategoryMap(connectionId: string, cloudId: string) {
   return map;
 }
 
-async function getConnectionIdForSourceId(supabase: ReturnType<typeof createServiceRoleClient>, sourceId: string) {
+async function getJiraSourceContext(supabase: ReturnType<typeof createServiceRoleClient>, sourceId: string) {
   const { data: sourceRow } = await supabase
     .from('workspace_sources')
-    .select('connection_id')
+    .select('connection_id, scope')
     .eq('id', sourceId)
     .maybeSingle();
 
+  const scope = sourceRow?.scope && typeof sourceRow.scope === 'object'
+    ? (sourceRow.scope as Record<string, unknown>)
+    : {};
+  const cloudId = typeof scope.cloudId === 'string' && scope.cloudId.trim().length > 0 ? scope.cloudId : null;
+
   if (!sourceRow?.connection_id) {
-    return null;
+    return { connectionId: null, cloudId };
   }
 
   const { data: connectionRow } = await supabase
@@ -105,7 +106,10 @@ async function getConnectionIdForSourceId(supabase: ReturnType<typeof createServ
     .eq('status', 'active')
     .maybeSingle();
 
-  return connectionRow?.connection_id ?? null;
+  return {
+    connectionId: connectionRow?.connection_id ?? null,
+    cloudId,
+  };
 }
 
 export async function processJiraWebhookPayload(
@@ -113,7 +117,6 @@ export async function processJiraWebhookPayload(
 ): Promise<JiraWebhookProcessResult> {
   const startedAt = Date.now();
   const { payload } = params;
-  const tenantId = params.tenantId ?? null;
   const requestId = params.requestId ?? null;
 
   const issue = payload.issue as { key?: string; fields?: { project?: { key?: string } } } | undefined;
@@ -123,7 +126,6 @@ export async function processJiraWebhookPayload(
 
   log.info('process_start', {
     requestId,
-    tenantId,
     webhookEvent,
     webhookId: params.webhookId ?? null,
     projectKey,
@@ -137,47 +139,37 @@ export async function processJiraWebhookPayload(
   if (!projectKey) {
     log.warn('process_skipped', {
       requestId,
-      tenantId,
       reason: 'missing_project_key',
       issueKey,
     });
-    return { ok: true, requestId, tenantId, issueKey, skipped: 'missing project key' };
+    return { ok: true, requestId, issueKey, skipped: 'missing project key' };
   }
 
   const supabase = createServiceRoleClient();
-  const sourceId = await resolveJiraSourceId(supabase, projectKey, tenantId);
+  const sourceId = await resolveJiraSourceId(supabase, projectKey, null);
   if (!sourceId) {
     log.warn('source_missing', {
       requestId,
-      tenantId,
       projectKey,
       issueKey,
     });
-    return { ok: true, requestId, tenantId, projectKey, issueKey, skipped: 'source not found' };
+    return { ok: true, requestId, projectKey, issueKey, skipped: 'source not found' };
   }
 
   log.info('source_resolved', {
     requestId,
-    tenantId,
     projectKey,
     issueKey,
     sourceId,
   });
 
-  let connectionId: string | null = null;
-  if (tenantId) {
-    connectionId = await getJiraWebhookConnectionByTenant(tenantId);
-  }
-
-  if (!connectionId) {
-    connectionId = await getConnectionIdForSourceId(supabase, sourceId);
-  }
+  const sourceContext = await getJiraSourceContext(supabase, sourceId);
 
   log.info('connection_resolved', {
     requestId,
-    tenantId,
     sourceId,
-    hasConnectionId: Boolean(connectionId),
+    hasConnectionId: Boolean(sourceContext.connectionId),
+    cloudId: sourceContext.cloudId,
   });
 
   try {
@@ -192,7 +184,6 @@ export async function processJiraWebhookPayload(
     });
     log.info('raw_event_inserted', {
       requestId,
-      tenantId,
       sourceId,
       webhookEvent,
       webhookId: params.webhookId ?? null,
@@ -200,7 +191,6 @@ export async function processJiraWebhookPayload(
   } catch (error) {
     log.error('raw_event_failed', {
       requestId,
-      tenantId,
       sourceId,
       webhookEvent,
       webhookId: params.webhookId ?? null,
@@ -213,19 +203,17 @@ export async function processJiraWebhookPayload(
     ? (payload.changelog as { items: Array<Record<string, unknown>> }).items
     : [];
   const hasStatusChange = changelogItems.some((item) => item?.field === 'status');
-  if (hasStatusChange && connectionId && tenantId) {
+  if (hasStatusChange && sourceContext.connectionId && sourceContext.cloudId) {
     try {
-      statusCategoryMap = await getStatusCategoryMap(connectionId, tenantId);
+      statusCategoryMap = await getStatusCategoryMap(sourceContext.connectionId, sourceContext.cloudId);
       log.info('status_map_loaded', {
         requestId,
-        tenantId,
         sourceId,
         size: statusCategoryMap.size,
       });
     } catch (error) {
       log.warn('status_map_failed', {
         requestId,
-        tenantId,
         sourceId,
         error: errorMessage(error),
       });
@@ -235,7 +223,6 @@ export async function processJiraWebhookPayload(
   const canonicalEvents = extractJiraCanonicalEvents(payload, statusCategoryMap);
   log.info('canonical_events_extracted', {
     requestId,
-    tenantId,
     sourceId,
     projectKey,
     issueKey,
@@ -252,14 +239,12 @@ export async function processJiraWebhookPayload(
       await upsertDailyMetrics({ supabase, sourceId, provider: 'jira', events: newEvents });
       log.info('canonical_events_inserted', {
         requestId,
-        tenantId,
         sourceId,
         insertedCount: insertedCanonicalEventCount,
       });
     } else {
       log.info('canonical_events_deduped', {
         requestId,
-        tenantId,
         sourceId,
         dedupedCount: canonicalEvents.length,
       });
@@ -269,7 +254,6 @@ export async function processJiraWebhookPayload(
   const durationMs = Date.now() - startedAt;
   log.info('process_complete', {
     requestId,
-    tenantId,
     sourceId,
     projectKey,
     issueKey,
@@ -281,7 +265,6 @@ export async function processJiraWebhookPayload(
   return {
     ok: true,
     requestId,
-    tenantId,
     projectKey,
     issueKey,
     sourceId,

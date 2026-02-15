@@ -7,7 +7,6 @@ import { createLogger, errorMessage } from '@/lib/server/logging';
 
 type JiraWebhookReceivedEvent = {
   requestId?: string;
-  tenantId?: string | null;
   receivedAt?: string;
   rawSize?: number;
   signature?: {
@@ -47,7 +46,6 @@ export const ingestJiraWebhook = inngest.createFunction(
     if (!data.payload || typeof data.payload !== 'object' || Array.isArray(data.payload)) {
       log.warn('event_skipped_invalid_payload', {
         requestId,
-        tenantId: data.tenantId ?? null,
         webhookId: data.webhookId ?? null,
         webhookEvent: data.webhookEvent ?? null,
       });
@@ -56,7 +54,6 @@ export const ingestJiraWebhook = inngest.createFunction(
 
     log.info('worker_start', {
       requestId,
-      tenantId: data.tenantId ?? null,
       webhookId: data.webhookId ?? null,
       webhookEvent: data.webhookEvent ?? null,
       issueKey: data.issueKey ?? null,
@@ -70,7 +67,6 @@ export const ingestJiraWebhook = inngest.createFunction(
 
     const params: ProcessJiraWebhookPayloadParams = {
       payload: data.payload,
-      tenantId: data.tenantId ?? null,
       requestId,
       webhookId: data.webhookId ?? null,
       rawSize: data.rawSize ?? null,
@@ -83,7 +79,6 @@ export const ingestJiraWebhook = inngest.createFunction(
       const result = await step.run('process-jira-webhook', async () => processJiraWebhookPayload(params));
       log.info('worker_complete', {
         requestId,
-        tenantId: data.tenantId ?? null,
         webhookId: data.webhookId ?? null,
         webhookEvent: data.webhookEvent ?? null,
         issueKey: data.issueKey ?? null,
@@ -97,7 +92,6 @@ export const ingestJiraWebhook = inngest.createFunction(
     } catch (error) {
       log.error('worker_failed', {
         requestId,
-        tenantId: data.tenantId ?? null,
         webhookId: data.webhookId ?? null,
         webhookEvent: data.webhookEvent ?? null,
         issueKey: data.issueKey ?? null,
