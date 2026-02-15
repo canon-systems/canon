@@ -245,11 +245,19 @@ export async function ingestGitHubSource(
     });
     if (await abortIfDeleted(supabase, source, 'summarizing')) return;
     let lastPct = 60;
-    const summaryResult = await manager.updateSummaries(
-      files.map((f) => ({ path: f.path, content: f.content })),
+    let lastHeartbeatMs = 0;
+    const summaryResult = await manager.updateSummariesIfNeeded(
+      files.map((f) => ({
+        path: f.path,
+        content: f.content,
+        hash: fileContentHash(f.content),
+      })),
       {
+        force: false,
         model: 'openai/gpt-4o-mini',
         regenerationReason: 'initial',
+        heartbeatMs: 15000,
+        slowFileThresholdMs: 45000,
         shouldAbort: () => sourceStillExists(supabase, source.id, source.user_id).then((exists) => !exists),
         onProgress: ({ processed, total }) => {
           if (!total) return;
@@ -260,6 +268,20 @@ export async function ingestGitHubSource(
           void updateStage(supabase, source.id, 'summarizing', pct, stepLabel, {
             total_files: total,
             summarized_files: processed,
+          });
+        },
+        onHeartbeat: ({ processed, failed, total, inFlight, elapsedMs, lastCompletedAt }) => {
+          const nowMs = Date.now();
+          if (nowMs - lastHeartbeatMs < 15000) return;
+          lastHeartbeatMs = nowMs;
+          const pct = Math.max(lastPct, Math.min(85, 60 + Math.round((25 * processed) / Math.max(1, total))));
+          const stepLabel = `Summarizing files (${processed} / ${total}, in-flight ${inFlight})`;
+          void updateStage(supabase, source.id, 'summarizing', pct, stepLabel, {
+            summarized_files: processed,
+            summary_failed_files: failed,
+            summary_in_flight: inFlight,
+            summary_elapsed_ms: elapsedMs,
+            summary_last_completed_at: lastCompletedAt,
           });
         },
       }

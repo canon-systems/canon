@@ -12,9 +12,14 @@ const log = createLogger('llm.summaries', {
   eventLabels: {
     run_start: 'Summary Run Started',
     run_aborted: 'Summary Run Aborted',
+    run_progress: 'Summary Run Progress',
+    run_stalled: 'Summary Run Stalled',
     run_complete: 'Summary Run Completed',
     batch_start: 'Batch Started',
+    batch_complete: 'Batch Completed',
     file_summary_start: 'File Summary Started',
+    file_summary_complete: 'File Summary Completed',
+    file_summary_slow: 'File Summary Slow',
     file_summary_save_failed: 'File Summary Save Failed',
     file_summary_generate_failed: 'File Summary Generation Failed',
   },
@@ -68,6 +73,16 @@ export type ProgressCallback = (progress: {
   currentFile?: string;
   status: string;
 }) => void;
+
+export type SummaryHeartbeat = {
+  processed: number;
+  failed: number;
+  total: number;
+  inFlight: number;
+  remaining: number;
+  elapsedMs: number;
+  lastCompletedAt: string | null;
+};
 
 /**
  * Centralized file summary management service
@@ -206,18 +221,24 @@ export class FileSummaryManager {
       force?: boolean;
       batchSize?: number;
       onProgress?: ProgressCallback;
+      onHeartbeat?: (heartbeat: SummaryHeartbeat) => void;
       model?: string;
       regenerationReason?: string;
       shouldAbort?: () => Promise<boolean> | boolean;
+      heartbeatMs?: number;
+      slowFileThresholdMs?: number;
     } = {}
   ): Promise<UpdateResult> {
     const {
       force = false,
       batchSize = DEFAULT_BATCH_SIZE,
       onProgress,
+      onHeartbeat,
       model = 'openai/gpt-4o-mini',
       regenerationReason = 'initial',
       shouldAbort,
+      heartbeatMs = 15000,
+      slowFileThresholdMs = 45000,
     } = options;
 
     let processed = 0;
@@ -225,6 +246,11 @@ export class FileSummaryManager {
     let failed = 0;
     const updatedFiles: string[] = [];
     let aborted = false;
+    let inFlight = 0;
+    const runStartedAt = Date.now();
+    let lastCompletedAtMs: number | null = null;
+    let lastProgressLogAtMs = 0;
+    let lastStallLogAtMs = 0;
 
     const checkAbort = async (): Promise<boolean> => {
       if (aborted || !shouldAbort) return aborted;
@@ -237,6 +263,32 @@ export class FileSummaryManager {
         });
       }
       return aborted;
+    };
+
+    const makeHeartbeat = (total: number): SummaryHeartbeat => {
+      const nowMs = Date.now();
+      return {
+        processed,
+        failed,
+        total,
+        inFlight,
+        remaining: Math.max(0, total - (processed + failed)),
+        elapsedMs: nowMs - runStartedAt,
+        lastCompletedAt: lastCompletedAtMs ? new Date(lastCompletedAtMs).toISOString() : null,
+      };
+    };
+
+    const emitProgressLog = (reason: 'heartbeat' | 'batch_complete' | 'run_complete', total: number) => {
+      const heartbeat = makeHeartbeat(total);
+      const nowMs = Date.now();
+      if (reason === 'heartbeat' && nowMs - lastProgressLogAtMs < heartbeatMs) {
+        return;
+      }
+      lastProgressLogAtMs = nowMs;
+      log.info('run_progress', {
+        reason,
+        ...heartbeat,
+      });
     };
 
     log.info('run_start', {
@@ -288,69 +340,127 @@ export class FileSummaryManager {
       })
     );
 
-    for (const batch of batches) {
-      if (await checkAbort()) break;
-
-      await runWithConcurrency(batch, DEFAULT_CONCURRENCY, async (file) => {
-        if (aborted || await checkAbort()) return;
-        try {
-          const status = statusMap.get(file.path);
-          const reason = !status?.exists ? 'new file (added)' : 'content changed (hash mismatch)';
-          log.debug('file_summary_start', { path: file.path, reason });
-
-          onProgress?.({
-            processed: processed + skipped,
-            total: filesNeedingUpdate.length,
-            currentFile: file.path,
-            status: 'processing'
+    const heartbeatTimer = setInterval(() => {
+      const heartbeat = makeHeartbeat(filesNeedingUpdate.length);
+      onHeartbeat?.(heartbeat);
+      emitProgressLog('heartbeat', filesNeedingUpdate.length);
+      if (heartbeat.inFlight > 0 && heartbeat.lastCompletedAt) {
+        const sinceLastCompleteMs = Date.now() - Date.parse(heartbeat.lastCompletedAt);
+        if (sinceLastCompleteMs > Math.max(heartbeatMs * 4, 60000) && Date.now() - lastStallLogAtMs >= heartbeatMs * 2) {
+          lastStallLogAtMs = Date.now();
+          log.warn('run_stalled', {
+            sinceLastCompleteMs,
+            ...heartbeat,
           });
+        }
+      }
+    }, heartbeatMs);
 
-          const fileHash = file.hash || this.calculateFileHash(file.content);
-          const summary = await generateFileSummary(file.content, file.path, model);
+    try {
+      for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
+        const batch = batches[batchIndex];
+        if (await checkAbort()) break;
+
+        const batchStartMs = Date.now();
+        const processedBefore = processed;
+        const failedBefore = failed;
+
+        await runWithConcurrency(batch, DEFAULT_CONCURRENCY, async (file) => {
           if (aborted || await checkAbort()) return;
+          inFlight += 1;
+          const fileStartedAt = Date.now();
+          try {
+            const status = statusMap.get(file.path);
+            const reason = !status?.exists ? 'new file (added)' : 'content changed (hash mismatch)';
+            log.debug('file_summary_start', { path: file.path, reason });
 
-          const { error } = await this.supabase
-            .from('repo_file_summaries')
-            .upsert(
-              {
-                source_id: this.sourceId,
-                source_key: this.sourceKey,
-                file_path: this.normalizeFilePath(file.path),
-                file_hash: fileHash,
-                summary_text: summary.summary_text,
-                summary_model: model,
-                branch: this.branch,
-                regeneration_reason: regenerationReason,
-                updated_at: new Date().toISOString(),
-              },
-              {
-                onConflict: 'source_id,file_path,branch',
-                ignoreDuplicates: false
+            onProgress?.({
+              processed: processed + skipped,
+              total: filesNeedingUpdate.length,
+              currentFile: file.path,
+              status: 'processing'
+            });
+
+            const fileHash = file.hash || this.calculateFileHash(file.content);
+            const summary = await generateFileSummary(file.content, file.path, model);
+            if (aborted || await checkAbort()) return;
+
+            const { error } = await this.supabase
+              .from('repo_file_summaries')
+              .upsert(
+                {
+                  source_id: this.sourceId,
+                  source_key: this.sourceKey,
+                  file_path: this.normalizeFilePath(file.path),
+                  file_hash: fileHash,
+                  summary_text: summary.summary_text,
+                  summary_model: model,
+                  branch: this.branch,
+                  regeneration_reason: regenerationReason,
+                  updated_at: new Date().toISOString(),
+                },
+                {
+                  onConflict: 'source_id,file_path,branch',
+                  ignoreDuplicates: false
+                }
+              );
+
+            if (error) {
+              if (error.message.includes('repo_file_summaries_source_id_fkey')) {
+                aborted = true;
+                return;
               }
-            );
-
-          if (error) {
-            if (error.message.includes('repo_file_summaries_source_id_fkey')) {
-              aborted = true;
-              return;
+              log.error('file_summary_save_failed', {
+                path: file.path,
+                error: error.message,
+              });
+              failed++;
+            } else {
+              processed++;
+              updatedFiles.push(file.path);
+              lastCompletedAtMs = Date.now();
+              const durationMs = Date.now() - fileStartedAt;
+              if (durationMs >= slowFileThresholdMs) {
+                log.warn('file_summary_slow', {
+                  path: file.path,
+                  durationMs,
+                  model,
+                });
+              } else {
+                log.debug('file_summary_complete', {
+                  path: file.path,
+                  durationMs,
+                  model,
+                });
+              }
             }
-            log.error('file_summary_save_failed', {
+          } catch (error) {
+            log.error('file_summary_generate_failed', {
               path: file.path,
-              error: error.message,
+              error: errorMessage(error),
             });
             failed++;
-          } else {
-            processed++;
-            updatedFiles.push(file.path);
+          } finally {
+            inFlight = Math.max(0, inFlight - 1);
           }
-        } catch (error) {
-          log.error('file_summary_generate_failed', {
-            path: file.path,
-            error: errorMessage(error),
-          });
-          failed++;
-        }
-      });
+        });
+
+        log.info('batch_complete', {
+          batch: batchIndex + 1,
+          totalBatches: batches.length,
+          batchSize: batch.length,
+          batchDurationMs: Date.now() - batchStartMs,
+          processedInBatch: processed - processedBefore,
+          failedInBatch: failed - failedBefore,
+          processedTotal: processed,
+          failedTotal: failed,
+          total: filesNeedingUpdate.length,
+        });
+        onHeartbeat?.(makeHeartbeat(filesNeedingUpdate.length));
+        emitProgressLog('batch_complete', filesNeedingUpdate.length);
+      }
+    } finally {
+      clearInterval(heartbeatTimer);
     }
 
     if (aborted) {
@@ -365,6 +475,7 @@ export class FileSummaryManager {
         processed,
         skipped: files.length - filesNeedingUpdate.length,
         failed,
+        elapsedMs: Date.now() - runStartedAt,
       });
       return {
         processed,
@@ -388,7 +499,10 @@ export class FileSummaryManager {
       processed,
       skipped: files.length - filesNeedingUpdate.length,
       failed,
+      elapsedMs: Date.now() - runStartedAt,
+      averageMsPerProcessedFile: processed > 0 ? Math.round((Date.now() - runStartedAt) / processed) : null,
     });
+    emitProgressLog('run_complete', filesNeedingUpdate.length);
 
     return {
       processed,
@@ -409,9 +523,12 @@ export class FileSummaryManager {
       force?: boolean;
       batchSize?: number;
       onProgress?: ProgressCallback;
+      onHeartbeat?: (heartbeat: SummaryHeartbeat) => void;
       model?: string;
       regenerationReason?: string;
       shouldAbort?: () => Promise<boolean> | boolean;
+      heartbeatMs?: number;
+      slowFileThresholdMs?: number;
     } = {}
   ): Promise<UpdateResult> {
     const { force = true, ...rest } = options;

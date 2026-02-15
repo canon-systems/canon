@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
-import { ingestSource, type WorkspaceSource } from '@/lib/server/services/sourceIngest';
+import type { WorkspaceSource } from '@/lib/server/services/sourceIngest';
 import { isRepoProvider } from '@/lib/server/services/sourceProviders';
 import { trackRepoConnected, trackSourceConnected } from '@/lib/server/services/usageTracking';
 import { patchSourceBackfillStatus } from '@/lib/server/diff/backfillStatus';
@@ -153,34 +153,27 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Kick off ingestion sequentially (could be parallelized with workers)
+    // Kick off ingestion via Inngest workers (durable in serverless; not tied to request lifetime)
     const createdSourceIds = (data || []).map((r) => r.id);
     for (const row of data || []) {
       const provider = typeof row.provider === 'string' ? row.provider.toLowerCase() : '';
-      // Fire and forget; use service-role client to avoid auth-context loss in background work.
-      const ingestClient = (() => {
-        try {
-          return createServiceRoleClient();
-        } catch {
-          return supabase;
-        }
-      })();
-      if (provider === 'jira') {
-        // Jira setup is typically lightweight; await to avoid background task truncation in serverless.
-        await ingestSource(ingestClient, row as WorkspaceSource, { mode, createdSourceIds }).catch((err) => {
-          console.error('[ingestSource] failed', err);
-        });
-      } else {
-        ingestSource(ingestClient, row as WorkspaceSource, { mode, createdSourceIds }).catch((err) => {
-          console.error('[ingestSource] failed', err);
-        });
-      }
+      const sourceName =
+        typeof row.name === 'string' && row.name.trim().length > 0
+          ? row.name.trim()
+          : row.id;
+
+      await inngest.send({
+        name: 'source/ingest.requested',
+        data: {
+          sourceId: row.id,
+          sourceName,
+          userId: user.id,
+          mode,
+          createdSourceIds,
+        },
+      });
 
       if (provider === 'github' || provider === 'jira') {
-        const sourceName =
-          typeof row.name === 'string' && row.name.trim().length > 0
-            ? row.name.trim()
-            : row.id;
         await patchSourceBackfillStatus({
           supabase,
           sourceId: row.id,
