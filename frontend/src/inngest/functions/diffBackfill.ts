@@ -16,6 +16,7 @@ const log = createLogger('inngest.diff_backfill', {
   eventLabels: {
     worker_start: 'Worker Started',
     worker_complete: 'Worker Completed',
+    worker_cancelled: 'Worker Cancelled',
     worker_failed: 'Worker Failed',
   },
 });
@@ -98,6 +99,19 @@ export const diffSourceBackfill = inngest.createFunction(
           requestedDays,
         })
       );
+
+      if (result.skipped === 'source_deleted') {
+        log.info('worker_cancelled', {
+          sourceId: sourceRow.id,
+          sourceName,
+          provider: sourceRow.provider,
+          requestedDays: requestedDays ?? null,
+          reason: result.skipped,
+          fetchedEvents: result.fetched_events,
+          insertedEvents: result.inserted_events,
+        });
+        return result;
+      }
 
       log.info('worker_complete', {
         sourceId: sourceRow.id,

@@ -323,6 +323,17 @@ function providerName(provider: string): string {
   return provider === 'github' ? 'GitHub' : provider === 'jira' ? 'Jira' : provider;
 }
 
+async function sourceStillExists(supabase: SupabaseClient, source: DiffBackfillSource): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('workspace_sources')
+    .select('id')
+    .eq('id', source.id)
+    .eq('user_id', source.user_id)
+    .maybeSingle();
+  if (error) return false;
+  return Boolean(data?.id);
+}
+
 function resolveBackfillSourceName(source: DiffBackfillSource): string | null {
   if (typeof source.name === 'string' && source.name.trim().length > 0) {
     return source.name.trim();
@@ -417,6 +428,16 @@ export async function runDiffBackfillForSource(params: {
   const window = buildDiffBackfillWindow(days, now);
   const dailyWindows = splitIntoDailyWindows(window);
   const providerLabel = providerName(provider);
+  let fetchedEvents = 0;
+  let insertedEvents = 0;
+  const sourceDeletedResult = (reason: string): DiffBackfillResult => ({
+    source_id: source.id,
+    provider,
+    window,
+    fetched_events: fetchedEvents,
+    inserted_events: insertedEvents,
+    skipped: reason,
+  });
 
   if (provider !== 'github' && provider !== 'jira') {
     log.info('skipped', { sourceId: source.id, sourceName, provider, reason: 'unsupported_provider' });
@@ -449,9 +470,12 @@ export async function runDiffBackfillForSource(params: {
     };
   }
 
-  let fetchedEvents = 0;
-  let insertedEvents = 0;
   const totalDays = dailyWindows.length;
+
+  if (!(await sourceStillExists(supabase, source))) {
+    log.info('skipped', { sourceId: source.id, sourceName, provider, reason: 'source_deleted' });
+    return sourceDeletedResult('source_deleted');
+  }
 
   const ownerRepo = provider === 'github' ? parseGithubOwnerRepo(source.scope) : null;
   if (provider === 'github' && !ownerRepo) {
@@ -513,6 +537,18 @@ export async function runDiffBackfillForSource(params: {
 
   try {
     for (let index = 0; index < dailyWindows.length; index += 1) {
+      if (!(await sourceStillExists(supabase, source))) {
+        log.info('skipped', {
+          sourceId: source.id,
+          sourceName,
+          provider,
+          reason: 'source_deleted_mid_run',
+          dayIndex: index + 1,
+          totalDays,
+        });
+        return sourceDeletedResult('source_deleted');
+      }
+
       const dailyWindow = dailyWindows[index];
       const dayLabel = formatDayLabel(dailyWindow.day);
       let events: CanonicalEvent[] = [];
@@ -607,6 +643,17 @@ export async function runDiffBackfillForSource(params: {
       let insertedForDay = 0;
 
       if (events.length > 0) {
+        if (!(await sourceStillExists(supabase, source))) {
+          log.info('skipped', {
+            sourceId: source.id,
+            sourceName,
+            provider,
+            reason: 'source_deleted_before_insert',
+            day: dailyWindow.day,
+          });
+          return sourceDeletedResult('source_deleted');
+        }
+
         const newEvents = await filterNewCanonicalEvents({
           supabase,
           sourceId: source.id,
@@ -614,18 +661,33 @@ export async function runDiffBackfillForSource(params: {
         });
 
         if (newEvents.length > 0) {
-          await insertCanonicalEvents({
-            supabase,
-            sourceId: source.id,
-            provider,
-            events: newEvents,
-          });
-          await upsertDailyMetrics({
-            supabase,
-            sourceId: source.id,
-            provider,
-            events: newEvents,
-          });
+          try {
+            await insertCanonicalEvents({
+              supabase,
+              sourceId: source.id,
+              provider,
+              events: newEvents,
+            });
+            await upsertDailyMetrics({
+              supabase,
+              sourceId: source.id,
+              provider,
+              events: newEvents,
+            });
+          } catch (error) {
+            const message = errorMessage(error);
+            if (message.includes('violates foreign key constraint')) {
+              log.info('skipped', {
+                sourceId: source.id,
+                sourceName,
+                provider,
+                reason: 'source_deleted_during_insert',
+                day: dailyWindow.day,
+              });
+              return sourceDeletedResult('source_deleted');
+            }
+            throw error;
+          }
           insertedForDay = newEvents.length;
           insertedEvents += insertedForDay;
         }

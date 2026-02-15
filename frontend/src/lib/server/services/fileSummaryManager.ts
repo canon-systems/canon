@@ -11,6 +11,7 @@ const log = createLogger('llm.summaries', {
   label: 'File Summaries',
   eventLabels: {
     run_start: 'Summary Run Started',
+    run_aborted: 'Summary Run Aborted',
     run_complete: 'Summary Run Completed',
     batch_start: 'Batch Started',
     file_summary_start: 'File Summary Started',
@@ -55,6 +56,7 @@ export interface UpdateResult {
   failed: number;
   total: number;
   updatedFiles: string[];
+  aborted?: boolean;
 }
 
 /**
@@ -206,6 +208,7 @@ export class FileSummaryManager {
       onProgress?: ProgressCallback;
       model?: string;
       regenerationReason?: string;
+      shouldAbort?: () => Promise<boolean> | boolean;
     } = {}
   ): Promise<UpdateResult> {
     const {
@@ -214,12 +217,27 @@ export class FileSummaryManager {
       onProgress,
       model = 'openai/gpt-4o-mini',
       regenerationReason = 'initial',
+      shouldAbort,
     } = options;
 
     let processed = 0;
     const skipped = 0;
     let failed = 0;
     const updatedFiles: string[] = [];
+    let aborted = false;
+
+    const checkAbort = async (): Promise<boolean> => {
+      if (aborted || !shouldAbort) return aborted;
+      try {
+        aborted = Boolean(await shouldAbort());
+      } catch (error) {
+        log.warn('run_aborted', {
+          reason: 'abort_check_failed',
+          error: errorMessage(error),
+        });
+      }
+      return aborted;
+    };
 
     log.info('run_start', {
       totalFiles: files.length,
@@ -271,7 +289,10 @@ export class FileSummaryManager {
     );
 
     for (const batch of batches) {
+      if (await checkAbort()) break;
+
       await runWithConcurrency(batch, DEFAULT_CONCURRENCY, async (file) => {
+        if (aborted || await checkAbort()) return;
         try {
           const status = statusMap.get(file.path);
           const reason = !status?.exists ? 'new file (added)' : 'content changed (hash mismatch)';
@@ -286,6 +307,7 @@ export class FileSummaryManager {
 
           const fileHash = file.hash || this.calculateFileHash(file.content);
           const summary = await generateFileSummary(file.content, file.path, model);
+          if (aborted || await checkAbort()) return;
 
           const { error } = await this.supabase
             .from('repo_file_summaries')
@@ -308,6 +330,10 @@ export class FileSummaryManager {
             );
 
           if (error) {
+            if (error.message.includes('repo_file_summaries_source_id_fkey')) {
+              aborted = true;
+              return;
+            }
             log.error('file_summary_save_failed', {
               path: file.path,
               error: error.message,
@@ -325,6 +351,29 @@ export class FileSummaryManager {
           failed++;
         }
       });
+    }
+
+    if (aborted) {
+      onProgress?.({
+        processed: processed + skipped,
+        total: filesNeedingUpdate.length,
+        status: 'aborted'
+      });
+      log.info('run_aborted', {
+        totalFiles: files.length,
+        filesNeedingUpdate: filesNeedingUpdate.length,
+        processed,
+        skipped: files.length - filesNeedingUpdate.length,
+        failed,
+      });
+      return {
+        processed,
+        skipped: files.length - filesNeedingUpdate.length,
+        failed,
+        total: files.length,
+        updatedFiles,
+        aborted: true,
+      };
     }
 
     onProgress?.({
@@ -362,6 +411,7 @@ export class FileSummaryManager {
       onProgress?: ProgressCallback;
       model?: string;
       regenerationReason?: string;
+      shouldAbort?: () => Promise<boolean> | boolean;
     } = {}
   ): Promise<UpdateResult> {
     const { force = true, ...rest } = options;

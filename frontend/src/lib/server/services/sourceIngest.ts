@@ -245,11 +245,12 @@ export async function ingestGitHubSource(
     });
     if (await abortIfDeleted(supabase, source, 'summarizing')) return;
     let lastPct = 60;
-    await manager.updateSummaries(
+    const summaryResult = await manager.updateSummaries(
       files.map((f) => ({ path: f.path, content: f.content })),
       {
         model: 'openai/gpt-4o-mini',
         regenerationReason: 'initial',
+        shouldAbort: () => sourceStillExists(supabase, source.id, source.user_id).then((exists) => !exists),
         onProgress: ({ processed, total }) => {
           if (!total) return;
           const pct = Math.min(85, 60 + Math.round((25 * processed) / total));
@@ -263,6 +264,8 @@ export async function ingestGitHubSource(
         },
       }
     );
+    if (summaryResult.aborted && await abortIfDeleted(supabase, source, 'summarizing')) return;
+    if (await abortIfDeleted(supabase, source, 'summarizing')) return;
 
     // Build AKUs: per-source (single tab) or merged from selected sources only (multi tab)
     await updateStage(supabase, source.id, 'building_akus', 85, 'Building Canon View outputs');
@@ -505,8 +508,15 @@ export async function ingestIssueSource(
     });
 
     if (rows.length > 0) {
+      if (await abortIfDeleted(supabase, source, 'indexing')) return;
       ingestLog.info('issue_store_start', { sourceId: source.id, provider, totalIssues: rows.length });
-      await supabase.from('issue_index').upsert(rows, { onConflict: 'source_id,issue_key' });
+      const { error: issueStoreError } = await supabase.from('issue_index').upsert(rows, { onConflict: 'source_id,issue_key' });
+      if (issueStoreError) {
+        if (issueStoreError.message.includes('issue_index_source_id_fkey') && await abortIfDeleted(supabase, source, 'indexing')) {
+          return;
+        }
+        throw issueStoreError;
+      }
       if (await abortIfDeleted(supabase, source, 'indexing')) return;
     } else {
       ingestLog.info('issue_store_skipped', { sourceId: source.id, provider, reason: 'no_issues' });
