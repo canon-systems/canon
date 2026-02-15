@@ -12,7 +12,7 @@ export function getConfluenceOAuthScopes(): string[] {
     'read:space:confluence',
     'offline_access',
     'read:jira-work',
-    'manage:jira-webhook'
+    // 'manage:jira-webhook'
   ];
 }
 
