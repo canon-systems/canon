@@ -12,6 +12,13 @@ type RequestBody = {
   requested_days?: unknown;
 };
 
+function normalizeSourceName(input: unknown, fallbackId: string): string {
+  if (typeof input === 'string' && input.trim().length > 0) {
+    return input.trim();
+  }
+  return fallbackId;
+}
+
 function normalizeSourceIds(input: unknown): string[] {
   if (!Array.isArray(input)) return [];
   return input.filter((id): id is string => typeof id === 'string' && id.trim().length > 0);
@@ -44,7 +51,7 @@ export async function POST(request: NextRequest) {
   const supabase = await createClient();
   const { data: rows, error } = await supabase
     .from('workspace_sources')
-    .select('id, provider')
+    .select('id, name, provider')
     .eq('user_id', user.id)
     .in('id', sourceIds);
 
@@ -52,14 +59,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to load sources', detail: error.message }, { status: 500 });
   }
 
-  const eligibleSourceIds = (rows || [])
-    .filter((row) => {
+  const eligibleSources = (rows || [])
+    .map((row) => {
+      const id = typeof row.id === 'string' ? row.id : '';
       const provider = typeof row.provider === 'string' ? row.provider.toLowerCase() : '';
-      return provider === 'github' || provider === 'jira';
+      const sourceName = normalizeSourceName(row.name, id);
+      return { id, provider, sourceName };
     })
-    .map((row) => row.id as string);
+    .filter((row) => row.id.length > 0 && (row.provider === 'github' || row.provider === 'jira'));
 
-  if (eligibleSourceIds.length === 0) {
+  if (eligibleSources.length === 0) {
     return NextResponse.json(
       { error: 'No eligible github/jira sources found in source_ids' },
       { status: 400 }
@@ -67,7 +76,7 @@ export async function POST(request: NextRequest) {
   }
 
   const enqueueResults = await Promise.all(
-    eligibleSourceIds.map(async (sourceId) => {
+    eligibleSources.map(async ({ id: sourceId, sourceName }) => {
       await patchSourceBackfillStatus({
         supabase,
         sourceId,
@@ -83,11 +92,12 @@ export async function POST(request: NextRequest) {
           name: 'diff/source.backfill.requested',
           data: {
             sourceId,
+            sourceName,
             userId: user.id,
             requestedDays: effectiveDays,
           },
         });
-        return { sourceId, queued: true };
+        return { sourceId, sourceName, queued: true };
       } catch (err) {
         await patchSourceBackfillStatus({
           supabase,
@@ -100,6 +110,7 @@ export async function POST(request: NextRequest) {
         });
         return {
           sourceId,
+          sourceName,
           queued: false,
           error: err instanceof Error ? err.message : String(err),
         };
@@ -113,7 +124,7 @@ export async function POST(request: NextRequest) {
   return NextResponse.json(
     {
       queued,
-      requested: eligibleSourceIds.length,
+      requested: eligibleSources.length,
       requested_days: effectiveDays,
       failed,
     },

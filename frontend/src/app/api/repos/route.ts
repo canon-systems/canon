@@ -177,6 +177,10 @@ export async function POST(request: NextRequest) {
       }
 
       if (provider === 'github' || provider === 'jira') {
+        const sourceName =
+          typeof row.name === 'string' && row.name.trim().length > 0
+            ? row.name.trim()
+            : row.id;
         await patchSourceBackfillStatus({
           supabase,
           sourceId: row.id,
@@ -192,6 +196,7 @@ export async function POST(request: NextRequest) {
             name: 'diff/source.backfill.requested',
             data: {
               sourceId: row.id,
+              sourceName,
               userId: user.id,
             },
           });
@@ -207,6 +212,7 @@ export async function POST(request: NextRequest) {
           });
           console.warn('[diff/backfill] failed to enqueue source backfill', {
             sourceId: row.id,
+            sourceName,
             provider,
             error: err instanceof Error ? err.message : String(err),
           });

@@ -36,6 +36,7 @@ type CanonicalEvent = {
 export type DiffBackfillSource = {
   id: string;
   user_id: string;
+  name?: string | null;
   provider: string;
   scope: Record<string, unknown> | null;
 };
@@ -322,6 +323,21 @@ function providerName(provider: string): string {
   return provider === 'github' ? 'GitHub' : provider === 'jira' ? 'Jira' : provider;
 }
 
+function resolveBackfillSourceName(source: DiffBackfillSource): string | null {
+  if (typeof source.name === 'string' && source.name.trim().length > 0) {
+    return source.name.trim();
+  }
+
+  const provider = source.provider.toLowerCase();
+  if (provider === 'github' && typeof source.scope?.repo === 'string' && source.scope.repo.trim().length > 0) {
+    return source.scope.repo.trim();
+  }
+  if (provider === 'jira' && typeof source.scope?.project === 'string' && source.scope.project.trim().length > 0) {
+    return `jira/${source.scope.project.trim()}`;
+  }
+  return null;
+}
+
 function formatDayLabel(day: string): string {
   const parsed = new Date(`${day}T00:00:00.000Z`);
   if (Number.isNaN(parsed.getTime())) return day;
@@ -396,13 +412,14 @@ export async function runDiffBackfillForSource(params: {
 }): Promise<DiffBackfillResult> {
   const { supabase, source, requestedDays, now } = params;
   const provider = source.provider.toLowerCase();
+  const sourceName = resolveBackfillSourceName(source) ?? source.id;
   const days = resolveDiffBackfillDays(requestedDays);
   const window = buildDiffBackfillWindow(days, now);
   const dailyWindows = splitIntoDailyWindows(window);
   const providerLabel = providerName(provider);
 
   if (provider !== 'github' && provider !== 'jira') {
-    log.info('skipped', { sourceId: source.id, provider, reason: 'unsupported_provider' });
+    log.info('skipped', { sourceId: source.id, sourceName, provider, reason: 'unsupported_provider' });
     return {
       source_id: source.id,
       provider,
@@ -414,7 +431,14 @@ export async function runDiffBackfillForSource(params: {
   }
 
   if (dailyWindows.length === 0) {
-    log.warn('skipped', { sourceId: source.id, provider, reason: 'invalid_window', windowStart: window.start, windowEnd: window.end });
+    log.warn('skipped', {
+      sourceId: source.id,
+      sourceName,
+      provider,
+      reason: 'invalid_window',
+      windowStart: window.start,
+      windowEnd: window.end,
+    });
     return {
       source_id: source.id,
       provider,
@@ -431,7 +455,7 @@ export async function runDiffBackfillForSource(params: {
 
   const ownerRepo = provider === 'github' ? parseGithubOwnerRepo(source.scope) : null;
   if (provider === 'github' && !ownerRepo) {
-    log.warn('skipped', { sourceId: source.id, provider, reason: 'missing_repo_scope' });
+    log.warn('skipped', { sourceId: source.id, sourceName, provider, reason: 'missing_repo_scope' });
     return {
       source_id: source.id,
       provider,
@@ -449,7 +473,7 @@ export async function runDiffBackfillForSource(params: {
     ? source.scope.cloudId
     : null;
   if (provider === 'jira' && !projectKey) {
-    log.warn('skipped', { sourceId: source.id, provider, reason: 'missing_project_scope' });
+    log.warn('skipped', { sourceId: source.id, sourceName, provider, reason: 'missing_project_scope' });
     return {
       source_id: source.id,
       provider,
@@ -462,6 +486,7 @@ export async function runDiffBackfillForSource(params: {
 
   log.info('start', {
     sourceId: source.id,
+    sourceName,
     provider,
     windowStart: window.start,
     windowEnd: window.end,
@@ -506,6 +531,7 @@ export async function runDiffBackfillForSource(params: {
 
       log.debug('day_start', {
         sourceId: source.id,
+        sourceName,
         provider,
         day: dailyWindow.day,
         dayIndex: index + 1,
@@ -526,6 +552,7 @@ export async function runDiffBackfillForSource(params: {
         });
         log.warn('day_retry_scheduled', {
           sourceId: source.id,
+          sourceName,
           provider,
           day: dailyWindow.day,
           attempt: retryEvent.attempt,
@@ -622,6 +649,7 @@ export async function runDiffBackfillForSource(params: {
 
       const dayLogFields = {
         sourceId: source.id,
+        sourceName,
         provider,
         day: dailyWindow.day,
         fetchedEvents: events.length,
@@ -651,6 +679,7 @@ export async function runDiffBackfillForSource(params: {
 
     log.info('complete', {
       sourceId: source.id,
+      sourceName,
       provider,
       fetchedEvents,
       insertedEvents,
@@ -667,6 +696,7 @@ export async function runDiffBackfillForSource(params: {
   } catch (error) {
     log.error('failed', {
       sourceId: source.id,
+      sourceName,
       provider,
       error: errorMessage(error),
     });

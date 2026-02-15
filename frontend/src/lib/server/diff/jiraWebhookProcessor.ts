@@ -28,6 +28,7 @@ type JiraWebhookProcessResult = {
   projectKey?: string | null;
   issueKey?: string | null;
   sourceId?: string | null;
+  sourceName?: string | null;
   canonicalEventCount?: number;
   insertedCanonicalEventCount?: number;
   skipped?: string;
@@ -86,7 +87,7 @@ async function getStatusCategoryMap(connectionId: string, cloudId: string) {
 async function getJiraSourceContext(supabase: ReturnType<typeof createServiceRoleClient>, sourceId: string) {
   const { data: sourceRow } = await supabase
     .from('workspace_sources')
-    .select('connection_id, scope')
+    .select('name, connection_id, scope')
     .eq('id', sourceId)
     .maybeSingle();
 
@@ -94,9 +95,13 @@ async function getJiraSourceContext(supabase: ReturnType<typeof createServiceRol
     ? (sourceRow.scope as Record<string, unknown>)
     : {};
   const cloudId = typeof scope.cloudId === 'string' && scope.cloudId.trim().length > 0 ? scope.cloudId : null;
+  const sourceName =
+    typeof sourceRow?.name === 'string' && sourceRow.name.trim().length > 0
+      ? sourceRow.name.trim()
+      : null;
 
   if (!sourceRow?.connection_id) {
-    return { connectionId: null, cloudId };
+    return { sourceName, connectionId: null, cloudId };
   }
 
   const { data: connectionRow } = await supabase
@@ -108,6 +113,7 @@ async function getJiraSourceContext(supabase: ReturnType<typeof createServiceRol
     .maybeSingle();
 
   return {
+    sourceName,
     connectionId: connectionRow?.connection_id ?? null,
     cloudId,
   };
@@ -157,18 +163,20 @@ export async function processJiraWebhookPayload(
     return { ok: true, requestId, projectKey, issueKey, skipped: 'source not found' };
   }
 
+  const sourceContext = await getJiraSourceContext(supabase, sourceId);
+  const sourceName = sourceContext.sourceName;
   log.info('source_resolved', {
     requestId,
     projectKey,
     issueKey,
     sourceId,
+    sourceName,
   });
-
-  const sourceContext = await getJiraSourceContext(supabase, sourceId);
 
   log.info('connection_resolved', {
     requestId,
     sourceId,
+    sourceName,
     hasConnectionId: Boolean(sourceContext.connectionId),
     cloudId: sourceContext.cloudId,
   });
@@ -186,6 +194,7 @@ export async function processJiraWebhookPayload(
     log.info('raw_event_inserted', {
       requestId,
       sourceId,
+      sourceName,
       webhookEvent,
       webhookId: params.webhookId ?? null,
     });
@@ -193,6 +202,7 @@ export async function processJiraWebhookPayload(
     log.error('raw_event_failed', {
       requestId,
       sourceId,
+      sourceName,
       webhookEvent,
       webhookId: params.webhookId ?? null,
       error: errorMessage(error),
@@ -210,12 +220,14 @@ export async function processJiraWebhookPayload(
       log.info('status_map_loaded', {
         requestId,
         sourceId,
+        sourceName,
         size: statusCategoryMap.size,
       });
       if (statusCategoryMap.size === 0) {
         log.warn('status_map_unavailable', {
           requestId,
           sourceId,
+          sourceName,
           cloudId: sourceContext.cloudId,
           hasConnectionId: Boolean(sourceContext.connectionId),
         });
@@ -224,6 +236,7 @@ export async function processJiraWebhookPayload(
       log.warn('status_map_failed', {
         requestId,
         sourceId,
+        sourceName,
         error: errorMessage(error),
       });
     }
@@ -233,6 +246,7 @@ export async function processJiraWebhookPayload(
   log.info('canonical_events_extracted', {
     requestId,
     sourceId,
+    sourceName,
     projectKey,
     issueKey,
     count: canonicalEvents.length,
@@ -249,12 +263,14 @@ export async function processJiraWebhookPayload(
       log.info('canonical_events_inserted', {
         requestId,
         sourceId,
+        sourceName,
         insertedCount: insertedCanonicalEventCount,
       });
     } else {
       log.info('canonical_events_deduped', {
         requestId,
         sourceId,
+        sourceName,
         dedupedCount: canonicalEvents.length,
       });
     }
@@ -264,6 +280,7 @@ export async function processJiraWebhookPayload(
   log.info('process_complete', {
     requestId,
     sourceId,
+    sourceName,
     projectKey,
     issueKey,
     durationMs,
@@ -277,6 +294,7 @@ export async function processJiraWebhookPayload(
     projectKey,
     issueKey,
     sourceId,
+    sourceName,
     canonicalEventCount: canonicalEvents.length,
     insertedCanonicalEventCount,
   };

@@ -6,6 +6,7 @@ import { createLogger, errorMessage } from '@/lib/server/logging';
 
 type BackfillRequestedEvent = {
   sourceId?: string;
+  sourceName?: string;
   userId?: string;
   requestedDays?: number;
 };
@@ -30,6 +31,7 @@ export const diffSourceBackfill = inngest.createFunction(
   async ({ event, step }) => {
     const data = (event.data ?? {}) as BackfillRequestedEvent;
     const sourceId = typeof data.sourceId === 'string' ? data.sourceId : '';
+    const sourceNameFromEvent = typeof data.sourceName === 'string' ? data.sourceName.trim() : '';
     const userId = typeof data.userId === 'string' ? data.userId : '';
     const requestedDays = typeof data.requestedDays === 'number' ? data.requestedDays : undefined;
 
@@ -40,7 +42,7 @@ export const diffSourceBackfill = inngest.createFunction(
     const supabase = createServiceRoleClient();
     const { data: source, error } = await supabase
       .from('workspace_sources')
-      .select('id, user_id, provider, scope')
+      .select('id, user_id, name, provider, scope')
       .eq('id', sourceId)
       .eq('user_id', userId)
       .maybeSingle();
@@ -59,12 +61,30 @@ export const diffSourceBackfill = inngest.createFunction(
     }
 
     if (!source) {
-      return { skipped: true, reason: 'source_not_found', sourceId, userId };
+      return {
+        skipped: true,
+        reason: 'source_not_found',
+        sourceId,
+        sourceName: sourceNameFromEvent || null,
+        userId,
+      };
     }
 
-    const sourceRow = source as { id: string; user_id: string; provider: string; scope: Record<string, unknown> | null };
+    const sourceRow = source as {
+      id: string;
+      user_id: string;
+      name?: string | null;
+      provider: string;
+      scope: Record<string, unknown> | null;
+    };
+    const sourceName =
+      typeof sourceRow.name === 'string' && sourceRow.name.trim().length > 0
+        ? sourceRow.name.trim()
+        : sourceNameFromEvent || sourceRow.id;
+
     log.info('worker_start', {
       sourceId: sourceRow.id,
+      sourceName,
       userId,
       provider: sourceRow.provider,
       requestedDays: requestedDays ?? null,
@@ -81,6 +101,7 @@ export const diffSourceBackfill = inngest.createFunction(
 
       log.info('worker_complete', {
         sourceId: sourceRow.id,
+        sourceName,
         provider: sourceRow.provider,
         requestedDays: requestedDays ?? null,
         fetchedEvents: result.fetched_events,
@@ -93,6 +114,7 @@ export const diffSourceBackfill = inngest.createFunction(
     } catch (error) {
       log.error('worker_failed', {
         sourceId: sourceRow.id,
+        sourceName,
         userId,
         provider: sourceRow.provider,
         error: errorMessage(error),

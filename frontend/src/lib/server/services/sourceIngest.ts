@@ -91,6 +91,7 @@ export type SourceSetupStage =
 export type WorkspaceSource = {
   id: string;
   user_id: string;
+  name?: string | null;
   provider: string;
   scope: Record<string, unknown>;
   connection_id?: string | null;

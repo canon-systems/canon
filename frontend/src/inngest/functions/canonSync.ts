@@ -50,7 +50,7 @@ export const syncCanonSources = inngest.createFunction(
 
     const { data: sources, error } = await supabase
       .from("workspace_sources")
-      .select("id, user_id, provider, scope, connection_id")
+      .select("id, user_id, name, provider, scope, connection_id")
       .in("provider", ["github", "jira", "linear", "asana"]);
 
     if (error) {
@@ -73,10 +73,11 @@ export const syncCanonSources = inngest.createFunction(
 
     for (const row of sources as WorkspaceSource[]) {
       const provider = (row.provider || "").toLowerCase();
+      const sourceName = typeof row.name === "string" && row.name.trim().length > 0 ? row.name.trim() : row.id;
       const scopeLabel =
         provider === "github"
-          ? (row.scope as { repo?: string })?.repo ?? row.id
-          : (row.scope as { project?: string })?.project ?? row.id;
+          ? (row.scope as { repo?: string })?.repo ?? sourceName
+          : (row.scope as { project?: string })?.project ?? sourceName;
       try {
         if (provider === "github") {
           const r = await syncGitHubSourceDelta(supabase, row);
@@ -101,7 +102,7 @@ export const syncCanonSources = inngest.createFunction(
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        errors.push(`${row.id} (${provider}): ${msg}`);
+        errors.push(`${sourceName} (${row.id}, ${provider}): ${msg}`);
         console.error(`[canon-sync] Failed ${provider} ${scopeLabel}: ${msg}`);
       }
     }

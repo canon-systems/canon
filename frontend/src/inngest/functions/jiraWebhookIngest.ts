@@ -85,6 +85,7 @@ export const ingestJiraWebhook = inngest.createFunction(
         projectKey: data.projectKey ?? null,
         skipped: result.skipped ?? null,
         sourceId: result.sourceId ?? null,
+        sourceName: result.sourceName ?? null,
         canonicalEventCount: result.canonicalEventCount ?? 0,
         insertedCanonicalEventCount: result.insertedCanonicalEventCount ?? 0,
       });
