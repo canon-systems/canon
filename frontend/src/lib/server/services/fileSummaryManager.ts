@@ -7,6 +7,8 @@ import { createLogger, errorMessage } from '@/lib/server/logging';
 // Single config for all environments (keep simple, predictable load on gateway)
 const DEFAULT_BATCH_SIZE = 10;
 const DEFAULT_CONCURRENCY = 5;
+const STATUS_QUERY_CHUNK_SIZE = 200;
+const ABORT_CHECK_INTERVAL_MS = 3000;
 const log = createLogger('llm.summaries', {
   label: 'File Summaries',
   eventLabels: {
@@ -152,14 +154,60 @@ export class FileSummaryManager {
    */
   async checkMultipleSummaryStatus(files: Array<{ path: string; hash?: string }>): Promise<Map<string, SummaryStatus>> {
     const results = new Map<string, SummaryStatus>();
+    if (files.length === 0) return results;
 
-    // Check all files in parallel
-    const checks = files.map(async (file) => {
-      const status = await this.checkSummaryStatus(file.path, file.hash);
-      results.set(file.path, status);
+    const filesWithNormalized = files.map((file) => ({
+      originalPath: file.path,
+      normalizedPath: this.normalizeFilePath(file.path),
+      hash: file.hash,
+    }));
+
+    const normalizedPaths = Array.from(new Set(filesWithNormalized.map((file) => file.normalizedPath)));
+    const existingByPath = new Map<string, { file_hash: string | null; updated_at: string | null }>();
+
+    for (let i = 0; i < normalizedPaths.length; i += STATUS_QUERY_CHUNK_SIZE) {
+      const chunk = normalizedPaths.slice(i, i + STATUS_QUERY_CHUNK_SIZE);
+      const { data, error } = await this.supabase
+        .from('repo_file_summaries')
+        .select('file_path, file_hash, updated_at')
+        .eq('source_id', this.sourceId)
+        .eq('branch', this.branch)
+        .in('file_path', chunk);
+
+      if (error) {
+        log.warn('run_progress', {
+          reason: 'status_query_failed',
+          chunkSize: chunk.length,
+          error: error.message,
+        });
+        for (const file of files) {
+          results.set(file.path, {
+            exists: false,
+            isUpToDate: false,
+            currentHash: null,
+          });
+        }
+        return results;
+      }
+
+      for (const row of data || []) {
+        existingByPath.set(row.file_path, {
+          file_hash: row.file_hash ?? null,
+          updated_at: row.updated_at ?? null,
+        });
+      }
+    }
+
+    filesWithNormalized.forEach((file) => {
+      const existing = existingByPath.get(file.normalizedPath);
+      const isUpToDate = existing ? (file.hash ? existing.file_hash === file.hash : true) : false;
+      results.set(file.originalPath, {
+        exists: Boolean(existing),
+        isUpToDate,
+        currentHash: existing?.file_hash ?? null,
+        lastUpdated: existing?.updated_at ?? undefined,
+      });
     });
-
-    await Promise.all(checks);
     return results;
   }
 
@@ -251,11 +299,22 @@ export class FileSummaryManager {
     let lastCompletedAtMs: number | null = null;
     let lastProgressLogAtMs = 0;
     let lastStallLogAtMs = 0;
+    let lastAbortCheckAtMs = 0;
+    let lastAbortCheckResult = false;
 
     const checkAbort = async (): Promise<boolean> => {
       if (aborted || !shouldAbort) return aborted;
+      const nowMs = Date.now();
+      if (lastAbortCheckResult && nowMs - lastAbortCheckAtMs < ABORT_CHECK_INTERVAL_MS) {
+        return true;
+      }
+      if (nowMs - lastAbortCheckAtMs < ABORT_CHECK_INTERVAL_MS) {
+        return false;
+      }
       try {
-        aborted = Boolean(await shouldAbort());
+        lastAbortCheckAtMs = nowMs;
+        lastAbortCheckResult = Boolean(await shouldAbort());
+        aborted = lastAbortCheckResult;
       } catch (error) {
         log.warn('run_aborted', {
           reason: 'abort_check_failed',
