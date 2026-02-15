@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -164,6 +164,15 @@ function renderTransition(from: string | null | undefined, to: string | null | u
   return `${from || 'unknown'} -> ${to || 'unknown'}`;
 }
 
+function renderJiraTicketLabel(row: JiraDetailRow): string {
+  const summary = typeof row.summary === 'string' ? row.summary.trim() : '';
+  const key = typeof row.issue_key === 'string' ? row.issue_key.trim() : '';
+  if (summary && key) return `${summary} (${key})`;
+  if (summary) return summary;
+  if (key) return key;
+  return 'Untitled ticket';
+}
+
 function groupRowsBySource<T>(rows: T[], pickSource: (row: T) => string | null | undefined): Array<{ source: string; rows: T[] }> {
   const grouped = new Map<string, T[]>();
   for (const row of rows) {
@@ -174,15 +183,6 @@ function groupRowsBySource<T>(rows: T[], pickSource: (row: T) => string | null |
     grouped.get(source)!.push(row);
   }
   return Array.from(grouped.entries()).map(([source, groupedRows]) => ({ source, rows: groupedRows }));
-}
-
-function windowLast7DaysUtc(now: Date = new Date()): { start: string; end: string } {
-  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
-  end.setUTCDate(end.getUTCDate() - 1);
-  const start = new Date(end);
-  start.setUTCDate(start.getUTCDate() - 6);
-  start.setUTCHours(0, 0, 0, 0);
-  return { start: start.toISOString(), end: end.toISOString() };
 }
 
 function insightLines(data: CompareResponse): string[] {
@@ -265,7 +265,19 @@ function metricRows(data: CompareResponse): Array<{ key: string; current: number
   ];
 }
 
-export default function HistoryPageClient({ sources }: { sources: Source[] }) {
+type HistoryPageClientProps = {
+  sources: Source[];
+  initialData: CompareResponse | null;
+  initialError: string | null;
+  initialLastUpdatedAt: string | null;
+};
+
+export default function HistoryPageClient({
+  sources,
+  initialData,
+  initialError,
+  initialLastUpdatedAt,
+}: HistoryPageClientProps) {
   const diffSources = useMemo(
     () =>
       sources.filter((s) => {
@@ -276,47 +288,10 @@ export default function HistoryPageClient({ sources }: { sources: Source[] }) {
   );
 
   const sourceIds = useMemo(() => diffSources.map((s) => s.id), [diffSources]);
-  const [data, setData] = useState<CompareResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
-  const [diffSourceTab, setDiffSourceTab] = useState<DiffSourceTab>('jira');
-
-  const runCompare = useCallback(async () => {
-    if (sourceIds.length === 0) {
-      setData(null);
-      return;
-    }
-
-    const window = windowLast7DaysUtc(new Date());
-    setError(null);
-    try {
-      const res = await fetch('/api/diffs/compare', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          start_timestamp: window.start,
-          end_timestamp: window.end,
-          source_ids: sourceIds,
-        }),
-      });
-
-      const payload = (await res.json().catch(() => ({}))) as CompareResponse & { error?: string };
-      if (!res.ok) {
-        throw new Error(payload?.error || 'Failed to load Canon History');
-      }
-
-      setData(payload);
-      setLastUpdatedAt(new Date().toISOString());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load Canon History');
-      setData(null);
-    }
-  }, [sourceIds]);
-
-  useEffect(() => {
-    void runCompare();
-  }, [runCompare]);
+  const data = initialData;
+  const error = initialError;
+  const lastUpdatedAt = initialLastUpdatedAt;
+  const [requestedDiffSourceTab, setRequestedDiffSourceTab] = useState<DiffSourceTab>('jira');
 
   const providerTabs = useMemo<DiffSourceTab[]>(() => {
     const providers = new Set(diffSources.map((source) => source.provider.toLowerCase()));
@@ -326,11 +301,7 @@ export default function HistoryPageClient({ sources }: { sources: Source[] }) {
     return tabs.length > 0 ? tabs : ['jira', 'github'];
   }, [diffSources]);
 
-  useEffect(() => {
-    if (!providerTabs.includes(diffSourceTab)) {
-      setDiffSourceTab(providerTabs[0]);
-    }
-  }, [providerTabs, diffSourceTab]);
+  const diffSourceTab = providerTabs.includes(requestedDiffSourceTab) ? requestedDiffSourceTab : providerTabs[0];
 
   const insight = useMemo(() => (data ? insightLines(data) : []), [data]);
   const metrics = useMemo(() => (data ? metricRows(data) : []), [data]);
@@ -459,7 +430,7 @@ export default function HistoryPageClient({ sources }: { sources: Source[] }) {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
-              <Tabs value={diffSourceTab} onValueChange={(value) => setDiffSourceTab(value as DiffSourceTab)} className="w-full">
+              <Tabs value={diffSourceTab} onValueChange={(value) => setRequestedDiffSourceTab(value as DiffSourceTab)} className="w-full">
                 <TabsList className="mb-4 border border-white/10 bg-white/5">
                   {providerTabs.includes('jira') ? (
                     <TabsTrigger value="jira" className="!text-[10px] uppercase tracking-[0.2em] text-white/60 data-[state=active]:bg-white/10 data-[state=active]:[&_span]:text-black">
@@ -517,12 +488,10 @@ export default function HistoryPageClient({ sources }: { sources: Source[] }) {
                                     const lineKey = `${section.label}-${sourceGroup.source}-${row.issue_key}-${row.occurred_at}-${idx}`;
                                     const transition = renderTransition(row.from, row.to);
                                     const status = row.status || null;
-                                    const title = row.summary || 'Missing Jira summary';
-                                    const suffix = row.issue_key ? ` (${row.issue_key})` : '';
                                     return (
                                       <div key={lineKey} className="space-y-0.5">
                                         <p className="text-white/90">
-                                          {title}{suffix}
+                                          {renderJiraTicketLabel(row)}
                                         </p>
                                         <p className="text-white/60">{transition || status || 'No state transition provided'}</p>
                                         <p className="text-white/40">{formatDateTimeUtc(row.occurred_at)}</p>
