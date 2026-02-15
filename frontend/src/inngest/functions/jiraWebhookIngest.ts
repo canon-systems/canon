@@ -36,7 +36,7 @@ export const ingestJiraWebhook = inngest.createFunction(
     id: 'jira-webhook-ingest',
     name: 'Canon: Jira Webhook Ingest',
     retries: 2,
-    concurrency: { limit: 10 },
+    concurrency: { limit: 5 },
   },
   { event: 'jira/webhook.received' },
   async ({ event, step }) => {
