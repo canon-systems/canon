@@ -4,8 +4,8 @@ import {
   syncCanonSources,
   reportScheduleTick,
   reportScheduleBootstrap,
-  refreshJiraWebhooks,
   diffSourceBackfill,
+  ingestJiraWebhook,
 } from "../../../inngest";
 
 export const runtime = 'nodejs';
@@ -17,7 +17,7 @@ export const { GET, POST, PUT } = serve({
     syncCanonSources,
     reportScheduleTick,
     reportScheduleBootstrap,
-    refreshJiraWebhooks,
     diffSourceBackfill,
+    ingestJiraWebhook,
   ],
 });

@@ -1,8 +1,8 @@
 // Export all Inngest functions
 export { syncCanonSources } from "./functions/canonSync";
 export { reportScheduleTick, reportScheduleBootstrap } from "./functions/reportSchedules";
-export { refreshJiraWebhooks } from "./functions/jiraWebhooks";
 export { diffSourceBackfill } from "./functions/diffBackfill";
+export { ingestJiraWebhook } from "./functions/jiraWebhookIngest";
 
 // Export client
 export { inngest } from "./client";

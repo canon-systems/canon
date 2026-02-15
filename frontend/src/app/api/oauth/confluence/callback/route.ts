@@ -4,7 +4,6 @@ import { getSession } from '@/lib/auth';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { encryptSecret } from '@/lib/server/oauth/tokenCrypto';
 import { createConfluenceOAuthClient } from '@/lib/server/oauth/confluenceClient';
-import { getJiraWebhookBaseUrl, registerJiraWebhooks } from '@/lib/server/jira/webhooks';
 import { trackIntegrationConnected } from '@/lib/server/services/usageTracking';
 
 export const runtime = 'nodejs';
@@ -169,45 +168,6 @@ export async function GET(request: NextRequest) {
     if (tokenError) {
       console.error('Failed to store Atlassian tokens:', tokenError);
       return redirectToSettings(request.nextUrl.origin, { error: 'Failed to store Atlassian tokens.' });
-    }
-
-    if (jiraResource?.id) {
-      try {
-        console.log('[confluence/oauth/callback] registering Jira webhook', {
-          cloudId: jiraResource.id,
-          baseUrl: getJiraWebhookBaseUrl(),
-        });
-        await registerJiraWebhooks({
-          connectionId,
-          cloudId: jiraResource.id,
-          jqlFilter: null,
-        });
-        console.log('[confluence/oauth/callback] Jira webhook registered');
-      } catch (webhookError) {
-        const message = webhookError instanceof Error ? webhookError.message : String(webhookError);
-        console.error('Failed to register Jira webhooks:', message);
-        await supabase
-          .from('oauth_connections')
-          .update({
-            metadata: {
-              ...existingMetadata,
-              source: 'oauth',
-              connected_at: new Date().toISOString(),
-              cloud_id: primaryResource?.id || null,
-              site_url: primaryResource?.url || null,
-              site_name: primaryResource?.name || null,
-              jira_cloud_id: jiraResource?.id || null,
-              jira_site_url: jiraResource?.url || null,
-              jira_site_name: jiraResource?.name || null,
-              resource_count: Array.isArray(resources) ? resources.length : 0,
-              jira_webhook_status: 'degraded',
-              jira_webhook_error: message,
-            },
-            updated_at: new Date().toISOString(),
-          })
-          .eq('user_id', user.id)
-          .eq('provider', 'confluence');
-      }
     }
 
     await trackIntegrationConnected(supabase, user.id, 'confluence', connectionId);
