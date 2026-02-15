@@ -7,7 +7,7 @@ import {
   sendSlackMessage,
 } from '@/lib/server/signals/delivery';
 import { trackAutomationRun } from '@/lib/server/services/usageTracking';
-import { getWindowForCadence, getWindowForDays } from './cadence';
+import { resolveSignalPrimaryWindow } from './windowConfig';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 export type ReportScheduleRow = {
@@ -33,20 +33,22 @@ export type ReportScheduleRow = {
   next_run_at?: string | null;
 };
 
-function resolveWindow(schedule: ReportScheduleRow, now: Date): { start: string; end: string } {
-  const comm = schedule.communication || {};
-  const rawWindowDays =
-    (typeof (comm as Record<string, unknown>).window === 'object' &&
-      (comm as { window?: { days?: unknown } }).window?.days != null &&
-      (comm as { window?: { days?: unknown } }).window?.days) ||
-    (comm as Record<string, unknown>).window_days;
-
-  const windowDays = Number(rawWindowDays);
-  if (Number.isFinite(windowDays) && windowDays > 0) {
-    return getWindowForDays(Math.floor(windowDays), now);
-  }
-
-  return getWindowForCadence(schedule.cadence, now);
+function resolveWindow(schedule: ReportScheduleRow, now: Date): {
+  window: { start: string; end: string };
+  windowDays: number;
+} {
+  const resolved = resolveSignalPrimaryWindow({
+    communication: schedule.communication || {},
+    cadence: schedule.cadence,
+    now,
+  });
+  return {
+    window: {
+      start: resolved.start,
+      end: resolved.end,
+    },
+    windowDays: resolved.windowDays,
+  };
 }
 
 async function persistRunResult(params: {
@@ -107,7 +109,7 @@ export async function runReportSchedule(
       sourceIds: Array.isArray(schedule.source_ids) ? schedule.source_ids : [],
     });
 
-    const window = resolveWindow(schedule, now);
+    const { window, windowDays } = resolveWindow(schedule, now);
 
     const signalRun = await runSignalEngine({
       supabase,
@@ -154,6 +156,7 @@ export async function runReportSchedule(
       summary: {
         type: 'signals',
         window,
+        window_days: windowDays,
         signal_run_id: signalRun.runId,
         signals_count: rankedSignals.length,
         top_signal_ids: topSignals.map((signal) => signal.id),

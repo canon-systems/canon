@@ -5,7 +5,6 @@ import { FileSummaryManager } from './fileSummaryManager';
 import { parseRepoUrl } from '../github/github';
 import { getProviderAccessToken } from '../oauth/tokenStore';
 import { buildAkusForSources } from './akuBuilder';
-import { DEFAULT_AUDIENCES, type Audience } from '@/lib/constants/audiences';
 import { createLogger, errorMessage } from '@/lib/server/logging';
 
 const ingestLog = createLogger('source.ingest', {
@@ -53,29 +52,10 @@ async function resolvePreferredAudiences(
   supabase: SupabaseClient,
   userId: string
 ): Promise<string[]> {
-  try {
-    const admin = (supabase as unknown as { auth?: { admin?: { getUserById: (id: string) => Promise<{ data?: { user?: { user_metadata?: Record<string, unknown> } } }>; } } }).auth?.admin;
-    if (admin?.getUserById) {
-      const { data } = await admin.getUserById(userId);
-      const meta = data?.user?.user_metadata as Record<string, unknown> | undefined;
-      const preferred = Array.isArray(meta?.preferred_audiences)
-        ? meta?.preferred_audiences
-        : (typeof meta?.preferred_audience === 'string' ? [meta.preferred_audience] : []);
-      const cleaned = Array.from(new Set(
-        (preferred || []).filter((aud): aud is string => typeof aud === 'string' && aud.trim().length > 0)
-      ));
-      const filtered = cleaned.filter((aud): aud is Audience =>
-        (DEFAULT_AUDIENCES as readonly string[]).includes(aud)
-      );
-      if (filtered.length > 0) return filtered;
-    }
-  } catch (err) {
-    ingestLog.warn('preferred_audiences_fallback', {
-      userId,
-      reason: errorMessage(err),
-    });
-  }
-  return [...DEFAULT_AUDIENCES];
+  // Audience projection logic is archived for now; AKU build remains active.
+  void supabase;
+  void userId;
+  return [];
 }
 
 export type IngestOptions = { mode?: 'single' | 'multi'; createdSourceIds?: string[] };
@@ -301,8 +281,8 @@ export async function ingestGitHubSource(
       const stepLabel =
         total > 1 ? `Building Canon View outputs (${processed} / ${total})` : 'Building Canon View outputs';
       void updateStage(supabase, source.id, 'building_akus', pct, stepLabel, {
-        aku_projections_done: processed,
-        aku_projections_total: total,
+        aku_build_done: processed,
+        aku_build_total: total,
       });
     };
     if (options?.mode === 'single') {
@@ -544,7 +524,7 @@ export async function ingestIssueSource(
       ingestLog.info('issue_store_skipped', { sourceId: source.id, provider, reason: 'no_issues' });
     }
 
-    // Skip AKU build for issue-only sources to speed up ingest; projections can be run separately if needed.
+    // Skip AKU build for issue-only sources to speed up ingest.
     await updateStage(supabase, source.id, 'ready', 100, 'Setup complete (issues only, AKU build skipped)');
     ingestLog.info('issue_complete', { sourceId: source.id, provider, totalIssues: rows.length });
   } catch (err) {

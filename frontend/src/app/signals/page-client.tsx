@@ -39,13 +39,14 @@ export default function SignalsPageClient({
   selectedSeverity,
 }: {
   signals: SignalCard[];
-  windowDays: number;
+  windowDays: number | null;
   selectedSeverity: 'all' | 'elevated' | 'significant';
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
   const windowLabel = useMemo(() => {
+    if (windowDays == null) return 'Latest signals across all windows';
     if (windowDays <= 1) return 'Signals in the last day';
     return `Signals in the last ${windowDays} days`;
   }, [windowDays]);
@@ -77,9 +78,10 @@ export default function SignalsPageClient({
             <label className="text-xs uppercase tracking-[0.2em] text-white/60">Window</label>
             <select
               className="rounded-md border border-white/20 bg-black/60 px-3 py-2 text-sm text-white"
-              value={String(windowDays)}
-              onChange={(event) => setParam('window', event.target.value)}
+              value={windowDays == null ? 'all' : String(windowDays)}
+              onChange={(event) => setParam('window', event.target.value === 'all' ? null : event.target.value)}
             >
+              <option value="all">All windows</option>
               <option value="7">7 days</option>
               <option value="14">14 days</option>
               <option value="30">30 days</option>

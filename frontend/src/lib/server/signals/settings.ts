@@ -4,6 +4,8 @@ import type { WorkspaceSignalSettings } from '@/lib/server/signals/types';
 const DEFAULTS: Omit<WorkspaceSignalSettings, 'user_id'> = {
   baseline_window_days: 7,
   slack_channel: null,
+  email_digest_enabled: false,
+  email_digest_to: null,
   source_ids: [],
 };
 
@@ -15,6 +17,11 @@ function normalizeSettings(userId: string, row?: Record<string, unknown> | null)
         ? Math.max(1, Math.floor(row.baseline_window_days))
         : DEFAULTS.baseline_window_days,
     slack_channel: typeof row?.slack_channel === 'string' && row.slack_channel.trim().length > 0 ? row.slack_channel.trim() : null,
+    email_digest_enabled: row?.email_digest_enabled === true,
+    email_digest_to:
+      typeof row?.email_digest_to === 'string' && row.email_digest_to.trim().length > 0
+        ? row.email_digest_to.trim()
+        : null,
     source_ids: Array.isArray(row?.source_ids) ? row!.source_ids.filter((id): id is string => typeof id === 'string') : [],
   };
 }

@@ -17,6 +17,8 @@ export async function GET() {
     return NextResponse.json(
       {
         slack_channel: settings.slack_channel,
+        email_digest_enabled: settings.email_digest_enabled,
+        email_digest_to: settings.email_digest_to,
       },
       { status: 200 }
     );
@@ -36,14 +38,33 @@ export async function PUT(request: NextRequest) {
 
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const slackChannelRaw = body.slack_channel;
+    const emailDigestEnabledRaw = body.email_digest_enabled;
+    const emailDigestToRaw = body.email_digest_to;
     const slack_channel =
       typeof slackChannelRaw === 'string'
         ? slackChannelRaw.trim() || null
         : slackChannelRaw === null
           ? null
           : undefined;
+    const email_digest_enabled =
+      typeof emailDigestEnabledRaw === 'boolean'
+        ? emailDigestEnabledRaw
+        : emailDigestEnabledRaw === undefined
+          ? undefined
+          : null;
+    const emailDigestToProvided = Object.prototype.hasOwnProperty.call(body, 'email_digest_to');
+    const email_digest_to =
+      typeof emailDigestToRaw === 'string'
+        ? emailDigestToRaw.trim() || null
+        : emailDigestToRaw === null
+          ? null
+          : undefined;
 
-    if (slack_channel === undefined) {
+    if (
+      slack_channel === undefined ||
+      email_digest_enabled === null ||
+      (emailDigestToProvided && email_digest_to === undefined)
+    ) {
       return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
     }
 
@@ -51,12 +72,18 @@ export async function PUT(request: NextRequest) {
     const settings = await updateWorkspaceSignalSettings({
       supabase,
       userId: user.id,
-      patch: { slack_channel },
+      patch: {
+        slack_channel,
+        ...(email_digest_enabled !== undefined ? { email_digest_enabled } : {}),
+        ...(emailDigestToProvided ? { email_digest_to } : {}),
+      },
     });
 
     return NextResponse.json(
       {
         slack_channel: settings.slack_channel,
+        email_digest_enabled: settings.email_digest_enabled,
+        email_digest_to: settings.email_digest_to,
       },
       { status: 200 }
     );

@@ -23,16 +23,65 @@ type RequestBody = {
 
 type DiffDetails = {
   jira: {
-    moved: Array<{ issue_key: string | null; summary: string | null; from: string | null; to: string | null; occurred_at: string | null }>;
-    completed: Array<{ issue_key: string | null; summary: string | null; status: string | null; occurred_at: string | null }>;
-    regressed: Array<{ issue_key: string | null; summary: string | null; status: string | null; occurred_at: string | null }>;
-    created: Array<{ issue_key: string | null; summary: string | null; status: string | null; occurred_at: string | null }>;
+    moved: Array<{
+      issue_key: string | null;
+      summary: string | null;
+      space: string | null;
+      from: string | null;
+      to: string | null;
+      occurred_at: string | null;
+    }>;
+    completed: Array<{
+      issue_key: string | null;
+      summary: string | null;
+      space: string | null;
+      status: string | null;
+      occurred_at: string | null;
+    }>;
+    regressed: Array<{
+      issue_key: string | null;
+      summary: string | null;
+      space: string | null;
+      status: string | null;
+      occurred_at: string | null;
+    }>;
+    created: Array<{
+      issue_key: string | null;
+      summary: string | null;
+      space: string | null;
+      status: string | null;
+      occurred_at: string | null;
+    }>;
   };
   github: {
-    commits: Array<{ sha: string | null; repo: string | null; occurred_at: string | null }>;
-    prs_opened: Array<{ number: string | null; repo: string | null; occurred_at: string | null }>;
-    prs_merged: Array<{ number: string | null; repo: string | null; occurred_at: string | null }>;
-    prs_closed: Array<{ number: string | null; repo: string | null; occurred_at: string | null }>;
+    commits: Array<{ sha: string | null; repo: string | null; message: string | null; occurred_at: string | null }>;
+    prs_opened: Array<{
+      number: string | null;
+      repo: string | null;
+      title: string | null;
+      from: string | null;
+      to: string | null;
+      status: string | null;
+      occurred_at: string | null;
+    }>;
+    prs_merged: Array<{
+      number: string | null;
+      repo: string | null;
+      title: string | null;
+      from: string | null;
+      to: string | null;
+      status: string | null;
+      occurred_at: string | null;
+    }>;
+    prs_closed: Array<{
+      number: string | null;
+      repo: string | null;
+      title: string | null;
+      from: string | null;
+      to: string | null;
+      status: string | null;
+      occurred_at: string | null;
+    }>;
   };
 };
 
@@ -46,8 +95,6 @@ type CanonicalEventRow = {
 };
 
 type JiraSummaryMap = Map<string, string>;
-
-const DETAIL_LIMIT = 12;
 
 function emptyDetails(): DiffDetails {
   return {
@@ -80,32 +127,36 @@ function buildDetails(rows: CanonicalEventRow[] | null | undefined, jiraSummaryM
       (entityId && jiraSummaryMap ? jiraSummaryMap.get(entityId) || null : null);
 
     if (provider === 'jira') {
-      if (kind === 'ticket_moved' && details.jira.moved.length < DETAIL_LIMIT) {
+      if (kind === 'ticket_moved') {
         details.jira.moved.push({
           issue_key: entityId,
           summary,
+          space: repo,
           from: coerceString(metadata.from),
           to: coerceString(metadata.to),
           occurred_at,
         });
-      } else if (kind === 'ticket_completed' && details.jira.completed.length < DETAIL_LIMIT) {
+      } else if (kind === 'ticket_completed') {
         details.jira.completed.push({
           issue_key: entityId,
           summary,
+          space: repo,
           status: coerceString(metadata.status),
           occurred_at,
         });
-      } else if (kind === 'ticket_regressed' && details.jira.regressed.length < DETAIL_LIMIT) {
+      } else if (kind === 'ticket_regressed') {
         details.jira.regressed.push({
           issue_key: entityId,
           summary,
+          space: repo,
           status: coerceString(metadata.status),
           occurred_at,
         });
-      } else if (kind === 'ticket_created' && details.jira.created.length < DETAIL_LIMIT) {
+      } else if (kind === 'ticket_created') {
         details.jira.created.push({
           issue_key: entityId,
           summary,
+          space: repo,
           status: coerceString(metadata.status),
           occurred_at,
         });
@@ -114,28 +165,41 @@ function buildDetails(rows: CanonicalEventRow[] | null | undefined, jiraSummaryM
     }
 
     if (provider === 'github') {
-      if (kind === 'commit' && details.github.commits.length < DETAIL_LIMIT) {
+      if (kind === 'commit') {
         details.github.commits.push({
           sha: entityId,
           repo,
+          message: coerceString(metadata.message) || summary,
           occurred_at,
         });
-      } else if (kind === 'pr_opened' && details.github.prs_opened.length < DETAIL_LIMIT) {
+      } else if (kind === 'pr_opened') {
         details.github.prs_opened.push({
           number: entityId,
           repo,
+          title: summary,
+          from: coerceString(metadata.from),
+          to: coerceString(metadata.to),
+          status: coerceString(metadata.status),
           occurred_at,
         });
-      } else if (kind === 'pr_merged' && details.github.prs_merged.length < DETAIL_LIMIT) {
+      } else if (kind === 'pr_merged') {
         details.github.prs_merged.push({
           number: entityId,
           repo,
+          title: summary,
+          from: coerceString(metadata.from),
+          to: coerceString(metadata.to),
+          status: coerceString(metadata.status),
           occurred_at,
         });
-      } else if (kind === 'pr_closed' && details.github.prs_closed.length < DETAIL_LIMIT) {
+      } else if (kind === 'pr_closed') {
         details.github.prs_closed.push({
           number: entityId,
           repo,
+          title: summary,
+          from: coerceString(metadata.from),
+          to: coerceString(metadata.to),
+          status: coerceString(metadata.status),
           occurred_at,
         });
       }
@@ -368,8 +432,7 @@ export async function POST(req: NextRequest) {
       .in('source_id', sourceIds)
       .gte('occurred_at', primaryWindow.start)
       .lte('occurred_at', primaryWindow.end)
-      .order('occurred_at', { ascending: false })
-      .limit(200);
+      .order('occurred_at', { ascending: false });
 
     let jiraSummaryMap: JiraSummaryMap | undefined;
     if ((detailRows || []).some((row) => (row as CanonicalEventRow).provider === 'jira')) {
@@ -379,8 +442,7 @@ export async function POST(req: NextRequest) {
         .in('source_id', sourceIds)
         .eq('provider', 'jira')
         .gte('event_time', primaryWindow.start)
-        .lte('event_time', primaryWindow.end)
-        .limit(400);
+        .lte('event_time', primaryWindow.end);
       jiraSummaryMap = buildJiraSummaryMap((rawRows || []) as Array<{ payload?: Record<string, unknown> | null }>);
     }
 

@@ -348,9 +348,20 @@ export function extractGithubCanonicalEvents(payload: Record<string, unknown>): 
   const events: CanonicalEvent[] = [];
 
   const pullRequest = payload.pull_request as
-    | { number?: number; created_at?: string; merged_at?: string | null; closed_at?: string | null }
+    | {
+      number?: number;
+      title?: string;
+      created_at?: string;
+      merged_at?: string | null;
+      closed_at?: string | null;
+      base?: { ref?: string };
+      head?: { ref?: string };
+    }
     | undefined;
   const action = typeof payload.action === 'string' ? payload.action : '';
+  const pullRequestTitle = typeof pullRequest?.title === 'string' ? pullRequest.title : null;
+  const baseRef = typeof pullRequest?.base?.ref === 'string' ? pullRequest.base.ref : null;
+  const headRef = typeof pullRequest?.head?.ref === 'string' ? pullRequest.head.ref : null;
 
   if (pullRequest && action) {
     if (action === 'opened') {
@@ -359,6 +370,12 @@ export function extractGithubCanonicalEvents(payload: Record<string, unknown>): 
         occurred_at: pullRequest.created_at || new Date().toISOString(),
         entity_id: pullRequest.number ? String(pullRequest.number) : null,
         repo_full_name: repoFullName,
+        metadata: {
+          title: pullRequestTitle,
+          from: headRef,
+          to: baseRef,
+          status: 'opened',
+        },
       });
     }
 
@@ -369,6 +386,12 @@ export function extractGithubCanonicalEvents(payload: Record<string, unknown>): 
           occurred_at: pullRequest.merged_at,
           entity_id: pullRequest.number ? String(pullRequest.number) : null,
           repo_full_name: repoFullName,
+          metadata: {
+            title: pullRequestTitle,
+            from: 'open',
+            to: 'merged',
+            status: 'merged',
+          },
         });
       } else if (pullRequest.closed_at) {
         events.push({
@@ -376,6 +399,12 @@ export function extractGithubCanonicalEvents(payload: Record<string, unknown>): 
           occurred_at: pullRequest.closed_at,
           entity_id: pullRequest.number ? String(pullRequest.number) : null,
           repo_full_name: repoFullName,
+          metadata: {
+            title: pullRequestTitle,
+            from: 'open',
+            to: 'closed',
+            status: 'closed',
+          },
         });
       }
     }
@@ -390,6 +419,9 @@ export function extractGithubCanonicalEvents(payload: Record<string, unknown>): 
       occurred_at: ts || new Date().toISOString(),
       entity_id: sha,
       repo_full_name: repoFullName,
+      metadata: {
+        message: typeof commit.message === 'string' ? commit.message : null,
+      },
     });
   }
 

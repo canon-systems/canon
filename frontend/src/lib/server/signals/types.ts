@@ -88,6 +88,8 @@ export type WorkspaceSignalSettings = {
   user_id: string;
   baseline_window_days: number;
   slack_channel: string | null;
+  email_digest_enabled: boolean;
+  email_digest_to: string | null;
   source_ids: string[];
 };
 

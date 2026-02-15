@@ -41,6 +41,51 @@ export function formatWeeklyDigestMessage(params: {
   return lines.join('\n');
 }
 
+export function formatWeeklyDigestEmail(params: {
+  window: MetricWindow;
+  signals: SignalRecord[];
+}): { subject: string; text: string; html: string } {
+  const { window } = params;
+  const signals = sortSignalsByPriority(params.signals).slice(0, 3);
+  const subject = `Canon Weekly Insight (${window.start.slice(0, 10)} to ${window.end.slice(0, 10)})`;
+
+  const textLines = [
+    'Canon Weekly Insight',
+    `Window: ${window.start} -> ${window.end}`,
+    '',
+  ];
+
+  const htmlItems: string[] = [];
+  if (signals.length === 0) {
+    textLines.push('System stable. No significant deviations.');
+    htmlItems.push('<li>System stable. No significant deviations.</li>');
+  } else {
+    for (const signal of signals) {
+      textLines.push(`- [${signal.severity.toUpperCase()}] ${signal.title} - ${signal.summary_line}`);
+      textLines.push(`  Investigate: ${signalUrl(signal.id)}`);
+      htmlItems.push(
+        `<li><strong>[${signal.severity.toUpperCase()}]</strong> ${signal.title}<br/>${signal.summary_line}<br/><a href=\"${signalUrl(signal.id)}\">Investigate</a></li>`
+      );
+    }
+  }
+
+  const html = [
+    '<div style="font-family:Arial,sans-serif;line-height:1.5;">',
+    '<h2>Canon Weekly Insight</h2>',
+    `<p><strong>Window:</strong> ${window.start} to ${window.end}</p>`,
+    '<ul>',
+    ...htmlItems,
+    '</ul>',
+    '</div>',
+  ].join('');
+
+  return {
+    subject,
+    text: textLines.join('\n'),
+    html,
+  };
+}
+
 export function isSevereAlertSignal(signal: SignalRecord): boolean {
   return signal.type === 'regression_spike' && signal.severity === 'significant' && signal.percent_change >= 100;
 }
@@ -119,6 +164,46 @@ export async function sendSlackMessage(params: {
   const payload = (await response.json().catch(() => ({}))) as { ok?: boolean; error?: string };
   if (!payload.ok) {
     return { sent: false, reason: payload.error || 'Slack API returned ok=false' };
+  }
+
+  return { sent: true };
+}
+
+export async function sendEmailDigest(params: {
+  to: string | null;
+  subject: string;
+  text: string;
+  html: string;
+}): Promise<{ sent: boolean; reason?: string }> {
+  const { to, subject, text, html } = params;
+  if (!to || to.trim().length === 0) {
+    return { sent: false, reason: 'No email destination configured.' };
+  }
+
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.RESEND_FROM_EMAIL || 'Canon <noreply@canon.local>';
+  if (!apiKey) {
+    return { sent: false, reason: 'RESEND_API_KEY not configured.' };
+  }
+
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from,
+      to: [to.trim()],
+      subject,
+      text,
+      html,
+    }),
+  });
+
+  if (!response.ok) {
+    const payload = await response.text().catch(() => 'Email API request failed');
+    return { sent: false, reason: payload };
   }
 
   return { sent: true };

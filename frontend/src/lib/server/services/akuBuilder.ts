@@ -1077,6 +1077,13 @@ export async function buildAkusForSources(
   audiences: string[] = [],
   options: BuildAkusOptions = {}
 ) {
+  // Projection generation is archived for now; keep AKU build active.
+  const effectiveAudiences: string[] = [];
+  if (audiences.length > 0) {
+    log.info('projection_archived', {
+      requestedAudiences: audiences.length,
+    });
+  }
   const shouldAbort = options.shouldAbort || (async () => false);
   if (await shouldAbort()) return { akus: [], projections: [] };
   if (sourceIds.length === 0) return { akus: [], projections: [] };
@@ -1183,7 +1190,7 @@ export async function buildAkusForSources(
     clusters: clusterCount,
     unmatchedCode: unmatchedCodeEvidence,
     unmatchedIssue: unmatchedIssueEvidence,
-    audiences,
+    audiences: effectiveAudiences,
   });
 
   const clusterEntries = Array.from(clusters.entries())
@@ -1219,13 +1226,13 @@ export async function buildAkusForSources(
   const existingHashById = new Map<string, string>((existingById || []).map((r) => [r.id, r.hash]));
 
   const { data: existingProjections } =
-    candidateAkuIds.length > 0 && audiences.length > 0
+    candidateAkuIds.length > 0 && effectiveAudiences.length > 0
       ? await supabase
         .from('audience_views')
         .select('id, aku_id, audience, projection, status')
         .eq('user_id', userId)
         .in('aku_id', candidateAkuIds)
-        .in('audience', audiences)
+        .in('audience', effectiveAudiences)
       : { data: [] };
   const existingProjectionByKey = new Map<string, { id: string; projection: string; status: string }>(
     (existingProjections || []).map((p) => [`${p.aku_id}:${p.audience}`, { id: p.id, projection: p.projection, status: p.status }])
@@ -1305,7 +1312,7 @@ export async function buildAkusForSources(
       scores,
     });
 
-    for (const aud of audiences) {
+    for (const aud of effectiveAudiences) {
       const existing = existingProjectionByKey.get(`${akuId}:${aud}`);
       if (hashUnchanged && existing) {
         projections.push({
@@ -1351,7 +1358,7 @@ export async function buildAkusForSources(
   log.info('build_complete', {
     akus: akus.length,
     projections: projections.length,
-    audiences: audiences.length,
+    audiences: effectiveAudiences.length,
   });
 
   if (akus.length > 0) {
@@ -1390,7 +1397,7 @@ export async function buildAkusForSources(
       sourceIds,
       akusCount: akus.length,
       projectionsCount: projections.length,
-      audiences,
+      audiences: effectiveAudiences,
     });
   }
 

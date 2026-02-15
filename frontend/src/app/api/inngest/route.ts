@@ -2,11 +2,10 @@ import { serve } from "inngest/next";
 import {
   inngest,
   syncCanonSources,
-  reportScheduleTick,
-  reportScheduleBootstrap,
   diffSourceBackfill,
   ingestJiraWebhook,
   sourceIngestRequested,
+  weeklySignalsDigest,
 } from "../../../inngest";
 
 export const runtime = 'nodejs';
@@ -17,8 +16,7 @@ export const { GET, POST, PUT } = serve({
   functions: [
     // checkAndRunAutomations,
     syncCanonSources,
-    reportScheduleTick,
-    reportScheduleBootstrap,
+    weeklySignalsDigest,
     diffSourceBackfill,
     ingestJiraWebhook,
     sourceIngestRequested,

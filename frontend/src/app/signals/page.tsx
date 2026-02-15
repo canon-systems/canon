@@ -8,9 +8,10 @@ import SignalsPageClient from './page-client';
 
 export const dynamic = 'force-dynamic';
 
-function parseWindowDays(raw: string | null | undefined): number {
+function parseWindowDays(raw: string | null | undefined): number | null {
+  if (raw == null) return null;
   const parsed = Number.parseInt(String(raw ?? '').replace(/d$/i, ''), 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) return 7;
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
   return Math.min(parsed, 90);
 }
 
@@ -31,7 +32,7 @@ export default async function SignalsPage({
     severityParam === 'elevated' || severityParam === 'significant' ? severityParam : undefined;
   const selectedSeverity = severity || 'all';
   const scope = typeof params.scope === 'string' && params.scope.trim().length > 0 ? params.scope : undefined;
-  const window = getWindowForDays(windowDays, new Date());
+  const windowStart = windowDays != null ? getWindowForDays(windowDays, new Date()).start : undefined;
   const supabase = await createClient();
 
   const signals = await listSignals({
@@ -40,7 +41,7 @@ export default async function SignalsPage({
     severity,
     scope,
     limit: 7,
-    windowStart: window.start,
+    windowStart,
   });
 
   return (

@@ -90,6 +90,8 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   const [slackSaving, setSlackSaving] = useState(false);
   const [slackMessage, setSlackMessage] = useState('');
   const [slackError, setSlackError] = useState('');
+  const [emailDigestEnabled, setEmailDigestEnabled] = useState(false);
+  const [emailDigestTo, setEmailDigestTo] = useState('');
 
   const loadConnections = useCallback(async (force = false) => {
     setLoading(true);
@@ -162,6 +164,8 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
       const payload = await response.json();
       const channel = payload?.slack_channel;
       setSlackChannel(typeof channel === 'string' ? channel : '');
+      setEmailDigestEnabled(payload?.email_digest_enabled === true);
+      setEmailDigestTo(typeof payload?.email_digest_to === 'string' ? payload.email_digest_to : '');
     } catch (err: unknown) {
       setSlackError(err instanceof Error ? err.message : 'Failed to load delivery settings');
     } finally {
@@ -320,6 +324,8 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
         credentials: 'include',
         body: JSON.stringify({
           slack_channel: slackChannel.trim() || null,
+          email_digest_enabled: emailDigestEnabled,
+          email_digest_to: emailDigestTo.trim() || null,
         }),
       });
 
@@ -328,7 +334,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
         throw new Error(payload.error || 'Failed to save Slack channel');
       }
 
-      setSlackMessage('Slack delivery channel saved.');
+      setSlackMessage('Delivery settings saved.');
     } catch (err: unknown) {
       setSlackError(err instanceof Error ? err.message : 'Failed to save Slack channel');
     } finally {
@@ -493,9 +499,9 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
 
                 <div className="rounded-xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm space-y-5">
                   <div>
-                    <h3 className="text-lg font-semibold text-white">Slack Delivery</h3>
+                    <h3 className="text-lg font-semibold text-white">Weekly Delivery</h3>
                     <p className="text-sm text-white/65">
-                      Choose where Canon sends weekly digests and important alerts.
+                      Canon sends a weekly summary automatically. Slack is primary; email is optional.
                     </p>
                   </div>
 
@@ -511,6 +517,28 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                     />
                     <p className="text-xs text-white/60">
                       Example: <span className="text-white/80">#engineering-signals</span>
+                    </p>
+                  </div>
+
+                  <div className="space-y-2 rounded-lg border border-white/10 bg-black/20 p-4">
+                    <label className="flex items-center gap-2 text-sm text-white/85">
+                      <input
+                        type="checkbox"
+                        checked={emailDigestEnabled}
+                        onChange={(event) => setEmailDigestEnabled(event.target.checked)}
+                        className="h-4 w-4 rounded border-white/20 bg-white/10"
+                        disabled={slackLoading}
+                      />
+                      Enable weekly email digest
+                    </label>
+                    <Input
+                      placeholder={initialUser?.email || 'you@company.com'}
+                      value={emailDigestTo}
+                      onChange={(event) => setEmailDigestTo(event.target.value)}
+                      disabled={slackLoading || !emailDigestEnabled}
+                    />
+                    <p className="text-xs text-white/60">
+                      Leave blank to use your account email.
                     </p>
                   </div>
 

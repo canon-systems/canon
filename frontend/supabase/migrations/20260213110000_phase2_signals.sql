@@ -12,8 +12,8 @@ create table if not exists public.workspace_signal_settings (
 create table if not exists public.signal_runs (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
-  trigger_type text not null default 'manual',
   source_ids uuid[] not null default '{}'::uuid[],
+  trigger_type text not null default 'manual',
   window_start timestamp with time zone not null,
   window_end timestamp with time zone not null,
   baseline_start timestamp with time zone not null,
@@ -95,36 +95,38 @@ with check (auth.uid() = user_id);
 drop policy if exists signal_runs_owner on public.signal_runs;
 create policy signal_runs_owner
 on public.signal_runs
-for all
-using (auth.uid() = user_id)
-with check (auth.uid() = user_id);
+for select
+using (auth.uid() = user_id);
 
 drop policy if exists signals_owner on public.signals;
 create policy signals_owner
 on public.signals
-for all
-using (auth.uid() = user_id)
-with check (auth.uid() = user_id);
+for select
+using (auth.uid() = user_id);
 
 drop policy if exists signal_evidence_owner on public.signal_evidence;
 create policy signal_evidence_owner
 on public.signal_evidence
-for all
-using (auth.uid() = user_id)
-with check (auth.uid() = user_id);
+for select
+using (auth.uid() = user_id);
 
 drop policy if exists aku_evidence_refs_owner on public.aku_evidence_refs;
 create policy aku_evidence_refs_owner
 on public.aku_evidence_refs
-for all
-using (auth.uid() = user_id)
-with check (auth.uid() = user_id);
+for select
+using (auth.uid() = user_id);
 
-grant all on table public.workspace_signal_settings to authenticated;
-grant all on table public.signal_runs to authenticated;
-grant all on table public.signals to authenticated;
-grant all on table public.signal_evidence to authenticated;
-grant all on table public.aku_evidence_refs to authenticated;
+revoke all on table public.workspace_signal_settings from anon, authenticated;
+revoke all on table public.signal_runs from anon, authenticated;
+revoke all on table public.signals from anon, authenticated;
+revoke all on table public.signal_evidence from anon, authenticated;
+revoke all on table public.aku_evidence_refs from anon, authenticated;
+
+grant select, insert, update on table public.workspace_signal_settings to authenticated;
+grant select on table public.signal_runs to authenticated;
+grant select on table public.signals to authenticated;
+grant select on table public.signal_evidence to authenticated;
+grant select on table public.aku_evidence_refs to authenticated;
 
 grant all on table public.workspace_signal_settings to service_role;
 grant all on table public.signal_runs to service_role;

@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
-import KnowledgeClient from '../knowledge/page-client';
+import HistoryPageClient from './page-client';
 
 export default async function HistoryPage() {
   const { session, user } = await getSession();
@@ -22,5 +22,5 @@ export default async function HistoryPage() {
     console.error('Failed to load sources for history:', error);
   }
 
-  return <KnowledgeClient sources={sources || []} mode="diffs" />;
+  return <HistoryPageClient sources={sources || []} />;
 }

@@ -13,14 +13,6 @@ export async function GET(req: Request) {
 
   const { searchParams } = new URL(req.url);
   const sourceIdsParam = searchParams.get('sourceIds');
-  const audienceFilter = searchParams.get('audience');
-
-  type AudienceView = {
-    audience: string;
-    projection: string;
-    summary: string;
-    status: string;
-  };
 
   type AkuRow = {
     id: string;
@@ -32,7 +24,6 @@ export async function GET(req: Request) {
     status: string;
     updated_at: string;
     scores?: { total?: number; [key: string]: unknown };
-    audience_views?: AudienceView[];
   };
 
   let query = supabase
@@ -46,13 +37,7 @@ export async function GET(req: Request) {
         source_ids,
         scope_refs,
         status,
-        updated_at,
-        audience_views (
-          audience,
-          projection,
-          summary,
-          status
-        )
+        updated_at
       `
     )
     .eq('user_id', user.id)
@@ -73,9 +58,6 @@ export async function GET(req: Request) {
   }
 
   const filtered = (data || []).map((row) => {
-    const projections = Array.isArray(row.audience_views)
-      ? row.audience_views.filter((v) => !audienceFilter || v.audience === audienceFilter)
-      : [];
     const scoreTotal = typeof row.scores?.total === 'number' ? row.scores.total : 0;
     return {
       id: row.id,
@@ -88,7 +70,7 @@ export async function GET(req: Request) {
       updated_at: row.updated_at,
       score_total: scoreTotal,
       scores: row.scores ?? {},
-      projections,
+      projections: [],
     };
   });
 
