@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 type SignalCard = {
   id: string;
@@ -65,39 +66,42 @@ export default function SignalsPageClient({
           <h1 className="text-2xl font-semibold text-white">Signals</h1>
           <p className="text-sm text-white/70">{windowLabel}</p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button asChild className="bg-white text-black hover:bg-white/90">
-            <Link href="/sources">Manage Sources</Link>
-          </Button>
-        </div>
       </div>
 
       <Card className="border-white/10 bg-white/5">
         <CardContent className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-center">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col gap-2">
             <label className="text-xs uppercase tracking-[0.2em] text-white/60">Window</label>
-            <select
-              className="rounded-md border border-white/20 bg-black/60 px-3 py-2 text-sm text-white"
+            <Select
               value={windowDays == null ? 'all' : String(windowDays)}
-              onChange={(event) => setParam('window', event.target.value === 'all' ? null : event.target.value)}
+              onValueChange={(value) => setParam('window', value === 'all' ? null : value)}
             >
-              <option value="all">All windows</option>
-              <option value="7">7 days</option>
-              <option value="14">14 days</option>
-              <option value="30">30 days</option>
-            </select>
+              <SelectTrigger className="w-auto min-w-[7rem] border-white/20 bg-black/60">
+                <SelectValue placeholder="Window" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All windows</SelectItem>
+                <SelectItem value="7">7 days</SelectItem>
+                <SelectItem value="14">14 days</SelectItem>
+                <SelectItem value="30">30 days</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col gap-2">
             <label className="text-xs uppercase tracking-[0.2em] text-white/60">Severity</label>
-            <select
-              className="rounded-md border border-white/20 bg-black/60 px-3 py-2 text-sm text-white"
+            <Select
               value={selectedSeverity}
-              onChange={(event) => setParam('severity', event.target.value === 'all' ? null : event.target.value)}
+              onValueChange={(value) => setParam('severity', value === 'all' ? null : value)}
             >
-              <option value="all">All</option>
-              <option value="elevated">Elevated</option>
-              <option value="significant">Significant</option>
-            </select>
+              <SelectTrigger className="w-auto min-w-[7rem] border-white/20 bg-black/60">
+                <SelectValue placeholder="Severity" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All</SelectItem>
+                <SelectItem value="elevated">Elevated</SelectItem>
+                <SelectItem value="significant">Significant</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </CardContent>
       </Card>

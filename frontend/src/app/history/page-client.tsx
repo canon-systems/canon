@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 type Source = {
@@ -276,7 +277,6 @@ export default function HistoryPageClient({ sources }: { sources: Source[] }) {
 
   const sourceIds = useMemo(() => diffSources.map((s) => s.id), [diffSources]);
   const [data, setData] = useState<CompareResponse | null>(null);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
   const [diffSourceTab, setDiffSourceTab] = useState<DiffSourceTab>('jira');
@@ -288,7 +288,6 @@ export default function HistoryPageClient({ sources }: { sources: Source[] }) {
     }
 
     const window = windowLast7DaysUtc(new Date());
-    setLoading(true);
     setError(null);
     try {
       const res = await fetch('/api/diffs/compare', {
@@ -312,8 +311,6 @@ export default function HistoryPageClient({ sources }: { sources: Source[] }) {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load Canon History');
       setData(null);
-    } finally {
-      setLoading(false);
     }
   }, [sourceIds]);
 
@@ -355,16 +352,6 @@ export default function HistoryPageClient({ sources }: { sources: Source[] }) {
               </Badge>
             ))}
           </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              className="border-white/20 bg-white/5 text-white hover:bg-white/10"
-              onClick={() => void runCompare()}
-              disabled={loading || sourceIds.length === 0}
-            >
-              {loading ? 'Refreshing…' : 'Refresh'}
-            </Button>
-          </div>
         </CardContent>
       </Card>
 
@@ -383,6 +370,50 @@ export default function HistoryPageClient({ sources }: { sources: Source[] }) {
         <Card className="border-red-500/40 bg-red-500/10">
           <CardContent className="py-6 text-sm text-red-100">{error}</CardContent>
         </Card>
+      ) : null}
+
+      {sourceIds.length > 0 && !data && !error ? (
+        <>
+          <Card className="border-white/10 bg-white/5">
+            <CardHeader>
+              <Skeleton className="h-6 w-36 bg-white/20" />
+              <Skeleton className="mt-2 h-4 w-full max-w-2xl bg-white/10" />
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <Skeleton className="h-4 w-full bg-white/10" />
+              <Skeleton className="h-4 w-4/5 max-w-md bg-white/10" />
+              <Skeleton className="h-4 w-3/4 max-w-sm bg-white/10" />
+            </CardContent>
+          </Card>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <Card key={i} className="border-white/10 bg-black/30">
+                <CardHeader className="pb-2">
+                  <Skeleton className="h-4 w-28 bg-white/20" />
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <Skeleton className="h-4 w-full bg-white/10" />
+                  <Skeleton className="h-4 w-5/6 bg-white/10" />
+                  <Skeleton className="h-4 w-1/3 bg-white/10" />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+          <Card className="border-white/10 bg-white/5">
+            <CardHeader>
+              <Skeleton className="h-6 w-32 bg-white/20" />
+              <Skeleton className="mt-2 h-4 w-full max-w-xl bg-white/10" />
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <Skeleton className="h-10 w-full max-w-xs rounded-2xl bg-white/10" />
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                {[1, 2, 3, 4].map((i) => (
+                  <Skeleton key={i} className="h-32 rounded-xl bg-white/5" />
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </>
       ) : null}
 
       {data ? (
@@ -422,7 +453,7 @@ export default function HistoryPageClient({ sources }: { sources: Source[] }) {
 
           <Card className="border-white/10 bg-white/5">
             <CardHeader>
-              <CardTitle className="text-white">Raw Movement</CardTitle>
+              <CardTitle className="text-white">Detailed View</CardTitle>
               <CardDescription className="text-white/60">
                 Event-level movement captured in the current window, grouped by source provider for investigation.
               </CardDescription>
@@ -431,7 +462,7 @@ export default function HistoryPageClient({ sources }: { sources: Source[] }) {
               <Tabs value={diffSourceTab} onValueChange={(value) => setDiffSourceTab(value as DiffSourceTab)} className="w-full">
                 <TabsList className="mb-4 border border-white/10 bg-white/5">
                   {providerTabs.includes('jira') ? (
-                    <TabsTrigger value="jira" className="!text-[10px] uppercase tracking-[0.2em] text-white/60 data-[state=active]:bg-white/10">
+                    <TabsTrigger value="jira" className="!text-[10px] uppercase tracking-[0.2em] text-white/60 data-[state=active]:bg-white/10 data-[state=active]:[&_span]:text-black">
                       Jira
                       <span className="ml-2 text-white/40">
                         {(
@@ -444,7 +475,7 @@ export default function HistoryPageClient({ sources }: { sources: Source[] }) {
                     </TabsTrigger>
                   ) : null}
                   {providerTabs.includes('github') ? (
-                    <TabsTrigger value="github" className="!text-[10px] uppercase tracking-[0.2em] text-white/60 data-[state=active]:bg-white/10">
+                    <TabsTrigger value="github" className="!text-[10px] uppercase tracking-[0.2em] text-white/60 data-[state=active]:bg-white/10 data-[state=active]:[&_span]:text-black">
                       GitHub
                       <span className="ml-2 text-white/40">
                         {(
@@ -477,7 +508,7 @@ export default function HistoryPageClient({ sources }: { sources: Source[] }) {
                             <p>No items in this window.</p>
                           ) : (
                             groupRowsBySource(section.rows, (row) => row.space).map((sourceGroup) => (
-                              <details key={`${section.label}-${sourceGroup.source}`} className="rounded-md border border-white/10 bg-white/5 px-2 py-1" open>
+                              <details key={`${section.label}-${sourceGroup.source}`} className="rounded-md border border-white/10 bg-white/5 px-2 py-1">
                                 <summary className="cursor-pointer text-white/85">
                                   {sourceGroup.source} ({sourceGroup.rows.length})
                                 </summary>
@@ -486,10 +517,12 @@ export default function HistoryPageClient({ sources }: { sources: Source[] }) {
                                     const lineKey = `${section.label}-${sourceGroup.source}-${row.issue_key}-${row.occurred_at}-${idx}`;
                                     const transition = renderTransition(row.from, row.to);
                                     const status = row.status || null;
+                                    const title = row.summary || 'Missing Jira summary';
+                                    const suffix = row.issue_key ? ` (${row.issue_key})` : '';
                                     return (
                                       <div key={lineKey} className="space-y-0.5">
                                         <p className="text-white/90">
-                                          {row.summary || 'Untitled ticket'} ({row.issue_key || 'unknown'})
+                                          {title}{suffix}
                                         </p>
                                         <p className="text-white/60">{transition || status || 'No state transition provided'}</p>
                                         <p className="text-white/40">{formatDateTimeUtc(row.occurred_at)}</p>
@@ -525,7 +558,7 @@ export default function HistoryPageClient({ sources }: { sources: Source[] }) {
                             <p>No items in this window.</p>
                           ) : section.label === 'Commits' ? (
                             groupRowsBySource(section.rows as DiffDetails['github']['commits'], (row) => row.repo).map((sourceGroup) => (
-                              <details key={`${section.label}-${sourceGroup.source}`} className="rounded-md border border-white/10 bg-white/5 px-2 py-1" open>
+                              <details key={`${section.label}-${sourceGroup.source}`} className="rounded-md border border-white/10 bg-white/5 px-2 py-1">
                                 <summary className="cursor-pointer text-white/85">
                                   {sourceGroup.source} ({sourceGroup.rows.length})
                                 </summary>
@@ -542,7 +575,7 @@ export default function HistoryPageClient({ sources }: { sources: Source[] }) {
                             ))
                           ) : (
                             groupRowsBySource(section.rows as DiffDetails['github']['prs_opened'], (row) => row.repo).map((sourceGroup) => (
-                              <details key={`${section.label}-${sourceGroup.source}`} className="rounded-md border border-white/10 bg-white/5 px-2 py-1" open>
+                              <details key={`${section.label}-${sourceGroup.source}`} className="rounded-md border border-white/10 bg-white/5 px-2 py-1">
                                 <summary className="cursor-pointer text-white/85">
                                   {sourceGroup.source} ({sourceGroup.rows.length})
                                 </summary>
