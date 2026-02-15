@@ -404,9 +404,6 @@ const normalizeStatusCategory = (value?: string | null): string | null => {
 
 const isDoneCategory = (value?: string | null) => normalizeStatusCategory(value) === 'done';
 
-const looksLikeDone = (value?: string | null) =>
-  typeof value === 'string' && /done|closed|resolved|complete|completed|shipped|released/i.test(value);
-
 const readOwnString = (record: Record<string, unknown>, key: string): string | null => {
   if (!Object.prototype.hasOwnProperty.call(record, key)) return null;
   const value = record[key];
@@ -445,8 +442,13 @@ export function extractJiraCanonicalEvents(
         ? summaryFromChangelog
         : null;
   const updatedAt = typeof fields.updated === 'string' ? fields.updated : null;
-  const status = fields.status as { name?: string; statusCategory?: { name?: string } } | undefined;
-  const statusCategory = status?.statusCategory?.name || null;
+  const status = fields.status as {
+    id?: string | number;
+    name?: string;
+    statusCategory?: { key?: string; name?: string };
+  } | undefined;
+  const statusCategory = status?.statusCategory?.key ?? status?.statusCategory?.name ?? null;
+  const currentStatusId = status?.id != null ? String(status.id) : null;
   const project = fields.project as { key?: string } | undefined;
   const projectKey = typeof project?.key === 'string' ? project.key : null;
   const jiraWorkspace = projectKey ? `Jira:${projectKey}` : 'Jira';
@@ -477,13 +479,14 @@ export function extractJiraCanonicalEvents(
     const fromIdForCategory = fromId || null;
     const toIdForCategory = toId || null;
     const fromCategory = fromIdForCategory ? statusCategoryMap?.get(fromIdForCategory) : undefined;
-    const toCategory = toIdForCategory ? statusCategoryMap?.get(toIdForCategory) : undefined;
+    const toCategoryFromMap = toIdForCategory ? statusCategoryMap?.get(toIdForCategory) : undefined;
+    const toCategoryFromCurrentStatus =
+      currentStatusId && toIdForCategory && currentStatusId === toIdForCategory ? statusCategory : null;
+    const toCategory = toCategoryFromMap ?? toCategoryFromCurrentStatus ?? undefined;
     const fromStatusName = readOwnString(item, 'fromString');
     const toStatusName = readOwnString(item, 'toString');
-    const fromIsDone = isDoneCategory(fromCategory) || (!fromCategory && looksLikeDone(fromStatusName));
-    const toIsDone =
-      isDoneCategory(toCategory) ||
-      (!toCategory && (looksLikeDone(toStatusName) || isDoneCategory(statusCategory)));
+    const fromIsDone = isDoneCategory(fromCategory);
+    const toIsDone = isDoneCategory(toCategory);
 
     events.push({
       event_kind: 'ticket_moved',
@@ -495,11 +498,13 @@ export function extractJiraCanonicalEvents(
         to: toStatusName,
         from_id: fromIdForCategory,
         to_id: toIdForCategory,
+        from_category: fromCategory ?? null,
+        to_category: toCategory ?? null,
         summary,
       },
     });
 
-    if (toIsDone) {
+    if (!fromIsDone && toIsDone) {
       events.push({
         event_kind: 'ticket_completed',
         occurred_at: changeTime,

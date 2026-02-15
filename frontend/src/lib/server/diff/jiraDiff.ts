@@ -36,9 +36,6 @@ const normalizeStatusCategory = (value?: string | null): string | null => {
 
 const isDoneCategory = (value?: string | null) => normalizeStatusCategory(value) === 'done';
 
-const looksLikeDone = (value?: string | null) =>
-  typeof value === 'string' && /done|closed|resolved|complete|completed|shipped|released/i.test(value);
-
 /** Date-only yyyy-MM-dd for JQL from an ISO timestamp. */
 function toJqlDateOnly(value: string): string {
   const date = new Date(value);
@@ -109,7 +106,7 @@ async function getStatusCategoryMap(accessToken: string, cloudId: string) {
   if (Array.isArray(data)) {
     for (const status of data) {
       const id = status?.id ? String(status.id) : null;
-      const category = status?.statusCategory?.name;
+      const category = status?.statusCategory?.key ?? status?.statusCategory?.name;
       if (id && typeof category === 'string') {
         map.set(id, category);
       }
@@ -281,10 +278,10 @@ export async function getJiraDiffForProject(params: JiraDiffParams): Promise<Jir
 
           const fromCategory = fromId ? statusCategoryMap.get(fromId) : undefined;
           const toCategory = toId ? statusCategoryMap.get(toId) : undefined;
-          const fromIsDone = isDoneCategory(fromCategory) || (!fromCategory && looksLikeDone(previousStatus));
-          const toIsDone = isDoneCategory(toCategory) || (!toCategory && looksLikeDone(newStatus));
+          const fromIsDone = isDoneCategory(fromCategory);
+          const toIsDone = isDoneCategory(toCategory);
 
-          if (toIsDone) {
+          if (!fromIsDone && toIsDone) {
             tickets_completed.push(event);
           }
 

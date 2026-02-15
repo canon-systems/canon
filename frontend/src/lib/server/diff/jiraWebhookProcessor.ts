@@ -47,6 +47,7 @@ const log = createLogger('diff.jira_webhook_processor', {
     canonical_events_inserted: 'Canonical Events Inserted',
     canonical_events_deduped: 'Canonical Events Deduped',
     status_map_loaded: 'Status Map Loaded',
+    status_map_unavailable: 'Status Map Unavailable',
     status_map_failed: 'Status Map Failed',
     process_complete: 'Process Completed',
   },
@@ -73,7 +74,7 @@ async function getStatusCategoryMap(connectionId: string, cloudId: string) {
   if (Array.isArray(data)) {
     for (const status of data) {
       const id = status?.id ? String(status.id) : null;
-      const category = status?.statusCategory?.name;
+      const category = status?.statusCategory?.key ?? status?.statusCategory?.name;
       if (id && typeof category === 'string') {
         map.set(id, category);
       }
@@ -211,6 +212,14 @@ export async function processJiraWebhookPayload(
         sourceId,
         size: statusCategoryMap.size,
       });
+      if (statusCategoryMap.size === 0) {
+        log.warn('status_map_unavailable', {
+          requestId,
+          sourceId,
+          cloudId: sourceContext.cloudId,
+          hasConnectionId: Boolean(sourceContext.connectionId),
+        });
+      }
     } catch (error) {
       log.warn('status_map_failed', {
         requestId,
