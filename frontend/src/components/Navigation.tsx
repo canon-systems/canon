@@ -7,11 +7,11 @@ import { usePathname } from 'next/navigation';
 import {
   Activity,
   BookOpen,
-  BellRing,
   History,
   Layers,
   LogOut,
   Menu,
+  Radio,
   Settings,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -35,7 +35,7 @@ type NavItem = {
 
 const primaryNav: NavItem[] = [
   { href: '/sources', label: 'Sources', icon: Layers },
-  { href: '/signals', label: 'Signals', icon: BellRing, matchPrefix: true },
+  { href: '/signals', label: 'Signals', icon: Radio, matchPrefix: true },
   { href: '/history', label: 'History', icon: History, matchPrefix: true },
   { href: '/logs', label: 'Logs', icon: Activity },
 ];

@@ -26,11 +26,26 @@ export default async function LogsPage() {
     .order('created_at', { ascending: false })
     .limit(200);
 
+  // Get schedule run summaries so curated signals are represented in logs.
+  const { data: reportScheduleRuns, error: reportScheduleRunsError } = await supabase
+    .from('report_schedule_runs')
+    .select('id, report_schedule_id, executed_at, status, result_summary')
+    .eq('user_id', user.id)
+    .order('executed_at', { ascending: false })
+    .limit(100);
 
   // Build activity log entries
   const logEntries: Array<{
     id: string;
-    type: 'automation_execution' | 'source_connection' | 'integration_connection' | 'integration_disconnected' | 'diagram' | 'kb_push' | 'aku_generated';
+    type:
+    | 'automation_execution'
+    | 'source_connection'
+    | 'integration_connection'
+    | 'integration_disconnected'
+    | 'diagram'
+    | 'kb_push'
+    | 'aku_generated'
+    | 'signal_curated';
     timestamp: string;
     title: string;
     message: string;
@@ -47,6 +62,7 @@ export default async function LogsPage() {
       automationRuleId?: string;
       isAutomation?: boolean;
       provider?: string;
+      signalSeverity?: string;
     };
   }> = [];
 
@@ -63,6 +79,16 @@ export default async function LogsPage() {
     if (lower === 'github') return 'GitHub';
     return p.charAt(0).toUpperCase() + p.slice(1).toLowerCase();
   };
+
+  const asRecord = (value: unknown): Record<string, unknown> =>
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+
+  const asStringArray = (value: unknown): string[] =>
+    Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+      : [];
 
   const entriesFromEvents = (usageEvents || []).map(event => {
     const meta = (event as { metadata?: Record<string, unknown> }).metadata || {};
@@ -277,6 +303,105 @@ export default async function LogsPage() {
 
   logEntries.push(...entriesFromEvents);
 
+  const curatedSignalRuns = (reportScheduleRuns || []).map((run) => {
+    const resultSummary = asRecord((run as { result_summary?: unknown }).result_summary);
+    const summaryType = typeof resultSummary.type === 'string' ? resultSummary.type : null;
+    const topSignalIds = asStringArray(resultSummary.top_signal_ids);
+    return {
+      runId: run.id,
+      scheduleId: run.report_schedule_id,
+      executedAt: run.executed_at,
+      status: typeof run.status === 'string' ? run.status : 'succeeded',
+      summaryType,
+      topSignalIds,
+    };
+  }).filter((run) => run.summaryType === 'signals' && run.topSignalIds.length > 0);
+
+  let scheduleNamesById = new Map<string, string>();
+  let signalById = new Map<string, { id: string; title: string; severity: string; scope_type: string; scope_id: string | null }>();
+  let signalRunsError: { message?: string; code?: string } | null = null;
+
+  const scheduleIds = Array.from(new Set(curatedSignalRuns.map((run) => run.scheduleId).filter(Boolean)));
+  if (scheduleIds.length > 0) {
+    const { data: schedules, error: schedulesError } = await supabase
+      .from('report_schedules')
+      .select('id, name')
+      .eq('user_id', user.id)
+      .in('id', scheduleIds);
+
+    if (schedulesError) {
+      signalRunsError = schedulesError;
+    } else {
+      scheduleNamesById = new Map(
+        (schedules || []).map((row) => [row.id, row.name || 'Signal schedule'])
+      );
+    }
+  }
+
+  const curatedSignalIds = Array.from(
+    new Set(curatedSignalRuns.flatMap((run) => run.topSignalIds))
+  );
+  if (curatedSignalIds.length > 0) {
+    const { data: signals, error: signalsError } = await supabase
+      .from('signals')
+      .select('id, title, severity, scope_type, scope_id')
+      .eq('user_id', user.id)
+      .in('id', curatedSignalIds);
+
+    if (signalsError) {
+      signalRunsError = signalsError;
+    } else {
+      signalById = new Map(
+        (signals || []).map((signal) => [
+          signal.id,
+          {
+            id: signal.id,
+            title: signal.title,
+            severity: signal.severity,
+            scope_type: signal.scope_type,
+            scope_id: signal.scope_id,
+          },
+        ])
+      );
+    }
+  }
+
+  const curatedSignalEntries = curatedSignalRuns.flatMap((run) =>
+    run.topSignalIds.map((signalId, index) => {
+      const signal = signalById.get(signalId);
+      const scheduleName = scheduleNamesById.get(run.scheduleId) || 'Signal schedule';
+      const title = signal?.title || `Signal ${signalId}`;
+      const severity = signal?.severity ? String(signal.severity) : null;
+      const scope =
+        signal?.scope_type === 'repo' && signal.scope_id
+          ? `Repo: ${signal.scope_id}`
+          : signal?.scope_type === 'aku' && signal.scope_id
+            ? `AKU: ${signal.scope_id}`
+            : 'Global';
+      const normalizedStatus = run.status === 'failed' ? 'failed' : 'completed';
+
+      return {
+        id: `curated-signal-${run.runId}-${signalId}-${index}`,
+        type: 'signal_curated' as const,
+        timestamp: run.executedAt,
+        title: `Curated Signal: ${title}`,
+        message: [
+          `Selected by ${scheduleName}`,
+          severity ? `Severity: ${severity}` : null,
+          `Scope: ${scope}`,
+        ].filter(Boolean).join(' • '),
+        status: normalizedStatus,
+        link: `/signals/${signalId}`,
+        metadata: {
+          automationRuleId: run.scheduleId,
+          signalSeverity: severity || undefined,
+        },
+      };
+    })
+  );
+
+  logEntries.push(...curatedSignalEntries);
+
 
   // Sort by timestamp (most recent first)
   logEntries.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
@@ -297,6 +422,12 @@ export default async function LogsPage() {
   if (eventsError && !isTableNotFoundError(eventsError)) {
     console.error('Logs page - usage_events error:', eventsError);
   }
+  if (reportScheduleRunsError && !isTableNotFoundError(reportScheduleRunsError)) {
+    console.error('Logs page - report_schedule_runs error:', reportScheduleRunsError);
+  }
+  if (signalRunsError && !isTableNotFoundError(signalRunsError)) {
+    console.error('Logs page - curated signal lookup error:', signalRunsError);
+  }
 
   const logs = {
     entries: logEntries.slice(0, 100), // Limit to 100 most recent
@@ -304,6 +435,13 @@ export default async function LogsPage() {
       usageEvents: eventsError && !isTableNotFoundError(eventsError)
         ? (eventsError.message || eventsError.code)
         : undefined,
+      automationRuns:
+        (reportScheduleRunsError && !isTableNotFoundError(reportScheduleRunsError)
+          ? (reportScheduleRunsError.message || reportScheduleRunsError.code)
+          : undefined) ||
+        (signalRunsError && !isTableNotFoundError(signalRunsError)
+          ? (signalRunsError.message || signalRunsError.code)
+          : undefined),
     },
   };
 

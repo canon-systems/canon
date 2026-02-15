@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { FileText, Layers3, RefreshCw, ExternalLink, GitBranch, Folder, Code, Clock, Hash, Zap, XCircle, Link as LinkIcon, ScrollText } from 'lucide-react';
+import { Activity, FileText, Layers3, RefreshCw, ExternalLink, GitBranch, Folder, Code, Clock, Hash, Zap, XCircle, Link as LinkIcon, ScrollText } from 'lucide-react';
 import Link from 'next/link';
 import { Card, CardContent } from '@/components/ui/card';
 import { Combobox } from '@/components/ui/combobox';
@@ -15,7 +15,8 @@ interface LogEntry {
   | 'integration_disconnected'
   | 'diagram'
   | 'kb_push'
-  | 'aku_generated';
+  | 'aku_generated'
+  | 'signal_curated';
   timestamp: string;
   title: string;
   message: string;
@@ -32,6 +33,7 @@ interface LogEntry {
     automationRuleId?: string;
     isAutomation?: boolean;
     provider?: string;
+    signalSeverity?: string;
   };
 }
 
@@ -53,7 +55,8 @@ type TypeFilter =
   | 'integration_disconnected'
   | 'diagram'
   | 'kb_push'
-  | 'aku_generated';
+  | 'aku_generated'
+  | 'signal_curated';
 
 // Removed unused interface: Repo
 
@@ -161,6 +164,8 @@ export function LogsPageClient({ logs }: LogsPageClientProps) {
         return Layers3;
       case 'kb_push':
         return ScrollText;
+      case 'signal_curated':
+        return Activity;
       default:
         return FileText;
     }
@@ -182,6 +187,8 @@ export function LogsPageClient({ logs }: LogsPageClientProps) {
         return 'bg-white/10 text-white/80';
       case 'kb_push':
         return 'bg-white/10 text-white/80';
+      case 'signal_curated':
+        return 'bg-emerald-400/20 text-emerald-100';
       default:
         return 'bg-white/8 text-white/70';
     }
@@ -210,7 +217,9 @@ export function LogsPageClient({ logs }: LogsPageClientProps) {
       <div className="mx-auto max-w-6xl">
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-2">
-            <ScrollText className="h-8 w-8 text-white" />
+            <div className="rounded-lg border border-white/15 bg-white/10 p-2">
+              <Activity className="h-6 w-6 text-white" />
+            </div>
             <h1 className="text-3xl font-bold text-white">Logs</h1>
           </div>
           <p className="text-white/70">
@@ -262,6 +271,7 @@ export function LogsPageClient({ logs }: LogsPageClientProps) {
               { value: 'integration_disconnected', label: 'Integration disconnected' },
               { value: 'diagram', label: 'Architecture diagram' },
               { value: 'kb_push', label: 'Push to KB' },
+              { value: 'signal_curated', label: 'Curated signal' },
             ]}
             value={typeFilter}
             onChange={(v) => setTypeFilter(v as TypeFilter)}
