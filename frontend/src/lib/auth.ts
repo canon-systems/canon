@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
+import { isAuthApiError } from '@supabase/supabase-js';
 
 export async function getSession() {
   const supabase = await createClient();
@@ -7,12 +8,18 @@ export async function getSession() {
     // Use getUser() for authentication - it verifies the session with Supabase Auth server
     const { data: userData, error: userError } = await supabase.auth.getUser();
 
-    // Handle refresh token errors specifically
+    // Handle refresh token errors specifically using Supabase's recommended error checking
     if (userError) {
-      const isRefreshTokenError = userError.message?.includes('refresh_token_not_found') ||
-                                  userError.message?.includes('Invalid Refresh Token') ||
-                                  userError.message?.includes('refresh token') ||
-                                  userError.status === 400;
+      // Use isAuthApiError and error.code as recommended by Supabase docs
+      const isRefreshTokenError = 
+        (isAuthApiError(userError) && (
+          userError.code === 'refresh_token_not_found' ||
+          userError.code === 'session_not_found' ||
+          userError.code === 'session_expired' ||
+          userError.code === 'refresh_token_already_used'
+        )) ||
+        userError.status === 400 ||
+        userError.status === 401;
 
       if (isRefreshTokenError) {
         console.log('Refresh token error in getSession, clearing session');
@@ -42,16 +49,20 @@ export async function getSession() {
     // Handle any unexpected auth errors
     console.error('Unexpected auth error in getSession:', error);
 
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    const errorStatus = (error as { status?: number })?.status;
-    const isRefreshTokenError = errorMessage?.includes('refresh_token_not_found') ||
-                                errorMessage?.includes('Invalid Refresh Token') ||
-                                errorMessage?.includes('refresh token') ||
-                                errorStatus === 400;
+    // Use Supabase's error checking utilities
+    if (isAuthApiError(error)) {
+      const isRefreshTokenError = 
+        error.code === 'refresh_token_not_found' ||
+        error.code === 'session_not_found' ||
+        error.code === 'session_expired' ||
+        error.code === 'refresh_token_already_used' ||
+        error.status === 400 ||
+        error.status === 401;
 
-    if (isRefreshTokenError) {
-      console.log('Refresh token error caught in getSession');
-      return { user: null, session: null };
+      if (isRefreshTokenError) {
+        console.log('Refresh token error caught in getSession');
+        return { user: null, session: null };
+      }
     }
 
     // For other errors, return null session
