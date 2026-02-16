@@ -3,8 +3,8 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 import { runSignalEngine, sortSignalsByPriority } from '@/lib/server/signals/engine';
 import { getWorkspaceSignalSettings } from '@/lib/server/signals/settings';
 import {
-  formatWeeklyDigestEmail,
-  formatWeeklyDigestMessage,
+  formatDailySignalAlertEmail,
+  formatDailySignalAlertMessage,
   sendEmailDigest,
   sendSlackMessage,
 } from '@/lib/server/signals/delivery';
@@ -16,7 +16,7 @@ type SourceRow = {
   provider: string;
 };
 
-const WEEKLY_WINDOW_DAYS = 7;
+const SIGNAL_WINDOW_DAYS = 7;
 
 function groupSourceIdsByUser(rows: SourceRow[]): Map<string, string[]> {
   const grouped = new Map<string, string[]>();
@@ -31,7 +31,7 @@ function groupSourceIdsByUser(rows: SourceRow[]): Map<string, string[]> {
   return grouped;
 }
 
-async function resolveDigestEmail(params: {
+async function resolveAlertEmail(params: {
   emailDigestEnabled: boolean;
   emailDigestTo: string | null;
   userId: string;
@@ -46,18 +46,18 @@ async function resolveDigestEmail(params: {
   return typeof email === 'string' && email.trim().length > 0 ? email.trim() : null;
 }
 
-export const weeklySignalsDigest = inngest.createFunction(
+export const dailySignalAlerts = inngest.createFunction(
   {
-    id: 'weekly-signals-digest',
-    name: 'Canon: Weekly Signals Digest',
+    id: 'daily-signal-alerts',
+    name: 'Canon: Daily Signal Alerts',
     retries: 1,
     concurrency: { limit: 1 },
   },
-  { cron: '0 14 * * 1' },
+  { cron: '0 12 * * *' },
   async () => {
     const supabase = createServiceRoleClient();
     const now = new Date();
-    const window = getWindowForDays(WEEKLY_WINDOW_DAYS, now);
+    const window = getWindowForDays(SIGNAL_WINDOW_DAYS, now);
 
     const { data, error } = await supabase
       .from('workspace_sources')
@@ -65,7 +65,7 @@ export const weeklySignalsDigest = inngest.createFunction(
       .in('provider', ['github', 'jira']);
 
     if (error) {
-      console.error('[weekly-signals-digest] failed to load sources', error);
+      console.error('[daily-signal-alerts] failed to load sources', error);
       return { ok: false, error: error.message };
     }
 
@@ -86,41 +86,53 @@ export const weeklySignalsDigest = inngest.createFunction(
           userId,
           sourceIds,
           window,
-          triggerType: 'weekly_digest',
+          triggerType: 'daily_signal_monitor',
         });
 
-        const topSignals = sortSignalsByPriority(signalRun.signals).slice(0, 3);
+        const signals = sortSignalsByPriority(signalRun.signals);
+        if (signals.length === 0) {
+          usersProcessed += 1;
+          console.log('[daily-signal-alerts] no signals detected', { userId, sourceCount: sourceIds.length });
+          continue;
+        }
 
         const slack = await sendSlackMessage({
           supabase,
           userId,
           channel: settings.slack_channel,
-          text: formatWeeklyDigestMessage({ window, signals: topSignals }),
+          text: formatDailySignalAlertMessage({ window, signals }),
         });
 
-        const digestEmail = await resolveDigestEmail({
-          emailDigestEnabled: settings.email_digest_enabled,
-          emailDigestTo: settings.email_digest_to,
-          userId,
-          supabase,
-        });
-
-        let email = { sent: false, reason: 'disabled' } as { sent: boolean; reason?: string };
-        if (digestEmail) {
-          const rendered = formatWeeklyDigestEmail({ window, signals: topSignals });
-          email = await sendEmailDigest({
-            to: digestEmail,
-            subject: rendered.subject,
-            text: rendered.text,
-            html: rendered.html,
+        let email = { sent: false, reason: 'skipped_slack_success' } as { sent: boolean; reason?: string };
+        if (!slack.sent) {
+          const alertEmail = await resolveAlertEmail({
+            emailDigestEnabled: settings.email_digest_enabled,
+            emailDigestTo: settings.email_digest_to,
+            userId,
+            supabase,
           });
+
+          if (alertEmail) {
+            const rendered = formatDailySignalAlertEmail({ window, signals });
+            email = await sendEmailDigest({
+              to: alertEmail,
+              subject: rendered.subject,
+              text: rendered.text,
+              html: rendered.html,
+            });
+          } else {
+            email = { sent: false, reason: 'disabled_or_unresolved' };
+          }
         }
 
+        const channel = slack.sent ? 'slack' : email.sent ? 'email' : 'none';
+
         usersProcessed += 1;
-        console.log('[weekly-signals-digest] processed user', {
+        console.log('[daily-signal-alerts] processed user', {
           userId,
           sourceCount: sourceIds.length,
           signalsCount: signalRun.signals.length,
+          deliveryChannel: channel,
           slackSent: slack.sent,
           slackReason: slack.reason,
           emailSent: email.sent,
@@ -128,7 +140,7 @@ export const weeklySignalsDigest = inngest.createFunction(
         });
       } catch (err) {
         usersFailed += 1;
-        console.error('[weekly-signals-digest] user failed', {
+        console.error('[daily-signal-alerts] user failed', {
           userId,
           error: err instanceof Error ? err.message : String(err),
         });

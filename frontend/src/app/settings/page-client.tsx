@@ -499,9 +499,9 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
 
                 <div className="rounded-xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm space-y-5">
                   <div>
-                    <h3 className="text-lg font-semibold text-white">Weekly Delivery</h3>
+                    <h3 className="text-lg font-semibold text-white">Daily Signal Alerts</h3>
                     <p className="text-sm text-white/65">
-                      Canon sends a weekly summary automatically. Slack is primary; email is optional.
+                      Canon checks signals daily and sends alerts only when signals are detected. Slack is primary; email is fallback.
                     </p>
                   </div>
 
@@ -529,7 +529,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                         className="h-4 w-4 rounded border-white/20 bg-white/10"
                         disabled={slackLoading}
                       />
-                      Enable weekly email digest
+                      Enable fallback email alerts
                     </label>
                     <Input
                       placeholder={initialUser?.email || 'you@company.com'}

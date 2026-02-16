@@ -5,7 +5,7 @@ import {
   diffSourceBackfill,
   ingestJiraWebhook,
   sourceIngestRequested,
-  weeklySignalsDigest,
+  dailySignalAlerts,
 } from "../../../inngest";
 
 export const runtime = 'nodejs';
@@ -16,7 +16,7 @@ export const { GET, POST, PUT } = serve({
   functions: [
     // checkAndRunAutomations,
     syncCanonSources,
-    weeklySignalsDigest,
+    dailySignalAlerts,
     diffSourceBackfill,
     ingestJiraWebhook,
     sourceIngestRequested,

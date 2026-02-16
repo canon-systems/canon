@@ -41,6 +41,32 @@ export function formatWeeklyDigestMessage(params: {
   return lines.join('\n');
 }
 
+export function formatDailySignalAlertMessage(params: {
+  window: MetricWindow;
+  signals: SignalRecord[];
+}): string {
+  const { window } = params;
+  const signals = sortSignalsByPriority(params.signals);
+
+  const lines = [
+    '*Canon Daily Signal Alert*',
+    `Window: ${window.start} -> ${window.end}`,
+    '',
+  ];
+
+  if (signals.length === 0) {
+    lines.push('No signals were detected in this run.');
+    return lines.join('\n');
+  }
+
+  for (const signal of signals) {
+    lines.push(`• [${signal.severity.toUpperCase()}] ${signal.title} — ${signal.summary_line}`);
+    lines.push(`  Investigate: ${signalUrl(signal.id)}`);
+  }
+
+  return lines.join('\n');
+}
+
 export function formatWeeklyDigestEmail(params: {
   window: MetricWindow;
   signals: SignalRecord[];
@@ -72,6 +98,51 @@ export function formatWeeklyDigestEmail(params: {
   const html = [
     '<div style="font-family:Arial,sans-serif;line-height:1.5;">',
     '<h2>Canon Weekly Insight</h2>',
+    `<p><strong>Window:</strong> ${window.start} to ${window.end}</p>`,
+    '<ul>',
+    ...htmlItems,
+    '</ul>',
+    '</div>',
+  ].join('');
+
+  return {
+    subject,
+    text: textLines.join('\n'),
+    html,
+  };
+}
+
+export function formatDailySignalAlertEmail(params: {
+  window: MetricWindow;
+  signals: SignalRecord[];
+}): { subject: string; text: string; html: string } {
+  const { window } = params;
+  const signals = sortSignalsByPriority(params.signals);
+  const subject = `Canon Daily Signal Alert (${window.start.slice(0, 10)} to ${window.end.slice(0, 10)})`;
+
+  const textLines = [
+    'Canon Daily Signal Alert',
+    `Window: ${window.start} -> ${window.end}`,
+    '',
+  ];
+
+  const htmlItems: string[] = [];
+  if (signals.length === 0) {
+    textLines.push('No signals were detected in this run.');
+    htmlItems.push('<li>No signals were detected in this run.</li>');
+  } else {
+    for (const signal of signals) {
+      textLines.push(`- [${signal.severity.toUpperCase()}] ${signal.title} - ${signal.summary_line}`);
+      textLines.push(`  Investigate: ${signalUrl(signal.id)}`);
+      htmlItems.push(
+        `<li><strong>[${signal.severity.toUpperCase()}]</strong> ${signal.title}<br/>${signal.summary_line}<br/><a href=\"${signalUrl(signal.id)}\">Investigate</a></li>`
+      );
+    }
+  }
+
+  const html = [
+    '<div style="font-family:Arial,sans-serif;line-height:1.5;">',
+    '<h2>Canon Daily Signal Alert</h2>',
     `<p><strong>Window:</strong> ${window.start} to ${window.end}</p>`,
     '<ul>',
     ...htmlItems,

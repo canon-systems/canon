@@ -99,7 +99,7 @@ export type ComputeMetricsInput = {
   window: MetricWindow;
 };
 
-export type SignalRunTrigger = 'manual' | 'scheduled' | 'weekly_digest' | 'alert';
+export type SignalRunTrigger = 'manual' | 'scheduled' | 'weekly_digest' | 'daily_signal_monitor' | 'alert';
 
 export type SignalRunResult = {
   runId: string;
