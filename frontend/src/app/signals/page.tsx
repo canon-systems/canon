@@ -48,10 +48,14 @@ export default async function SignalsPage({
     <SignalsPageClient
       signals={signals.map((signal) => ({
         id: signal.id,
+        created_at: signal.created_at || null,
         title: signal.title,
         summary_line: signal.summary_line,
         severity: signal.severity,
         scope: { type: signal.scope_type, id: signal.scope_id || null },
+        metric_key: signal.metric_key,
+        current_value: signal.current_value,
+        baseline_value: signal.baseline_value,
         percent_change: signal.percent_change,
         window_start: signal.window_start,
         window_end: signal.window_end,

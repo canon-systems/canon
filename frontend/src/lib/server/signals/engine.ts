@@ -50,9 +50,44 @@ type SignalEvidenceRow = {
   payload: Record<string, unknown> | null;
 };
 
+const SIGNAL_FINGERPRINT_CONFLICT_COLUMNS = [
+  'user_id',
+  'type',
+  'scope_type',
+  'scope_id',
+  'metric_key',
+  'window_start',
+  'window_end',
+  'baseline_start',
+  'baseline_end',
+].join(',');
+
+function signalFingerprintKey(row: {
+  type: string;
+  scope_type: string;
+  scope_id: string | null;
+  metric_key: string;
+  window_start: string;
+  window_end: string;
+  baseline_start: string;
+  baseline_end: string;
+}): string {
+  return [
+    row.type,
+    row.scope_type,
+    row.scope_id || '',
+    row.metric_key,
+    row.window_start,
+    row.window_end,
+    row.baseline_start,
+    row.baseline_end,
+  ].join('|');
+}
+
 function toSignalRecord(row: SignalRow, evidence: SignalEvidenceRecord[]): SignalRecord {
   return {
     id: row.id,
+    created_at: row.created_at,
     type: row.type as SignalRecord['type'],
     severity: row.severity as SignalSeverity,
     scope_type: row.scope_type as SignalRecord['scope_type'],
@@ -97,35 +132,36 @@ async function insertSignalWithEvidence(params: {
   supabase: SupabaseClient;
   userId: string;
   signalRunId: string;
-  signal: Omit<SignalRecord, 'id'>;
+  signal: Omit<SignalRecord, 'id' | 'created_at'>;
 }): Promise<SignalRecord> {
   const { supabase, userId, signalRunId, signal } = params;
+  const upsertPayload = {
+    user_id: userId,
+    signal_run_id: signalRunId,
+    type: signal.type,
+    severity: signal.severity,
+    scope_type: signal.scope_type,
+    scope_id: signal.scope_id,
+    metric_key: signal.metric_key,
+    window_start: signal.window_start,
+    window_end: signal.window_end,
+    baseline_start: signal.baseline_start,
+    baseline_end: signal.baseline_end,
+    current_value: signal.current_value,
+    baseline_value: signal.baseline_value,
+    absolute_change: signal.absolute_change,
+    percent_change: signal.percent_change,
+    title: signal.title,
+    summary_line: signal.summary_line,
+    metadata: signal.metadata || {},
+    updated_at: new Date().toISOString(),
+  };
 
   const { data: inserted, error: signalErr } = (await supabase
     .from('signals')
-    .insert({
-      user_id: userId,
-      signal_run_id: signalRunId,
-      type: signal.type,
-      severity: signal.severity,
-      scope_type: signal.scope_type,
-      scope_id: signal.scope_id,
-      metric_key: signal.metric_key,
-      window_start: signal.window_start,
-      window_end: signal.window_end,
-      baseline_start: signal.baseline_start,
-      baseline_end: signal.baseline_end,
-      current_value: signal.current_value,
-      baseline_value: signal.baseline_value,
-      absolute_change: signal.absolute_change,
-      percent_change: signal.percent_change,
-      title: signal.title,
-      summary_line: signal.summary_line,
-      metadata: signal.metadata || {},
-      updated_at: new Date().toISOString(),
-    })
+    .upsert(upsertPayload, { onConflict: SIGNAL_FINGERPRINT_CONFLICT_COLUMNS })
     .select(
-      'id, type, severity, scope_type, scope_id, metric_key, window_start, window_end, baseline_start, baseline_end, current_value, baseline_value, absolute_change, percent_change, title, summary_line, metadata'
+      'id, type, severity, scope_type, scope_id, metric_key, window_start, window_end, baseline_start, baseline_end, current_value, baseline_value, absolute_change, percent_change, title, summary_line, metadata, created_at'
     )
     .single()) as { data: SignalRow | null; error: { message: string } | null };
 
@@ -134,6 +170,15 @@ async function insertSignalWithEvidence(params: {
   }
 
   const signalId = inserted.id;
+  const { error: clearEvidenceErr } = await supabase
+    .from('signal_evidence')
+    .delete()
+    .eq('user_id', userId)
+    .eq('signal_id', signalId);
+  if (clearEvidenceErr) {
+    throw new Error(clearEvidenceErr.message || 'Failed to clear prior signal evidence');
+  }
+
   const evidenceRows = signal.evidence.map((e) => ({
     user_id: userId,
     signal_id: signalId,
@@ -236,7 +281,7 @@ export async function listSignals(params: {
 }): Promise<SignalRecord[]> {
   const { supabase, userId, severity, scope, windowStart, windowEnd } = params;
   const limit = Math.min(7, Math.max(1, params.limit || 7));
-  const fetchLimit = Math.max(12, limit * 5);
+  const fetchLimit = Math.max(30, limit * 20);
 
   let query = supabase
     .from('signals')
@@ -255,7 +300,18 @@ export async function listSignals(params: {
   const { data: rows } = (await query) as { data: SignalRow[] | null };
   if (!rows || rows.length === 0) return [];
 
-  const signalIds = rows.map((row) => row.id);
+  const dedupedRows: SignalRow[] = [];
+  const seenFingerprints = new Set<string>();
+  for (const row of rows) {
+    const fingerprint = signalFingerprintKey(row);
+    if (seenFingerprints.has(fingerprint)) continue;
+    seenFingerprints.add(fingerprint);
+    dedupedRows.push(row);
+    if (dedupedRows.length >= limit) break;
+  }
+  if (dedupedRows.length === 0) return [];
+
+  const signalIds = dedupedRows.map((row) => row.id);
   const { data: evidenceRows } = (await supabase
     .from('signal_evidence')
     .select('signal_id, evidence_type, evidence_id, label, rank, payload')
@@ -276,7 +332,7 @@ export async function listSignals(params: {
     evidenceBySignal.set(row.signal_id, list);
   }
 
-  return sortSignalsByPriority(rows.map((row) => toSignalRecord(row, evidenceBySignal.get(row.id) || []))).slice(0, limit);
+  return sortSignalsByPriority(dedupedRows.map((row) => toSignalRecord(row, evidenceBySignal.get(row.id) || []))).slice(0, limit);
 }
 
 export async function getSignalDetail(params: {

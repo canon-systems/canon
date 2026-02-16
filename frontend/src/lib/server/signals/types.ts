@@ -65,6 +65,7 @@ export type SignalEvidenceRecord = {
 
 export type SignalRecord = {
   id: string;
+  created_at?: string;
   type: SignalType;
   severity: SignalSeverity;
   scope_type: SignalScopeType;

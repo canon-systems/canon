@@ -10,10 +10,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 
 type SignalCard = {
   id: string;
+  created_at: string | null;
   title: string;
   summary_line: string;
   severity: 'elevated' | 'significant';
   scope: { type: 'global' | 'repo' | 'aku'; id: string | null };
+  metric_key: string;
+  current_value: number;
+  baseline_value: number;
   percent_change: number;
   window_start: string;
   window_end: string;
@@ -32,6 +36,92 @@ function scopeLabel(signal: SignalCard): string {
   if (signal.scope.type === 'repo' && signal.scope.id) return `Repo: ${signal.scope.id}`;
   if (signal.scope.type === 'aku' && signal.scope.id) return `AKU: ${signal.scope.id}`;
   return 'Global';
+}
+
+function formatTimestamp(value: string | null): string {
+  if (!value) return 'N/A';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const iso = date.toISOString();
+  return iso.replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC');
+}
+
+function formatDateOnly(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return `${date.toISOString().slice(0, 10)} UTC`;
+}
+
+function formatSignedPercent(value: number): string {
+  if (!Number.isFinite(value)) return '0%';
+  const abs = Math.abs(value);
+  const digits = abs >= 100 ? 0 : abs >= 10 ? 1 : 2;
+  const formatted = value.toLocaleString('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: digits,
+  });
+  return `${value > 0 ? '+' : ''}${formatted}%`;
+}
+
+function formatCount(value: number): string {
+  if (!Number.isFinite(value)) return '0';
+  return Math.round(value).toLocaleString('en-US');
+}
+
+function formatPercentValue(value: number): string {
+  if (!Number.isFinite(value)) return '0%';
+  const normalized = Math.abs(value) <= 1 ? value * 100 : value;
+  const abs = Math.abs(normalized);
+  const digits = abs >= 100 ? 0 : abs >= 10 ? 1 : 2;
+  return `${normalized.toLocaleString('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: digits,
+  })}%`;
+}
+
+function metricLabel(metricKey: string): string {
+  if (metricKey === 'regression_rate') return 'Regression rate';
+  if (metricKey === 'tickets_completed') return 'Tickets completed';
+  if (metricKey === 'tickets_regressed') return 'Tickets regressed';
+  if (metricKey === 'prs_opened') return 'PRs opened';
+  if (metricKey === 'prs_merged') return 'PRs merged';
+  if (metricKey === 'repos_touched') return 'Repos touched';
+  if (metricKey === 'repo_distribution') return 'Repo concentration';
+  if (metricKey === 'aku_distribution') return 'AKU concentration';
+  return metricKey.replace(/_/g, ' ');
+}
+
+function metricValue(metricKey: string, value: number): string {
+  if (metricKey === 'regression_rate' || metricKey === 'repo_distribution' || metricKey === 'aku_distribution') {
+    return formatPercentValue(value);
+  }
+  return formatCount(value);
+}
+
+function isPercentMetric(metricKey: string): boolean {
+  return metricKey === 'regression_rate' || metricKey === 'repo_distribution' || metricKey === 'aku_distribution';
+}
+
+function normalizePercent(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.abs(value) <= 1 ? value * 100 : value;
+}
+
+function relativePercentChange(current: number, baseline: number): number {
+  if (!Number.isFinite(current) || !Number.isFinite(baseline)) return 0;
+  if (baseline === 0) return current === 0 ? 0 : 100;
+  return ((current - baseline) / Math.abs(baseline)) * 100;
+}
+
+function renderMetricSummary(signal: SignalCard): string {
+  const label = metricLabel(signal.metric_key);
+  const current = metricValue(signal.metric_key, signal.current_value);
+  const baseline = metricValue(signal.metric_key, signal.baseline_value);
+  const deltaValue = isPercentMetric(signal.metric_key)
+    ? normalizePercent(signal.current_value) - normalizePercent(signal.baseline_value)
+    : relativePercentChange(signal.current_value, signal.baseline_value);
+  const delta = formatSignedPercent(deltaValue);
+  return `${label}: ${current} vs ${baseline} baseline (${delta})`;
 }
 
 export default function SignalsPageClient({
@@ -131,18 +221,34 @@ export default function SignalsPageClient({
               <CardHeader className="pb-2">
                 <div className="flex items-start justify-between gap-3">
                   <CardTitle className="text-base text-white">{signal.title}</CardTitle>
-                  <Badge variant="outline" className={severityClass(signal.severity)}>
-                    {severityLabel(signal.severity)}
-                  </Badge>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className={severityClass(signal.severity)}>
+                      {severityLabel(signal.severity)}
+                    </Badge>
+                    <Badge variant="outline" className="border-white/20 bg-white/5 text-white/70">
+                      {scopeLabel(signal)}
+                    </Badge>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent className="space-y-3">
                 <p className="text-sm text-white/80">{signal.summary_line}</p>
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <Badge variant="outline" className="border-white/20 bg-white/5 text-white/70">
-                    {scopeLabel(signal)}
-                  </Badge>
-                  <Button asChild className="bg-white text-black hover:bg-white/90" onClick={(event) => event.stopPropagation()}>
+                <p className="text-xs text-white/65">{renderMetricSummary(signal)}</p>
+                <div className="grid grid-cols-[1fr_auto] items-end gap-3">
+                  <div>
+                    <div className="space-y-1.5">
+                      <p className="font-mono text-[11px] text-white/80">{signal.id}</p>
+                      <p className="text-xs text-white/70">Detected: {formatTimestamp(signal.created_at)}</p>
+                      <p className="text-xs text-white/70">
+                        Window: {formatDateOnly(signal.window_start)} to {formatDateOnly(signal.window_end)}
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    asChild
+                    className="self-end bg-white text-black hover:bg-white/90"
+                    onClick={(event) => event.stopPropagation()}
+                  >
                     <Link href={`/signals/${signal.id}`}>Investigate</Link>
                   </Button>
                 </div>
