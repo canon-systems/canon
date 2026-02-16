@@ -198,7 +198,12 @@ export async function sendSlackMessage(params: {
 }): Promise<{ sent: boolean; reason?: string }> {
   const { supabase, userId, channel, text } = params;
 
-  if (!channel || channel.trim().length === 0) {
+  const normalizedChannel = typeof channel === 'string' ? channel.trim() : '';
+  if (!normalizedChannel) {
+    return { sent: false, reason: 'No Slack channel configured.' };
+  }
+  const slackChannel = normalizedChannel.startsWith('#') ? normalizedChannel.slice(1) : normalizedChannel;
+  if (!slackChannel) {
     return { sent: false, reason: 'No Slack channel configured.' };
   }
 
@@ -219,7 +224,7 @@ export async function sendSlackMessage(params: {
       'Content-Type': 'application/json; charset=utf-8',
     },
     body: JSON.stringify({
-      channel,
+      channel: slackChannel,
       text,
       mrkdwn: true,
       unfurl_links: false,

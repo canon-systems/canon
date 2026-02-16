@@ -1,0 +1,37 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
+import { generators } from 'openid-client';
+import { getSession } from '@/lib/auth';
+import { buildSlackAuthorizeUrl, getSlackOAuthScopes } from '@/lib/server/oauth/slackClient';
+
+export const runtime = 'nodejs';
+
+const STATE_COOKIE = 'slack_oauth_state';
+
+export async function GET(request: NextRequest) {
+  const { user } = await getSession();
+  if (!user) {
+    return NextResponse.redirect(new URL('/login', request.url));
+  }
+
+  const state = generators.state();
+  const cookieStore = await cookies();
+  const secure = process.env.NODE_ENV === 'production';
+
+  cookieStore.set(STATE_COOKIE, state, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure,
+    path: '/',
+    maxAge: 10 * 60,
+  });
+
+  const redirectUri = new URL('/api/oauth/slack/callback', request.nextUrl.origin).toString();
+  const authorizationUrl = buildSlackAuthorizeUrl({
+    redirectUri,
+    state,
+    scopes: getSlackOAuthScopes(),
+  });
+
+  return NextResponse.redirect(authorizationUrl);
+}

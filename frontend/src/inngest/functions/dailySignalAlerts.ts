@@ -103,29 +103,27 @@ export const dailySignalAlerts = inngest.createFunction(
           text: formatDailySignalAlertMessage({ window, signals }),
         });
 
-        let email = { sent: false, reason: 'skipped_slack_success' } as { sent: boolean; reason?: string };
-        if (!slack.sent) {
-          const alertEmail = await resolveAlertEmail({
-            emailDigestEnabled: settings.email_digest_enabled,
-            emailDigestTo: settings.email_digest_to,
-            userId,
-            supabase,
-          });
+        const alertEmail = await resolveAlertEmail({
+          emailDigestEnabled: settings.email_digest_enabled,
+          emailDigestTo: settings.email_digest_to,
+          userId,
+          supabase,
+        });
 
-          if (alertEmail) {
-            const rendered = formatDailySignalAlertEmail({ window, signals });
-            email = await sendEmailDigest({
-              to: alertEmail,
-              subject: rendered.subject,
-              text: rendered.text,
-              html: rendered.html,
-            });
-          } else {
-            email = { sent: false, reason: 'disabled_or_unresolved' };
-          }
+        let email = { sent: false, reason: 'disabled_or_unresolved' } as { sent: boolean; reason?: string };
+        if (alertEmail) {
+          const rendered = formatDailySignalAlertEmail({ window, signals });
+          email = await sendEmailDigest({
+            to: alertEmail,
+            subject: rendered.subject,
+            text: rendered.text,
+            html: rendered.html,
+          });
+        } else if (!settings.email_digest_enabled) {
+          email = { sent: false, reason: 'disabled' };
         }
 
-        const channel = slack.sent ? 'slack' : email.sent ? 'email' : 'none';
+        const channel = slack.sent && email.sent ? 'both' : slack.sent ? 'slack' : email.sent ? 'email' : 'none';
 
         usersProcessed += 1;
         console.log('[daily-signal-alerts] processed user', {

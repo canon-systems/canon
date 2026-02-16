@@ -1,5 +1,6 @@
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { decryptSecret, encryptSecret, type EncryptedSecret } from '@/lib/server/oauth/tokenCrypto';
+import { refreshSlackToken } from '@/lib/server/oauth/slackClient';
 
 async function refreshConfluenceToken(params: {
   refreshToken: string;
@@ -140,6 +141,48 @@ export async function getProviderAccessToken(params: {
         return newAccessToken;
       } catch (refreshError) {
         console.warn('Failed to refresh Atlassian token:', refreshError);
+        const errorMessage = refreshError instanceof Error ? refreshError.message : String(refreshError);
+        await markConnectionError(supabase, connectionId, errorMessage);
+        throw new Error(errorMessage);
+      }
+    }
+  }
+
+  if (provider === 'slack') {
+    const expiresAt = data.expires_at ? new Date(data.expires_at) : null;
+    const refreshTokenEncrypted = data.refresh_token as EncryptedSecret | undefined;
+    const now = new Date();
+    const shouldRefreshSoon = expiresAt && expiresAt.getTime() - now.getTime() < 5 * 60_000;
+
+    if (expiresAt && refreshTokenEncrypted && shouldRefreshSoon) {
+      try {
+        const refreshToken = decryptSecret(refreshTokenEncrypted);
+        const refreshed = await refreshSlackToken({ refreshToken });
+
+        const newAccessToken = typeof refreshed.access_token === 'string'
+          ? refreshed.access_token
+          : accessToken;
+        const newRefreshToken = typeof refreshed.refresh_token === 'string'
+          ? refreshed.refresh_token
+          : refreshToken;
+        const newExpiresAt =
+          typeof refreshed.expires_in === 'number'
+            ? new Date(Date.now() + refreshed.expires_in * 1000).toISOString()
+            : typeof refreshed.expires_at === 'number'
+              ? new Date(refreshed.expires_at * 1000).toISOString()
+              : data.expires_at;
+
+        await updateTokens(
+          supabase,
+          connectionId,
+          newAccessToken,
+          newRefreshToken || null,
+          newExpiresAt
+        );
+
+        return newAccessToken;
+      } catch (refreshError) {
+        console.warn('Failed to refresh Slack token:', refreshError);
         const errorMessage = refreshError instanceof Error ? refreshError.message : String(refreshError);
         await markConnectionError(supabase, connectionId, errorMessage);
         throw new Error(errorMessage);

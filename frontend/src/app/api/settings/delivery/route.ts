@@ -5,6 +5,15 @@ import { getWorkspaceSignalSettings, updateWorkspaceSignalSettings } from '@/lib
 
 export const dynamic = 'force-dynamic';
 
+function isValidSlackChannel(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+
+  const isChannelId = /^[CGD][A-Z0-9]{8,}$/.test(trimmed);
+  const isLegacyChannelName = /^#[a-z0-9][a-z0-9._-]{0,79}$/i.test(trimmed);
+  return isChannelId || isLegacyChannelName;
+}
+
 export async function GET() {
   try {
     const { user } = await getSession();
@@ -66,6 +75,13 @@ export async function PUT(request: NextRequest) {
       (emailDigestToProvided && email_digest_to === undefined)
     ) {
       return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
+    }
+
+    if (typeof slack_channel === 'string' && !isValidSlackChannel(slack_channel)) {
+      return NextResponse.json(
+        { error: 'Invalid Slack channel. Use a channel ID like C0123456789 or legacy #channel-name.' },
+        { status: 400 }
+      );
     }
 
     const supabase = await createClient();

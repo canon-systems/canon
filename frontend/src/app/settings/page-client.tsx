@@ -50,6 +50,12 @@ const integrationCards: IntegrationCard[] = [
     icon: <Github className="h-7 w-7 text-white" />
   },
   {
+    provider: 'slack',
+    name: 'Slack',
+    description: 'Connect Slack to receive signal alerts in your channel.',
+    icon: <IntegrationLogos provider="slack" size={28} />
+  },
+  {
     provider: 'notion',
     name: 'Notion',
     description: 'Sync pages and databases for richer answers.',
@@ -206,6 +212,10 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
         window.location.href = '/api/oauth/confluence/start';
         return;
       }
+      if (providerName === 'slack') {
+        window.location.href = '/api/oauth/slack/start';
+        return;
+      }
 
       throw new Error(`${getProviderDisplayName(providerName)} integration is not available yet.`);
     } catch (err: unknown) {
@@ -251,12 +261,14 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
 
   function getProviderDisplayName(provider: string) {
     if (provider === 'github') return 'GitHub';
+    if (provider === 'slack') return 'Slack';
     if (provider === 'confluence') return 'Atlassian';
     return provider.charAt(0).toUpperCase() + provider.slice(1);
   }
 
   function getProviderName(provider: string) {
     if (provider === 'github') return 'GitHub';
+    if (provider === 'slack') return 'Slack';
     if (provider === 'confluence') return 'Atlassian';
     return provider.charAt(0).toUpperCase() + provider.slice(1);
   }
@@ -331,12 +343,12 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
 
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
-        throw new Error(payload.error || 'Failed to save Slack channel');
+        throw new Error(payload.error || 'Failed to save delivery settings');
       }
 
       setSlackMessage('Delivery settings saved.');
     } catch (err: unknown) {
-      setSlackError(err instanceof Error ? err.message : 'Failed to save Slack channel');
+      setSlackError(err instanceof Error ? err.message : 'Failed to save delivery settings');
     } finally {
       setSlackSaving(false);
     }
@@ -501,22 +513,25 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                   <div>
                     <h3 className="text-lg font-semibold text-white">Daily Signal Alerts</h3>
                     <p className="text-sm text-white/65">
-                      Canon checks signals daily and sends alerts only when signals are detected. Slack is primary; email is fallback.
+                      Canon checks signals daily and sends alerts only when signals are detected. Slack sends to your configured channel, and email can run in parallel when enabled.
                     </p>
                   </div>
 
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-white/80">
-                      Slack channel
+                      Slack channel ID
                     </label>
                     <Input
-                      placeholder="#canon-signals"
+                      placeholder="C0123456789"
                       value={slackChannel}
                       onChange={(event) => setSlackChannel(event.target.value)}
                       disabled={slackLoading}
                     />
                     <p className="text-xs text-white/60">
-                      Example: <span className="text-white/80">#engineering-signals</span>
+                      Use a channel ID like <span className="text-white/80">C0123456789</span>. Legacy <span className="text-white/80">#channel-name</span> values still work.
+                    </p>
+                    <p className="text-xs text-white/60">
+                      For private channels, invite the Slack app to the channel first.
                     </p>
                   </div>
 
@@ -557,7 +572,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                           Saving...
                         </span>
                       ) : (
-                        'Save Slack channel'
+                        'Save delivery settings'
                       )}
                     </Button>
                   </div>
