@@ -3,9 +3,24 @@ import type { MetricWindow, SignalRecord } from '@/lib/server/signals/types';
 import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
 import { sortSignalsByPriority } from '@/lib/server/signals/engine';
 
+function normalizeBaseUrl(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    const parsed = new URL(withProtocol);
+    return parsed.origin;
+  } catch {
+    return '';
+  }
+}
+
 function appUrl() {
-  const url = process.env.NEXT_PUBLIC_APP_URL;
-  if (typeof url === 'string' && url.trim().length > 0) return url.replace(/\/$/, '');
+  const configured = process.env.CANON_WEBHOOK_BASE_URL;
+  if (typeof configured === 'string') {
+    return normalizeBaseUrl(configured);
+  }
   return '';
 }
 
@@ -15,16 +30,100 @@ function signalUrl(signalId: string): string {
   return `${base}/signals/${signalId}`;
 }
 
+function toDateOnlyUtc(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toISOString().slice(0, 10);
+}
+
+function formatNumber(value: number, maxFractionDigits = 1): string {
+  if (!Number.isFinite(value)) return '0';
+  return value.toLocaleString('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: maxFractionDigits,
+  });
+}
+
+function formatSignedPercent(value: number): string {
+  if (!Number.isFinite(value)) return '0%';
+  const abs = Math.abs(value);
+  const digits = abs >= 100 ? 0 : abs >= 10 ? 1 : 2;
+  return `${value > 0 ? '+' : ''}${formatNumber(value, digits)}%`;
+}
+
+function formatSignedNumber(value: number): string {
+  if (!Number.isFinite(value)) return '0';
+  const abs = Math.abs(value);
+  const digits = abs >= 100 ? 0 : abs >= 10 ? 1 : 2;
+  return `${value > 0 ? '+' : ''}${formatNumber(value, digits)}`;
+}
+
+function normalizePercent(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.abs(value) <= 1 ? value * 100 : value;
+}
+
+function relativePercentChange(current: number, baseline: number): number {
+  if (!Number.isFinite(current) || !Number.isFinite(baseline)) return 0;
+  if (baseline === 0) return current === 0 ? 0 : 100;
+  return ((current - baseline) / Math.abs(baseline)) * 100;
+}
+
+function humanSeverity(severity: SignalRecord['severity']): string {
+  return severity === 'significant' ? 'Significant' : 'Elevated';
+}
+
+function scopeSummary(signal: SignalRecord): string {
+  if (signal.scope_type === 'repo' && signal.scope_id) return `Scope: Repo ${signal.scope_id}`;
+  if (signal.scope_type === 'aku' && signal.scope_id) return `Scope: AKU ${signal.scope_id}`;
+  return 'Scope: Global';
+}
+
+function metricLabel(metricKey: string): string {
+  if (metricKey === 'regression_rate') return 'Regression rate';
+  if (metricKey === 'tickets_completed') return 'Tickets completed';
+  if (metricKey === 'tickets_regressed') return 'Tickets regressed';
+  if (metricKey === 'prs_opened') return 'PRs opened';
+  if (metricKey === 'prs_merged') return 'PRs merged';
+  if (metricKey === 'repos_touched') return 'Repos touched';
+  if (metricKey === 'repo_distribution') return 'Repo concentration';
+  if (metricKey === 'aku_distribution') return 'AKU concentration';
+  return metricKey.replace(/_/g, ' ');
+}
+
+function metricSummary(signal: SignalRecord): string {
+  const label = metricLabel(signal.metric_key);
+  const percentMetric =
+    signal.metric_key === 'regression_rate' ||
+    signal.metric_key === 'repo_distribution' ||
+    signal.metric_key === 'aku_distribution';
+
+  if (percentMetric) {
+    const current = normalizePercent(signal.current_value);
+    const baseline = normalizePercent(signal.baseline_value);
+    const ppChange = current - baseline;
+    return `${label} change vs baseline: ${formatSignedNumber(ppChange)} pp`;
+  }
+
+  const current = Math.round(signal.current_value);
+  const baseline = Math.round(signal.baseline_value);
+  const pctChange = relativePercentChange(current, baseline);
+  return `${label} change vs baseline: ${formatSignedPercent(pctChange)}`;
+}
+
 export function formatWeeklyDigestMessage(params: {
   window: MetricWindow;
   signals: SignalRecord[];
 }): string {
   const { window } = params;
   const signals = sortSignalsByPriority(params.signals).slice(0, 3);
+  const significantCount = signals.filter((signal) => signal.severity === 'significant').length;
+  const elevatedCount = signals.length - significantCount;
 
   const lines = [
     '*Canon Weekly Insight*',
-    `Window: ${window.start} → ${window.end}`,
+    `Window: ${toDateOnlyUtc(window.start)} to ${toDateOnlyUtc(window.end)} (UTC)`,
+    `Signals: ${signals.length} (${significantCount} significant, ${elevatedCount} elevated)`,
     '',
   ];
 
@@ -33,10 +132,13 @@ export function formatWeeklyDigestMessage(params: {
     return lines.join('\n');
   }
 
-  for (const signal of signals) {
-    lines.push(`• [${signal.severity.toUpperCase()}] ${signal.title} — ${signal.summary_line}`);
-    lines.push(`  Investigate: ${signalUrl(signal.id)}`);
-  }
+  signals.forEach((signal, index) => {
+    lines.push(`${index + 1}. *${signal.title}* [${humanSeverity(signal.severity)}]`);
+    lines.push(`   ${metricSummary(signal)}`);
+    lines.push(`   ${scopeSummary(signal)}`);
+    lines.push(`   Open: ${signalUrl(signal.id)}`);
+    if (index < signals.length - 1) lines.push('');
+  });
 
   return lines.join('\n');
 }
@@ -47,10 +149,14 @@ export function formatDailySignalAlertMessage(params: {
 }): string {
   const { window } = params;
   const signals = sortSignalsByPriority(params.signals);
+  const topSignals = signals.slice(0, 5);
+  const significantCount = signals.filter((signal) => signal.severity === 'significant').length;
+  const elevatedCount = signals.length - significantCount;
 
   const lines = [
     '*Canon Daily Signal Alert*',
-    `Window: ${window.start} -> ${window.end}`,
+    `Window: ${toDateOnlyUtc(window.start)} to ${toDateOnlyUtc(window.end)} (UTC)`,
+    `Signals: ${signals.length} (${significantCount} significant, ${elevatedCount} elevated)`,
     '',
   ];
 
@@ -59,9 +165,17 @@ export function formatDailySignalAlertMessage(params: {
     return lines.join('\n');
   }
 
-  for (const signal of signals) {
-    lines.push(`• [${signal.severity.toUpperCase()}] ${signal.title} — ${signal.summary_line}`);
-    lines.push(`  Investigate: ${signalUrl(signal.id)}`);
+  topSignals.forEach((signal, index) => {
+    lines.push(`${index + 1}. *${signal.title}* [${humanSeverity(signal.severity)}]`);
+    lines.push(`   ${metricSummary(signal)}`);
+    lines.push(`   ${scopeSummary(signal)}`);
+    lines.push(`   Open: ${signalUrl(signal.id)}`);
+    if (index < topSignals.length - 1) lines.push('');
+  });
+
+  if (signals.length > topSignals.length) {
+    lines.push('');
+    lines.push(`+${signals.length - topSignals.length} more signal(s) not shown.`);
   }
 
   return lines.join('\n');
@@ -164,9 +278,10 @@ export function isSevereAlertSignal(signal: SignalRecord): boolean {
 export function formatAlertMessage(signal: SignalRecord): string {
   const lines = [
     '*Canon Alert*',
-    `[${signal.severity.toUpperCase()}] ${signal.title}`,
-    signal.summary_line,
-    `Investigate: ${signalUrl(signal.id)}`,
+    `[${humanSeverity(signal.severity)}] ${signal.title}`,
+    metricSummary(signal),
+    scopeSummary(signal),
+    `Open: ${signalUrl(signal.id)}`,
   ];
   return lines.join('\n');
 }
