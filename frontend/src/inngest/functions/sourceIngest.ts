@@ -104,7 +104,6 @@ export const sourceIngestRequested = inngest.createFunction(
         sourceId: sourceRow.id,
         sourceName,
         provider: sourceRow.provider,
-        mode,
         error: errorMessage(error),
       });
       throw error;
