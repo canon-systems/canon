@@ -96,31 +96,42 @@ export const dailySignalAlerts = inngest.createFunction(
           continue;
         }
 
-        const slack = await sendSlackMessage({
-          supabase,
-          userId,
-          channel: settings.slack_channel,
-          text: formatDailySignalAlertMessage({ window, signals }),
-        });
+        const preference = settings.delivery_preference || 'slack_then_email';
+        const wantsSlack = preference === 'slack_only' || preference === 'slack_then_email';
+        const wantsEmail = preference === 'email_only' || preference === 'slack_then_email';
 
-        const alertEmail = await resolveAlertEmail({
-          emailDigestEnabled: settings.email_digest_enabled,
-          emailDigestTo: settings.email_digest_to,
-          userId,
-          supabase,
-        });
-
-        let email = { sent: false, reason: 'disabled_or_unresolved' } as { sent: boolean; reason?: string };
-        if (alertEmail) {
-          const rendered = formatDailySignalAlertEmail({ window, signals });
-          email = await sendEmailDigest({
-            to: alertEmail,
-            subject: rendered.subject,
-            text: rendered.text,
-            html: rendered.html,
+        let slack = { sent: false, reason: 'skipped_by_preference' } as { sent: boolean; reason?: string };
+        if (wantsSlack) {
+          slack = await sendSlackMessage({
+            supabase,
+            userId,
+            channel: settings.slack_channel,
+            text: formatDailySignalAlertMessage({ window, signals }),
           });
-        } else if (!settings.email_digest_enabled) {
-          email = { sent: false, reason: 'disabled' };
+        }
+
+        let email = { sent: false, reason: 'skipped_by_preference' } as { sent: boolean; reason?: string };
+        if (wantsEmail) {
+          const alertEmail = await resolveAlertEmail({
+            emailDigestEnabled: settings.email_digest_enabled,
+            emailDigestTo: settings.email_digest_to,
+            userId,
+            supabase,
+          });
+
+          if (alertEmail) {
+            const rendered = formatDailySignalAlertEmail({ window, signals });
+            email = await sendEmailDigest({
+              to: alertEmail,
+              subject: rendered.subject,
+              text: rendered.text,
+              html: rendered.html,
+            });
+          } else if (!settings.email_digest_enabled) {
+            email = { sent: false, reason: 'email_disabled' };
+          } else {
+            email = { sent: false, reason: 'email_unresolved' };
+          }
         }
 
         const channel = slack.sent && email.sent ? 'both' : slack.sent ? 'slack' : email.sent ? 'email' : 'none';

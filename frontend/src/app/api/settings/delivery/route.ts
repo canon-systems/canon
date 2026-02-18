@@ -3,6 +3,8 @@ import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
 import { getWorkspaceSignalSettings, updateWorkspaceSignalSettings } from '@/lib/server/signals/settings';
 
+const DELIVERY_PREFERENCES = ['slack_only', 'email_only', 'slack_then_email'] as const;
+
 export const dynamic = 'force-dynamic';
 
 function isValidSlackChannel(value: string): boolean {
@@ -28,6 +30,7 @@ export async function GET() {
         slack_channel: settings.slack_channel,
         email_digest_enabled: settings.email_digest_enabled,
         email_digest_to: settings.email_digest_to,
+        delivery_preference: settings.delivery_preference,
       },
       { status: 200 }
     );
@@ -49,6 +52,7 @@ export async function PUT(request: NextRequest) {
     const slackChannelRaw = body.slack_channel;
     const emailDigestEnabledRaw = body.email_digest_enabled;
     const emailDigestToRaw = body.email_digest_to;
+    const deliveryPreferenceRaw = body.delivery_preference;
     const slack_channel =
       typeof slackChannelRaw === 'string'
         ? slackChannelRaw.trim() || null
@@ -68,11 +72,18 @@ export async function PUT(request: NextRequest) {
         : emailDigestToRaw === null
           ? null
           : undefined;
+    const delivery_preference =
+      typeof deliveryPreferenceRaw === 'string' && DELIVERY_PREFERENCES.includes(deliveryPreferenceRaw as (typeof DELIVERY_PREFERENCES)[number])
+        ? (deliveryPreferenceRaw as (typeof DELIVERY_PREFERENCES)[number])
+        : deliveryPreferenceRaw === undefined
+          ? undefined
+          : null;
 
     if (
       slack_channel === undefined ||
       email_digest_enabled === null ||
-      (emailDigestToProvided && email_digest_to === undefined)
+      (emailDigestToProvided && email_digest_to === undefined) ||
+      delivery_preference === null
     ) {
       return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
     }
@@ -92,6 +103,7 @@ export async function PUT(request: NextRequest) {
         slack_channel,
         ...(email_digest_enabled !== undefined ? { email_digest_enabled } : {}),
         ...(emailDigestToProvided ? { email_digest_to } : {}),
+        ...(delivery_preference !== undefined ? { delivery_preference } : {}),
       },
     });
 
@@ -100,6 +112,7 @@ export async function PUT(request: NextRequest) {
         slack_channel: settings.slack_channel,
         email_digest_enabled: settings.email_digest_enabled,
         email_digest_to: settings.email_digest_to,
+        delivery_preference: settings.delivery_preference,
       },
       { status: 200 }
     );

@@ -6,6 +6,7 @@ const DEFAULTS: Omit<WorkspaceSignalSettings, 'user_id'> = {
   slack_channel: null,
   email_digest_enabled: false,
   email_digest_to: null,
+  delivery_preference: 'slack_only',
   source_ids: [],
 };
 
@@ -22,6 +23,12 @@ function normalizeSettings(userId: string, row?: Record<string, unknown> | null)
       typeof row?.email_digest_to === 'string' && row.email_digest_to.trim().length > 0
         ? row.email_digest_to.trim()
         : null,
+    delivery_preference:
+      row?.delivery_preference === 'slack_only' ||
+      row?.delivery_preference === 'email_only' ||
+      row?.delivery_preference === 'slack_then_email'
+        ? row.delivery_preference
+        : DEFAULTS.delivery_preference,
     source_ids: Array.isArray(row?.source_ids) ? row!.source_ids.filter((id): id is string => typeof id === 'string') : [],
   };
 }
@@ -60,6 +67,12 @@ export async function updateWorkspaceSignalSettings(params: {
   const next: WorkspaceSignalSettings = {
     ...current,
     ...patch,
+    delivery_preference:
+      patch.delivery_preference === 'slack_only' ||
+      patch.delivery_preference === 'email_only' ||
+      patch.delivery_preference === 'slack_then_email'
+        ? patch.delivery_preference
+        : current.delivery_preference,
     source_ids: Array.isArray(patch.source_ids) ? patch.source_ids : current.source_ids,
     user_id: userId,
   };

@@ -2,13 +2,15 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Settings, User, Link2, Mail, Check, Loader2, Github } from 'lucide-react';
+import { Settings, User, Link2, Mail, Check, Loader2, Github, Info } from 'lucide-react';
 import { IntegrationLogos } from '@/components/IntegrationLogos';
 import { getIntegrationsCached, clearIntegrationsCache } from '@/lib/client/integrationsCache';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 interface Connection {
   id: string;
@@ -71,6 +73,16 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   const router = useRouter();
   const searchParams = useSearchParams();
 
+  const deliveryPreferenceOptions: Array<{
+    value: 'slack_only' | 'email_only' | 'slack_then_email';
+    label: string;
+    helper: string;
+  }> = [
+    { value: 'slack_only', label: 'Slack', helper: 'Post to your configured Slack channel' },
+    { value: 'email_only', label: 'Email', helper: 'Send alerts to an email address' },
+    { value: 'slack_then_email', label: 'Both', helper: 'Try Slack first, then fall back to email' },
+  ];
+
   const [activeTab, setActiveTab] = useState<TabId>('profile');
   const [user] = useState<SupabaseUser | null>(initialUser);
   const [connections, setConnections] = useState<Connection[]>([]);
@@ -87,8 +99,8 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   const [slackSaving, setSlackSaving] = useState(false);
   const [slackMessage, setSlackMessage] = useState('');
   const [slackError, setSlackError] = useState('');
-  const [emailDigestEnabled, setEmailDigestEnabled] = useState(false);
   const [emailDigestTo, setEmailDigestTo] = useState('');
+  const [deliveryPreference, setDeliveryPreference] = useState<'slack_only' | 'email_only' | 'slack_then_email' | null>('slack_only');
 
   const loadConnections = useCallback(async (force = false) => {
     setLoading(true);
@@ -163,8 +175,13 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
       const payload = await response.json();
       const channel = payload?.slack_channel;
       setSlackChannel(typeof channel === 'string' ? channel : '');
-      setEmailDigestEnabled(payload?.email_digest_enabled === true);
       setEmailDigestTo(typeof payload?.email_digest_to === 'string' ? payload.email_digest_to : '');
+      const preference = payload?.delivery_preference;
+      if (preference === 'slack_only' || preference === 'email_only' || preference === 'slack_then_email') {
+        setDeliveryPreference(preference);
+      } else {
+        setDeliveryPreference('slack_only');
+      }
     } catch (err: unknown) {
       setSlackError(err instanceof Error ? err.message : 'Failed to load delivery settings');
     } finally {
@@ -298,14 +315,22 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     setSlackMessage('');
     setSlackError('');
     try {
+      if (!deliveryPreference) {
+        throw new Error('Choose a delivery preference before saving.');
+      }
+
+      const includeSlack = deliveryPreference !== 'email_only';
+      const includeEmail = deliveryPreference !== 'slack_only';
+
       const response = await fetch('/api/settings/delivery', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          slack_channel: slackChannel.trim() || null,
-          email_digest_enabled: emailDigestEnabled,
-          email_digest_to: emailDigestTo.trim() || null,
+          slack_channel: includeSlack ? slackChannel.trim() || null : null,
+          email_digest_enabled: includeEmail,
+          email_digest_to: includeEmail ? emailDigestTo.trim() || null : null,
+          delivery_preference: deliveryPreference,
         }),
       });
 
@@ -400,57 +425,95 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                 </p>
               </div>
 
-              <div className="space-y-4">
-                <div className="rounded-xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm space-y-5">
-                  <div>
-                    <h3 className="text-lg font-semibold text-white">Daily Signal Alerts</h3>
-                    <p className="text-sm text-white/65">
-                      Canon checks signals daily and sends alerts only when signals are detected. Slack sends to your configured channel, and email can run in parallel when enabled.
-                    </p>
-                  </div>
+                  <div className="space-y-4">
+                    <div className="rounded-xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm space-y-5">
+                      <div>
+                        <h3 className="text-lg font-semibold text-white">Daily Signal Alerts</h3>
+                        <p className="text-sm text-white/65">
+                          Canon checks signals daily and sends alerts only when signals are detected. Choose how you want alerts delivered.
+                        </p>
+                      </div>
 
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-white/80">
-                      Slack channel ID
-                    </label>
-                    <Input
-                      placeholder="C0123456789"
-                      value={slackChannel}
-                      onChange={(event) => setSlackChannel(event.target.value)}
-                      disabled={slackLoading}
-                    />
-                    <p className="text-xs text-white/60">
-                      Use a channel ID like <span className="text-white/80">C0123456789</span>. Legacy <span className="text-white/80">#channel-name</span> values still work.
-                    </p>
-                    <p className="text-xs text-white/60">
-                      For private channels, invite the Slack app to the channel first.
-                    </p>
-                  </div>
+                      <div className="space-y-3">
+                        <label className="block text-sm font-medium text-white/80">
+                          Delivery preference
+                        </label>
+                        <Select
+                          value={deliveryPreference ?? ''}
+                          onValueChange={(value) =>
+                            setDeliveryPreference(
+                              value === 'slack_only' || value === 'email_only' || value === 'slack_then_email'
+                                ? value
+                                : null
+                            )
+                          }
+                          disabled={slackLoading}
+                        >
+                          <SelectTrigger className="w-full border-white/20 bg-white/5 text-white">
+                            <SelectValue placeholder="Choose how alerts are delivered" />
+                          </SelectTrigger>
+                          <SelectContent className="bg-black/90 text-white">
+                            {deliveryPreferenceOptions.map((option) => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
 
-                  <div className="space-y-2 rounded-lg border border-white/10 bg-black/20 p-4">
-                    <label className="flex items-center gap-2 text-sm text-white/85">
-                      <input
-                        type="checkbox"
-                        checked={emailDigestEnabled}
-                        onChange={(event) => setEmailDigestEnabled(event.target.checked)}
-                        className="h-4 w-4 rounded border-white/20 bg-white/10"
-                        disabled={slackLoading}
-                      />
-                      Enable fallback email alerts
-                    </label>
-                    <Input
-                      placeholder={initialUser?.email || 'you@company.com'}
-                      value={emailDigestTo}
-                      onChange={(event) => setEmailDigestTo(event.target.value)}
-                      disabled={slackLoading || !emailDigestEnabled}
-                    />
-                    <p className="text-xs text-white/60">
-                      Leave blank to use your account email.
-                    </p>
-                  </div>
+                      {(deliveryPreference === 'slack_only' || deliveryPreference === 'slack_then_email') && (
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2 text-sm font-medium text-white/80">
+                            <span>Slack channel ID</span>
+                            <TooltipProvider delayDuration={120}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Info className="h-4 w-4 cursor-help text-white/60" />
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-xs leading-relaxed">
+                                  Use a channel ID like C0123456789 (or legacy #channel-name). For private channels, invite the Slack app first.
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          </div>
+                          <Input
+                            placeholder="C0123456789"
+                            value={slackChannel}
+                            onChange={(event) => setSlackChannel(event.target.value)}
+                            disabled={slackLoading}
+                            className="mt-1"
+                          />
+                        </div>
+                      )}
 
-                  {slackError ? <p className="text-xs text-red-300">{slackError}</p> : null}
-                  {slackMessage ? <p className="text-xs text-emerald-300">{slackMessage}</p> : null}
+                      {(deliveryPreference === 'email_only' || deliveryPreference === 'slack_then_email') && (
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2 text-sm font-medium text-white/80">
+                            <span>Email for alerts</span>
+                            <TooltipProvider delayDuration={120}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Info className="h-4 w-4 cursor-help text-white/60" />
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-xs leading-relaxed">
+                                  Enter the email address to receive alerts. Leave blank to default to your account email.
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          </div>
+                          <Input
+                            placeholder={initialUser?.email || 'you@company.com'}
+                            value={emailDigestTo}
+                            onChange={(event) => setEmailDigestTo(event.target.value)}
+                            disabled={slackLoading}
+                            className="mt-1"
+                          />
+                        </div>
+                      )}
+
+                      {slackError ? <p className="text-xs text-red-300">{slackError}</p> : null}
+                      {slackMessage ? <p className="text-xs text-emerald-300">{slackMessage}</p> : null}
 
                   <div className="flex items-center gap-3">
                     <Button
