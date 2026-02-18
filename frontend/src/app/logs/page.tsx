@@ -375,9 +375,11 @@ export default async function LogsPage() {
       const scope =
         signal?.scope_type === 'repo' && signal.scope_id
           ? `Repo: ${signal.scope_id}`
-          : signal?.scope_type === 'aku' && signal.scope_id
-            ? `AKU: ${signal.scope_id}`
-            : 'Global';
+        : signal?.scope_type === 'aku' && signal.scope_id
+          ? `AKU: ${signal.scope_id}`
+        : signal?.scope_type === 'ticketing'
+          ? signal?.scope_id || 'Ticketing workspace'
+          : 'Global';
       const normalizedStatus = run.status === 'failed' ? 'failed' : 'completed';
 
       return {

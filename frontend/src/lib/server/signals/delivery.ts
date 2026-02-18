@@ -76,6 +76,7 @@ function humanSeverity(severity: SignalRecord['severity']): string {
 function scopeSummary(signal: SignalRecord): string {
   if (signal.scope_type === 'repo' && signal.scope_id) return `Scope: Repo ${signal.scope_id}`;
   if (signal.scope_type === 'aku' && signal.scope_id) return `Scope: AKU ${signal.scope_id}`;
+  if (signal.scope_type === 'ticketing') return `Scope: ${signal.scope_id || 'Ticketing workspace'}`;
   return 'Scope: Global';
 }
 

@@ -53,7 +53,7 @@ export type SignalType =
 
 export type SignalSeverity = 'elevated' | 'significant';
 
-export type SignalScopeType = 'global' | 'repo' | 'aku';
+export type SignalScopeType = 'global' | 'repo' | 'aku' | 'ticketing';
 
 export type SignalEvidenceRecord = {
   evidence_type: 'ticket' | 'pr' | 'repo' | 'aku' | 'metric';
@@ -66,6 +66,8 @@ export type SignalEvidenceRecord = {
 export type SignalRecord = {
   id: string;
   created_at?: string;
+  signal_run_id?: string | null;
+  primary_source_id?: string | null;
   type: SignalType;
   severity: SignalSeverity;
   scope_type: SignalScopeType;

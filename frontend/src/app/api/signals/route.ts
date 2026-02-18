@@ -53,6 +53,7 @@ export async function GET(request: NextRequest) {
           title: signal.title,
           summary_line: signal.summary_line,
           severity: signal.severity,
+          primary_source_id: signal.primary_source_id,
           scope: {
             type: signal.scope_type,
             id: signal.scope_id,

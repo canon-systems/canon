@@ -14,7 +14,9 @@ type SignalCard = {
   title: string;
   summary_line: string;
   severity: 'elevated' | 'significant';
-  scope: { type: 'global' | 'repo' | 'aku'; id: string | null };
+  scope: { type: 'global' | 'repo' | 'aku' | 'ticketing'; id: string | null };
+  primary_source_id?: string | null;
+  scope_label_override?: string | null;
   metric_key: string;
   current_value: number;
   baseline_value: number;
@@ -33,9 +35,12 @@ function severityClass(severity: SignalCard['severity']): string {
 }
 
 function scopeLabel(signal: SignalCard): string {
-  if (signal.scope.type === 'repo' && signal.scope.id) return `Repo: ${signal.scope.id}`;
-  if (signal.scope.type === 'aku' && signal.scope.id) return `AKU: ${signal.scope.id}`;
-  return 'Global';
+  if (signal.scope_label_override) return signal.scope_label_override;
+  if (signal.scope.type === 'ticketing') return signal.scope.id || 'Source unavailable';
+  if (signal.scope.type === 'repo' && signal.scope.id) return signal.scope.id;
+  if (signal.scope.type === 'aku' && signal.scope.id) return signal.scope.id;
+  if (signal.scope.type === 'global') return 'Source unavailable';
+  return 'Source unavailable';
 }
 
 function formatTimestamp(value: string | null): string {

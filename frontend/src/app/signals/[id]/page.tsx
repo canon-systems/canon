@@ -116,6 +116,7 @@ function severityBadgeClass(severity: string): string {
 function scopeBadgeLabel(scopeType: string, scopeId?: string | null): string {
   if (scopeType === 'repo' && scopeId) return `Affected source: ${scopeId}`;
   if (scopeType === 'aku' && scopeId) return `Affected source: ${scopeId}`;
+  if (scopeType === 'ticketing') return `Affected source: ${scopeId || 'Ticketing workspace'}`;
   return 'Affected source: All connected sources';
 }
 

@@ -23,6 +23,8 @@ type SignalRow = {
   id: string;
   type: string;
   severity: string;
+  signal_run_id?: string | null;
+  primary_source_id?: string | null;
   scope_type: string;
   scope_id: string | null;
   metric_key: string;
@@ -38,7 +40,6 @@ type SignalRow = {
   summary_line: string;
   metadata: Record<string, unknown> | null;
   created_at?: string;
-  signal_run_id?: string | null;
 };
 
 type SignalEvidenceRow = {
@@ -90,6 +91,8 @@ function toSignalRecord(row: SignalRow, evidence: SignalEvidenceRecord[]): Signa
     created_at: row.created_at,
     type: row.type as SignalRecord['type'],
     severity: row.severity as SignalSeverity,
+    signal_run_id: row.signal_run_id,
+    primary_source_id: row.primary_source_id,
     scope_type: row.scope_type as SignalRecord['scope_type'],
     scope_id: row.scope_id,
     metric_key: row.metric_key,
@@ -132,12 +135,14 @@ async function insertSignalWithEvidence(params: {
   supabase: SupabaseClient;
   userId: string;
   signalRunId: string;
+  primarySourceId: string | null;
   signal: Omit<SignalRecord, 'id' | 'created_at'>;
 }): Promise<SignalRecord> {
-  const { supabase, userId, signalRunId, signal } = params;
+  const { supabase, userId, signalRunId, primarySourceId, signal } = params;
   const upsertPayload = {
     user_id: userId,
     signal_run_id: signalRunId,
+    primary_source_id: primarySourceId,
     type: signal.type,
     severity: signal.severity,
     scope_type: signal.scope_type,
@@ -161,7 +166,7 @@ async function insertSignalWithEvidence(params: {
     .from('signals')
     .upsert(upsertPayload, { onConflict: SIGNAL_FINGERPRINT_CONFLICT_COLUMNS })
     .select(
-      'id, type, severity, scope_type, scope_id, metric_key, window_start, window_end, baseline_start, baseline_end, current_value, baseline_value, absolute_change, percent_change, title, summary_line, metadata, created_at'
+      'id, type, severity, signal_run_id, primary_source_id, scope_type, scope_id, metric_key, window_start, window_end, baseline_start, baseline_end, current_value, baseline_value, absolute_change, percent_change, title, summary_line, metadata, created_at'
     )
     .single()) as { data: SignalRow | null; error: { message: string } | null };
 
@@ -213,6 +218,19 @@ export async function runSignalEngine(params: {
   const sourceIds = await resolveSignalSourceIds({ supabase, userId, sourceIds: params.sourceIds });
   const window = params.window || defaultWindowForSettings(settings.baseline_window_days);
 
+  const { data: sourceRows } = sourceIds.length
+    ? await supabase
+        .from('workspace_sources')
+        .select('id, provider, name, scope')
+        .in('id', sourceIds)
+    : { data: [] };
+  const sources = (sourceRows || []).map((row) => ({
+    id: row.id as string,
+    provider: String(row.provider || '').toLowerCase(),
+    name: typeof row.name === 'string' ? row.name : null,
+    scope: (row.scope as Record<string, unknown> | null) || null,
+  }));
+
   const { current, baseline, comparison } = await computeAndCompareMetrics({
     supabase,
     userId,
@@ -221,7 +239,43 @@ export async function runSignalEngine(params: {
     windowBaseline: params.baselineWindow,
   });
 
-  const signalDrafts = evaluateSignalRules(comparison);
+  const rawSignalDrafts = evaluateSignalRules(comparison);
+
+  const ticketingProviders = new Set(['jira', 'asana', 'linear']);
+  const ticketingSources = sources.filter((source) => ticketingProviders.has(source.provider));
+  const allSourcesTicketing = sources.length > 0 && ticketingSources.length === sources.length;
+  const singleTicketingSource = sources.length === 1 && ticketingSources.length === 1;
+
+  const ticketingLabel = (source: (typeof sources)[number]): string => {
+    const name = typeof source.name === 'string' ? source.name.trim() : '';
+    if (name) return name;
+    const projectValue =
+      source.scope && typeof (source.scope as Record<string, unknown>).project === 'string'
+        ? ((source.scope as Record<string, unknown>).project as string).trim()
+        : null;
+    if (projectValue) return projectValue;
+    const providerLabel = source.provider ? `${source.provider[0].toUpperCase()}${source.provider.slice(1)}` : 'Ticketing';
+    return providerLabel;
+  };
+
+  const signalDrafts = rawSignalDrafts.map((signal) => {
+    if (signal.scope_type !== 'global') return signal;
+
+    if (singleTicketingSource) {
+      const src = ticketingSources[0];
+      return { ...signal, scope_type: 'ticketing' as const, scope_id: ticketingLabel(src) };
+    }
+
+    if (allSourcesTicketing) {
+      const label =
+        ticketingSources.length === 1
+          ? ticketingLabel(ticketingSources[0])
+          : 'Multiple ticketing workspaces';
+      return { ...signal, scope_type: 'ticketing' as const, scope_id: label };
+    }
+
+    return signal;
+  });
 
   const { data: runRow } = (await supabase
     .from('signal_runs')
@@ -258,6 +312,7 @@ export async function runSignalEngine(params: {
       supabase,
       userId,
       signalRunId: runId,
+      primarySourceId: sourceIds[0] || null,
       signal,
     });
     persistedSignals.push(inserted);
@@ -286,7 +341,7 @@ export async function listSignals(params: {
   let query = supabase
     .from('signals')
     .select(
-      'id, type, severity, scope_type, scope_id, metric_key, window_start, window_end, baseline_start, baseline_end, current_value, baseline_value, absolute_change, percent_change, title, summary_line, metadata, created_at'
+      'id, type, severity, signal_run_id, primary_source_id, scope_type, scope_id, metric_key, window_start, window_end, baseline_start, baseline_end, current_value, baseline_value, absolute_change, percent_change, title, summary_line, metadata, created_at'
     )
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
