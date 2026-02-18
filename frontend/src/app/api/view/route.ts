@@ -70,7 +70,6 @@ export async function GET(req: Request) {
       updated_at: row.updated_at,
       score_total: scoreTotal,
       scores: row.scores ?? {},
-      projections: [],
     };
   });
 

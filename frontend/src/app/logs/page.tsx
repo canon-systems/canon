@@ -200,7 +200,7 @@ export default async function LogsPage() {
         };
       }
       case 'akus_generated': {
-        const projectionsCount = typeof meta.projections_count === 'number' ? meta.projections_count : 0;
+        const akusCount = typeof meta.akus_count === 'number' ? meta.akus_count : null;
         const sourceIds = Array.isArray(meta.source_ids) ? (meta.source_ids as string[]) : [];
         const sourceNames = sourceIds
           .map((id) => repoMap.get(id)?.name)
@@ -213,8 +213,8 @@ export default async function LogsPage() {
         return {
           ...base,
           type: 'aku_generated' as const,
-          title: `Canon View generated: ${projectionsCount} projection${projectionsCount !== 1 ? 's' : ''}`,
-          message: `${projectionsCount} audience projection${projectionsCount !== 1 ? 's' : ''} from ${sourceLabel}`,
+          title: akusCount && akusCount > 0 ? `AKUs generated: ${akusCount}` : 'AKUs generated',
+          message: akusCount && akusCount > 0 ? `${akusCount} AKU${akusCount === 1 ? '' : 's'} from ${sourceLabel}` : `Generated from ${sourceLabel}`,
           status: 'completed',
           link: '/view',
         };

@@ -1,22 +1,23 @@
 import { Issuer } from 'openid-client';
 
-const CONFLUENCE_AUTHORIZATION_ENDPOINT = 'https://auth.atlassian.com/authorize';
-const CONFLUENCE_TOKEN_ENDPOINT = 'https://auth.atlassian.com/oauth/token';
+const ATLASSIAN_AUTHORIZATION_ENDPOINT = 'https://auth.atlassian.com/authorize';
+const ATLASSIAN_TOKEN_ENDPOINT = 'https://auth.atlassian.com/oauth/token';
 
-export function getConfluenceOAuthScopes(): string[] {
+// Atlassian scopes limited to Jira read-only access per current requirements.
+export function getAtlassianOAuthScopes(): string[] {
   return [
-    'read:content:confluence',
-    'write:content:confluence',
-    'read:page:confluence',
-    'write:page:confluence',
-    'read:space:confluence',
-    'offline_access',
+    // 'read:content:confluence',
+    // 'write:content:confluence',
+    // 'read:page:confluence',
+    // 'write:page:confluence',
+    // 'read:space:confluence',
+    // 'offline_access',
     'read:jira-work',
     // 'manage:jira-webhook'
   ];
 }
 
-export function createConfluenceOAuthClient(redirectUri?: string) {
+export function createAtlassianOAuthClient(redirectUri?: string) {
   const clientId = process.env.ATLASSIAN_OAUTH_CLIENT_ID;
   const clientSecret = process.env.ATLASSIAN_OAUTH_CLIENT_SECRET;
 
@@ -26,8 +27,8 @@ export function createConfluenceOAuthClient(redirectUri?: string) {
 
   const issuer = new Issuer({
     issuer: 'https://auth.atlassian.com',
-    authorization_endpoint: CONFLUENCE_AUTHORIZATION_ENDPOINT,
-    token_endpoint: CONFLUENCE_TOKEN_ENDPOINT,
+    authorization_endpoint: ATLASSIAN_AUTHORIZATION_ENDPOINT,
+    token_endpoint: ATLASSIAN_TOKEN_ENDPOINT,
   });
 
   return new issuer.Client({

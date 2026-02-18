@@ -507,9 +507,6 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
       // Apply both sets at once to avoid staggered rendering
       setAvailableGithub(ghRepos);
       setAvailableJira(dedupeJiraProjects(jiraProjects));
-      if (jiraProjects.length === 0) {
-        setLoadError((prev) => prev || 'No Jira projects found. Ensure Atlassian is connected.');
-      }
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Failed to load sources.');
     } finally {
@@ -885,7 +882,6 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
             </TabsList>
 
             <TabsContent value="single" className="mt-4 space-y-6">
-              {loadError && <p className="text-sm text-red-300">{loadError}</p>}
               {loadingSources && (
                 <div className="flex items-center gap-2 text-sm text-white/70">
                   <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" aria-label="Loading" />
@@ -957,7 +953,6 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
             </TabsContent>
 
             <TabsContent value="multi" className="mt-4 space-y-6">
-              {loadError && <p className="text-sm text-red-300">{loadError}</p>}
               {loadingSources && (
                 <div className="flex items-center gap-2 text-sm text-white/70">
                   <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" aria-label="Loading" />

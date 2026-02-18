@@ -85,7 +85,7 @@ export const syncCanonSources = inngest.createFunction(
           githubRemoved += r.removed;
           if (r.added > 0 || r.removed > 0) {
             console.log(
-              `[canon-sync] GitHub ${scopeLabel}: ${r.added} file(s) added, ${r.removed} removed${r.rebuilt ? ", AKUs rebuilt" : ""}`
+              `[canon-sync] GitHub ${scopeLabel}: ${r.added} file(s) added, ${r.removed} removed`
             );
             logChangedItems(r.addedPaths, r.removedPaths, "file");
           }

@@ -1,6 +1,11 @@
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { decryptSecret, encryptSecret, type EncryptedSecret } from '@/lib/server/oauth/tokenCrypto';
 import { refreshSlackToken } from '@/lib/server/oauth/slackClient';
+import { createLogger } from '@/lib/server/logging';
+
+const log = createLogger('oauth.atlassian.token', {
+  label: 'Atlassian Token',
+});
 
 async function refreshConfluenceToken(params: {
   refreshToken: string;
@@ -30,14 +35,17 @@ async function refreshConfluenceToken(params: {
       const code = typeof parsed?.error === 'string' ? parsed.error : '';
       const description = typeof parsed?.error_description === 'string' ? parsed.error_description : '';
       if (code === 'unauthorized_client' || code === 'invalid_grant') {
+        log.warn('refresh_invalid', { error: code, description });
         throw new Error(`Atlassian refresh token invalid. Reconnect required. (${description || code})`);
       }
     } catch {
       // fall through with raw message
     }
+    log.warn('refresh_failed', { error: message });
     throw new Error(message);
   }
 
+  log.info('refresh_success');
   return response.json();
 }
 
@@ -117,6 +125,7 @@ export async function getProviderAccessToken(params: {
     if (expiresAt && refreshTokenEncrypted && shouldRefreshSoon) {
       try {
         const refreshToken = decryptSecret(refreshTokenEncrypted);
+        log.info('refresh_due', { connectionId, expiresAt: data.expires_at });
         const refreshed = await refreshConfluenceToken({ refreshToken });
 
         const newAccessToken = typeof refreshed.access_token === 'string'
@@ -138,9 +147,13 @@ export async function getProviderAccessToken(params: {
           newExpiresAt
         );
 
+        log.info('refresh_completed', { connectionId, expiresAt: newExpiresAt });
         return newAccessToken;
       } catch (refreshError) {
-        console.warn('Failed to refresh Atlassian token:', refreshError);
+        log.warn('refresh_error', {
+          connectionId,
+          error: refreshError instanceof Error ? refreshError.message : String(refreshError),
+        });
         const errorMessage = refreshError instanceof Error ? refreshError.message : String(refreshError);
         await markConnectionError(supabase, connectionId, errorMessage);
         throw new Error(errorMessage);
@@ -250,6 +263,8 @@ export async function withConfluenceAccessToken<T>(params: {
       await params.onRefresh(newAccessToken);
     }
 
+    log.info('refresh_after_401', { connectionId, expiresAt: newExpiresAt });
+    console.info('[atlassian][token][refresh_after_401]', { connectionId, expiresAt: newExpiresAt });
     return await params.run(newAccessToken);
   }
 }

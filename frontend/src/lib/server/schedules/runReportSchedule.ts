@@ -13,13 +13,12 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 export type ReportScheduleRow = {
   id: string;
   user_id: string;
-  type: 'diff' | 'projection';
+  type: string | null;
   name: string | null;
   enabled: boolean;
   cadence: string;
   source_ids: string[];
   communication: Record<string, unknown>;
-  audiences: string[];
   units: string[];
   last_run_at: string | null;
   last_run_status: string | null;

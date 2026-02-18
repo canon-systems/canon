@@ -1,16 +1,15 @@
 import { createHash } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { analyzeRepository } from './analyzeRepository';
+import { buildFeatureMapAndPersist } from './featureMap';
 import { FileSummaryManager } from './fileSummaryManager';
 import { parseRepoUrl } from '../github/github';
 import { getProviderAccessToken } from '../oauth/tokenStore';
-import { buildAkusForSources } from './akuBuilder';
 import { createLogger, errorMessage } from '@/lib/server/logging';
 
 const ingestLog = createLogger('source.ingest', {
   label: 'Source Ingest',
   eventLabels: {
-    preferred_audiences_fallback: 'Preferred Audiences Fallback',
     aborted_source_deleted: 'Ingest Aborted Source Deleted',
     github_start: 'GitHub Ingest Started',
     github_summarize_start: 'GitHub Summarization Started',
@@ -48,23 +47,12 @@ function fileContentHash(content: string): string {
   return createHash('sha256').update(content).digest('hex');
 }
 
-async function resolvePreferredAudiences(
-  supabase: SupabaseClient,
-  userId: string
-): Promise<string[]> {
-  // Audience projection logic is archived for now; AKU build remains active.
-  void supabase;
-  void userId;
-  return [];
-}
-
-export type IngestOptions = { mode?: 'single' | 'multi'; createdSourceIds?: string[] };
 export type SourceSetupStage =
   | 'queueing'
   | 'fetching'
   | 'indexing'
   | 'summarizing'
-  | 'building_akus'
+  | 'feature_mapping'
   | 'ready'
   | 'failed';
 
@@ -99,6 +87,25 @@ type JiraIssue = {
   key: string;
   fields: JiraIssueFields;
 };
+
+async function loadAllWorkspaceSources(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<Array<{ id: string; provider?: string | null; scope?: Record<string, unknown> | null }>> {
+  const { data, error } = await supabase
+    .from('workspace_sources')
+    .select('id, provider, scope')
+    .eq('user_id', userId);
+  if (error) {
+    ingestLog.warn('source_list_failed', { userId, error: errorMessage(error) });
+    return [];
+  }
+  return (data || []).map((row) => ({
+    id: row.id,
+    provider: row.provider,
+    scope: row.scope as Record<string, unknown> | null,
+  }));
+}
 
 type JiraSearchSuccess = { ok: true; data: { issues?: JiraIssue[] } };
 type JiraSearchFailure = { ok: false; status: number; body: string };
@@ -177,18 +184,9 @@ function normalizeRepoId(repoUrl: string): string {
   return `github.com/${parsed.owner}/${parsed.repo}`;
 }
 
-async function getAllUserSourceIds(supabase: SupabaseClient, userId: string): Promise<string[]> {
-  const { data } = await supabase
-    .from('workspace_sources')
-    .select('id')
-    .eq('user_id', userId);
-  return (data || []).map((r) => r.id);
-}
-
 export async function ingestGitHubSource(
   supabase: SupabaseClient,
-  source: WorkspaceSource,
-  options?: IngestOptions
+  source: WorkspaceSource
 ) {
   const repo = typeof source.scope?.repo === 'string' ? source.scope.repo : '';
   const branch = typeof source.scope?.branch === 'string' ? source.scope.branch : 'main';
@@ -199,7 +197,6 @@ export async function ingestGitHubSource(
 
   try {
     ingestLog.info('github_start', { sourceId: source.id, repo, branch });
-    const preferredAudiences = await resolvePreferredAudiences(supabase, source.user_id);
     await updateStage(supabase, source.id, 'fetching', 10, 'Fetching repository');
     if (await abortIfDeleted(supabase, source, 'fetching')) return;
 
@@ -269,55 +266,23 @@ export async function ingestGitHubSource(
     if (summaryResult.aborted && await abortIfDeleted(supabase, source, 'summarizing')) return;
     if (await abortIfDeleted(supabase, source, 'summarizing')) return;
 
-    // Build AKUs: per-source (single tab) or merged from selected sources only (multi tab)
-    await updateStage(supabase, source.id, 'building_akus', 85, 'Building Canon View outputs');
-    if (await abortIfDeleted(supabase, source, 'building_akus')) return;
-    let lastAkuPct = 85;
-    const akuProgress = (processed: number, total: number) => {
-      if (!total) return;
-      const pct = Math.min(100, 85 + Math.round((15 * processed) / total));
-      if (pct <= lastAkuPct && processed < total) return;
-      lastAkuPct = pct;
-      const stepLabel =
-        total > 1 ? `Building Canon View outputs (${processed} / ${total})` : 'Building Canon View outputs';
-      void updateStage(supabase, source.id, 'building_akus', pct, stepLabel, {
-        aku_build_done: processed,
-        aku_build_total: total,
+    // Trigger feature map build as part of setup (includes all user sources); keep progress updates in the setup bar.
+    await updateStage(supabase, source.id, 'feature_mapping', 90, 'Building feature map');
+    try {
+      await buildFeatureMapAndPersist({
+        supabase,
+        userId: source.user_id,
+        sources: await loadAllWorkspaceSources(supabase, source.user_id),
       });
-    };
-    if (options?.mode === 'single') {
-      ingestLog.info('github_aku_build_start', {
+      await updateStage(supabase, source.id, 'feature_mapping', 95, 'Feature map saved');
+    } catch (featureErr) {
+      ingestLog.warn('feature_map_failed', {
         sourceId: source.id,
-        mode: 'single',
-        audiences: preferredAudiences,
-      });
-      await buildAkusForSources(supabase, source.user_id, [source.id], preferredAudiences, {
-        perSource: true,
-        extractionTargets: [{ sourceId: source.id, repoUrl, branch, fallbackName: source.id }],
-        shouldAbort: () => sourceStillExists(supabase, source.id, source.user_id).then((exists) => !exists),
-        onProgress: akuProgress,
-      });
-    } else {
-      let sourceIds: string[];
-      const createdIds = options?.createdSourceIds;
-      if (createdIds && createdIds.length > 0) {
-        sourceIds = createdIds;
-      } else {
-        sourceIds = await getAllUserSourceIds(supabase, source.user_id);
-      }
-      ingestLog.info('github_aku_build_start', {
-        sourceId: source.id,
-        mode: 'multi',
-        sourceCount: sourceIds.length,
-        audiences: preferredAudiences,
-      });
-      await buildAkusForSources(supabase, source.user_id, sourceIds, preferredAudiences, {
-        extractionTargets: [{ sourceId: source.id, repoUrl, branch, fallbackName: source.id }],
-        shouldAbort: () => sourceStillExists(supabase, source.id, source.user_id).then((exists) => !exists),
-        onProgress: akuProgress,
+        repo,
+        branch,
+        error: errorMessage(featureErr),
       });
     }
-
     await updateStage(supabase, source.id, 'ready', 100, 'Setup complete');
     ingestLog.info('github_complete', { sourceId: source.id, repo, branch, totalFiles: files.length });
   } catch (err) {
@@ -335,9 +300,7 @@ export async function ingestGitHubSource(
 
 export async function ingestIssueSource(
   supabase: SupabaseClient,
-  source: WorkspaceSource,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- options reserved for future use (mode, createdSourceIds)
-  options?: IngestOptions
+  source: WorkspaceSource
 ) {
   const provider = source.provider.toLowerCase();
   if (!['jira', 'linear', 'asana'].includes(provider)) {
@@ -524,8 +487,7 @@ export async function ingestIssueSource(
       ingestLog.info('issue_store_skipped', { sourceId: source.id, provider, reason: 'no_issues' });
     }
 
-    // Skip AKU build for issue-only sources to speed up ingest.
-    await updateStage(supabase, source.id, 'ready', 100, 'Setup complete (issues only, AKU build skipped)');
+    await updateStage(supabase, source.id, 'ready', 100, 'Setup complete (issues only)');
     ingestLog.info('issue_complete', { sourceId: source.id, provider, totalIssues: rows.length });
   } catch (err) {
     ingestLog.error('issue_failed', {
@@ -539,12 +501,12 @@ export async function ingestIssueSource(
   }
 }
 
-export async function ingestSource(supabase: SupabaseClient, source: WorkspaceSource, options?: IngestOptions) {
+export async function ingestSource(supabase: SupabaseClient, source: WorkspaceSource) {
   const provider = source.provider.toLowerCase();
   if (provider === 'github') {
-    await ingestGitHubSource(supabase, source, options);
+    await ingestGitHubSource(supabase, source);
   } else if (['jira', 'linear', 'asana'].includes(provider)) {
-    await ingestIssueSource(supabase, source, options);
+    await ingestIssueSource(supabase, source);
   } else {
     // Unknown provider; mark ready without processing
     await updateStage(supabase, source.id, 'ready', 100, 'Setup complete');
@@ -579,7 +541,6 @@ export async function syncGitHubSourceDelta(
 
   try {
     const repoUrl = repo.startsWith('http') ? repo : `https://github.com/${repo}`;
-    const preferredAudiences = await resolvePreferredAudiences(supabase, source.user_id);
     const analysis = await analyzeRepository({
       supabase,
       userId: source.user_id,
@@ -637,16 +598,7 @@ export async function syncGitHubSourceDelta(
     const anyChange = removed > 0 || result.processed > 0;
 
     if (anyChange) {
-      const allSourceIds = await getAllUserSourceIds(supabase, source.user_id);
-      syncLog.info('github_aku_rebuild_start', {
-        sourceId: source.id,
-        source: scopeLabel,
-        sourceCount: allSourceIds.length,
-        changedFiles: result.processed,
-        removedFiles: removed,
-      });
-      await buildAkusForSources(supabase, source.user_id, allSourceIds, preferredAudiences);
-      return { added, removed, rebuilt: true, addedPaths, removedPaths };
+      return { added, removed, rebuilt: false, addedPaths, removedPaths };
     }
     syncLog.info('github_delta_complete', {
       sourceId: source.id,

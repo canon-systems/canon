@@ -9,8 +9,6 @@ import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { createClient } from '@/lib/supabase/client';
-import { DEFAULT_AUDIENCES } from '@/lib/constants/audiences';
 
 interface Connection {
   id: string;
@@ -74,23 +72,16 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   const searchParams = useSearchParams();
 
   const [activeTab, setActiveTab] = useState<TabId>('profile');
-  const [user, setUser] = useState<SupabaseUser | null>(initialUser);
+  const [user] = useState<SupabaseUser | null>(initialUser);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [debugNote, setDebugNote] = useState<string | null>(null);
   const [disconnectModalOpen, setDisconnectModalOpen] = useState(false);
   const [connectionToDisconnect, setConnectionToDisconnect] = useState<{ connectionId: string; provider: string } | null>(null);
   const [uninstallOnDisconnect, setUninstallOnDisconnect] = useState(false);
-  const [preferredAudiences, setPreferredAudiences] = useState<string[]>(() => {
-    const meta = initialUser?.user_metadata?.preferred_audiences;
-    if (Array.isArray(meta) && meta.length) return meta as string[];
-    return [];
-  });
-  const [savingPreferences, setSavingPreferences] = useState(false);
-  const [preferencesMessage, setPreferencesMessage] = useState('');
-  const [preferencesError, setPreferencesError] = useState('');
   const [slackChannel, setSlackChannel] = useState('');
   const [slackLoading, setSlackLoading] = useState(true);
   const [slackSaving, setSlackSaving] = useState(false);
@@ -144,6 +135,8 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     }
     if (errorParam) {
       setError(decodeURIComponent(errorParam));
+      const provider = searchParams.get('provider') || 'atlassian';
+      setDebugNote(`Last ${provider} error: ${decodeURIComponent(errorParam)}`);
       const tab = searchParams.get('tab') || 'integrations';
       router.replace(`/settings?tab=${tab}`);
       if (tabParam !== 'integrations') {
@@ -194,6 +187,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     setConnecting(true);
     setError('');
     setSuccess('');
+    setDebugNote(null);
 
     try {
       if (providerName === 'github') {
@@ -298,32 +292,6 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     const fallback = Number(gitHubConnection?.connection_id);
     return Number.isFinite(fallback) && fallback > 0 ? fallback : null;
   })();
-
-  async function savePreferences() {
-    setSavingPreferences(true);
-    setPreferencesMessage('');
-    setPreferencesError('');
-
-    try {
-      const supabase = createClient();
-      const { data, error: updateError } = await supabase.auth.updateUser({
-        data: { preferred_audiences: preferredAudiences }
-      });
-
-      if (updateError) throw updateError;
-      if (data?.user) setUser(data.user as SupabaseUser);
-
-      setPreferencesMessage('Preferences saved. We will default to these audiences when generating documentation.');
-    } catch (err: unknown) {
-      setPreferencesError(err instanceof Error ? err.message : 'Failed to save preferences');
-    } finally {
-      setSavingPreferences(false);
-    }
-  }
-
-  const toggleAudience = (aud: string) => {
-    setPreferredAudiences(prev => prev.includes(aud) ? prev.filter(a => a !== aud) : [...prev, aud]);
-  };
 
   async function saveSlackChannel() {
     setSlackSaving(true);
@@ -435,82 +403,6 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
               <div className="space-y-4">
                 <div className="rounded-xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm space-y-5">
                   <div>
-                    <h3 className="text-lg font-semibold text-white">Audience Defaults</h3>
-                    <p className="text-sm text-white/65">
-                      Select the audience perspectives Canon should prioritize by default.
-                    </p>
-                  </div>
-
-                  <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-white/80">
-                    {preferredAudiences.length === 0
-                      ? 'No default audiences selected.'
-                      : `${preferredAudiences.length} default audience${preferredAudiences.length === 1 ? '' : 's'} selected.`}
-                  </div>
-
-                  {(preferencesMessage || preferencesError) && (
-                    <div
-                      className={`rounded-lg border p-3 text-sm ${preferencesError
-                        ? 'border-red-500/50 bg-red-500/10 text-red-200'
-                        : 'border-green-500/50 bg-green-500/10 text-green-200'
-                        }`}
-                    >
-                      {preferencesError || preferencesMessage}
-                    </div>
-                  )}
-
-                  <div className="flex flex-wrap gap-2">
-                    {DEFAULT_AUDIENCES.map((aud) => {
-                      const active = preferredAudiences.includes(aud);
-                      return (
-                        <button
-                          key={aud}
-                          type="button"
-                          className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition ${active
-                            ? 'border-blue-400/60 bg-blue-500/20 text-blue-100'
-                            : 'border-white/20 bg-white/5 text-white/80 hover:bg-white/10'
-                            }`}
-                          onClick={() => toggleAudience(aud)}
-                        >
-                          {active ? <Check className="h-3.5 w-3.5" /> : null}
-                          <span>{aud}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    <Button
-                      onClick={savePreferences}
-                      disabled={savingPreferences}
-                      className="bg-blue-600 text-white hover:bg-blue-700"
-                    >
-                      {savingPreferences ? (
-                        <span className="flex items-center gap-2">
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          Saving...
-                        </span>
-                      ) : (
-                        'Save audience defaults'
-                      )}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="text-white/70 hover:text-white"
-                      onClick={() => {
-                        const meta = user?.user_metadata?.preferred_audiences;
-                        setPreferredAudiences(Array.isArray(meta) ? meta : []);
-                        setPreferencesError('');
-                        setPreferencesMessage('');
-                      }}
-                    >
-                      Reset
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm space-y-5">
-                  <div>
                     <h3 className="text-lg font-semibold text-white">Daily Signal Alerts</h3>
                     <p className="text-sm text-white/65">
                       Canon checks signals daily and sends alerts only when signals are detected. Slack sends to your configured channel, and email can run in parallel when enabled.
@@ -598,6 +490,11 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                 <div className="mb-6 rounded-lg border border-red-500/50 bg-red-500/10 p-4 text-red-200">
                   <p className="font-medium">Error</p>
                   <p className="text-sm">{error}</p>
+                </div>
+              )}
+              {debugNote && (
+                <div className="mb-6 rounded-lg border border-blue-500/50 bg-blue-500/10 p-4 text-blue-100">
+                  <p className="text-sm">{debugNote}</p>
                 </div>
               )}
 

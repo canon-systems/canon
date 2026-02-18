@@ -4,7 +4,7 @@ import { runReportSchedule, type ReportScheduleRow } from "@/lib/server/schedule
 import { getNextRunAt, simpleToRrule } from "@/lib/server/schedules/rrule";
 
 const SCHEDULE_COLS =
-  "id, user_id, type, name, enabled, cadence, source_ids, communication, audiences, units, last_run_at, last_run_status, last_run_error, run_at_time, run_at_timezone, run_at_weekday, run_at_month_day, rrule, dtstart, next_run_at";
+  "id, user_id, type, name, enabled, cadence, source_ids, communication, units, last_run_at, last_run_status, last_run_error, run_at_time, run_at_timezone, run_at_weekday, run_at_month_day, rrule, dtstart, next_run_at";
 
 /**
  * Report schedule tick: event-driven, sleepUntil(next_run_at), run once, then schedule next tick.
