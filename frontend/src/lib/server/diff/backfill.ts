@@ -4,7 +4,7 @@ import { getJiraDiffForProject, type JiraTicketEvent } from '@/lib/server/diff/j
 import { filterNewCanonicalEvents, insertCanonicalEvents, upsertDailyMetrics } from '@/lib/server/diff/webhookIngest';
 import { createLogger, errorMessage } from '@/lib/server/logging';
 
-const DEFAULT_DIFF_BACKFILL_DAYS = 7;
+const DEFAULT_DIFF_BACKFILL_DAYS = 14;
 const MAX_DIFF_BACKFILL_DAYS = 30;
 const MAX_RATE_LIMIT_RETRIES = 4;
 const RATE_LIMIT_BASE_DELAY_MS = 1_500;
@@ -64,7 +64,7 @@ function clampBackfillDays(days: number): number {
 }
 
 /**
- * Single place for backfill window sizing. For now this is static (default 7 days)
+ * Single place for backfill window sizing. For now this is static (default 14 days)
  * and can later be replaced with entitlement/plan logic without touching callers.
  */
 export function resolveDiffBackfillDays(requestedDays?: number): number {
