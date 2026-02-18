@@ -9,6 +9,7 @@ type BackfillRequestedEvent = {
   sourceName?: string;
   userId?: string;
   requestedDays?: number;
+  installedAt?: string;
 };
 
 const log = createLogger('inngest.diff_backfill', {
@@ -35,6 +36,9 @@ export const diffSourceBackfill = inngest.createFunction(
     const sourceNameFromEvent = typeof data.sourceName === 'string' ? data.sourceName.trim() : '';
     const userId = typeof data.userId === 'string' ? data.userId : '';
     const requestedDays = typeof data.requestedDays === 'number' ? data.requestedDays : undefined;
+    const installedAt = typeof data.installedAt === 'string' ? data.installedAt : null;
+    const installedAtDate = installedAt ? new Date(installedAt) : null;
+    const hasValidInstalledAt = Boolean(installedAtDate && !Number.isNaN(installedAtDate.getTime()));
 
     if (!sourceId || !userId) {
       throw new Error('Missing sourceId or userId');
@@ -89,6 +93,7 @@ export const diffSourceBackfill = inngest.createFunction(
       userId,
       provider: sourceRow.provider,
       requestedDays: requestedDays ?? null,
+      installedAt: hasValidInstalledAt ? installedAtDate?.toISOString() : null,
     });
 
     try {
@@ -97,6 +102,7 @@ export const diffSourceBackfill = inngest.createFunction(
           supabase,
           source: sourceRow,
           requestedDays,
+          now: hasValidInstalledAt ? installedAtDate ?? undefined : undefined,
         })
       );
 

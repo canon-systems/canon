@@ -161,6 +161,10 @@ export async function POST(request: NextRequest) {
         typeof row.name === 'string' && row.name.trim().length > 0
           ? row.name.trim()
           : row.id;
+      const installedAt =
+        typeof row.created_at === 'string' && row.created_at.trim().length > 0
+          ? row.created_at
+          : new Date().toISOString();
 
       await inngest.send({
         name: 'source/ingest.requested',
@@ -191,6 +195,7 @@ export async function POST(request: NextRequest) {
               sourceId: row.id,
               sourceName,
               userId: user.id,
+              installedAt,
             },
           });
         } catch (err) {
