@@ -2,6 +2,12 @@ import { inngest } from '../client';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { ingestSource, type WorkspaceSource } from '@/lib/server/services/sourceIngest';
 import { createLogger, errorMessage } from '@/lib/server/logging';
+import {
+  loadWorkspaceSourceForUser,
+  parseNonEmptyStringArray,
+  parseSourceWorkerEvent,
+  resolveSourceDisplayName,
+} from './shared/sourceWorker';
 
 type SourceIngestRequestedEvent = {
   sourceId?: string;
@@ -30,27 +36,19 @@ export const sourceIngestRequested = inngest.createFunction(
   { event: 'source/ingest.requested' },
   async ({ event, step }) => {
     const data = (event.data ?? {}) as SourceIngestRequestedEvent;
-    const sourceId = typeof data.sourceId === 'string' ? data.sourceId : '';
-    const userId = typeof data.userId === 'string' ? data.userId : '';
-    const sourceNameFromEvent = typeof data.sourceName === 'string' ? data.sourceName.trim() : '';
-    const createdSourceIds = Array.isArray(data.createdSourceIds)
-      ? data.createdSourceIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
-      : [];
-
-    if (!sourceId || !userId) {
-      throw new Error('Missing sourceId or userId');
-    }
+    const { sourceId, userId, sourceNameFromEvent } = parseSourceWorkerEvent(data);
+    const createdSourceIds = parseNonEmptyStringArray(data.createdSourceIds);
 
     const supabase = createServiceRoleClient();
-    const { data: source, error } = await supabase
-      .from('workspace_sources')
-      .select('id, user_id, name, provider, scope, connection_id, status_payload, last_error, feature_labels')
-      .eq('id', sourceId)
-      .eq('user_id', userId)
-      .maybeSingle();
+    const { row: source, errorMessage: sourceLoadError } = await loadWorkspaceSourceForUser<WorkspaceSource>({
+      supabase,
+      sourceId,
+      userId,
+      select: 'id, user_id, name, provider, scope, connection_id, status_payload, last_error, feature_labels',
+    });
 
-    if (error) {
-      throw new Error(`Failed to load source for ingest: ${error.message}`);
+    if (sourceLoadError) {
+      throw new Error(`Failed to load source for ingest: ${sourceLoadError}`);
     }
     if (!source) {
       log.info('worker_cancelled', {
@@ -68,10 +66,11 @@ export const sourceIngestRequested = inngest.createFunction(
     }
 
     const sourceRow = source as WorkspaceSource;
-    const sourceName =
-      typeof sourceRow.name === 'string' && sourceRow.name.trim().length > 0
-        ? sourceRow.name.trim()
-        : sourceNameFromEvent || sourceRow.id;
+    const sourceName = resolveSourceDisplayName({
+      sourceId: sourceRow.id,
+      persistedName: sourceRow.name,
+      sourceNameFromEvent,
+    });
 
     log.info('worker_start', {
       sourceId: sourceRow.id,

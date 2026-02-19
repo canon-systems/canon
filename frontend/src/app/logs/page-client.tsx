@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { Activity, FileText, Layers3, RefreshCw, ExternalLink, GitBranch, Folder, Code, Clock, Hash, Zap, XCircle, Link as LinkIcon, ScrollText } from 'lucide-react';
+import { Activity, FileText, Layers3, RefreshCw, ExternalLink, GitBranch, Folder, Code, Clock, Hash, Zap, XCircle, Link as LinkIcon } from 'lucide-react';
 import Link from 'next/link';
 import { Card, CardContent } from '@/components/ui/card';
 import { Combobox } from '@/components/ui/combobox';
@@ -13,10 +13,7 @@ interface LogEntry {
   | 'source_connection'
   | 'integration_connection'
   | 'integration_disconnected'
-  | 'diagram'
-  | 'kb_push'
-  | 'aku_generated'
-  | 'signal_curated';
+  | 'aku_generated';
   timestamp: string;
   title: string;
   message: string;
@@ -33,7 +30,6 @@ interface LogEntry {
     automationRuleId?: string;
     isAutomation?: boolean;
     provider?: string;
-    signalSeverity?: string;
   };
 }
 
@@ -41,7 +37,6 @@ interface LogsData {
   entries: LogEntry[];
   errors: {
     usageEvents?: string;
-    automationRuns?: string;
   };
 }
 
@@ -53,12 +48,7 @@ type TypeFilter =
   | 'source_connection'
   | 'integration_connection'
   | 'integration_disconnected'
-  | 'diagram'
-  | 'kb_push'
-  | 'aku_generated'
-  | 'signal_curated';
-
-// Removed unused interface: Repo
+  | 'aku_generated';
 
 interface LogsPageClientProps {
   logs: LogsData;
@@ -160,12 +150,6 @@ export function LogsPageClient({ logs }: LogsPageClientProps) {
         return LinkIcon;
       case 'integration_disconnected':
         return XCircle;
-      case 'diagram':
-        return Layers3;
-      case 'kb_push':
-        return ScrollText;
-      case 'signal_curated':
-        return Activity;
       default:
         return FileText;
     }
@@ -183,12 +167,6 @@ export function LogsPageClient({ logs }: LogsPageClientProps) {
         return 'bg-white/10 text-white/80';
       case 'integration_disconnected':
         return 'bg-white/8 text-white/70';
-      case 'diagram':
-        return 'bg-white/10 text-white/80';
-      case 'kb_push':
-        return 'bg-white/10 text-white/80';
-      case 'signal_curated':
-        return 'bg-emerald-400/20 text-emerald-100';
       default:
         return 'bg-white/8 text-white/70';
     }
@@ -269,9 +247,6 @@ export function LogsPageClient({ logs }: LogsPageClientProps) {
               { value: 'source_connection', label: 'Source' },
               { value: 'integration_connection', label: 'Integration connected' },
               { value: 'integration_disconnected', label: 'Integration disconnected' },
-              { value: 'diagram', label: 'Architecture diagram' },
-              { value: 'kb_push', label: 'Push to KB' },
-              { value: 'signal_curated', label: 'Curated signal' },
             ]}
             value={typeFilter}
             onChange={(v) => setTypeFilter(v as TypeFilter)}
@@ -281,7 +256,7 @@ export function LogsPageClient({ logs }: LogsPageClientProps) {
           />
         </div>
 
-        {(logs.errors.usageEvents || logs.errors.automationRuns) && (
+        {logs.errors.usageEvents && (
           <Card className="border-white/15 bg-white/5">
             <CardContent className="p-4">
               <p className="text-white/85 text-sm font-medium mb-2">
@@ -289,7 +264,6 @@ export function LogsPageClient({ logs }: LogsPageClientProps) {
               </p>
               <ul className="text-white/70 text-xs space-y-1">
                 {logs.errors.usageEvents && <li>• Usage events: {logs.errors.usageEvents}</li>}
-                {logs.errors.automationRuns && <li>• Automation runs: {logs.errors.automationRuns}</li>}
               </ul>
             </CardContent>
           </Card>

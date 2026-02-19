@@ -4,7 +4,7 @@ import { getSession } from '@/lib/auth';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { encryptSecret } from '@/lib/server/oauth/tokenCrypto';
 import { createAtlassianOAuthClient } from '@/lib/server/oauth/confluenceClient';
-import { trackIntegrationConnected } from '@/lib/server/services/usageTracking';
+import { trackIntegrationStateChanged } from '@/lib/server/services/usageTracking';
 import { createLogger } from '@/lib/server/logging';
 
 export const runtime = 'nodejs';
@@ -219,7 +219,7 @@ export async function GET(request: NextRequest) {
       return redirectToSettings(request.nextUrl.origin, { error: 'Failed to store Atlassian tokens.' });
     }
 
-    await trackIntegrationConnected(supabase, user.id, 'confluence', connectionId);
+    await trackIntegrationStateChanged(supabase, user.id, 'connected', 'confluence', connectionId);
     const completeFields = {
       userId: user.id,
       connectionId,

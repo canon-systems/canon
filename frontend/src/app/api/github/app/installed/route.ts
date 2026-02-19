@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
-import { trackIntegrationConnected } from '@/lib/server/services/usageTracking';
+import { trackIntegrationStateChanged } from '@/lib/server/services/usageTracking';
 
 export const runtime = 'nodejs';
 
@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
         },
         { onConflict: 'user_id,provider' }
       );
-    await trackIntegrationConnected(supabase, user.id, 'github', String(installationId));
+    await trackIntegrationStateChanged(supabase, user.id, 'connected', 'github', String(installationId));
   }
 
   const redirectUrl = new URL('/settings', request.url);

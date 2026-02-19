@@ -18,7 +18,7 @@ import type {
   SignalRunTrigger,
   SignalSeverity,
 } from '@/lib/server/signals/types';
-import { getWindowForDays } from '@/lib/server/schedules/cadence';
+import { getNormalizedWindowForDays } from '@/lib/server/signals/window';
 
 type SignalRow = {
   id: string;
@@ -127,8 +127,7 @@ export function sortSignalsByPriority<T extends { severity: string; percent_chan
 }
 
 function defaultWindowForSettings(baselineDays: number): MetricWindow {
-  const now = new Date();
-  const window = getWindowForDays(Math.max(1, baselineDays || 7), now);
+  const window = getNormalizedWindowForDays(baselineDays, new Date());
   return { start: window.start, end: window.end };
 }
 
@@ -286,7 +285,7 @@ export async function runSignalEngine(params: {
       return { ...signal, scope_type: 'ticketing' as const, scope_id: label };
     }
 
-    return featureTop ? { ...signal, metadata: { ...(signal.metadata || {}), feature_top: featureTop } } : signal;
+    return signal;
   });
 
   const { data: runRow } = (await supabase

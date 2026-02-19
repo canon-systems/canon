@@ -288,7 +288,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState('');
   const refreshSources = useCallback(async () => {
-    const response = await fetch('/api/sources');
+    const response = await fetch('/api/repos');
     if (!response.ok) {
       throw new Error('Failed to load sources');
     }
@@ -319,11 +319,10 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
     void loadAvailableSources();
   };
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const handleDeleteRepository = async (repoId: string, _repoName: string) => {
+  const handleDeleteRepository = async (repoId: string) => {
     setDeletingRepoId(repoId);
     try {
-      const response = await fetch(`/api/sources/${repoId}`, { method: 'DELETE' });
+      const response = await fetch(`/api/repos/${repoId}`, { method: 'DELETE' });
       if (response.ok) {
         setRepoList((prev) => prev.filter((repo) => repo.id !== repoId));
       } else {
@@ -595,7 +594,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
 
       const payload = { sources };
 
-      const response = await fetch('/api/sources', {
+      const response = await fetch('/api/repos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -861,7 +860,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
                 className="border border-red-500/40 bg-red-500/10 text-red-200 hover:bg-red-500/20"
                 onClick={() => {
                   if (deleteTarget) {
-                    void handleDeleteRepository(deleteTarget.id, deleteTarget.name);
+                    void handleDeleteRepository(deleteTarget.id);
                     setDeleteTarget(null);
                   }
                 }}

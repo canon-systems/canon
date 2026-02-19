@@ -1,6 +1,9 @@
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/auth';
 import { computeDiffComparison, type CompareResponse, type WorkspaceSourceRow } from '@/lib/server/diff/compare';
+import { computeBaselineWindow } from '@/lib/server/diff/contracts';
+import { DIFF_SOURCE_PROVIDERS } from '@/lib/server/sources/providers';
+import { getNormalizedWindowForDays, normalizeWindowDays } from '@/lib/server/signals/window';
 import { createClient } from '@/lib/supabase/server';
 import { getWorkspaceSignalSettings } from '@/lib/server/signals/settings';
 import HistoryPageClient from './page-client';
@@ -14,13 +17,13 @@ export default async function HistoryPage() {
 
   const supabase = await createClient();
   const settings = await getWorkspaceSignalSettings({ supabase, userId: user.id });
-  const windowDays = Math.max(1, Math.min(30, settings.baseline_window_days || 7));
+  const windowDays = Math.min(30, normalizeWindowDays(settings.baseline_window_days, 7));
 
   const { data: sourceRows, error } = await supabase
     .from('workspace_sources')
     .select('id, name, provider, scope')
     .eq('user_id', user.id)
-    .in('provider', ['github', 'jira'])
+    .in('provider', [...DIFF_SOURCE_PROVIDERS])
     .order('created_at', { ascending: false });
 
   if (error) {
@@ -37,19 +40,8 @@ export default async function HistoryPage() {
   let initialData: CompareResponse | null = null;
   let initialError: string | null = null;
   let initialLastUpdatedAt: string | null = null;
-  const now = new Date();
-  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
-  end.setUTCDate(end.getUTCDate() - 1); // end yesterday UTC
-  const start = new Date(end);
-  start.setUTCDate(start.getUTCDate() - (windowDays - 1));
-  start.setUTCHours(0, 0, 0, 0);
-  const primaryWindow = { start: start.toISOString(), end: end.toISOString() };
-
-  const baselineEnd = new Date(start.getTime() - 1);
-  const baselineStart = new Date(baselineEnd);
-  baselineStart.setUTCDate(baselineEnd.getUTCDate() - (windowDays - 1));
-  baselineStart.setUTCHours(0, 0, 0, 0);
-  const baselineWindow = { start: baselineStart.toISOString(), end: baselineEnd.toISOString() };
+  const primaryWindow = getNormalizedWindowForDays(windowDays, new Date(), 7);
+  const baselineWindow = computeBaselineWindow(primaryWindow.start, primaryWindow.end);
 
   if (resolvedSourceRows.length > 0) {
     try {

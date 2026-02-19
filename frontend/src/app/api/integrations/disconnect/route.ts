@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
-import { trackIntegrationDisconnected } from '@/lib/server/services/usageTracking';
+import { trackIntegrationStateChanged } from '@/lib/server/services/usageTracking';
 
 export async function POST(request: NextRequest) {
   try {
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      await trackIntegrationDisconnected(supabase, user.id, providerForLog || 'unknown', connectionId);
+      await trackIntegrationStateChanged(supabase, user.id, 'disconnected', providerForLog || 'unknown', connectionId);
     } catch (logError) {
       console.warn('Failed to track integration disconnect:', logError);
     }

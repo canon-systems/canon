@@ -58,37 +58,6 @@ const tutorials: VideoTutorial[] = [
       'Click the "Analyze & Save" button to start the process',
       'Once the process is complete, you will be redirected to the edit documentation page',
     ]
-  },
-  {
-    id: 'setup-automation',
-    title: 'Set Up Automation Rules',
-    description: 'Configure automated documentation updates and triggers after connecting to your repository provider and setting up your repository.',
-    duration: '2 min',
-    loomUrl: 'https://www.loom.com/share/5c0fc09b68654cd38b7b20a1aea57f2b',
-    embedUrl: 'https://www.loom.com/embed/5c0fc09b68654cd38b7b20a1aea57f2b',
-    steps: [
-      'Navigate to the "Automation" page',
-      'A list of your setup repositories will be displayed. Click the "Setup" button for the repository you want to configure automation for',
-      'Configure the automation rule name, schedule, trigger conditions, notification preferences (coming soon), and publishing destinations (coming soon)',
-      'Save the automation rule',
-      'Enable the automation rule by clicking the toggle button'
-    ]
-  },
-  {
-    id: 'publish-docs',
-    title: 'Publish Canon View to Knowledge Base',
-    description: 'Learn how to publish Canon View to external knowledge bases after connecting your repository provider and setting up your repository.',
-    duration: '6 min',
-    loomUrl: 'https://www.loom.com/share/1977426904b34c1e946394e3c422616b',
-    embedUrl: 'https://www.loom.com/embed/1977426904b34c1e946394e3c422616b',
-    steps: [
-      'Navigate to the generated documentation you want to publish',
-      'Click the "Publish" button in the documentation interface',
-      'Select your preferred knowledge base platform (Notion, Confluence, Coda, etc.)',
-      'Choose the destination workspace, page, or space for publishing',
-      'Click "Publish" to send Canon View to your knowledge base',
-      'Verify the publication by checking your knowledge base platform',
-    ]
   }
 ];
 

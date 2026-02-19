@@ -1,12 +1,17 @@
 import { inngest } from "../client";
-import { createClient } from "@supabase/supabase-js";
+import { createServiceRoleClient } from "@/lib/supabase/server";
 import {
   syncGitHubSourceDelta,
   syncIssueSourceDelta,
   type WorkspaceSource,
 } from "@/lib/server/services/sourceIngest";
+import {
+  DELTA_SYNC_SOURCE_PROVIDERS,
+  ISSUE_SOURCE_PROVIDERS,
+} from "@/lib/server/sources/providers";
 
 const MAX_LOG_ITEMS = 20;
+const issueSourceProviders = new Set<string>(ISSUE_SOURCE_PROVIDERS);
 
 function logChangedItems(
   added: string[],
@@ -39,19 +44,19 @@ export const syncCanonSources = inngest.createFunction(
   },
   { cron: "0 * * * *" }, // every hour
   async () => {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceKey = process.env.SUPABASE_SERVICE_KEY;
-    if (!supabaseUrl || !serviceKey) {
-      console.error("[canon-sync] Missing Supabase env");
-      return { error: "Missing Supabase env" };
+    let supabase: ReturnType<typeof createServiceRoleClient>;
+    try {
+      supabase = createServiceRoleClient();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("[canon-sync] Missing Supabase env", message);
+      return { error: message };
     }
-
-    const supabase = createClient(supabaseUrl, serviceKey);
 
     const { data: sources, error } = await supabase
       .from("workspace_sources")
       .select("id, user_id, name, provider, scope, connection_id")
-      .in("provider", ["github", "jira", "linear", "asana"]);
+      .in("provider", [...DELTA_SYNC_SOURCE_PROVIDERS]);
 
     if (error) {
       console.error("[canon-sync] Failed to fetch sources", error);
@@ -89,7 +94,7 @@ export const syncCanonSources = inngest.createFunction(
             );
             logChangedItems(r.addedPaths, r.removedPaths, "file");
           }
-        } else if (["jira", "linear", "asana"].includes(provider)) {
+        } else if (issueSourceProviders.has(provider)) {
           const r = await syncIssueSourceDelta(supabase, row);
           issueAdded += r.added;
           issueRemoved += r.removed;

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
-import { trackRepoDisconnected } from '@/lib/server/services/usageTracking';
+import { trackSourceDisconnected } from '@/lib/server/services/usageTracking';
 
 /**
  * GET: Get a single source configuration
@@ -141,7 +141,7 @@ export async function DELETE(
     }
 
     try {
-      await trackRepoDisconnected(
+      await trackSourceDisconnected(
         supabase,
         user.id,
         id,

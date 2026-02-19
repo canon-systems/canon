@@ -3,6 +3,11 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 import { runDiffBackfillForSource } from '@/lib/server/diff/backfill';
 import { patchSourceBackfillStatus } from '@/lib/server/diff/backfillStatus';
 import { createLogger, errorMessage } from '@/lib/server/logging';
+import {
+  loadWorkspaceSourceForUser,
+  parseSourceWorkerEvent,
+  resolveSourceDisplayName,
+} from './shared/sourceWorker';
 
 type BackfillRequestedEvent = {
   sourceId?: string;
@@ -32,37 +37,37 @@ export const diffSourceBackfill = inngest.createFunction(
   { event: 'diff/source.backfill.requested' },
   async ({ event, step }) => {
     const data = (event.data ?? {}) as BackfillRequestedEvent;
-    const sourceId = typeof data.sourceId === 'string' ? data.sourceId : '';
-    const sourceNameFromEvent = typeof data.sourceName === 'string' ? data.sourceName.trim() : '';
-    const userId = typeof data.userId === 'string' ? data.userId : '';
+    const { sourceId, userId, sourceNameFromEvent } = parseSourceWorkerEvent(data);
     const requestedDays = typeof data.requestedDays === 'number' ? data.requestedDays : undefined;
     const installedAt = typeof data.installedAt === 'string' ? data.installedAt : null;
     const installedAtDate = installedAt ? new Date(installedAt) : null;
     const hasValidInstalledAt = Boolean(installedAtDate && !Number.isNaN(installedAtDate.getTime()));
 
-    if (!sourceId || !userId) {
-      throw new Error('Missing sourceId or userId');
-    }
-
     const supabase = createServiceRoleClient();
-    const { data: source, error } = await supabase
-      .from('workspace_sources')
-      .select('id, user_id, name, provider, scope')
-      .eq('id', sourceId)
-      .eq('user_id', userId)
-      .maybeSingle();
+    const { row: source, errorMessage: sourceLoadError } = await loadWorkspaceSourceForUser<{
+      id: string;
+      user_id: string;
+      name?: string | null;
+      provider: string;
+      scope: Record<string, unknown> | null;
+    }>({
+      supabase,
+      sourceId,
+      userId,
+      select: 'id, user_id, name, provider, scope',
+    });
 
-    if (error) {
+    if (sourceLoadError) {
       await patchSourceBackfillStatus({
         supabase,
         sourceId,
         patch: {
           status: 'failed',
           step_label: 'History sync failed to start',
-          error: error.message,
+          error: sourceLoadError,
         },
       });
-      throw new Error(`Failed to load source for backfill: ${error.message}`);
+      throw new Error(`Failed to load source for backfill: ${sourceLoadError}`);
     }
 
     if (!source) {
@@ -75,17 +80,12 @@ export const diffSourceBackfill = inngest.createFunction(
       };
     }
 
-    const sourceRow = source as {
-      id: string;
-      user_id: string;
-      name?: string | null;
-      provider: string;
-      scope: Record<string, unknown> | null;
-    };
-    const sourceName =
-      typeof sourceRow.name === 'string' && sourceRow.name.trim().length > 0
-        ? sourceRow.name.trim()
-        : sourceNameFromEvent || sourceRow.id;
+    const sourceRow = source;
+    const sourceName = resolveSourceDisplayName({
+      sourceId: sourceRow.id,
+      persistedName: sourceRow.name,
+      sourceNameFromEvent,
+    });
 
     log.info('worker_start', {
       sourceId: sourceRow.id,

@@ -4,7 +4,7 @@ import { getSession } from '@/lib/auth';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { encryptSecret } from '@/lib/server/oauth/tokenCrypto';
 import { createNotionOAuthClient } from '@/lib/server/oauth/notionClient';
-import { trackIntegrationConnected } from '@/lib/server/services/usageTracking';
+import { trackIntegrationStateChanged } from '@/lib/server/services/usageTracking';
 
 export const runtime = 'nodejs';
 
@@ -139,7 +139,7 @@ export async function GET(request: NextRequest) {
       return redirectToSettings(request.nextUrl.origin, { error: 'Failed to store Notion tokens.' });
     }
 
-    await trackIntegrationConnected(supabase, user.id, 'notion', connectionId);
+    await trackIntegrationStateChanged(supabase, user.id, 'connected', 'notion', connectionId);
     return redirectToSettings(request.nextUrl.origin, { success: 'true', provider: 'notion' });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
@@ -147,4 +147,3 @@ export async function GET(request: NextRequest) {
     return redirectToSettings(request.nextUrl.origin, { error: message });
   }
 }
-

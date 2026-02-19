@@ -2,23 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
 import { listSignals } from '@/lib/server/signals/engine';
-import { getWindowForDays } from '@/lib/server/schedules/cadence';
-import type { SignalSeverity } from '@/lib/server/signals/types';
+import { parseSignalSeverityParam, windowStartFromParam } from '@/lib/server/signals/window';
 
 export const dynamic = 'force-dynamic';
-
-function parseWindowStart(request: NextRequest): string | undefined {
-  const raw = request.nextUrl.searchParams.get('window');
-  if (!raw) return undefined;
-
-  const normalized = raw.trim().toLowerCase();
-  const numeric = normalized.endsWith('d') ? normalized.slice(0, -1) : normalized;
-  const days = Number.parseInt(numeric, 10);
-  if (!Number.isFinite(days) || days <= 0) return undefined;
-
-  const window = getWindowForDays(days, new Date());
-  return window.start;
-}
 
 export async function GET(request: NextRequest) {
   try {
@@ -29,13 +15,11 @@ export async function GET(request: NextRequest) {
 
     const supabase = await createClient();
     const severityParam = request.nextUrl.searchParams.get('severity');
-    const severity: SignalSeverity | undefined =
-      severityParam === 'elevated' || severityParam === 'significant' ? severityParam : undefined;
+    const severity = parseSignalSeverityParam(severityParam);
 
     const scope = request.nextUrl.searchParams.get('scope') || undefined;
-    const limitRaw = Number.parseInt(request.nextUrl.searchParams.get('limit') || '7', 10);
-    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(limitRaw, 7)) : 7;
-    const windowStart = parseWindowStart(request);
+    const limit = Number.parseInt(request.nextUrl.searchParams.get('limit') || '', 10);
+    const windowStart = windowStartFromParam(request.nextUrl.searchParams.get('window'), new Date());
 
     const signals = await listSignals({
       supabase,

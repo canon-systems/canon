@@ -284,14 +284,7 @@ export default function HistoryPageClient({
   primaryWindow,
   baselineWindow,
 }: HistoryPageClientProps) {
-  const diffSources = useMemo(
-    () =>
-      sources.filter((s) => {
-        const provider = String(s.provider || '').toLowerCase();
-        return provider === 'github' || provider === 'jira';
-      }),
-    [sources]
-  );
+  const diffSources = sources;
 
   const sourceIds = useMemo(() => diffSources.map((s) => s.id), [diffSources]);
   const data = initialData;

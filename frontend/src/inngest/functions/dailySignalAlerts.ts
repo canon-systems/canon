@@ -8,15 +8,14 @@ import {
   sendEmailDigest,
   sendSlackMessage,
 } from '@/lib/server/signals/delivery';
-import { getWindowForDays } from '@/lib/server/schedules/cadence';
+import { DIFF_SOURCE_PROVIDERS } from '@/lib/server/sources/providers';
+import { getNormalizedWindowForDays } from '@/lib/server/signals/window';
 
 type SourceRow = {
   id: string;
   user_id: string;
   provider: string;
 };
-
-const SIGNAL_WINDOW_DAYS = 7;
 
 function groupSourceIdsByUser(rows: SourceRow[]): Map<string, string[]> {
   const grouped = new Map<string, string[]>();
@@ -60,7 +59,7 @@ export const dailySignalAlerts = inngest.createFunction(
     const { data, error } = await supabase
       .from('workspace_sources')
       .select('id, user_id, provider')
-      .in('provider', ['github', 'jira']);
+      .in('provider', [...DIFF_SOURCE_PROVIDERS]);
 
     if (error) {
       console.error('[daily-signal-alerts] failed to load sources', error);
@@ -78,8 +77,7 @@ export const dailySignalAlerts = inngest.createFunction(
     for (const [userId, sourceIds] of grouped.entries()) {
       try {
         const settings = await getWorkspaceSignalSettings({ supabase, userId });
-        const windowDays = Math.max(1, settings.baseline_window_days || SIGNAL_WINDOW_DAYS);
-        const window = getWindowForDays(windowDays, now);
+        const window = getNormalizedWindowForDays(settings.baseline_window_days, now);
 
         const signalRun = await runSignalEngine({
           supabase,
@@ -159,7 +157,6 @@ export const dailySignalAlerts = inngest.createFunction(
       ok: usersFailed === 0,
       users_processed: usersProcessed,
       users_failed: usersFailed,
-      window,
     };
   }
 );

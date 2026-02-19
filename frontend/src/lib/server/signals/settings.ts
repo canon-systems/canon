@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { DIFF_SOURCE_PROVIDERS } from '@/lib/server/sources/providers';
 import type { WorkspaceSignalSettings } from '@/lib/server/signals/types';
 
 const DEFAULTS: Omit<WorkspaceSignalSettings, 'user_id'> = {
@@ -116,7 +117,7 @@ export async function resolveSignalSourceIds(params: {
     .from('workspace_sources')
     .select('id, provider')
     .eq('user_id', userId)
-    .in('provider', ['github', 'jira']);
+    .in('provider', [...DIFF_SOURCE_PROVIDERS]);
 
   return (sourceRows || [])
     .map((row) => row.id as string)

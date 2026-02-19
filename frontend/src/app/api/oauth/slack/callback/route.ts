@@ -4,7 +4,7 @@ import { getSession } from '@/lib/auth';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { encryptSecret } from '@/lib/server/oauth/tokenCrypto';
 import { exchangeSlackCode } from '@/lib/server/oauth/slackClient';
-import { trackIntegrationConnected } from '@/lib/server/services/usageTracking';
+import { trackIntegrationStateChanged } from '@/lib/server/services/usageTracking';
 
 export const runtime = 'nodejs';
 
@@ -141,7 +141,7 @@ export async function GET(request: NextRequest) {
       return redirectToSettings(request.nextUrl.origin, { error: 'Failed to store Slack tokens.' });
     }
 
-    await trackIntegrationConnected(supabase, user.id, 'slack', connectionId);
+    await trackIntegrationStateChanged(supabase, user.id, 'connected', 'slack', connectionId);
     return redirectToSettings(request.nextUrl.origin, { success: 'true', provider: 'slack' });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';

@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/auth';
+import { DIFF_SOURCE_PROVIDERS } from '@/lib/server/sources/providers';
 import { createClient } from '@/lib/supabase/server';
 
 export default async function HomePage() {
@@ -14,7 +15,7 @@ export default async function HomePage() {
     .from('workspace_sources')
     .select('id, provider, status_payload')
     .eq('user_id', user.id)
-    .in('provider', ['github', 'jira']);
+    .in('provider', [...DIFF_SOURCE_PROVIDERS]);
 
   const hasReadySource = (sources || []).some((source) => {
     const statusPayload =
