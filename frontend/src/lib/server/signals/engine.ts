@@ -6,6 +6,7 @@ import {
 } from '@/lib/server/diff/contracts';
 import { runDiffForSourcesWithBreakdown } from '@/lib/server/diff/runDiffForSources';
 import { computeAndCompareMetrics } from '@/lib/server/signals/baseline';
+import { computeFeatureDistribution } from '@/lib/server/signals/metrics';
 import { evaluateSignalRules } from '@/lib/server/signals/rules';
 import { getWorkspaceSignalSettings, resolveSignalSourceIds } from '@/lib/server/signals/settings';
 import type {
@@ -208,15 +209,13 @@ export async function runSignalEngine(params: {
   supabase: SupabaseClient;
   userId: string;
   sourceIds?: string[];
-  window?: MetricWindow;
-  baselineWindow?: MetricWindow;
   triggerType?: SignalRunTrigger;
 }): Promise<SignalRunResult> {
   const { supabase, userId, triggerType = 'manual' } = params;
 
   const settings = await getWorkspaceSignalSettings({ supabase, userId });
   const sourceIds = await resolveSignalSourceIds({ supabase, userId, sourceIds: params.sourceIds });
-  const window = params.window || defaultWindowForSettings(settings.baseline_window_days);
+  const window = defaultWindowForSettings(settings.baseline_window_days);
 
   const { data: sourceRows } = sourceIds.length
     ? await supabase
@@ -236,8 +235,21 @@ export async function runSignalEngine(params: {
     userId,
     sourceIds,
     window,
-    windowBaseline: params.baselineWindow,
   });
+
+  // Attach feature focus distribution for UI (top 3 features by share in current window)
+  const featureTop = await (async () => {
+    try {
+      const featureDist = await computeFeatureDistribution({ supabase, userId, sourceIds, window });
+      const entries = Object.entries(featureDist)
+        .map(([key, share]) => ({ key, name: key.replace(/-/g, ' '), share }))
+        .sort((a, b) => b.share - a.share)
+        .slice(0, 3);
+      return entries.length > 0 ? entries : undefined;
+    } catch {
+      return undefined;
+    }
+  })();
 
   const rawSignalDrafts = evaluateSignalRules(comparison);
 
@@ -274,7 +286,7 @@ export async function runSignalEngine(params: {
       return { ...signal, scope_type: 'ticketing' as const, scope_id: label };
     }
 
-    return signal;
+    return featureTop ? { ...signal, metadata: { ...(signal.metadata || {}), feature_top: featureTop } } : signal;
   });
 
   const { data: runRow } = (await supabase
@@ -308,12 +320,15 @@ export async function runSignalEngine(params: {
 
   const persistedSignals: SignalRecord[] = [];
   for (const signal of signalDrafts) {
+    const withFeature = featureTop
+      ? ({ ...signal, metadata: { ...(signal.metadata || {}), feature_top: featureTop } } as typeof signal)
+      : signal;
     const inserted = await insertSignalWithEvidence({
       supabase,
       userId,
       signalRunId: runId,
       primarySourceId: sourceIds[0] || null,
-      signal,
+      signal: withFeature,
     });
     persistedSignals.push(inserted);
   }
@@ -387,7 +402,7 @@ export async function listSignals(params: {
     evidenceBySignal.set(row.signal_id, list);
   }
 
-  return sortSignalsByPriority(dedupedRows.map((row) => toSignalRecord(row, evidenceBySignal.get(row.id) || []))).slice(0, limit);
+  return dedupedRows.map((row) => toSignalRecord(row, evidenceBySignal.get(row.id) || []));
 }
 
 export async function getSignalDetail(params: {

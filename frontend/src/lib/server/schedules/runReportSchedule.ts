@@ -114,7 +114,6 @@ export async function runReportSchedule(
       supabase,
       userId: schedule.user_id,
       sourceIds,
-      window,
       triggerType: 'scheduled',
     });
 

@@ -270,6 +270,9 @@ type HistoryPageClientProps = {
   initialData: CompareResponse | null;
   initialError: string | null;
   initialLastUpdatedAt: string | null;
+  windowDays: number;
+  primaryWindow: { start: string; end: string };
+  baselineWindow: { start: string; end: string };
 };
 
 export default function HistoryPageClient({
@@ -277,6 +280,9 @@ export default function HistoryPageClient({
   initialData,
   initialError,
   initialLastUpdatedAt,
+  windowDays,
+  primaryWindow,
+  baselineWindow,
 }: HistoryPageClientProps) {
   const diffSources = useMemo(
     () =>
@@ -312,10 +318,11 @@ export default function HistoryPageClient({
         <CardHeader>
           <CardTitle className="text-white">Canon History</CardTitle>
           <CardDescription className="text-white/70">
-            Fixed diagnostic view of the last 7 full UTC days against the previous 7-day baseline.
+            Diagnostic view using the analysis window set in Settings; baseline uses the same length immediately before it.
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <CardContent className="flex flex-col gap-4">
+          <div className="text-sm text-white/70">Primary: {toUtcDateLabel(primaryWindow.start)} → {toUtcDateLabel(primaryWindow.end)} · Baseline: {toUtcDateLabel(baselineWindow.start)} → {toUtcDateLabel(baselineWindow.end)} · Window length: {windowDays} days</div>
           <div className="flex flex-wrap gap-2">
             {diffSources.map((source) => (
               <Badge key={source.id} variant="outline" className="border-white/20 bg-white/5 text-white/80">

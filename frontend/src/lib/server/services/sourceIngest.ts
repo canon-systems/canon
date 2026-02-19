@@ -47,6 +47,358 @@ function fileContentHash(content: string): string {
   return createHash('sha256').update(content).digest('hex');
 }
 
+function slugifyLabel(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64) || 'feature';
+}
+
+// Roughly align with feature-map route discovery but kept lightweight for ingest-time label hints.
+const JS_ENTRY_PATTERNS = [
+  /src\/app\/(.*)\/page\.(tsx|ts|jsx|js)$/,
+  /src\/app\/page\.(tsx|ts|jsx|js)$/,
+  /src\/app\/api\/(.*)\/route\.(tsx|ts|jsx|js)$/,
+];
+
+const SVELTE_ENTRY_PATTERNS = [
+  /src\/routes\/(.*)\+page\.(svelte|ts|js)$/,
+  /src\/routes\/(.*)\+page\.(server|client)\.(ts|js)$/,
+  /src\/routes\/(.*)\+server\.(ts|js)$/,
+];
+
+const NUXT_ENTRY_PATTERN = /(?:^|\/)pages\/(.*)\.vue$/;
+
+function normalizeRouteFromAppPath(fullPath: string): string | null {
+  const appIndex = fullPath.indexOf('src/app/');
+  if (appIndex === -1) return null;
+  const sub = fullPath.slice(appIndex + 'src/app/'.length);
+  const parts = sub.split('/');
+  if (parts.length === 0) return null;
+  const isApi = parts[0] === 'api';
+  const dropFile = parts.slice(0, -1); // remove page/route file name
+  const segments: string[] = [];
+  for (const seg of dropFile) {
+    if (!seg) continue;
+    if (seg.startsWith('(') && seg.endsWith(')')) continue; // group
+    if (seg.startsWith('[')) {
+      const clean = seg.replace(/^\[+\.\.\.\/?|\]+$/g, '').replace(/^\[|\]$/g, '');
+      segments.push(clean ? `:${clean}` : '*');
+      continue;
+    }
+    segments.push(seg);
+  }
+  const route = '/' + segments.filter(Boolean).join('/');
+  return isApi ? route || '/' : route === '' ? '/' : route;
+}
+
+function normalizeSvelteRoute(fullPath: string): string | null {
+  const match = fullPath.match(/src\/routes\/(.*)\+[^/]+$/);
+  if (!match) return null;
+  const raw = match[1] || '';
+  const cleaned = raw
+    .split('/')
+    .filter(Boolean)
+    .map((seg) => {
+      if (seg.startsWith('[') && seg.endsWith(']')) {
+        const inner = seg.slice(1, -1).replace(/^\.\.\./, '');
+        return inner ? `:${inner}` : '*';
+      }
+      return seg;
+    });
+  return '/' + cleaned.join('/');
+}
+
+function normalizeNuxtRoute(fullPath: string): string | null {
+  const match = fullPath.match(/(?:^|\/)pages\/(.*)\.vue$/);
+  if (!match) return null;
+  const raw = match[1] || '';
+  const cleaned = raw
+    .split('/')
+    .filter(Boolean)
+    .map((seg) => {
+      if (seg.startsWith('[') && seg.endsWith(']')) return `:${seg.slice(1, -1)}`;
+      if (seg === 'index') return '';
+      return seg;
+    })
+    .filter(Boolean);
+  const route = '/' + cleaned.join('/');
+  return route === '' ? '/' : route;
+}
+
+type FeatureLabel = { key: string; name: string; source: string; confidence?: number };
+
+// Shared path→feature mapper for focus rollups.
+export function featureKeyFromPath(p: string): string | null {
+  const norm = p.replace(/\\/g, '/').replace(/^\/+/, '');
+  // Background job bucket
+  const jobMatch = norm.match(/src\/(?:inngest\/functions|jobs|workers|queues)\/([^.]+)\.(t|j)sx?$/);
+  if (jobMatch) {
+    const jobPath = jobMatch[1];
+    const parts = jobPath.split('/');
+    const jobName = parts[parts.length - 1];
+    return slugifyLabel(`background-${jobName}`);
+  }
+
+  // Modules/directories
+  const featureMatch = norm.match(/src\/(features|modules|services|domains|packages|apps)\/([^/.]+)/);
+  if (featureMatch) {
+    return slugifyLabel(featureMatch[2]);
+  }
+
+  // Next.js /app routes
+  if (JS_ENTRY_PATTERNS.some((re) => re.test(norm))) {
+    const route = normalizeRouteFromAppPath(norm);
+    if (!route) return null;
+    if (route === '/') return 'home';
+    const seg = route.split('/').filter(Boolean)[0];
+    if (seg) return slugifyLabel(seg);
+  }
+
+  // SvelteKit
+  if (SVELTE_ENTRY_PATTERNS.some((re) => re.test(norm))) {
+    const route = normalizeSvelteRoute(norm);
+    if (!route) return null;
+    if (route === '/') return 'home';
+    const seg = route.split('/').filter(Boolean)[0];
+    if (seg) return slugifyLabel(seg);
+  }
+
+  // Nuxt/Vue
+  if (NUXT_ENTRY_PATTERN.test(norm)) {
+    const route = normalizeNuxtRoute(norm);
+    if (!route) return null;
+    if (route === '/') return 'home';
+    const seg = route.split('/').filter(Boolean)[0];
+    if (seg) return slugifyLabel(seg);
+  }
+
+  // Generic API grouping by first segment after /api
+  if (norm.includes('/api/')) {
+    const afterApi = norm.split('/api/')[1];
+    const seg = afterApi?.split('/').filter(Boolean)[0];
+    if (seg) return slugifyLabel(`api-${seg}`);
+  }
+
+  return null;
+}
+
+function titleCase(value: string): string {
+  return value
+    .replace(/[-_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : ''))
+    .join(' ')
+    || value;
+}
+
+function inferLabelsFromCodeFiles(files: Array<{ path: string; content: string }>): FeatureLabel[] {
+  const apiRoutes: string[] = [];
+  const pageRoutes: string[] = [];
+  const jobNames = new Set<string>();
+  const moduleNames = new Set<string>();
+  let hasHome = false;
+
+  for (const f of files) {
+    const norm = f.path.replace(/\\/g, '/');
+
+    const addRoute = (route: string | null) => {
+      if (!route) return;
+      if (route === '/') {
+        hasHome = true;
+        return;
+      }
+      if (route.startsWith('/api')) {
+        apiRoutes.push(route);
+      } else {
+        pageRoutes.push(route);
+      }
+    };
+
+    // Next.js app router pages and API routes
+    if (JS_ENTRY_PATTERNS.some((re) => re.test(norm))) {
+      addRoute(normalizeRouteFromAppPath(norm));
+    }
+
+    // SvelteKit routes (+page/+server)
+    if (SVELTE_ENTRY_PATTERNS.some((re) => re.test(norm))) {
+      addRoute(normalizeSvelteRoute(norm));
+    }
+
+    // Nuxt/Vue pages (pages/**.vue)
+    if (NUXT_ENTRY_PATTERN.test(norm)) {
+      addRoute(normalizeNuxtRoute(norm));
+    }
+
+    // Node/JS HTTP routers (Express / Fastify / generic router)
+    if (/\.(t|j)sx?$/.test(norm)) {
+      const expressRoutes = Array.from(
+        f.content.matchAll(/\b(app|router|fastify)\.(get|post|put|delete|patch|options|head)\(['"`]([^'"`]+)['"`]/g)
+      );
+      for (const m of expressRoutes) addRoute(m[3]);
+    }
+
+    // Python (FastAPI / Flask / Django-style path declarations)
+    if (norm.endsWith('.py')) {
+      const decoratorRoutes = Array.from(
+        f.content.matchAll(/@(app|router)\.(get|post|put|delete|patch)\(['"]([^'"]+)['"]/g)
+      );
+      for (const m of decoratorRoutes) addRoute(m[3]);
+      const pathCalls = Array.from(f.content.matchAll(/path\(['"]([^'"]+)['"]/g));
+      for (const m of pathCalls) addRoute(m[1]);
+    }
+
+    // Go (net/http, chi)
+    if (norm.endsWith('.go')) {
+      const goRoutes = Array.from(f.content.matchAll(/Handle(?:Func)?\(\s*"([^"]+)"/g));
+      for (const m of goRoutes) addRoute(m[1]);
+      const chiRoutes = Array.from(f.content.matchAll(/Route\(\s*"([^"]+)"/g));
+      for (const m of chiRoutes) addRoute(m[1]);
+    }
+
+    // Background jobs (Inngest/queues/workers)
+  const jobMatch = norm.match(/src\/(?:inngest\/functions|jobs|workers|queues)\/([^.]+)\.(t|j)sx?$/);
+    if (jobMatch) {
+      const jobPath = jobMatch[1];
+      const parts = jobPath.split('/');
+      const jobName = parts[parts.length - 1];
+      if (jobName) jobNames.add(jobName);
+    }
+
+    // Conventional feature/module directories
+  const featureMatch = norm.match(/src\/(features|modules|services|domains|packages|apps)\/([^/.]+)/);
+    if (featureMatch) {
+      const featureName = titleCase(featureMatch[2]);
+      moduleNames.add(featureName);
+    }
+  }
+
+  const labels: FeatureLabel[] = [];
+  const seen = new Set<string>();
+  const push = (name: string, source: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const key = slugifyLabel(trimmed);
+    if (seen.has(key)) return;
+    seen.add(key);
+    labels.push({ key, name: trimmed, source });
+  };
+
+  if (hasHome) push('Home', 'page');
+
+  // Collapse API routes to first segment after /api
+  const apiGroups = new Set<string>();
+  for (const r of apiRoutes) {
+    const seg = r.split('/').filter(Boolean)[1] || 'api';
+    apiGroups.add(seg);
+  }
+  for (const seg of apiGroups) {
+    push(`API: ${titleCase(seg)}`, 'api_group');
+  }
+
+  // Collapse app routes to first segment
+  const pageGroups = new Set<string>();
+  for (const r of pageRoutes) {
+    const seg = r.split('/').filter(Boolean)[0];
+    if (seg) pageGroups.add(seg);
+  }
+  for (const seg of pageGroups) {
+    push(titleCase(seg), 'page');
+  }
+
+  // Background jobs
+  for (const job of jobNames) {
+    push(`Background: ${titleCase(job)}`, 'job');
+  }
+
+  // Modules/directories
+  for (const mod of moduleNames) {
+    push(mod, 'module');
+  }
+
+  return labels;
+}
+
+function inferLabelsFromIssues(issues: JiraIssue[]): FeatureLabel[] {
+  const counts = new Map<string, { name: string; source: string; confidence: number; count: number }>();
+  const bump = (raw: string, source: string, confidence: number) => {
+    const name = raw.trim();
+    if (!name) return;
+    const key = slugifyLabel(name);
+    const existing = counts.get(key);
+    if (existing) {
+      existing.count += 1;
+    } else {
+      counts.set(key, { name, source, confidence, count: 1 });
+    }
+  };
+
+  for (const issue of issues) {
+    const fields = issue.fields || {};
+    if (Array.isArray(fields.labels)) {
+      fields.labels.forEach((l) => bump(l, 'issue_label', 0.62));
+    }
+    if (fields.issuetype?.name) bump(fields.issuetype.name, 'issue_type', 0.58);
+    if (fields.status?.name) bump(fields.status.name, 'issue_status', 0.52);
+  }
+
+  return Array.from(counts.values())
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 8)
+    .map(({ name, source, confidence }) => ({ key: slugifyLabel(name), name, source, confidence }));
+}
+
+function detectFeatureLabels(
+  source: WorkspaceSource,
+  opts: { files?: Array<{ path: string; content: string }>; issues?: JiraIssue[] } = {}
+): FeatureLabel[] {
+  const labels: FeatureLabel[] = [];
+  const provider = (source.provider || '').toLowerCase();
+
+  if (provider === 'github') {
+    const fileLabels = Array.isArray(opts.files) ? inferLabelsFromCodeFiles(opts.files) : [];
+    labels.push(...fileLabels);
+  } else if (provider === 'jira') {
+    const project = typeof source.scope?.project === 'string' ? source.scope.project : null;
+    if (project) labels.push({ key: slugifyLabel(project), name: project, source: 'tracker_project', confidence: 0.6 });
+    if (Array.isArray(opts.issues) && opts.issues.length > 0) {
+      labels.push(...inferLabelsFromIssues(opts.issues));
+    }
+  } else if (provider === 'linear' || provider === 'asana') {
+    const team = typeof source.scope?.team === 'string' ? source.scope.team : null;
+    if (team) labels.push({ key: slugifyLabel(team), name: team, source: 'tracker_team', confidence: 0.6 });
+  }
+
+  // Deduplicate by key
+  const seen = new Set<string>();
+  return labels.filter((label) => {
+    if (seen.has(label.key)) return false;
+    seen.add(label.key);
+    return true;
+  });
+}
+
+async function ensureFeatureLabels(
+  supabase: SupabaseClient,
+  source: WorkspaceSource,
+  extras: { files?: Array<{ path: string; content: string }>; issues?: JiraIssue[] } = {}
+): Promise<void> {
+  if (Array.isArray(source.feature_labels) && source.feature_labels.length > 0) {
+    return;
+  }
+
+  const labels = detectFeatureLabels(source, extras);
+  if (labels.length === 0) return;
+
+  await supabase
+    .from('workspace_sources')
+    .update({ feature_labels: labels, updated_at: new Date().toISOString() })
+    .eq('id', source.id);
+}
+
 export type SourceSetupStage =
   | 'queueing'
   | 'fetching'
@@ -65,6 +417,7 @@ export type WorkspaceSource = {
   connection_id?: string | null;
   status_payload?: Record<string, unknown> | null;
   last_error?: string | null;
+  feature_labels?: Array<{ key: string; name: string; source?: string; confidence?: number }> | null;
 };
 
 type JiraIssueFields = {
@@ -283,6 +636,18 @@ export async function ingestGitHubSource(
         error: errorMessage(featureErr),
       });
     }
+
+    // Ensure we store inferred feature labels on the source for downstream signals.
+    try {
+      await ensureFeatureLabels(supabase, source, { files });
+    } catch (labelErr) {
+      ingestLog.warn('feature_label_infer_failed', {
+        sourceId: source.id,
+        repo,
+        error: errorMessage(labelErr),
+      });
+    }
+
     await updateStage(supabase, source.id, 'ready', 100, 'Setup complete');
     ingestLog.info('github_complete', { sourceId: source.id, repo, branch, totalFiles: files.length });
   } catch (err) {
@@ -485,6 +850,17 @@ export async function ingestIssueSource(
       if (await abortIfDeleted(supabase, source, 'indexing')) return;
     } else {
       ingestLog.info('issue_store_skipped', { sourceId: source.id, provider, reason: 'no_issues' });
+    }
+
+    // Ensure we store inferred feature labels on the source for downstream signals.
+    try {
+      await ensureFeatureLabels(supabase, source, { issues });
+    } catch (labelErr) {
+      ingestLog.warn('feature_label_infer_failed', {
+        sourceId: source.id,
+        provider,
+        error: errorMessage(labelErr),
+      });
     }
 
     await updateStage(supabase, source.id, 'ready', 100, 'Setup complete (issues only)');

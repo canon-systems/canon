@@ -118,6 +118,9 @@ export default async function SignalsPage({
           current_value: signal.current_value,
           baseline_value: signal.baseline_value,
           percent_change: signal.percent_change,
+          feature_top: Array.isArray(signal.metadata?.feature_top)
+            ? (signal.metadata?.feature_top as Array<{ key: string; name: string; share: number }>)
+            : undefined,
           window_start: signal.window_start,
           window_end: signal.window_end,
           scope_label_override: chosenSourceId ? sourceLabel : null,

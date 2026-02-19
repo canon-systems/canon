@@ -224,23 +224,46 @@ export async function upsertDailyMetrics(params: {
   sourceId: string;
   provider: string;
   events: CanonicalEvent[];
+  pathToFeature?: (path: string) => string | null;
 }) {
-  const { supabase, sourceId, provider, events } = params;
+  const { supabase, sourceId, provider, events, pathToFeature } = params;
   if (!events.length) return;
 
   const byDay = new Map<string, DailyIncrements>();
+  const featureAgg = new Map<string, Map<string, DailyIncrements>>(); // day -> featureKey -> increments
+
+  const incrementFeature = (day: string, featureKey: string | null, mutate: (inc: DailyIncrements) => void) => {
+    if (!featureKey) return;
+    let featureMap = featureAgg.get(day);
+    if (!featureMap) {
+      featureMap = new Map<string, DailyIncrements>();
+      featureAgg.set(day, featureMap);
+    }
+    let inc = featureMap.get(featureKey);
+    if (!inc) {
+      inc = emptyIncrements();
+      featureMap.set(featureKey, inc);
+    }
+    mutate(inc);
+  };
+
   for (const event of events) {
     const day = toUtcDay(event.occurred_at);
     const inc = byDay.get(day) ?? emptyIncrements();
     applyEventToIncrements(inc, event);
     byDay.set(day, inc);
+
+    const paths = Array.isArray(event.metadata?.paths) ? (event.metadata.paths as string[]) : [];
+    const featureKey =
+      paths.map((p) => (pathToFeature ? pathToFeature(p) : null)).find((k) => k) || null;
+    incrementFeature(day, featureKey, (finc) => applyEventToIncrements(finc, event));
   }
 
   for (const [day, inc] of byDay.entries()) {
     const { data: existing } = await supabase
       .from('diff_daily_metrics')
       .select(
-        'prs_opened, prs_merged, prs_closed, commits_default, tickets_moved, tickets_completed, tickets_regressed, tickets_created, repos_touched'
+        'prs_opened, prs_merged, prs_closed, commits_default, tickets_moved, tickets_completed, tickets_regressed, tickets_created, repos_touched, feature_counts'
       )
       .eq('source_id', sourceId)
       .eq('day', day)
@@ -265,6 +288,48 @@ export async function upsertDailyMetrics(params: {
           tickets_regressed: (existing?.tickets_regressed ?? 0) + inc.tickets_regressed,
           tickets_created: (existing?.tickets_created ?? 0) + inc.tickets_created,
           repos_touched: mergedRepos,
+          feature_counts: (() => {
+            const featureMap = featureAgg.get(day);
+            if (!featureMap || featureMap.size === 0) return existing?.feature_counts ?? {};
+            const current = (existing?.feature_counts as Record<string, unknown>) || {};
+            const out: Record<string, { prs_opened: number; prs_merged: number; prs_closed: number; commits_default: number; tickets_moved: number; tickets_completed: number; tickets_regressed: number; tickets_created: number }> = {};
+            for (const [k, v] of Object.entries(current)) {
+              if (typeof v !== 'object' || v === null) continue;
+              const val = v as Record<string, number>;
+              out[k] = {
+                prs_opened: Number(val.prs_opened || 0),
+                prs_merged: Number(val.prs_merged || 0),
+                prs_closed: Number(val.prs_closed || 0),
+                commits_default: Number(val.commits_default || 0),
+                tickets_moved: Number(val.tickets_moved || 0),
+                tickets_completed: Number(val.tickets_completed || 0),
+                tickets_regressed: Number(val.tickets_regressed || 0),
+                tickets_created: Number(val.tickets_created || 0),
+              };
+            }
+            for (const [featureKey, finc] of featureMap.entries()) {
+              const bucket = out[featureKey] || {
+                prs_opened: 0,
+                prs_merged: 0,
+                prs_closed: 0,
+                commits_default: 0,
+                tickets_moved: 0,
+                tickets_completed: 0,
+                tickets_regressed: 0,
+                tickets_created: 0,
+              };
+              bucket.prs_opened += finc.prs_opened;
+              bucket.prs_merged += finc.prs_merged;
+              bucket.prs_closed += finc.prs_closed;
+              bucket.commits_default += finc.commits_default;
+              bucket.tickets_moved += finc.tickets_moved;
+              bucket.tickets_completed += finc.tickets_completed;
+              bucket.tickets_regressed += finc.tickets_regressed;
+              bucket.tickets_created += finc.tickets_created;
+              out[featureKey] = bucket;
+            }
+            return out;
+          })(),
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'source_id,day' }

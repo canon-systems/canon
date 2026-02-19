@@ -7,6 +7,7 @@ export type GitHubDiffEvent = {
   entity_id?: string | null;
   action: 'opened' | 'merged' | 'closed_unmerged' | 'commit';
   timestamp: string;
+  files?: string[];
 };
 
 export type GitHubDiffResult = {
@@ -44,6 +45,21 @@ export async function getGitHubDiffForRepo(params: DiffParams): Promise<GitHubDi
   const { owner, repo, start, end } = params;
   log.debug('start', { repo: `${owner}/${repo}`, start, end });
   const octokit = await getGitHubAppOctokitForRepo(owner, repo);
+  const listPrFiles = async (prNumber: number): Promise<string[]> => {
+    const files: string[] = [];
+    let page = 1;
+    const perPage = 100;
+    while (true) {
+      const { data } = await octokit.pulls.listFiles({ owner, repo, pull_number: prNumber, per_page: perPage, page });
+      if (!data?.length) break;
+      for (const f of data) {
+        if (typeof f.filename === 'string') files.push(f.filename);
+      }
+      if (data.length < perPage) break;
+      page += 1;
+    }
+    return files;
+  };
 
   const startMs = Date.parse(start);
   const endMs = Date.parse(end);
@@ -88,30 +104,36 @@ export async function getGitHubDiffForRepo(params: DiffParams): Promise<GitHubDi
       }
 
       if (inWindow(pr.created_at, startMs, endMs)) {
+        const files = await listPrFiles(pr.number);
         prs_opened.push({
           repo: `${owner}/${repo}`,
           pr_number: pr.number,
           entity_id: String(pr.number),
           action: 'opened',
           timestamp: pr.created_at,
+          files,
         });
       }
       if (inWindow(pr.merged_at, startMs, endMs)) {
+        const files = await listPrFiles(pr.number);
         prs_merged.push({
           repo: `${owner}/${repo}`,
           pr_number: pr.number,
           entity_id: String(pr.number),
           action: 'merged',
           timestamp: pr.merged_at!,
+          files,
         });
       }
       if (inWindow(pr.closed_at, startMs, endMs) && !pr.merged_at) {
+        const files = await listPrFiles(pr.number);
         prs_closed_unmerged.push({
           repo: `${owner}/${repo}`,
           pr_number: pr.number,
           entity_id: String(pr.number),
           action: 'closed_unmerged',
           timestamp: pr.closed_at!,
+          files,
         });
       }
     }
@@ -144,17 +166,27 @@ export async function getGitHubDiffForRepo(params: DiffParams): Promise<GitHubDi
     if (!commitData?.length) break;
     commitPageCount += 1;
 
-    for (const commit of commitData) {
-      const ts = commit.commit?.author?.date || commit.commit?.committer?.date;
-      if (!ts || !inWindow(ts, startMs, endMs)) continue;
-      commits.push({
-        repo: `${owner}/${repo}`,
-        pr_number: null,
-        entity_id: commit.sha || null,
-        action: 'commit',
-        timestamp: ts,
-      });
-    }
+      for (const commit of commitData) {
+        const ts = commit.commit?.author?.date || commit.commit?.committer?.date;
+        if (!ts || !inWindow(ts, startMs, endMs)) continue;
+        const files: string[] = [];
+        try {
+          const { data: commitFiles } = await octokit.repos.getCommit({ owner, repo, ref: commit.sha });
+          for (const f of commitFiles.files || []) {
+            if (typeof f.filename === 'string') files.push(f.filename);
+          }
+        } catch {
+          // ignore file fetch errors; proceed without paths
+        }
+        commits.push({
+          repo: `${owner}/${repo}`,
+          pr_number: null,
+          entity_id: commit.sha || null,
+          action: 'commit',
+          timestamp: ts,
+          files,
+        });
+      }
 
     if (commitData.length < commitsPerPage) break;
     commitPage += 1;

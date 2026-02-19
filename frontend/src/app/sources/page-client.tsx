@@ -38,6 +38,7 @@ interface Repository {
   last_error?: string | null;
   created_at: string;
   updated_at: string;
+  feature_labels?: Array<{ key: string; name: string; source?: string; confidence?: number }> | null;
 }
 
 interface SourcesPageClientProps {
@@ -439,7 +440,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
   const displayScope = (repo: Repository) => {
     if (!repo.scope) return 'Scope: —';
     if (repo.provider === 'github' && typeof repo.scope.repo === 'string') {
-      return `Branch: ${repo.scope.branch ? ` ${repo.scope.branch}` : ''}`;
+      return `Repo: ${repo.scope.repo}${repo.scope.branch ? ` · Branch: ${repo.scope.branch}` : ''}`;
     }
     if (repo.provider === 'jira' && typeof repo.scope.project === 'string') {
       return `Jira: ${repo.scope.project}`;
@@ -448,6 +449,29 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
       return `Slack: #${repo.scope.channel}`;
     }
     return 'Scope: configured';
+  };
+
+  const renderFeatureLabels = (repo: Repository) => {
+    const labels = Array.isArray(repo.feature_labels) ? repo.feature_labels : [];
+    if (labels.length === 0) return null;
+    return (
+      <div className="mt-1 flex flex-wrap gap-1">
+        {labels.slice(0, 4).map((label) => (
+          <Badge
+            key={`${repo.id}-${label.key}`}
+            variant="secondary"
+            className="border-white/15 bg-white/10 text-[11px] font-medium text-white/80"
+          >
+            {label.name}
+          </Badge>
+        ))}
+        {labels.length > 4 ? (
+          <Badge variant="secondary" className="border-white/15 bg-white/5 text-[11px] text-white/70">
+            +{labels.length - 4} more
+          </Badge>
+        ) : null}
+      </div>
+    );
   };
 
   const loadAvailableSources = useCallback(async () => {
@@ -735,6 +759,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
                   <div className="min-w-0">
                     <div className="truncate text-base font-semibold text-white">{repoLabel}</div>
                     <div className="flex items-center gap-2 text-sm text-white/70">{displayScope(repo)}</div>
+                    {renderFeatureLabels(repo)}
                   </div>
                 </div>
 

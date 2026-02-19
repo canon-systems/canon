@@ -57,8 +57,6 @@ export const dailySignalAlerts = inngest.createFunction(
   async () => {
     const supabase = createServiceRoleClient();
     const now = new Date();
-    const window = getWindowForDays(SIGNAL_WINDOW_DAYS, now);
-
     const { data, error } = await supabase
       .from('workspace_sources')
       .select('id, user_id, provider')
@@ -80,12 +78,13 @@ export const dailySignalAlerts = inngest.createFunction(
     for (const [userId, sourceIds] of grouped.entries()) {
       try {
         const settings = await getWorkspaceSignalSettings({ supabase, userId });
+        const windowDays = Math.max(1, settings.baseline_window_days || SIGNAL_WINDOW_DAYS);
+        const window = getWindowForDays(windowDays, now);
 
         const signalRun = await runSignalEngine({
           supabase,
           userId,
           sourceIds,
-          window,
           triggerType: 'daily_signal_monitor',
         });
 

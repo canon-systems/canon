@@ -44,7 +44,7 @@ export const sourceIngestRequested = inngest.createFunction(
     const supabase = createServiceRoleClient();
     const { data: source, error } = await supabase
       .from('workspace_sources')
-      .select('id, user_id, name, provider, scope, connection_id, status_payload, last_error')
+      .select('id, user_id, name, provider, scope, connection_id, status_payload, last_error, feature_labels')
       .eq('id', sourceId)
       .eq('user_id', userId)
       .maybeSingle();

@@ -21,6 +21,7 @@ type SignalCard = {
   current_value: number;
   baseline_value: number;
   percent_change: number;
+  feature_top?: Array<{ key: string; name: string; share: number }>;
   window_start: string;
   window_end: string;
 };
@@ -93,18 +94,19 @@ function metricLabel(metricKey: string): string {
   if (metricKey === 'repos_touched') return 'Repos touched';
   if (metricKey === 'repo_distribution') return 'Repo concentration';
   if (metricKey === 'aku_distribution') return 'AKU concentration';
+  if (metricKey === 'feature_distribution') return 'Feature concentration';
   return metricKey.replace(/_/g, ' ');
 }
 
 function metricValue(metricKey: string, value: number): string {
-  if (metricKey === 'regression_rate' || metricKey === 'repo_distribution' || metricKey === 'aku_distribution') {
+  if (metricKey === 'regression_rate' || metricKey === 'repo_distribution' || metricKey === 'aku_distribution' || metricKey === 'feature_distribution') {
     return formatPercentValue(value);
   }
   return formatCount(value);
 }
 
 function isPercentMetric(metricKey: string): boolean {
-  return metricKey === 'regression_rate' || metricKey === 'repo_distribution' || metricKey === 'aku_distribution';
+  return metricKey === 'regression_rate' || metricKey === 'repo_distribution' || metricKey === 'aku_distribution' || metricKey === 'feature_distribution';
 }
 
 function normalizePercent(value: number): number {
@@ -128,6 +130,7 @@ function renderMetricSummary(signal: SignalCard): string {
   const delta = formatSignedPercent(deltaValue);
   return `${label}: ${current} vs ${baseline} baseline (${delta})`;
 }
+
 
 export default function SignalsPageClient({
   signals,
@@ -238,6 +241,15 @@ export default function SignalsPageClient({
               </CardHeader>
               <CardContent className="space-y-3">
                 <p className="text-sm text-white/80">{signal.summary_line}</p>
+                {signal.feature_top && signal.feature_top.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {signal.feature_top.slice(0, 3).map((f) => (
+                      <Badge key={f.key} variant="outline" className="border-white/20 bg-white/10 text-white">
+                        {f.name} · {(f.share * 100).toFixed(0)}%
+                      </Badge>
+                    ))}
+                  </div>
+                )}
                 <p className="text-xs text-white/65">{renderMetricSummary(signal)}</p>
                 <div className="grid grid-cols-[1fr_auto] items-end gap-3">
                   <div>

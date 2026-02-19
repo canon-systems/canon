@@ -31,6 +31,7 @@ export async function GET() {
         email_digest_enabled: settings.email_digest_enabled,
         email_digest_to: settings.email_digest_to,
         delivery_preference: settings.delivery_preference,
+        baseline_window_days: settings.baseline_window_days,
       },
       { status: 200 }
     );
@@ -50,6 +51,7 @@ export async function PUT(request: NextRequest) {
 
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const slackChannelRaw = body.slack_channel;
+    const baselineWindowDaysRaw = body.baseline_window_days;
     const emailDigestEnabledRaw = body.email_digest_enabled;
     const emailDigestToRaw = body.email_digest_to;
     const deliveryPreferenceRaw = body.delivery_preference;
@@ -78,12 +80,19 @@ export async function PUT(request: NextRequest) {
         : deliveryPreferenceRaw === undefined
           ? undefined
           : null;
+    const baseline_window_days =
+      typeof baselineWindowDaysRaw === 'number'
+        ? baselineWindowDaysRaw
+        : baselineWindowDaysRaw === undefined
+          ? undefined
+          : null;
 
     if (
       slack_channel === undefined ||
       email_digest_enabled === null ||
       (emailDigestToProvided && email_digest_to === undefined) ||
-      delivery_preference === null
+      delivery_preference === null ||
+      baseline_window_days === null
     ) {
       return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
     }
@@ -104,6 +113,7 @@ export async function PUT(request: NextRequest) {
         ...(email_digest_enabled !== undefined ? { email_digest_enabled } : {}),
         ...(emailDigestToProvided ? { email_digest_to } : {}),
         ...(delivery_preference !== undefined ? { delivery_preference } : {}),
+        ...(baseline_window_days !== undefined ? { baseline_window_days } : {}),
       },
     });
 
@@ -113,6 +123,7 @@ export async function PUT(request: NextRequest) {
         email_digest_enabled: settings.email_digest_enabled,
         email_digest_to: settings.email_digest_to,
         delivery_preference: settings.delivery_preference,
+        baseline_window_days: settings.baseline_window_days,
       },
       { status: 200 }
     );

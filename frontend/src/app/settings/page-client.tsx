@@ -101,6 +101,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   const [slackError, setSlackError] = useState('');
   const [emailDigestTo, setEmailDigestTo] = useState('');
   const [deliveryPreference, setDeliveryPreference] = useState<'slack_only' | 'email_only' | 'slack_then_email' | null>('slack_only');
+  const [windowDays, setWindowDays] = useState<number>(7);
 
   const loadConnections = useCallback(async (force = false) => {
     setLoading(true);
@@ -181,6 +182,9 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
         setDeliveryPreference(preference);
       } else {
         setDeliveryPreference('slack_only');
+      }
+      if (typeof payload?.baseline_window_days === 'number') {
+        setWindowDays(Math.max(1, Math.min(30, Math.floor(payload.baseline_window_days))));
       }
     } catch (err: unknown) {
       setSlackError(err instanceof Error ? err.message : 'Failed to load delivery settings');
@@ -331,6 +335,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
           email_digest_enabled: includeEmail,
           email_digest_to: includeEmail ? emailDigestTo.trim() || null : null,
           delivery_preference: deliveryPreference,
+          baseline_window_days: windowDays,
         }),
       });
 
@@ -515,6 +520,31 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                       {slackError ? <p className="text-xs text-red-300">{slackError}</p> : null}
                       {slackMessage ? <p className="text-xs text-emerald-300">{slackMessage}</p> : null}
 
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2 text-sm font-medium text-white/80">
+                          <span>Analysis window</span>
+                          <TooltipProvider delayDuration={120}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Info className="h-4 w-4 cursor-help text-white/60" />
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="max-w-xs leading-relaxed">
+                                Sets the number of days for Signals and History. Baseline uses the same length immediately before the primary window. Range: 1–30 days.
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </div>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={30}
+                          value={windowDays}
+                          onChange={(event) =>
+                            setWindowDays(Math.max(1, Math.min(30, Number(event.target.value) || 1)))
+                          }
+                          className="w-28 border-white/20 bg-white/5 text-white"
+                        />
+                      </div>
                   <div className="flex items-center gap-3">
                     <Button
                       onClick={saveSlackChannel}

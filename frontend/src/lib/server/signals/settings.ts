@@ -10,12 +10,18 @@ const DEFAULTS: Omit<WorkspaceSignalSettings, 'user_id'> = {
   source_ids: [],
 };
 
+function clampWindowDays(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULTS.baseline_window_days;
+  const n = Math.floor(value);
+  return Math.max(1, Math.min(30, n));
+}
+
 function normalizeSettings(userId: string, row?: Record<string, unknown> | null): WorkspaceSignalSettings {
   return {
     user_id: userId,
     baseline_window_days:
-      typeof row?.baseline_window_days === 'number' && Number.isFinite(row.baseline_window_days)
-        ? Math.max(1, Math.floor(row.baseline_window_days))
+      typeof row?.baseline_window_days === 'number'
+        ? clampWindowDays(row.baseline_window_days)
         : DEFAULTS.baseline_window_days,
     slack_channel: typeof row?.slack_channel === 'string' && row.slack_channel.trim().length > 0 ? row.slack_channel.trim() : null,
     email_digest_enabled: row?.email_digest_enabled === true,
@@ -67,6 +73,10 @@ export async function updateWorkspaceSignalSettings(params: {
   const next: WorkspaceSignalSettings = {
     ...current,
     ...patch,
+    baseline_window_days:
+      typeof patch.baseline_window_days === 'number'
+        ? clampWindowDays(patch.baseline_window_days)
+        : current.baseline_window_days,
     delivery_preference:
       patch.delivery_preference === 'slack_only' ||
       patch.delivery_preference === 'email_only' ||

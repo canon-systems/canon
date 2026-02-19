@@ -113,3 +113,42 @@ export async function computeMetrics(
     aku_distribution: toDistribution(akuCounts),
   };
 }
+
+export async function computeFeatureDistribution(params: {
+  supabase: SupabaseClient;
+  userId: string;
+  sourceIds: string[];
+  window: { start: string; end: string };
+}): Promise<Record<string, number>> {
+  const { supabase, sourceIds, window } = params;
+  if (sourceIds.length === 0) return {};
+
+  const { data: rows } = await supabase
+    .from('diff_daily_metrics')
+    .select('day, feature_counts')
+    .in('source_id', sourceIds)
+    .gte('day', window.start.slice(0, 10))
+    .lte('day', window.end.slice(0, 10));
+
+  if (!rows) return {};
+
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const featureCounts = (row.feature_counts as Record<string, unknown>) || {};
+    for (const [key, val] of Object.entries(featureCounts)) {
+      if (typeof val !== 'object' || val === null) continue;
+      const bucket = val as Record<string, number>;
+      const total =
+        Number(bucket.prs_opened || 0) +
+        Number(bucket.prs_merged || 0) +
+        Number(bucket.commits_default || 0) +
+        Number(bucket.tickets_moved || 0) +
+        Number(bucket.tickets_completed || 0) +
+        Number(bucket.tickets_regressed || 0) +
+        Number(bucket.tickets_created || 0);
+      if (total > 0) counts.set(key, (counts.get(key) || 0) + total);
+    }
+  }
+
+  return toDistribution(counts);
+}
