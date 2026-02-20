@@ -73,6 +73,8 @@ function metricReadableName(metricKey: string): string {
       return 'active surfaces';
     case 'regression_rate':
       return 'regression rate';
+    case 'domain_distribution':
+      return 'domain concentration';
     default:
       return 'this metric';
   }
@@ -102,6 +104,8 @@ function metricTooltip(metricKey: string): string {
       return 'Number of repositories or tracked surfaces touched during the range.';
     case 'regression_rate':
       return 'Share of completed tickets that regressed. Lower is healthier.';
+    case 'domain_distribution':
+      return 'Share of weighted activity concentrated in the most active domain versus baseline.';
     default:
       return 'Current range compared with baseline range for this metric.';
   }

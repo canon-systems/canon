@@ -53,6 +53,10 @@ export function compareMetrics(current: MetricSnapshot, baseline: MetricSnapshot
       current: current.repo_distribution,
       baseline: baseline.repo_distribution,
     },
+    domain_distribution: {
+      current: current.domain_distribution,
+      baseline: baseline.domain_distribution,
+    },
   };
 }
 

@@ -12,6 +12,7 @@ export type MetricSnapshot = {
   prs_merged: number;
   repos_touched: number;
   repo_distribution: Record<string, number>;
+  domain_distribution: Record<string, number>;
 };
 
 export type MetricDelta = {
@@ -37,13 +38,18 @@ export type MetricComparison = {
     current: Record<string, number>;
     baseline: Record<string, number>;
   };
+  domain_distribution: {
+    current: Record<string, number>;
+    baseline: Record<string, number>;
+  };
 };
 
 export type SignalType =
   | 'regression_spike'
   | 'throughput_drop'
   | 'merge_drop'
-  | 'repo_concentration';
+  | 'repo_concentration'
+  | 'domain_concentration';
 
 export type SignalSeverity = 'elevated' | 'significant';
 

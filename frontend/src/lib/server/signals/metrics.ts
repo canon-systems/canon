@@ -5,6 +5,7 @@ import { computeWeightedEffort } from '@/lib/server/signals/effortWeights';
 import { featureKeyFromPath } from '@/lib/server/services/sourceIngest';
 
 type CanonicalEventRow = {
+  source_id: string | null;
   provider: string | null;
   event_kind: string | null;
   repo_full_name: string | null;
@@ -37,17 +38,33 @@ export async function computeMetrics(
       prs_merged: 0,
       repos_touched: 0,
       repo_distribution: {},
+      domain_distribution: {},
     };
+  }
+
+  const { data: sourceRows } = (await supabase
+    .from('workspace_sources')
+    .select('id, domain')
+    .eq('user_id', userId)
+    .in('id', sourceIds)) as {
+    data: Array<{ id: string; domain: string | null }> | null;
+  };
+  const sourceDomainById = new Map<string, string>();
+  for (const row of sourceRows || []) {
+    const domain = typeof row.domain === 'string' ? row.domain.trim() : '';
+    if (!domain) continue;
+    sourceDomainById.set(row.id, domain);
   }
 
   const { data: eventRows } = (await supabase
     .from('diff_event_canonical')
-    .select('provider, event_kind, repo_full_name')
+    .select('source_id, provider, event_kind, repo_full_name')
     .in('source_id', sourceIds)
     .gte('occurred_at', window.start)
     .lte('occurred_at', window.end)) as { data: CanonicalEventRow[] | null };
 
   const repoCounts = new Map<string, number>();
+  const domainCounts = new Map<string, number>();
   const githubKinds = new Set(['pr_opened', 'pr_merged', 'pr_closed', 'commit']);
 
   for (const row of eventRows || []) {
@@ -57,6 +74,19 @@ export async function computeMetrics(
 
     if (provider === 'github' && repoFullName && githubKinds.has(eventKind)) {
       repoCounts.set(repoFullName, (repoCounts.get(repoFullName) || 0) + 1);
+    }
+
+    const effort = computeWeightedEffort({
+      prs_opened: eventKind === 'pr_opened' ? 1 : 0,
+      prs_merged: eventKind === 'pr_merged' ? 1 : 0,
+      commits_default: eventKind === 'commit' ? 1 : 0,
+      tickets_completed: eventKind === 'ticket_completed' ? 1 : 0,
+      tickets_regressed: eventKind === 'ticket_regressed' ? 1 : 0,
+    });
+    const sourceId = typeof row.source_id === 'string' ? row.source_id : '';
+    const domain = sourceDomainById.get(sourceId);
+    if (domain && effort > 0) {
+      domainCounts.set(domain, (domainCounts.get(domain) || 0) + effort);
     }
   }
 
@@ -72,6 +102,7 @@ export async function computeMetrics(
     prs_merged: Number(aggregate.prs_merged || 0),
     repos_touched: Array.isArray(aggregate.repos_touched) ? aggregate.repos_touched.length : 0,
     repo_distribution: toDistribution(repoCounts),
+    domain_distribution: toDistribution(domainCounts),
   };
 }
 

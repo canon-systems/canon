@@ -208,5 +208,45 @@ export function evaluateSignalRules(comparison: MetricComparison): SignalDraft[]
     );
   }
 
+  const topDomain = topDistributionEntry(comparison.domain_distribution.current);
+  if (topDomain) {
+    const baselineShare = comparison.domain_distribution.baseline[topDomain.key] || 0;
+    const shareDelta = topDomain.share - baselineShare;
+    const hasMeaningfulFocusShift = topDomain.share >= 0.55 && (shareDelta >= 0.1 || topDomain.share >= 0.7);
+    if (hasMeaningfulFocusShift) {
+      const severity: SignalSeverity = topDomain.share >= 0.75 || shareDelta >= 0.2 ? 'significant' : 'elevated';
+      out.push(
+        buildSignal({
+          type: 'domain_concentration',
+          severity,
+          metricKey: 'domain_distribution',
+          title: 'Domain focus shifted',
+          summary: `${topDomain.key} accounts for ${(topDomain.share * 100).toFixed(1)}% of weighted activity (baseline ${(baselineShare * 100).toFixed(1)}%).`,
+          currentValue: topDomain.share,
+          baselineValue: baselineShare,
+          absoluteChange: shareDelta,
+          percentChange: (shareDelta / Math.max(Math.abs(baselineShare), 0.0001)) * 100,
+          windowStart: window_current.start,
+          windowEnd: window_current.end,
+          baselineStart: window_baseline.start,
+          baselineEnd: window_baseline.end,
+          evidence: [
+            {
+              evidence_type: 'metric',
+              evidence_id: `domain:${topDomain.key}`,
+              label: topDomain.key,
+              rank: 1,
+              payload: {
+                domain: topDomain.key,
+                current_share: topDomain.share,
+                baseline_share: baselineShare,
+              },
+            },
+          ],
+        })
+      );
+    }
+  }
+
   return out;
 }

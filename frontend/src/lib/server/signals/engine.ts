@@ -7,7 +7,6 @@ import {
 import { runDiffForSourcesWithBreakdown } from '@/lib/server/diff/runDiffForSources';
 import { computeAndCompareMetrics } from '@/lib/server/signals/baseline';
 import { computeWeightedEffort } from '@/lib/server/signals/effortWeights';
-import { computeFeatureDistribution } from '@/lib/server/signals/metrics';
 import { evaluateSignalRules } from '@/lib/server/signals/rules';
 import { getWorkspaceSignalSettings, resolveSignalSourceIds } from '@/lib/server/signals/settings';
 import type {
@@ -323,20 +322,6 @@ export async function runSignalEngine(params: {
     timeZone: settings.time_zone,
   });
 
-  // Attach feature focus distribution for UI (top 3 features by share in current window)
-  const featureTop = await (async () => {
-    try {
-      const featureDist = await computeFeatureDistribution({ supabase, userId, sourceIds, window });
-      const entries = Object.entries(featureDist)
-        .map(([key, share]) => ({ key, name: key.replace(/-/g, ' '), share }))
-        .sort((a, b) => b.share - a.share)
-        .slice(0, 3);
-      return entries.length > 0 ? entries : undefined;
-    } catch {
-      return undefined;
-    }
-  })();
-
   const rawSignalDrafts = evaluateSignalRules(comparison);
 
   const ticketingProviders = new Set(['jira', 'asana', 'linear']);
@@ -396,15 +381,12 @@ export async function runSignalEngine(params: {
 
   const persistedSignals: SignalRecord[] = [];
   for (const signal of signalDrafts) {
-    const withFeature = featureTop
-      ? ({ ...signal, metadata: { ...(signal.metadata || {}), feature_top: featureTop } } as typeof signal)
-      : signal;
     const inserted = await insertSignalWithEvidence({
       supabase,
       userId,
       signalRunId: runId,
       primarySourceId: sourceIds[0] || null,
-      signal: withFeature,
+      signal,
     });
     persistedSignals.push(inserted);
   }
@@ -530,6 +512,7 @@ function directionHeadlineForSignal(signal: SignalRecord): string {
   if (signal.type === 'throughput_drop') return 'Delivery velocity slowed';
   if (signal.type === 'merge_drop') return 'Integration throughput slowed';
   if (signal.type === 'repo_concentration') return 'Execution focus narrowed';
+  if (signal.type === 'domain_concentration') return 'Domain focus shifted';
   return 'System direction shifted';
 }
 
@@ -551,6 +534,9 @@ function directionSummary(signal: SignalRecord, delta: DiffDelta): string {
   }
   if (signal.type === 'repo_concentration') {
     return `Execution touched ${signed(delta.repos_added.length - delta.repos_removed.length)} net surfaces versus baseline.`;
+  }
+  if (signal.type === 'domain_concentration') {
+    return signal.summary_line;
   }
   return signal.summary_line;
 }
