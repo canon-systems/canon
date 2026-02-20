@@ -22,8 +22,13 @@ export async function GET() {
       return NextResponse.json({ error: 'Failed to fetch connections' }, { status: 500 });
     }
 
+    const activeConnections = (connections || []).filter((connection) => {
+      const provider = typeof connection.provider === 'string' ? connection.provider.toLowerCase() : '';
+      return provider !== 'notion';
+    });
+
     return NextResponse.json({
-      connections: connections || [],
+      connections: activeConnections,
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';

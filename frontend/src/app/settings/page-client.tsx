@@ -56,12 +56,6 @@ const integrationCards: IntegrationCard[] = [
     icon: <IntegrationLogos provider="slack" size={28} />
   },
   {
-    provider: 'notion',
-    name: 'Notion',
-    description: 'Sync pages and databases for richer answers.',
-    icon: <IntegrationLogos provider="notion" size={28} />
-  },
-  {
     provider: 'confluence',
     name: 'Atlassian',
     description: 'Connect Jira and Confluence. Keep spaces and issues in sync.',
@@ -253,10 +247,6 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
           throw new Error('GitHub App install URL is not configured.');
         }
         window.location.href = installUrl;
-        return;
-      }
-      if (providerName === 'notion') {
-        window.location.href = '/api/oauth/notion/start';
         return;
       }
       if (providerName === 'confluence') {
