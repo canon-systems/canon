@@ -1,6 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createHash } from 'crypto';
-// Removed unused imports: getUserOctokit, parseRepoUrl
 import { generateFileSummary } from './fileSummarizer';
 import { createLogger, errorMessage } from '@/lib/server/logging';
 
@@ -92,13 +91,11 @@ export type SummaryHeartbeat = {
  */
 export class FileSummaryManager {
   private supabase: SupabaseClient;
-  private sourceKey: string; // normalized key (e.g., github.com/owner/repo)
   private sourceId: string;
   private branch: string;
 
-  constructor(supabase: SupabaseClient, sourceId: string, sourceKey: string, branch: string = 'main') {
+  constructor(supabase: SupabaseClient, sourceId: string, branch: string = 'main') {
     this.supabase = supabase;
-    this.sourceKey = sourceKey;
     this.sourceId = sourceId;
     this.branch = branch;
   }
@@ -449,13 +446,10 @@ export class FileSummaryManager {
               .upsert(
                 {
                   source_id: this.sourceId,
-                  source_key: this.sourceKey,
                   file_path: this.normalizeFilePath(file.path),
                   file_hash: fileHash,
                   summary_text: summary.summary_text,
-                  summary_model: model,
                   branch: this.branch,
-                  regeneration_reason: regenerationReason,
                   updated_at: new Date().toISOString(),
                 },
                 {

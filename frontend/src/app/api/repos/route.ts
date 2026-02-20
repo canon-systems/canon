@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
 import type { WorkspaceSource } from '@/lib/server/services/sourceIngest';
-import { trackSourceConnected } from '@/lib/server/services/usageTracking';
+import { sourceUrlFromSourceScope, trackSourceConnected } from '@/lib/server/services/usageTracking';
 import { patchSourceBackfillStatus } from '@/lib/server/diff/backfillStatus';
 import { inngest } from '@/inngest';
 
@@ -135,9 +135,15 @@ export async function POST(request: NextRequest) {
 
     // Log connection for each new source using a single source lifecycle event.
     for (const row of data || []) {
-      const ws = row as WorkspaceSource & { id: string; name?: string; provider?: string; external_url?: string };
+      const ws = row as WorkspaceSource & {
+        id: string;
+        name?: string;
+        provider?: string;
+        scope?: Record<string, unknown> | null;
+      };
       const provider = (ws.provider ?? '').toLowerCase();
-      trackSourceConnected(supabase, user.id, ws.id, provider, ws.external_url ?? null).catch((err) =>
+      const sourceUrl = sourceUrlFromSourceScope(provider, ws.scope || null);
+      trackSourceConnected(supabase, user.id, ws.id, provider, sourceUrl).catch((err) =>
         console.warn('Failed to track source connected:', err)
       );
     }

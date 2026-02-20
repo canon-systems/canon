@@ -38,7 +38,6 @@ interface Repository {
   last_error?: string | null;
   created_at: string;
   updated_at: string;
-  feature_labels?: Array<{ key: string; name: string; source?: string; confidence?: number }> | null;
 }
 
 interface SourcesPageClientProps {
@@ -56,7 +55,6 @@ const processingStatuses = new Set([
   'fetching',
   'indexing',
   'summarizing',
-  'building_akus',
 ]);
 
 const progressByStatus: Record<string, number> = {
@@ -64,7 +62,6 @@ const progressByStatus: Record<string, number> = {
   fetching: 12,
   indexing: 40,
   summarizing: 65,
-  building_akus: 85,
   ingesting: 60,
   ready: 100,
   draft_ready: 100,
@@ -77,7 +74,6 @@ const stepByStatus: Record<string, string> = {
   fetching: 'Fetching source data',
   indexing: 'Indexing source data',
   summarizing: 'Summarizing source data',
-  building_akus: 'Building Canon View outputs',
   ingesting: 'Ingesting source data',
   ready: 'Setup complete',
   draft_ready: 'Draft ready',
@@ -450,29 +446,6 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
     return 'Scope: configured';
   };
 
-  const renderFeatureLabels = (repo: Repository) => {
-    const labels = Array.isArray(repo.feature_labels) ? repo.feature_labels : [];
-    if (labels.length === 0) return null;
-    return (
-      <div className="mt-1 flex flex-wrap gap-1">
-        {labels.slice(0, 4).map((label) => (
-          <Badge
-            key={`${repo.id}-${label.key}`}
-            variant="secondary"
-            className="border-white/15 bg-white/10 text-[11px] font-medium text-white/80"
-          >
-            {label.name}
-          </Badge>
-        ))}
-        {labels.length > 4 ? (
-          <Badge variant="secondary" className="border-white/15 bg-white/5 text-[11px] text-white/70">
-            +{labels.length - 4} more
-          </Badge>
-        ) : null}
-      </div>
-    );
-  };
-
   const loadAvailableSources = useCallback(async () => {
     setLoadingSources(true);
     setLoadError('');
@@ -758,7 +731,6 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
                   <div className="min-w-0">
                     <div className="truncate text-base font-semibold text-white">{repoLabel}</div>
                     <div className="flex items-center gap-2 text-sm text-white/70">{displayScope(repo)}</div>
-                    {renderFeatureLabels(repo)}
                   </div>
                 </div>
 

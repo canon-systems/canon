@@ -1,9 +1,7 @@
 import { createHash } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { analyzeRepository } from './analyzeRepository';
-import { buildFeatureMapAndPersist } from './featureMap';
 import { FileSummaryManager } from './fileSummaryManager';
-import { parseRepoUrl } from '../github/github';
 import { getProviderAccessToken } from '../oauth/tokenStore';
 import { createLogger, errorMessage } from '@/lib/server/logging';
 
@@ -13,7 +11,6 @@ const ingestLog = createLogger('source.ingest', {
     aborted_source_deleted: 'Ingest Aborted Source Deleted',
     github_start: 'GitHub Ingest Started',
     github_summarize_start: 'GitHub Summarization Started',
-    github_aku_build_start: 'GitHub AKU Build Started',
     github_complete: 'GitHub Ingest Completed',
     github_failed: 'GitHub Ingest Failed',
     issue_start: 'Issue Ingest Started',
@@ -32,7 +29,6 @@ const syncLog = createLogger('source.sync', {
   eventLabels: {
     github_removed_rows_delete_failed: 'GitHub Removed Rows Delete Failed',
     github_delta_scan_start: 'GitHub Delta Scan Started',
-    github_aku_rebuild_start: 'GitHub AKU Rebuild Started',
     github_delta_complete: 'GitHub Delta Completed',
     github_delta_failed: 'GitHub Delta Failed',
     issue_delta_skipped: 'Issue Delta Skipped',
@@ -127,8 +123,6 @@ function normalizeNuxtRoute(fullPath: string): string | null {
   return route === '' ? '/' : route;
 }
 
-type FeatureLabel = { key: string; name: string; source: string; confidence?: number };
-
 // Shared path→feature mapper for focus rollups.
 export function featureKeyFromPath(p: string): string | null {
   const norm = p.replace(/\\/g, '/').replace(/^\/+/, '');
@@ -184,227 +178,11 @@ export function featureKeyFromPath(p: string): string | null {
   return null;
 }
 
-function titleCase(value: string): string {
-  return value
-    .replace(/[-_]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .split(' ')
-    .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : ''))
-    .join(' ')
-    || value;
-}
-
-function inferLabelsFromCodeFiles(files: Array<{ path: string; content: string }>): FeatureLabel[] {
-  const apiRoutes: string[] = [];
-  const pageRoutes: string[] = [];
-  const jobNames = new Set<string>();
-  const moduleNames = new Set<string>();
-  let hasHome = false;
-
-  for (const f of files) {
-    const norm = f.path.replace(/\\/g, '/');
-
-    const addRoute = (route: string | null) => {
-      if (!route) return;
-      if (route === '/') {
-        hasHome = true;
-        return;
-      }
-      if (route.startsWith('/api')) {
-        apiRoutes.push(route);
-      } else {
-        pageRoutes.push(route);
-      }
-    };
-
-    // Next.js app router pages and API routes
-    if (JS_ENTRY_PATTERNS.some((re) => re.test(norm))) {
-      addRoute(normalizeRouteFromAppPath(norm));
-    }
-
-    // SvelteKit routes (+page/+server)
-    if (SVELTE_ENTRY_PATTERNS.some((re) => re.test(norm))) {
-      addRoute(normalizeSvelteRoute(norm));
-    }
-
-    // Nuxt/Vue pages (pages/**.vue)
-    if (NUXT_ENTRY_PATTERN.test(norm)) {
-      addRoute(normalizeNuxtRoute(norm));
-    }
-
-    // Node/JS HTTP routers (Express / Fastify / generic router)
-    if (/\.(t|j)sx?$/.test(norm)) {
-      const expressRoutes = Array.from(
-        f.content.matchAll(/\b(app|router|fastify)\.(get|post|put|delete|patch|options|head)\(['"`]([^'"`]+)['"`]/g)
-      );
-      for (const m of expressRoutes) addRoute(m[3]);
-    }
-
-    // Python (FastAPI / Flask / Django-style path declarations)
-    if (norm.endsWith('.py')) {
-      const decoratorRoutes = Array.from(
-        f.content.matchAll(/@(app|router)\.(get|post|put|delete|patch)\(['"]([^'"]+)['"]/g)
-      );
-      for (const m of decoratorRoutes) addRoute(m[3]);
-      const pathCalls = Array.from(f.content.matchAll(/path\(['"]([^'"]+)['"]/g));
-      for (const m of pathCalls) addRoute(m[1]);
-    }
-
-    // Go (net/http, chi)
-    if (norm.endsWith('.go')) {
-      const goRoutes = Array.from(f.content.matchAll(/Handle(?:Func)?\(\s*"([^"]+)"/g));
-      for (const m of goRoutes) addRoute(m[1]);
-      const chiRoutes = Array.from(f.content.matchAll(/Route\(\s*"([^"]+)"/g));
-      for (const m of chiRoutes) addRoute(m[1]);
-    }
-
-    // Background jobs (Inngest/queues/workers)
-  const jobMatch = norm.match(/src\/(?:inngest\/functions|jobs|workers|queues)\/([^.]+)\.(t|j)sx?$/);
-    if (jobMatch) {
-      const jobPath = jobMatch[1];
-      const parts = jobPath.split('/');
-      const jobName = parts[parts.length - 1];
-      if (jobName) jobNames.add(jobName);
-    }
-
-    // Conventional feature/module directories
-  const featureMatch = norm.match(/src\/(features|modules|services|domains|packages|apps)\/([^/.]+)/);
-    if (featureMatch) {
-      const featureName = titleCase(featureMatch[2]);
-      moduleNames.add(featureName);
-    }
-  }
-
-  const labels: FeatureLabel[] = [];
-  const seen = new Set<string>();
-  const push = (name: string, source: string) => {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    const key = slugifyLabel(trimmed);
-    if (seen.has(key)) return;
-    seen.add(key);
-    labels.push({ key, name: trimmed, source });
-  };
-
-  if (hasHome) push('Home', 'page');
-
-  // Collapse API routes to first segment after /api
-  const apiGroups = new Set<string>();
-  for (const r of apiRoutes) {
-    const seg = r.split('/').filter(Boolean)[1] || 'api';
-    apiGroups.add(seg);
-  }
-  for (const seg of apiGroups) {
-    push(`API: ${titleCase(seg)}`, 'api_group');
-  }
-
-  // Collapse app routes to first segment
-  const pageGroups = new Set<string>();
-  for (const r of pageRoutes) {
-    const seg = r.split('/').filter(Boolean)[0];
-    if (seg) pageGroups.add(seg);
-  }
-  for (const seg of pageGroups) {
-    push(titleCase(seg), 'page');
-  }
-
-  // Background jobs
-  for (const job of jobNames) {
-    push(`Background: ${titleCase(job)}`, 'job');
-  }
-
-  // Modules/directories
-  for (const mod of moduleNames) {
-    push(mod, 'module');
-  }
-
-  return labels;
-}
-
-function inferLabelsFromIssues(issues: JiraIssue[]): FeatureLabel[] {
-  const counts = new Map<string, { name: string; source: string; confidence: number; count: number }>();
-  const bump = (raw: string, source: string, confidence: number) => {
-    const name = raw.trim();
-    if (!name) return;
-    const key = slugifyLabel(name);
-    const existing = counts.get(key);
-    if (existing) {
-      existing.count += 1;
-    } else {
-      counts.set(key, { name, source, confidence, count: 1 });
-    }
-  };
-
-  for (const issue of issues) {
-    const fields = issue.fields || {};
-    if (Array.isArray(fields.labels)) {
-      fields.labels.forEach((l) => bump(l, 'issue_label', 0.62));
-    }
-    if (fields.issuetype?.name) bump(fields.issuetype.name, 'issue_type', 0.58);
-    if (fields.status?.name) bump(fields.status.name, 'issue_status', 0.52);
-  }
-
-  return Array.from(counts.values())
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 8)
-    .map(({ name, source, confidence }) => ({ key: slugifyLabel(name), name, source, confidence }));
-}
-
-function detectFeatureLabels(
-  source: WorkspaceSource,
-  opts: { files?: Array<{ path: string; content: string }>; issues?: JiraIssue[] } = {}
-): FeatureLabel[] {
-  const labels: FeatureLabel[] = [];
-  const provider = (source.provider || '').toLowerCase();
-
-  if (provider === 'github') {
-    const fileLabels = Array.isArray(opts.files) ? inferLabelsFromCodeFiles(opts.files) : [];
-    labels.push(...fileLabels);
-  } else if (provider === 'jira') {
-    const project = typeof source.scope?.project === 'string' ? source.scope.project : null;
-    if (project) labels.push({ key: slugifyLabel(project), name: project, source: 'tracker_project', confidence: 0.6 });
-    if (Array.isArray(opts.issues) && opts.issues.length > 0) {
-      labels.push(...inferLabelsFromIssues(opts.issues));
-    }
-  } else if (provider === 'linear' || provider === 'asana') {
-    const team = typeof source.scope?.team === 'string' ? source.scope.team : null;
-    if (team) labels.push({ key: slugifyLabel(team), name: team, source: 'tracker_team', confidence: 0.6 });
-  }
-
-  // Deduplicate by key
-  const seen = new Set<string>();
-  return labels.filter((label) => {
-    if (seen.has(label.key)) return false;
-    seen.add(label.key);
-    return true;
-  });
-}
-
-async function ensureFeatureLabels(
-  supabase: SupabaseClient,
-  source: WorkspaceSource,
-  extras: { files?: Array<{ path: string; content: string }>; issues?: JiraIssue[] } = {}
-): Promise<void> {
-  if (Array.isArray(source.feature_labels) && source.feature_labels.length > 0) {
-    return;
-  }
-
-  const labels = detectFeatureLabels(source, extras);
-  if (labels.length === 0) return;
-
-  await supabase
-    .from('workspace_sources')
-    .update({ feature_labels: labels, updated_at: new Date().toISOString() })
-    .eq('id', source.id);
-}
-
 export type SourceSetupStage =
   | 'queueing'
   | 'fetching'
   | 'indexing'
   | 'summarizing'
-  | 'feature_mapping'
   | 'ready'
   | 'failed';
 
@@ -417,7 +195,6 @@ export type WorkspaceSource = {
   connection_id?: string | null;
   status_payload?: Record<string, unknown> | null;
   last_error?: string | null;
-  feature_labels?: Array<{ key: string; name: string; source?: string; confidence?: number }> | null;
 };
 
 type JiraIssueFields = {
@@ -440,25 +217,6 @@ type JiraIssue = {
   key: string;
   fields: JiraIssueFields;
 };
-
-async function loadAllWorkspaceSources(
-  supabase: SupabaseClient,
-  userId: string
-): Promise<Array<{ id: string; provider?: string | null; scope?: Record<string, unknown> | null }>> {
-  const { data, error } = await supabase
-    .from('workspace_sources')
-    .select('id, provider, scope')
-    .eq('user_id', userId);
-  if (error) {
-    ingestLog.warn('source_list_failed', { userId, error: errorMessage(error) });
-    return [];
-  }
-  return (data || []).map((row) => ({
-    id: row.id,
-    provider: row.provider,
-    scope: row.scope as Record<string, unknown> | null,
-  }));
-}
 
 type JiraSearchSuccess = { ok: true; data: { issues?: JiraIssue[] } };
 type JiraSearchFailure = { ok: false; status: number; body: string };
@@ -531,12 +289,6 @@ async function abortIfDeleted(supabase: SupabaseClient, source: WorkspaceSource,
   return true;
 }
 
-function normalizeRepoId(repoUrl: string): string {
-  const parsed = parseRepoUrl(repoUrl);
-  if (!parsed) throw new Error(`Invalid repo URL: ${repoUrl}`);
-  return `github.com/${parsed.owner}/${parsed.repo}`;
-}
-
 export async function ingestGitHubSource(
   supabase: SupabaseClient,
   source: WorkspaceSource
@@ -566,8 +318,7 @@ export async function ingestGitHubSource(
     await updateStage(supabase, source.id, 'indexing', 35, 'Indexing repository files', {
       total_files: files.length,
     });
-    const sourceKey = normalizeRepoId(repoUrl);
-    const manager = new FileSummaryManager(supabase, source.id, sourceKey, branch);
+    const manager = new FileSummaryManager(supabase, source.id, branch);
     ingestLog.info('github_summarize_start', { sourceId: source.id, repo, branch, totalFiles: files.length });
     const totalFiles = files.length;
     await updateStage(supabase, source.id, 'summarizing', 60, 'Summarizing source data', {
@@ -618,35 +369,6 @@ export async function ingestGitHubSource(
     );
     if (summaryResult.aborted && await abortIfDeleted(supabase, source, 'summarizing')) return;
     if (await abortIfDeleted(supabase, source, 'summarizing')) return;
-
-    // Trigger feature map build as part of setup (includes all user sources); keep progress updates in the setup bar.
-    await updateStage(supabase, source.id, 'feature_mapping', 90, 'Building feature map');
-    try {
-      await buildFeatureMapAndPersist({
-        supabase,
-        userId: source.user_id,
-        sources: await loadAllWorkspaceSources(supabase, source.user_id),
-      });
-      await updateStage(supabase, source.id, 'feature_mapping', 95, 'Feature map saved');
-    } catch (featureErr) {
-      ingestLog.warn('feature_map_failed', {
-        sourceId: source.id,
-        repo,
-        branch,
-        error: errorMessage(featureErr),
-      });
-    }
-
-    // Ensure we store inferred feature labels on the source for downstream signals.
-    try {
-      await ensureFeatureLabels(supabase, source, { files });
-    } catch (labelErr) {
-      ingestLog.warn('feature_label_infer_failed', {
-        sourceId: source.id,
-        repo,
-        error: errorMessage(labelErr),
-      });
-    }
 
     await updateStage(supabase, source.id, 'ready', 100, 'Setup complete');
     ingestLog.info('github_complete', { sourceId: source.id, repo, branch, totalFiles: files.length });
@@ -852,17 +574,6 @@ export async function ingestIssueSource(
       ingestLog.info('issue_store_skipped', { sourceId: source.id, provider, reason: 'no_issues' });
     }
 
-    // Ensure we store inferred feature labels on the source for downstream signals.
-    try {
-      await ensureFeatureLabels(supabase, source, { issues });
-    } catch (labelErr) {
-      ingestLog.warn('feature_label_infer_failed', {
-        sourceId: source.id,
-        provider,
-        error: errorMessage(labelErr),
-      });
-    }
-
     await updateStage(supabase, source.id, 'ready', 100, 'Setup complete (issues only)');
     ingestLog.info('issue_complete', { sourceId: source.id, provider, totalIssues: rows.length });
   } catch (err) {
@@ -897,20 +608,19 @@ function normalizePath(p: string): string {
 export type GitHubSyncResult = {
   added: number;
   removed: number;
-  rebuilt: boolean;
   addedPaths: string[];
   removedPaths: string[];
 };
 
 /**
  * Delta sync for a GitHub source: compare current repo state to repo_file_summaries,
- * add/update changed files, remove deleted files, then rebuild AKUs if needed.
+ * add/update changed files, and remove deleted files.
  */
 export async function syncGitHubSourceDelta(
   supabase: SupabaseClient,
   source: WorkspaceSource
 ): Promise<GitHubSyncResult> {
-  const empty = { added: 0, removed: 0, rebuilt: false, addedPaths: [], removedPaths: [] };
+  const empty = { added: 0, removed: 0, addedPaths: [], removedPaths: [] };
   const repo = typeof source.scope?.repo === 'string' ? source.scope.repo : '';
   const branch = typeof source.scope?.branch === 'string' ? source.scope.branch : 'main';
   if (!repo) return empty;
@@ -926,8 +636,7 @@ export async function syncGitHubSourceDelta(
     });
 
     const rawFiles = analysis.rawFiles || [];
-    const sourceKey = normalizeRepoId(repoUrl);
-    const manager = new FileSummaryManager(supabase, source.id, sourceKey, branch);
+    const manager = new FileSummaryManager(supabase, source.id, branch);
 
     const currentPaths = new Set(rawFiles.map((f) => normalizePath(f.path)));
 
@@ -974,17 +683,16 @@ export async function syncGitHubSourceDelta(
     const anyChange = removed > 0 || result.processed > 0;
 
     if (anyChange) {
-      return { added, removed, rebuilt: false, addedPaths, removedPaths };
+      return { added, removed, addedPaths, removedPaths };
     }
     syncLog.info('github_delta_complete', {
       sourceId: source.id,
       source: scopeLabel,
       added,
       removed,
-      rebuilt: false,
       summariesUpdated: result.processed,
     });
-    return { added, removed, rebuilt: false, addedPaths, removedPaths };
+    return { added, removed, addedPaths, removedPaths };
   } catch (err) {
     syncLog.error('github_delta_failed', {
       sourceId: source.id,
@@ -998,20 +706,19 @@ export async function syncGitHubSourceDelta(
 export type IssueSyncResult = {
   added: number;
   removed: number;
-  rebuilt: boolean;
   addedKeys: string[];
   removedKeys: string[];
 };
 
 /**
  * Delta sync for an issue source: fetch current issues, upsert issue_index,
- * remove issues no longer returned, then rebuild AKUs.
+ * and remove issues no longer returned.
  */
 export async function syncIssueSourceDelta(
   supabase: SupabaseClient,
   source: WorkspaceSource
 ): Promise<IssueSyncResult> {
-  const empty = { added: 0, removed: 0, rebuilt: false, addedKeys: [], removedKeys: [] };
+  const empty = { added: 0, removed: 0, addedKeys: [], removedKeys: [] };
   const provider = source.provider.toLowerCase();
   if (!['jira', 'linear', 'asana'].includes(provider)) return empty;
 
@@ -1139,14 +846,13 @@ export async function syncIssueSourceDelta(
       project: projectKey,
       added,
       removed,
-      rebuilt: false,
     });
-    return { added, removed, rebuilt: false, addedKeys, removedKeys };
+    return { added, removed, addedKeys, removedKeys };
   }
   syncLog.debug('issue_delta_noop', {
     sourceId: source.id,
     provider,
     project: projectKey,
   });
-  return { added, removed, rebuilt: false, addedKeys, removedKeys };
+  return { added, removed, addedKeys, removedKeys };
 }

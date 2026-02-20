@@ -12,8 +12,7 @@ interface LogEntry {
   | 'automation_execution'
   | 'source_connection'
   | 'integration_connection'
-  | 'integration_disconnected'
-  | 'aku_generated';
+  | 'integration_disconnected';
   timestamp: string;
   title: string;
   message: string;
@@ -47,8 +46,7 @@ type TypeFilter =
   | 'automation_execution'
   | 'source_connection'
   | 'integration_connection'
-  | 'integration_disconnected'
-  | 'aku_generated';
+  | 'integration_disconnected';
 
 interface LogsPageClientProps {
   logs: LogsData;
@@ -142,8 +140,6 @@ export function LogsPageClient({ logs }: LogsPageClientProps) {
     switch (type) {
       case 'automation_execution':
         return Zap;
-      case 'aku_generated':
-        return Layers3;
       case 'source_connection':
         return LinkIcon;
       case 'integration_connection':
@@ -159,8 +155,6 @@ export function LogsPageClient({ logs }: LogsPageClientProps) {
     switch (type) {
       case 'automation_execution':
         return 'bg-[#f97316]/20 text-white';
-      case 'aku_generated':
-        return 'bg-[#f97316]/15 text-white';
       case 'source_connection':
         return 'bg-white/10 text-white/80';
       case 'integration_connection':
@@ -242,7 +236,6 @@ export function LogsPageClient({ logs }: LogsPageClientProps) {
           <Combobox
             options={[
               { value: 'all', label: 'All types' },
-              { value: 'aku_generated', label: 'Canon View generated' },
               { value: 'automation_execution', label: 'Automation' },
               { value: 'source_connection', label: 'Source' },
               { value: 'integration_connection', label: 'Integration connected' },

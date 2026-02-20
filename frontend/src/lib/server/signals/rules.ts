@@ -61,7 +61,7 @@ function buildSignal(params: {
   windowEnd: string;
   baselineStart: string;
   baselineEnd: string;
-  scopeType?: 'global' | 'repo' | 'aku';
+  scopeType?: 'global' | 'repo';
   scopeId?: string | null;
   evidence?: SignalEvidenceRecord[];
   metadata?: Record<string, unknown>;
@@ -202,42 +202,6 @@ export function evaluateSignalRules(comparison: MetricComparison): SignalDraft[]
             label: topRepo.key,
             rank: 1,
             payload: { share: topRepo.share },
-          },
-        ],
-      })
-    );
-  }
-
-  const topAku = topDistributionEntry(comparison.aku_distribution.current);
-  if (topAku && topAku.share > 0.6) {
-    const severity: SignalSeverity = topAku.share > 0.75 ? 'significant' : 'elevated';
-    out.push(
-      buildSignal({
-        type: 'aku_concentration',
-        severity,
-        metricKey: 'aku_distribution',
-        title: 'AKU concentration detected',
-        summary: `AKU ${topAku.key} accounts for ${(topAku.share * 100).toFixed(1)}% of tracked activity.`,
-        currentValue: topAku.share,
-        baselineValue: comparison.aku_distribution.baseline[topAku.key] || 0,
-        absoluteChange: topAku.share - (comparison.aku_distribution.baseline[topAku.key] || 0),
-        percentChange:
-          ((topAku.share - (comparison.aku_distribution.baseline[topAku.key] || 0)) /
-            Math.max(Math.abs(comparison.aku_distribution.baseline[topAku.key] || 0), 0.0001)) *
-          100,
-        windowStart: window_current.start,
-        windowEnd: window_current.end,
-        baselineStart: window_baseline.start,
-        baselineEnd: window_baseline.end,
-        scopeType: 'aku',
-        scopeId: topAku.key,
-        evidence: [
-          {
-            evidence_type: 'aku',
-            evidence_id: topAku.key,
-            label: topAku.key,
-            rank: 1,
-            payload: { share: topAku.share },
           },
         ],
       })

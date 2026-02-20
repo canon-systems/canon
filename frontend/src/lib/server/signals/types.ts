@@ -12,7 +12,6 @@ export type MetricSnapshot = {
   prs_merged: number;
   repos_touched: number;
   repo_distribution: Record<string, number>;
-  aku_distribution: Record<string, number>;
 };
 
 export type MetricDelta = {
@@ -38,25 +37,20 @@ export type MetricComparison = {
     current: Record<string, number>;
     baseline: Record<string, number>;
   };
-  aku_distribution: {
-    current: Record<string, number>;
-    baseline: Record<string, number>;
-  };
 };
 
 export type SignalType =
   | 'regression_spike'
   | 'throughput_drop'
   | 'merge_drop'
-  | 'repo_concentration'
-  | 'aku_concentration';
+  | 'repo_concentration';
 
 export type SignalSeverity = 'elevated' | 'significant';
 
-export type SignalScopeType = 'global' | 'repo' | 'aku' | 'ticketing';
+export type SignalScopeType = 'global' | 'repo' | 'ticketing';
 
 export type SignalEvidenceRecord = {
-  evidence_type: 'ticket' | 'pr' | 'repo' | 'aku' | 'metric';
+  evidence_type: 'ticket' | 'pr' | 'repo' | 'metric';
   evidence_id: string;
   label?: string;
   rank: number;
@@ -102,8 +96,6 @@ export type ComputeMetricsInput = {
   sourceIds: string[];
   window: MetricWindow;
 };
-
-export type SignalRunTrigger = 'manual' | 'scheduled' | 'weekly_digest' | 'daily_signal_monitor' | 'alert';
 
 export type SignalRunResult = {
   runId: string;

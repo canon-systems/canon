@@ -75,7 +75,6 @@ function humanSeverity(severity: SignalRecord['severity']): string {
 
 function scopeSummary(signal: SignalRecord): string {
   if (signal.scope_type === 'repo' && signal.scope_id) return `Scope: Repo ${signal.scope_id}`;
-  if (signal.scope_type === 'aku' && signal.scope_id) return `Scope: AKU ${signal.scope_id}`;
   if (signal.scope_type === 'ticketing') return `Scope: ${signal.scope_id || 'Ticketing workspace'}`;
   return 'Scope: Global';
 }
@@ -88,7 +87,6 @@ function metricLabel(metricKey: string): string {
   if (metricKey === 'prs_merged') return 'PRs merged';
   if (metricKey === 'repos_touched') return 'Repos touched';
   if (metricKey === 'repo_distribution') return 'Repo concentration';
-  if (metricKey === 'aku_distribution') return 'AKU concentration';
   return metricKey.replace(/_/g, ' ');
 }
 
@@ -96,8 +94,7 @@ function metricSummary(signal: SignalRecord): string {
   const label = metricLabel(signal.metric_key);
   const percentMetric =
     signal.metric_key === 'regression_rate' ||
-    signal.metric_key === 'repo_distribution' ||
-    signal.metric_key === 'aku_distribution';
+    signal.metric_key === 'repo_distribution';
 
   if (percentMetric) {
     const current = normalizePercent(signal.current_value);

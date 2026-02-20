@@ -115,7 +115,6 @@ function severityBadgeClass(severity: string): string {
 
 function scopeBadgeLabel(scopeType: string, scopeId?: string | null): string {
   if (scopeType === 'repo' && scopeId) return `Affected source: ${scopeId}`;
-  if (scopeType === 'aku' && scopeId) return `Affected source: ${scopeId}`;
   if (scopeType === 'ticketing') return `Affected source: ${scopeId || 'Ticketing workspace'}`;
   return 'Affected source: All connected sources';
 }
@@ -382,25 +381,6 @@ export default async function SignalInvestigatePage({
           </CardContent>
         </Card>
 
-        <Card className="border-white/10 bg-black/30">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base text-white">
-              <MetricLabelTooltip
-                label="Capability Clusters"
-                tip="AKU clusters associated with this signal; these represent capability areas where activity concentrated."
-              />
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm text-white/80">
-            {evidence.akus.length === 0 ? <p>No cluster evidence in this signal window.</p> : null}
-            {evidence.akus.map((aku) => (
-              <div key={aku.id} className="rounded border border-white/10 bg-white/5 px-3 py-2">
-                <div className="font-medium text-white">{aku.label || aku.id}</div>
-                <div className="text-xs text-white/60">{aku.id}</div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
       </div>
     </div>
   );

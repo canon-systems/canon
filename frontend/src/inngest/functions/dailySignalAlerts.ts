@@ -83,7 +83,6 @@ export const dailySignalAlerts = inngest.createFunction(
           supabase,
           userId,
           sourceIds,
-          triggerType: 'daily_signal_monitor',
         });
 
         const signals = sortSignalsByPriority(signalRun.signals);

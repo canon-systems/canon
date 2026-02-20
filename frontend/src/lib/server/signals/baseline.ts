@@ -51,10 +51,6 @@ export function compareMetrics(current: MetricSnapshot, baseline: MetricSnapshot
       current: current.repo_distribution,
       baseline: baseline.repo_distribution,
     },
-    aku_distribution: {
-      current: current.aku_distribution,
-      baseline: baseline.aku_distribution,
-    },
   };
 }
 

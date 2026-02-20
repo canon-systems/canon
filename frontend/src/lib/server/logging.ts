@@ -15,7 +15,7 @@ const LOG_LEVELS: Record<LogLevel, number> = {
 
 const DEFAULT_LOG_LEVEL: LogLevel = 'info';
 const MAX_FIELD_LENGTH = 280;
-const UPPERCASE_TOKENS = new Set(['aku', 'api', 'id', 'llm', 'sid', 'ui', 'url', 'utc', 'db']);
+const UPPERCASE_TOKENS = new Set(['api', 'id', 'llm', 'sid', 'ui', 'url', 'utc', 'db']);
 const ANSI = {
   reset: '\x1b[0m',
   dim: '\x1b[2m',

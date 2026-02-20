@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
-import { trackSourceDisconnected } from '@/lib/server/services/usageTracking';
+import { sourceUrlFromSourceScope, trackSourceDisconnected } from '@/lib/server/services/usageTracking';
 
 /**
  * GET: Get a single source configuration
@@ -141,11 +141,12 @@ export async function DELETE(
     }
 
     try {
+      const sourceUrl = sourceUrlFromSourceScope(source.provider, source.scope as Record<string, unknown> | null);
       await trackSourceDisconnected(
         supabase,
         user.id,
         id,
-        source.external_url,
+        sourceUrl,
         null,
         source.provider
       );

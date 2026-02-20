@@ -15,7 +15,6 @@ import type {
   SignalEvidenceRecord,
   SignalRecord,
   SignalRunResult,
-  SignalRunTrigger,
   SignalSeverity,
 } from '@/lib/server/signals/types';
 import { getNormalizedWindowForDays } from '@/lib/server/signals/window';
@@ -208,9 +207,8 @@ export async function runSignalEngine(params: {
   supabase: SupabaseClient;
   userId: string;
   sourceIds?: string[];
-  triggerType?: SignalRunTrigger;
 }): Promise<SignalRunResult> {
-  const { supabase, userId, triggerType = 'manual' } = params;
+  const { supabase, userId } = params;
 
   const settings = await getWorkspaceSignalSettings({ supabase, userId });
   const sourceIds = await resolveSignalSourceIds({ supabase, userId, sourceIds: params.sourceIds });
@@ -292,21 +290,11 @@ export async function runSignalEngine(params: {
     .from('signal_runs')
     .insert({
       user_id: userId,
-      trigger_type: triggerType,
       source_ids: sourceIds,
       window_start: current.window.start,
       window_end: current.window.end,
       baseline_start: baseline.window.start,
       baseline_end: baseline.window.end,
-      signals_count: signalDrafts.length,
-      summary: {
-        tickets_completed: current.tickets_completed,
-        tickets_regressed: current.tickets_regressed,
-        regression_rate: current.regression_rate,
-        prs_opened: current.prs_opened,
-        prs_merged: current.prs_merged,
-        repos_touched: current.repos_touched,
-      },
     })
     .select('id')
     .single()) as { data: { id: string } | null; error: { message: string } | null };
@@ -453,7 +441,6 @@ function directionHeadlineForSignal(signal: SignalRecord): string {
   if (signal.type === 'throughput_drop') return 'Delivery velocity slowed';
   if (signal.type === 'merge_drop') return 'Integration throughput slowed';
   if (signal.type === 'repo_concentration') return 'Execution focus narrowed';
-  if (signal.type === 'aku_concentration') return 'Capability focus narrowed';
   return 'System direction shifted';
 }
 
@@ -473,7 +460,7 @@ function directionSummary(signal: SignalRecord, delta: DiffDelta): string {
   if (signal.type === 'merge_drop') {
     return `Merged PRs moved ${signed(delta.prs_merged)} and commits moved ${signed(delta.commits_default)} against baseline.`;
   }
-  if (signal.type === 'repo_concentration' || signal.type === 'aku_concentration') {
+  if (signal.type === 'repo_concentration') {
     return `Execution touched ${signed(delta.repos_added.length - delta.repos_removed.length)} net surfaces versus baseline.`;
   }
   return signal.summary_line;
@@ -623,7 +610,6 @@ export async function getSignalInvestigation(params: {
     tickets: Array<{ id: string; summary: string | null; occurred_at: string | null }>;
     prs: Array<{ id: string; repo: string | null; occurred_at: string | null; kind: string | null }>;
     repos: Array<{ id: string; activity: number }>;
-    akus: Array<{ id: string; label: string | null }>;
   };
 }> {
   const { supabase, userId, signalId } = params;
@@ -633,7 +619,7 @@ export async function getSignalInvestigation(params: {
       signal: null,
       baseline_panel: null,
       direction: null,
-      evidence: { tickets: [], prs: [], repos: [], akus: [] },
+      evidence: { tickets: [], prs: [], repos: [] },
     };
   }
 
@@ -814,10 +800,6 @@ export async function getSignalInvestigation(params: {
     .sort((a, b) => b.activity - a.activity)
     .slice(0, 10);
 
-  const akus = signal.evidence
-    .filter((item) => item.evidence_type === 'aku')
-    .map((item) => ({ id: item.evidence_id, label: item.label || null }));
-
   return {
     signal,
     baseline_panel: {
@@ -835,7 +817,6 @@ export async function getSignalInvestigation(params: {
       tickets: tickets.slice(0, 25),
       prs: prs.slice(0, 25),
       repos,
-      akus,
     },
     direction,
   };

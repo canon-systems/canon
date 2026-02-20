@@ -33,7 +33,7 @@ function logChangedItems(
 /**
  * Canon sync: runs hourly.
  * For each workspace source, performs delta sync of repo_file_summaries and
- * issue_index (additions, changes, deletions), then rebuilds AKUs when needed.
+ * issue_index (additions, changes, deletions).
  */
 export const syncCanonSources = inngest.createFunction(
   {
@@ -100,7 +100,7 @@ export const syncCanonSources = inngest.createFunction(
           issueRemoved += r.removed;
           if (r.added > 0 || r.removed > 0) {
             console.log(
-              `[canon-sync] ${provider} ${scopeLabel}: ${r.added} issue(s) added, ${r.removed} removed${r.rebuilt ? ", AKUs rebuilt" : ""}`
+              `[canon-sync] ${provider} ${scopeLabel}: ${r.added} issue(s) added, ${r.removed} removed`
             );
             logChangedItems(r.addedKeys, r.removedKeys, "ticket");
           }

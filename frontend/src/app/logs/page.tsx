@@ -15,7 +15,7 @@ export default async function LogsPage() {
   // Get all sources for enrichment
   const { data: userRepos } = await supabase
     .from('workspace_sources')
-    .select('id, external_url, name, scope')
+    .select('id, name, scope')
     .eq('user_id', user.id);
 
   // Get usage events as the source of truth for activity
@@ -33,8 +33,7 @@ export default async function LogsPage() {
     | 'automation_execution'
     | 'source_connection'
     | 'integration_connection'
-    | 'integration_disconnected'
-    | 'aku_generated';
+    | 'integration_disconnected';
     timestamp: string;
     title: string;
     message: string;
@@ -73,7 +72,7 @@ export default async function LogsPage() {
     const sourceIdRaw = meta.source_id || meta.repo_id;
     const sourceId = typeof sourceIdRaw === 'string' ? sourceIdRaw : null;
     const repo = sourceId ? repoMap.get(sourceId) : null;
-    const repoUrl = meta.source_url || meta.repo_url || meta.external_url || repo?.external_url;
+    const repoUrl = meta.source_url || meta.repo_url || meta.external_url;
     const scopeBranch = repo && typeof repo.scope === 'object' && repo.scope !== null && 'branch' in repo ? (repo.scope as { branch?: string }).branch : undefined;
     const repoName = repo?.name || (repoUrl ? String(repoUrl).split('/').pop()?.replace('.git', '') : undefined);
     const base = {
@@ -147,26 +146,6 @@ export default async function LogsPage() {
           message: `Disconnected ${providerLabel.toLowerCase()}`,
           status: 'completed',
           link: '/integrations',
-        };
-      }
-      case 'akus_generated': {
-        const akusCount = typeof meta.akus_count === 'number' ? meta.akus_count : null;
-        const sourceIds = Array.isArray(meta.source_ids) ? (meta.source_ids as string[]) : [];
-        const sourceNames = sourceIds
-          .map((id) => repoMap.get(id)?.name)
-          .filter(Boolean) as string[];
-        const sourceLabel = sourceNames.length > 0
-          ? sourceNames.join(', ')
-          : sourceIds.length > 0
-            ? `${sourceIds.length} source(s)`
-            : 'sources';
-        return {
-          ...base,
-          type: 'aku_generated' as const,
-          title: akusCount && akusCount > 0 ? `AKUs generated: ${akusCount}` : 'AKUs generated',
-          message: akusCount && akusCount > 0 ? `${akusCount} AKU${akusCount === 1 ? '' : 's'} from ${sourceLabel}` : `Generated from ${sourceLabel}`,
-          status: 'completed',
-          link: '/signals',
         };
       }
       case 'repo_scan_run':

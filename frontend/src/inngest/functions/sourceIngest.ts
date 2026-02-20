@@ -44,7 +44,7 @@ export const sourceIngestRequested = inngest.createFunction(
       supabase,
       sourceId,
       userId,
-      select: 'id, user_id, name, provider, scope, connection_id, status_payload, last_error, feature_labels',
+      select: 'id, user_id, name, provider, scope, connection_id, status_payload, last_error',
     });
 
     if (sourceLoadError) {
@@ -84,12 +84,6 @@ export const sourceIngestRequested = inngest.createFunction(
       await step.run('run-source-ingest', async () => {
         await ingestSource(supabase, sourceRow);
         return { ok: true };
-      });
-
-      // Kick off feature map build for this user (worker will include all sources).
-      await step.sendEvent('trigger-feature-map', {
-        name: 'feature_map.build',
-        data: { userId: sourceRow.user_id },
       });
 
       log.info('worker_complete', {
