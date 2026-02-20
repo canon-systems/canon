@@ -85,7 +85,6 @@ type CanonicalEventRow = {
 };
 
 type SourceIssueSummaryMap = Map<string, string>;
-type SourceIssueTitleMap = Map<string, string>;
 
 export type WorkspaceSourceRow = {
   id: string;
@@ -150,8 +149,7 @@ function resolveIssueValue(
 
 function buildDetails(
   rows: CanonicalEventRow[] | null | undefined,
-  jiraSummaryMap?: SourceIssueSummaryMap,
-  issueTitleMap?: SourceIssueTitleMap
+  jiraSummaryMap?: SourceIssueSummaryMap
 ): DiffDetails {
   const details = emptyDetails();
   if (!rows || rows.length === 0) return details;
@@ -169,8 +167,7 @@ function buildDetails(
       coerceString((metadata as Record<string, unknown>).title) ||
       coerceString((metadata as Record<string, unknown>).name) ||
       coerceString((metadata as Record<string, unknown>).toString) ||
-      resolveIssueValue(jiraSummaryMap, sourceId, entityId) ||
-      resolveIssueValue(issueTitleMap, sourceId, entityId);
+      resolveIssueValue(jiraSummaryMap, sourceId, entityId);
 
     if (provider === 'jira') {
       if (kind === 'ticket_moved') {
@@ -272,27 +269,6 @@ function buildJiraSummaryMap(
     const unscopedKey = sourceIssueKey('*', key);
     if (unscopedKey && summary && !map.has(unscopedKey)) {
       map.set(unscopedKey, summary);
-    }
-  }
-  return map;
-}
-
-function buildIssueTitleMap(
-  rows: Array<{ source_id?: string | null; issue_key?: string | null; title?: string | null }>
-): SourceIssueTitleMap {
-  const map: SourceIssueTitleMap = new Map();
-  for (const row of rows) {
-    const sourceId = typeof row.source_id === 'string' ? row.source_id : null;
-    const issueKey = typeof row.issue_key === 'string' ? row.issue_key : null;
-    const title = typeof row.title === 'string' ? row.title : null;
-    if (!title || title.trim().length === 0) continue;
-    const scopedKey = sourceIssueKey(sourceId, issueKey);
-    if (scopedKey && !map.has(scopedKey)) {
-      map.set(scopedKey, title);
-    }
-    const unscopedKey = sourceIssueKey('*', issueKey);
-    if (unscopedKey && !map.has(unscopedKey)) {
-      map.set(unscopedKey, title);
     }
   }
   return map;
@@ -408,7 +384,6 @@ export async function computeDiffComparison(input: ComputeDiffComparisonInput): 
     .order('occurred_at', { ascending: false });
 
   let jiraSummaryMap: SourceIssueSummaryMap | undefined;
-  let issueTitleMap: SourceIssueTitleMap | undefined;
   const jiraEventRows = (detailRows || []).filter(
     (row) => (row as CanonicalEventRow).provider === 'jira' && typeof (row as CanonicalEventRow).entity_id === 'string'
   ) as CanonicalEventRow[];
@@ -421,14 +396,6 @@ export async function computeDiffComparison(input: ComputeDiffComparisonInput): 
           .filter((sourceId): sourceId is string => Boolean(sourceId))
       )
     );
-    const jiraIssueKeys = Array.from(
-      new Set(
-        jiraEventRows
-          .map((row) => (typeof row.entity_id === 'string' ? row.entity_id : null))
-          .filter((issueKey): issueKey is string => Boolean(issueKey))
-      )
-    );
-
     const { data: rawRows } = await userSupabase
       .from('diff_event_raw')
       .select('source_id, payload')
@@ -439,21 +406,9 @@ export async function computeDiffComparison(input: ComputeDiffComparisonInput): 
     jiraSummaryMap = buildJiraSummaryMap(
       (rawRows || []) as Array<{ source_id?: string | null; payload?: Record<string, unknown> | null }>
     );
-
-    if (jiraIssueKeys.length > 0 && jiraSourceIds.length > 0) {
-      const { data: issueRows } = await userSupabase
-        .from('issue_index')
-        .select('source_id, issue_key, title')
-        .in('source_id', jiraSourceIds)
-        .in('issue_key', jiraIssueKeys);
-
-      issueTitleMap = buildIssueTitleMap(
-        (issueRows || []) as Array<{ source_id?: string | null; issue_key?: string | null; title?: string | null }>
-      );
-    }
   }
 
-  const details = buildDetails(detailRows as CanonicalEventRow[], jiraSummaryMap, issueTitleMap);
+  const details = buildDetails(detailRows as CanonicalEventRow[], jiraSummaryMap);
 
   const primaryEvents = await computeCanonicalDiffFromEvents({
     supabase: userSupabase,

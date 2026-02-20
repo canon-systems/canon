@@ -1,7 +1,6 @@
 import { serve } from "inngest/next";
 import {
   inngest,
-  syncCanonSources,
   diffSourceBackfill,
   ingestJiraWebhook,
   sourceIngestRequested,
@@ -15,7 +14,6 @@ export const { GET, POST, PUT } = serve({
   client: inngest,
   functions: [
     // checkAndRunAutomations,
-    syncCanonSources,
     dailySignalAlerts,
     diffSourceBackfill,
     ingestJiraWebhook,

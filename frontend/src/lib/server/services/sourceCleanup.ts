@@ -102,8 +102,6 @@ export async function deleteSourceDependents(params: {
   }
 
   await Promise.all([
-    deleteBySourceId({ supabase, table: 'repo_file_summaries', sourceId }),
-    deleteBySourceId({ supabase, table: 'issue_index', sourceId }),
     deleteBySourceId({ supabase, table: 'diff_event_raw', sourceId }),
     deleteBySourceId({ supabase, table: 'diff_event_canonical', sourceId }),
     deleteBySourceId({ supabase, table: 'diff_daily_metrics', sourceId }),
