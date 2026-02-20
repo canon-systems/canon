@@ -338,6 +338,18 @@ export async function upsertDailyMetrics(params: {
 }
 
 export async function resolveGithubSourceId(supabase: SupabaseClient, repoFullName: string): Promise<string | null> {
+  const repoLower = repoFullName.trim().toLowerCase();
+  if (!repoLower) return null;
+
+  const { data: byIdentifier } = await supabase
+    .from('workspace_sources')
+    .select('id')
+    .eq('provider', 'github')
+    .eq('source_identifier', repoLower)
+    .limit(1);
+
+  if (byIdentifier && byIdentifier.length > 0) return byIdentifier[0].id as string;
+
   const { data: direct } = await supabase
     .from('workspace_sources')
     .select('id, scope')
@@ -352,7 +364,6 @@ export async function resolveGithubSourceId(supabase: SupabaseClient, repoFullNa
     .select('id, scope')
     .eq('provider', 'github');
 
-  const repoLower = repoFullName.toLowerCase();
   const match = (allSources || []).find((row) => {
     const scope = (row.scope as { repo?: string }) || {};
     return typeof scope.repo === 'string' && scope.repo.toLowerCase() === repoLower;
@@ -366,6 +377,26 @@ export async function resolveJiraSourceId(
   projectKey: string,
   cloudId?: string | null
 ): Promise<string | null> {
+  const keyLower = projectKey.trim().toLowerCase();
+  if (!keyLower) return null;
+  const cloudLower = typeof cloudId === 'string' ? cloudId.trim().toLowerCase() : '';
+  const identifiers = cloudLower ? [`${cloudLower}:${keyLower}`, keyLower] : [keyLower];
+
+  const { data: byIdentifier } = await supabase
+    .from('workspace_sources')
+    .select('id, source_identifier')
+    .eq('provider', 'jira')
+    .in('source_identifier', identifiers)
+    .limit(5);
+
+  if (byIdentifier && byIdentifier.length > 0) {
+    if (cloudLower) {
+      const exact = byIdentifier.find((row) => row.source_identifier === `${cloudLower}:${keyLower}`);
+      if (exact) return exact.id as string;
+    }
+    return byIdentifier[0].id as string;
+  }
+
   const scopeFilter = cloudId ? { project: projectKey, cloudId } : { project: projectKey };
   const { data: direct } = await supabase
     .from('workspace_sources')
@@ -381,7 +412,6 @@ export async function resolveJiraSourceId(
     .select('id, scope')
     .eq('provider', 'jira');
 
-  const keyLower = projectKey.toLowerCase();
   const projectMatches = (allSources || []).filter((row) => {
     const scope = (row.scope as { project?: string; cloudId?: string }) || {};
     return typeof scope.project === 'string' && scope.project.toLowerCase() === keyLower;

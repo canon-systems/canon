@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { runDiffForSources } from '@/lib/server/diff/runDiffForSources';
 import type { ComputeMetricsInput, MetricSnapshot } from '@/lib/server/signals/types';
+import { computeWeightedEffort } from '@/lib/server/signals/effortWeights';
 
 type CanonicalEventRow = {
   provider: string | null;
@@ -97,14 +98,13 @@ export async function computeFeatureDistribution(params: {
     for (const [key, val] of Object.entries(featureCounts)) {
       if (typeof val !== 'object' || val === null) continue;
       const bucket = val as Record<string, number>;
-      const total =
-        Number(bucket.prs_opened || 0) +
-        Number(bucket.prs_merged || 0) +
-        Number(bucket.commits_default || 0) +
-        Number(bucket.tickets_moved || 0) +
-        Number(bucket.tickets_completed || 0) +
-        Number(bucket.tickets_regressed || 0) +
-        Number(bucket.tickets_created || 0);
+      const total = computeWeightedEffort({
+        prs_opened: Number(bucket.prs_opened || 0),
+        prs_merged: Number(bucket.prs_merged || 0),
+        commits_default: Number(bucket.commits_default || 0),
+        tickets_completed: Number(bucket.tickets_completed || 0),
+        tickets_regressed: Number(bucket.tickets_regressed || 0),
+      });
       if (total > 0) counts.set(key, (counts.get(key) || 0) + total);
     }
   }

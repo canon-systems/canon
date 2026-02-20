@@ -6,6 +6,7 @@ import {
 } from '@/lib/server/diff/contracts';
 import { runDiffForSourcesWithBreakdown } from '@/lib/server/diff/runDiffForSources';
 import { computeAndCompareMetrics } from '@/lib/server/signals/baseline';
+import { computeWeightedEffort } from '@/lib/server/signals/effortWeights';
 import { computeFeatureDistribution } from '@/lib/server/signals/metrics';
 import { evaluateSignalRules } from '@/lib/server/signals/rules';
 import { getWorkspaceSignalSettings, resolveSignalSourceIds } from '@/lib/server/signals/settings';
@@ -561,7 +562,30 @@ function buildSourceShiftMetrics(params: {
 }
 
 function sourceMovementScore(metrics: SourceShiftMetric[]): number {
-  return metrics.reduce((total, metric) => total + Math.abs(metric.delta), 0);
+  const weightedCounts: {
+    prs_merged: number;
+    prs_opened: number;
+    tickets_completed: number;
+    tickets_regressed: number;
+    commits_default: number;
+  } = {
+    prs_merged: 0,
+    prs_opened: 0,
+    tickets_completed: 0,
+    tickets_regressed: 0,
+    commits_default: 0,
+  };
+
+  for (const metric of metrics) {
+    const magnitude = Math.abs(metric.delta);
+    if (metric.key === 'prs_merged') weightedCounts.prs_merged = magnitude;
+    if (metric.key === 'prs_opened') weightedCounts.prs_opened = magnitude;
+    if (metric.key === 'tickets_completed') weightedCounts.tickets_completed = magnitude;
+    if (metric.key === 'tickets_regressed') weightedCounts.tickets_regressed = magnitude;
+    if (metric.key === 'commits_default') weightedCounts.commits_default = magnitude;
+  }
+
+  return computeWeightedEffort(weightedCounts);
 }
 
 export async function getSignalInvestigation(params: {

@@ -456,7 +456,7 @@ export async function computeDiffComparison(input: ComputeDiffComparisonInput): 
 
   const sources = resolveSourceIdsToTargets(sourceRows);
   if (sources.length === 0) {
-    throw new DiffCompareInputError('No jira or github sources in selection');
+    throw new DiffCompareInputError('No sources in selection');
   }
 
   const by_source: Record<string, { primary: CanonicalDiff; baseline: CanonicalDiff; delta: DiffDelta }> = {};

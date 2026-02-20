@@ -329,7 +329,7 @@ export default function HistoryPageClient({
       {sourceIds.length === 0 ? (
         <Card className="border-white/10 bg-white/5">
           <CardContent className="py-10 text-center text-white/75">
-            <p>No Jira or GitHub sources connected.</p>
+            <p>No sources connected.</p>
             <Button asChild className="mt-4 bg-white text-black hover:bg-white/90">
               <Link href="/sources">Connect Sources</Link>
             </Button>

@@ -23,16 +23,23 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { IntegrationLogos } from '@/components/IntegrationLogos';
 import { Input } from '@/components/ui/input';
 import { ProgressWithLabel } from '@/components/ui/progress';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { PRESET_SOURCE_DOMAINS } from '@/lib/sources/domainMapping';
+
+/** Sentinel for Radix Select; empty string is reserved for "no selection" / placeholder. */
+const DOMAIN_UNASSIGNED = '__unassigned__';
 
 interface Repository {
   id: string;
   name: string;
   provider: string;
   scope: Record<string, unknown>;
+  source_identifier?: string | null;
+  domain?: string | null;
   connection_id?: string | null;
   status_payload?: Record<string, unknown> | null;
   last_error?: string | null;
@@ -101,6 +108,7 @@ const addedTimeFormatter = new Intl.DateTimeFormat(undefined, {
 const DEFAULT_STATUS_POLL_INTERVAL_MS = 8000;
 const MIN_STATUS_POLL_INTERVAL_MS = 2000;
 const MAX_STATUS_POLL_INTERVAL_MS = 30000;
+const CUSTOM_DOMAIN_OPTION = '__custom__';
 const configuredStatusPollInterval = Number.parseInt(
   process.env.NEXT_PUBLIC_SOURCES_POLL_INTERVAL_MS ?? '',
   10
@@ -119,6 +127,9 @@ const formatAddedAt = (value: string) => {
     time: addedTimeFormatter.format(parsed),
   };
 };
+
+const isPresetDomain = (value: string): boolean =>
+  PRESET_SOURCE_DOMAINS.some((domain) => domain === value);
 
 const parseGithubRepos = (data: unknown): GithubRepo[] => {
   const repos = (data as { repos?: unknown })?.repos;
@@ -201,6 +212,19 @@ type BackfillStatus = {
   error?: string | null;
 };
 
+type CustomDomainDialogTarget =
+  | {
+      kind: 'repo';
+      repoId: string;
+      currentDomain: string;
+    }
+  | {
+      kind: 'source';
+      sourceKey: string;
+      sourceLabel: string;
+      currentDomain: string;
+    };
+
 const getRawStatus = (repo: Repository) => ((repo.status_payload?.status as string) || '').toLowerCase();
 
 const getBackfillStatus = (repo: Repository): BackfillStatus => {
@@ -276,6 +300,13 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
   const [availableGithub, setAvailableGithub] = useState<Array<{ id: string; full_name: string; name: string; default_branch: string }>>([]);
   const [availableJira, setAvailableJira] = useState<Array<{ id: string; key: string; name: string; cloudId?: string }>>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectedDomainsBySourceKey, setSelectedDomainsBySourceKey] = useState<Record<string, string>>({});
+  const [customDomainDialogTarget, setCustomDomainDialogTarget] = useState<CustomDomainDialogTarget | null>(null);
+  const [customDomainDialogInput, setCustomDomainDialogInput] = useState('');
+  const [customDomainDialogError, setCustomDomainDialogError] = useState('');
+  const [customDomainDialogSaving, setCustomDomainDialogSaving] = useState(false);
+  const [savingDomainSourceId, setSavingDomainSourceId] = useState<string | null>(null);
+  const [domainErrorsBySourceId, setDomainErrorsBySourceId] = useState<Record<string, string>>({});
   const [sourceSearch, setSourceSearch] = useState('');
   const [deletingRepoId, setDeletingRepoId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -312,6 +343,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
     setShowSourceDialog(true);
     setCreateError('');
     setLoadError('');
+    setSelectedDomainsBySourceKey({});
     void loadAvailableSources();
   };
 
@@ -531,7 +563,13 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
         throw new Error('Select at least one source to add.');
       }
 
-      const sources: Array<{ provider: string; name: string; scope: Record<string, unknown>; connection_id: string | null }> = [];
+      const sources: Array<{
+        provider: string;
+        name: string;
+        scope: Record<string, unknown>;
+        connection_id: string | null;
+        domain?: string | null;
+      }> = [];
 
       for (const repo of availableGithub) {
         const key = `github:${repo.id}`;
@@ -543,6 +581,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
             name: repoLabel,
             scope: { repo: repo.full_name, branch: repo.default_branch || 'main' },
             connection_id: null,
+            domain: (selectedDomainsBySourceKey[key] || '').trim() || null,
           });
         }
       }
@@ -561,6 +600,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
             name: project.name || project.key,
             scope,
             connection_id: null,
+            domain: (selectedDomainsBySourceKey[key] || '').trim() || null,
           });
         }
       }
@@ -578,6 +618,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
       }
 
       setSelectedIds(new Set());
+      setSelectedDomainsBySourceKey({});
       setSourceSearch('');
       await refreshSources();
       setShowSourceDialog(false);
@@ -588,6 +629,94 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
     }
   };
 
+  const updateSourceDomain = async (repoId: string, domain: string): Promise<boolean> => {
+    const normalizedDomain = domain.trim();
+    setSavingDomainSourceId(repoId);
+    setDomainErrorsBySourceId((prev) => {
+      const next = { ...prev };
+      delete next[repoId];
+      return next;
+    });
+    try {
+      const response = await fetch(`/api/repos/${repoId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ domain: normalizedDomain || null }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(
+          typeof data?.error === 'string'
+            ? data.error
+            : typeof data?.detail === 'string'
+              ? data.detail
+              : 'Failed to assign domain'
+        );
+      }
+      setRepoList((prev) =>
+        prev.map((repo) => (repo.id === repoId ? { ...repo, domain: normalizedDomain || null } : repo))
+      );
+      return true;
+    } catch (err) {
+      setDomainErrorsBySourceId((prev) => ({
+        ...prev,
+        [repoId]: err instanceof Error ? err.message : 'Failed to assign domain',
+      }));
+      return false;
+    } finally {
+      setSavingDomainSourceId((current) => (current === repoId ? null : current));
+    }
+  };
+
+  const openCustomDomainDialog = (target: CustomDomainDialogTarget) => {
+    setCustomDomainDialogTarget(target);
+    setCustomDomainDialogInput(target.currentDomain);
+    setCustomDomainDialogError('');
+    setCustomDomainDialogSaving(false);
+  };
+
+  const closeCustomDomainDialog = () => {
+    if (customDomainDialogSaving) return;
+    setCustomDomainDialogTarget(null);
+    setCustomDomainDialogInput('');
+    setCustomDomainDialogError('');
+    setCustomDomainDialogSaving(false);
+  };
+
+  const confirmCustomDomainDialog = async () => {
+    const target = customDomainDialogTarget;
+    if (!target) return;
+    const normalized = customDomainDialogInput.trim();
+    if (!normalized) {
+      setCustomDomainDialogError('Domain name is required.');
+      return;
+    }
+
+    if (target.kind === 'source') {
+      setSelectedDomainsBySourceKey((prev) => ({ ...prev, [target.sourceKey]: normalized }));
+      closeCustomDomainDialog();
+      return;
+    }
+
+    setCustomDomainDialogSaving(true);
+    const didSave = await updateSourceDomain(target.repoId, normalized);
+    if (!didSave) {
+      setCustomDomainDialogError('Failed to save domain. Please try again.');
+      setCustomDomainDialogSaving(false);
+      return;
+    }
+    closeCustomDomainDialog();
+  };
+
+  const customDomainDialogSourceName =
+    customDomainDialogTarget?.kind === 'source'
+      ? customDomainDialogTarget.sourceLabel
+      : customDomainDialogTarget?.kind === 'repo'
+        ? repoNameOnly(
+            repoList.find((repo) => repo.id === customDomainDialogTarget.repoId)?.name || 'Source'
+          )
+        : 'source';
+
   return (
     <div className="space-y-8 px-1 sm:px-2 md:px-0">
       <Card className="overflow-hidden border-white/10 bg-gradient-to-r from-indigo-900/40 via-slate-900/60 to-cyan-900/40 px-1 sm:px-2 md:px-0">
@@ -597,9 +726,9 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
               <Badge variant="default" className="bg-white/10 text-white/80">
                 Sources
               </Badge>
-              <CardTitle className="text-3xl text-white">Connect, index, and automate</CardTitle>
+              <CardTitle className="text-3xl text-white">Manage Your Data Sources</CardTitle>
               <CardDescription className="text-white/70">
-                Link known sources, track setup progress, and jump straight into automation.
+                Connect sources, track sync status, and assign product domains.
               </CardDescription>
             </div>
             <div className="grid grid-cols-2 gap-3 lg:w-[360px]">
@@ -679,7 +808,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-white/10">
             <Layers className="h-6 w-6 text-white/70" />
           </div>
-          <CardTitle className="mt-4 text-xl text-white">No sources yet</CardTitle>
+          <CardTitle className="mt-4 text-xl text-white">No Sources Yet</CardTitle>
           <p className="mt-2 text-sm text-white/60">
             Add a source from your connected integrations, or connect GitHub or Jira in Settings.
           </p>
@@ -700,17 +829,24 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
         <div className="flex flex-col gap-3 px-1 sm:px-2 md:px-0">
           {/* Column headers — grid at all breakpoints so Added column always has a slot */}
           <div
-            className="grid grid-cols-[1fr_auto_minmax(10rem,1fr)_auto] gap-2 rounded-2xl border border-white/10 bg-zinc-800/80 px-4 py-3 sm:gap-3 sm:px-5 md:grid-cols-[minmax(200px,1.6fr)_minmax(140px,1fr)_minmax(10rem,auto)_auto] md:items-center"
+            className="grid grid-cols-[1fr_auto_minmax(12rem,1fr)_minmax(10rem,1fr)_auto] gap-2 rounded-2xl border border-white/10 bg-zinc-800/80 px-4 py-3 sm:gap-3 sm:px-5 md:grid-cols-[minmax(200px,1.6fr)_minmax(140px,1fr)_minmax(180px,1.1fr)_minmax(10rem,auto)_auto] md:items-center"
             aria-hidden="true"
           >
             <div className="text-left text-xs font-semibold uppercase tracking-wider text-white/60">Source</div>
             <div className="text-center text-xs font-semibold uppercase tracking-wider text-white/60">Status</div>
+            <div className="text-center text-xs font-semibold uppercase tracking-wider text-white/60">Domain</div>
             <div className="min-w-0 text-center text-xs font-semibold uppercase tracking-wider text-white/60">Added</div>
-            <div className="text-right text-xs font-semibold uppercase tracking-wider text-white/60">Actions</div>
+            <div className="text-center text-xs font-semibold uppercase tracking-wider text-white/60">Actions</div>
           </div>
           {filteredRepos.map((repo) => {
             const statusMeta = getStatusMeta(repo);
             const repoLabel = repoNameOnly(repo.name);
+            const canAssignDomain = getStatusBucket(repo) === 'ready';
+            const currentDomain = typeof repo.domain === 'string' ? repo.domain.trim() : '';
+            const hasCustomCurrentDomain = currentDomain.length > 0 && !isPresetDomain(currentDomain);
+            const domainSelectValue = hasCustomCurrentDomain ? CUSTOM_DOMAIN_OPTION : currentDomain || DOMAIN_UNASSIGNED;
+            const domainError = domainErrorsBySourceId[repo.id];
+            const isSavingDomain = savingDomainSourceId === repo.id;
             const addedAt = formatAddedAt(repo.created_at);
             const backfillError = getBackfillStatus(repo).error;
             const failureMessage =
@@ -722,7 +858,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
             return (
               <div
                 key={repo.id}
-                className="grid grid-cols-[1fr_auto_minmax(10rem,1fr)_auto] gap-2 rounded-2xl border border-white/10 bg-gradient-to-r from-white/5 to-black/60 px-4 py-4 sm:gap-3 sm:px-5 md:min-h-[88px] md:grid-cols-[minmax(200px,1.6fr)_minmax(140px,1fr)_minmax(10rem,auto)_auto] md:items-center"
+                className="grid grid-cols-[1fr_auto_minmax(12rem,1fr)_minmax(10rem,1fr)_auto] gap-2 rounded-2xl border border-white/10 bg-gradient-to-r from-white/5 to-black/60 px-4 py-4 sm:gap-3 sm:px-5 md:min-h-[88px] md:grid-cols-[minmax(200px,1.6fr)_minmax(140px,1fr)_minmax(180px,1.1fr)_minmax(10rem,auto)_auto] items-center"
               >
                 <div className="flex min-w-0 items-center gap-4">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-md shadow-indigo-500/20">
@@ -735,7 +871,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
                 </div>
 
                 <div className="flex min-w-[180px] flex-col items-center space-y-2">
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex flex-wrap items-center justify-center gap-2">
                     <Badge variant={statusMeta.color as 'default' | 'secondary' | 'destructive' | 'outline'} className="flex items-center gap-1">
                       {statusMeta.icon}
                       {statusMeta.label}
@@ -755,12 +891,52 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
                   )}
                 </div>
 
+                <div className="flex min-w-[180px] flex-col items-center gap-1">
+                  <Select
+                    value={domainSelectValue}
+                    onValueChange={(value) => {
+                      if (value === DOMAIN_UNASSIGNED) {
+                        void updateSourceDomain(repo.id, '');
+                        return;
+                      }
+
+                      if (value === CUSTOM_DOMAIN_OPTION) {
+                        openCustomDomainDialog({
+                          kind: 'repo',
+                          repoId: repo.id,
+                          currentDomain: hasCustomCurrentDomain ? currentDomain : '',
+                        });
+                        return;
+                      }
+
+                      void updateSourceDomain(repo.id, value);
+                    }}
+                    disabled={!canAssignDomain || isSavingDomain}
+                  >
+                    <SelectTrigger className="h-8 w-full max-w-[180px] justify-center border-white/20 bg-black/60 px-2 py-1.5 text-xs">
+                      <SelectValue placeholder="Unassigned" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={DOMAIN_UNASSIGNED}>Unassigned</SelectItem>
+                      {PRESET_SOURCE_DOMAINS.map((domain) => (
+                        <SelectItem key={domain} value={domain}>
+                          {domain}
+                        </SelectItem>
+                      ))}
+                      <SelectItem value={CUSTOM_DOMAIN_OPTION}>
+                        {hasCustomCurrentDomain ? currentDomain : 'Custom...'}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {domainError ? <p className="max-w-[180px] text-center text-[11px] text-red-300">{domainError}</p> : null}
+                </div>
+
                 <div className="flex min-w-0 flex-col items-center justify-center text-center">
                   <p className="text-sm text-white">{addedAt.date}</p>
                   {addedAt.time && <p className="text-xs text-white/60">{addedAt.time}</p>}
                 </div>
 
-                <div className="flex flex-wrap items-center justify-end gap-2">
+                <div className="flex flex-wrap items-center justify-center gap-2">
                   <div className="relative group">
                     {getStatusBucket(repo) === 'processing' ? (
                       <>
@@ -817,7 +993,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
         }}
       >
         <DialogContent className="max-w-md border-white/10 bg-black/95">
-          <DialogTitle className="text-white">Disconnect source?</DialogTitle>
+          <DialogTitle className="text-white">Disconnect Source?</DialogTitle>
           <div className="space-y-4 text-sm text-white/70">
             <p>
               This will delete the record for{' '}
@@ -845,11 +1021,56 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
       </Dialog>
 
       <Dialog
+        open={Boolean(customDomainDialogTarget)}
+        onOpenChange={(open) => {
+          if (!open) closeCustomDomainDialog();
+        }}
+      >
+        <DialogContent className="max-w-md border-white/10 bg-black/95">
+          <DialogHeader>
+            <DialogTitle>Use Custom Domain?</DialogTitle>
+            <DialogDescription>
+              Enter a domain name for{' '}
+              <span className="font-semibold text-white">{customDomainDialogSourceName}</span>.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Input
+              value={customDomainDialogInput}
+              onChange={(event) => {
+                setCustomDomainDialogInput(event.currentTarget.value);
+                if (customDomainDialogError) setCustomDomainDialogError('');
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !customDomainDialogSaving) {
+                  event.preventDefault();
+                  void confirmCustomDomainDialog();
+                }
+              }}
+              disabled={customDomainDialogSaving}
+              placeholder="Custom domain name"
+              className="!bg-neutral-800 !border-white text-white placeholder:text-white/60"
+            />
+            {customDomainDialogError ? <p className="text-sm text-red-300">{customDomainDialogError}</p> : null}
+          </div>
+          <DialogFooter>
+            <Button variant="secondary" onClick={closeCustomDomainDialog} disabled={customDomainDialogSaving}>
+              Cancel
+            </Button>
+            <Button onClick={() => void confirmCustomDomainDialog()} disabled={customDomainDialogSaving}>
+              {customDomainDialogSaving ? 'Saving…' : 'Use Domain'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
         open={showSourceDialog}
         onOpenChange={(open) => {
           setShowSourceDialog(open);
           if (!open) {
             setSelectedIds(new Set());
+            setSelectedDomainsBySourceKey({});
             setCreateError('');
             setLoadError('');
             setSourceSearch('');
@@ -857,7 +1078,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
         }}
       >
         <DialogContent className="max-w-2xl border-white/10 bg-black/95">
-          <DialogTitle className="text-white">Add sources</DialogTitle>
+          <DialogTitle className="text-white">Add Sources</DialogTitle>
           <p className="text-sm text-white/70">
             Select the sources you want to connect, then click “Add sources”. We’ll start ingesting them in the background.
           </p>
@@ -910,10 +1131,13 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
                 )}
                 {filteredAvailableSources.map((src) => {
                   const selected = selectedIds.has(src.key);
+                  const selectedDomain = selectedDomainsBySourceKey[src.key] || '';
+                  const hasCustomSelectedDomain = selectedDomain.length > 0 && !isPresetDomain(selectedDomain);
+                  const domainSelectValue = hasCustomSelectedDomain ? CUSTOM_DOMAIN_OPTION : selectedDomain || DOMAIN_UNASSIGNED;
                   return (
-                    <label
+                    <div
                       key={src.key}
-                      className="flex cursor-pointer items-center gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/80 hover:border-white/30"
+                      className="grid grid-cols-[auto_auto_minmax(0,1fr)_minmax(9rem,11rem)] items-center gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/80 hover:border-white/30"
                     >
                       <input
                         type="checkbox"
@@ -926,7 +1150,45 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
                         <span className="font-medium text-white">{src.label}</span>
                         <span className="text-xs text-white/60">{src.subtitle}</span>
                       </div>
-                    </label>
+                      <div className="flex flex-col gap-2">
+                        <Select
+                          value={domainSelectValue}
+                          onValueChange={(value) => {
+                            if (value === DOMAIN_UNASSIGNED) {
+                              setSelectedDomainsBySourceKey((prev) => ({ ...prev, [src.key]: '' }));
+                              return;
+                            }
+
+                            if (value === CUSTOM_DOMAIN_OPTION) {
+                              openCustomDomainDialog({
+                                kind: 'source',
+                                sourceKey: src.key,
+                                sourceLabel: src.label,
+                                currentDomain: hasCustomSelectedDomain ? selectedDomain : '',
+                              });
+                              return;
+                            }
+
+                            setSelectedDomainsBySourceKey((prev) => ({ ...prev, [src.key]: value }));
+                          }}
+                        >
+                          <SelectTrigger className="h-8 justify-center rounded-lg border border-white/20 bg-black/60 px-2 py-1.5 text-xs text-white">
+                            <SelectValue placeholder="Unassigned" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={DOMAIN_UNASSIGNED}>Unassigned</SelectItem>
+                            {PRESET_SOURCE_DOMAINS.map((domain) => (
+                              <SelectItem key={domain} value={domain}>
+                                {domain}
+                              </SelectItem>
+                            ))}
+                            <SelectItem value={CUSTOM_DOMAIN_OPTION}>
+                              {hasCustomSelectedDomain ? selectedDomain : 'Custom...'}
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
                   );
                 })}
               </div>

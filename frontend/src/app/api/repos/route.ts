@@ -5,12 +5,14 @@ import type { WorkspaceSource } from '@/lib/server/services/sourceIngest';
 import { sourceUrlFromSourceScope, trackSourceConnected } from '@/lib/server/services/usageTracking';
 import { patchSourceBackfillStatus } from '@/lib/server/diff/backfillStatus';
 import { inngest } from '@/inngest';
+import { buildSourceIdentifier, resolveSourceDomainValue } from '@/lib/sources/domainMapping';
 
 type CreateSource = {
   name: string;
   provider: string;
   scope: Record<string, unknown>;
   connection_id?: string | null;
+  domain?: string | null;
 };
 
 const providerAuthMap: Record<string, string> = {
@@ -109,11 +111,25 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: `Missing OAuth connection for provider ${src.provider}` }, { status: 400 });
       }
 
+      let resolvedDomain: string | null = null;
+      if (src.domain !== undefined && src.domain !== null && typeof src.domain !== 'string') {
+        return NextResponse.json({ error: `Invalid domain value for source ${src.name}` }, { status: 400 });
+      }
+      if (typeof src.domain === 'string') {
+        resolvedDomain = resolveSourceDomainValue(src.domain);
+      }
+
       rows.push({
         user_id: user.id,
         name: src.name,
         provider: src.provider,
         scope: src.scope,
+        source_identifier: buildSourceIdentifier({
+          provider: src.provider,
+          scope: src.scope,
+          fallbackName: src.name,
+        }),
+        domain: resolvedDomain,
         connection_id: resolvedConnId,
         status_payload: {
           status: 'queueing',

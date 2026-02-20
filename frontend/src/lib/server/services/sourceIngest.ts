@@ -192,6 +192,8 @@ export type WorkspaceSource = {
   name?: string | null;
   provider: string;
   scope: Record<string, unknown>;
+  source_identifier?: string | null;
+  domain?: string | null;
   connection_id?: string | null;
   status_payload?: Record<string, unknown> | null;
   last_error?: string | null;
@@ -327,6 +329,17 @@ export async function ingestGitHubSource(
     if (await abortIfDeleted(supabase, source, 'summarizing')) return;
     let lastPct = 60;
     let lastHeartbeatMs = 0;
+    let summaryStageWriteQueue: Promise<void> = Promise.resolve();
+    const enqueueSummarizingStageUpdate = (
+      progress: number,
+      stepLabel: string,
+      extras: Record<string, unknown>
+    ) => {
+      summaryStageWriteQueue = summaryStageWriteQueue
+        .catch(() => undefined)
+        .then(() => updateStage(supabase, source.id, 'summarizing', progress, stepLabel, extras))
+        .catch(() => undefined);
+    };
     const summaryResult = await manager.updateSummariesIfNeeded(
       files.map((f) => ({
         path: f.path,
@@ -346,7 +359,7 @@ export async function ingestGitHubSource(
           if (pct <= lastPct && pct < 85) return;
           lastPct = pct;
           const stepLabel = `Summarizing files (${processed} / ${total})`;
-          void updateStage(supabase, source.id, 'summarizing', pct, stepLabel, {
+          enqueueSummarizingStageUpdate(pct, stepLabel, {
             total_files: total,
             summarized_files: processed,
           });
@@ -357,7 +370,7 @@ export async function ingestGitHubSource(
           lastHeartbeatMs = nowMs;
           const pct = Math.max(lastPct, Math.min(85, 60 + Math.round((25 * processed) / Math.max(1, total))));
           const stepLabel = `Summarizing files (${processed} / ${total}, in-flight ${inFlight})`;
-          void updateStage(supabase, source.id, 'summarizing', pct, stepLabel, {
+          enqueueSummarizingStageUpdate(pct, stepLabel, {
             summarized_files: processed,
             summary_failed_files: failed,
             summary_in_flight: inFlight,
@@ -369,6 +382,7 @@ export async function ingestGitHubSource(
     );
     if (summaryResult.aborted && await abortIfDeleted(supabase, source, 'summarizing')) return;
     if (await abortIfDeleted(supabase, source, 'summarizing')) return;
+    await summaryStageWriteQueue;
 
     await updateStage(supabase, source.id, 'ready', 100, 'Setup complete');
     ingestLog.info('github_complete', { sourceId: source.id, repo, branch, totalFiles: files.length });
