@@ -367,7 +367,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTabAndUpdateUrl} className="mb-8">
-          <TabsList className="bg-white/5 border border-white/10">
+          <TabsList className="bg-zinc-800 border border-white/10">
             {tabs.map(tab => {
               const Icon = tab.icon;
               return (
@@ -386,7 +386,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                 <p className="text-white/70">Manage your account information</p>
               </div>
 
-              <div className="rounded-xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm">
+              <div className="rounded-xl border border-white/10 bg-zinc-800 p-6 backdrop-blur-sm">
                 <div className="space-y-6">
                   <div className="flex items-center gap-4">
                     <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white/10">
@@ -404,7 +404,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                         <Mail className="inline h-4 w-4 mr-2" />
                         Email Address
                       </label>
-                      <div className="rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-white">
+                      <div className="rounded-lg border border-white/10 bg-zinc-800 px-4 py-3 text-white">
                         {initialUser?.email || 'Not available'}
                       </div>
                     </div>
@@ -431,7 +431,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
               </div>
 
                   <div className="space-y-4">
-                    <div className="rounded-xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm space-y-5">
+                    <div className="rounded-xl border border-white/10 bg-zinc-800 p-6 backdrop-blur-sm space-y-5">
                       <div>
                         <h3 className="text-lg font-semibold text-white">Daily Signal Alerts</h3>
                         <p className="text-sm text-white/65">
@@ -615,7 +615,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                     return (
                       <div
                         key={card.provider}
-                        className="rounded-lg border border-white/10 bg-white/5 p-4 backdrop-blur-sm flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+                        className="rounded-lg border border-white/10 bg-zinc-800 p-4 backdrop-blur-sm flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
                       >
                         <div className="flex items-start gap-3">
                           <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white/5">
@@ -731,7 +731,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
               </span>? This action cannot be undone.
             </p>
             {connectionToDisconnect.provider === 'github' && (
-              <label className="mb-6 flex items-start gap-3 rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white/70">
+              <label className="mb-6 flex items-start gap-3 rounded-lg border border-white/10 bg-zinc-800 p-3 text-sm text-white/70">
                 <input
                   type="checkbox"
                   className="mt-1 h-4 w-4 accent-red-500"

@@ -164,9 +164,9 @@ export default async function SignalInvestigatePage({
       </div>
 
       {payload.direction ? (
-        <Card className="border-white/10 bg-white/5">
+        <Card className="border-white/10 bg-zinc-900">
           <CardContent className="space-y-4 pt-6 text-sm text-white/80">
-            <div className="rounded border border-white/10 bg-black/30 px-3 py-3">
+            <div className="rounded border border-white/10 bg-zinc-800 px-3 py-3">
               <p className="text-xs uppercase tracking-[0.18em] text-white/50">Baseline Context</p>
               <div className="mt-2 space-y-1 text-sm">
                 <p>
@@ -200,7 +200,7 @@ export default async function SignalInvestigatePage({
             {payload.direction.movement ? (
               <div className="grid gap-2 md:grid-cols-2">
                 {payload.direction.source_mix.has_jira ? (
-                  <div className="rounded border border-white/10 bg-black/30 px-3 py-2">
+                  <div className="rounded border border-white/10 bg-zinc-800 px-3 py-2">
                     <p className="text-xs uppercase tracking-[0.18em] text-white/50">
                       <MetricLabelTooltip label="Completed Work" tip={metricTooltip('tickets_completed')} />
                     </p>
@@ -210,7 +210,7 @@ export default async function SignalInvestigatePage({
                   </div>
                 ) : null}
                 {payload.direction.source_mix.has_jira ? (
-                  <div className="rounded border border-white/10 bg-black/30 px-3 py-2">
+                  <div className="rounded border border-white/10 bg-zinc-800 px-3 py-2">
                     <p className="text-xs uppercase tracking-[0.18em] text-white/50">
                       <MetricLabelTooltip label="Regressions" tip={metricTooltip('tickets_regressed')} />
                     </p>
@@ -220,7 +220,7 @@ export default async function SignalInvestigatePage({
                   </div>
                 ) : null}
                 {payload.direction.source_mix.has_github ? (
-                  <div className="rounded border border-white/10 bg-black/30 px-3 py-2">
+                  <div className="rounded border border-white/10 bg-zinc-800 px-3 py-2">
                     <p className="text-xs uppercase tracking-[0.18em] text-white/50">
                       <MetricLabelTooltip label="Merged PRs" tip={metricTooltip('prs_merged')} />
                     </p>
@@ -229,7 +229,7 @@ export default async function SignalInvestigatePage({
                     </p>
                   </div>
                 ) : null}
-                <div className="rounded border border-white/10 bg-black/30 px-3 py-2">
+                <div className="rounded border border-white/10 bg-zinc-800 px-3 py-2">
                   <p className="text-xs uppercase tracking-[0.18em] text-white/50">
                     <MetricLabelTooltip label="Surface Breadth" tip={metricTooltip('repos_touched')} />
                   </p>
@@ -240,7 +240,7 @@ export default async function SignalInvestigatePage({
               </div>
             ) : null}
             <div className="grid gap-3 md:grid-cols-2">
-              <div className="rounded border border-white/10 bg-black/30 px-3 py-2">
+              <div className="rounded border border-white/10 bg-zinc-800 px-3 py-2">
                 <p className="text-xs uppercase tracking-[0.18em] text-white/50">
                   <MetricLabelTooltip
                     label="Newly Active Surfaces"
@@ -257,7 +257,7 @@ export default async function SignalInvestigatePage({
                   </div>
                 )}
               </div>
-              <div className="rounded border border-white/10 bg-black/30 px-3 py-2">
+              <div className="rounded border border-white/10 bg-zinc-800 px-3 py-2">
                 <p className="text-xs uppercase tracking-[0.18em] text-white/50">
                   <MetricLabelTooltip
                     label="Reduced Surfaces"
@@ -281,7 +281,7 @@ export default async function SignalInvestigatePage({
                 <p className="text-white/70">No source-level directional change detected.</p>
               ) : (
                 payload.direction.source_shifts.map((source) => (
-                  <div key={source.source_id} className="rounded border border-white/10 bg-black/30 px-3 py-2">
+                  <div key={source.source_id} className="rounded border border-white/10 bg-zinc-800 px-3 py-2">
                     <p className="font-medium text-white">{source.source_name}</p>
                     <p className="text-xs text-white/60">{source.provider}</p>
                     <div className="mt-1 grid gap-1 text-xs text-white/75">
@@ -299,7 +299,7 @@ export default async function SignalInvestigatePage({
           </CardContent>
         </Card>
       ) : (
-        <Card className="border-white/10 bg-white/5">
+        <Card className="border-white/10 bg-zinc-900">
           <CardContent className="space-y-2 pt-6 text-sm text-white/80">
             <p className="text-white/75">Directional data is still being prepared for this signal.</p>
             <p>
@@ -321,7 +321,7 @@ export default async function SignalInvestigatePage({
       )}
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card className="border-white/10 bg-black/30">
+        <Card className="border-white/10 bg-zinc-800">
           <CardHeader className="pb-2">
             <CardTitle className="text-base text-white">
               <MetricLabelTooltip
@@ -333,7 +333,7 @@ export default async function SignalInvestigatePage({
           <CardContent className="space-y-2 text-sm text-white/80">
             {evidence.tickets.length === 0 ? <p>No ticket evidence in this signal window.</p> : null}
             {evidence.tickets.map((ticket) => (
-              <div key={`${ticket.id}-${ticket.occurred_at}`} className="rounded border border-white/10 bg-white/5 px-3 py-2">
+              <div key={`${ticket.id}-${ticket.occurred_at}`} className="rounded border border-white/10 bg-zinc-800 px-3 py-2">
                 <div className="font-medium text-white">{ticket.id}</div>
                 <div className="text-white/70">{ticket.summary || 'No summary'}</div>
               </div>
@@ -341,7 +341,7 @@ export default async function SignalInvestigatePage({
           </CardContent>
         </Card>
 
-        <Card className="border-white/10 bg-black/30">
+        <Card className="border-white/10 bg-zinc-800">
           <CardHeader className="pb-2">
             <CardTitle className="text-base text-white">
               <MetricLabelTooltip
@@ -353,7 +353,7 @@ export default async function SignalInvestigatePage({
           <CardContent className="space-y-2 text-sm text-white/80">
             {evidence.prs.length === 0 ? <p>No PR evidence in this signal window.</p> : null}
             {evidence.prs.map((pr) => (
-              <div key={`${pr.id}-${pr.occurred_at}-${pr.kind}`} className="rounded border border-white/10 bg-white/5 px-3 py-2">
+              <div key={`${pr.id}-${pr.occurred_at}-${pr.kind}`} className="rounded border border-white/10 bg-zinc-800 px-3 py-2">
                 <div className="font-medium text-white">PR {pr.id}</div>
                 <div className="text-white/70">{pr.repo || 'Unknown repo'} · {pr.kind || 'event'}</div>
               </div>
@@ -361,7 +361,7 @@ export default async function SignalInvestigatePage({
           </CardContent>
         </Card>
 
-        <Card className="border-white/10 bg-black/30">
+        <Card className="border-white/10 bg-zinc-800">
           <CardHeader className="pb-2">
             <CardTitle className="text-base text-white">
               <MetricLabelTooltip
@@ -373,7 +373,7 @@ export default async function SignalInvestigatePage({
           <CardContent className="space-y-2 text-sm text-white/80">
             {evidence.repos.length === 0 ? <p>No active surface evidence in this signal window.</p> : null}
             {evidence.repos.map((repo) => (
-              <div key={repo.id} className="flex items-center justify-between rounded border border-white/10 bg-white/5 px-3 py-2">
+              <div key={repo.id} className="flex items-center justify-between rounded border border-white/10 bg-zinc-800 px-3 py-2">
                 <span className="text-white">{repo.id}</span>
                 <span className="text-white/70">{repo.activity}</span>
               </div>

@@ -307,7 +307,7 @@ export default function HistoryPageClient({
 
   return (
     <div className="space-y-6">
-      <Card className="border-white/10 bg-white/5">
+      <Card className="border-white/10 bg-zinc-900">
         <CardHeader>
           <CardTitle className="text-white">Canon History</CardTitle>
           <CardDescription className="text-white/70">
@@ -327,7 +327,7 @@ export default function HistoryPageClient({
       </Card>
 
       {sourceIds.length === 0 ? (
-        <Card className="border-white/10 bg-white/5">
+        <Card className="border-white/10 bg-zinc-900">
           <CardContent className="py-10 text-center text-white/75">
             <p>No sources connected.</p>
             <Button asChild className="mt-4 bg-white text-black hover:bg-white/90">
@@ -345,7 +345,7 @@ export default function HistoryPageClient({
 
       {sourceIds.length > 0 && !data && !error ? (
         <>
-          <Card className="border-white/10 bg-white/5">
+          <Card className="border-white/10 bg-zinc-900">
             <CardHeader>
               <Skeleton className="h-6 w-36 bg-white/20" />
               <Skeleton className="mt-2 h-4 w-full max-w-2xl bg-white/10" />
@@ -358,7 +358,7 @@ export default function HistoryPageClient({
           </Card>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {[1, 2, 3, 4, 5, 6].map((i) => (
-              <Card key={i} className="border-white/10 bg-black/30">
+              <Card key={i} className="border-white/10 bg-zinc-800">
                 <CardHeader className="pb-2">
                   <Skeleton className="h-4 w-28 bg-white/20" />
                 </CardHeader>
@@ -370,7 +370,7 @@ export default function HistoryPageClient({
               </Card>
             ))}
           </div>
-          <Card className="border-white/10 bg-white/5">
+          <Card className="border-white/10 bg-zinc-900">
             <CardHeader>
               <Skeleton className="h-6 w-32 bg-white/20" />
               <Skeleton className="mt-2 h-4 w-full max-w-xl bg-white/10" />
@@ -389,7 +389,7 @@ export default function HistoryPageClient({
 
       {data ? (
         <>
-          <Card className="border-white/10 bg-white/5">
+          <Card className="border-white/10 bg-zinc-900">
             <CardHeader>
               <CardTitle className="text-white">Insight Summary</CardTitle>
               <CardDescription className="text-white/60">
@@ -407,7 +407,7 @@ export default function HistoryPageClient({
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {metrics.map((metric) => (
-              <Card key={metric.key} className="border-white/10 bg-black/30">
+              <Card key={metric.key} className="border-white/10 bg-zinc-800">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm text-white/80">{metric.key}</CardTitle>
                 </CardHeader>
@@ -422,7 +422,7 @@ export default function HistoryPageClient({
             ))}
           </div>
 
-          <Card className="border-white/10 bg-white/5">
+          <Card className="border-white/10 bg-zinc-900">
             <CardHeader>
               <CardTitle className="text-white">Detailed View</CardTitle>
               <CardDescription className="text-white/60">
@@ -468,7 +468,7 @@ export default function HistoryPageClient({
                       { label: 'Regressed', rows: (data.details?.jira.regressed || []) as JiraDetailRow[] },
                       { label: 'Created', rows: (data.details?.jira.created || []) as JiraDetailRow[] },
                     ].map((section) => (
-                      <Card key={section.label} className="border-white/10 bg-black/30">
+                      <Card key={section.label} className="border-white/10 bg-zinc-800">
                         <CardHeader className="pb-2">
                           <CardTitle className="text-sm text-white/80">
                             {section.label} ({section.rows.length})
@@ -516,7 +516,7 @@ export default function HistoryPageClient({
                       { label: 'PRs Merged', rows: data.details?.github.prs_merged || [] },
                       { label: 'PRs Closed', rows: data.details?.github.prs_closed || [] },
                     ].map((section) => (
-                      <Card key={section.label} className="border-white/10 bg-black/30">
+                      <Card key={section.label} className="border-white/10 bg-zinc-800">
                         <CardHeader className="pb-2">
                           <CardTitle className="text-sm text-white/80">
                             {section.label} ({section.rows.length})

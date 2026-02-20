@@ -164,7 +164,7 @@ export default function SignalsPageClient({
         </div>
       </div>
 
-      <Card className="border-white/10 bg-white/5">
+      <Card className="border-white/10 bg-zinc-900">
         <CardContent className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-center">
           <div className="flex flex-col gap-2">
             <label className="text-xs uppercase tracking-[0.2em] text-white/60">Window</label>
@@ -203,7 +203,7 @@ export default function SignalsPageClient({
       </Card>
 
       {signals.length === 0 ? (
-        <Card className="border-white/10 bg-white/5">
+        <Card className="border-white/10 bg-zinc-900">
           <CardContent className="py-10 text-center text-white/75">
             System stable. No significant deviations.
           </CardContent>
@@ -213,7 +213,7 @@ export default function SignalsPageClient({
           {signals.slice(0, 7).map((signal) => (
             <Card
               key={signal.id}
-              className="cursor-pointer border-white/10 bg-black/40 transition hover:border-white/30 hover:bg-black/30"
+              className="cursor-pointer border-white/10 bg-zinc-800 transition hover:border-white/30 hover:bg-zinc-700"
               role="button"
               tabIndex={0}
               onClick={() => router.push(`/signals/${signal.id}`)}

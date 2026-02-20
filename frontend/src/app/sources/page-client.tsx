@@ -214,16 +214,16 @@ type BackfillStatus = {
 
 type CustomDomainDialogTarget =
   | {
-      kind: 'repo';
-      repoId: string;
-      currentDomain: string;
-    }
+    kind: 'repo';
+    repoId: string;
+    currentDomain: string;
+  }
   | {
-      kind: 'source';
-      sourceKey: string;
-      sourceLabel: string;
-      currentDomain: string;
-    };
+    kind: 'source';
+    sourceKey: string;
+    sourceLabel: string;
+    currentDomain: string;
+  };
 
 const getRawStatus = (repo: Repository) => ((repo.status_payload?.status as string) || '').toLowerCase();
 
@@ -713,13 +713,13 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
       ? customDomainDialogTarget.sourceLabel
       : customDomainDialogTarget?.kind === 'repo'
         ? repoNameOnly(
-            repoList.find((repo) => repo.id === customDomainDialogTarget.repoId)?.name || 'Source'
-          )
+          repoList.find((repo) => repo.id === customDomainDialogTarget.repoId)?.name || 'Source'
+        )
         : 'source';
 
   return (
     <div className="space-y-8 px-1 sm:px-2 md:px-0">
-      <Card className="overflow-hidden border-white/10 bg-gradient-to-r from-indigo-900/40 via-slate-900/60 to-cyan-900/40 px-1 sm:px-2 md:px-0">
+      <Card className="overflow-hidden border-white/10 bg-gradient-to-r from-indigo-950 via-slate-900 to-cyan-950 px-1 sm:px-2 md:px-0">
         <CardHeader className="p-8 pb-4 md:p-10 md:pb-6">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="space-y-2">
@@ -732,7 +732,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
               </CardDescription>
             </div>
             <div className="grid grid-cols-2 gap-3 lg:w-[360px]">
-              <Card className="border-white/10 bg-white/5">
+              <Card className="border-white/10 bg-zinc-900">
                 <CardContent className="p-4">
                   <div className="flex items-center gap-2">
                     <Badge variant="success">Ready</Badge>
@@ -741,7 +741,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
                   <p className="mt-2 text-2xl font-semibold text-white">{statusCounts.ready}</p>
                 </CardContent>
               </Card>
-              <Card className="border-white/10 bg-white/5">
+              <Card className="border-white/10 bg-zinc-900">
                 <CardContent className="p-4">
                   <div className="flex items-center gap-2">
                     <Badge>Processing</Badge>
@@ -750,7 +750,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
                   <p className="mt-2 text-2xl font-semibold text-white">{statusCounts.processing}</p>
                 </CardContent>
               </Card>
-              <Card className="border-white/10 bg-white/5">
+              <Card className="border-white/10 bg-zinc-900">
                 <CardContent className="p-4">
                   <div className="flex items-center gap-2">
                     <Badge variant="destructive">Failed</Badge>
@@ -759,7 +759,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
                   <p className="mt-2 text-2xl font-semibold text-white">{statusCounts.failed}</p>
                 </CardContent>
               </Card>
-              <Card className="border-white/10 bg-white/5">
+              <Card className="border-white/10 bg-zinc-900">
                 <CardContent className="p-4">
                   <div className="flex items-center gap-2">
                     <Badge variant="outline">Total</Badge>
@@ -773,7 +773,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
         </CardHeader>
       </Card>
 
-      <Card className="border-white/10 bg-white/5 px-1 sm:px-2 md:px-0">
+      <Card className="border-white/10 bg-zinc-900 px-1 sm:px-2 md:px-0">
         <CardContent className="flex flex-col gap-3 p-5 lg:flex-row lg:items-center lg:justify-between md:px-6">
           <div className="flex flex-1 items-center gap-3">
             <Input
@@ -804,7 +804,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
       </Card>
 
       {filteredRepos.length === 0 ? (
-        <Card className="border-white/10 bg-white/5 p-10 text-center">
+        <Card className="border-white/10 bg-zinc-900 p-10 text-center">
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-white/10">
             <Layers className="h-6 w-6 text-white/70" />
           </div>
@@ -829,7 +829,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
         <div className="flex flex-col gap-3 px-1 sm:px-2 md:px-0">
           {/* Column headers — grid at all breakpoints so Added column always has a slot */}
           <div
-            className="grid grid-cols-[1fr_auto_minmax(12rem,1fr)_minmax(10rem,1fr)_auto] gap-2 rounded-2xl border border-white/10 bg-zinc-800/80 px-4 py-3 sm:gap-3 sm:px-5 md:grid-cols-[minmax(200px,1.6fr)_minmax(140px,1fr)_minmax(180px,1.1fr)_minmax(10rem,auto)_auto] md:items-center"
+            className="grid grid-cols-[1fr_auto_minmax(12rem,1fr)_minmax(10rem,1fr)_auto] gap-2 rounded-2xl border border-white/10 bg-zinc-800 px-4 py-3 sm:gap-3 sm:px-5 md:grid-cols-[minmax(200px,1.6fr)_minmax(140px,1fr)_minmax(180px,1.1fr)_minmax(10rem,auto)_auto] md:items-center"
             aria-hidden="true"
           >
             <div className="text-left text-xs font-semibold uppercase tracking-wider text-white/60">Source</div>
@@ -858,7 +858,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
             return (
               <div
                 key={repo.id}
-                className="grid grid-cols-[1fr_auto_minmax(12rem,1fr)_minmax(10rem,1fr)_auto] gap-2 rounded-2xl border border-white/10 bg-gradient-to-r from-white/5 to-black/60 px-4 py-4 sm:gap-3 sm:px-5 md:min-h-[88px] md:grid-cols-[minmax(200px,1.6fr)_minmax(140px,1fr)_minmax(180px,1.1fr)_minmax(10rem,auto)_auto] items-center"
+                className="grid grid-cols-[1fr_auto_minmax(12rem,1fr)_minmax(10rem,1fr)_auto] gap-2 rounded-2xl border border-white/10 bg-zinc-800 px-4 py-4 sm:gap-3 sm:px-5 md:min-h-[88px] md:grid-cols-[minmax(200px,1.6fr)_minmax(140px,1fr)_minmax(180px,1.1fr)_minmax(10rem,auto)_auto] items-center"
               >
                 <div className="flex min-w-0 items-center gap-4">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-md shadow-indigo-500/20">
@@ -1137,7 +1137,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
                   return (
                     <div
                       key={src.key}
-                      className="grid grid-cols-[auto_auto_minmax(0,1fr)_minmax(9rem,11rem)] items-center gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/80 hover:border-white/30"
+                      className="grid grid-cols-[auto_auto_minmax(0,1fr)_minmax(9rem,11rem)] items-center gap-3 rounded-lg border border-white/10 bg-zinc-800 px-3 py-2 text-sm text-white/80 hover:border-white/30"
                     >
                       <input
                         type="checkbox"

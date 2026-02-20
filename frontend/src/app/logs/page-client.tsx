@@ -189,7 +189,7 @@ export function LogsPageClient({ logs }: LogsPageClientProps) {
       <div className="mx-auto max-w-6xl">
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-2">
-            <div className="rounded-lg border border-white/15 bg-white/10 p-2">
+            <div className="rounded-lg border border-white/15 bg-zinc-800 p-2">
               <Activity className="h-6 w-6 text-white" />
             </div>
             <h1 className="text-3xl font-bold text-white">Logs</h1>
@@ -250,7 +250,7 @@ export function LogsPageClient({ logs }: LogsPageClientProps) {
         </div>
 
         {logs.errors.usageEvents && (
-          <Card className="border-white/15 bg-white/5">
+          <Card className="border-white/15 bg-zinc-900">
             <CardContent className="p-4">
               <p className="text-white/85 text-sm font-medium mb-2">
                 Some logs could not be loaded:
@@ -262,7 +262,7 @@ export function LogsPageClient({ logs }: LogsPageClientProps) {
           </Card>
         )}
 
-        <Card className="border border-white/10 bg-gradient-to-b from-white/5 to-white/0 shadow-lg">
+        <Card className="border border-white/10 bg-zinc-900 shadow-lg">
           <CardContent className="p-6">
             <div className="relative">
               {hasEntries && (

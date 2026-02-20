@@ -4,7 +4,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 export default function HistoryLoading() {
   return (
     <div className="space-y-6">
-      <Card className="border-white/10 bg-white/5">
+      <Card className="border-white/10 bg-zinc-900">
         <CardHeader>
           <Skeleton className="h-7 w-48 bg-white/20" />
           <Skeleton className="mt-2 h-4 max-w-md bg-white/10" />
@@ -17,7 +17,7 @@ export default function HistoryLoading() {
         </CardContent>
       </Card>
 
-      <Card className="border-white/10 bg-white/5">
+      <Card className="border-white/10 bg-zinc-900">
         <CardHeader>
           <Skeleton className="h-6 w-36 bg-white/20" />
           <Skeleton className="mt-2 h-4 w-full max-w-2xl bg-white/10" />
@@ -31,7 +31,7 @@ export default function HistoryLoading() {
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {[1, 2, 3, 4, 5, 6].map((i) => (
-          <Card key={i} className="border-white/10 bg-black/30">
+          <Card key={i} className="border-white/10 bg-zinc-800">
             <CardHeader className="pb-2">
               <Skeleton className="h-4 w-28 bg-white/20" />
             </CardHeader>
@@ -44,7 +44,7 @@ export default function HistoryLoading() {
         ))}
       </div>
 
-      <Card className="border-white/10 bg-white/5">
+      <Card className="border-white/10 bg-zinc-900">
         <CardHeader>
           <Skeleton className="h-6 w-32 bg-white/20" />
           <Skeleton className="mt-2 h-4 w-full max-w-xl bg-white/10" />
