@@ -41,6 +41,7 @@ const log = createLogger('diff.jira_webhook_processor', {
     process_skipped: 'Process Skipped',
     source_resolved: 'Source Resolved',
     source_missing: 'Source Missing',
+    source_untracked: 'Source Untracked',
     connection_resolved: 'Connection Resolved',
     raw_event_inserted: 'Raw Event Inserted',
     raw_event_failed: 'Raw Event Failed',
@@ -130,6 +131,10 @@ export async function processJiraWebhookPayload(
   const projectKey = issue?.fields?.project?.key || null;
   const issueKey = typeof issue?.key === 'string' ? issue.key : null;
   const webhookEvent = typeof payload.webhookEvent === 'string' ? payload.webhookEvent : 'unknown';
+  const cloudIdFromPayload =
+    typeof (payload as { cloudId?: unknown }).cloudId === 'string'
+      ? (payload as { cloudId: string }).cloudId
+      : null;
 
   log.info('process_start', {
     requestId,
@@ -153,13 +158,39 @@ export async function processJiraWebhookPayload(
   }
 
   const supabase = createServiceRoleClient();
-  const sourceId = await resolveJiraSourceId(supabase, projectKey, null);
+  const sourceId = await resolveJiraSourceId(supabase, projectKey, cloudIdFromPayload);
   if (!sourceId) {
-    log.warn('source_missing', {
+    const { data: jiraSources } = await supabase
+      .from('workspace_sources')
+      .select('scope')
+      .eq('provider', 'jira')
+      .limit(25);
+
+    const connectedProjects = (jiraSources || [])
+      .map((row) => {
+        const scope = row.scope && typeof row.scope === 'object'
+          ? (row.scope as Record<string, unknown>)
+          : {};
+        const project = typeof scope.project === 'string' ? scope.project.trim().toUpperCase() : '';
+        return project;
+      })
+      .filter((project) => project.length > 0);
+
+    const eventFields = {
       requestId,
       projectKey,
       issueKey,
-    });
+      cloudId: cloudIdFromPayload,
+      connectedProjectSample: connectedProjects.slice(0, 10),
+      connectedProjectCount: connectedProjects.length,
+    };
+
+    if (connectedProjects.length > 0) {
+      log.info('source_untracked', eventFields);
+      return { ok: true, requestId, projectKey, issueKey, skipped: 'project not connected' };
+    }
+
+    log.warn('source_missing', eventFields);
     return { ok: true, requestId, projectKey, issueKey, skipped: 'source not found' };
   }
 

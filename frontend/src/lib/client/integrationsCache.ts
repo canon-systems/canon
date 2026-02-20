@@ -42,8 +42,11 @@ export async function getIntegrationsCached(force = false): Promise<Integrations
       lastFetch = Date.now();
       return data;
     })
-    .catch((err) => {
+    .catch((err: unknown) => {
       cachedData = null;
+      if (err instanceof TypeError && err.message.includes('Failed to fetch')) {
+        throw new Error('Unable to load integrations. Check your network connection and try again.');
+      }
       throw err;
     })
     .finally(() => {

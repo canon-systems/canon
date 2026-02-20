@@ -205,6 +205,19 @@ const dedupeJiraProjects = (
   return Array.from(byScope.values());
 };
 
+async function safeFetchJson(input: RequestInfo | URL, init: RequestInit | undefined, networkErrorMessage: string) {
+  try {
+    const response = await fetch(input, init);
+    const data = await response.json().catch(() => ({}));
+    return { response, data };
+  } catch (err: unknown) {
+    if (err instanceof TypeError && err.message.includes('Failed to fetch')) {
+      throw new Error(networkErrorMessage);
+    }
+    throw err;
+  }
+}
+
 type BackfillStatus = {
   status?: string;
   progress_pct?: number;
@@ -483,27 +496,41 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
     setLoadError('');
     try {
       const [ghRes, jiraRes] = await Promise.allSettled([
-        fetch('/api/github/repos', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
-        }),
-        fetch('/api/jira/projects'),
+        safeFetchJson(
+          '/api/github/repos',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({}),
+          },
+          'Unable to reach GitHub sources endpoint. Check your network connection and try again.'
+        ),
+        safeFetchJson(
+          '/api/jira/projects',
+          undefined,
+          'Unable to reach Jira sources endpoint. Check your network connection and try again.'
+        ),
       ]);
 
       let ghRepos: Array<{ id: string; full_name: string; name: string; default_branch: string }> = [];
 
       if (ghRes.status === 'fulfilled') {
-        const ghData = await ghRes.value.json();
-        ghRepos = parseGithubRepos(ghData);
+        ghRepos = parseGithubRepos(ghRes.value.data);
       } else {
-        setLoadError('Failed to load GitHub repositories.');
+        setLoadError(
+          ghRes.reason instanceof Error
+            ? ghRes.reason.message
+            : 'Failed to load GitHub repositories.'
+        );
       }
 
       const fetchProjectsForCloud = async (cloudId: string) => {
-        const res = await fetch(`/api/jira/projects?cloudId=${encodeURIComponent(cloudId)}`);
+        const { response: res, data } = await safeFetchJson(
+          `/api/jira/projects?cloudId=${encodeURIComponent(cloudId)}`,
+          undefined,
+          'Unable to reach Jira projects endpoint. Check your network connection and try again.'
+        );
         if (!res.ok) return [];
-        const data = await res.json();
         return parseJiraProjects({ ...data, cloudId });
       };
 
@@ -511,14 +538,21 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
 
       // Start with projects from currently selected/default cloud.
       if (jiraRes.status === 'fulfilled') {
-        const jiraData = await jiraRes.value.json();
-        jiraProjects = parseJiraProjects(jiraData);
+        jiraProjects = parseJiraProjects(jiraRes.value.data);
+      } else {
+        setLoadError((current) =>
+          current ||
+          (jiraRes.reason instanceof Error ? jiraRes.reason.message : 'Failed to load Jira projects.')
+        );
       }
 
       // Then fetch projects for every accessible Jira cloud and merge.
-      const sitesRes = await fetch('/api/jira/sites');
+      const { response: sitesRes, data: sitesData } = await safeFetchJson(
+        '/api/jira/sites',
+        undefined,
+        'Unable to reach Jira sites endpoint. Check your network connection and try again.'
+      );
       if (sitesRes.ok) {
-        const sitesData = await sitesRes.json();
         const sites = Array.isArray(sitesData?.sites) ? sitesData.sites : [];
         const cloudIds = sites
           .map((site: { id?: unknown }) => (site?.id ? String(site.id) : ''))

@@ -11,7 +11,7 @@ export function getAtlassianOAuthScopes(): string[] {
     // 'read:page:confluence',
     // 'write:page:confluence',
     // 'read:space:confluence',
-    // 'offline_access',
+    'offline_access',
     'read:jira-work',
     // 'manage:jira-webhook'
   ];
