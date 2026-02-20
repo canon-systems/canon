@@ -284,11 +284,28 @@ function insightLines(data: CompareResponse): string[] {
   const surfaceShift = delta.repos_added.length - delta.repos_removed.length;
 
   const lines: string[] = [];
+  const totalPrimaryMovement =
+    primary.tickets_moved +
+    primary.tickets_completed +
+    primary.tickets_regressed +
+    primary.tickets_created +
+    primary.prs_opened +
+    primary.prs_merged +
+    primary.prs_closed +
+    primary.commits_default +
+    primary.repos_touched.length;
+  const totalBaselineMovement =
+    baseline.tickets_moved +
+    baseline.tickets_completed +
+    baseline.tickets_regressed +
+    baseline.tickets_created +
+    baseline.prs_opened +
+    baseline.prs_merged +
+    baseline.prs_closed +
+    baseline.commits_default +
+    baseline.repos_touched.length;
 
-  if (
-    primary.tickets_completed + primary.prs_merged + primary.tickets_regressed + primary.commits_default === 0 &&
-    baseline.tickets_completed + baseline.prs_merged + baseline.tickets_regressed + baseline.commits_default === 0
-  ) {
+  if (totalPrimaryMovement === 0 && totalBaselineMovement === 0) {
     return ['No tracked Jira or GitHub movement was detected in either window.'];
   }
 
@@ -494,70 +511,63 @@ export default function HistoryPageClient({
   return (
     <div className="space-y-6">
       <Card className="border-white/10 bg-zinc-900">
-        <CardHeader>
-          <CardTitle className="text-white">Canon History</CardTitle>
-          <CardDescription className="text-white/70">
-            Pick a primary date range. Baseline is always auto-derived as the same length immediately before it.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="text-sm text-white/70">
-              Primary: {toDateLabel(activePrimaryWindow.start, timeZone)} → {toDateLabel(activePrimaryWindow.end, timeZone)} · Baseline:{' '}
-              {toDateLabel(activeBaselineWindow.start, timeZone)} → {toDateLabel(activeBaselineWindow.end, timeZone)} · Window length:{' '}
-              {primaryWindowLengthDays} day{primaryWindowLengthDays === 1 ? '' : 's'} · Time zone: {timeZone}
-            </div>
-            <Popover open={isRangePickerOpen} onOpenChange={onRangePickerOpenChange}>
-              <PopoverTrigger asChild>
-                <Button variant="outline" className="border-white/25 bg-zinc-800 text-white hover:bg-zinc-700">
-                  {isRefreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CalendarDays className="mr-2 h-4 w-4" />}
-                  Select Primary Range
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent align="end" sideOffset={8} className="w-auto border-white/10 bg-black/95 p-0">
-                <Calendar
-                  mode="range"
-                  numberOfMonths={1}
-                  selected={selectedPrimaryRange}
-                  onSelect={onSelectPrimaryRange}
-                  defaultMonth={selectedPrimaryRange.from || windowToDateRange(activePrimaryWindow, timeZone).from}
-                  disabled={(date) => date > new Date()}
-                />
-                <div className="border-t border-white/10 p-3">
-                  <p className="text-xs text-white/70">
-                    Primary:{' '}
-                    {selectedPrimaryWindowDraft
-                      ? formatRange(selectedPrimaryWindowDraft.start, selectedPrimaryWindowDraft.end, timeZone)
-                      : 'Choose start and end dates'}
-                  </p>
-                  <p className="mt-1 text-xs text-white/55">
-                    Baseline:{' '}
-                    {selectedBaselineWindowDraft
-                      ? formatRange(selectedBaselineWindowDraft.start, selectedBaselineWindowDraft.end, timeZone)
-                      : 'Will be computed after selecting the full range'}
-                  </p>
-                  <div className="mt-3 flex items-center justify-end gap-2">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="h-8 px-3 text-white/70 hover:text-white"
-                      onClick={() => setIsRangePickerOpen(false)}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      type="button"
-                      className="h-8 px-3 bg-white text-black hover:bg-white/90"
-                      disabled={!selectedPrimaryWindowDraft || isRefreshing}
-                      onClick={applySelectedPrimaryRange}
-                    >
-                      Confirm Range
-                    </Button>
-                  </div>
-                </div>
-              </PopoverContent>
-            </Popover>
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <CardTitle className="text-white">Canon History</CardTitle>
+            <CardDescription className="text-white/70">Pick a primary date range.</CardDescription>
           </div>
+          <Popover open={isRangePickerOpen} onOpenChange={onRangePickerOpenChange}>
+            <PopoverTrigger asChild>
+              <Button variant="outline" className="border-white/25 bg-zinc-800 text-white hover:bg-zinc-700">
+                {isRefreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CalendarDays className="mr-2 h-4 w-4" />}
+                Select Primary Range
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" sideOffset={8} className="w-auto border-white/10 bg-black/95 p-0">
+              <Calendar
+                mode="range"
+                numberOfMonths={1}
+                selected={selectedPrimaryRange}
+                onSelect={onSelectPrimaryRange}
+                defaultMonth={selectedPrimaryRange.from || windowToDateRange(activePrimaryWindow, timeZone).from}
+                disabled={(date) => date > new Date()}
+              />
+              <div className="border-t border-white/10 p-3">
+                <p className="text-xs text-white/70">
+                  Primary:{' '}
+                  {selectedPrimaryWindowDraft
+                    ? formatRange(selectedPrimaryWindowDraft.start, selectedPrimaryWindowDraft.end, timeZone)
+                    : 'Choose start and end dates'}
+                </p>
+                <p className="mt-1 text-xs text-white/55">
+                  Baseline:{' '}
+                  {selectedBaselineWindowDraft
+                    ? formatRange(selectedBaselineWindowDraft.start, selectedBaselineWindowDraft.end, timeZone)
+                    : 'Will be computed after selecting the full range'}
+                </p>
+                <div className="mt-3 flex items-center justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="h-8 px-3 text-white/70 hover:text-white"
+                    onClick={() => setIsRangePickerOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    className="h-8 px-3 bg-white text-black hover:bg-white/90"
+                    disabled={!selectedPrimaryWindowDraft || isRefreshing}
+                    onClick={applySelectedPrimaryRange}
+                  >
+                    Confirm Range
+                  </Button>
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
+        </CardHeader>
+        <CardContent className="space-y-4">
           <div className="flex flex-wrap gap-2">
             {diffSources.map((source) => (
               <Badge key={source.id} variant="outline" className="border-white/20 bg-white/5 text-white/80">
@@ -565,6 +575,23 @@ export default function HistoryPageClient({
               </Badge>
             ))}
           </div>
+          {data ? (
+            <div className="space-y-3 border-t border-white/10 pt-4">
+              <p className="text-xs uppercase tracking-[0.3em] text-white/60">Inside summary</p>
+              <div className="space-y-2 text-white/85">
+                {insight.map((line) => (
+                  <p key={line}>- {line}</p>
+                ))}
+              </div>
+              {lastUpdatedAt ? (
+                <p className="text-xs text-white/55">
+                  Updated {toDateLabel(lastUpdatedAt, timeZone)} · Primary:{' '}
+                  {formatRange(activePrimaryWindow.start, activePrimaryWindow.end, timeZone)} · Baseline:{' '}
+                  {formatRange(activeBaselineWindow.start, activeBaselineWindow.end, timeZone)}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 
@@ -631,22 +658,6 @@ export default function HistoryPageClient({
 
       {data ? (
         <>
-          <Card className="border-white/10 bg-zinc-900">
-            <CardHeader>
-              <CardTitle className="text-white">Insight Summary</CardTitle>
-              <CardDescription className="text-white/60">
-                Current window: {formatRange(data.primary.window.start, data.primary.window.end, timeZone)} | Baseline:{' '}
-                {formatRange(data.baseline.window.start, data.baseline.window.end, timeZone)}
-                {lastUpdatedAt ? ` | Updated ${toDateLabel(lastUpdatedAt, timeZone)}` : ''}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2 text-white/85">
-              {insight.map((line) => (
-                <p key={line}>- {line}</p>
-              ))}
-            </CardContent>
-          </Card>
-
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {metrics.map((metric) => (
               <Card key={metric.key} className="border-white/10 bg-zinc-800">
