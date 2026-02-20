@@ -1,19 +1,18 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { DateTime } from 'luxon';
 import { getSession } from '@/lib/auth';
 import { computeDiffComparison, type CompareResponse, type WorkspaceSourceRow } from '@/lib/server/diff/compare';
 import { DIFF_SOURCE_PROVIDERS } from '@/lib/server/sources/providers';
 import { getWorkspaceSignalSettings } from '@/lib/server/signals/settings';
 import {
   computeBaselineWindowForTimeZone,
-  getWindowForDays,
   normalizeTimeZone,
   parseTimeZoneParam,
 } from '@/lib/server/signals/window';
 import { createClient } from '@/lib/supabase/server';
 import HistoryPageClient from './page-client';
 
-const DEFAULT_HISTORY_WINDOW_DAYS = 7;
 const TIME_ZONE_COOKIE = 'canon_tz';
 
 export default async function HistoryPage({
@@ -59,7 +58,16 @@ export default async function HistoryPage({
   let initialData: CompareResponse | null = null;
   let initialError: string | null = null;
   let initialLastUpdatedAt: string | null = null;
-  const primaryWindow = getWindowForDays(DEFAULT_HISTORY_WINDOW_DAYS, new Date(), timeZone);
+  const todayLocal = DateTime.now().setZone(timeZone).startOf('day');
+  const primaryWindow = {
+    start: todayLocal.toUTC().toISO({ suppressMilliseconds: false }) ?? new Date(todayLocal.toMillis()).toISOString(),
+    end:
+      todayLocal
+        .plus({ days: 1 })
+        .minus({ milliseconds: 1 })
+        .toUTC()
+        .toISO({ suppressMilliseconds: false }) ?? new Date(todayLocal.toMillis()).toISOString(),
+  };
   const baselineWindow = computeBaselineWindowForTimeZone(primaryWindow, timeZone);
 
   if (resolvedSourceRows.length > 0) {
