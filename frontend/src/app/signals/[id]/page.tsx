@@ -346,7 +346,18 @@ export default async function SignalInvestigatePage({
             {evidence.tickets.length === 0 ? <p>No ticket evidence in this signal window.</p> : null}
             {evidence.tickets.map((ticket) => (
               <div key={`${ticket.id}-${ticket.occurred_at}`} className="rounded border border-white/10 bg-zinc-800 px-3 py-2">
-                <div className="font-medium text-white">{ticket.id}</div>
+                {ticket.url ? (
+                  <a
+                    href={ticket.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-medium text-white underline decoration-white/35 underline-offset-2 hover:text-white"
+                  >
+                    {ticket.id}
+                  </a>
+                ) : (
+                  <div className="font-medium text-white">{ticket.id}</div>
+                )}
                 <div className="text-white/70">{ticket.summary || 'No summary'}</div>
               </div>
             ))}
@@ -366,7 +377,18 @@ export default async function SignalInvestigatePage({
             {evidence.prs.length === 0 ? <p>No PR evidence in this signal window.</p> : null}
             {evidence.prs.map((pr) => (
               <div key={`${pr.id}-${pr.occurred_at}-${pr.kind}`} className="rounded border border-white/10 bg-zinc-800 px-3 py-2">
-                <div className="font-medium text-white">PR {pr.id}</div>
+                {pr.url ? (
+                  <a
+                    href={pr.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-medium text-white underline decoration-white/35 underline-offset-2 hover:text-white"
+                  >
+                    PR {pr.id}
+                  </a>
+                ) : (
+                  <div className="font-medium text-white">PR {pr.id}</div>
+                )}
                 <div className="text-white/70">{pr.repo || 'Unknown repo'} · {pr.kind || 'event'}</div>
               </div>
             ))}

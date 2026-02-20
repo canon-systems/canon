@@ -16,6 +16,7 @@ type Source = {
   id: string;
   name: string;
   provider: string;
+  scope?: Record<string, unknown> | null;
 };
 
 type CanonicalDiff = {
@@ -221,22 +222,6 @@ function computeBaselineWindowFromPrimary(primary: DateWindow, timeZone: string)
   return { start: baselineStart, end: baselineEnd };
 }
 
-function daysInWindow(window: DateWindow, timeZone: string): number {
-  const startLocal = localDayStartFromIso(window.start, timeZone);
-  const endLocal = localDayStartFromIso(window.end, timeZone);
-  if (!startLocal || !endLocal || endLocal < startLocal) return 1;
-
-  let dayCount = 1;
-  let cursor = startLocal;
-  while (cursor < endLocal) {
-    cursor = cursor.plus({ days: 1 }).startOf('day');
-    dayCount += 1;
-    if (dayCount > 3660) break;
-  }
-
-  return dayCount;
-}
-
 function signed(value: number): string {
   if (!Number.isFinite(value)) return '0';
   if (value > 0) return `+${value}`;
@@ -262,6 +247,113 @@ function renderJiraTicketLabel(row: JiraDetailRow): string {
   if (summary) return summary;
   if (key) return key;
   return 'Untitled ticket';
+}
+
+function toExternalBaseUrl(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    const parsed = new URL(withProtocol);
+    return parsed.origin + parsed.pathname.replace(/\/+$/, '');
+  } catch {
+    return null;
+  }
+}
+
+function resolveJiraSiteUrl(scope: Record<string, unknown> | null | undefined): string | null {
+  if (!scope) return null;
+  return (
+    toExternalBaseUrl(scope.jira_site_url) ||
+    toExternalBaseUrl(scope.jiraSiteUrl) ||
+    toExternalBaseUrl(scope.site_url) ||
+    toExternalBaseUrl(scope.siteUrl) ||
+    toExternalBaseUrl(scope.url)
+  );
+}
+
+function issueProjectKey(issueKey: string | null | undefined): string | null {
+  if (typeof issueKey !== 'string') return null;
+  const trimmed = issueKey.trim();
+  const dash = trimmed.indexOf('-');
+  if (dash <= 0) return null;
+  return trimmed.slice(0, dash).toUpperCase();
+}
+
+function normalizeGitHubRepo(repo: string | null | undefined): string | null {
+  if (typeof repo !== 'string') return null;
+  const trimmed = repo.trim().replace(/\/+$/, '');
+  if (!trimmed) return null;
+
+  const sshMatch = trimmed.match(/^git@github\.com:([^/]+\/[^/]+?)(?:\.git)?$/i);
+  if (sshMatch) return sshMatch[1];
+
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    const parsed = new URL(withProtocol);
+    if (parsed.hostname.toLowerCase() === 'github.com') {
+      const path = parsed.pathname.replace(/^\/+/, '').replace(/\/+$/, '');
+      if (path) return path.replace(/\.git$/i, '');
+    }
+  } catch {
+    // fall through to plain owner/repo parsing
+  }
+
+  const plain = trimmed
+    .replace(/^github\.com\//i, '')
+    .replace(/^\/+/, '')
+    .replace(/\/+$/, '')
+    .replace(/\.git$/i, '');
+  const segments = plain.split('/');
+  if (segments.length < 2) return null;
+  const owner = segments[0];
+  const name = segments[1];
+  if (!owner || !name) return null;
+  return `${owner}/${name}`;
+}
+
+function normalizeCommitSha(sha: string | null | undefined): string | null {
+  if (typeof sha !== 'string') return null;
+  const trimmed = sha.trim();
+  if (!trimmed) return null;
+  const match = trimmed.match(/[a-f0-9]{7,40}/i);
+  return match ? match[0] : null;
+}
+
+function splitRepo(repo: string): { owner: string; name: string } | null {
+  const [owner, name] = repo.split('/');
+  if (!owner || !name) return null;
+  return { owner, name };
+}
+
+function githubPullRequestUrl(repo: string | null | undefined, number: string | null | undefined): string | null {
+  const normalizedRepo = normalizeGitHubRepo(repo);
+  const normalizedNumber = typeof number === 'string' ? number.trim() : '';
+  if (!normalizedRepo || !normalizedNumber) return null;
+  const parts = splitRepo(normalizedRepo);
+  if (!parts) return null;
+  return `https://github.com/${encodeURIComponent(parts.owner)}/${encodeURIComponent(parts.name)}/pull/${encodeURIComponent(normalizedNumber)}`;
+}
+
+function githubCommitUrl(repo: string | null | undefined, sha: string | null | undefined): string | null {
+  const normalizedRepo = normalizeGitHubRepo(repo);
+  const normalizedSha = normalizeCommitSha(sha);
+  if (!normalizedRepo || !normalizedSha) return null;
+  const parts = splitRepo(normalizedRepo);
+  if (!parts) return null;
+  return `https://github.com/${encodeURIComponent(parts.owner)}/${encodeURIComponent(parts.name)}/commit/${encodeURIComponent(normalizedSha)}`;
+}
+
+function jiraIssueUrl(
+  issueKey: string | null | undefined,
+  jiraBrowseBaseByProject: Map<string, string>
+): string | null {
+  const projectKey = issueProjectKey(issueKey);
+  if (!projectKey || !issueKey) return null;
+  const browseBase = jiraBrowseBaseByProject.get(projectKey);
+  if (!browseBase) return null;
+  return `${browseBase}/browse/${issueKey}`;
 }
 
 function groupRowsBySource<T>(rows: T[], pickSource: (row: T) => string | null | undefined): Array<{ source: string; rows: T[] }> {
@@ -498,7 +590,6 @@ export default function HistoryPageClient({
 
   const insight = useMemo(() => (data ? insightLines(data) : []), [data]);
   const metrics = useMemo(() => (data ? metricRows(data) : []), [data]);
-  const primaryWindowLengthDays = useMemo(() => daysInWindow(activePrimaryWindow, timeZone), [activePrimaryWindow, timeZone]);
   const selectedPrimaryWindowDraft = useMemo(
     () => selectionToPrimaryWindow(selectedPrimaryRange, timeZone),
     [selectedPrimaryRange, timeZone]
@@ -507,6 +598,20 @@ export default function HistoryPageClient({
     () => (selectedPrimaryWindowDraft ? computeBaselineWindowFromPrimary(selectedPrimaryWindowDraft, timeZone) : null),
     [selectedPrimaryWindowDraft, timeZone]
   );
+  const jiraBrowseBaseByProject = useMemo(() => {
+    const byProject = new Map<string, string>();
+    for (const source of diffSources) {
+      if ((source.provider || '').toLowerCase() !== 'jira') continue;
+      const scope = source.scope || null;
+      const project = typeof scope?.project === 'string' ? scope.project.trim().toUpperCase() : '';
+      const siteUrl = resolveJiraSiteUrl(scope);
+      if (!project || !siteUrl) continue;
+      if (!byProject.has(project)) {
+        byProject.set(project, siteUrl);
+      }
+    }
+    return byProject;
+  }, [diffSources]);
 
   return (
     <div className="space-y-6">
@@ -743,9 +848,20 @@ export default function HistoryPageClient({
                                     const status = row.status || null;
                                     return (
                                       <div key={lineKey} className="space-y-0.5">
-                                        <p className="text-white/90">
-                                          {renderJiraTicketLabel(row)}
-                                        </p>
+                                        {jiraIssueUrl(row.issue_key, jiraBrowseBaseByProject) ? (
+                                          <a
+                                            href={jiraIssueUrl(row.issue_key, jiraBrowseBaseByProject) || undefined}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="text-white/90 underline decoration-white/35 underline-offset-2 hover:text-white"
+                                          >
+                                            {renderJiraTicketLabel(row)}
+                                          </a>
+                                        ) : (
+                                          <p className="text-white/90">
+                                            {renderJiraTicketLabel(row)}
+                                          </p>
+                                        )}
                                         <p className="text-white/60">{transition || status || 'No state transition provided'}</p>
                                         <p className="text-white/40">{formatDateTime(row.occurred_at, timeZone)}</p>
                                       </div>
@@ -787,7 +903,18 @@ export default function HistoryPageClient({
                                 <div className="mt-2 space-y-2">
                                   {sourceGroup.rows.map((row, idx) => (
                                     <div key={`commit-${sourceGroup.source}-${row.sha}-${row.occurred_at}-${idx}`} className="space-y-0.5">
-                                      <p className="font-mono text-white/90">{(row.sha || 'commit').slice(0, 10)}</p>
+                                      {githubCommitUrl(row.repo, row.sha) ? (
+                                        <a
+                                          href={githubCommitUrl(row.repo, row.sha) || undefined}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="font-mono text-white/90 underline decoration-white/35 underline-offset-2 hover:text-white"
+                                        >
+                                          {(row.sha || 'commit').slice(0, 10)}
+                                        </a>
+                                      ) : (
+                                        <p className="font-mono text-white/90">{(row.sha || 'commit').slice(0, 10)}</p>
+                                      )}
                                       <p className="text-white/60">{row.message || 'No commit message available'}</p>
                                       <p className="text-white/40">{formatDateTime(row.occurred_at, timeZone)}</p>
                                     </div>
@@ -804,11 +931,23 @@ export default function HistoryPageClient({
                                 <div className="mt-2 space-y-2">
                                   {sourceGroup.rows.map((row, idx) => {
                                     const transition = renderTransition(row.from, row.to);
+                                    const prUrl = githubPullRequestUrl(row.repo, row.number);
                                     return (
                                       <div key={`pr-${section.label}-${sourceGroup.source}-${row.number}-${row.occurred_at}-${idx}`} className="space-y-0.5">
-                                        <p className="text-white/90">
-                                          PR #{row.number || '?'} {row.title ? `- ${row.title}` : ''}
-                                        </p>
+                                        {prUrl ? (
+                                          <a
+                                            href={prUrl}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="text-white/90 underline decoration-white/35 underline-offset-2 hover:text-white"
+                                          >
+                                            PR #{row.number || '?'} {row.title ? `- ${row.title}` : ''}
+                                          </a>
+                                        ) : (
+                                          <p className="text-white/90">
+                                            PR #{row.number || '?'} {row.title ? `- ${row.title}` : ''}
+                                          </p>
+                                        )}
                                         <p className="text-white/60">{transition || row.status || 'No transition provided'}</p>
                                         <p className="text-white/40">{formatDateTime(row.occurred_at, timeZone)}</p>
                                       </div>

@@ -53,6 +53,7 @@ export default async function HistoryPage({
     id: source.id,
     name: source.name,
     provider: source.provider,
+    scope: source.scope || null,
   }));
 
   let initialData: CompareResponse | null = null;

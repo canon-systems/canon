@@ -118,6 +118,93 @@ function severityRank(severity: string): number {
   return 0;
 }
 
+function toExternalBaseUrl(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    const parsed = new URL(withProtocol);
+    return parsed.origin + parsed.pathname.replace(/\/+$/, '');
+  } catch {
+    return null;
+  }
+}
+
+function resolveJiraSiteUrl(scope: Record<string, unknown> | null | undefined): string | null {
+  if (!scope) return null;
+  return (
+    toExternalBaseUrl(scope.jira_site_url) ||
+    toExternalBaseUrl(scope.jiraSiteUrl) ||
+    toExternalBaseUrl(scope.site_url) ||
+    toExternalBaseUrl(scope.siteUrl) ||
+    toExternalBaseUrl(scope.url)
+  );
+}
+
+function projectFromIssueKey(issueKey: string | null | undefined): string | null {
+  if (typeof issueKey !== 'string') return null;
+  const trimmed = issueKey.trim();
+  const dash = trimmed.indexOf('-');
+  if (dash <= 0) return null;
+  return trimmed.slice(0, dash).toUpperCase();
+}
+
+function normalizeGitHubRepo(repo: string | null | undefined): string | null {
+  if (typeof repo !== 'string') return null;
+  const trimmed = repo.trim().replace(/\/+$/, '');
+  if (!trimmed) return null;
+
+  const sshMatch = trimmed.match(/^git@github\.com:([^/]+\/[^/]+?)(?:\.git)?$/i);
+  if (sshMatch) return sshMatch[1];
+
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    const parsed = new URL(withProtocol);
+    if (parsed.hostname.toLowerCase() === 'github.com') {
+      const path = parsed.pathname.replace(/^\/+/, '').replace(/\/+$/, '');
+      if (path) return path.replace(/\.git$/i, '');
+    }
+  } catch {
+    // fall through to plain owner/repo parsing
+  }
+
+  const plain = trimmed
+    .replace(/^github\.com\//i, '')
+    .replace(/^\/+/, '')
+    .replace(/\/+$/, '')
+    .replace(/\.git$/i, '');
+  const segments = plain.split('/');
+  if (segments.length < 2) return null;
+  const owner = segments[0];
+  const name = segments[1];
+  if (!owner || !name) return null;
+  return `${owner}/${name}`;
+}
+
+function splitRepo(repo: string): { owner: string; name: string } | null {
+  const [owner, name] = repo.split('/');
+  if (!owner || !name) return null;
+  return { owner, name };
+}
+
+function githubPullRequestUrl(repo: string | null | undefined, id: string | null | undefined): string | null {
+  const normalizedRepo = normalizeGitHubRepo(repo);
+  const normalizedId = typeof id === 'string' ? id.trim() : '';
+  if (!normalizedRepo || !normalizedId) return null;
+  const parts = splitRepo(normalizedRepo);
+  if (!parts) return null;
+  return `https://github.com/${encodeURIComponent(parts.owner)}/${encodeURIComponent(parts.name)}/pull/${encodeURIComponent(normalizedId)}`;
+}
+
+function jiraIssueUrl(issueKey: string | null | undefined, jiraBrowseBaseByProject: Map<string, string>): string | null {
+  const project = projectFromIssueKey(issueKey);
+  if (!project || !issueKey) return null;
+  const browseBase = jiraBrowseBaseByProject.get(project);
+  if (!browseBase) return null;
+  return `${browseBase}/browse/${issueKey}`;
+}
+
 export function sortSignalsByPriority<T extends { severity: string; percent_change: number }>(signals: T[]): T[] {
   return [...signals].sort((a, b) => {
     const severityDiff = severityRank(b.severity) - severityRank(a.severity);
@@ -632,8 +719,8 @@ export async function getSignalInvestigation(params: {
     }>;
   } | null;
   evidence: {
-    tickets: Array<{ id: string; summary: string | null; occurred_at: string | null }>;
-    prs: Array<{ id: string; repo: string | null; occurred_at: string | null; kind: string | null }>;
+    tickets: Array<{ id: string; summary: string | null; occurred_at: string | null; url: string | null }>;
+    prs: Array<{ id: string; repo: string | null; occurred_at: string | null; kind: string | null; url: string | null }>;
     repos: Array<{ id: string; activity: number }>;
   };
 }> {
@@ -664,8 +751,8 @@ export async function getSignalInvestigation(params: {
     sourceIds = Array.isArray(run?.source_ids) ? run.source_ids.filter((id): id is string => typeof id === 'string') : [];
   }
 
-  const tickets: Array<{ id: string; summary: string | null; occurred_at: string | null }> = [];
-  const prs: Array<{ id: string; repo: string | null; occurred_at: string | null; kind: string | null }> = [];
+  const tickets: Array<{ id: string; summary: string | null; occurred_at: string | null; url: string | null }> = [];
+  const prs: Array<{ id: string; repo: string | null; occurred_at: string | null; kind: string | null; url: string | null }> = [];
   const repoCounts = new Map<string, number>();
   let direction: {
     headline: string;
@@ -694,6 +781,24 @@ export async function getSignalInvestigation(params: {
   } | null = null;
 
   if (sourceIds.length > 0) {
+    const jiraBrowseBaseByProject = new Map<string, string>();
+    const { data: sourceRows } = await supabase
+      .from('workspace_sources')
+      .select('provider, scope')
+      .eq('user_id', userId)
+      .in('id', sourceIds);
+    for (const row of sourceRows || []) {
+      const provider = typeof row.provider === 'string' ? row.provider.toLowerCase() : '';
+      if (provider !== 'jira') continue;
+      const scope = (row.scope as Record<string, unknown> | null) || null;
+      const project = typeof scope?.project === 'string' ? scope.project.trim().toUpperCase() : '';
+      const siteUrl = resolveJiraSiteUrl(scope);
+      if (!project || !siteUrl) continue;
+      if (!jiraBrowseBaseByProject.has(project)) {
+        jiraBrowseBaseByProject.set(project, siteUrl);
+      }
+    }
+
     const currentWindow = {
       start: signal.window_start,
       end: signal.window_end,
@@ -801,7 +906,12 @@ export async function getSignalInvestigation(params: {
               ? metadata.title
               : null;
         if (!tickets.some((t) => t.id === entityId && t.occurred_at === event.occurred_at)) {
-          tickets.push({ id: entityId, summary, occurred_at: event.occurred_at });
+          tickets.push({
+            id: entityId,
+            summary,
+            occurred_at: event.occurred_at,
+            url: jiraIssueUrl(entityId, jiraBrowseBaseByProject),
+          });
         }
       }
 
@@ -811,6 +921,7 @@ export async function getSignalInvestigation(params: {
           repo,
           occurred_at: event.occurred_at,
           kind,
+          url: githubPullRequestUrl(repo, entityId),
         });
       }
 
