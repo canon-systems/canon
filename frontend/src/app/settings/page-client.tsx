@@ -69,6 +69,22 @@ const integrationCards: IntegrationCard[] = [
   }
 ];
 
+const FALLBACK_TIMEZONES = [
+  'UTC',
+  'America/Los_Angeles',
+  'America/Denver',
+  'America/Chicago',
+  'America/New_York',
+  'Europe/London',
+  'Europe/Berlin',
+  'Asia/Tokyo',
+];
+
+function resolveBrowserTimeZone(): string {
+  const resolved = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return typeof resolved === 'string' && resolved.trim().length > 0 ? resolved : 'UTC';
+}
+
 export function SettingsPageClient({ user: initialUser }: SettingsPageClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -102,6 +118,20 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   const [emailDigestTo, setEmailDigestTo] = useState('');
   const [deliveryPreference, setDeliveryPreference] = useState<'slack_only' | 'email_only' | 'slack_then_email' | null>('slack_only');
   const [windowDays, setWindowDays] = useState<number>(7);
+  const [timeZone, setTimeZone] = useState<string>(() => resolveBrowserTimeZone());
+  const [timeZoneOptions, setTimeZoneOptions] = useState<string[]>(FALLBACK_TIMEZONES);
+
+  useEffect(() => {
+    const intlWithSupportedValues = Intl as unknown as { supportedValuesOf?: (key: string) => string[] };
+    const supportedValuesOf = intlWithSupportedValues.supportedValuesOf;
+    if (typeof supportedValuesOf !== 'function') return;
+
+    const zones = supportedValuesOf('timeZone');
+    if (!Array.isArray(zones) || zones.length === 0) return;
+
+    const merged = Array.from(new Set([...FALLBACK_TIMEZONES, ...zones]));
+    setTimeZoneOptions(merged);
+  }, []);
 
   const loadConnections = useCallback(async (force = false) => {
     setLoading(true);
@@ -186,6 +216,12 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
       if (typeof payload?.baseline_window_days === 'number') {
         setWindowDays(Math.max(1, Math.min(30, Math.floor(payload.baseline_window_days))));
       }
+      const resolvedZone =
+        typeof payload?.time_zone === 'string' && payload.time_zone.trim().length > 0
+          ? payload.time_zone.trim()
+          : resolveBrowserTimeZone();
+      setTimeZone(resolvedZone);
+      setTimeZoneOptions((prev) => (prev.includes(resolvedZone) ? prev : [resolvedZone, ...prev]));
     } catch (err: unknown) {
       setSlackError(err instanceof Error ? err.message : 'Failed to load delivery settings');
     } finally {
@@ -336,6 +372,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
           email_digest_to: includeEmail ? emailDigestTo.trim() || null : null,
           delivery_preference: deliveryPreference,
           baseline_window_days: windowDays,
+          time_zone: timeZone,
         }),
       });
 
@@ -517,6 +554,38 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                         </div>
                       )}
 
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2 text-sm font-medium text-white/80">
+                          <span>Time zone</span>
+                          <TooltipProvider delayDuration={120}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Info className="h-4 w-4 cursor-help text-white/60" />
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="max-w-xs leading-relaxed">
+                                Canon converts local day boundaries in this time zone to UTC before querying history and signal windows.
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </div>
+                        <Select
+                          value={timeZone}
+                          onValueChange={(value) => setTimeZone(value)}
+                          disabled={slackLoading}
+                        >
+                          <SelectTrigger className="w-full border-white/20 bg-white/5 text-white">
+                            <SelectValue placeholder="Choose a time zone" />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-72 bg-black/90 text-white">
+                            {timeZoneOptions.map((zone) => (
+                              <SelectItem key={zone} value={zone}>
+                                {zone}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
                       {slackError ? <p className="text-xs text-red-300">{slackError}</p> : null}
                       {slackMessage ? <p className="text-xs text-emerald-300">{slackMessage}</p> : null}
 
@@ -529,7 +598,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                                 <Info className="h-4 w-4 cursor-help text-white/60" />
                               </TooltipTrigger>
                               <TooltipContent side="top" className="max-w-xs leading-relaxed">
-                                Sets the number of days for Signals and History. Baseline uses the same length immediately before the primary window. Range: 1–30 days.
+                                Sets the default number of days for Signals. History uses its own calendar range selection. Range: 1–30 days.
                               </TooltipContent>
                             </Tooltip>
                           </TooltipProvider>

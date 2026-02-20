@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
 import { listSignals } from '@/lib/server/signals/engine';
-import { parseSignalSeverityParam, windowStartFromParam } from '@/lib/server/signals/window';
+import { getWorkspaceSignalSettings } from '@/lib/server/signals/settings';
+import { normalizeTimeZone, parseSignalSeverityParam, parseTimeZoneParam, windowStartFromParam } from '@/lib/server/signals/window';
 
 export const dynamic = 'force-dynamic';
+const TIME_ZONE_COOKIE = 'canon_tz';
 
 export async function GET(request: NextRequest) {
   try {
@@ -19,7 +22,13 @@ export async function GET(request: NextRequest) {
 
     const scope = request.nextUrl.searchParams.get('scope') || undefined;
     const limit = Number.parseInt(request.nextUrl.searchParams.get('limit') || '', 10);
-    const windowStart = windowStartFromParam(request.nextUrl.searchParams.get('window'), new Date());
+    const tzParam = request.nextUrl.searchParams.get('tz');
+    const cookieStore = await cookies();
+    const cookieTimeZone = parseTimeZoneParam(cookieStore.get(TIME_ZONE_COOKIE)?.value);
+    const settings = await getWorkspaceSignalSettings({ supabase, userId: user.id });
+    const settingsTimeZone = parseTimeZoneParam(settings.time_zone);
+    const timeZone = normalizeTimeZone(parseTimeZoneParam(tzParam) || cookieTimeZone || settingsTimeZone);
+    const windowStart = windowStartFromParam(request.nextUrl.searchParams.get('window'), new Date(), undefined, timeZone);
 
     const signals = await listSignals({
       supabase,
@@ -32,6 +41,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(
       {
+        time_zone: timeZone,
         signals: signals.map((signal) => ({
           id: signal.id,
           title: signal.title,

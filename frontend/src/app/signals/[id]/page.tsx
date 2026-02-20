@@ -1,14 +1,19 @@
 import Link from 'next/link';
+import { cookies } from 'next/headers';
 import { notFound, redirect } from 'next/navigation';
+import { DateTime } from 'luxon';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
 import { getSignalInvestigation } from '@/lib/server/signals/engine';
+import { getWorkspaceSignalSettings } from '@/lib/server/signals/settings';
+import { normalizeTimeZone, parseTimeZoneParam } from '@/lib/server/signals/window';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { MetricLabelTooltip } from '@/components/metric-label-tooltip';
 
 export const dynamic = 'force-dynamic';
+const TIME_ZONE_COOKIE = 'canon_tz';
 
 function pct(value: number): string {
   if (!Number.isFinite(value)) return '0%';
@@ -24,19 +29,15 @@ function signed(value: number): string {
   return `${value}`;
 }
 
-function formatDay(value: string): string {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
+function formatDay(value: string, timeZone: string): string {
+  const parsed = DateTime.fromISO(value, { zone: 'utc' }).setZone(timeZone);
+  if (!parsed.isValid) return value;
+  return parsed.toFormat('MMM d, yyyy');
 }
 
-function formatRange(start: string, end: string): string {
-  const startLabel = formatDay(start);
-  const endLabel = formatDay(end);
+function formatRange(start: string, end: string, timeZone: string): string {
+  const startLabel = formatDay(start, timeZone);
+  const endLabel = formatDay(end, timeZone);
   if (startLabel === endLabel) return startLabel;
   return `${startLabel} to ${endLabel}`;
 }
@@ -121,16 +122,26 @@ function scopeBadgeLabel(scopeType: string, scopeId?: string | null): string {
 
 export default async function SignalInvestigatePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { session, user } = await getSession();
   if (!session || !user) {
     redirect('/login');
   }
 
+  const query = await searchParams;
+  const requestedTimeZone = typeof query.tz === 'string' ? parseTimeZoneParam(query.tz) : null;
+  const cookieStore = await cookies();
+  const cookieTimeZone = parseTimeZoneParam(cookieStore.get(TIME_ZONE_COOKIE)?.value);
+
   const { id } = await params;
   const supabase = await createClient();
+  const settings = await getWorkspaceSignalSettings({ supabase, userId: user.id });
+  const settingsTimeZone = parseTimeZoneParam(settings.time_zone);
+  const timeZone = normalizeTimeZone(requestedTimeZone || cookieTimeZone || settingsTimeZone);
   const payload = await getSignalInvestigation({
     supabase,
     userId: user.id,
@@ -168,6 +179,7 @@ export default async function SignalInvestigatePage({
           <CardContent className="space-y-4 pt-6 text-sm text-white/80">
             <div className="rounded border border-white/10 bg-zinc-800 px-3 py-3">
               <p className="text-xs uppercase tracking-[0.18em] text-white/50">Baseline Context</p>
+              <p className="mt-1 text-xs text-white/45">Time zone: {timeZone}</p>
               <div className="mt-2 space-y-1 text-sm">
                 <p>
                   <MetricLabelTooltip
@@ -190,10 +202,10 @@ export default async function SignalInvestigatePage({
                   · Baseline: <span className="text-white">{formatMetricValue(signal.metric_key, signal.baseline_value)}</span>
                 </p>
                 <p className="text-xs text-white/60">
-                  Current range: {formatRange(signal.window_start, signal.window_end)}
+                  Current range: {formatRange(signal.window_start, signal.window_end, timeZone)}
                 </p>
                 <p className="text-xs text-white/60">
-                  Baseline range: {formatRange(signal.baseline_start, signal.baseline_end)}
+                  Baseline range: {formatRange(signal.baseline_start, signal.baseline_end, timeZone)}
                 </p>
               </div>
             </div>
@@ -311,10 +323,10 @@ export default async function SignalInvestigatePage({
               <span className="text-white">{baselineCoveragePercent(signal.current_value, signal.baseline_value)}</span>
             </p>
             <p className="text-xs text-white/60">
-              Current range: {formatRange(signal.window_start, signal.window_end)}
+              Current range: {formatRange(signal.window_start, signal.window_end, timeZone)}
             </p>
             <p className="text-xs text-white/60">
-              Baseline range: {formatRange(signal.baseline_start, signal.baseline_end)}
+              Baseline range: {formatRange(signal.baseline_start, signal.baseline_end, timeZone)}
             </p>
           </CardContent>
         </Card>

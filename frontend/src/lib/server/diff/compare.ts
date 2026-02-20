@@ -7,6 +7,7 @@ import {
   diffDelta,
   emptyCanonicalDiff,
 } from '@/lib/server/diff/contracts';
+import { computeCanonicalDiffFromEvents } from '@/lib/server/diff/aggregateFromEvents';
 import { createClient } from '@/lib/supabase/server';
 
 export type DiffDetails = {
@@ -297,34 +298,6 @@ function buildIssueTitleMap(
   return map;
 }
 
-function toUtcDay(value: string): string | null {
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return null;
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())).toISOString().slice(0, 10);
-}
-
-function mergeRepos(base: string[], extra: unknown): string[] {
-  const repos = new Set(base);
-  if (Array.isArray(extra)) {
-    for (const r of extra) {
-      if (typeof r === 'string' && r.trim().length > 0) repos.add(r);
-    }
-  }
-  return Array.from(repos);
-}
-
-function addRollupToDiff(diff: CanonicalDiff, row: Record<string, unknown>) {
-  diff.tickets_moved += Number(row.tickets_moved ?? 0);
-  diff.tickets_completed += Number(row.tickets_completed ?? 0);
-  diff.tickets_regressed += Number(row.tickets_regressed ?? 0);
-  diff.tickets_created += Number(row.tickets_created ?? 0);
-  diff.prs_opened += Number(row.prs_opened ?? 0);
-  diff.prs_merged += Number(row.prs_merged ?? 0);
-  diff.prs_closed += Number(row.prs_closed ?? 0);
-  diff.commits_default += Number(row.commits_default ?? 0);
-  diff.repos_touched = mergeRepos(diff.repos_touched, row.repos_touched);
-}
-
 function hasJiraTicketActivity(diff: CanonicalDiff): boolean {
   return diff.tickets_moved + diff.tickets_completed + diff.tickets_regressed + diff.tickets_created > 0;
 }
@@ -347,44 +320,6 @@ function addJiraWorkspaceTouch(diff: CanonicalDiff, source: DiffSourceInfo): voi
   if (!diff.repos_touched.includes(workspace)) {
     diff.repos_touched = [...diff.repos_touched, workspace];
   }
-}
-
-async function computeCanonicalDiffFromRollups(params: {
-  supabase: Awaited<ReturnType<typeof createClient>>;
-  sourceIds: string[];
-  window: { start: string; end: string };
-}): Promise<{ agg: CanonicalDiff; bySource: Record<string, CanonicalDiff>; hasRows: boolean }> {
-  const { supabase, sourceIds, window } = params;
-  const startDay = toUtcDay(window.start);
-  const endDay = toUtcDay(window.end);
-  const agg = emptyCanonicalDiff(window);
-  const bySource: Record<string, CanonicalDiff> = {};
-
-  if (!startDay || !endDay || sourceIds.length === 0) {
-    return { agg, bySource, hasRows: false };
-  }
-
-  const { data: rows, error } = await supabase
-    .from('diff_daily_metrics')
-    .select('source_id, day, prs_opened, prs_merged, prs_closed, commits_default, tickets_moved, tickets_completed, tickets_regressed, tickets_created, repos_touched')
-    .in('source_id', sourceIds)
-    .gte('day', startDay)
-    .lte('day', endDay);
-
-  if (error || !rows?.length) {
-    return { agg, bySource, hasRows: false };
-  }
-
-  for (const row of rows) {
-    const sourceId = String(row.source_id);
-    if (!bySource[sourceId]) {
-      bySource[sourceId] = emptyCanonicalDiff(window);
-    }
-    addRollupToDiff(bySource[sourceId], row as Record<string, unknown>);
-    addRollupToDiff(agg, row as Record<string, unknown>);
-  }
-
-  return { agg, bySource, hasRows: true };
 }
 
 function resolveSourceIdsToTargets(rows: WorkspaceSourceRow[]): DiffSourceInfo[] {
@@ -520,37 +455,37 @@ export async function computeDiffComparison(input: ComputeDiffComparisonInput): 
 
   const details = buildDetails(detailRows as CanonicalEventRow[], jiraSummaryMap, issueTitleMap);
 
-  const primaryRollups = await computeCanonicalDiffFromRollups({
+  const primaryEvents = await computeCanonicalDiffFromEvents({
     supabase: userSupabase,
     sourceIds,
     window: primaryWindow,
   });
-  const baselineRollups = await computeCanonicalDiffFromRollups({
+  const baselineEvents = await computeCanonicalDiffFromEvents({
     supabase: userSupabase,
     sourceIds,
     window: baselineWindow,
   });
 
-  if (primaryRollups.hasRows || baselineRollups.hasRows) {
+  if (primaryEvents.hasRows || baselineEvents.hasRows) {
     for (const source of sources) {
-      const primary = primaryRollups.bySource[source.id] ?? emptyCanonicalDiff(primaryWindow);
-      const baseline = baselineRollups.bySource[source.id] ?? emptyCanonicalDiff(baselineWindow);
+      const primary = primaryEvents.bySource[source.id] ?? emptyCanonicalDiff(primaryWindow);
+      const baseline = baselineEvents.bySource[source.id] ?? emptyCanonicalDiff(baselineWindow);
       addJiraWorkspaceTouch(primary, source);
       addJiraWorkspaceTouch(baseline, source);
       const delta = diffDelta(primary, baseline);
       by_source[source.display_name] = { primary, baseline, delta };
     }
 
-    Object.assign(primaryAgg, primaryRollups.agg);
-    Object.assign(baselineAgg, baselineRollups.agg);
+    Object.assign(primaryAgg, primaryEvents.agg);
+    Object.assign(baselineAgg, baselineEvents.agg);
     enrichAggregateReposFromSources({
       aggregate: primaryAgg,
-      bySource: primaryRollups.bySource,
+      bySource: primaryEvents.bySource,
       sources,
     });
     enrichAggregateReposFromSources({
       aggregate: baselineAgg,
-      bySource: baselineRollups.bySource,
+      bySource: baselineEvents.bySource,
       sources,
     });
   }

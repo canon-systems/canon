@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { computeBaselineWindow } from '@/lib/server/diff/contracts';
 import type { ComputeMetricsInput, MetricComparison, MetricDelta, MetricSnapshot, MetricWindow } from '@/lib/server/signals/types';
 import { computeMetrics } from '@/lib/server/signals/metrics';
+import { computeBaselineWindowForTimeZone, DEFAULT_SIGNAL_TIME_ZONE } from '@/lib/server/signals/window';
 
 function asDelta(metricKey: string, current: number, baseline: number): MetricDelta {
   const absoluteChange = current - baseline;
@@ -23,9 +23,11 @@ export async function computeCurrentAndBaselineMetrics(params: {
   sourceIds: string[];
   windowCurrent: MetricWindow;
   windowBaseline?: MetricWindow;
+  timeZone?: string;
 }): Promise<{ current: MetricSnapshot; baseline: MetricSnapshot; windowBaseline: MetricWindow }> {
-  const { supabase, userId, sourceIds, windowCurrent, windowBaseline } = params;
-  const baselineWindow = windowBaseline || computeBaselineWindow(windowCurrent.start, windowCurrent.end);
+  const { supabase, userId, sourceIds, windowCurrent, windowBaseline, timeZone } = params;
+  const baselineWindow =
+    windowBaseline || computeBaselineWindowForTimeZone(windowCurrent, timeZone || DEFAULT_SIGNAL_TIME_ZONE);
 
   const [current, baseline] = await Promise.all([
     computeMetrics({ supabase, userId, sourceIds, window: windowCurrent }),
@@ -58,15 +60,17 @@ export async function computeAndCompareMetrics(
   params: ComputeMetricsInput & {
     supabase: SupabaseClient;
     windowBaseline?: MetricWindow;
+    timeZone?: string;
   }
 ): Promise<{ current: MetricSnapshot; baseline: MetricSnapshot; comparison: MetricComparison }> {
-  const { supabase, userId, sourceIds, window, windowBaseline } = params;
+  const { supabase, userId, sourceIds, window, windowBaseline, timeZone } = params;
   const pair = await computeCurrentAndBaselineMetrics({
     supabase,
     userId,
     sourceIds,
     windowCurrent: window,
     windowBaseline,
+    timeZone,
   });
 
   return {

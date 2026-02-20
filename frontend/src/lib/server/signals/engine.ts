@@ -126,8 +126,8 @@ export function sortSignalsByPriority<T extends { severity: string; percent_chan
   });
 }
 
-function defaultWindowForSettings(baselineDays: number): MetricWindow {
-  const window = getNormalizedWindowForDays(baselineDays, new Date());
+function defaultWindowForSettings(baselineDays: number, timeZone: string): MetricWindow {
+  const window = getNormalizedWindowForDays(baselineDays, new Date(), undefined, timeZone);
   return { start: window.start, end: window.end };
 }
 
@@ -213,7 +213,7 @@ export async function runSignalEngine(params: {
 
   const settings = await getWorkspaceSignalSettings({ supabase, userId });
   const sourceIds = await resolveSignalSourceIds({ supabase, userId, sourceIds: params.sourceIds });
-  const window = defaultWindowForSettings(settings.baseline_window_days);
+  const window = defaultWindowForSettings(settings.baseline_window_days, settings.time_zone);
 
   const { data: sourceRows } = sourceIds.length
     ? await supabase
@@ -233,6 +233,7 @@ export async function runSignalEngine(params: {
     userId,
     sourceIds,
     window,
+    timeZone: settings.time_zone,
   });
 
   // Attach feature focus distribution for UI (top 3 features by share in current window)
@@ -873,12 +874,13 @@ export async function getLatestComparison(params: {
   const { supabase, userId, sourceIds, window } = params;
   const settings = await getWorkspaceSignalSettings({ supabase, userId });
   const resolvedSourceIds = await resolveSignalSourceIds({ supabase, userId, sourceIds });
-  const targetWindow = window || defaultWindowForSettings(settings.baseline_window_days);
+  const targetWindow = window || defaultWindowForSettings(settings.baseline_window_days, settings.time_zone);
   const { comparison } = await computeAndCompareMetrics({
     supabase,
     userId,
     sourceIds: resolvedSourceIds,
     window: targetWindow,
+    timeZone: settings.time_zone,
   });
   return comparison;
 }

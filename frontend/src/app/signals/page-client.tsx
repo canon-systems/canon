@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { DateTime } from 'luxon';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -43,18 +44,17 @@ function scopeLabel(signal: SignalCard): string {
   return 'Source unavailable';
 }
 
-function formatTimestamp(value: string | null): string {
+function formatTimestamp(value: string | null, timeZone: string): string {
   if (!value) return 'N/A';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  const iso = date.toISOString();
-  return iso.replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC');
+  const date = DateTime.fromISO(value, { zone: 'utc' }).setZone(timeZone);
+  if (!date.isValid) return value;
+  return date.toFormat('MMM d, yyyy h:mm a ZZZZ');
 }
 
-function formatDateOnly(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return `${date.toISOString().slice(0, 10)} UTC`;
+function formatDateOnly(value: string, timeZone: string): string {
+  const date = DateTime.fromISO(value, { zone: 'utc' }).setZone(timeZone);
+  if (!date.isValid) return value;
+  return date.toFormat('yyyy-LL-dd');
 }
 
 function formatSignedPercent(value: number): string {
@@ -134,10 +134,12 @@ export default function SignalsPageClient({
   signals,
   windowDays,
   selectedSeverity,
+  timeZone,
 }: {
   signals: SignalCard[];
   windowDays: number | null;
   selectedSeverity: 'all' | 'elevated' | 'significant';
+  timeZone: string;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -160,7 +162,9 @@ export default function SignalsPageClient({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-white">Signals</h1>
-          <p className="text-sm text-white/70">{windowLabel}</p>
+          <p className="text-sm text-white/70">
+            {windowLabel} · Time zone: {timeZone}
+          </p>
         </div>
       </div>
 
@@ -253,9 +257,9 @@ export default function SignalsPageClient({
                   <div>
                     <div className="space-y-1.5">
                       <p className="font-mono text-[11px] text-white/80">{signal.id}</p>
-                      <p className="text-xs text-white/70">Detected: {formatTimestamp(signal.created_at)}</p>
+                      <p className="text-xs text-white/70">Detected: {formatTimestamp(signal.created_at, timeZone)}</p>
                       <p className="text-xs text-white/70">
-                        Window: {formatDateOnly(signal.window_start)} to {formatDateOnly(signal.window_end)}
+                        Window: {formatDateOnly(signal.window_start, timeZone)} to {formatDateOnly(signal.window_end, timeZone)}
                       </p>
                     </div>
                   </div>

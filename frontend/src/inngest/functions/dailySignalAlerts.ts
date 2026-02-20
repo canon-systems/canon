@@ -77,7 +77,7 @@ export const dailySignalAlerts = inngest.createFunction(
     for (const [userId, sourceIds] of grouped.entries()) {
       try {
         const settings = await getWorkspaceSignalSettings({ supabase, userId });
-        const window = getNormalizedWindowForDays(settings.baseline_window_days, now);
+        const window = getNormalizedWindowForDays(settings.baseline_window_days, now, undefined, settings.time_zone);
 
         const signalRun = await runSignalEngine({
           supabase,

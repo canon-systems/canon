@@ -1,15 +1,43 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { DIFF_SOURCE_PROVIDERS } from '@/lib/server/sources/providers';
 import type { WorkspaceSignalSettings } from '@/lib/server/signals/types';
+import { DEFAULT_SIGNAL_TIME_ZONE, normalizeTimeZone, parseTimeZoneParam } from '@/lib/server/signals/window';
 
 const DEFAULTS: Omit<WorkspaceSignalSettings, 'user_id'> = {
   baseline_window_days: 7,
+  time_zone: DEFAULT_SIGNAL_TIME_ZONE,
   slack_channel: null,
   email_digest_enabled: false,
   email_digest_to: null,
   delivery_preference: 'slack_only',
   source_ids: [],
 };
+
+function isMissingTimeZoneColumnError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const message = 'message' in error && typeof error.message === 'string' ? error.message : '';
+  return message.includes('time_zone') && message.includes('does not exist');
+}
+
+async function upsertSettingsRow(
+  supabase: SupabaseClient,
+  payload: Record<string, unknown>
+): Promise<void> {
+  const { error } = await supabase.from('workspace_signal_settings').upsert(payload, { onConflict: 'user_id' });
+  if (!error) return;
+  if (!('time_zone' in payload) || !isMissingTimeZoneColumnError(error)) {
+    throw new Error(error.message || 'Failed to upsert workspace signal settings');
+  }
+
+  const legacyPayload = { ...payload };
+  delete legacyPayload.time_zone;
+  const { error: legacyError } = await supabase
+    .from('workspace_signal_settings')
+    .upsert(legacyPayload, { onConflict: 'user_id' });
+  if (legacyError) {
+    throw new Error(legacyError.message || 'Failed to upsert workspace signal settings');
+  }
+}
 
 function clampWindowDays(value: number): number {
   if (!Number.isFinite(value)) return DEFAULTS.baseline_window_days;
@@ -24,6 +52,10 @@ function normalizeSettings(userId: string, row?: Record<string, unknown> | null)
       typeof row?.baseline_window_days === 'number'
         ? clampWindowDays(row.baseline_window_days)
         : DEFAULTS.baseline_window_days,
+    time_zone:
+      typeof row?.time_zone === 'string' && parseTimeZoneParam(row.time_zone)
+        ? normalizeTimeZone(row.time_zone, DEFAULTS.time_zone)
+        : DEFAULTS.time_zone,
     slack_channel: typeof row?.slack_channel === 'string' && row.slack_channel.trim().length > 0 ? row.slack_channel.trim() : null,
     email_digest_enabled: row?.email_digest_enabled === true,
     email_digest_to:
@@ -59,7 +91,7 @@ export async function getWorkspaceSignalSettings(params: {
     updated_at: new Date().toISOString(),
   };
 
-  await supabase.from('workspace_signal_settings').upsert(payload, { onConflict: 'user_id' });
+  await upsertSettingsRow(supabase, payload as unknown as Record<string, unknown>);
   return normalizeSettings(userId, payload as unknown as Record<string, unknown>);
 }
 
@@ -78,6 +110,10 @@ export async function updateWorkspaceSignalSettings(params: {
       typeof patch.baseline_window_days === 'number'
         ? clampWindowDays(patch.baseline_window_days)
         : current.baseline_window_days,
+    time_zone:
+      typeof patch.time_zone === 'string'
+        ? normalizeTimeZone(patch.time_zone, current.time_zone)
+        : current.time_zone,
     delivery_preference:
       patch.delivery_preference === 'slack_only' ||
       patch.delivery_preference === 'email_only' ||
@@ -88,15 +124,10 @@ export async function updateWorkspaceSignalSettings(params: {
     user_id: userId,
   };
 
-  await supabase
-    .from('workspace_signal_settings')
-    .upsert(
-      {
-        ...next,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'user_id' }
-    );
+  await upsertSettingsRow(supabase, {
+    ...next,
+    updated_at: new Date().toISOString(),
+  } as Record<string, unknown>);
 
   return next;
 }

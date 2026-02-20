@@ -1,23 +1,41 @@
+import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/auth';
 import { computeDiffComparison, type CompareResponse, type WorkspaceSourceRow } from '@/lib/server/diff/compare';
-import { computeBaselineWindow } from '@/lib/server/diff/contracts';
 import { DIFF_SOURCE_PROVIDERS } from '@/lib/server/sources/providers';
-import { getNormalizedWindowForDays, normalizeWindowDays } from '@/lib/server/signals/window';
-import { createClient } from '@/lib/supabase/server';
 import { getWorkspaceSignalSettings } from '@/lib/server/signals/settings';
+import {
+  computeBaselineWindowForTimeZone,
+  getWindowForDays,
+  normalizeTimeZone,
+  parseTimeZoneParam,
+} from '@/lib/server/signals/window';
+import { createClient } from '@/lib/supabase/server';
 import HistoryPageClient from './page-client';
 
-export default async function HistoryPage() {
+const DEFAULT_HISTORY_WINDOW_DAYS = 7;
+const TIME_ZONE_COOKIE = 'canon_tz';
+
+export default async function HistoryPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { session, user } = await getSession();
 
   if (!session || !user) {
     redirect('/login');
   }
 
+  const params = await searchParams;
+  const requestedTimeZone = typeof params.tz === 'string' ? parseTimeZoneParam(params.tz) : null;
+  const cookieStore = await cookies();
+  const cookieTimeZone = parseTimeZoneParam(cookieStore.get(TIME_ZONE_COOKIE)?.value);
+
   const supabase = await createClient();
   const settings = await getWorkspaceSignalSettings({ supabase, userId: user.id });
-  const windowDays = Math.min(30, normalizeWindowDays(settings.baseline_window_days, 7));
+  const settingsTimeZone = parseTimeZoneParam(settings.time_zone);
+  const timeZone = normalizeTimeZone(requestedTimeZone || cookieTimeZone || settingsTimeZone);
 
   const { data: sourceRows, error } = await supabase
     .from('workspace_sources')
@@ -40,8 +58,8 @@ export default async function HistoryPage() {
   let initialData: CompareResponse | null = null;
   let initialError: string | null = null;
   let initialLastUpdatedAt: string | null = null;
-  const primaryWindow = getNormalizedWindowForDays(windowDays, new Date(), 7);
-  const baselineWindow = computeBaselineWindow(primaryWindow.start, primaryWindow.end);
+  const primaryWindow = getWindowForDays(DEFAULT_HISTORY_WINDOW_DAYS, new Date(), timeZone);
+  const baselineWindow = computeBaselineWindowForTimeZone(primaryWindow, timeZone);
 
   if (resolvedSourceRows.length > 0) {
     try {
@@ -67,9 +85,9 @@ export default async function HistoryPage() {
       initialData={initialData}
       initialError={initialError}
       initialLastUpdatedAt={initialLastUpdatedAt}
-      windowDays={windowDays}
       primaryWindow={primaryWindow}
       baselineWindow={baselineWindow}
+      timeZone={timeZone}
     />
   );
 }

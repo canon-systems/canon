@@ -1,10 +1,14 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import { CalendarDays, Loader2 } from 'lucide-react';
+import { DateTime } from 'luxon';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Calendar, type DateRange } from '@/components/ui/calendar';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
@@ -26,6 +30,8 @@ type CanonicalDiff = {
   commits_default: number;
   repos_touched: string[];
 };
+
+type DateWindow = { start: string; end: string };
 
 type DiffDelta = {
   tickets_moved: number;
@@ -123,21 +129,112 @@ type CompareResponse = {
   details?: DiffDetails | null;
 };
 
-function toUtcDateLabel(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString(undefined, {
-    timeZone: 'UTC',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
+function toDateLabel(iso: string, timeZone: string): string {
+  const date = DateTime.fromISO(iso, { zone: 'utc' }).setZone(timeZone);
+  if (!date.isValid) return iso;
+  return date.toFormat('MMM d, yyyy');
 }
 
-function formatRange(start: string, end: string): string {
-  const a = toUtcDateLabel(start);
-  const b = toUtcDateLabel(end);
+function formatRange(start: string, end: string, timeZone: string): string {
+  const a = toDateLabel(start, timeZone);
+  const b = toDateLabel(end, timeZone);
   return a === b ? a : `${a} to ${b}`;
+}
+
+function normalizeCalendarDay(date: Date): string {
+  const yyyy = String(date.getFullYear());
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function localDayStartFromIso(iso: string, timeZone: string): DateTime | null {
+  const local = DateTime.fromISO(iso, { zone: 'utc' }).setZone(timeZone).startOf('day');
+  if (!local.isValid) return null;
+  return local;
+}
+
+function localDayToUtcRange(day: string, timeZone: string): DateWindow | null {
+  const localStart = DateTime.fromISO(day, { zone: timeZone }).startOf('day');
+  if (!localStart.isValid) return null;
+  const localEnd = localStart.plus({ days: 1 }).minus({ milliseconds: 1 });
+  const start = localStart.toUTC().toISO({ suppressMilliseconds: false });
+  const end = localEnd.toUTC().toISO({ suppressMilliseconds: false });
+  if (!start || !end) return null;
+  return { start, end };
+}
+
+function windowToDateRange(window: DateWindow, timeZone: string): DateRange {
+  const start = localDayStartFromIso(window.start, timeZone);
+  const end = localDayStartFromIso(window.end, timeZone);
+  if (!start || !end) return { from: undefined, to: undefined };
+  return {
+    from: new Date(start.year, start.month - 1, start.day),
+    to: new Date(end.year, end.month - 1, end.day),
+  };
+}
+
+function selectionToPrimaryWindow(range: DateRange | undefined, timeZone: string): DateWindow | null {
+  if (!range?.from || !range.to) return null;
+  const from = range.from;
+  const to = range.to;
+  const fromMs = from.getTime();
+  const toMs = to.getTime();
+
+  const startDate = fromMs <= toMs ? from : to;
+  const endDate = fromMs <= toMs ? to : from;
+  const startDay = normalizeCalendarDay(startDate);
+  const endDay = normalizeCalendarDay(endDate);
+  const startRange = localDayToUtcRange(startDay, timeZone);
+  const endRange = localDayToUtcRange(endDay, timeZone);
+  if (!startRange || !endRange) return null;
+
+  return {
+    start: startRange.start,
+    end: endRange.end,
+  };
+}
+
+function computeBaselineWindowFromPrimary(primary: DateWindow, timeZone: string): DateWindow {
+  const startLocal = localDayStartFromIso(primary.start, timeZone);
+  const endLocal = localDayStartFromIso(primary.end, timeZone);
+  if (!startLocal || !endLocal || endLocal < startLocal) return primary;
+
+  let dayCount = 1;
+  let cursor = startLocal;
+  while (cursor < endLocal) {
+    cursor = cursor.plus({ days: 1 }).startOf('day');
+    dayCount += 1;
+    if (dayCount > 3660) break;
+  }
+
+  const baselineEndLocal = startLocal.minus({ days: 1 }).startOf('day');
+  const baselineStartLocal = baselineEndLocal.minus({ days: dayCount - 1 }).startOf('day');
+  const baselineStart = baselineStartLocal.toUTC().toISO({ suppressMilliseconds: false });
+  const baselineEnd = baselineEndLocal
+    .plus({ days: 1 })
+    .minus({ milliseconds: 1 })
+    .toUTC()
+    .toISO({ suppressMilliseconds: false });
+
+  if (!baselineStart || !baselineEnd) return primary;
+  return { start: baselineStart, end: baselineEnd };
+}
+
+function daysInWindow(window: DateWindow, timeZone: string): number {
+  const startLocal = localDayStartFromIso(window.start, timeZone);
+  const endLocal = localDayStartFromIso(window.end, timeZone);
+  if (!startLocal || !endLocal || endLocal < startLocal) return 1;
+
+  let dayCount = 1;
+  let cursor = startLocal;
+  while (cursor < endLocal) {
+    cursor = cursor.plus({ days: 1 }).startOf('day');
+    dayCount += 1;
+    if (dayCount > 3660) break;
+  }
+
+  return dayCount;
 }
 
 function signed(value: number): string {
@@ -146,17 +243,11 @@ function signed(value: number): string {
   return `${value}`;
 }
 
-function formatDateTimeUtc(iso: string | null | undefined): string {
+function formatDateTime(iso: string | null | undefined, timeZone: string): string {
   if (!iso) return 'unknown time';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString(undefined, {
-    timeZone: 'UTC',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  const date = DateTime.fromISO(iso, { zone: 'utc' }).setZone(timeZone);
+  if (!date.isValid) return iso;
+  return date.toFormat('MMM d, h:mm a');
 }
 
 function renderTransition(from: string | null | undefined, to: string | null | undefined): string | null {
@@ -270,9 +361,9 @@ type HistoryPageClientProps = {
   initialData: CompareResponse | null;
   initialError: string | null;
   initialLastUpdatedAt: string | null;
-  windowDays: number;
-  primaryWindow: { start: string; end: string };
-  baselineWindow: { start: string; end: string };
+  primaryWindow: DateWindow;
+  baselineWindow: DateWindow;
+  timeZone: string;
 };
 
 export default function HistoryPageClient({
@@ -280,17 +371,103 @@ export default function HistoryPageClient({
   initialData,
   initialError,
   initialLastUpdatedAt,
-  windowDays,
   primaryWindow,
   baselineWindow,
+  timeZone,
 }: HistoryPageClientProps) {
   const diffSources = sources;
 
   const sourceIds = useMemo(() => diffSources.map((s) => s.id), [diffSources]);
-  const data = initialData;
-  const error = initialError;
-  const lastUpdatedAt = initialLastUpdatedAt;
+  const [data, setData] = useState<CompareResponse | null>(initialData);
+  const [error, setError] = useState<string | null>(initialError);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(initialLastUpdatedAt);
+  const [activePrimaryWindow, setActivePrimaryWindow] = useState<DateWindow>(primaryWindow);
+  const [activeBaselineWindow, setActiveBaselineWindow] = useState<DateWindow>(baselineWindow);
+  const [selectedPrimaryRange, setSelectedPrimaryRange] = useState<DateRange>(() => windowToDateRange(primaryWindow, timeZone));
+  const [isRangePickerOpen, setIsRangePickerOpen] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [requestedDiffSourceTab, setRequestedDiffSourceTab] = useState<DiffSourceTab>('jira');
+  const latestRequestRef = useRef(0);
+
+  const refreshComparison = async (nextPrimaryWindow: DateWindow, nextBaselineWindow: DateWindow) => {
+    if (sourceIds.length === 0) return;
+    const requestId = latestRequestRef.current + 1;
+    latestRequestRef.current = requestId;
+    setIsRefreshing(true);
+    setError(null);
+    setData(null);
+    setLastUpdatedAt(null);
+
+    try {
+      const response = await fetch('/api/diffs/compare', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          start_timestamp: nextPrimaryWindow.start,
+          end_timestamp: nextPrimaryWindow.end,
+          compare_start_timestamp: nextBaselineWindow.start,
+          compare_end_timestamp: nextBaselineWindow.end,
+          source_ids: sourceIds,
+        }),
+      });
+
+      const payload = (await response.json().catch(() => null)) as CompareResponse | { error?: string; detail?: string } | null;
+      if (!response.ok) {
+        const message =
+          (payload && typeof payload === 'object' && 'error' in payload && typeof payload.error === 'string' && payload.error) ||
+          'Failed to load Canon History';
+        throw new Error(message);
+      }
+
+      if (latestRequestRef.current !== requestId) return;
+      setData((payload as CompareResponse) || null);
+      setLastUpdatedAt(new Date().toISOString());
+    } catch (fetchError) {
+      if (latestRequestRef.current !== requestId) return;
+      const message = fetchError instanceof Error ? fetchError.message : 'Failed to load Canon History';
+      setError(message);
+    } finally {
+      if (latestRequestRef.current === requestId) {
+        setIsRefreshing(false);
+      }
+    }
+  };
+
+  const onSelectPrimaryRange = (range: DateRange | undefined) => {
+    setSelectedPrimaryRange(range || { from: undefined, to: undefined });
+  };
+
+  const onRangePickerOpenChange = (open: boolean) => {
+    setIsRangePickerOpen(open);
+    if (open) {
+      setSelectedPrimaryRange(windowToDateRange(activePrimaryWindow, timeZone));
+      return;
+    }
+    setSelectedPrimaryRange(windowToDateRange(activePrimaryWindow, timeZone));
+  };
+
+  const applySelectedPrimaryRange = () => {
+    const nextPrimaryWindow = selectionToPrimaryWindow(selectedPrimaryRange, timeZone);
+    if (!nextPrimaryWindow) return;
+    const nextBaselineWindow = computeBaselineWindowFromPrimary(nextPrimaryWindow, timeZone);
+    const unchanged =
+      activePrimaryWindow.start === nextPrimaryWindow.start &&
+      activePrimaryWindow.end === nextPrimaryWindow.end;
+
+    setActivePrimaryWindow(nextPrimaryWindow);
+    setActiveBaselineWindow(nextBaselineWindow);
+    setIsRangePickerOpen(false);
+
+    if (unchanged) return;
+    if (sourceIds.length === 0) {
+      setData(null);
+      setError(null);
+      setLastUpdatedAt(null);
+      return;
+    }
+
+    void refreshComparison(nextPrimaryWindow, nextBaselineWindow);
+  };
 
   const providerTabs = useMemo<DiffSourceTab[]>(() => {
     const providers = new Set(diffSources.map((source) => source.provider.toLowerCase()));
@@ -304,6 +481,15 @@ export default function HistoryPageClient({
 
   const insight = useMemo(() => (data ? insightLines(data) : []), [data]);
   const metrics = useMemo(() => (data ? metricRows(data) : []), [data]);
+  const primaryWindowLengthDays = useMemo(() => daysInWindow(activePrimaryWindow, timeZone), [activePrimaryWindow, timeZone]);
+  const selectedPrimaryWindowDraft = useMemo(
+    () => selectionToPrimaryWindow(selectedPrimaryRange, timeZone),
+    [selectedPrimaryRange, timeZone]
+  );
+  const selectedBaselineWindowDraft = useMemo(
+    () => (selectedPrimaryWindowDraft ? computeBaselineWindowFromPrimary(selectedPrimaryWindowDraft, timeZone) : null),
+    [selectedPrimaryWindowDraft, timeZone]
+  );
 
   return (
     <div className="space-y-6">
@@ -311,11 +497,67 @@ export default function HistoryPageClient({
         <CardHeader>
           <CardTitle className="text-white">Canon History</CardTitle>
           <CardDescription className="text-white/70">
-            Diagnostic view using the analysis window set in Settings; baseline uses the same length immediately before it.
+            Pick a primary date range. Baseline is always auto-derived as the same length immediately before it.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <div className="text-sm text-white/70">Primary: {toUtcDateLabel(primaryWindow.start)} → {toUtcDateLabel(primaryWindow.end)} · Baseline: {toUtcDateLabel(baselineWindow.start)} → {toUtcDateLabel(baselineWindow.end)} · Window length: {windowDays} days</div>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-sm text-white/70">
+              Primary: {toDateLabel(activePrimaryWindow.start, timeZone)} → {toDateLabel(activePrimaryWindow.end, timeZone)} · Baseline:{' '}
+              {toDateLabel(activeBaselineWindow.start, timeZone)} → {toDateLabel(activeBaselineWindow.end, timeZone)} · Window length:{' '}
+              {primaryWindowLengthDays} day{primaryWindowLengthDays === 1 ? '' : 's'} · Time zone: {timeZone}
+            </div>
+            <Popover open={isRangePickerOpen} onOpenChange={onRangePickerOpenChange}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className="border-white/25 bg-zinc-800 text-white hover:bg-zinc-700">
+                  {isRefreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CalendarDays className="mr-2 h-4 w-4" />}
+                  Select Primary Range
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" sideOffset={8} className="w-auto border-white/10 bg-black/95 p-0">
+                <Calendar
+                  mode="range"
+                  numberOfMonths={1}
+                  selected={selectedPrimaryRange}
+                  onSelect={onSelectPrimaryRange}
+                  defaultMonth={selectedPrimaryRange.from || windowToDateRange(activePrimaryWindow, timeZone).from}
+                  disabled={(date) => date > new Date()}
+                />
+                <div className="border-t border-white/10 p-3">
+                  <p className="text-xs text-white/70">
+                    Primary:{' '}
+                    {selectedPrimaryWindowDraft
+                      ? formatRange(selectedPrimaryWindowDraft.start, selectedPrimaryWindowDraft.end, timeZone)
+                      : 'Choose start and end dates'}
+                  </p>
+                  <p className="mt-1 text-xs text-white/55">
+                    Baseline:{' '}
+                    {selectedBaselineWindowDraft
+                      ? formatRange(selectedBaselineWindowDraft.start, selectedBaselineWindowDraft.end, timeZone)
+                      : 'Will be computed after selecting the full range'}
+                  </p>
+                  <div className="mt-3 flex items-center justify-end gap-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="h-8 px-3 text-white/70 hover:text-white"
+                      onClick={() => setIsRangePickerOpen(false)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="button"
+                      className="h-8 px-3 bg-white text-black hover:bg-white/90"
+                      disabled={!selectedPrimaryWindowDraft || isRefreshing}
+                      onClick={applySelectedPrimaryRange}
+                    >
+                      Confirm Range
+                    </Button>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+          </div>
           <div className="flex flex-wrap gap-2">
             {diffSources.map((source) => (
               <Badge key={source.id} variant="outline" className="border-white/20 bg-white/5 text-white/80">
@@ -393,9 +635,9 @@ export default function HistoryPageClient({
             <CardHeader>
               <CardTitle className="text-white">Insight Summary</CardTitle>
               <CardDescription className="text-white/60">
-                Current window: {formatRange(data.primary.window.start, data.primary.window.end)} | Baseline:{' '}
-                {formatRange(data.baseline.window.start, data.baseline.window.end)}
-                {lastUpdatedAt ? ` | Updated ${toUtcDateLabel(lastUpdatedAt)}` : ''}
+                Current window: {formatRange(data.primary.window.start, data.primary.window.end, timeZone)} | Baseline:{' '}
+                {formatRange(data.baseline.window.start, data.baseline.window.end, timeZone)}
+                {lastUpdatedAt ? ` | Updated ${toDateLabel(lastUpdatedAt, timeZone)}` : ''}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2 text-white/85">
@@ -494,7 +736,7 @@ export default function HistoryPageClient({
                                           {renderJiraTicketLabel(row)}
                                         </p>
                                         <p className="text-white/60">{transition || status || 'No state transition provided'}</p>
-                                        <p className="text-white/40">{formatDateTimeUtc(row.occurred_at)}</p>
+                                        <p className="text-white/40">{formatDateTime(row.occurred_at, timeZone)}</p>
                                       </div>
                                     );
                                   })}
@@ -536,7 +778,7 @@ export default function HistoryPageClient({
                                     <div key={`commit-${sourceGroup.source}-${row.sha}-${row.occurred_at}-${idx}`} className="space-y-0.5">
                                       <p className="font-mono text-white/90">{(row.sha || 'commit').slice(0, 10)}</p>
                                       <p className="text-white/60">{row.message || 'No commit message available'}</p>
-                                      <p className="text-white/40">{formatDateTimeUtc(row.occurred_at)}</p>
+                                      <p className="text-white/40">{formatDateTime(row.occurred_at, timeZone)}</p>
                                     </div>
                                   ))}
                                 </div>
@@ -557,7 +799,7 @@ export default function HistoryPageClient({
                                           PR #{row.number || '?'} {row.title ? `- ${row.title}` : ''}
                                         </p>
                                         <p className="text-white/60">{transition || row.status || 'No transition provided'}</p>
-                                        <p className="text-white/40">{formatDateTimeUtc(row.occurred_at)}</p>
+                                        <p className="text-white/40">{formatDateTime(row.occurred_at, timeZone)}</p>
                                       </div>
                                     );
                                   })}

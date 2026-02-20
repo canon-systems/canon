@@ -1,11 +1,20 @@
+import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/auth';
+import { getWorkspaceSignalSettings } from '@/lib/server/signals/settings';
 import { createClient } from '@/lib/supabase/server';
 import { listSignals } from '@/lib/server/signals/engine';
-import { getWindowForDays, parseSignalSeverityParam, parseWindowDaysParam } from '@/lib/server/signals/window';
+import {
+  getWindowForDays,
+  normalizeTimeZone,
+  parseSignalSeverityParam,
+  parseTimeZoneParam,
+  parseWindowDaysParam,
+} from '@/lib/server/signals/window';
 import SignalsPageClient from './page-client';
 
 export const dynamic = 'force-dynamic';
+const TIME_ZONE_COOKIE = 'canon_tz';
 
 export default async function SignalsPage({
   searchParams,
@@ -20,12 +29,18 @@ export default async function SignalsPage({
   const params = await searchParams;
   const windowParam = typeof params.window === 'string' ? params.window : undefined;
   const severityParam = typeof params.severity === 'string' ? params.severity : undefined;
+  const tzParam = typeof params.tz === 'string' ? params.tz : undefined;
   const windowDays = parseWindowDaysParam(windowParam);
   const severity = parseSignalSeverityParam(severityParam);
   const selectedSeverity = severity || 'all';
   const scope = typeof params.scope === 'string' && params.scope.trim().length > 0 ? params.scope : undefined;
-  const windowStart = windowDays != null ? getWindowForDays(windowDays, new Date()).start : undefined;
+  const cookieStore = await cookies();
+  const cookieTimeZone = parseTimeZoneParam(cookieStore.get(TIME_ZONE_COOKIE)?.value);
   const supabase = await createClient();
+  const settings = await getWorkspaceSignalSettings({ supabase, userId: user.id });
+  const settingsTimeZone = parseTimeZoneParam(settings.time_zone);
+  const timeZone = normalizeTimeZone(parseTimeZoneParam(tzParam) || cookieTimeZone || settingsTimeZone);
+  const windowStart = windowDays != null ? getWindowForDays(windowDays, new Date(), timeZone).start : undefined;
 
   const signals = await listSignals({
     supabase,
@@ -120,6 +135,7 @@ export default async function SignalsPage({
       })}
       windowDays={windowDays}
       selectedSeverity={selectedSeverity}
+      timeZone={timeZone}
     />
   );
 }
