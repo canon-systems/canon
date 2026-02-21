@@ -26,11 +26,30 @@ export default async function LogsPage() {
     .order('created_at', { ascending: false })
     .limit(200);
 
+  const { data: signalRuns, error: signalRunsError } = await supabase
+    .from('signal_runs')
+    .select('id, source_ids, window_start, window_end, created_at')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: false })
+    .limit(100);
+
+  const signalRunIds = (signalRuns || []).map((run) => run.id).filter((id): id is string => typeof id === 'string' && id.length > 0);
+  let signalRowsForRuns: Array<{ signal_run_id: string | null }> = [];
+  if (signalRunIds.length > 0) {
+    const { data } = await supabase
+      .from('signals')
+      .select('signal_run_id')
+      .eq('user_id', user.id)
+      .in('signal_run_id', signalRunIds);
+    signalRowsForRuns = (data || []) as Array<{ signal_run_id: string | null }>;
+  }
+
   // Build activity log entries
   const logEntries: Array<{
     id: string;
     type:
     | 'automation_execution'
+    | 'signal_execution'
     | 'source_connection'
     | 'integration_connection'
     | 'integration_disconnected';
@@ -50,6 +69,7 @@ export default async function LogsPage() {
       automationRuleId?: string;
       isAutomation?: boolean;
       provider?: string;
+      signalRunId?: string;
     };
   }> = [];
 
@@ -229,6 +249,48 @@ export default async function LogsPage() {
 
   logEntries.push(...entriesFromEvents);
 
+  const signalsByRun = new Map<string, number>();
+  for (const row of signalRowsForRuns) {
+    if (!row.signal_run_id) continue;
+    signalsByRun.set(row.signal_run_id, (signalsByRun.get(row.signal_run_id) || 0) + 1);
+  }
+
+  const entriesFromSignalRuns = (signalRuns || []).map((run) => {
+    const sourceIds = Array.isArray(run.source_ids)
+      ? run.source_ids.filter((id: unknown): id is string => typeof id === 'string')
+      : [];
+    const signalCount = signalsByRun.get(run.id) || 0;
+    const createdAt =
+      typeof run.created_at === 'string' && run.created_at
+        ? run.created_at
+        : typeof run.window_end === 'string' && run.window_end
+          ? run.window_end
+          : new Date().toISOString();
+
+    const messageParts = [
+      `${sourceIds.length} source${sourceIds.length === 1 ? '' : 's'}`,
+      `${signalCount} signal${signalCount === 1 ? '' : 's'} detected`,
+      typeof run.window_start === 'string' && typeof run.window_end === 'string'
+        ? `Window: ${run.window_start.slice(0, 10)} to ${run.window_end.slice(0, 10)}`
+        : null,
+    ].filter(Boolean) as string[];
+
+    return {
+      id: `signal-run-${run.id}`,
+      type: 'signal_execution' as const,
+      timestamp: createdAt,
+      title: 'Signal Execution',
+      message: messageParts.join(' • '),
+      status: 'completed',
+      link: '/signals',
+      metadata: {
+        signalRunId: run.id,
+      },
+    };
+  });
+
+  logEntries.push(...entriesFromSignalRuns);
+
   // Sort by timestamp (most recent first)
   logEntries.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
@@ -254,6 +316,9 @@ export default async function LogsPage() {
     errors: {
       usageEvents: eventsError && !isTableNotFoundError(eventsError)
         ? (eventsError.message || eventsError.code)
+        : undefined,
+      signalRuns: signalRunsError && !isTableNotFoundError(signalRunsError)
+        ? (signalRunsError.message || signalRunsError.code)
         : undefined,
     },
   };

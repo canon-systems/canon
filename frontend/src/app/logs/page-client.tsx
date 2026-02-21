@@ -10,6 +10,7 @@ interface LogEntry {
   id: string;
   type:
   | 'automation_execution'
+  | 'signal_execution'
   | 'source_connection'
   | 'integration_connection'
   | 'integration_disconnected';
@@ -29,6 +30,7 @@ interface LogEntry {
     automationRuleId?: string;
     isAutomation?: boolean;
     provider?: string;
+    signalRunId?: string;
   };
 }
 
@@ -36,6 +38,7 @@ interface LogsData {
   entries: LogEntry[];
   errors: {
     usageEvents?: string;
+    signalRuns?: string;
   };
 }
 
@@ -44,6 +47,7 @@ type StatusFilter = 'all' | 'completed' | 'processing' | 'failed';
 type TypeFilter =
   | 'all'
   | 'automation_execution'
+  | 'signal_execution'
   | 'source_connection'
   | 'integration_connection'
   | 'integration_disconnected';
@@ -140,6 +144,8 @@ export function LogsPageClient({ logs }: LogsPageClientProps) {
     switch (type) {
       case 'automation_execution':
         return Zap;
+      case 'signal_execution':
+        return Activity;
       case 'source_connection':
         return LinkIcon;
       case 'integration_connection':
@@ -155,6 +161,8 @@ export function LogsPageClient({ logs }: LogsPageClientProps) {
     switch (type) {
       case 'automation_execution':
         return 'bg-[#f97316]/20 text-white';
+      case 'signal_execution':
+        return 'bg-blue-500/20 text-white';
       case 'source_connection':
         return 'bg-white/10 text-white/80';
       case 'integration_connection':
@@ -237,6 +245,7 @@ export function LogsPageClient({ logs }: LogsPageClientProps) {
             options={[
               { value: 'all', label: 'All types' },
               { value: 'automation_execution', label: 'Automation' },
+              { value: 'signal_execution', label: 'Signal Execution' },
               { value: 'source_connection', label: 'Source' },
               { value: 'integration_connection', label: 'Integration connected' },
               { value: 'integration_disconnected', label: 'Integration disconnected' },
@@ -257,6 +266,7 @@ export function LogsPageClient({ logs }: LogsPageClientProps) {
               </p>
               <ul className="text-white/70 text-xs space-y-1">
                 {logs.errors.usageEvents && <li>• Usage events: {logs.errors.usageEvents}</li>}
+                {logs.errors.signalRuns && <li>• Signal runs: {logs.errors.signalRuns}</li>}
               </ul>
             </CardContent>
           </Card>
