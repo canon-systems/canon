@@ -2,9 +2,10 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { getGitHubDiffForRepo, type GitHubDiffEvent } from '@/lib/server/diff/githubDiff';
 import { getJiraDiffForProject, type JiraTicketEvent } from '@/lib/server/diff/jiraDiff';
 import { filterNewCanonicalEvents, insertCanonicalEvents, upsertDailyMetrics } from '@/lib/server/diff/webhookIngest';
+import { featureKeyFromPath } from '@/lib/server/services/sourceIngest';
 import { createLogger, errorMessage } from '@/lib/server/logging';
 
-const DEFAULT_DIFF_BACKFILL_DAYS = 7;
+const DEFAULT_DIFF_BACKFILL_DAYS = 14;
 const MAX_DIFF_BACKFILL_DAYS = 30;
 const MAX_RATE_LIMIT_RETRIES = 4;
 const RATE_LIMIT_BASE_DELAY_MS = 1_500;
@@ -29,13 +30,14 @@ type CanonicalEvent = {
   event_kind: string;
   occurred_at: string;
   entity_id?: string | null;
-  repo_full_name?: string | null;
+  source_full_name?: string | null;
   metadata?: Record<string, unknown>;
 };
 
 export type DiffBackfillSource = {
   id: string;
   user_id: string;
+  name?: string | null;
   provider: string;
   scope: Record<string, unknown> | null;
 };
@@ -63,7 +65,7 @@ function clampBackfillDays(days: number): number {
 }
 
 /**
- * Single place for backfill window sizing. For now this is static (default 7 days)
+ * Single place for backfill window sizing. For now this is static (default 14 days)
  * and can later be replaced with entitlement/plan logic without touching callers.
  */
 export function resolveDiffBackfillDays(requestedDays?: number): number {
@@ -117,8 +119,11 @@ function mapGitHubEvent(event: GitHubDiffEvent, kind: CanonicalEvent['event_kind
     event_kind: kind,
     occurred_at: event.timestamp,
     entity_id: entityId,
-    repo_full_name: event.repo || null,
-    metadata: { ingest_source: 'provider_api_backfill' },
+    source_full_name: event.repo || null,
+    metadata: {
+      ingest_source: 'provider_api_backfill',
+      paths: Array.isArray(event.files) ? event.files : [],
+    },
   };
 }
 
@@ -140,7 +145,7 @@ function mapJiraTicketEvent(
     event_kind: kind,
     occurred_at: event.timestamp,
     entity_id: event.ticket_id,
-    repo_full_name: jiraWorkspaceName(projectKey),
+    source_full_name: jiraWorkspaceName(projectKey),
     metadata,
   };
 }
@@ -322,6 +327,32 @@ function providerName(provider: string): string {
   return provider === 'github' ? 'GitHub' : provider === 'jira' ? 'Jira' : provider;
 }
 
+async function sourceStillExists(supabase: SupabaseClient, source: DiffBackfillSource): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('workspace_sources')
+    .select('id')
+    .eq('id', source.id)
+    .eq('user_id', source.user_id)
+    .maybeSingle();
+  if (error) return false;
+  return Boolean(data?.id);
+}
+
+function resolveBackfillSourceName(source: DiffBackfillSource): string | null {
+  if (typeof source.name === 'string' && source.name.trim().length > 0) {
+    return source.name.trim();
+  }
+
+  const provider = source.provider.toLowerCase();
+  if (provider === 'github' && typeof source.scope?.repo === 'string' && source.scope.repo.trim().length > 0) {
+    return source.scope.repo.trim();
+  }
+  if (provider === 'jira' && typeof source.scope?.project === 'string' && source.scope.project.trim().length > 0) {
+    return `jira/${source.scope.project.trim()}`;
+  }
+  return null;
+}
+
 function formatDayLabel(day: string): string {
   const parsed = new Date(`${day}T00:00:00.000Z`);
   if (Number.isNaN(parsed.getTime())) return day;
@@ -396,13 +427,24 @@ export async function runDiffBackfillForSource(params: {
 }): Promise<DiffBackfillResult> {
   const { supabase, source, requestedDays, now } = params;
   const provider = source.provider.toLowerCase();
+  const sourceName = resolveBackfillSourceName(source) ?? source.id;
   const days = resolveDiffBackfillDays(requestedDays);
   const window = buildDiffBackfillWindow(days, now);
   const dailyWindows = splitIntoDailyWindows(window);
   const providerLabel = providerName(provider);
+  let fetchedEvents = 0;
+  let insertedEvents = 0;
+  const sourceDeletedResult = (reason: string): DiffBackfillResult => ({
+    source_id: source.id,
+    provider,
+    window,
+    fetched_events: fetchedEvents,
+    inserted_events: insertedEvents,
+    skipped: reason,
+  });
 
   if (provider !== 'github' && provider !== 'jira') {
-    log.info('skipped', { sourceId: source.id, provider, reason: 'unsupported_provider' });
+    log.info('skipped', { sourceId: source.id, sourceName, provider, reason: 'unsupported_provider' });
     return {
       source_id: source.id,
       provider,
@@ -414,7 +456,14 @@ export async function runDiffBackfillForSource(params: {
   }
 
   if (dailyWindows.length === 0) {
-    log.warn('skipped', { sourceId: source.id, provider, reason: 'invalid_window', windowStart: window.start, windowEnd: window.end });
+    log.warn('skipped', {
+      sourceId: source.id,
+      sourceName,
+      provider,
+      reason: 'invalid_window',
+      windowStart: window.start,
+      windowEnd: window.end,
+    });
     return {
       source_id: source.id,
       provider,
@@ -425,13 +474,16 @@ export async function runDiffBackfillForSource(params: {
     };
   }
 
-  let fetchedEvents = 0;
-  let insertedEvents = 0;
   const totalDays = dailyWindows.length;
+
+  if (!(await sourceStillExists(supabase, source))) {
+    log.info('skipped', { sourceId: source.id, sourceName, provider, reason: 'source_deleted' });
+    return sourceDeletedResult('source_deleted');
+  }
 
   const ownerRepo = provider === 'github' ? parseGithubOwnerRepo(source.scope) : null;
   if (provider === 'github' && !ownerRepo) {
-    log.warn('skipped', { sourceId: source.id, provider, reason: 'missing_repo_scope' });
+    log.warn('skipped', { sourceId: source.id, sourceName, provider, reason: 'missing_repo_scope' });
     return {
       source_id: source.id,
       provider,
@@ -449,7 +501,7 @@ export async function runDiffBackfillForSource(params: {
     ? source.scope.cloudId
     : null;
   if (provider === 'jira' && !projectKey) {
-    log.warn('skipped', { sourceId: source.id, provider, reason: 'missing_project_scope' });
+    log.warn('skipped', { sourceId: source.id, sourceName, provider, reason: 'missing_project_scope' });
     return {
       source_id: source.id,
       provider,
@@ -462,6 +514,7 @@ export async function runDiffBackfillForSource(params: {
 
   log.info('start', {
     sourceId: source.id,
+    sourceName,
     provider,
     windowStart: window.start,
     windowEnd: window.end,
@@ -488,6 +541,18 @@ export async function runDiffBackfillForSource(params: {
 
   try {
     for (let index = 0; index < dailyWindows.length; index += 1) {
+      if (!(await sourceStillExists(supabase, source))) {
+        log.info('skipped', {
+          sourceId: source.id,
+          sourceName,
+          provider,
+          reason: 'source_deleted_mid_run',
+          dayIndex: index + 1,
+          totalDays,
+        });
+        return sourceDeletedResult('source_deleted');
+      }
+
       const dailyWindow = dailyWindows[index];
       const dayLabel = formatDayLabel(dailyWindow.day);
       let events: CanonicalEvent[] = [];
@@ -506,6 +571,7 @@ export async function runDiffBackfillForSource(params: {
 
       log.debug('day_start', {
         sourceId: source.id,
+        sourceName,
         provider,
         day: dailyWindow.day,
         dayIndex: index + 1,
@@ -526,6 +592,7 @@ export async function runDiffBackfillForSource(params: {
         });
         log.warn('day_retry_scheduled', {
           sourceId: source.id,
+          sourceName,
           provider,
           day: dailyWindow.day,
           attempt: retryEvent.attempt,
@@ -580,6 +647,17 @@ export async function runDiffBackfillForSource(params: {
       let insertedForDay = 0;
 
       if (events.length > 0) {
+        if (!(await sourceStillExists(supabase, source))) {
+          log.info('skipped', {
+            sourceId: source.id,
+            sourceName,
+            provider,
+            reason: 'source_deleted_before_insert',
+            day: dailyWindow.day,
+          });
+          return sourceDeletedResult('source_deleted');
+        }
+
         const newEvents = await filterNewCanonicalEvents({
           supabase,
           sourceId: source.id,
@@ -587,18 +665,34 @@ export async function runDiffBackfillForSource(params: {
         });
 
         if (newEvents.length > 0) {
-          await insertCanonicalEvents({
-            supabase,
-            sourceId: source.id,
-            provider,
-            events: newEvents,
-          });
-          await upsertDailyMetrics({
-            supabase,
-            sourceId: source.id,
-            provider,
-            events: newEvents,
-          });
+          try {
+            await insertCanonicalEvents({
+              supabase,
+              sourceId: source.id,
+              provider,
+              events: newEvents,
+            });
+            await upsertDailyMetrics({
+              supabase,
+              sourceId: source.id,
+              provider,
+              events: newEvents,
+              pathToFeature: featureKeyFromPath,
+            });
+          } catch (error) {
+            const message = errorMessage(error);
+            if (message.includes('violates foreign key constraint')) {
+              log.info('skipped', {
+                sourceId: source.id,
+                sourceName,
+                provider,
+                reason: 'source_deleted_during_insert',
+                day: dailyWindow.day,
+              });
+              return sourceDeletedResult('source_deleted');
+            }
+            throw error;
+          }
           insertedForDay = newEvents.length;
           insertedEvents += insertedForDay;
         }
@@ -622,6 +716,7 @@ export async function runDiffBackfillForSource(params: {
 
       const dayLogFields = {
         sourceId: source.id,
+        sourceName,
         provider,
         day: dailyWindow.day,
         fetchedEvents: events.length,
@@ -651,6 +746,7 @@ export async function runDiffBackfillForSource(params: {
 
     log.info('complete', {
       sourceId: source.id,
+      sourceName,
       provider,
       fetchedEvents,
       insertedEvents,
@@ -667,6 +763,7 @@ export async function runDiffBackfillForSource(params: {
   } catch (error) {
     log.error('failed', {
       sourceId: source.id,
+      sourceName,
       provider,
       error: errorMessage(error),
     });

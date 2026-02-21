@@ -1,23 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
-import { ingestSource, type WorkspaceSource } from '@/lib/server/services/sourceIngest';
-import { isRepoProvider } from '@/lib/server/services/sourceProviders';
-import { trackRepoConnected, trackSourceConnected } from '@/lib/server/services/usageTracking';
+import type { WorkspaceSource } from '@/lib/server/services/sourceIngest';
+import { sourceUrlFromSourceScope, trackSourceConnected } from '@/lib/server/services/usageTracking';
+import { patchSourceBackfillStatus } from '@/lib/server/diff/backfillStatus';
 import { inngest } from '@/inngest';
+import { buildSourceIdentifier, resolveSourceDomainValue } from '@/lib/sources/domainMapping';
+import { ATLASSIAN_PROVIDER, canonicalProvider } from '@/lib/providers';
 
 type CreateSource = {
   name: string;
   provider: string;
   scope: Record<string, unknown>;
   connection_id?: string | null;
+  domain?: string | null;
 };
 
 const providerAuthMap: Record<string, string> = {
   github: 'github',
   gitlab: 'gitlab',
-  jira: 'confluence',
-  confluence: 'confluence',
+  jira: ATLASSIAN_PROVIDER,
+  confluence: ATLASSIAN_PROVIDER,
+  atlassian: ATLASSIAN_PROVIDER,
   slack: 'slack',
 };
 
@@ -88,7 +92,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'name, provider, and scope are required for each source' }, { status: 400 });
       }
 
-      const providerKey = src.provider.toLowerCase();
+      const providerKey = canonicalProvider(src.provider);
       const authProvider = providerAuthMap[providerKey] || providerKey;
       // Resolve connection id to the oauth_connections.id (UUID) that satisfies the FK
       let resolvedConnId: string | null = null;
@@ -105,8 +109,16 @@ export async function POST(request: NextRequest) {
           connections?.find((c) => (c.provider || '').toLowerCase() === authProvider)?.id || null;
       }
 
-      if (!resolvedConnId && ['github', 'gitlab', 'jira', 'confluence', 'slack'].includes(authProvider)) {
+      if (!resolvedConnId && ['github', 'gitlab', 'jira', 'atlassian', 'slack'].includes(authProvider)) {
         return NextResponse.json({ error: `Missing OAuth connection for provider ${src.provider}` }, { status: 400 });
+      }
+
+      let resolvedDomain: string | null = null;
+      if (src.domain !== undefined && src.domain !== null && typeof src.domain !== 'string') {
+        return NextResponse.json({ error: `Invalid domain value for source ${src.name}` }, { status: 400 });
+      }
+      if (typeof src.domain === 'string') {
+        resolvedDomain = resolveSourceDomainValue(src.domain);
       }
 
       rows.push({
@@ -114,6 +126,12 @@ export async function POST(request: NextRequest) {
         name: src.name,
         provider: src.provider,
         scope: src.scope,
+        source_identifier: buildSourceIdentifier({
+          provider: src.provider,
+          scope: src.scope,
+          fallbackName: src.name,
+        }),
+        domain: resolvedDomain,
         connection_id: resolvedConnId,
         status_payload: {
           status: 'queueing',
@@ -133,53 +151,79 @@ export async function POST(request: NextRequest) {
       throw error;
     }
 
-    // Log connection for each new source; use repo_connected only for repo providers (GitHub/GitLab)
+    // Log connection for each new source using a single source lifecycle event.
     for (const row of data || []) {
-      const ws = row as WorkspaceSource & { id: string; name?: string; provider?: string; external_url?: string };
+      const ws = row as WorkspaceSource & {
+        id: string;
+        name?: string;
+        provider?: string;
+        scope?: Record<string, unknown> | null;
+      };
       const provider = (ws.provider ?? '').toLowerCase();
-      if (isRepoProvider(provider)) {
-        trackRepoConnected(
-          supabase,
-          user.id,
-          ws.id,
-          ws.external_url ?? '',
-          provider
-        ).catch((err) => console.warn('Failed to track repo connected:', err));
-      } else {
-        trackSourceConnected(supabase, user.id, ws.id, provider, ws.external_url ?? null).catch((err) =>
-          console.warn('Failed to track source connected:', err)
-        );
-      }
+      const sourceUrl = sourceUrlFromSourceScope(provider, ws.scope || null);
+      trackSourceConnected(supabase, user.id, ws.id, provider, sourceUrl).catch((err) =>
+        console.warn('Failed to track source connected:', err)
+      );
     }
 
-    // Kick off ingestion sequentially (could be parallelized with workers)
+    // Kick off ingestion via Inngest workers (durable in serverless; not tied to request lifetime)
     const createdSourceIds = (data || []).map((r) => r.id);
     for (const row of data || []) {
-      // Fire and forget; use service-role client to avoid auth-context loss in background work.
-      const ingestClient = (() => {
-        try {
-          return createServiceRoleClient();
-        } catch {
-          return supabase;
-        }
-      })();
-      ingestSource(ingestClient, row as WorkspaceSource, { mode, createdSourceIds }).catch((err) => {
-        console.error('[ingestSource] failed', err);
+      const provider = typeof row.provider === 'string' ? row.provider.toLowerCase() : '';
+      const sourceName =
+        typeof row.name === 'string' && row.name.trim().length > 0
+          ? row.name.trim()
+          : row.id;
+      const installedAt =
+        typeof row.created_at === 'string' && row.created_at.trim().length > 0
+          ? row.created_at
+          : new Date().toISOString();
+
+      await inngest.send({
+        name: 'source/ingest.requested',
+        data: {
+          sourceId: row.id,
+          sourceName,
+          userId: user.id,
+          mode,
+          createdSourceIds,
+        },
       });
 
-      const provider = typeof row.provider === 'string' ? row.provider.toLowerCase() : '';
-      if (provider === 'github' || provider === 'jira') {
+      if (provider === 'github' || provider === 'jira' || provider === 'atlassian') {
+        await patchSourceBackfillStatus({
+          supabase,
+          sourceId: row.id,
+          patch: {
+            status: 'queued',
+            progress_pct: 0,
+            step_label: 'Queued for history sync',
+            error: null,
+          },
+        });
         try {
           await inngest.send({
             name: 'diff/source.backfill.requested',
             data: {
               sourceId: row.id,
+              sourceName,
               userId: user.id,
+              installedAt,
             },
           });
         } catch (err) {
+          await patchSourceBackfillStatus({
+            supabase,
+            sourceId: row.id,
+            patch: {
+              status: 'failed',
+              step_label: 'History sync could not be queued',
+              error: err instanceof Error ? err.message : String(err),
+            },
+          });
           console.warn('[diff/backfill] failed to enqueue source backfill', {
             sourceId: row.id,
+            sourceName,
             provider,
             error: err instanceof Error ? err.message : String(err),
           });

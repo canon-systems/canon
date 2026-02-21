@@ -5,7 +5,7 @@ type CanonicalEvent = {
   event_kind: string;
   occurred_at: string;
   entity_id?: string | null;
-  repo_full_name?: string | null;
+  source_full_name?: string | null;
   metadata?: Record<string, unknown>;
 };
 
@@ -18,7 +18,7 @@ type DailyIncrements = {
   tickets_completed: number;
   tickets_regressed: number;
   tickets_created: number;
-  repos_touched: Set<string>;
+  sources_touched: Set<string>;
 };
 
 const emptyIncrements = (): DailyIncrements => ({
@@ -30,7 +30,7 @@ const emptyIncrements = (): DailyIncrements => ({
   tickets_completed: 0,
   tickets_regressed: 0,
   tickets_created: 0,
-  repos_touched: new Set(),
+  sources_touched: new Set(),
 });
 
 const toUtcDay = (value: string): string => {
@@ -46,10 +46,14 @@ const coerceIso = (value?: string | null): string => {
 
 const canonicalEventKey = (event: Pick<CanonicalEvent, 'event_kind' | 'entity_id' | 'occurred_at'>) =>
   `${event.event_kind}::${event.entity_id ?? ''}::${event.occurred_at}`;
+const JIRA_SOURCE_PROVIDERS = ['jira', 'atlassian'] as const;
 const log = createLogger('diff.webhook_ingest', {
   label: 'Webhook Ingest',
   eventLabels: {
     canonical_dedupe_query_failed: 'Canonical Dedupe Query Failed',
+    canonical_event_upsert_failed: 'Canonical Event Upsert Failed',
+    daily_metrics_query_failed: 'Daily Metrics Query Failed',
+    daily_metrics_upsert_failed: 'Daily Metrics Upsert Failed',
     raw_event_upsert_failed: 'Raw Event Upsert Failed',
     raw_event_upserted: 'Raw Event Upserted',
   },
@@ -141,8 +145,8 @@ const applyEventToIncrements = (inc: DailyIncrements, event: CanonicalEvent) => 
     default:
       break;
   }
-  if (event.repo_full_name) {
-    inc.repos_touched.add(event.repo_full_name);
+  if (event.source_full_name) {
+    inc.sources_touched.add(event.source_full_name);
   }
 };
 
@@ -210,13 +214,22 @@ export async function insertCanonicalEvents(params: {
     event_kind: event.event_kind,
     occurred_at: coerceIso(event.occurred_at),
     entity_id: event.entity_id ?? null,
-    repo_full_name: event.repo_full_name ?? null,
+    source_full_name: event.source_full_name ?? null,
     metadata: event.metadata ?? {},
   }));
 
-  await supabase
+  const { error } = await supabase
     .from('diff_event_canonical')
     .upsert(rows, { onConflict: 'source_id,event_kind,entity_id,occurred_at' });
+  if (error) {
+    log.error('canonical_event_upsert_failed', {
+      sourceId,
+      provider,
+      count: rows.length,
+      reason: error.message,
+    });
+    throw new Error(`Failed to upsert canonical events: ${error.message}`);
+  }
 }
 
 export async function upsertDailyMetrics(params: {
@@ -224,32 +237,64 @@ export async function upsertDailyMetrics(params: {
   sourceId: string;
   provider: string;
   events: CanonicalEvent[];
+  pathToFeature?: (path: string) => string | null;
 }) {
-  const { supabase, sourceId, provider, events } = params;
+  const { supabase, sourceId, provider, events, pathToFeature } = params;
   if (!events.length) return;
 
   const byDay = new Map<string, DailyIncrements>();
+  const featureAgg = new Map<string, Map<string, DailyIncrements>>(); // day -> featureKey -> increments
+
+  const incrementFeature = (day: string, featureKey: string | null, mutate: (inc: DailyIncrements) => void) => {
+    if (!featureKey) return;
+    let featureMap = featureAgg.get(day);
+    if (!featureMap) {
+      featureMap = new Map<string, DailyIncrements>();
+      featureAgg.set(day, featureMap);
+    }
+    let inc = featureMap.get(featureKey);
+    if (!inc) {
+      inc = emptyIncrements();
+      featureMap.set(featureKey, inc);
+    }
+    mutate(inc);
+  };
+
   for (const event of events) {
     const day = toUtcDay(event.occurred_at);
     const inc = byDay.get(day) ?? emptyIncrements();
     applyEventToIncrements(inc, event);
     byDay.set(day, inc);
+
+    const paths = Array.isArray(event.metadata?.paths) ? (event.metadata.paths as string[]) : [];
+    const featureKey =
+      paths.map((p) => (pathToFeature ? pathToFeature(p) : null)).find((k) => k) || null;
+    incrementFeature(day, featureKey, (finc) => applyEventToIncrements(finc, event));
   }
 
   for (const [day, inc] of byDay.entries()) {
-    const { data: existing } = await supabase
+    const { data: existing, error: existingError } = await supabase
       .from('diff_daily_metrics')
       .select(
-        'prs_opened, prs_merged, prs_closed, commits_default, tickets_moved, tickets_completed, tickets_regressed, tickets_created, repos_touched'
+        'prs_opened, prs_merged, prs_closed, commits_default, tickets_moved, tickets_completed, tickets_regressed, tickets_created, sources_touched, feature_counts'
       )
       .eq('source_id', sourceId)
       .eq('day', day)
       .maybeSingle();
+    if (existingError) {
+      log.error('daily_metrics_query_failed', {
+        sourceId,
+        provider,
+        day,
+        reason: existingError.message,
+      });
+      throw new Error(`Failed to query daily metrics: ${existingError.message}`);
+    }
 
-    const existingRepos = normalizeReposTouched(existing?.repos_touched);
-    const mergedRepos = Array.from(new Set([...existingRepos, ...inc.repos_touched]));
+    const existingRepos = normalizeReposTouched(existing?.sources_touched);
+    const mergedRepos = Array.from(new Set([...existingRepos, ...inc.sources_touched]));
 
-    await supabase
+    const { error: upsertError } = await supabase
       .from('diff_daily_metrics')
       .upsert(
         {
@@ -264,15 +309,78 @@ export async function upsertDailyMetrics(params: {
           tickets_completed: (existing?.tickets_completed ?? 0) + inc.tickets_completed,
           tickets_regressed: (existing?.tickets_regressed ?? 0) + inc.tickets_regressed,
           tickets_created: (existing?.tickets_created ?? 0) + inc.tickets_created,
-          repos_touched: mergedRepos,
+          sources_touched: mergedRepos,
+          feature_counts: (() => {
+            const featureMap = featureAgg.get(day);
+            if (!featureMap || featureMap.size === 0) return existing?.feature_counts ?? {};
+            const current = (existing?.feature_counts as Record<string, unknown>) || {};
+            const out: Record<string, { prs_opened: number; prs_merged: number; prs_closed: number; commits_default: number; tickets_moved: number; tickets_completed: number; tickets_regressed: number; tickets_created: number }> = {};
+            for (const [k, v] of Object.entries(current)) {
+              if (typeof v !== 'object' || v === null) continue;
+              const val = v as Record<string, number>;
+              out[k] = {
+                prs_opened: Number(val.prs_opened || 0),
+                prs_merged: Number(val.prs_merged || 0),
+                prs_closed: Number(val.prs_closed || 0),
+                commits_default: Number(val.commits_default || 0),
+                tickets_moved: Number(val.tickets_moved || 0),
+                tickets_completed: Number(val.tickets_completed || 0),
+                tickets_regressed: Number(val.tickets_regressed || 0),
+                tickets_created: Number(val.tickets_created || 0),
+              };
+            }
+            for (const [featureKey, finc] of featureMap.entries()) {
+              const bucket = out[featureKey] || {
+                prs_opened: 0,
+                prs_merged: 0,
+                prs_closed: 0,
+                commits_default: 0,
+                tickets_moved: 0,
+                tickets_completed: 0,
+                tickets_regressed: 0,
+                tickets_created: 0,
+              };
+              bucket.prs_opened += finc.prs_opened;
+              bucket.prs_merged += finc.prs_merged;
+              bucket.prs_closed += finc.prs_closed;
+              bucket.commits_default += finc.commits_default;
+              bucket.tickets_moved += finc.tickets_moved;
+              bucket.tickets_completed += finc.tickets_completed;
+              bucket.tickets_regressed += finc.tickets_regressed;
+              bucket.tickets_created += finc.tickets_created;
+              out[featureKey] = bucket;
+            }
+            return out;
+          })(),
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'source_id,day' }
       );
+    if (upsertError) {
+      log.error('daily_metrics_upsert_failed', {
+        sourceId,
+        provider,
+        day,
+        reason: upsertError.message,
+      });
+      throw new Error(`Failed to upsert daily metrics: ${upsertError.message}`);
+    }
   }
 }
 
 export async function resolveGithubSourceId(supabase: SupabaseClient, repoFullName: string): Promise<string | null> {
+  const repoLower = repoFullName.trim().toLowerCase();
+  if (!repoLower) return null;
+
+  const { data: byIdentifier } = await supabase
+    .from('workspace_sources')
+    .select('id')
+    .eq('provider', 'github')
+    .eq('source_identifier', repoLower)
+    .limit(1);
+
+  if (byIdentifier && byIdentifier.length > 0) return byIdentifier[0].id as string;
+
   const { data: direct } = await supabase
     .from('workspace_sources')
     .select('id, scope')
@@ -287,7 +395,6 @@ export async function resolveGithubSourceId(supabase: SupabaseClient, repoFullNa
     .select('id, scope')
     .eq('provider', 'github');
 
-  const repoLower = repoFullName.toLowerCase();
   const match = (allSources || []).find((row) => {
     const scope = (row.scope as { repo?: string }) || {};
     return typeof scope.repo === 'string' && scope.repo.toLowerCase() === repoLower;
@@ -301,11 +408,31 @@ export async function resolveJiraSourceId(
   projectKey: string,
   cloudId?: string | null
 ): Promise<string | null> {
+  const keyLower = projectKey.trim().toLowerCase();
+  if (!keyLower) return null;
+  const cloudLower = typeof cloudId === 'string' ? cloudId.trim().toLowerCase() : '';
+  const identifiers = cloudLower ? [`${cloudLower}:${keyLower}`, keyLower] : [keyLower];
+
+  const { data: byIdentifier } = await supabase
+    .from('workspace_sources')
+    .select('id, source_identifier')
+    .in('provider', [...JIRA_SOURCE_PROVIDERS])
+    .in('source_identifier', identifiers)
+    .limit(5);
+
+  if (byIdentifier && byIdentifier.length > 0) {
+    if (cloudLower) {
+      const exact = byIdentifier.find((row) => row.source_identifier === `${cloudLower}:${keyLower}`);
+      if (exact) return exact.id as string;
+    }
+    return byIdentifier[0].id as string;
+  }
+
   const scopeFilter = cloudId ? { project: projectKey, cloudId } : { project: projectKey };
   const { data: direct } = await supabase
     .from('workspace_sources')
     .select('id, scope')
-    .eq('provider', 'jira')
+    .in('provider', [...JIRA_SOURCE_PROVIDERS])
     .contains('scope', scopeFilter)
     .limit(1);
 
@@ -314,18 +441,31 @@ export async function resolveJiraSourceId(
   const { data: allSources } = await supabase
     .from('workspace_sources')
     .select('id, scope')
-    .eq('provider', 'jira');
+    .in('provider', [...JIRA_SOURCE_PROVIDERS]);
 
-  const keyLower = projectKey.toLowerCase();
-  const match = (allSources || []).find((row) => {
+  const projectMatches = (allSources || []).filter((row) => {
     const scope = (row.scope as { project?: string; cloudId?: string }) || {};
-    const projectMatches = typeof scope.project === 'string' && scope.project.toLowerCase() === keyLower;
-    if (!projectMatches) return false;
-    if (!cloudId) return true;
-    return typeof scope.cloudId === 'string' && scope.cloudId === cloudId;
+    return typeof scope.project === 'string' && scope.project.toLowerCase() === keyLower;
   });
 
-  return match ? (match.id as string) : null;
+  if (projectMatches.length === 0) return null;
+  if (!cloudId) return projectMatches[0].id as string;
+
+  const exactCloud = projectMatches.find((row) => {
+    const scope = (row.scope as { cloudId?: string }) || {};
+    return typeof scope.cloudId === 'string' && scope.cloudId === cloudId;
+  });
+  if (exactCloud) return exactCloud.id as string;
+
+  // Legacy fallback: older Jira sources may not include cloudId in scope.
+  const missingCloud = projectMatches.filter((row) => {
+    const scope = (row.scope as { cloudId?: string }) || {};
+    return typeof scope.cloudId !== 'string' || scope.cloudId.trim().length === 0;
+  });
+  if (projectMatches.length === 1) return projectMatches[0].id as string;
+  if (missingCloud.length === 1) return missingCloud[0].id as string;
+
+  return null;
 }
 
 export function extractGithubCanonicalEvents(payload: Record<string, unknown>): CanonicalEvent[] {
@@ -334,9 +474,20 @@ export function extractGithubCanonicalEvents(payload: Record<string, unknown>): 
   const events: CanonicalEvent[] = [];
 
   const pullRequest = payload.pull_request as
-    | { number?: number; created_at?: string; merged_at?: string | null; closed_at?: string | null }
+    | {
+      number?: number;
+      title?: string;
+      created_at?: string;
+      merged_at?: string | null;
+      closed_at?: string | null;
+      base?: { ref?: string };
+      head?: { ref?: string };
+    }
     | undefined;
   const action = typeof payload.action === 'string' ? payload.action : '';
+  const pullRequestTitle = typeof pullRequest?.title === 'string' ? pullRequest.title : null;
+  const baseRef = typeof pullRequest?.base?.ref === 'string' ? pullRequest.base.ref : null;
+  const headRef = typeof pullRequest?.head?.ref === 'string' ? pullRequest.head.ref : null;
 
   if (pullRequest && action) {
     if (action === 'opened') {
@@ -344,7 +495,13 @@ export function extractGithubCanonicalEvents(payload: Record<string, unknown>): 
         event_kind: 'pr_opened',
         occurred_at: pullRequest.created_at || new Date().toISOString(),
         entity_id: pullRequest.number ? String(pullRequest.number) : null,
-        repo_full_name: repoFullName,
+        source_full_name: repoFullName,
+        metadata: {
+          title: pullRequestTitle,
+          from: headRef,
+          to: baseRef,
+          status: 'opened',
+        },
       });
     }
 
@@ -354,14 +511,26 @@ export function extractGithubCanonicalEvents(payload: Record<string, unknown>): 
           event_kind: 'pr_merged',
           occurred_at: pullRequest.merged_at,
           entity_id: pullRequest.number ? String(pullRequest.number) : null,
-          repo_full_name: repoFullName,
+          source_full_name: repoFullName,
+          metadata: {
+            title: pullRequestTitle,
+            from: 'open',
+            to: 'merged',
+            status: 'merged',
+          },
         });
       } else if (pullRequest.closed_at) {
         events.push({
           event_kind: 'pr_closed',
           occurred_at: pullRequest.closed_at,
           entity_id: pullRequest.number ? String(pullRequest.number) : null,
-          repo_full_name: repoFullName,
+          source_full_name: repoFullName,
+          metadata: {
+            title: pullRequestTitle,
+            from: 'open',
+            to: 'closed',
+            status: 'closed',
+          },
         });
       }
     }
@@ -375,19 +544,38 @@ export function extractGithubCanonicalEvents(payload: Record<string, unknown>): 
       event_kind: 'commit',
       occurred_at: ts || new Date().toISOString(),
       entity_id: sha,
-      repo_full_name: repoFullName,
+      source_full_name: repoFullName,
+      metadata: {
+        message: typeof commit.message === 'string' ? commit.message : null,
+      },
     });
   }
 
   return events;
 }
 
-const looksLikeDone = (value?: string | null) =>
-  typeof value === 'string' && /done|closed|resolved/i.test(value);
+const normalizeStatusCategory = (value?: string | null): string | null => {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim().toLowerCase();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const isDoneCategory = (value?: string | null) => normalizeStatusCategory(value) === 'done';
+const normalizeStatusName = (value?: string | null): string | null => {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim().toLowerCase();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const readOwnString = (record: Record<string, unknown>, key: string): string | null => {
+  if (!Object.prototype.hasOwnProperty.call(record, key)) return null;
+  const value = record[key];
+  return typeof value === 'string' ? value : null;
+};
 
 export function extractJiraCanonicalEvents(
   payload: Record<string, unknown>,
-  statusCategoryMap?: Map<string, string>
+  statusCategoryLookup?: { byId: Map<string, string>; byName: Map<string, string> }
 ): CanonicalEvent[] {
   const events: CanonicalEvent[] = [];
   const webhookEvent = typeof payload.webhookEvent === 'string' ? payload.webhookEvent : '';
@@ -405,7 +593,11 @@ export function extractJiraCanonicalEvents(
       ? changelog.histories.flatMap((h) => Array.isArray(h?.items) ? h.items : [])
       : [];
   const summaryFromFields = typeof fields.summary === 'string' ? fields.summary : null;
-  const summaryFromChangelog = items.find((item) => item?.field === 'summary')?.toString;
+  const summaryFromChangelogItem = items.find((item) => item?.field === 'summary');
+  const summaryFromChangelog =
+    summaryFromChangelogItem && typeof summaryFromChangelogItem === 'object'
+      ? readOwnString(summaryFromChangelogItem, 'toString')
+      : null;
   const summary =
     typeof summaryFromFields === 'string'
       ? summaryFromFields
@@ -413,8 +605,13 @@ export function extractJiraCanonicalEvents(
         ? summaryFromChangelog
         : null;
   const updatedAt = typeof fields.updated === 'string' ? fields.updated : null;
-  const status = fields.status as { name?: string; statusCategory?: { name?: string } } | undefined;
-  const statusCategory = status?.statusCategory?.name || null;
+  const status = fields.status as {
+    id?: string | number;
+    name?: string;
+    statusCategory?: { key?: string; name?: string };
+  } | undefined;
+  const statusCategory = status?.statusCategory?.key ?? status?.statusCategory?.name ?? null;
+  const currentStatusId = status?.id != null ? String(status.id) : null;
   const project = fields.project as { key?: string } | undefined;
   const projectKey = typeof project?.key === 'string' ? project.key : null;
   const jiraWorkspace = projectKey ? `Jira:${projectKey}` : 'Jira';
@@ -424,7 +621,7 @@ export function extractJiraCanonicalEvents(
       event_kind: 'ticket_created',
       occurred_at: typeof fields.created === 'string' ? fields.created : new Date().toISOString(),
       entity_id: issueKey,
-      repo_full_name: jiraWorkspace,
+      source_full_name: jiraWorkspace,
       metadata: { status: status?.name || null, summary },
     });
   }
@@ -444,41 +641,55 @@ export function extractJiraCanonicalEvents(
 
     const fromIdForCategory = fromId || null;
     const toIdForCategory = toId || null;
-    const fromCategory = fromIdForCategory ? statusCategoryMap?.get(fromIdForCategory) : undefined;
-    const toCategory = toIdForCategory ? statusCategoryMap?.get(toIdForCategory) : undefined;
+    const fromStatusName = readOwnString(item, 'fromString');
+    const toStatusName = readOwnString(item, 'toString');
+    const fromCategoryById = fromIdForCategory ? statusCategoryLookup?.byId.get(fromIdForCategory) : undefined;
+    const toCategoryById = toIdForCategory ? statusCategoryLookup?.byId.get(toIdForCategory) : undefined;
+    const fromCategoryByName = normalizeStatusName(fromStatusName)
+      ? statusCategoryLookup?.byName.get(normalizeStatusName(fromStatusName)!)
+      : undefined;
+    const toCategoryByName = normalizeStatusName(toStatusName)
+      ? statusCategoryLookup?.byName.get(normalizeStatusName(toStatusName)!)
+      : undefined;
+    const toCategoryFromCurrentStatus =
+      currentStatusId && toIdForCategory && currentStatusId === toIdForCategory ? statusCategory : null;
+    const fromCategory = fromCategoryById ?? fromCategoryByName ?? undefined;
+    const toCategory = toCategoryById ?? toCategoryByName ?? toCategoryFromCurrentStatus ?? undefined;
+    const fromIsDone = isDoneCategory(fromCategory);
+    const toIsDone = isDoneCategory(toCategory);
+
     events.push({
       event_kind: 'ticket_moved',
       occurred_at: changeTime,
       entity_id: issueKey,
-      repo_full_name: jiraWorkspace,
+      source_full_name: jiraWorkspace,
       metadata: {
-        from: item?.fromString ?? null,
-        to: item?.toString ?? null,
+        from: fromStatusName,
+        to: toStatusName,
         from_id: fromIdForCategory,
         to_id: toIdForCategory,
+        from_category: fromCategory ?? null,
+        to_category: toCategory ?? null,
         summary,
       },
     });
 
-    if (toCategory === 'Done' || (statusCategory === 'Done' && !toCategory)) {
+    if (!fromIsDone && toIsDone) {
       events.push({
         event_kind: 'ticket_completed',
         occurred_at: changeTime,
         entity_id: issueKey,
-        repo_full_name: jiraWorkspace,
+        source_full_name: jiraWorkspace,
         metadata: { status: status?.name || null, summary },
       });
     }
 
-    if (
-      (fromCategory === 'Done' && toCategory && toCategory !== 'Done') ||
-      (!fromCategory && looksLikeDone(item?.fromString as string | undefined) && statusCategory !== 'Done')
-    ) {
+    if (fromIsDone && !toIsDone) {
       events.push({
         event_kind: 'ticket_regressed',
         occurred_at: changeTime,
         entity_id: issueKey,
-        repo_full_name: jiraWorkspace,
+        source_full_name: jiraWorkspace,
         metadata: { status: status?.name || null, summary },
       });
     }

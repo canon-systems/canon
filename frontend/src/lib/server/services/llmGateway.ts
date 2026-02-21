@@ -12,6 +12,7 @@ const log = createLogger('llm.gateway', {
   eventLabels: {
     initialized: 'Gateway Initialized',
     call_start: 'Call Started',
+    call_complete: 'Call Completed',
     api_retry: 'API Retry Scheduled',
     usage: 'Token Usage',
     network_retry: 'Network Retry Scheduled',
@@ -50,6 +51,7 @@ export class LLMGateway {
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       const isLast = attempt === maxRetries;
+      const callStartedAtMs = Date.now();
       try {
         log.debug('call_start', {
           model,
@@ -106,9 +108,19 @@ export class LLMGateway {
         }
 
         const usage = payload?.usage || {};
+        const durationMs = Date.now() - callStartedAtMs;
         log.debug('usage', {
           model,
           attempt: attempt + 1,
+          promptTokens: usage.prompt_tokens ?? null,
+          completionTokens: usage.completion_tokens ?? null,
+          totalTokens: usage.total_tokens ?? null,
+        });
+        log.info('call_complete', {
+          model,
+          attempt: attempt + 1,
+          maxAttempts: maxRetries + 1,
+          durationMs,
           promptTokens: usage.prompt_tokens ?? null,
           completionTokens: usage.completion_tokens ?? null,
           totalTokens: usage.total_tokens ?? null,
@@ -117,6 +129,7 @@ export class LLMGateway {
         const content = payload?.choices?.[0]?.message?.content;
         return typeof content === 'string' ? content.trim() : '';
       } catch (error: unknown) {
+        const durationMs = Date.now() - callStartedAtMs;
         const isAbort = error instanceof Error && error.name === 'AbortError';
         const message = isAbort ? `timeout after ${timeoutMs}ms` : (error instanceof Error ? error.message : 'Unknown network error');
         const retryable = isAbort || (error instanceof Error && /ECONNRESET|ETIMEDOUT|ENOTFOUND|fetch failed/i.test(error.message));
@@ -129,6 +142,7 @@ export class LLMGateway {
             maxAttempts: maxRetries + 1,
             retryInMs: delay,
             reason: message,
+            durationMs,
           });
           await new Promise((r) => setTimeout(r, delay));
           continue;
@@ -140,6 +154,7 @@ export class LLMGateway {
           maxAttempts: maxRetries + 1,
           reason: errorMessage(error),
           timeoutMs,
+          durationMs,
         });
 
         throw new Error(isAbort ? `LLM API call timed out after ${timeoutMs}ms` : `LLM API call failed: ${message}`);

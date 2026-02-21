@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
+import { ATLASSIAN_PROVIDER, canonicalProvider } from '@/lib/providers';
 import { LogsPageClient } from './page-client';
 
 export default async function LogsPage() {
@@ -15,7 +16,7 @@ export default async function LogsPage() {
   // Get all sources for enrichment
   const { data: userRepos } = await supabase
     .from('workspace_sources')
-    .select('id, external_url, name, scope')
+    .select('id, name, scope')
     .eq('user_id', user.id);
 
   // Get usage events as the source of truth for activity
@@ -26,11 +27,33 @@ export default async function LogsPage() {
     .order('created_at', { ascending: false })
     .limit(200);
 
+  const { data: signalRuns, error: signalRunsError } = await supabase
+    .from('signal_runs')
+    .select('id, source_ids, window_start, window_end, created_at')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: false })
+    .limit(100);
+
+  const signalRunIds = (signalRuns || []).map((run) => run.id).filter((id): id is string => typeof id === 'string' && id.length > 0);
+  let signalRowsForRuns: Array<{ signal_run_id: string | null }> = [];
+  if (signalRunIds.length > 0) {
+    const { data } = await supabase
+      .from('signals')
+      .select('signal_run_id')
+      .eq('user_id', user.id)
+      .in('signal_run_id', signalRunIds);
+    signalRowsForRuns = (data || []) as Array<{ signal_run_id: string | null }>;
+  }
 
   // Build activity log entries
   const logEntries: Array<{
     id: string;
-    type: 'automation_execution' | 'source_connection' | 'integration_connection' | 'integration_disconnected' | 'diagram' | 'kb_push' | 'aku_generated';
+    type:
+    | 'automation_execution'
+    | 'signal_execution'
+    | 'source_connection'
+    | 'integration_connection'
+    | 'integration_disconnected';
     timestamp: string;
     title: string;
     message: string;
@@ -47,6 +70,7 @@ export default async function LogsPage() {
       automationRuleId?: string;
       isAutomation?: boolean;
       provider?: string;
+      signalRunId?: string;
     };
   }> = [];
 
@@ -58,11 +82,10 @@ export default async function LogsPage() {
 
   const formatProviderName = (p: unknown): string => {
     if (p == null || typeof p !== 'string' || !p) return '';
-    const lower = p.toLowerCase();
-    if (lower === 'confluence') return 'Atlassian';
+    const lower = canonicalProvider(p);
+    if (lower === ATLASSIAN_PROVIDER) return 'Atlassian';
     if (lower === 'github') return 'GitHub';
-    if (lower === 'googledocs' || lower === 'google-docs') return 'Google Docs';
-    return p.charAt(0).toUpperCase() + p.slice(1).toLowerCase();
+    return lower.charAt(0).toUpperCase() + lower.slice(1).toLowerCase();
   };
 
   const entriesFromEvents = (usageEvents || []).map(event => {
@@ -70,7 +93,7 @@ export default async function LogsPage() {
     const sourceIdRaw = meta.source_id || meta.repo_id;
     const sourceId = typeof sourceIdRaw === 'string' ? sourceIdRaw : null;
     const repo = sourceId ? repoMap.get(sourceId) : null;
-    const repoUrl = meta.repo_url || repo?.external_url;
+    const repoUrl = meta.source_url || meta.repo_url || meta.external_url;
     const scopeBranch = repo && typeof repo.scope === 'object' && repo.scope !== null && 'branch' in repo ? (repo.scope as { branch?: string }).branch : undefined;
     const repoName = repo?.name || (repoUrl ? String(repoUrl).split('/').pop()?.replace('.git', '') : undefined);
     const base = {
@@ -88,17 +111,8 @@ export default async function LogsPage() {
       case 'doc_auto_published':
       case 'doc_deleted':
         return null;
+      case 'source_connected':
       case 'repo_connected': {
-        return {
-          ...base,
-          type: 'source_connection' as const,
-          title: repoName ? `Source Connected: ${repoName}` : 'Source Connected',
-          message: repoName ? `Connected source ${repoName}` : 'Source connected',
-          status: 'completed',
-          link: '/sources',
-        };
-      }
-      case 'source_connected': {
         const sourceName = repoName || formatProviderName(meta.provider) || 'Source';
         return {
           ...base,
@@ -109,10 +123,18 @@ export default async function LogsPage() {
           link: '/sources',
           metadata: {
             ...(base as { metadata?: Record<string, unknown> }).metadata,
-            repoUrl: typeof meta.external_url === 'string' ? meta.external_url : undefined,
+            repoUrl:
+              typeof meta.source_url === 'string'
+                ? meta.source_url
+                : typeof meta.repo_url === 'string'
+                  ? meta.repo_url
+                  : typeof meta.external_url === 'string'
+                    ? meta.external_url
+                    : undefined,
           },
         };
       }
+      case 'source_disconnected':
       case 'repo_disconnected': {
         const provider = typeof meta.provider === 'string' ? meta.provider : '';
         const sourceLabel = formatProviderName(provider) || repoName || 'Source';
@@ -145,53 +167,6 @@ export default async function LogsPage() {
           message: `Disconnected ${providerLabel.toLowerCase()}`,
           status: 'completed',
           link: '/integrations',
-        };
-      }
-      case 'architecture_diagram_generated':
-      case 'architecture_diagram_regenerated':
-      case 'architecture_diagram_deleted':
-        return {
-          ...base,
-          type: 'diagram' as const,
-          title: repoName ? `Architecture Diagram - ${repoName}` : 'Architecture Diagram',
-          message:
-            event.event_type === 'architecture_diagram_generated'
-              ? 'Architecture diagram generated'
-              : event.event_type === 'architecture_diagram_regenerated'
-                ? 'Architecture diagram updated'
-                : 'Architecture diagram deleted',
-          status: 'completed',
-          link: meta.diagram_id ? `/architecture-diagrams/view/${meta.diagram_id}` : '/architecture-diagrams',
-        };
-      case 'push_to_kb': {
-        const kbLabel = formatProviderName(meta.provider) || 'KB';
-        return {
-          ...base,
-          type: 'kb_push' as const,
-          title: `Pushed to ${kbLabel}`,
-          message: 'Canon View pushed to knowledge base',
-          status: 'completed',
-          link: undefined,
-        };
-      }
-      case 'akus_generated': {
-        const projectionsCount = typeof meta.projections_count === 'number' ? meta.projections_count : 0;
-        const sourceIds = Array.isArray(meta.source_ids) ? (meta.source_ids as string[]) : [];
-        const sourceNames = sourceIds
-          .map((id) => repoMap.get(id)?.name)
-          .filter(Boolean) as string[];
-        const sourceLabel = sourceNames.length > 0
-          ? sourceNames.join(', ')
-          : sourceIds.length > 0
-            ? `${sourceIds.length} source(s)`
-            : 'sources';
-        return {
-          ...base,
-          type: 'aku_generated' as const,
-          title: `Canon View generated: ${projectionsCount} projection${projectionsCount !== 1 ? 's' : ''}`,
-          message: `${projectionsCount} audience projection${projectionsCount !== 1 ? 's' : ''} from ${sourceLabel}`,
-          status: 'completed',
-          link: '/view',
         };
       }
       case 'repo_scan_run':
@@ -254,16 +229,13 @@ export default async function LogsPage() {
           durationLabel,
         ].filter(Boolean);
 
-        const link =
-          meta.diagram_id ? `/architecture-diagrams/view/${meta.diagram_id}` : undefined;
-
         return {
           ...base,
           type: 'automation_execution' as const,
           title: repoName ? `Automation: ${repoName}` : 'Automation',
           message: detailsParts.join(' • '),
           status,
-          link,
+          link: undefined,
           metadata: {
             ...(base as { metadata?: Record<string, unknown> }).metadata,
             automationRuleId: meta.automation_rule_id || undefined,
@@ -278,6 +250,47 @@ export default async function LogsPage() {
 
   logEntries.push(...entriesFromEvents);
 
+  const signalsByRun = new Map<string, number>();
+  for (const row of signalRowsForRuns) {
+    if (!row.signal_run_id) continue;
+    signalsByRun.set(row.signal_run_id, (signalsByRun.get(row.signal_run_id) || 0) + 1);
+  }
+
+  const entriesFromSignalRuns = (signalRuns || []).map((run) => {
+    const sourceIds = Array.isArray(run.source_ids)
+      ? run.source_ids.filter((id: unknown): id is string => typeof id === 'string')
+      : [];
+    const signalCount = signalsByRun.get(run.id) || 0;
+    const createdAt =
+      typeof run.created_at === 'string' && run.created_at
+        ? run.created_at
+        : typeof run.window_end === 'string' && run.window_end
+          ? run.window_end
+          : new Date().toISOString();
+
+    const messageParts = [
+      `${sourceIds.length} source${sourceIds.length === 1 ? '' : 's'}`,
+      `${signalCount} signal${signalCount === 1 ? '' : 's'} detected`,
+      typeof run.window_start === 'string' && typeof run.window_end === 'string'
+        ? `Window: ${run.window_start.slice(0, 10)} to ${run.window_end.slice(0, 10)}`
+        : null,
+    ].filter(Boolean) as string[];
+
+    return {
+      id: `signal-run-${run.id}`,
+      type: 'signal_execution' as const,
+      timestamp: createdAt,
+      title: 'Signal Execution',
+      message: messageParts.join(' • '),
+      status: 'completed',
+      link: '/signals',
+      metadata: {
+        signalRunId: run.id,
+      },
+    };
+  });
+
+  logEntries.push(...entriesFromSignalRuns);
 
   // Sort by timestamp (most recent first)
   logEntries.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
@@ -304,6 +317,9 @@ export default async function LogsPage() {
     errors: {
       usageEvents: eventsError && !isTableNotFoundError(eventsError)
         ? (eventsError.message || eventsError.code)
+        : undefined,
+      signalRuns: signalRunsError && !isTableNotFoundError(signalRunsError)
+        ? (signalRunsError.message || signalRunsError.code)
         : undefined,
     },
   };

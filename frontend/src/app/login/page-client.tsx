@@ -122,7 +122,7 @@ export function LoginPageClient() {
           <div className="space-y-3">
             <Badge>Automated Knowledge Infrastructure</Badge>
             <h1 className="text-3xl font-semibold sm:text-4xl">
-              {mode === 'forgot' ? 'Reset your password' : mode === 'login' ? 'Welcome back' : 'Create your workspace'}
+              {mode === 'forgot' ? 'Reset Your Password' : mode === 'login' ? 'Welcome Back' : 'Create Your Workspace'}
             </h1>
             <p className="text-white/70">
               {mode === 'forgot'
@@ -159,7 +159,7 @@ export function LoginPageClient() {
               {mode === 'forgot' ? (
                 <>
                   <div className="space-y-2">
-                    <h2 className="text-lg font-medium">Reset your password</h2>
+                    <h2 className="text-lg font-medium">Reset Your Password</h2>
                     <p className="text-sm text-white/70">
                       Enter your email and we&apos;ll send you a link to set a new password.
                     </p>

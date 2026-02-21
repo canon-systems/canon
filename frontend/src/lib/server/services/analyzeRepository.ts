@@ -131,7 +131,15 @@ export async function analyzeRepository({
 		throw new Error('repoUrl is required for repository analysis');
 	}
 
-	const parsed = parseRepoUrl(repoUrl);
+	// Normalize owner/repo shorthand (e.g., "acme/api") to a full GitHub URL.
+	const normalizedRepoUrl =
+		repoUrl.startsWith('http') || repoUrl.startsWith('git@')
+			? repoUrl
+			: repoUrl.includes('/') && !repoUrl.includes(' ')
+				? `https://github.com/${repoUrl.replace(/^\/+|\/+$/g, '')}`
+				: repoUrl;
+
+	const parsed = parseRepoUrl(normalizedRepoUrl);
 	if (!parsed) {
 		throw new Error(`Invalid GitHub URL: ${repoUrl}`);
 	}

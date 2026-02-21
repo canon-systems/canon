@@ -14,7 +14,7 @@ async function getJiraConnection(userId: string) {
     .from('oauth_connections')
     .select('connection_id, metadata')
     .eq('user_id', userId)
-    .eq('provider', 'confluence')
+    .eq('provider', 'atlassian')
     .eq('status', 'active')
     .maybeSingle();
 
@@ -25,7 +25,7 @@ async function getJiraConnection(userId: string) {
   const cloudId = typeof metadata.cloud_id === 'string' ? metadata.cloud_id : null;
   const jiraCloudId = typeof metadata.jira_cloud_id === 'string' ? metadata.jira_cloud_id : null;
 
-  if (!connection?.connection_id || !cloudId) {
+  if (!connection?.connection_id) {
     return null;
   }
 
@@ -43,7 +43,7 @@ export async function listJiraProjectsForUser(userId: string, cloudIdOverride?: 
   if (!connection) return { projects: [] };
 
   const accessToken = await getProviderAccessToken({
-    provider: 'confluence',
+    provider: 'atlassian',
     connectionId: connection.connectionId,
   });
 

@@ -3,14 +3,17 @@ import { cookies } from 'next/headers';
 import { getSession } from '@/lib/auth';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { encryptSecret } from '@/lib/server/oauth/tokenCrypto';
-import { createConfluenceOAuthClient } from '@/lib/server/oauth/confluenceClient';
-import { registerJiraWebhooks } from '@/lib/server/jira/webhooks';
-import { trackIntegrationConnected } from '@/lib/server/services/usageTracking';
+import { createAtlassianOAuthClient } from '@/lib/server/oauth/confluenceClient';
+import { trackIntegrationStateChanged } from '@/lib/server/services/usageTracking';
+import { createLogger } from '@/lib/server/logging';
 
 export const runtime = 'nodejs';
 
 const STATE_COOKIE = 'confluence_oauth_state';
 const VERIFIER_COOKIE = 'confluence_oauth_verifier';
+const log = createLogger('oauth.atlassian.callback', {
+  label: 'Atlassian OAuth Callback',
+});
 
 function redirectToSettings(origin: string, params: Record<string, string>) {
   const url = new URL('/settings', origin);
@@ -51,6 +54,9 @@ export async function GET(request: NextRequest) {
   const error = request.nextUrl.searchParams.get('error');
   if (error) {
     const description = request.nextUrl.searchParams.get('error_description') || error;
+    const logFields = { error, description };
+    console.warn('[atlassian][oauth][callback][provider_error]', logFields);
+    log.warn('provider_error', logFields);
     return redirectToSettings(request.nextUrl.origin, { error: description });
   }
 
@@ -65,16 +71,32 @@ export async function GET(request: NextRequest) {
   cookieStore.delete(VERIFIER_COOKIE);
 
   if (!code || !returnedState || !expectedState || !codeVerifier) {
+    const logFields = {
+      hasCode: Boolean(code),
+      hasReturnedState: Boolean(returnedState),
+      hasExpectedState: Boolean(expectedState),
+      hasVerifier: Boolean(codeVerifier),
+      userId: user.id,
+    };
+    console.warn('[atlassian][oauth][callback][missing_params]', logFields);
+    log.warn('missing_callback_params', logFields);
     return redirectToSettings(request.nextUrl.origin, { error: 'Missing OAuth callback parameters.' });
   }
 
   if (returnedState !== expectedState) {
+    const logFields = {
+      expectedState,
+      returnedState,
+      userId: user.id,
+    };
+    console.warn('[atlassian][oauth][callback][state_mismatch]', logFields);
+    log.warn('state_mismatch', logFields);
     return redirectToSettings(request.nextUrl.origin, { error: 'Invalid OAuth state. Please try again.' });
   }
 
   try {
     const redirectUri = new URL('/api/oauth/confluence/callback', request.nextUrl.origin).toString();
-    const client = createConfluenceOAuthClient(redirectUri);
+    const client = createAtlassianOAuthClient(redirectUri);
 
     const tokenSet = await client.oauthCallback(
       redirectUri,
@@ -84,28 +106,42 @@ export async function GET(request: NextRequest) {
 
     const accessToken = tokenSet.access_token;
     if (!accessToken) {
+      const logFields = { userId: user.id, scope: tokenSet.scope };
+      console.error('[atlassian][oauth][callback][no_access_token]', logFields);
+      log.error('token_missing_access_token', logFields);
       return redirectToSettings(request.nextUrl.origin, { error: 'Confluence token exchange did not return an access token.' });
     }
+
+    const tokenFields = {
+      userId: user.id,
+      scope: tokenSet.scope,
+      expiresAt: typeof tokenSet.expires_at === 'number' ? tokenSet.expires_at : null,
+    };
+    console.info('[atlassian][oauth][callback][token_received]', tokenFields);
+    log.info('token_received', tokenFields);
 
     const resources = await fetchAccessibleResources(accessToken);
     const resourceList = Array.isArray(resources) ? resources : [];
     const primaryResource = resourceList[0] || null;
     const jiraResource = pickJiraResource(resourceList);
 
-    // Debug logging (scopes + resources) to troubleshoot missing Jira webhook scope
-    console.log('[confluence/oauth/callback] scopes:', tokenSet.scope);
-    console.log('[confluence/oauth/callback] accessible resources count:', resourceList.length);
-    console.log(
-      '[confluence/oauth/callback] jira resource:',
-      jiraResource ? { id: jiraResource.id, url: jiraResource.url, name: jiraResource.name } : null
-    );
+    const resourceFields = {
+      userId: user.id,
+      resourceCount: resourceList.length,
+      primaryResourceId: primaryResource?.id,
+      primaryResourceUrl: primaryResource?.url,
+      jiraResourceId: jiraResource?.id,
+      jiraResourceUrl: jiraResource?.url,
+    };
+    console.info('[atlassian][oauth][callback][resources]', resourceFields);
+    log.info('resources_resolved', resourceFields);
 
     const supabase = await createClient();
     const { data: existingConnection } = await supabase
       .from('oauth_connections')
       .select('connection_id, metadata')
       .eq('user_id', user.id)
-      .eq('provider', 'confluence')
+      .eq('provider', 'atlassian')
       .maybeSingle();
 
     const connectionId = existingConnection?.connection_id || crypto.randomUUID();
@@ -119,7 +155,7 @@ export async function GET(request: NextRequest) {
       .upsert(
         {
           user_id: user.id,
-          provider: 'confluence',
+          provider: 'atlassian',
           connection_id: connectionId,
           status: 'active',
           metadata: {
@@ -140,7 +176,13 @@ export async function GET(request: NextRequest) {
       );
 
     if (connectionError) {
-      console.error('Failed to store Atlassian connection:', connectionError);
+      const logFields = {
+        userId: user.id,
+        error: connectionError.message,
+        provider: 'atlassian',
+      };
+      console.error('[atlassian][oauth][callback][connection_upsert_failed]', logFields);
+      log.error('connection_upsert_failed', logFields);
       return redirectToSettings(request.nextUrl.origin, { error: 'Failed to store Atlassian connection.' });
     }
 
@@ -154,7 +196,7 @@ export async function GET(request: NextRequest) {
         {
           connection_id: connectionId,
           user_id: user.id,
-          provider: 'confluence',
+          provider: 'atlassian',
           provider_account_id: null,
           access_token: encryptSecret(accessToken),
           refresh_token: tokenSet.refresh_token ? encryptSecret(tokenSet.refresh_token) : null,
@@ -167,54 +209,31 @@ export async function GET(request: NextRequest) {
       );
 
     if (tokenError) {
-      console.error('Failed to store Atlassian tokens:', tokenError);
+      const logFields = {
+        userId: user.id,
+        error: tokenError.message,
+        provider: 'atlassian',
+      };
+      console.error('[atlassian][oauth][callback][token_upsert_failed]', logFields);
+      log.error('token_upsert_failed', logFields);
       return redirectToSettings(request.nextUrl.origin, { error: 'Failed to store Atlassian tokens.' });
     }
 
-    if (jiraResource?.id) {
-      try {
-        console.log('[confluence/oauth/callback] registering Jira webhook', {
-          cloudId: jiraResource.id,
-          baseUrl: process.env.CANON_WEBHOOK_BASE_URL || 'https://dev.usecanon.com',
-        });
-        await registerJiraWebhooks({
-          connectionId,
-          cloudId: jiraResource.id,
-          jqlFilter: null,
-        });
-        console.log('[confluence/oauth/callback] Jira webhook registered');
-      } catch (webhookError) {
-        const message = webhookError instanceof Error ? webhookError.message : String(webhookError);
-        console.error('Failed to register Jira webhooks:', message);
-        await supabase
-          .from('oauth_connections')
-          .update({
-            metadata: {
-              ...existingMetadata,
-              source: 'oauth',
-              connected_at: new Date().toISOString(),
-              cloud_id: primaryResource?.id || null,
-              site_url: primaryResource?.url || null,
-              site_name: primaryResource?.name || null,
-              jira_cloud_id: jiraResource?.id || null,
-              jira_site_url: jiraResource?.url || null,
-              jira_site_name: jiraResource?.name || null,
-              resource_count: Array.isArray(resources) ? resources.length : 0,
-              jira_webhook_status: 'degraded',
-              jira_webhook_error: message,
-            },
-            updated_at: new Date().toISOString(),
-          })
-          .eq('user_id', user.id)
-          .eq('provider', 'confluence');
-      }
-    }
-
-    await trackIntegrationConnected(supabase, user.id, 'confluence', connectionId);
-    return redirectToSettings(request.nextUrl.origin, { success: 'true', provider: 'confluence' });
+    await trackIntegrationStateChanged(supabase, user.id, 'connected', 'atlassian', connectionId);
+    const completeFields = {
+      userId: user.id,
+      connectionId,
+      primaryResourceId: primaryResource?.id,
+      jiraResourceId: jiraResource?.id,
+    };
+    console.info('[atlassian][oauth][callback][complete]', completeFields);
+    log.info('oauth_complete', completeFields);
+    return redirectToSettings(request.nextUrl.origin, { success: 'true', provider: 'atlassian' });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    console.error('Atlassian OAuth callback error:', err);
+    const logFields = { userId: user.id, error: message };
+    console.error('[atlassian][oauth][callback][error]', logFields);
+    log.error('callback_error', logFields);
     return redirectToSettings(request.nextUrl.origin, { error: message });
   }
 }

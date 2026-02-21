@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
-import { trackRepoDisconnected } from '@/lib/server/services/usageTracking';
+import { deleteSourceDependents } from '@/lib/server/services/sourceCleanup';
+import { sourceUrlFromSourceScope, trackSourceDisconnected } from '@/lib/server/services/usageTracking';
+import { resolveSourceDomainValue } from '@/lib/sources/domainMapping';
 
 /**
  * GET: Get a single source configuration
@@ -58,7 +60,7 @@ export async function PATCH(
 
     const supabase = await createClient();
     const { id } = await params;
-    const updates = await request.json();
+    const updates = await request.json() as Record<string, unknown>;
 
     // Allow updating minimal fields for now
     const allowedFields = ['name', 'scope', 'status_payload', 'last_error'];
@@ -67,6 +69,17 @@ export async function PATCH(
     for (const field of allowedFields) {
       if (updates[field] !== undefined) {
         filteredUpdates[field] = updates[field];
+      }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(updates, 'domain')) {
+      const value = updates.domain;
+      if (value === null || (typeof value === 'string' && value.trim().length === 0)) {
+        filteredUpdates.domain = null;
+      } else if (typeof value === 'string') {
+        filteredUpdates.domain = resolveSourceDomainValue(value);
+      } else {
+        return NextResponse.json({ error: 'Invalid domain value' }, { status: 400 });
       }
     }
 
@@ -117,6 +130,7 @@ export async function DELETE(
     }
 
     const supabase = await createClient();
+    const admin = createServiceRoleClient();
     const { id } = await params;
 
     const { data: source, error: sourceError } = await supabase
@@ -130,7 +144,13 @@ export async function DELETE(
       return NextResponse.json({ error: 'Source not found' }, { status: 404 });
     }
 
-    const { error } = await supabase
+    await deleteSourceDependents({
+      supabase: admin,
+      userId: user.id,
+      sourceId: id,
+    });
+
+    const { error } = await admin
       .from('workspace_sources')
       .delete()
       .eq('id', id)
@@ -141,11 +161,12 @@ export async function DELETE(
     }
 
     try {
-      await trackRepoDisconnected(
-        supabase,
+      const sourceUrl = sourceUrlFromSourceScope(source.provider, source.scope as Record<string, unknown> | null);
+      await trackSourceDisconnected(
+        admin,
         user.id,
         id,
-        source.external_url,
+        sourceUrl,
         null,
         source.provider
       );

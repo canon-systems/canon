@@ -14,7 +14,7 @@ async function getJiraConnection(userId: string) {
     .from('oauth_connections')
     .select('connection_id')
     .eq('user_id', userId)
-    .eq('provider', 'confluence')
+    .eq('provider', 'atlassian')
     .eq('status', 'active')
     .maybeSingle();
 
@@ -30,7 +30,7 @@ export async function listJiraSitesForUser(userId: string): Promise<JiraSite[]> 
   if (!connection) return [];
 
   const accessToken = await getProviderAccessToken({
-    provider: 'confluence',
+    provider: 'atlassian',
     connectionId: connection.connectionId,
   });
 

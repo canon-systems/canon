@@ -2,15 +2,16 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Settings, User, Link2, Mail, Check, Loader2, Github } from 'lucide-react';
+import { Settings, User, Link2, Mail, Check, Loader2, Github, Info } from 'lucide-react';
 import { IntegrationLogos } from '@/components/IntegrationLogos';
 import { getIntegrationsCached, clearIntegrationsCache } from '@/lib/client/integrationsCache';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { createClient } from '@/lib/supabase/client';
-import { DEFAULT_AUDIENCES } from '@/lib/constants/audiences';
+import { Input } from '@/components/ui/input';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ATLASSIAN_PROVIDER, canonicalProvider } from '@/lib/providers';
 
 interface Connection {
   id: string;
@@ -28,34 +29,104 @@ interface SettingsPageClientProps {
   user: SupabaseUser | null;
 }
 
+type IntegrationCard = {
+  provider: string;
+  name: string;
+  description: string;
+  icon: React.ReactNode;
+  comingSoon?: boolean;
+};
+
 const tabs: Array<{ id: TabId; name: string; icon: React.ComponentType<{ className?: string }> }> = [
   { id: 'profile', name: 'Profile', icon: User },
   { id: 'preferences', name: 'Preferences', icon: Settings },
   { id: 'integrations', name: 'Integrations', icon: Link2 }
 ];
 
+const integrationCards: IntegrationCard[] = [
+  {
+    provider: 'github',
+    name: 'GitHub',
+    description: 'Install our GitHub App to sync repos and PR context.',
+    icon: <Github className="h-7 w-7 text-white" />
+  },
+  {
+    provider: 'slack',
+    name: 'Slack',
+    description: 'Connect Slack to receive signal alerts in your channel.',
+    icon: <IntegrationLogos provider="slack" size={28} />
+  },
+  {
+    provider: 'atlassian',
+    name: 'Atlassian',
+    description: 'Connect Jira and Confluence. Keep spaces and issues in sync.',
+    icon: <IntegrationLogos provider="atlassian" size={28} />
+  }
+];
+
+const FALLBACK_TIMEZONES = [
+  'UTC',
+  'America/Los_Angeles',
+  'America/Denver',
+  'America/Chicago',
+  'America/New_York',
+  'Europe/London',
+  'Europe/Berlin',
+  'Asia/Tokyo',
+];
+
+function resolveBrowserTimeZone(): string {
+  const resolved = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return typeof resolved === 'string' && resolved.trim().length > 0 ? resolved : 'UTC';
+}
+
 export function SettingsPageClient({ user: initialUser }: SettingsPageClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
+  const deliveryPreferenceOptions: Array<{
+    value: 'slack_only' | 'email_only' | 'slack_then_email';
+    label: string;
+    helper: string;
+  }> = [
+    { value: 'slack_only', label: 'Slack', helper: 'Post to your configured Slack channel' },
+    { value: 'email_only', label: 'Email', helper: 'Send alerts to an email address' },
+    { value: 'slack_then_email', label: 'Both', helper: 'Try Slack first, then fall back to email' },
+  ];
+
   const [activeTab, setActiveTab] = useState<TabId>('profile');
-  const [user, setUser] = useState<SupabaseUser | null>(initialUser);
+  const [user] = useState<SupabaseUser | null>(initialUser);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [debugNote, setDebugNote] = useState<string | null>(null);
   const [disconnectModalOpen, setDisconnectModalOpen] = useState(false);
   const [connectionToDisconnect, setConnectionToDisconnect] = useState<{ connectionId: string; provider: string } | null>(null);
   const [uninstallOnDisconnect, setUninstallOnDisconnect] = useState(false);
-  const [preferredAudiences, setPreferredAudiences] = useState<string[]>(() => {
-    const meta = initialUser?.user_metadata?.preferred_audiences;
-    if (Array.isArray(meta) && meta.length) return meta as string[];
-    return [];
-  });
-  const [savingPreferences, setSavingPreferences] = useState(false);
-  const [preferencesMessage, setPreferencesMessage] = useState('');
-  const [preferencesError, setPreferencesError] = useState('');
+  const [slackChannel, setSlackChannel] = useState('');
+  const [slackLoading, setSlackLoading] = useState(true);
+  const [slackSaving, setSlackSaving] = useState(false);
+  const [slackMessage, setSlackMessage] = useState('');
+  const [slackError, setSlackError] = useState('');
+  const [emailDigestTo, setEmailDigestTo] = useState('');
+  const [deliveryPreference, setDeliveryPreference] = useState<'slack_only' | 'email_only' | 'slack_then_email' | null>('slack_only');
+  const [windowDays, setWindowDays] = useState<number>(7);
+  const [timeZone, setTimeZone] = useState<string>(() => resolveBrowserTimeZone());
+  const [timeZoneOptions, setTimeZoneOptions] = useState<string[]>(FALLBACK_TIMEZONES);
+
+  useEffect(() => {
+    const intlWithSupportedValues = Intl as unknown as { supportedValuesOf?: (key: string) => string[] };
+    const supportedValuesOf = intlWithSupportedValues.supportedValuesOf;
+    if (typeof supportedValuesOf !== 'function') return;
+
+    const zones = supportedValuesOf('timeZone');
+    if (!Array.isArray(zones) || zones.length === 0) return;
+
+    const merged = Array.from(new Set([...FALLBACK_TIMEZONES, ...zones]));
+    setTimeZoneOptions(merged);
+  }, []);
 
   const loadConnections = useCallback(async (force = false) => {
     setLoading(true);
@@ -102,6 +173,8 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     }
     if (errorParam) {
       setError(decodeURIComponent(errorParam));
+      const provider = searchParams.get('provider') || 'atlassian';
+      setDebugNote(`Last ${provider} error: ${decodeURIComponent(errorParam)}`);
       const tab = searchParams.get('tab') || 'integrations';
       router.replace(`/settings?tab=${tab}`);
       if (tabParam !== 'integrations') {
@@ -118,6 +191,43 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     loadConnections();
   }, [loadConnections]);
 
+  const loadDeliverySettings = useCallback(async () => {
+    setSlackLoading(true);
+    try {
+      const response = await fetch('/api/settings/delivery', { credentials: 'include' });
+      if (!response.ok) {
+        throw new Error('Failed to load delivery settings');
+      }
+      const payload = await response.json();
+      const channel = payload?.slack_channel;
+      setSlackChannel(typeof channel === 'string' ? channel : '');
+      setEmailDigestTo(typeof payload?.email_digest_to === 'string' ? payload.email_digest_to : '');
+      const preference = payload?.delivery_preference;
+      if (preference === 'slack_only' || preference === 'email_only' || preference === 'slack_then_email') {
+        setDeliveryPreference(preference);
+      } else {
+        setDeliveryPreference('slack_only');
+      }
+      if (typeof payload?.baseline_window_days === 'number') {
+        setWindowDays(Math.max(1, Math.min(30, Math.floor(payload.baseline_window_days))));
+      }
+      const resolvedZone =
+        typeof payload?.time_zone === 'string' && payload.time_zone.trim().length > 0
+          ? payload.time_zone.trim()
+          : resolveBrowserTimeZone();
+      setTimeZone(resolvedZone);
+      setTimeZoneOptions((prev) => (prev.includes(resolvedZone) ? prev : [resolvedZone, ...prev]));
+    } catch (err: unknown) {
+      setSlackError(err instanceof Error ? err.message : 'Failed to load delivery settings');
+    } finally {
+      setSlackLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadDeliverySettings();
+  }, [loadDeliverySettings]);
+
   // Reload connections when switching to integrations tab
   useEffect(() => {
     if (activeTab === 'integrations' && connections.length === 0 && !loading) {
@@ -126,12 +236,14 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   }, [activeTab, connections.length, loading, loadConnections]);
 
   async function connectToProvider(providerName: string) {
+    const normalizedProvider = canonicalProvider(providerName);
     setConnecting(true);
     setError('');
     setSuccess('');
+    setDebugNote(null);
 
     try {
-      if (providerName === 'github') {
+      if (normalizedProvider === 'github') {
         const installUrl = process.env.NEXT_PUBLIC_GITHUB_APP_INSTALL_URL;
         if (!installUrl) {
           throw new Error('GitHub App install URL is not configured.');
@@ -139,16 +251,16 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
         window.location.href = installUrl;
         return;
       }
-      if (providerName === 'notion') {
-        window.location.href = '/api/oauth/notion/start';
-        return;
-      }
-      if (providerName === 'confluence') {
+      if (normalizedProvider === ATLASSIAN_PROVIDER) {
         window.location.href = '/api/oauth/confluence/start';
         return;
       }
+      if (normalizedProvider === 'slack') {
+        window.location.href = '/api/oauth/slack/start';
+        return;
+      }
 
-      throw new Error(`${getProviderDisplayName(providerName)} integration is not available yet.`);
+      throw new Error(`${getProviderDisplayName(normalizedProvider)} integration is not available yet.`);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to connect');
       console.error('Connection error:', err);
@@ -191,17 +303,19 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   }
 
   function getProviderDisplayName(provider: string) {
-    if (provider === 'googledocs' || provider === 'google-docs') return 'Google Docs';
-    if (provider === 'github') return 'GitHub';
-    if (provider === 'confluence') return 'Atlassian';
-    return provider.charAt(0).toUpperCase() + provider.slice(1);
+    const normalized = canonicalProvider(provider);
+    if (normalized === 'github') return 'GitHub';
+    if (normalized === 'slack') return 'Slack';
+    if (normalized === ATLASSIAN_PROVIDER) return 'Atlassian';
+    return normalized.charAt(0).toUpperCase() + normalized.slice(1);
   }
 
   function getProviderName(provider: string) {
-    if (provider === 'googledocs') return 'Google Docs';
-    if (provider === 'github') return 'GitHub';
-    if (provider === 'confluence') return 'Atlassian';
-    return provider.charAt(0).toUpperCase() + provider.slice(1);
+    const normalized = canonicalProvider(provider);
+    if (normalized === 'github') return 'GitHub';
+    if (normalized === 'slack') return 'Slack';
+    if (normalized === ATLASSIAN_PROVIDER) return 'Atlassian';
+    return normalized.charAt(0).toUpperCase() + normalized.slice(1);
   }
 
   function formatDate(dateString: string) {
@@ -230,31 +344,44 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     return Number.isFinite(fallback) && fallback > 0 ? fallback : null;
   })();
 
-  async function savePreferences() {
-    setSavingPreferences(true);
-    setPreferencesMessage('');
-    setPreferencesError('');
-
+  async function saveSlackChannel() {
+    setSlackSaving(true);
+    setSlackMessage('');
+    setSlackError('');
     try {
-      const supabase = createClient();
-      const { data, error: updateError } = await supabase.auth.updateUser({
-        data: { preferred_audiences: preferredAudiences }
+      if (!deliveryPreference) {
+        throw new Error('Choose a delivery preference before saving.');
+      }
+
+      const includeSlack = deliveryPreference !== 'email_only';
+      const includeEmail = deliveryPreference !== 'slack_only';
+
+      const response = await fetch('/api/settings/delivery', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          slack_channel: includeSlack ? slackChannel.trim() || null : null,
+          email_digest_enabled: includeEmail,
+          email_digest_to: includeEmail ? emailDigestTo.trim() || null : null,
+          delivery_preference: deliveryPreference,
+          baseline_window_days: windowDays,
+          time_zone: timeZone,
+        }),
       });
 
-      if (updateError) throw updateError;
-      if (data?.user) setUser(data.user as SupabaseUser);
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || 'Failed to save delivery settings');
+      }
 
-      setPreferencesMessage('Preferences saved. We will default to these audiences when generating documentation.');
+      setSlackMessage('Delivery settings saved.');
     } catch (err: unknown) {
-      setPreferencesError(err instanceof Error ? err.message : 'Failed to save preferences');
+      setSlackError(err instanceof Error ? err.message : 'Failed to save delivery settings');
     } finally {
-      setSavingPreferences(false);
+      setSlackSaving(false);
     }
   }
-
-  const toggleAudience = (aud: string) => {
-    setPreferredAudiences(prev => prev.includes(aud) ? prev.filter(a => a !== aud) : [...prev, aud]);
-  };
 
   return (
     <>
@@ -271,7 +398,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTabAndUpdateUrl} className="mb-8">
-          <TabsList className="bg-white/5 border border-white/10">
+          <TabsList className="bg-zinc-800 border border-white/10">
             {tabs.map(tab => {
               const Icon = tab.icon;
               return (
@@ -290,7 +417,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                 <p className="text-white/70">Manage your account information</p>
               </div>
 
-              <div className="rounded-xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm">
+              <div className="rounded-xl border border-white/10 bg-zinc-800 p-6 backdrop-blur-sm">
                 <div className="space-y-6">
                   <div className="flex items-center gap-4">
                     <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white/10">
@@ -308,7 +435,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                         <Mail className="inline h-4 w-4 mr-2" />
                         Email Address
                       </label>
-                      <div className="rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-white">
+                      <div className="rounded-lg border border-white/10 bg-zinc-800 px-4 py-3 text-white">
                         {initialUser?.email || 'Not available'}
                       </div>
                     </div>
@@ -326,84 +453,199 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
 
           <TabsContent value="preferences" className="mt-6">
             {/* Preferences Tab */}
-            <div>
+            <div className="space-y-6">
               <div className="mb-6">
                 <h2 className="text-2xl font-semibold text-white mb-2">Preferences</h2>
-                <p className="text-white/70">Set your default audience so generated content starts in the right voice.</p>
+                <p className="text-white/70">
+                  Configure alert delivery and default signal analysis behavior.
+                </p>
               </div>
 
-              <div className="rounded-xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm space-y-5">
-                {(preferencesMessage || preferencesError) && (
-                  <div
-                    className={`rounded-lg border p-3 text-sm ${preferencesError
-                      ? 'border-red-500/50 bg-red-500/10 text-red-200'
-                      : 'border-green-500/50 bg-green-500/10 text-green-200'
-                      }`}
-                  >
-                    {preferencesError || preferencesMessage}
+              <div className="space-y-4">
+                <div className="rounded-xl border border-white/10 bg-zinc-800 p-6 backdrop-blur-sm space-y-5">
+                  <div>
+                    <h3 className="text-lg font-semibold text-white">Alert Delivery</h3>
+                    <p className="text-sm text-white/65">
+                      Choose where daily signal alerts should go and set delivery destinations.
+                    </p>
                   </div>
-                )}
 
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-white/80">
-                    Preferred audiences
-                  </label>
-                  <div className="flex flex-wrap gap-2">
-                    {DEFAULT_AUDIENCES.map((aud) => {
-                      const active = preferredAudiences.includes(aud);
-                      return (
-                        <Badge
-                          key={aud}
-                          variant={active ? 'outline' : 'muted'}
-                          className="cursor-pointer transition-all hover:scale-105"
-                          onClick={() => toggleAudience(aud)}
-                          role="button"
-                          tabIndex={0}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault();
-                              toggleAudience(aud);
-                            }
-                          }}
-                        >
-                          {aud}
-                        </Badge>
-                      );
-                    })}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 text-sm font-medium text-white/80">
+                      <span>Delivery Preference</span>
+                      <TooltipProvider delayDuration={120}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Info className="h-4 w-4 cursor-help text-white/60" />
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-xs leading-relaxed">
+                            Choose where alerts are sent: Slack, Email, or Both.
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                    <Select
+                      value={deliveryPreference ?? ''}
+                      onValueChange={(value) =>
+                        setDeliveryPreference(
+                          value === 'slack_only' || value === 'email_only' || value === 'slack_then_email'
+                            ? value
+                            : null
+                        )
+                      }
+                      disabled={slackLoading}
+                    >
+                      <SelectTrigger className="w-full border-white/20 bg-white/5 text-white">
+                        <SelectValue placeholder="Choose how alerts are delivered" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-black/90 text-white">
+                        {deliveryPreferenceOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                  <p className="text-xs text-white/60">
-                    These audiences will be the default for the new AKU workflow.
-                  </p>
+
+                  {(deliveryPreference === 'slack_only' || deliveryPreference === 'slack_then_email') && (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 text-sm font-medium text-white/80">
+                        <span>Slack Channel ID</span>
+                        <TooltipProvider delayDuration={120}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Info className="h-4 w-4 cursor-help text-white/60" />
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-xs leading-relaxed">
+                              Enter the Slack channel for alerts. Use a channel ID like C0123456789. For private channels, invite the app first.
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </div>
+                      <Input
+                        placeholder="C0123456789"
+                        value={slackChannel}
+                        onChange={(event) => setSlackChannel(event.target.value)}
+                        disabled={slackLoading}
+                        className="mt-1"
+                      />
+                    </div>
+                  )}
+
+                  {(deliveryPreference === 'email_only' || deliveryPreference === 'slack_then_email') && (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 text-sm font-medium text-white/80">
+                        <span>Email for Alerts</span>
+                        <TooltipProvider delayDuration={120}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Info className="h-4 w-4 cursor-help text-white/60" />
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-xs leading-relaxed">
+                              Enter the email address for alerts. Leave blank to use your account email.
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      </div>
+                      <Input
+                        placeholder={initialUser?.email || 'you@company.com'}
+                        value={emailDigestTo}
+                        onChange={(event) => setEmailDigestTo(event.target.value)}
+                        disabled={slackLoading}
+                        className="mt-1"
+                      />
+                    </div>
+                  )}
                 </div>
 
-                <div className="flex items-center gap-3">
-                  <Button
-                    onClick={savePreferences}
-                    disabled={savingPreferences}
-                    className="bg-blue-600 text-white hover:bg-blue-700"
-                  >
-                    {savingPreferences ? (
-                      <span className="flex items-center gap-2">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Saving...
-                      </span>
-                    ) : (
-                      'Save preferences'
-                    )}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="text-white/70 hover:text-white"
-                    onClick={() => {
-                      const meta = user?.user_metadata?.preferred_audiences;
-                      setPreferredAudiences(Array.isArray(meta) ? meta : []);
-                      setPreferencesError('');
-                      setPreferencesMessage('');
-                    }}
-                  >
-                    Reset to default
-                  </Button>
+                <div className="rounded-xl border border-white/10 bg-zinc-800 p-6 backdrop-blur-sm space-y-5">
+                  <div>
+                    <h3 className="text-lg font-semibold text-white">Signal Defaults</h3>
+                    <p className="text-sm text-white/65">
+                      Set workspace defaults used when rendering signal windows.
+                    </p>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 text-sm font-medium text-white/80">
+                      <span>Time Zone</span>
+                      <TooltipProvider delayDuration={120}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Info className="h-4 w-4 cursor-help text-white/60" />
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-xs leading-relaxed">
+                            Sets your workspace local time for daily alert timing and date-based views.
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                    <Select
+                      value={timeZone}
+                      onValueChange={(value) => setTimeZone(value)}
+                      disabled={slackLoading}
+                    >
+                      <SelectTrigger className="w-full border-white/20 bg-white/5 text-white">
+                        <SelectValue placeholder="Choose a time zone" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-72 bg-black/90 text-white">
+                        {timeZoneOptions.map((zone) => (
+                          <SelectItem key={zone} value={zone}>
+                            {zone}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 text-sm font-medium text-white/80">
+                      <span>Signal Lookback Days</span>
+                      <TooltipProvider delayDuration={120}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Info className="h-4 w-4 cursor-help text-white/60" />
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-xs leading-relaxed">
+                            Number of previous full days shown in Signals. Baseline uses the same number of days immediately before. Range: 1-30.
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={30}
+                      value={windowDays}
+                      onChange={(event) =>
+                        setWindowDays(Math.max(1, Math.min(30, Number(event.target.value) || 1)))
+                      }
+                      className="w-28 border-white/20 bg-white/5 text-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-white/10 bg-zinc-800 p-6 backdrop-blur-sm space-y-4">
+                  {slackError ? <p className="text-xs text-red-300">{slackError}</p> : null}
+                  {slackMessage ? <p className="text-xs text-emerald-300">{slackMessage}</p> : null}
+
+                  <div className="flex items-center gap-3">
+                    <Button
+                      onClick={saveSlackChannel}
+                      disabled={slackSaving || slackLoading}
+                      className="bg-blue-600 text-white hover:bg-blue-700"
+                    >
+                      {slackSaving ? (
+                        <span className="flex items-center gap-2">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Saving...
+                        </span>
+                      ) : (
+                        'Save Preferences'
+                      )}
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -428,6 +670,11 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                   <p className="text-sm">{error}</p>
                 </div>
               )}
+              {debugNote && (
+                <div className="mb-6 rounded-lg border border-blue-500/50 bg-blue-500/10 p-4 text-blue-100">
+                  <p className="text-sm">{debugNote}</p>
+                </div>
+              )}
 
               {/* Integrations */}
               <div className="space-y-4">
@@ -445,33 +692,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                 </div>
 
                 <div className="space-y-3">
-                  {[
-                    {
-                      provider: 'github',
-                      name: 'GitHub',
-                      description: 'Install our GitHub App to sync repos and PR context.',
-                      icon: <Github className="h-7 w-7 text-white" />
-                    },
-                    {
-                      provider: 'notion',
-                      name: 'Notion',
-                      description: 'Sync pages and databases for richer answers.',
-                      icon: <IntegrationLogos provider="notion" size={28} />
-                    },
-                    {
-                      provider: 'confluence',
-                      name: 'Atlassian',
-                      description: 'Connect Jira and Confluence. Keep spaces and issues in sync.',
-                      icon: <IntegrationLogos provider="atlassian" size={28} />
-                    },
-                    {
-                      provider: 'googledocs',
-                      name: 'Google Docs',
-                      description: 'Bring docs into canon. Coming soon.',
-                      icon: <IntegrationLogos provider="google-docs" size={28} />,
-                      comingSoon: true
-                    }
-                  ].map(card => {
+                  {integrationCards.map(card => {
                     const connection = connections.find(c => c.provider === card.provider);
                     const connected = connection?.status === 'active';
                     const connectedOn = connection?.created_at ? formatDate(connection.created_at) : null;
@@ -479,7 +700,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                     return (
                       <div
                         key={card.provider}
-                        className="rounded-lg border border-white/10 bg-white/5 p-4 backdrop-blur-sm flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+                        className="rounded-lg border border-white/10 bg-zinc-800 p-4 backdrop-blur-sm flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
                       >
                         <div className="flex items-start gap-3">
                           <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white/5">
@@ -595,7 +816,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
               </span>? This action cannot be undone.
             </p>
             {connectionToDisconnect.provider === 'github' && (
-              <label className="mb-6 flex items-start gap-3 rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white/70">
+              <label className="mb-6 flex items-start gap-3 rounded-lg border border-white/10 bg-zinc-800 p-3 text-sm text-white/70">
                 <input
                   type="checkbox"
                   className="mt-1 h-4 w-4 accent-red-500"

@@ -1,5 +1,12 @@
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { decryptSecret, encryptSecret, type EncryptedSecret } from '@/lib/server/oauth/tokenCrypto';
+import { refreshSlackToken } from '@/lib/server/oauth/slackClient';
+import { createLogger } from '@/lib/server/logging';
+import { ATLASSIAN_PROVIDER, canonicalProvider } from '@/lib/providers';
+
+const log = createLogger('oauth.atlassian.token', {
+  label: 'Atlassian Token',
+});
 
 async function refreshConfluenceToken(params: {
   refreshToken: string;
@@ -29,14 +36,17 @@ async function refreshConfluenceToken(params: {
       const code = typeof parsed?.error === 'string' ? parsed.error : '';
       const description = typeof parsed?.error_description === 'string' ? parsed.error_description : '';
       if (code === 'unauthorized_client' || code === 'invalid_grant') {
+        log.warn('refresh_invalid', { error: code, description });
         throw new Error(`Atlassian refresh token invalid. Reconnect required. (${description || code})`);
       }
     } catch {
       // fall through with raw message
     }
+    log.warn('refresh_failed', { error: message });
     throw new Error(message);
   }
 
+  log.info('refresh_success');
   return response.json();
 }
 
@@ -92,11 +102,12 @@ export async function getProviderAccessToken(params: {
 }): Promise<string | null> {
   const { provider, connectionId } = params;
   const supabase = createServiceRoleClient();
+  const normalizedProvider = canonicalProvider(provider);
 
   const { data, error } = await supabase
     .from('oauth_provider_tokens')
     .select('access_token, refresh_token, expires_at')
-    .eq('provider', provider)
+    .eq('provider', normalizedProvider)
     .eq('connection_id', connectionId)
     .maybeSingle();
 
@@ -107,7 +118,7 @@ export async function getProviderAccessToken(params: {
 
   const accessToken = decryptSecret(encrypted);
 
-  if (provider === 'confluence') {
+  if (normalizedProvider === ATLASSIAN_PROVIDER) {
     const expiresAt = data.expires_at ? new Date(data.expires_at) : null;
     const refreshTokenEncrypted = data.refresh_token as EncryptedSecret | undefined;
     const now = new Date();
@@ -116,6 +127,7 @@ export async function getProviderAccessToken(params: {
     if (expiresAt && refreshTokenEncrypted && shouldRefreshSoon) {
       try {
         const refreshToken = decryptSecret(refreshTokenEncrypted);
+        log.info('refresh_due', { connectionId, expiresAt: data.expires_at });
         const refreshed = await refreshConfluenceToken({ refreshToken });
 
         const newAccessToken = typeof refreshed.access_token === 'string'
@@ -137,9 +149,55 @@ export async function getProviderAccessToken(params: {
           newExpiresAt
         );
 
+        log.info('refresh_completed', { connectionId, expiresAt: newExpiresAt });
         return newAccessToken;
       } catch (refreshError) {
-        console.warn('Failed to refresh Atlassian token:', refreshError);
+        log.warn('refresh_error', {
+          connectionId,
+          error: refreshError instanceof Error ? refreshError.message : String(refreshError),
+        });
+        const errorMessage = refreshError instanceof Error ? refreshError.message : String(refreshError);
+        await markConnectionError(supabase, connectionId, errorMessage);
+        throw new Error(errorMessage);
+      }
+    }
+  }
+
+  if (normalizedProvider === 'slack') {
+    const expiresAt = data.expires_at ? new Date(data.expires_at) : null;
+    const refreshTokenEncrypted = data.refresh_token as EncryptedSecret | undefined;
+    const now = new Date();
+    const shouldRefreshSoon = expiresAt && expiresAt.getTime() - now.getTime() < 5 * 60_000;
+
+    if (expiresAt && refreshTokenEncrypted && shouldRefreshSoon) {
+      try {
+        const refreshToken = decryptSecret(refreshTokenEncrypted);
+        const refreshed = await refreshSlackToken({ refreshToken });
+
+        const newAccessToken = typeof refreshed.access_token === 'string'
+          ? refreshed.access_token
+          : accessToken;
+        const newRefreshToken = typeof refreshed.refresh_token === 'string'
+          ? refreshed.refresh_token
+          : refreshToken;
+        const newExpiresAt =
+          typeof refreshed.expires_in === 'number'
+            ? new Date(Date.now() + refreshed.expires_in * 1000).toISOString()
+            : typeof refreshed.expires_at === 'number'
+              ? new Date(refreshed.expires_at * 1000).toISOString()
+              : data.expires_at;
+
+        await updateTokens(
+          supabase,
+          connectionId,
+          newAccessToken,
+          newRefreshToken || null,
+          newExpiresAt
+        );
+
+        return newAccessToken;
+      } catch (refreshError) {
+        console.warn('Failed to refresh Slack token:', refreshError);
         const errorMessage = refreshError instanceof Error ? refreshError.message : String(refreshError);
         await markConnectionError(supabase, connectionId, errorMessage);
         throw new Error(errorMessage);
@@ -161,7 +219,7 @@ export async function withConfluenceAccessToken<T>(params: {
   const { data, error } = await supabase
     .from('oauth_provider_tokens')
     .select('access_token, refresh_token, expires_at')
-    .eq('provider', 'confluence')
+    .eq('provider', 'atlassian')
     .eq('connection_id', connectionId)
     .maybeSingle();
 
@@ -207,6 +265,8 @@ export async function withConfluenceAccessToken<T>(params: {
       await params.onRefresh(newAccessToken);
     }
 
+    log.info('refresh_after_401', { connectionId, expiresAt: newExpiresAt });
+    console.info('[atlassian][token][refresh_after_401]', { connectionId, expiresAt: newExpiresAt });
     return await params.run(newAccessToken);
   }
 }
