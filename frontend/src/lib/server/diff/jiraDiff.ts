@@ -31,6 +31,13 @@ type JiraStatusCategoryLookup = {
   byId: Map<string, JiraStatusCategoryName>;
   byName: Map<string, JiraStatusCategoryName>;
 };
+type JiraHistoryItem = {
+  field?: unknown;
+  from?: unknown;
+  to?: unknown;
+  fromString?: unknown;
+  toString?: unknown;
+};
 
 const normalizeStatusName = (value?: string | null): string | null => {
   if (typeof value !== 'string') return null;
@@ -335,7 +342,7 @@ export async function getJiraDiffForProject(params: JiraDiffParams): Promise<Jir
       if (!Array.isArray(histories)) continue;
 
       const statusIds = histories.flatMap((history) => {
-        const items = Array.isArray(history?.items) ? history.items : [];
+        const items: JiraHistoryItem[] = Array.isArray(history?.items) ? history.items : [];
         return items
           .filter((item) => item?.field === 'status')
           .flatMap((item) => {
@@ -356,12 +363,12 @@ export async function getJiraDiffForProject(params: JiraDiffParams): Promise<Jir
         const historyTs = history?.created as string | undefined;
         if (!inWindow(historyTs, startMs, endMs)) continue;
 
-        const items = Array.isArray(history?.items) ? history.items : [];
+        const items: JiraHistoryItem[] = Array.isArray(history?.items) ? history.items : [];
         for (const item of items) {
           if (item?.field !== 'status') continue;
 
-          const previousStatus = item?.fromString ?? null;
-          const newStatus = item?.toString ?? null;
+          const previousStatus = typeof item?.fromString === 'string' ? item.fromString : null;
+          const newStatus = typeof item?.toString === 'string' ? item.toString : null;
           const fromId = item?.from ? String(item.from) : null;
           const toId = item?.to ? String(item.to) : null;
 
