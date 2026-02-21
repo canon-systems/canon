@@ -85,14 +85,12 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   const searchParams = useSearchParams();
 
   const deliveryPreferenceOptions: Array<{
-    value: 'slack_only' | 'email_only' | 'slack_then_email';
+    value: 'slack_only';
     label: string;
     helper: string;
   }> = [
-    { value: 'slack_only', label: 'Slack', helper: 'Post to your configured Slack channel' },
-    { value: 'email_only', label: 'Email', helper: 'Send alerts to an email address' },
-    { value: 'slack_then_email', label: 'Both', helper: 'Try Slack first, then fall back to email' },
-  ];
+      { value: 'slack_only', label: 'Slack', helper: 'Post to your configured Slack channel' },
+    ];
 
   const [activeTab, setActiveTab] = useState<TabId>('profile');
   const [user] = useState<SupabaseUser | null>(initialUser);
@@ -110,8 +108,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   const [slackSaving, setSlackSaving] = useState(false);
   const [slackMessage, setSlackMessage] = useState('');
   const [slackError, setSlackError] = useState('');
-  const [emailDigestTo, setEmailDigestTo] = useState('');
-  const [deliveryPreference, setDeliveryPreference] = useState<'slack_only' | 'email_only' | 'slack_then_email' | null>('slack_only');
+  const [deliveryPreference, setDeliveryPreference] = useState<'slack_only'>('slack_only');
   const [windowDays, setWindowDays] = useState<number>(7);
   const [timeZone, setTimeZone] = useState<string>(() => resolveBrowserTimeZone());
   const [timeZoneOptions, setTimeZoneOptions] = useState<string[]>(FALLBACK_TIMEZONES);
@@ -201,13 +198,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
       const payload = await response.json();
       const channel = payload?.slack_channel;
       setSlackChannel(typeof channel === 'string' ? channel : '');
-      setEmailDigestTo(typeof payload?.email_digest_to === 'string' ? payload.email_digest_to : '');
-      const preference = payload?.delivery_preference;
-      if (preference === 'slack_only' || preference === 'email_only' || preference === 'slack_then_email') {
-        setDeliveryPreference(preference);
-      } else {
-        setDeliveryPreference('slack_only');
-      }
+      setDeliveryPreference('slack_only');
       if (typeof payload?.baseline_window_days === 'number') {
         setWindowDays(Math.max(1, Math.min(30, Math.floor(payload.baseline_window_days))));
       }
@@ -227,13 +218,6 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   useEffect(() => {
     void loadDeliverySettings();
   }, [loadDeliverySettings]);
-
-  // Reload connections when switching to integrations tab
-  useEffect(() => {
-    if (activeTab === 'integrations' && connections.length === 0 && !loading) {
-      loadConnections();
-    }
-  }, [activeTab, connections.length, loading, loadConnections]);
 
   async function connectToProvider(providerName: string) {
     const normalizedProvider = canonicalProvider(providerName);
@@ -349,22 +333,15 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     setSlackMessage('');
     setSlackError('');
     try {
-      if (!deliveryPreference) {
-        throw new Error('Choose a delivery preference before saving.');
-      }
-
-      const includeSlack = deliveryPreference !== 'email_only';
-      const includeEmail = deliveryPreference !== 'slack_only';
-
       const response = await fetch('/api/settings/delivery', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          slack_channel: includeSlack ? slackChannel.trim() || null : null,
-          email_digest_enabled: includeEmail,
-          email_digest_to: includeEmail ? emailDigestTo.trim() || null : null,
-          delivery_preference: deliveryPreference,
+          slack_channel: slackChannel.trim() || null,
+          email_digest_enabled: false,
+          email_digest_to: null,
+          delivery_preference: 'slack_only',
           baseline_window_days: windowDays,
           time_zone: timeZone,
         }),
@@ -479,19 +456,15 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                             <Info className="h-4 w-4 cursor-help text-white/60" />
                           </TooltipTrigger>
                           <TooltipContent side="top" className="max-w-xs leading-relaxed">
-                            Choose where alerts are sent: Slack, Email, or Both.
+                            Alerts are currently delivered through Slack.
                           </TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
                     </div>
                     <Select
-                      value={deliveryPreference ?? ''}
+                      value={deliveryPreference}
                       onValueChange={(value) =>
-                        setDeliveryPreference(
-                          value === 'slack_only' || value === 'email_only' || value === 'slack_then_email'
-                            ? value
-                            : null
-                        )
+                        setDeliveryPreference(value === 'slack_only' ? value : 'slack_only')
                       }
                       disabled={slackLoading}
                     >
@@ -508,55 +481,28 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                     </Select>
                   </div>
 
-                  {(deliveryPreference === 'slack_only' || deliveryPreference === 'slack_then_email') && (
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2 text-sm font-medium text-white/80">
-                        <span>Slack Channel ID</span>
-                        <TooltipProvider delayDuration={120}>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Info className="h-4 w-4 cursor-help text-white/60" />
-                            </TooltipTrigger>
-                            <TooltipContent side="top" className="max-w-xs leading-relaxed">
-                              Enter the Slack channel for alerts. Use a channel ID like C0123456789. For private channels, invite the app first.
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      </div>
-                      <Input
-                        placeholder="C0123456789"
-                        value={slackChannel}
-                        onChange={(event) => setSlackChannel(event.target.value)}
-                        disabled={slackLoading}
-                        className="mt-1"
-                      />
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 text-sm font-medium text-white/80">
+                      <span>Slack Channel ID</span>
+                      <TooltipProvider delayDuration={120}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Info className="h-4 w-4 cursor-help text-white/60" />
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-xs leading-relaxed">
+                            Enter the Slack channel for alerts. Use a channel ID like C0123456789. For private channels, invite the app first.
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
                     </div>
-                  )}
-
-                  {(deliveryPreference === 'email_only' || deliveryPreference === 'slack_then_email') && (
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2 text-sm font-medium text-white/80">
-                        <span>Email for Alerts</span>
-                        <TooltipProvider delayDuration={120}>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Info className="h-4 w-4 cursor-help text-white/60" />
-                            </TooltipTrigger>
-                            <TooltipContent side="top" className="max-w-xs leading-relaxed">
-                              Enter the email address for alerts. Leave blank to use your account email.
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      </div>
-                      <Input
-                        placeholder={initialUser?.email || 'you@company.com'}
-                        value={emailDigestTo}
-                        onChange={(event) => setEmailDigestTo(event.target.value)}
-                        disabled={slackLoading}
-                        className="mt-1"
-                      />
-                    </div>
-                  )}
+                    <Input
+                      placeholder="Find your channel ID in Slack channel settings"
+                      value={slackChannel}
+                      onChange={(event) => setSlackChannel(event.target.value)}
+                      disabled={slackLoading}
+                      className="mt-1"
+                    />
+                  </div>
                 </div>
 
                 <div className="rounded-xl border border-white/10 bg-zinc-800 p-6 backdrop-blur-sm space-y-5">
