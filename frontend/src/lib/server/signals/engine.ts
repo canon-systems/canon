@@ -5,7 +5,7 @@ import {
   type DiffDelta,
 } from '@/lib/server/diff/contracts';
 import { runDiffForSourcesWithBreakdown } from '@/lib/server/diff/runDiffForSources';
-import { computeAndCompareMetrics } from '@/lib/server/signals/baseline';
+import { computeAndCompareMetrics, computeRobustSignalBaseline } from '@/lib/server/signals/baseline';
 import { computeWeightedEffort } from '@/lib/server/signals/effortWeights';
 import { evaluateSignalRules } from '@/lib/server/signals/rules';
 import { getWorkspaceSignalSettings, resolveSignalSourceIds } from '@/lib/server/signals/settings';
@@ -17,7 +17,7 @@ import type {
   SignalRunResult,
   SignalSeverity,
 } from '@/lib/server/signals/types';
-import { getNormalizedWindowForDays } from '@/lib/server/signals/window';
+import { computeBaselineWindowForTimeZone, getNormalizedWindowForDays } from '@/lib/server/signals/window';
 
 type SignalRow = {
   id: string;
@@ -335,10 +335,29 @@ export async function runSignalEngine(params: {
   sourceIds?: string[];
 }): Promise<SignalRunResult> {
   const { supabase, userId } = params;
-
   const settings = await getWorkspaceSignalSettings({ supabase, userId });
   const sourceIds = await resolveSignalSourceIds({ supabase, userId, sourceIds: params.sourceIds });
   const window = defaultWindowForSettings(settings.baseline_window_days, settings.time_zone);
+
+  return runSignalEngineForWindow({
+    supabase,
+    userId,
+    sourceIds,
+    window,
+    timeZone: settings.time_zone,
+  });
+}
+
+export async function runSignalEngineForWindow(params: {
+  supabase: SupabaseClient;
+  userId: string;
+  sourceIds: string[];
+  window: MetricWindow;
+  timeZone?: string;
+}): Promise<SignalRunResult> {
+  const { supabase, userId, sourceIds, window } = params;
+  const settings = await getWorkspaceSignalSettings({ supabase, userId });
+  const timeZone = params.timeZone || settings.time_zone;
 
   const { data: sourceRows } = sourceIds.length
     ? await supabase
@@ -353,15 +372,29 @@ export async function runSignalEngine(params: {
     scope: (row.scope as Record<string, unknown> | null) || null,
   }));
 
-  const { current, baseline, comparison } = await computeAndCompareMetrics({
+  const { current, comparison } = await computeAndCompareMetrics({
     supabase,
     userId,
     sourceIds,
     window,
-    timeZone: settings.time_zone,
+    timeZone,
   });
 
-  const rawSignalDrafts = evaluateSignalRules(comparison);
+  const robustBaseline = await computeRobustSignalBaseline({
+    supabase,
+    userId,
+    sourceIds,
+    currentWindow: current.window,
+    timeZone,
+  });
+
+  const comparisonBaselineWindow = computeBaselineWindowForTimeZone(current.window, timeZone);
+
+  const rawSignalDrafts = evaluateSignalRules({
+    comparison,
+    robustBaseline,
+    baselineWindow: comparisonBaselineWindow,
+  });
 
   const ticketingProviders = new Set(['jira', 'asana', 'linear']);
   const githubProviders = new Set(['github']);
@@ -372,7 +405,6 @@ export async function runSignalEngine(params: {
   const hasTicketingSources = ticketingSources.length > 0;
   const hasGithubSources = githubSources.length > 0;
   const allSourcesTicketing = sources.length > 0 && ticketingSources.length === sources.length;
-  const singleTicketingSource = sources.length === 1 && ticketingSources.length === 1;
 
   const ticketingLabel = (source: (typeof sources)[number]): string => {
     const name = typeof source.name === 'string' ? source.name.trim() : '';
@@ -386,6 +418,13 @@ export async function runSignalEngine(params: {
     return providerLabel;
   };
 
+  const ticketingScopeLabel = (): string | null => {
+    if (ticketingSources.length === 0) return null;
+    const labels = Array.from(new Set(ticketingSources.map(ticketingLabel).filter((label) => label.length > 0)));
+    if (labels.length === 0) return 'Ticketing';
+    return labels.join(', ');
+  };
+
   const filteredSignalDrafts = rawSignalDrafts.filter((signal) => {
     if (ticketingMetricKeys.has(signal.metric_key)) return hasTicketingSources;
     if (githubMetricKeys.has(signal.metric_key)) return hasGithubSources;
@@ -395,16 +434,15 @@ export async function runSignalEngine(params: {
   const signalDrafts = filteredSignalDrafts.map((signal) => {
     if (signal.scope_type !== 'global') return signal;
 
-    if (singleTicketingSource) {
-      const src = ticketingSources[0];
-      return { ...signal, scope_type: 'ticketing' as const, scope_id: ticketingLabel(src) };
+    if (ticketingMetricKeys.has(signal.metric_key) && hasTicketingSources) {
+      return { ...signal, scope_type: 'ticketing' as const, scope_id: ticketingScopeLabel() };
     }
 
-    if (allSourcesTicketing) {
+    if (allSourcesTicketing && hasTicketingSources) {
       const label =
         ticketingSources.length === 1
           ? ticketingLabel(ticketingSources[0])
-          : 'Multiple ticketing workspaces';
+          : ticketingScopeLabel() || 'Ticketing';
       return { ...signal, scope_type: 'ticketing' as const, scope_id: label };
     }
 
@@ -413,7 +451,7 @@ export async function runSignalEngine(params: {
 
   const primarySourceIdForSignal = (signal: (typeof signalDrafts)[number]): string | null => {
     if (ticketingMetricKeys.has(signal.metric_key)) {
-      return ticketingSources[0]?.id || null;
+      return ticketingSources.length === 1 ? ticketingSources[0]?.id || null : null;
     }
 
     if (githubMetricKeys.has(signal.metric_key)) {
@@ -439,8 +477,8 @@ export async function runSignalEngine(params: {
       source_ids: sourceIds,
       window_start: current.window.start,
       window_end: current.window.end,
-      baseline_start: baseline.window.start,
-      baseline_end: baseline.window.end,
+      baseline_start: comparisonBaselineWindow.start,
+      baseline_end: comparisonBaselineWindow.end,
     })
     .select('id')
     .single()) as { data: { id: string } | null; error: { message: string } | null };
@@ -924,7 +962,7 @@ export async function getSignalInvestigation(params: {
         .map((source) => [source.id, source] as const)
     );
     const sourceList = Array.from(sourceIndex.values());
-    const sourceShifts = sourceList
+    const sourceShiftsRaw = sourceList
       .map((source) => {
         const current = currentDiff.bySource[source.id] || emptyCanonicalDiff(currentWindow);
         const baseline = baselineDiff.bySource[source.id] || emptyCanonicalDiff(baselineWindow);
@@ -944,7 +982,9 @@ export async function getSignalInvestigation(params: {
           movement_score: score,
           metrics,
         };
-      })
+      });
+
+    const sourceShifts = sourceShiftsRaw
       .filter((item) => item.movement_score > 0)
       .sort((a, b) => b.movement_score - a.movement_score)
       .slice(0, 6);

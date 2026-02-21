@@ -45,6 +45,31 @@ async function resolveAlertEmail(params: {
   return typeof email === 'string' && email.trim().length > 0 ? email.trim() : null;
 }
 
+async function activeConnectedSourceCount(params: {
+  supabase: ReturnType<typeof createServiceRoleClient>;
+  sourceIds: string[];
+  windowStart: string;
+  windowEnd: string;
+}): Promise<number> {
+  const { supabase, sourceIds, windowStart, windowEnd } = params;
+  if (sourceIds.length === 0) return 0;
+
+  const { data, error } = await supabase
+    .from('diff_event_canonical')
+    .select('source_id')
+    .in('source_id', sourceIds)
+    .gte('occurred_at', windowStart)
+    .lte('occurred_at', windowEnd)
+    .limit(5000);
+
+  if (error || !data) return 0;
+  return new Set(
+    data
+      .map((row) => (typeof row.source_id === 'string' ? row.source_id : ''))
+      .filter((id) => id.length > 0)
+  ).size;
+}
+
 export const dailySignalAlerts = inngest.createFunction(
   {
     id: 'daily-signal-alerts',
@@ -84,11 +109,22 @@ export const dailySignalAlerts = inngest.createFunction(
           userId,
           sourceIds,
         });
+        const activeSourceCount = await activeConnectedSourceCount({
+          supabase,
+          sourceIds,
+          windowStart: window.start,
+          windowEnd: window.end,
+        });
 
         const signals = sortSignalsByPriority(signalRun.signals);
         if (signals.length === 0) {
           usersProcessed += 1;
-          console.log('[daily-signal-alerts] no signals detected', { userId, sourceCount: sourceIds.length });
+          console.log('[daily-signal-alerts] no signals detected', {
+            userId,
+            connectedSourceCount: sourceIds.length,
+            activeConnectedSourceCount: activeSourceCount,
+            activeSurfaceCount: signalRun.comparison.metrics.repos_touched.current_value,
+          });
           continue;
         }
 
@@ -135,7 +171,9 @@ export const dailySignalAlerts = inngest.createFunction(
         usersProcessed += 1;
         console.log('[daily-signal-alerts] processed user', {
           userId,
-          sourceCount: sourceIds.length,
+          connectedSourceCount: sourceIds.length,
+          activeConnectedSourceCount: activeSourceCount,
+          activeSurfaceCount: signalRun.comparison.metrics.repos_touched.current_value,
           signalsCount: signalRun.signals.length,
           deliveryChannel: channel,
           slackSent: slack.sent,
