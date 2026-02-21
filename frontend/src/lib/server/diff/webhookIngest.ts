@@ -46,10 +46,14 @@ const coerceIso = (value?: string | null): string => {
 
 const canonicalEventKey = (event: Pick<CanonicalEvent, 'event_kind' | 'entity_id' | 'occurred_at'>) =>
   `${event.event_kind}::${event.entity_id ?? ''}::${event.occurred_at}`;
+const JIRA_SOURCE_PROVIDERS = ['jira', 'atlassian'] as const;
 const log = createLogger('diff.webhook_ingest', {
   label: 'Webhook Ingest',
   eventLabels: {
     canonical_dedupe_query_failed: 'Canonical Dedupe Query Failed',
+    canonical_event_upsert_failed: 'Canonical Event Upsert Failed',
+    daily_metrics_query_failed: 'Daily Metrics Query Failed',
+    daily_metrics_upsert_failed: 'Daily Metrics Upsert Failed',
     raw_event_upsert_failed: 'Raw Event Upsert Failed',
     raw_event_upserted: 'Raw Event Upserted',
   },
@@ -214,9 +218,18 @@ export async function insertCanonicalEvents(params: {
     metadata: event.metadata ?? {},
   }));
 
-  await supabase
+  const { error } = await supabase
     .from('diff_event_canonical')
     .upsert(rows, { onConflict: 'source_id,event_kind,entity_id,occurred_at' });
+  if (error) {
+    log.error('canonical_event_upsert_failed', {
+      sourceId,
+      provider,
+      count: rows.length,
+      reason: error.message,
+    });
+    throw new Error(`Failed to upsert canonical events: ${error.message}`);
+  }
 }
 
 export async function upsertDailyMetrics(params: {
@@ -260,7 +273,7 @@ export async function upsertDailyMetrics(params: {
   }
 
   for (const [day, inc] of byDay.entries()) {
-    const { data: existing } = await supabase
+    const { data: existing, error: existingError } = await supabase
       .from('diff_daily_metrics')
       .select(
         'prs_opened, prs_merged, prs_closed, commits_default, tickets_moved, tickets_completed, tickets_regressed, tickets_created, sources_touched, feature_counts'
@@ -268,11 +281,20 @@ export async function upsertDailyMetrics(params: {
       .eq('source_id', sourceId)
       .eq('day', day)
       .maybeSingle();
+    if (existingError) {
+      log.error('daily_metrics_query_failed', {
+        sourceId,
+        provider,
+        day,
+        reason: existingError.message,
+      });
+      throw new Error(`Failed to query daily metrics: ${existingError.message}`);
+    }
 
     const existingRepos = normalizeReposTouched(existing?.sources_touched);
     const mergedRepos = Array.from(new Set([...existingRepos, ...inc.sources_touched]));
 
-    await supabase
+    const { error: upsertError } = await supabase
       .from('diff_daily_metrics')
       .upsert(
         {
@@ -334,6 +356,15 @@ export async function upsertDailyMetrics(params: {
         },
         { onConflict: 'source_id,day' }
       );
+    if (upsertError) {
+      log.error('daily_metrics_upsert_failed', {
+        sourceId,
+        provider,
+        day,
+        reason: upsertError.message,
+      });
+      throw new Error(`Failed to upsert daily metrics: ${upsertError.message}`);
+    }
   }
 }
 
@@ -385,7 +416,7 @@ export async function resolveJiraSourceId(
   const { data: byIdentifier } = await supabase
     .from('workspace_sources')
     .select('id, source_identifier')
-    .eq('provider', 'jira')
+    .in('provider', [...JIRA_SOURCE_PROVIDERS])
     .in('source_identifier', identifiers)
     .limit(5);
 
@@ -401,7 +432,7 @@ export async function resolveJiraSourceId(
   const { data: direct } = await supabase
     .from('workspace_sources')
     .select('id, scope')
-    .eq('provider', 'jira')
+    .in('provider', [...JIRA_SOURCE_PROVIDERS])
     .contains('scope', scopeFilter)
     .limit(1);
 
@@ -410,7 +441,7 @@ export async function resolveJiraSourceId(
   const { data: allSources } = await supabase
     .from('workspace_sources')
     .select('id, scope')
-    .eq('provider', 'jira');
+    .in('provider', [...JIRA_SOURCE_PROVIDERS]);
 
   const projectMatches = (allSources || []).filter((row) => {
     const scope = (row.scope as { project?: string; cloudId?: string }) || {};

@@ -10,6 +10,8 @@ import {
 import { createLogger, errorMessage } from '@/lib/server/logging';
 import { withConfluenceAccessToken } from '@/lib/server/oauth/tokenStore';
 
+const JIRA_SOURCE_PROVIDERS = ['jira', 'atlassian'] as const;
+
 type JiraStatusCategoryName = 'To Do' | 'In Progress' | 'Done' | string;
 type JiraStatusCategoryLookup = {
   byId: Map<string, JiraStatusCategoryName>;
@@ -268,7 +270,7 @@ export async function processJiraWebhookPayload(
     const { data: jiraSources } = await supabase
       .from('workspace_sources')
       .select('scope')
-      .eq('provider', 'jira')
+      .in('provider', [...JIRA_SOURCE_PROVIDERS])
       .limit(25);
 
     const connectedProjects = (jiraSources || [])

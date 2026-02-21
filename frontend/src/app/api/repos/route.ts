@@ -190,7 +190,7 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      if (provider === 'github' || provider === 'jira') {
+      if (provider === 'github' || provider === 'jira' || provider === 'atlassian') {
         await patchSourceBackfillStatus({
           supabase,
           sourceId: row.id,
