@@ -75,6 +75,21 @@ function inWindow(ts: string | null | undefined, start: number, end: number): bo
   return Number.isFinite(t) && t >= start && t <= end;
 }
 
+function dedupeByEventKey(
+  events: JiraTicketEvent[],
+  keyForEvent: (event: JiraTicketEvent) => string
+): JiraTicketEvent[] {
+  const seen = new Set<string>();
+  const out: JiraTicketEvent[] = [];
+  for (const event of events) {
+    const key = keyForEvent(event);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(event);
+  }
+  return out;
+}
+
 async function getJiraConnection(userId: string) {
   const supabase = createServiceRoleClient();
   const { data: connection } = await supabase
@@ -264,30 +279,12 @@ export async function getJiraDiffForProject(params: JiraDiffParams): Promise<Jir
   const tickets_completed: JiraTicketEvent[] = [];
   const tickets_regressed: JiraTicketEvent[] = [];
   const tickets_new: JiraTicketEvent[] = [];
-  const dedupeLatest = (events: JiraTicketEvent[]) => {
-    const byTicket = new Map<string, JiraTicketEvent>();
-    for (const evt of events) {
-      const prev = byTicket.get(evt.ticket_id);
-      const prevTs = prev ? Date.parse(prev.timestamp) : -Infinity;
-      const ts = Date.parse(evt.timestamp);
-      if (!Number.isFinite(ts)) continue;
-      if (ts >= prevTs) {
-        byTicket.set(evt.ticket_id, evt);
-      }
-    }
-    return Array.from(byTicket.values());
-  };
 
   const statusCategoryLookup = await getStatusCategoryMap(accessToken, cloudId);
 
   const maxResults = 50;
   let nextPageToken: string | undefined;
-  let pageCount = 0;
-  // Scale pages with window length so multi-day baselines get full coverage (single day ~20, 7 days ~100).
-  const windowDays = Math.ceil((endMs - startMs + 1) / (24 * 60 * 60 * 1000));
-  const maxPages = Math.min(100, 20 + 15 * Math.max(1, windowDays));
-
-  while (pageCount < maxPages) {
+  while (true) {
     const params = new URLSearchParams({
       jql,
       maxResults: String(maxResults),
@@ -402,17 +399,21 @@ export async function getJiraDiffForProject(params: JiraDiffParams): Promise<Jir
     }
 
     nextPageToken = typeof data?.nextPageToken === 'string' ? data.nextPageToken : undefined;
-    pageCount += 1;
     if (data?.isLast === true || !nextPageToken) break;
   }
+
+  const keyForStatusEvent = (event: JiraTicketEvent) =>
+    `${event.ticket_id}::${event.timestamp}::${event.previous_status ?? ''}::${event.new_status ?? ''}`;
+  const keyForCreatedEvent = (event: JiraTicketEvent) =>
+    `${event.ticket_id}::${event.timestamp}`;
 
   return {
     projectKey,
     start,
     end,
-    tickets_moved: dedupeLatest(tickets_moved),
-    tickets_completed: dedupeLatest(tickets_completed),
-    tickets_regressed: dedupeLatest(tickets_regressed),
-    tickets_new: dedupeLatest(tickets_new),
+    tickets_moved: dedupeByEventKey(tickets_moved, keyForStatusEvent),
+    tickets_completed: dedupeByEventKey(tickets_completed, keyForStatusEvent),
+    tickets_regressed: dedupeByEventKey(tickets_regressed, keyForStatusEvent),
+    tickets_new: dedupeByEventKey(tickets_new, keyForCreatedEvent),
   };
 }

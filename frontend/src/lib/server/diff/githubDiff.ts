@@ -78,9 +78,8 @@ export async function getGitHubDiffForRepo(params: DiffParams): Promise<GitHubDi
   // PRs: list by updated time and filter by window; paginate enough to reach baseline-day PRs
   let page = 1;
   const perPage = 100;
-  const maxPages = 50;
   let prPageCount = 0;
-  while (page <= maxPages) {
+  while (true) {
     const { data: prs } = await octokit.pulls.list({
       owner,
       repo,
@@ -150,9 +149,8 @@ export async function getGitHubDiffForRepo(params: DiffParams): Promise<GitHubDi
 
   let commitPage = 1;
   const commitsPerPage = 100;
-  const maxCommitPages = 50;
   let commitPageCount = 0;
-  while (commitPage <= maxCommitPages) {
+  while (true) {
     const { data: commitData } = await octokit.repos.listCommits({
       owner,
       repo,
