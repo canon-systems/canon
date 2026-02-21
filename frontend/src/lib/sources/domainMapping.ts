@@ -2,16 +2,15 @@ const DOMAIN_NAME_MAX_LENGTH = 80;
 const SOURCE_IDENTIFIER_MAX_LENGTH = 255;
 
 export const PRESET_SOURCE_DOMAINS = [
-  'Core Product',
-  'Authentication',
+  'Frontend',
+  'Backend',
   'Billing',
-  'User Management',
-  'Notifications',
-  'Search',
-  'Reporting',
-  'Integrations',
-  'Customer Support',
   'Infrastructure',
+  'Authentication',
+  'Data',
+  'Notifications',
+  'Integrations',
+  'DevOps',
 ] as const;
 
 export const DEFAULT_SOURCE_DOMAIN = PRESET_SOURCE_DOMAINS[0];
