@@ -97,7 +97,7 @@ export async function computeMetrics(
     window,
     tickets_completed: ticketsCompleted,
     tickets_regressed: ticketsRegressed,
-    regression_rate: ticketsRegressed / Math.max(ticketsCompleted, 1),
+    regression_rate: ticketsRegressed / Math.max(ticketsCompleted + ticketsRegressed, 1),
     prs_opened: Number(aggregate.prs_opened || 0),
     prs_merged: Number(aggregate.prs_merged || 0),
     repos_touched: Array.isArray(aggregate.repos_touched) ? aggregate.repos_touched.length : 0,

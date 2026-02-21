@@ -5,8 +5,12 @@ import { computeBaselineWindowForTimeZone, DEFAULT_SIGNAL_TIME_ZONE } from '@/li
 
 function asDelta(metricKey: string, current: number, baseline: number): MetricDelta {
   const absoluteChange = current - baseline;
-  const denominator = Math.max(Math.abs(baseline), 1);
-  const percentChange = (absoluteChange / denominator) * 100;
+  let percentChange = 0;
+  if (baseline === 0) {
+    percentChange = current === 0 ? 0 : current > 0 ? 100 : -100;
+  } else {
+    percentChange = (absoluteChange / Math.abs(baseline)) * 100;
+  }
 
   return {
     metric_key: metricKey,

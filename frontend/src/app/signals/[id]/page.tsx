@@ -24,6 +24,14 @@ function pct(value: number): string {
   return `${value.toFixed(2)}%`;
 }
 
+function points(value: number): string {
+  if (!Number.isFinite(value)) return '0';
+  const abs = Math.abs(value);
+  if (abs >= 100) return `${value.toFixed(0)}`;
+  if (abs >= 10) return `${value.toFixed(1)}`;
+  return `${value.toFixed(2)}`;
+}
+
 function signed(value: number): string {
   if (!Number.isFinite(value)) return '0';
   if (value > 0) return `+${value}`;
@@ -62,11 +70,10 @@ function formatChangeVsBaseline(signal: {
 }): string {
   if (isRateMetric(signal.metric_key)) {
     const deltaPoints = signal.absolute_change * 100;
-    const sign = deltaPoints > 0 ? '+' : '';
     if (signal.baseline_value === 0 && signal.current_value > 0) {
-      return `${sign}${pct(deltaPoints)} pts (new from 0%)`;
+      return `${deltaPoints > 0 ? '+' : ''}${points(deltaPoints)} pts (new from 0%)`;
     }
-    return `${sign}${pct(deltaPoints)} pts`;
+    return `${deltaPoints > 0 ? '+' : ''}${points(deltaPoints)} pts`;
   }
   return pct(signal.percent_change);
 }
@@ -113,7 +120,7 @@ function metricTooltip(metricKey: string): string {
     case 'repos_touched':
       return 'Number of repositories with activity in this period.';
     case 'regression_rate':
-      return 'Percent of completed tickets that regressed. Lower is better.';
+      return 'Percent of ticket movement that regressed ((regressed / (completed + regressed)) * 100). Lower is better.';
     case 'domain_distribution':
       return 'How concentrated activity is in one domain compared to baseline.';
     default:

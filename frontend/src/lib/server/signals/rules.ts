@@ -20,9 +20,10 @@ function pct(value: number): string {
   return `${value.toFixed(2)}%`;
 }
 
-function ratio(value: number): string {
-  if (!Number.isFinite(value)) return '0x';
-  return `${value.toFixed(1)}x`;
+function points(value: number): string {
+  const abs = Math.abs(value);
+  if (abs >= 10) return `${value.toFixed(1)} pts`;
+  return `${value.toFixed(2)} pts`;
 }
 
 function topDistributionEntry(distribution: Record<string, number>): { key: string; share: number } | null {
@@ -103,7 +104,7 @@ export function evaluateSignalRules(comparison: MetricComparison): SignalDraft[]
         severity: regressionSeverity,
         metricKey: 'regression_rate',
         title: 'Regression rate increased',
-        summary: `Regression rate is ${ratio(metrics.regression_rate.current_value / Math.max(metrics.regression_rate.baseline_value, 0.0001))} vs baseline (${pct(metrics.regression_rate.percent_change)}).`,
+        summary: `Regression rate is ${pct(metrics.regression_rate.current_value * 100)} vs baseline ${pct(metrics.regression_rate.baseline_value * 100)} (${points(metrics.regression_rate.absolute_change * 100)}).`,
         currentValue: metrics.regression_rate.current_value,
         baselineValue: metrics.regression_rate.baseline_value,
         absoluteChange: metrics.regression_rate.absolute_change,

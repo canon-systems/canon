@@ -86,6 +86,45 @@ function signalFingerprintKey(row: {
 }
 
 function toSignalRecord(row: SignalRow, evidence: SignalEvidenceRecord[]): SignalRecord {
+  const metricKey = row.metric_key;
+  let currentValue = Number(row.current_value || 0);
+  let baselineValue = Number(row.baseline_value || 0);
+  let absoluteChange = Number(row.absolute_change || 0);
+  let percentChange = Number(row.percent_change || 0);
+  let summaryLine = row.summary_line;
+
+  // Legacy rows stored regression rate as regressed/completed, which can exceed 100%.
+  // Normalize to regressed/(completed+regressed) when legacy-shaped values are detected.
+  if (metricKey === 'regression_rate' && (currentValue > 1 || baselineValue > 1)) {
+    const normalizedCurrent = currentValue > 0 ? currentValue / (1 + currentValue) : 0;
+    const normalizedBaseline = baselineValue > 0 ? baselineValue / (1 + baselineValue) : 0;
+    currentValue = normalizedCurrent;
+    baselineValue = normalizedBaseline;
+    absoluteChange = normalizedCurrent - normalizedBaseline;
+    if (normalizedBaseline === 0) {
+      percentChange = normalizedCurrent === 0 ? 0 : 100;
+    } else {
+      percentChange = ((normalizedCurrent - normalizedBaseline) / Math.abs(normalizedBaseline)) * 100;
+    }
+  }
+
+  if (metricKey === 'regression_rate') {
+    const pct = (value: number) => {
+      const n = Number.isFinite(value) ? value : 0;
+      const abs = Math.abs(n);
+      if (abs >= 100) return `${n.toFixed(0)}%`;
+      if (abs >= 10) return `${n.toFixed(1)}%`;
+      return `${n.toFixed(2)}%`;
+    };
+    const points = (value: number) => {
+      const n = Number.isFinite(value) ? value : 0;
+      const abs = Math.abs(n);
+      if (abs >= 10) return `${n.toFixed(1)} pts`;
+      return `${n.toFixed(2)} pts`;
+    };
+    summaryLine = `Regression rate is ${pct(currentValue * 100)} vs baseline ${pct(baselineValue * 100)} (${points(absoluteChange * 100)}).`;
+  }
+
   return {
     id: row.id,
     created_at: row.created_at,
@@ -95,17 +134,17 @@ function toSignalRecord(row: SignalRow, evidence: SignalEvidenceRecord[]): Signa
     primary_source_id: row.primary_source_id,
     scope_type: row.scope_type as SignalRecord['scope_type'],
     scope_id: row.scope_id,
-    metric_key: row.metric_key,
+    metric_key: metricKey,
     window_start: row.window_start,
     window_end: row.window_end,
     baseline_start: row.baseline_start,
     baseline_end: row.baseline_end,
-    current_value: Number(row.current_value || 0),
-    baseline_value: Number(row.baseline_value || 0),
-    absolute_change: Number(row.absolute_change || 0),
-    percent_change: Number(row.percent_change || 0),
+    current_value: currentValue,
+    baseline_value: baselineValue,
+    absolute_change: absoluteChange,
+    percent_change: percentChange,
     title: row.title,
-    summary_line: row.summary_line,
+    summary_line: summaryLine,
     metadata: row.metadata || {},
     evidence,
   };
@@ -325,7 +364,13 @@ export async function runSignalEngine(params: {
   const rawSignalDrafts = evaluateSignalRules(comparison);
 
   const ticketingProviders = new Set(['jira', 'asana', 'linear']);
+  const githubProviders = new Set(['github']);
+  const ticketingMetricKeys = new Set(['regression_rate', 'tickets_completed']);
+  const githubMetricKeys = new Set(['prs_merged', 'repo_distribution']);
   const ticketingSources = sources.filter((source) => ticketingProviders.has(source.provider));
+  const githubSources = sources.filter((source) => githubProviders.has(source.provider));
+  const hasTicketingSources = ticketingSources.length > 0;
+  const hasGithubSources = githubSources.length > 0;
   const allSourcesTicketing = sources.length > 0 && ticketingSources.length === sources.length;
   const singleTicketingSource = sources.length === 1 && ticketingSources.length === 1;
 
@@ -341,7 +386,13 @@ export async function runSignalEngine(params: {
     return providerLabel;
   };
 
-  const signalDrafts = rawSignalDrafts.map((signal) => {
+  const filteredSignalDrafts = rawSignalDrafts.filter((signal) => {
+    if (ticketingMetricKeys.has(signal.metric_key)) return hasTicketingSources;
+    if (githubMetricKeys.has(signal.metric_key)) return hasGithubSources;
+    return true;
+  });
+
+  const signalDrafts = filteredSignalDrafts.map((signal) => {
     if (signal.scope_type !== 'global') return signal;
 
     if (singleTicketingSource) {
@@ -359,6 +410,27 @@ export async function runSignalEngine(params: {
 
     return signal;
   });
+
+  const primarySourceIdForSignal = (signal: (typeof signalDrafts)[number]): string | null => {
+    if (ticketingMetricKeys.has(signal.metric_key)) {
+      return ticketingSources[0]?.id || null;
+    }
+
+    if (githubMetricKeys.has(signal.metric_key)) {
+      if (signal.scope_type === 'repo' && signal.scope_id) {
+        const matched = githubSources.find((source) => {
+          const scope = source.scope as Record<string, unknown> | null;
+          const repoFromScope = scope && typeof scope.repo === 'string' ? scope.repo.trim() : '';
+          const name = typeof source.name === 'string' ? source.name.trim() : '';
+          return repoFromScope === signal.scope_id || name === signal.scope_id;
+        });
+        if (matched) return matched.id;
+      }
+      return githubSources[0]?.id || null;
+    }
+
+    return sourceIds[0] || null;
+  };
 
   const { data: runRow } = (await supabase
     .from('signal_runs')
@@ -385,7 +457,7 @@ export async function runSignalEngine(params: {
       supabase,
       userId,
       signalRunId: runId,
-      primarySourceId: sourceIds[0] || null,
+      primarySourceId: primarySourceIdForSignal(signal),
       signal,
     });
     persistedSignals.push(inserted);
@@ -403,15 +475,18 @@ export async function listSignals(params: {
   userId: string;
   severity?: SignalSeverity;
   scope?: string;
+  metricKey?: string;
   limit?: number;
   windowStart?: string;
   windowEnd?: string;
   detectedStart?: string;
   detectedEnd?: string;
 }): Promise<SignalRecord[]> {
-  const { supabase, userId, severity, scope, windowStart, windowEnd, detectedStart, detectedEnd } = params;
-  const limit = Math.min(7, Math.max(1, params.limit || 7));
-  const fetchLimit = Math.max(30, limit * 20);
+  const { supabase, userId, severity, scope, metricKey, windowStart, windowEnd, detectedStart, detectedEnd } = params;
+  const requestedLimit = typeof params.limit === 'number' && Number.isFinite(params.limit)
+    ? Math.max(1, Math.floor(params.limit))
+    : null;
+  const fetchLimit = requestedLimit ? Math.max(30, requestedLimit * 20) : null;
 
   let query = supabase
     .from('signals')
@@ -419,11 +494,13 @@ export async function listSignals(params: {
       'id, type, severity, signal_run_id, primary_source_id, scope_type, scope_id, metric_key, window_start, window_end, baseline_start, baseline_end, current_value, baseline_value, absolute_change, percent_change, title, summary_line, metadata, created_at'
     )
     .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-    .limit(fetchLimit);
+    .order('created_at', { ascending: false });
+
+  if (fetchLimit) query = query.limit(fetchLimit);
 
   if (severity) query = query.eq('severity', severity);
   if (scope) query = query.or(`scope_type.eq.${scope},scope_id.eq.${scope}`);
+  if (metricKey) query = query.eq('metric_key', metricKey);
   if (windowStart) query = query.gte('window_start', windowStart);
   if (windowEnd) query = query.lte('window_end', windowEnd);
   if (detectedStart) query = query.gte('created_at', detectedStart);
@@ -439,7 +516,7 @@ export async function listSignals(params: {
     if (seenFingerprints.has(fingerprint)) continue;
     seenFingerprints.add(fingerprint);
     dedupedRows.push(row);
-    if (dedupedRows.length >= limit) break;
+    if (requestedLimit && dedupedRows.length >= requestedLimit) break;
   }
   if (dedupedRows.length === 0) return [];
 
