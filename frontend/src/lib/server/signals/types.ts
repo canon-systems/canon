@@ -87,7 +87,6 @@ export type SignalRecord = {
   id: string;
   created_at?: string;
   signal_run_id?: string | null;
-  primary_source_id?: string | null;
   type: SignalType;
   severity: SignalSeverity;
   scope_type: SignalScopeType;

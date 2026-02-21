@@ -120,12 +120,7 @@ export default async function SignalsPage({
   const singleSourceIds = Array.from(sourceIdsByRun.values())
     .filter((ids) => ids.length === 1)
     .map((ids) => ids[0]);
-
-  const primarySourceIds = signals
-    .map((signal) => signal.primary_source_id)
-    .filter((id): id is string => typeof id === 'string' && id.length > 0);
-
-  const uniqueSourceIds = Array.from(new Set([...singleSourceIds, ...primarySourceIds]));
+  const uniqueSourceIds = Array.from(new Set(singleSourceIds));
 
   const sourceInfo = new Map<
     string,
@@ -158,9 +153,8 @@ export default async function SignalsPage({
     <SignalsPageClient
       signals={signals.map((signal) => {
         const sourceIds = signal.signal_run_id ? sourceIdsByRun.get(signal.signal_run_id) || [] : [];
-        const primarySourceId = signal.primary_source_id || null;
         const singleSourceId = sourceIds.length === 1 ? sourceIds[0] : null;
-        const chosenSourceId = primarySourceId || singleSourceId;
+        const chosenSourceId = singleSourceId;
         const sourceLabel = sourceLabelForId(chosenSourceId);
 
         return {
@@ -170,7 +164,6 @@ export default async function SignalsPage({
           summary_line: signal.summary_line,
           severity: signal.severity,
           scope: { type: signal.scope_type, id: signal.scope_id || null },
-          primary_source_id: signal.primary_source_id || null,
           metric_key: signal.metric_key,
           current_value: signal.current_value,
           baseline_value: signal.baseline_value,

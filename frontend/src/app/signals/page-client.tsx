@@ -19,7 +19,6 @@ type SignalCard = {
   summary_line: string;
   severity: 'elevated' | 'significant';
   scope: { type: 'global' | 'repo' | 'ticketing'; id: string | null };
-  primary_source_id?: string | null;
   scope_label_override?: string | null;
   metric_key: string;
   current_value: number;

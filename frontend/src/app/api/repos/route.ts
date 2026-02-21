@@ -168,6 +168,7 @@ export async function POST(request: NextRequest) {
 
     // Kick off ingestion via Inngest workers (durable in serverless; not tied to request lifetime)
     const createdSourceIds = (data || []).map((r) => r.id);
+
     for (const row of data || []) {
       const provider = typeof row.provider === 'string' ? row.provider.toLowerCase() : '';
       const sourceName =
@@ -208,6 +209,7 @@ export async function POST(request: NextRequest) {
               sourceId: row.id,
               sourceName,
               userId: user.id,
+              createdSourceIds,
               installedAt,
             },
           });
@@ -224,12 +226,23 @@ export async function POST(request: NextRequest) {
           console.warn('[diff/backfill] failed to enqueue source backfill', {
             sourceId: row.id,
             sourceName,
+            userId: user.id,
             provider,
+            createdSourceIds,
             error: err instanceof Error ? err.message : String(err),
           });
         }
       }
     }
+
+    await inngest.send({
+      name: 'source/setup.batch.finalize.requested',
+      data: {
+        userId: user.id,
+        mode,
+        createdSourceIds,
+      },
+    });
 
     return NextResponse.json(data, { status: 200 });
   } catch (err: unknown) {

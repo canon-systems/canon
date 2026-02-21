@@ -1,10 +1,12 @@
 import { BookOpen, CheckCircle2 } from 'lucide-react';
+import Link from 'next/link';
 
 interface GuideSection {
   id: string;
   title: string;
   description: string;
   whereToGo: string;
+  links: Array<{ label: string; href: string }>;
   steps: string[];
   beforeYouMoveOn: string;
 }
@@ -43,10 +45,14 @@ function buildRenderedSteps(steps: string[]): RenderedStep[] {
 
 const guideSections: GuideSection[] = [
   {
-    id: 'integrate-sources',
-    title: 'Integrate Your Sources',
-    description: 'Start by connecting Canon to the tools your team already uses.',
-    whereToGo: 'Settings -> Integrations',
+    id: 'integrate-and-configure',
+    title: 'Connect Integrations and Configure Preferences',
+    description: 'Set up your integrations and Slack delivery preferences before you add sources.',
+    whereToGo: 'Settings -> Integrations and Preferences',
+    links: [
+      { label: 'Go to Integrations', href: '/settings?tab=integrations' },
+      { label: 'Go to Preferences', href: '/settings?tab=preferences' },
+    ],
     steps: [
       'Open Settings and select the Integrations tab.',
       'Connect the source integrations you want Canon to use.',
@@ -55,14 +61,20 @@ const guideSections: GuideSection[] = [
       '2c. Slack connection: enables Canon to deliver alert messages to your Slack workspace.',
       'Complete each provider authorization flow, then return to Canon.',
       'Confirm each integration shows as Connected before continuing.',
+      'Switch to the Preferences tab.',
+      'Choose the Slack delivery preference and enter the Slack Channel ID.',
+      'Set your Time Zone (the local timezone Canon uses for date windows and alert timing).',
+      'Set Signal Lookback Days (how many recent full days Canon includes when evaluating signal trends).',
+      'Click Save Preferences.',
     ],
-    beforeYouMoveOn: 'At least one source integration is connected and active. If you plan to deliver alerts in Slack, Slack should also be connected.',
+    beforeYouMoveOn: 'Integrations are connected, Slack delivery is configured, and preferences are saved before source setup.',
   },
   {
     id: 'setup-and-classify',
     title: 'Set Up Sources and Classify Domains',
     description: 'Add the specific sources you want to monitor and assign each one to a product domain. Domains are labels that group related work so Canon can organize trends and signals by product area.',
     whereToGo: 'Sources',
+    links: [{ label: 'Go to Sources', href: '/sources' }],
     steps: [
       'Open the Sources page and click Add Source.',
       'Pick the repos or projects you want to ingest, then add them.',
@@ -74,25 +86,11 @@ const guideSections: GuideSection[] = [
     beforeYouMoveOn: 'Your key sources are Ready and assigned to clear domains that match how your team thinks about product areas.',
   },
   {
-    id: 'configure-preferences',
-    title: 'Configure Preferences',
-    description: 'Set how Canon sends Slack alerts and how default signal windows are calculated.',
-    whereToGo: 'Settings -> Preferences',
-    steps: [
-      'If Slack is not connected yet, go to Settings -> Integrations and connect your Slack workspace first.',
-      'Choose the Slack delivery preference.',
-      'Enter the Slack Channel ID where alerts should be sent.',
-      'Set your Time Zone (the local timezone Canon uses for date windows and alert timing).',
-      'Set Signal Lookback Days (how many recent full days Canon includes when evaluating signal trends).',
-      'Click Save Preferences.',
-    ],
-    beforeYouMoveOn: 'Slack delivery is saved and alerts are pointed to the right channel.',
-  },
-  {
     id: 'use-history',
     title: 'Use the History Page',
     description: 'Compare recent activity against a baseline window to understand trend shifts across connected sources.',
     whereToGo: 'History',
+    links: [{ label: 'Go to History', href: '/history' }],
     steps: [
       'Open History and click Select Primary Range.',
       'Pick the date range you want to analyze and confirm it.',
@@ -107,6 +105,7 @@ const guideSections: GuideSection[] = [
     title: 'Use the Signals Page',
     description: 'Monitor the highest-priority deviations and investigate individual signals quickly.',
     whereToGo: 'Signals',
+    links: [{ label: 'Go to Signals', href: '/signals' }],
     steps: [
       'Open Signals to see the latest signal feed for your workspace.',
       'Use Date Range to focus on a specific time window.',
@@ -157,6 +156,17 @@ export default function DocumentationPage() {
                     <div className="mb-4">
                       <p className="text-xs uppercase tracking-[0.2em] text-white/60">Where to go</p>
                       <p className="text-sm text-white/85">{section.whereToGo}</p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {section.links.map((link) => (
+                          <Link
+                            key={`${section.id}-${link.href}`}
+                            href={link.href}
+                            className="inline-flex items-center rounded-md border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-medium text-white/90 transition-colors hover:bg-white/15"
+                          >
+                            {link.label}
+                          </Link>
+                        ))}
+                      </div>
                     </div>
 
                     <p className="mb-6 leading-relaxed text-white/80">{section.description}</p>
@@ -202,7 +212,7 @@ export default function DocumentationPage() {
             <h3 className="mb-4 text-xl font-semibold text-white">Need More Help?</h3>
             <p className="mb-6 text-white/80">If you get stuck, contact support and include your workspace and source details.</p>
             <a
-              href="mailto:sellers.e.john@gmail.com"
+              href="mailto:john@usecanon.com"
               className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-gray-500 to-gray-600 px-6 py-3 font-medium text-white transition-all hover:from-gray-600 hover:to-gray-700"
             >
               Contact Support

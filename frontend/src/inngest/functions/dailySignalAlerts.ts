@@ -3,9 +3,7 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 import { runSignalEngine, sortSignalsByPriority } from '@/lib/server/signals/engine';
 import { getWorkspaceSignalSettings } from '@/lib/server/signals/settings';
 import {
-  formatDailySignalAlertEmail,
   formatDailySignalAlertMessage,
-  sendEmailDigest,
   sendSlackMessage,
 } from '@/lib/server/signals/delivery';
 import { DIFF_SOURCE_PROVIDERS } from '@/lib/server/sources/providers';
@@ -28,21 +26,6 @@ function groupSourceIdsByUser(rows: SourceRow[]): Map<string, string[]> {
     grouped.set(userId, current);
   }
   return grouped;
-}
-
-async function resolveAlertEmail(params: {
-  emailDigestEnabled: boolean;
-  emailDigestTo: string | null;
-  userId: string;
-  supabase: ReturnType<typeof createServiceRoleClient>;
-}): Promise<string | null> {
-  const { emailDigestEnabled, emailDigestTo, userId, supabase } = params;
-  if (!emailDigestEnabled) return null;
-  if (emailDigestTo && emailDigestTo.trim().length > 0) return emailDigestTo.trim();
-
-  const userRes = await supabase.auth.admin.getUserById(userId);
-  const email = userRes.data?.user?.email;
-  return typeof email === 'string' && email.trim().length > 0 ? email.trim() : null;
 }
 
 async function activeConnectedSourceCount(params: {
@@ -128,45 +111,13 @@ export const dailySignalAlerts = inngest.createFunction(
           continue;
         }
 
-        const preference = settings.delivery_preference || 'slack_then_email';
-        const wantsSlack = preference === 'slack_only' || preference === 'slack_then_email';
-        const wantsEmail = preference === 'email_only' || preference === 'slack_then_email';
-
-        let slack = { sent: false, reason: 'skipped_by_preference' } as { sent: boolean; reason?: string };
-        if (wantsSlack) {
-          slack = await sendSlackMessage({
-            supabase,
-            userId,
-            channel: settings.slack_channel,
-            text: formatDailySignalAlertMessage({ window, signals, timeZone: settings.time_zone }),
-          });
-        }
-
-        let email = { sent: false, reason: 'skipped_by_preference' } as { sent: boolean; reason?: string };
-        if (wantsEmail) {
-          const alertEmail = await resolveAlertEmail({
-            emailDigestEnabled: settings.email_digest_enabled,
-            emailDigestTo: settings.email_digest_to,
-            userId,
-            supabase,
-          });
-
-          if (alertEmail) {
-            const rendered = formatDailySignalAlertEmail({ window, signals });
-            email = await sendEmailDigest({
-              to: alertEmail,
-              subject: rendered.subject,
-              text: rendered.text,
-              html: rendered.html,
-            });
-          } else if (!settings.email_digest_enabled) {
-            email = { sent: false, reason: 'email_disabled' };
-          } else {
-            email = { sent: false, reason: 'email_unresolved' };
-          }
-        }
-
-        const channel = slack.sent && email.sent ? 'both' : slack.sent ? 'slack' : email.sent ? 'email' : 'none';
+        const slack = await sendSlackMessage({
+          supabase,
+          userId,
+          channel: settings.slack_channel,
+          text: formatDailySignalAlertMessage({ window, signals, timeZone: settings.time_zone }),
+        });
+        const channel = slack.sent ? 'slack' : 'none';
 
         usersProcessed += 1;
         console.log('[daily-signal-alerts] processed user', {
@@ -178,8 +129,6 @@ export const dailySignalAlerts = inngest.createFunction(
           deliveryChannel: channel,
           slackSent: slack.sent,
           slackReason: slack.reason,
-          emailSent: email.sent,
-          emailReason: email.reason,
         });
       } catch (err) {
         usersFailed += 1;

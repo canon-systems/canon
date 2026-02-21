@@ -71,33 +71,54 @@ export async function deleteSourceDependents(params: {
 }) {
   const { supabase, userId, sourceId } = params;
 
-  const { data: signals, error: signalFetchError } = (await supabase
-    .from('signals')
+  const { data: signalRuns, error: signalRunFetchError } = (await supabase
+    .from('signal_runs')
     .select('id')
     .eq('user_id', userId)
-    .eq('primary_source_id', sourceId)) as { data: Array<{ id: string }> | null; error: DeleteErrorLike | null };
-  if (signalFetchError && !isMissingSchemaError(signalFetchError)) {
-    throw signalFetchError;
+    .contains('source_ids', [sourceId])) as { data: Array<{ id: string }> | null; error: DeleteErrorLike | null };
+  if (signalRunFetchError && !isMissingSchemaError(signalRunFetchError)) {
+    throw signalRunFetchError;
   }
 
-  const signalIds = (signals || []).map((row) => row.id).filter((id) => id.length > 0);
-  if (signalIds.length > 0) {
-    const { error: evidenceDeleteError } = await supabase
-      .from('signal_evidence')
-      .delete()
+  const signalRunIds = (signalRuns || []).map((row) => row.id).filter((id) => id.length > 0);
+  if (signalRunIds.length > 0) {
+    const { data: signals, error: signalFetchError } = (await supabase
+      .from('signals')
+      .select('id')
       .eq('user_id', userId)
-      .in('signal_id', signalIds);
-    if (evidenceDeleteError && !isMissingSchemaError(evidenceDeleteError)) {
-      throw evidenceDeleteError;
+      .in('signal_run_id', signalRunIds)) as { data: Array<{ id: string }> | null; error: DeleteErrorLike | null };
+    if (signalFetchError && !isMissingSchemaError(signalFetchError)) {
+      throw signalFetchError;
     }
 
-    const { error: signalDeleteError } = await supabase
-      .from('signals')
+    const signalIds = (signals || []).map((row) => row.id).filter((id) => id.length > 0);
+    if (signalIds.length > 0) {
+      const { error: evidenceDeleteError } = await supabase
+        .from('signal_evidence')
+        .delete()
+        .eq('user_id', userId)
+        .in('signal_id', signalIds);
+      if (evidenceDeleteError && !isMissingSchemaError(evidenceDeleteError)) {
+        throw evidenceDeleteError;
+      }
+
+      const { error: signalDeleteError } = await supabase
+        .from('signals')
+        .delete()
+        .eq('user_id', userId)
+        .in('id', signalIds);
+      if (signalDeleteError && !isMissingSchemaError(signalDeleteError)) {
+        throw signalDeleteError;
+      }
+    }
+
+    const { error: signalRunDeleteError } = await supabase
+      .from('signal_runs')
       .delete()
       .eq('user_id', userId)
-      .in('id', signalIds);
-    if (signalDeleteError && !isMissingSchemaError(signalDeleteError)) {
-      throw signalDeleteError;
+      .in('id', signalRunIds);
+    if (signalRunDeleteError && !isMissingSchemaError(signalRunDeleteError)) {
+      throw signalRunDeleteError;
     }
   }
 
