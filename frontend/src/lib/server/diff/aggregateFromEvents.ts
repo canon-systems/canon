@@ -6,7 +6,7 @@ type CanonicalEventAggRow = {
   source_id: string | null;
   provider: string | null;
   event_kind: string | null;
-  repo_full_name: string | null;
+  source_full_name: string | null;
 };
 
 const PAGE_SIZE = 1000;
@@ -53,7 +53,7 @@ function applyEventToDiff(diff: CanonicalDiff, row: CanonicalEventAggRow): void 
     if (kind === 'pr_closed') diff.prs_closed += 1;
     if (kind === 'commit') diff.commits_default += 1;
     if (kind === 'pr_opened' || kind === 'pr_merged' || kind === 'pr_closed' || kind === 'commit') {
-      addRepo(diff, row.repo_full_name);
+      addRepo(diff, row.source_full_name);
     }
   }
 }
@@ -79,7 +79,7 @@ export async function computeCanonicalDiffFromEvents(params: {
   while (page < MAX_PAGES) {
     const { data: rows, error } = await supabase
       .from('diff_event_canonical')
-      .select('source_id, provider, event_kind, repo_full_name')
+      .select('source_id, provider, event_kind, source_full_name')
       .in('source_id', sourceIds)
       .gte('occurred_at', window.start)
       .lte('occurred_at', window.end)

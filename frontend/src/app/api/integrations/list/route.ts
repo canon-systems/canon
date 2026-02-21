@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
+import { canonicalProvider } from '@/lib/providers';
 
 export async function GET() {
   try {
@@ -22,10 +23,15 @@ export async function GET() {
       return NextResponse.json({ error: 'Failed to fetch connections' }, { status: 500 });
     }
 
-    const activeConnections = (connections || []).filter((connection) => {
-      const provider = typeof connection.provider === 'string' ? connection.provider.toLowerCase() : '';
-      return provider !== 'notion';
-    });
+    const activeConnections = (connections || [])
+      .filter((connection) => {
+        const provider = typeof connection.provider === 'string' ? connection.provider.toLowerCase() : '';
+        return provider !== 'notion';
+      })
+      .map((connection) => ({
+        ...connection,
+        provider: canonicalProvider(connection.provider),
+      }));
 
     return NextResponse.json({
       connections: activeConnections,

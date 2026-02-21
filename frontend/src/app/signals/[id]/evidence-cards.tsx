@@ -175,6 +175,13 @@ function EvidenceList({ panel, evidence, timeZone }: { panel: PanelId; evidence:
   );
 }
 
+function panelActivityCount(panel: PanelId, evidence: EvidencePayload): number {
+  if (panel === 'tickets') return evidence.tickets.length;
+  if (panel === 'prs') return evidence.prs.length;
+  if (panel === 'repos') return evidence.repos.length;
+  return evidence.domains.length;
+}
+
 export default function EvidenceCards({ evidence, timeZone }: { evidence: EvidencePayload; timeZone: string }) {
   const [expandedPanel, setExpandedPanel] = useState<PanelId | null>(null);
   const expandedMeta = useMemo(() => (expandedPanel ? PANEL_META[expandedPanel] : null), [expandedPanel]);
@@ -184,11 +191,12 @@ export default function EvidenceCards({ evidence, timeZone }: { evidence: Eviden
       <div className="grid items-stretch gap-4 lg:grid-cols-2">
         {PANEL_ORDER.map((panel) => {
           const meta = PANEL_META[panel];
+          const activityCount = panelActivityCount(panel, evidence);
           return (
             <Card key={panel} className="h-[24rem] min-h-0 border-white/10 bg-zinc-800">
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-base text-white">
-                  <MetricLabelTooltip label={meta.label} tip={meta.tip} />
+                  <MetricLabelTooltip label={`${meta.label} (${activityCount})`} tip={meta.tip} />
                 </CardTitle>
                 <Button
                   type="button"

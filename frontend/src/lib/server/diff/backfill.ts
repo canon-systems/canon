@@ -30,7 +30,7 @@ type CanonicalEvent = {
   event_kind: string;
   occurred_at: string;
   entity_id?: string | null;
-  repo_full_name?: string | null;
+  source_full_name?: string | null;
   metadata?: Record<string, unknown>;
 };
 
@@ -119,7 +119,7 @@ function mapGitHubEvent(event: GitHubDiffEvent, kind: CanonicalEvent['event_kind
     event_kind: kind,
     occurred_at: event.timestamp,
     entity_id: entityId,
-    repo_full_name: event.repo || null,
+    source_full_name: event.repo || null,
     metadata: {
       ingest_source: 'provider_api_backfill',
       paths: Array.isArray(event.files) ? event.files : [],
@@ -145,7 +145,7 @@ function mapJiraTicketEvent(
     event_kind: kind,
     occurred_at: event.timestamp,
     entity_id: event.ticket_id,
-    repo_full_name: jiraWorkspaceName(projectKey),
+    source_full_name: jiraWorkspaceName(projectKey),
     metadata,
   };
 }

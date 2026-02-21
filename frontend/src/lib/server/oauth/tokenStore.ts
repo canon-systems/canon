@@ -2,6 +2,7 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 import { decryptSecret, encryptSecret, type EncryptedSecret } from '@/lib/server/oauth/tokenCrypto';
 import { refreshSlackToken } from '@/lib/server/oauth/slackClient';
 import { createLogger } from '@/lib/server/logging';
+import { ATLASSIAN_PROVIDER, canonicalProvider } from '@/lib/providers';
 
 const log = createLogger('oauth.atlassian.token', {
   label: 'Atlassian Token',
@@ -101,11 +102,12 @@ export async function getProviderAccessToken(params: {
 }): Promise<string | null> {
   const { provider, connectionId } = params;
   const supabase = createServiceRoleClient();
+  const normalizedProvider = canonicalProvider(provider);
 
   const { data, error } = await supabase
     .from('oauth_provider_tokens')
     .select('access_token, refresh_token, expires_at')
-    .eq('provider', provider)
+    .eq('provider', normalizedProvider)
     .eq('connection_id', connectionId)
     .maybeSingle();
 
@@ -116,7 +118,7 @@ export async function getProviderAccessToken(params: {
 
   const accessToken = decryptSecret(encrypted);
 
-  if (provider === 'confluence') {
+  if (normalizedProvider === ATLASSIAN_PROVIDER) {
     const expiresAt = data.expires_at ? new Date(data.expires_at) : null;
     const refreshTokenEncrypted = data.refresh_token as EncryptedSecret | undefined;
     const now = new Date();
@@ -161,7 +163,7 @@ export async function getProviderAccessToken(params: {
     }
   }
 
-  if (provider === 'slack') {
+  if (normalizedProvider === 'slack') {
     const expiresAt = data.expires_at ? new Date(data.expires_at) : null;
     const refreshTokenEncrypted = data.refresh_token as EncryptedSecret | undefined;
     const now = new Date();
@@ -217,7 +219,7 @@ export async function withConfluenceAccessToken<T>(params: {
   const { data, error } = await supabase
     .from('oauth_provider_tokens')
     .select('access_token, refresh_token, expires_at')
-    .eq('provider', 'confluence')
+    .eq('provider', 'atlassian')
     .eq('connection_id', connectionId)
     .maybeSingle();
 

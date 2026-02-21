@@ -7,6 +7,7 @@ import {
   trackIntegrationStateChanged,
   trackSourceDisconnected,
 } from '@/lib/server/services/usageTracking';
+import { ATLASSIAN_PROVIDER, canonicalProvider } from '@/lib/providers';
 
 type ConnectionRow = {
   id: string;
@@ -21,13 +22,12 @@ type SourceRow = {
 };
 
 function normalizeProvider(value: string | undefined): string | null {
-  if (typeof value !== 'string') return null;
-  const normalized = value.trim().toLowerCase();
+  const normalized = canonicalProvider(value);
   return normalized.length > 0 ? normalized : null;
 }
 
 function sourceProvidersForIntegrationProvider(provider: string): string[] {
-  if (provider === 'confluence') return ['jira', 'confluence'];
+  if (provider === ATLASSIAN_PROVIDER) return ['jira', 'confluence'];
   return [provider];
 }
 

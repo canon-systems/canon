@@ -80,7 +80,7 @@ type CanonicalEventRow = {
   event_kind?: string | null;
   occurred_at?: string | null;
   entity_id?: string | null;
-  repo_full_name?: string | null;
+  source_full_name?: string | null;
   metadata?: Record<string, unknown> | null;
 };
 
@@ -160,7 +160,7 @@ function buildDetails(
     const kind = row.event_kind || '';
     const occurred_at = row.occurred_at ?? null;
     const entityId = row.entity_id ?? null;
-    const repo = row.repo_full_name ?? null;
+    const repo = row.source_full_name ?? null;
     const metadata = row.metadata || {};
     const summary =
       coerceString((metadata as Record<string, unknown>).summary) ||
@@ -377,7 +377,7 @@ export async function computeDiffComparison(input: ComputeDiffComparisonInput): 
   const sourceIds = sources.map((source) => source.id);
   const { data: detailRows } = await userSupabase
     .from('diff_event_canonical')
-    .select('source_id, provider, event_kind, occurred_at, entity_id, repo_full_name, metadata')
+    .select('source_id, provider, event_kind, occurred_at, entity_id, source_full_name, metadata')
     .in('source_id', sourceIds)
     .gte('occurred_at', primaryWindow.start)
     .lte('occurred_at', primaryWindow.end)

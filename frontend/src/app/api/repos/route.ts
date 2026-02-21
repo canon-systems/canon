@@ -6,6 +6,7 @@ import { sourceUrlFromSourceScope, trackSourceConnected } from '@/lib/server/ser
 import { patchSourceBackfillStatus } from '@/lib/server/diff/backfillStatus';
 import { inngest } from '@/inngest';
 import { buildSourceIdentifier, resolveSourceDomainValue } from '@/lib/sources/domainMapping';
+import { ATLASSIAN_PROVIDER, canonicalProvider } from '@/lib/providers';
 
 type CreateSource = {
   name: string;
@@ -18,8 +19,9 @@ type CreateSource = {
 const providerAuthMap: Record<string, string> = {
   github: 'github',
   gitlab: 'gitlab',
-  jira: 'confluence',
-  confluence: 'confluence',
+  jira: ATLASSIAN_PROVIDER,
+  confluence: ATLASSIAN_PROVIDER,
+  atlassian: ATLASSIAN_PROVIDER,
   slack: 'slack',
 };
 
@@ -90,7 +92,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'name, provider, and scope are required for each source' }, { status: 400 });
       }
 
-      const providerKey = src.provider.toLowerCase();
+      const providerKey = canonicalProvider(src.provider);
       const authProvider = providerAuthMap[providerKey] || providerKey;
       // Resolve connection id to the oauth_connections.id (UUID) that satisfies the FK
       let resolvedConnId: string | null = null;
@@ -107,7 +109,7 @@ export async function POST(request: NextRequest) {
           connections?.find((c) => (c.provider || '').toLowerCase() === authProvider)?.id || null;
       }
 
-      if (!resolvedConnId && ['github', 'gitlab', 'jira', 'confluence', 'slack'].includes(authProvider)) {
+      if (!resolvedConnId && ['github', 'gitlab', 'jira', 'atlassian', 'slack'].includes(authProvider)) {
         return NextResponse.json({ error: `Missing OAuth connection for provider ${src.provider}` }, { status: 400 });
       }
 

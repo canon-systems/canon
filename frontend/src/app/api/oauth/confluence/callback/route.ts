@@ -141,7 +141,7 @@ export async function GET(request: NextRequest) {
       .from('oauth_connections')
       .select('connection_id, metadata')
       .eq('user_id', user.id)
-      .eq('provider', 'confluence')
+      .eq('provider', 'atlassian')
       .maybeSingle();
 
     const connectionId = existingConnection?.connection_id || crypto.randomUUID();
@@ -155,7 +155,7 @@ export async function GET(request: NextRequest) {
       .upsert(
         {
           user_id: user.id,
-          provider: 'confluence',
+          provider: 'atlassian',
           connection_id: connectionId,
           status: 'active',
           metadata: {
@@ -179,7 +179,7 @@ export async function GET(request: NextRequest) {
       const logFields = {
         userId: user.id,
         error: connectionError.message,
-        provider: 'confluence',
+        provider: 'atlassian',
       };
       console.error('[atlassian][oauth][callback][connection_upsert_failed]', logFields);
       log.error('connection_upsert_failed', logFields);
@@ -196,7 +196,7 @@ export async function GET(request: NextRequest) {
         {
           connection_id: connectionId,
           user_id: user.id,
-          provider: 'confluence',
+          provider: 'atlassian',
           provider_account_id: null,
           access_token: encryptSecret(accessToken),
           refresh_token: tokenSet.refresh_token ? encryptSecret(tokenSet.refresh_token) : null,
@@ -212,14 +212,14 @@ export async function GET(request: NextRequest) {
       const logFields = {
         userId: user.id,
         error: tokenError.message,
-        provider: 'confluence',
+        provider: 'atlassian',
       };
       console.error('[atlassian][oauth][callback][token_upsert_failed]', logFields);
       log.error('token_upsert_failed', logFields);
       return redirectToSettings(request.nextUrl.origin, { error: 'Failed to store Atlassian tokens.' });
     }
 
-    await trackIntegrationStateChanged(supabase, user.id, 'connected', 'confluence', connectionId);
+    await trackIntegrationStateChanged(supabase, user.id, 'connected', 'atlassian', connectionId);
     const completeFields = {
       userId: user.id,
       connectionId,
@@ -228,7 +228,7 @@ export async function GET(request: NextRequest) {
     };
     console.info('[atlassian][oauth][callback][complete]', completeFields);
     log.info('oauth_complete', completeFields);
-    return redirectToSettings(request.nextUrl.origin, { success: 'true', provider: 'confluence' });
+    return redirectToSettings(request.nextUrl.origin, { success: 'true', provider: 'atlassian' });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     const logFields = { userId: user.id, error: message };

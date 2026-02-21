@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ATLASSIAN_PROVIDER, canonicalProvider } from '@/lib/providers';
 
 interface Connection {
   id: string;
@@ -56,7 +57,7 @@ const integrationCards: IntegrationCard[] = [
     icon: <IntegrationLogos provider="slack" size={28} />
   },
   {
-    provider: 'confluence',
+    provider: 'atlassian',
     name: 'Atlassian',
     description: 'Connect Jira and Confluence. Keep spaces and issues in sync.',
     icon: <IntegrationLogos provider="atlassian" size={28} />
@@ -235,13 +236,14 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   }, [activeTab, connections.length, loading, loadConnections]);
 
   async function connectToProvider(providerName: string) {
+    const normalizedProvider = canonicalProvider(providerName);
     setConnecting(true);
     setError('');
     setSuccess('');
     setDebugNote(null);
 
     try {
-      if (providerName === 'github') {
+      if (normalizedProvider === 'github') {
         const installUrl = process.env.NEXT_PUBLIC_GITHUB_APP_INSTALL_URL;
         if (!installUrl) {
           throw new Error('GitHub App install URL is not configured.');
@@ -249,16 +251,16 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
         window.location.href = installUrl;
         return;
       }
-      if (providerName === 'confluence') {
+      if (normalizedProvider === ATLASSIAN_PROVIDER) {
         window.location.href = '/api/oauth/confluence/start';
         return;
       }
-      if (providerName === 'slack') {
+      if (normalizedProvider === 'slack') {
         window.location.href = '/api/oauth/slack/start';
         return;
       }
 
-      throw new Error(`${getProviderDisplayName(providerName)} integration is not available yet.`);
+      throw new Error(`${getProviderDisplayName(normalizedProvider)} integration is not available yet.`);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to connect');
       console.error('Connection error:', err);
@@ -301,17 +303,19 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   }
 
   function getProviderDisplayName(provider: string) {
-    if (provider === 'github') return 'GitHub';
-    if (provider === 'slack') return 'Slack';
-    if (provider === 'confluence') return 'Atlassian';
-    return provider.charAt(0).toUpperCase() + provider.slice(1);
+    const normalized = canonicalProvider(provider);
+    if (normalized === 'github') return 'GitHub';
+    if (normalized === 'slack') return 'Slack';
+    if (normalized === ATLASSIAN_PROVIDER) return 'Atlassian';
+    return normalized.charAt(0).toUpperCase() + normalized.slice(1);
   }
 
   function getProviderName(provider: string) {
-    if (provider === 'github') return 'GitHub';
-    if (provider === 'slack') return 'Slack';
-    if (provider === 'confluence') return 'Atlassian';
-    return provider.charAt(0).toUpperCase() + provider.slice(1);
+    const normalized = canonicalProvider(provider);
+    if (normalized === 'github') return 'GitHub';
+    if (normalized === 'slack') return 'Slack';
+    if (normalized === ATLASSIAN_PROVIDER) return 'Atlassian';
+    return normalized.charAt(0).toUpperCase() + normalized.slice(1);
   }
 
   function formatDate(dateString: string) {

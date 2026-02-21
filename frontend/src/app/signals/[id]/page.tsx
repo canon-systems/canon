@@ -103,7 +103,7 @@ function metricTooltip(metricKey: string): string {
     case 'tickets_completed':
       return 'Number of tickets completed in this period. Higher usually means more output.';
     case 'tickets_regressed':
-      return 'Number of tickets that moved backward in status. Lower is better.';
+      return 'Number of tickets that moved from Done to Undone. Lower is better.';
     case 'prs_merged':
       return 'Number of pull requests merged in this period.';
     case 'prs_opened':
@@ -126,12 +126,6 @@ function severityBadgeClass(severity: string): string {
     return 'border-red-400/40 bg-red-500/12 text-red-100';
   }
   return 'border-yellow-400/40 bg-yellow-500/12 text-yellow-100';
-}
-
-function scopeBadgeLabel(scopeType: string, scopeId?: string | null): string {
-  if (scopeType === 'repo' && scopeId) return `Affected source: ${scopeId}`;
-  if (scopeType === 'ticketing') return `Affected source: ${scopeId || 'Ticketing workspace'}`;
-  return 'Affected source: All connected sources';
 }
 
 export default async function SignalInvestigatePage({
@@ -177,9 +171,6 @@ export default async function SignalInvestigatePage({
             <p className="text-sm text-white/70">{signal.title}</p>
             <Badge variant="outline" className={severityBadgeClass(signal.severity)}>
               {signal.severity === 'significant' ? 'Significant' : 'Elevated'}
-            </Badge>
-            <Badge variant="outline" className="border-white/20 bg-white/5 text-white/75">
-              {scopeBadgeLabel(signal.scope_type, signal.scope_id)}
             </Badge>
           </div>
         </div>

@@ -27,6 +27,16 @@ type JiraDiffParams = {
 };
 
 type JiraStatusCategoryName = 'To Do' | 'In Progress' | 'Done' | string;
+type JiraStatusCategoryLookup = {
+  byId: Map<string, JiraStatusCategoryName>;
+  byName: Map<string, JiraStatusCategoryName>;
+};
+
+const normalizeStatusName = (value?: string | null): string | null => {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim().toLowerCase();
+  return trimmed.length > 0 ? trimmed : null;
+};
 
 const normalizeStatusCategory = (value?: string | null): string | null => {
   if (typeof value !== 'string') return null;
@@ -71,7 +81,7 @@ async function getJiraConnection(userId: string) {
     .from('oauth_connections')
     .select('connection_id, metadata')
     .eq('user_id', userId)
-    .eq('provider', 'confluence')
+    .eq('provider', 'atlassian')
     .eq('status', 'active')
     .maybeSingle();
 
@@ -98,21 +108,94 @@ async function getStatusCategoryMap(accessToken: string, cloudId: string) {
   });
 
   if (!response.ok) {
-    return new Map<string, JiraStatusCategoryName>();
+    return { byId: new Map<string, JiraStatusCategoryName>(), byName: new Map<string, JiraStatusCategoryName>() };
   }
 
   const data = await response.json().catch(() => []);
-  const map = new Map<string, JiraStatusCategoryName>();
+  const byId = new Map<string, JiraStatusCategoryName>();
+  const byName = new Map<string, JiraStatusCategoryName>();
   if (Array.isArray(data)) {
     for (const status of data) {
       const id = status?.id ? String(status.id) : null;
+      const name = normalizeStatusName(typeof status?.name === 'string' ? status.name : null);
       const category = status?.statusCategory?.key ?? status?.statusCategory?.name;
       if (id && typeof category === 'string') {
-        map.set(id, category);
+        byId.set(id, category);
+      }
+      if (name && typeof category === 'string') {
+        byName.set(name, category);
       }
     }
   }
-  return map;
+  return { byId, byName };
+}
+
+async function getStatusCategoryById(
+  accessToken: string,
+  cloudId: string,
+  statusId: string
+): Promise<{ category: string | null; name: string | null } | null> {
+  const firstResponse = await fetch(`https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3/status/${encodeURIComponent(statusId)}`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: 'application/json',
+    },
+  });
+
+  if (firstResponse.ok) {
+    const data = await firstResponse.json().catch(() => null);
+    const category = data?.statusCategory?.key ?? data?.statusCategory?.name;
+    return {
+      category: typeof category === 'string' && category.trim().length > 0 ? category : null,
+      name: normalizeStatusName(typeof data?.name === 'string' ? data.name : null),
+    };
+  }
+
+  const secondResponse = await fetch(`https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3/statuses/search?id=${encodeURIComponent(statusId)}`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: 'application/json',
+    },
+  });
+  if (!secondResponse.ok) return null;
+  const payload = await secondResponse.json().catch(() => null);
+  const values = Array.isArray(payload?.values) ? payload.values : [];
+  const match = values.find((item: unknown) => {
+    const id = item && typeof item === 'object' && 'id' in item ? String((item as { id?: unknown }).id) : null;
+    return id === statusId;
+  });
+  if (!match || typeof match !== 'object') return null;
+  const category = 'statusCategory' in match
+    ? ((match as { statusCategory?: { key?: string; name?: string } }).statusCategory?.key
+      ?? (match as { statusCategory?: { key?: string; name?: string } }).statusCategory?.name)
+    : null;
+  return {
+    category: typeof category === 'string' && category.trim().length > 0 ? category : null,
+    name: normalizeStatusName('name' in match ? String((match as { name?: unknown }).name ?? '') : null),
+  };
+}
+
+async function hydrateMissingStatusCategories(params: {
+  accessToken: string;
+  cloudId: string;
+  statusCategoryLookup: JiraStatusCategoryLookup;
+  statusIds: string[];
+}): Promise<void> {
+  const { accessToken, cloudId, statusCategoryLookup, statusIds } = params;
+  const missing = Array.from(new Set(statusIds.filter((id) => id && !statusCategoryLookup.byId.has(id))));
+  for (const statusId of missing) {
+    try {
+      const resolved = await getStatusCategoryById(accessToken, cloudId, statusId);
+      if (resolved?.category) {
+        statusCategoryLookup.byId.set(statusId, resolved.category);
+        if (resolved.name) {
+          statusCategoryLookup.byName.set(resolved.name, resolved.category);
+        }
+      }
+    } catch {
+      // best-effort hydration; classification continues with available categories
+    }
+  }
 }
 
 export async function getJiraDiffForProject(params: JiraDiffParams): Promise<JiraDiffResult> {
@@ -146,7 +229,7 @@ export async function getJiraDiffForProject(params: JiraDiffParams): Promise<Jir
   }
 
   const accessToken = await getProviderAccessToken({
-    provider: 'confluence',
+    provider: 'atlassian',
     connectionId: connection.connectionId,
   });
   if (!accessToken) {
@@ -195,7 +278,7 @@ export async function getJiraDiffForProject(params: JiraDiffParams): Promise<Jir
     return Array.from(byTicket.values());
   };
 
-  const statusCategoryMap = await getStatusCategoryMap(accessToken, cloudId);
+  const statusCategoryLookup = await getStatusCategoryMap(accessToken, cloudId);
 
   const maxResults = 50;
   let nextPageToken: string | undefined;
@@ -254,6 +337,24 @@ export async function getJiraDiffForProject(params: JiraDiffParams): Promise<Jir
       const histories = issue?.changelog?.histories;
       if (!Array.isArray(histories)) continue;
 
+      const statusIds = histories.flatMap((history) => {
+        const items = Array.isArray(history?.items) ? history.items : [];
+        return items
+          .filter((item) => item?.field === 'status')
+          .flatMap((item) => {
+            const out: string[] = [];
+            if (item?.from != null) out.push(String(item.from));
+            if (item?.to != null) out.push(String(item.to));
+            return out;
+          });
+      });
+      await hydrateMissingStatusCategories({
+        accessToken,
+        cloudId,
+        statusCategoryLookup,
+        statusIds,
+      });
+
       for (const history of histories) {
         const historyTs = history?.created as string | undefined;
         if (!inWindow(historyTs, startMs, endMs)) continue;
@@ -276,8 +377,16 @@ export async function getJiraDiffForProject(params: JiraDiffParams): Promise<Jir
 
           tickets_moved.push(event);
 
-          const fromCategory = fromId ? statusCategoryMap.get(fromId) : undefined;
-          const toCategory = toId ? statusCategoryMap.get(toId) : undefined;
+          const fromCategoryById = fromId ? statusCategoryLookup.byId.get(fromId) : undefined;
+          const toCategoryById = toId ? statusCategoryLookup.byId.get(toId) : undefined;
+          const fromCategoryByName = normalizeStatusName(previousStatus)
+            ? statusCategoryLookup.byName.get(normalizeStatusName(previousStatus)!)
+            : undefined;
+          const toCategoryByName = normalizeStatusName(newStatus)
+            ? statusCategoryLookup.byName.get(normalizeStatusName(newStatus)!)
+            : undefined;
+          const fromCategory = fromCategoryById ?? fromCategoryByName;
+          const toCategory = toCategoryById ?? toCategoryByName;
           const fromIsDone = isDoneCategory(fromCategory);
           const toIsDone = isDoneCategory(toCategory);
 

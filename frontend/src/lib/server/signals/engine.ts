@@ -507,7 +507,7 @@ type CanonicalEventRow = {
   provider: string | null;
   event_kind: string | null;
   entity_id: string | null;
-  repo_full_name: string | null;
+  source_full_name: string | null;
   occurred_at: string | null;
   metadata: Record<string, unknown> | null;
 };
@@ -818,7 +818,7 @@ export async function getSignalInvestigation(params: {
       runDiffForSourcesWithBreakdown(userId, sourceIds, baselineWindow, supabase),
       supabase
         .from('diff_event_canonical')
-        .select('source_id, provider, event_kind, entity_id, repo_full_name, occurred_at, metadata')
+        .select('source_id, provider, event_kind, entity_id, source_full_name, occurred_at, metadata')
         .in('source_id', sourceIds)
         .gte('occurred_at', signal.window_start)
         .lte('occurred_at', signal.window_end)
@@ -826,14 +826,14 @@ export async function getSignalInvestigation(params: {
         .limit(250),
       supabase
         .from('diff_event_canonical')
-        .select('source_id, repo_full_name')
+        .select('source_id, source_full_name')
         .in('source_id', sourceIds)
         .gte('occurred_at', signal.window_start)
         .lte('occurred_at', signal.window_end)
         .limit(5000),
       supabase
         .from('diff_event_canonical')
-        .select('source_id, repo_full_name')
+        .select('source_id, source_full_name')
         .in('source_id', sourceIds)
         .gte('occurred_at', signal.baseline_start)
         .lte('occurred_at', signal.baseline_end)
@@ -911,16 +911,16 @@ export async function getSignalInvestigation(params: {
     const events = eventsResult.data as CanonicalEventRow[] | null;
     const currentCountEvents = (currentCountEventsResult.data || []) as Array<{
       source_id?: string | null;
-      repo_full_name: string | null;
+      source_full_name: string | null;
     }>;
     const baselineCountEvents = (baselineCountEventsResult.data || []) as Array<{
       source_id?: string | null;
-      repo_full_name: string | null;
+      source_full_name: string | null;
     }>;
 
     for (const event of currentCountEvents) {
       const sourceId = typeof event.source_id === 'string' ? event.source_id : '';
-      const repo = event.repo_full_name || null;
+      const repo = event.source_full_name || null;
       const domain = sourceDomainById.get(sourceId) || 'Unassigned';
       if (repo) {
         currentRepoCounts.set(repo, (currentRepoCounts.get(repo) || 0) + 1);
@@ -930,7 +930,7 @@ export async function getSignalInvestigation(params: {
 
     for (const event of baselineCountEvents) {
       const sourceId = typeof event.source_id === 'string' ? event.source_id : '';
-      const repo = event.repo_full_name || null;
+      const repo = event.source_full_name || null;
       const domain = sourceDomainById.get(sourceId) || 'Unassigned';
       if (repo) {
         baselineRepoCounts.set(repo, (baselineRepoCounts.get(repo) || 0) + 1);
@@ -942,7 +942,7 @@ export async function getSignalInvestigation(params: {
       const provider = (event.provider || '').toLowerCase();
       const kind = event.event_kind || null;
       const entityId = event.entity_id || null;
-      const repo = event.repo_full_name || null;
+      const repo = event.source_full_name || null;
       const metadata = (event.metadata || {}) as Record<string, unknown>;
 
       if (provider === 'jira' && entityId && kind && kind.startsWith('ticket_')) {

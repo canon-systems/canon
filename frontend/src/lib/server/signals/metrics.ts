@@ -8,7 +8,7 @@ type CanonicalEventRow = {
   source_id: string | null;
   provider: string | null;
   event_kind: string | null;
-  repo_full_name: string | null;
+  source_full_name: string | null;
 };
 
 function toDistribution(counts: Map<string, number>): Record<string, number> {
@@ -58,7 +58,7 @@ export async function computeMetrics(
 
   const { data: eventRows } = (await supabase
     .from('diff_event_canonical')
-    .select('source_id, provider, event_kind, repo_full_name')
+    .select('source_id, provider, event_kind, source_full_name')
     .in('source_id', sourceIds)
     .gte('occurred_at', window.start)
     .lte('occurred_at', window.end)) as { data: CanonicalEventRow[] | null };
@@ -70,7 +70,7 @@ export async function computeMetrics(
   for (const row of eventRows || []) {
     const provider = String(row.provider || '').toLowerCase();
     const eventKind = String(row.event_kind || '');
-    const repoFullName = typeof row.repo_full_name === 'string' ? row.repo_full_name : null;
+    const repoFullName = typeof row.source_full_name === 'string' ? row.source_full_name : null;
 
     if (provider === 'github' && repoFullName && githubKinds.has(eventKind)) {
       repoCounts.set(repoFullName, (repoCounts.get(repoFullName) || 0) + 1);

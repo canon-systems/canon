@@ -5,7 +5,7 @@ type CanonicalEvent = {
   event_kind: string;
   occurred_at: string;
   entity_id?: string | null;
-  repo_full_name?: string | null;
+  source_full_name?: string | null;
   metadata?: Record<string, unknown>;
 };
 
@@ -18,7 +18,7 @@ type DailyIncrements = {
   tickets_completed: number;
   tickets_regressed: number;
   tickets_created: number;
-  repos_touched: Set<string>;
+  sources_touched: Set<string>;
 };
 
 const emptyIncrements = (): DailyIncrements => ({
@@ -30,7 +30,7 @@ const emptyIncrements = (): DailyIncrements => ({
   tickets_completed: 0,
   tickets_regressed: 0,
   tickets_created: 0,
-  repos_touched: new Set(),
+  sources_touched: new Set(),
 });
 
 const toUtcDay = (value: string): string => {
@@ -141,8 +141,8 @@ const applyEventToIncrements = (inc: DailyIncrements, event: CanonicalEvent) => 
     default:
       break;
   }
-  if (event.repo_full_name) {
-    inc.repos_touched.add(event.repo_full_name);
+  if (event.source_full_name) {
+    inc.sources_touched.add(event.source_full_name);
   }
 };
 
@@ -210,7 +210,7 @@ export async function insertCanonicalEvents(params: {
     event_kind: event.event_kind,
     occurred_at: coerceIso(event.occurred_at),
     entity_id: event.entity_id ?? null,
-    repo_full_name: event.repo_full_name ?? null,
+    source_full_name: event.source_full_name ?? null,
     metadata: event.metadata ?? {},
   }));
 
@@ -263,14 +263,14 @@ export async function upsertDailyMetrics(params: {
     const { data: existing } = await supabase
       .from('diff_daily_metrics')
       .select(
-        'prs_opened, prs_merged, prs_closed, commits_default, tickets_moved, tickets_completed, tickets_regressed, tickets_created, repos_touched, feature_counts'
+        'prs_opened, prs_merged, prs_closed, commits_default, tickets_moved, tickets_completed, tickets_regressed, tickets_created, sources_touched, feature_counts'
       )
       .eq('source_id', sourceId)
       .eq('day', day)
       .maybeSingle();
 
-    const existingRepos = normalizeReposTouched(existing?.repos_touched);
-    const mergedRepos = Array.from(new Set([...existingRepos, ...inc.repos_touched]));
+    const existingRepos = normalizeReposTouched(existing?.sources_touched);
+    const mergedRepos = Array.from(new Set([...existingRepos, ...inc.sources_touched]));
 
     await supabase
       .from('diff_daily_metrics')
@@ -287,7 +287,7 @@ export async function upsertDailyMetrics(params: {
           tickets_completed: (existing?.tickets_completed ?? 0) + inc.tickets_completed,
           tickets_regressed: (existing?.tickets_regressed ?? 0) + inc.tickets_regressed,
           tickets_created: (existing?.tickets_created ?? 0) + inc.tickets_created,
-          repos_touched: mergedRepos,
+          sources_touched: mergedRepos,
           feature_counts: (() => {
             const featureMap = featureAgg.get(day);
             if (!featureMap || featureMap.size === 0) return existing?.feature_counts ?? {};
@@ -464,7 +464,7 @@ export function extractGithubCanonicalEvents(payload: Record<string, unknown>): 
         event_kind: 'pr_opened',
         occurred_at: pullRequest.created_at || new Date().toISOString(),
         entity_id: pullRequest.number ? String(pullRequest.number) : null,
-        repo_full_name: repoFullName,
+        source_full_name: repoFullName,
         metadata: {
           title: pullRequestTitle,
           from: headRef,
@@ -480,7 +480,7 @@ export function extractGithubCanonicalEvents(payload: Record<string, unknown>): 
           event_kind: 'pr_merged',
           occurred_at: pullRequest.merged_at,
           entity_id: pullRequest.number ? String(pullRequest.number) : null,
-          repo_full_name: repoFullName,
+          source_full_name: repoFullName,
           metadata: {
             title: pullRequestTitle,
             from: 'open',
@@ -493,7 +493,7 @@ export function extractGithubCanonicalEvents(payload: Record<string, unknown>): 
           event_kind: 'pr_closed',
           occurred_at: pullRequest.closed_at,
           entity_id: pullRequest.number ? String(pullRequest.number) : null,
-          repo_full_name: repoFullName,
+          source_full_name: repoFullName,
           metadata: {
             title: pullRequestTitle,
             from: 'open',
@@ -513,7 +513,7 @@ export function extractGithubCanonicalEvents(payload: Record<string, unknown>): 
       event_kind: 'commit',
       occurred_at: ts || new Date().toISOString(),
       entity_id: sha,
-      repo_full_name: repoFullName,
+      source_full_name: repoFullName,
       metadata: {
         message: typeof commit.message === 'string' ? commit.message : null,
       },
@@ -530,6 +530,11 @@ const normalizeStatusCategory = (value?: string | null): string | null => {
 };
 
 const isDoneCategory = (value?: string | null) => normalizeStatusCategory(value) === 'done';
+const normalizeStatusName = (value?: string | null): string | null => {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim().toLowerCase();
+  return trimmed.length > 0 ? trimmed : null;
+};
 
 const readOwnString = (record: Record<string, unknown>, key: string): string | null => {
   if (!Object.prototype.hasOwnProperty.call(record, key)) return null;
@@ -539,7 +544,7 @@ const readOwnString = (record: Record<string, unknown>, key: string): string | n
 
 export function extractJiraCanonicalEvents(
   payload: Record<string, unknown>,
-  statusCategoryMap?: Map<string, string>
+  statusCategoryLookup?: { byId: Map<string, string>; byName: Map<string, string> }
 ): CanonicalEvent[] {
   const events: CanonicalEvent[] = [];
   const webhookEvent = typeof payload.webhookEvent === 'string' ? payload.webhookEvent : '';
@@ -585,7 +590,7 @@ export function extractJiraCanonicalEvents(
       event_kind: 'ticket_created',
       occurred_at: typeof fields.created === 'string' ? fields.created : new Date().toISOString(),
       entity_id: issueKey,
-      repo_full_name: jiraWorkspace,
+      source_full_name: jiraWorkspace,
       metadata: { status: status?.name || null, summary },
     });
   }
@@ -605,13 +610,20 @@ export function extractJiraCanonicalEvents(
 
     const fromIdForCategory = fromId || null;
     const toIdForCategory = toId || null;
-    const fromCategory = fromIdForCategory ? statusCategoryMap?.get(fromIdForCategory) : undefined;
-    const toCategoryFromMap = toIdForCategory ? statusCategoryMap?.get(toIdForCategory) : undefined;
-    const toCategoryFromCurrentStatus =
-      currentStatusId && toIdForCategory && currentStatusId === toIdForCategory ? statusCategory : null;
-    const toCategory = toCategoryFromMap ?? toCategoryFromCurrentStatus ?? undefined;
     const fromStatusName = readOwnString(item, 'fromString');
     const toStatusName = readOwnString(item, 'toString');
+    const fromCategoryById = fromIdForCategory ? statusCategoryLookup?.byId.get(fromIdForCategory) : undefined;
+    const toCategoryById = toIdForCategory ? statusCategoryLookup?.byId.get(toIdForCategory) : undefined;
+    const fromCategoryByName = normalizeStatusName(fromStatusName)
+      ? statusCategoryLookup?.byName.get(normalizeStatusName(fromStatusName)!)
+      : undefined;
+    const toCategoryByName = normalizeStatusName(toStatusName)
+      ? statusCategoryLookup?.byName.get(normalizeStatusName(toStatusName)!)
+      : undefined;
+    const toCategoryFromCurrentStatus =
+      currentStatusId && toIdForCategory && currentStatusId === toIdForCategory ? statusCategory : null;
+    const fromCategory = fromCategoryById ?? fromCategoryByName ?? undefined;
+    const toCategory = toCategoryById ?? toCategoryByName ?? toCategoryFromCurrentStatus ?? undefined;
     const fromIsDone = isDoneCategory(fromCategory);
     const toIsDone = isDoneCategory(toCategory);
 
@@ -619,7 +631,7 @@ export function extractJiraCanonicalEvents(
       event_kind: 'ticket_moved',
       occurred_at: changeTime,
       entity_id: issueKey,
-      repo_full_name: jiraWorkspace,
+      source_full_name: jiraWorkspace,
       metadata: {
         from: fromStatusName,
         to: toStatusName,
@@ -636,7 +648,7 @@ export function extractJiraCanonicalEvents(
         event_kind: 'ticket_completed',
         occurred_at: changeTime,
         entity_id: issueKey,
-        repo_full_name: jiraWorkspace,
+        source_full_name: jiraWorkspace,
         metadata: { status: status?.name || null, summary },
       });
     }
@@ -646,7 +658,7 @@ export function extractJiraCanonicalEvents(
         event_kind: 'ticket_regressed',
         occurred_at: changeTime,
         entity_id: issueKey,
-        repo_full_name: jiraWorkspace,
+        source_full_name: jiraWorkspace,
         metadata: { status: status?.name || null, summary },
       });
     }

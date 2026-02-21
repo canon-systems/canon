@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
+import { ATLASSIAN_PROVIDER, canonicalProvider } from '@/lib/providers';
 import { LogsPageClient } from './page-client';
 
 export default async function LogsPage() {
@@ -81,10 +82,10 @@ export default async function LogsPage() {
 
   const formatProviderName = (p: unknown): string => {
     if (p == null || typeof p !== 'string' || !p) return '';
-    const lower = p.toLowerCase();
-    if (lower === 'confluence') return 'Atlassian';
+    const lower = canonicalProvider(p);
+    if (lower === ATLASSIAN_PROVIDER) return 'Atlassian';
     if (lower === 'github') return 'GitHub';
-    return p.charAt(0).toUpperCase() + p.slice(1).toLowerCase();
+    return lower.charAt(0).toUpperCase() + lower.slice(1).toLowerCase();
   };
 
   const entriesFromEvents = (usageEvents || []).map(event => {
