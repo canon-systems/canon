@@ -101,33 +101,33 @@ function metricReadableName(metricKey: string): string {
 }
 
 function changeVsBaselineTooltip(metricKey: string): string {
-  return `Shows how much ${metricReadableName(metricKey)} moved compared to the baseline period. Positive means it increased, negative means it decreased.`;
+  return `How much ${metricReadableName(metricKey)} changed from your baseline period. Positive means up, negative means down.`;
 }
 
 function currentLevelVsBaselineTooltip(metricKey: string): string {
-  return `Shows the current level of ${metricReadableName(metricKey)} compared to the baseline level. 100% means about the same as baseline; above 100% means higher; below 100% means lower.`;
+  return `Current ${metricReadableName(metricKey)} compared to baseline. 100% is about the same, above is higher, below is lower.`;
 }
 
 function metricTooltip(metricKey: string): string {
   switch (metricKey) {
     case 'tickets_completed':
-      return 'Tickets completed during the current range compared with the baseline range. Higher is more throughput.';
+      return 'Number of tickets completed in this period. Higher usually means more output.';
     case 'tickets_regressed':
-      return 'Tickets that moved backward in workflow during the range. Higher indicates more instability.';
+      return 'Number of tickets that moved backward in status. Lower is better.';
     case 'prs_merged':
-      return 'Pull requests merged during the range. Higher indicates stronger code integration throughput.';
+      return 'Number of pull requests merged in this period.';
     case 'prs_opened':
-      return 'Pull requests opened during the range. Indicates incoming change volume.';
+      return 'Number of pull requests opened in this period.';
     case 'commits_default':
-      return 'Commits on the default branch during the range. Indicates direct code movement.';
+      return 'Number of commits to the default branch in this period.';
     case 'repos_touched':
-      return 'Number of repositories or tracked surfaces touched during the range.';
+      return 'Number of repositories with activity in this period.';
     case 'regression_rate':
-      return 'Share of completed tickets that regressed. Lower is healthier.';
+      return 'Percent of completed tickets that regressed. Lower is better.';
     case 'domain_distribution':
-      return 'Share of weighted activity concentrated in the most active domain versus baseline.';
+      return 'How concentrated activity is in one domain compared to baseline.';
     default:
-      return 'Current range compared with baseline range for this metric.';
+      return 'This metric compared with your baseline period.';
   }
 }
 
@@ -208,7 +208,7 @@ export default async function SignalInvestigatePage({
                 <p>
                   <MetricLabelTooltip
                     label="Metric"
-                    tip="The primary signal metric used for this investigation."
+                    tip="Main metric this signal is tracking."
                   />
                   :{' '}
                   <span className="text-white">{signal.metric_key}</span>
@@ -280,7 +280,7 @@ export default async function SignalInvestigatePage({
                 <p className="text-xs uppercase tracking-[0.18em] text-white/50">
                   <MetricLabelTooltip
                     label="Newly Active Surfaces"
-                    tip="Repositories or tracked execution surfaces that appeared in the current range but not in baseline."
+                    tip="Repositories that had activity now but had none in baseline."
                   />
                 </p>
                 {payload.direction.focus.repos_added.length === 0 ? (
@@ -297,7 +297,7 @@ export default async function SignalInvestigatePage({
                 <p className="text-xs uppercase tracking-[0.18em] text-white/50">
                   <MetricLabelTooltip
                     label="Reduced Surfaces"
-                    tip="Repositories or tracked execution surfaces that were present in baseline but not in the current range."
+                    tip="Repositories that had activity in baseline but not in this period."
                   />
                 </p>
                 {payload.direction.focus.repos_removed.length === 0 ? (

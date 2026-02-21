@@ -25,25 +25,25 @@ const PANEL_META: Record<
 > = {
   tickets: {
     label: 'Ticket Activity',
-    tip: 'Ticket evidence linked to this signal window; use this to inspect delivery and quality movement.',
+    tip: 'Ticket events included in this signal window.',
     empty: 'No ticket evidence in this signal window.',
     dialogDescription: 'Detailed ticket evidence for the current signal window.',
   },
   prs: {
     label: 'Pull Request Activity',
-    tip: 'PR evidence linked to this signal window; use this to inspect merge and integration behavior.',
+    tip: 'Pull request events included in this signal window.',
     empty: 'No PR evidence in this signal window.',
     dialogDescription: 'Detailed pull request evidence for the current signal window.',
   },
   repos: {
     label: 'Active Surfaces',
-    tip: 'Repositories or engineering surfaces with meaningful activity in the current signal window.',
+    tip: 'Repositories with activity in this signal window.',
     empty: 'No active surface evidence in this signal window.',
     dialogDescription: 'Detailed activity across touched repositories and surfaces.',
   },
   domains: {
     label: 'Domain Breakdown',
-    tip: 'Event activity in the current signal window grouped by assigned source domain.',
+    tip: 'Activity grouped by domain for this signal window.',
     empty: 'No domain activity in this signal window.',
     dialogDescription: 'Detailed domain distribution for the current signal window.',
   },

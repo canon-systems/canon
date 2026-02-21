@@ -453,157 +453,179 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
               <div className="mb-6">
                 <h2 className="text-2xl font-semibold text-white mb-2">Preferences</h2>
                 <p className="text-white/70">
-                  Set your default communication style and delivery destination.
+                  Configure alert delivery and default signal analysis behavior.
                 </p>
               </div>
 
-                  <div className="space-y-4">
-                    <div className="rounded-xl border border-white/10 bg-zinc-800 p-6 backdrop-blur-sm space-y-5">
-                      <div>
-                        <h3 className="text-lg font-semibold text-white">Daily Signal Alerts</h3>
-                        <p className="text-sm text-white/65">
-                          Canon checks signals daily and sends alerts only when signals are detected. Choose how you want alerts delivered.
-                        </p>
+              <div className="space-y-4">
+                <div className="rounded-xl border border-white/10 bg-zinc-800 p-6 backdrop-blur-sm space-y-5">
+                  <div>
+                    <h3 className="text-lg font-semibold text-white">Alert Delivery</h3>
+                    <p className="text-sm text-white/65">
+                      Choose where daily signal alerts should go and set delivery destinations.
+                    </p>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 text-sm font-medium text-white/80">
+                      <span>Delivery Preference</span>
+                      <TooltipProvider delayDuration={120}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Info className="h-4 w-4 cursor-help text-white/60" />
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-xs leading-relaxed">
+                            Choose where alerts are sent: Slack, Email, or Both.
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                    <Select
+                      value={deliveryPreference ?? ''}
+                      onValueChange={(value) =>
+                        setDeliveryPreference(
+                          value === 'slack_only' || value === 'email_only' || value === 'slack_then_email'
+                            ? value
+                            : null
+                        )
+                      }
+                      disabled={slackLoading}
+                    >
+                      <SelectTrigger className="w-full border-white/20 bg-white/5 text-white">
+                        <SelectValue placeholder="Choose how alerts are delivered" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-black/90 text-white">
+                        {deliveryPreferenceOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {(deliveryPreference === 'slack_only' || deliveryPreference === 'slack_then_email') && (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 text-sm font-medium text-white/80">
+                        <span>Slack Channel ID</span>
+                        <TooltipProvider delayDuration={120}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Info className="h-4 w-4 cursor-help text-white/60" />
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-xs leading-relaxed">
+                              Enter the Slack channel for alerts. Use a channel ID like C0123456789. For private channels, invite the app first.
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
                       </div>
+                      <Input
+                        placeholder="C0123456789"
+                        value={slackChannel}
+                        onChange={(event) => setSlackChannel(event.target.value)}
+                        disabled={slackLoading}
+                        className="mt-1"
+                      />
+                    </div>
+                  )}
 
-                      <div className="space-y-3">
-                        <label className="block text-sm font-medium text-white/80">
-                          Delivery preference
-                        </label>
-                        <Select
-                          value={deliveryPreference ?? ''}
-                          onValueChange={(value) =>
-                            setDeliveryPreference(
-                              value === 'slack_only' || value === 'email_only' || value === 'slack_then_email'
-                                ? value
-                                : null
-                            )
-                          }
-                          disabled={slackLoading}
-                        >
-                          <SelectTrigger className="w-full border-white/20 bg-white/5 text-white">
-                            <SelectValue placeholder="Choose how alerts are delivered" />
-                          </SelectTrigger>
-                          <SelectContent className="bg-black/90 text-white">
-                            {deliveryPreferenceOptions.map((option) => (
-                              <SelectItem key={option.value} value={option.value}>
-                                {option.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                  {(deliveryPreference === 'email_only' || deliveryPreference === 'slack_then_email') && (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 text-sm font-medium text-white/80">
+                        <span>Email for Alerts</span>
+                        <TooltipProvider delayDuration={120}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Info className="h-4 w-4 cursor-help text-white/60" />
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-xs leading-relaxed">
+                              Enter the email address for alerts. Leave blank to use your account email.
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
                       </div>
+                      <Input
+                        placeholder={initialUser?.email || 'you@company.com'}
+                        value={emailDigestTo}
+                        onChange={(event) => setEmailDigestTo(event.target.value)}
+                        disabled={slackLoading}
+                        className="mt-1"
+                      />
+                    </div>
+                  )}
+                </div>
 
-                      {(deliveryPreference === 'slack_only' || deliveryPreference === 'slack_then_email') && (
-                        <div className="space-y-3">
-                          <div className="flex items-center gap-2 text-sm font-medium text-white/80">
-                            <span>Slack channel ID</span>
-                            <TooltipProvider delayDuration={120}>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Info className="h-4 w-4 cursor-help text-white/60" />
-                                </TooltipTrigger>
-                                <TooltipContent side="top" className="max-w-xs leading-relaxed">
-                                  Use a channel ID like C0123456789 (or legacy #channel-name). For private channels, invite the Slack app first.
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
-                          </div>
-                          <Input
-                            placeholder="C0123456789"
-                            value={slackChannel}
-                            onChange={(event) => setSlackChannel(event.target.value)}
-                            disabled={slackLoading}
-                            className="mt-1"
-                          />
-                        </div>
-                      )}
+                <div className="rounded-xl border border-white/10 bg-zinc-800 p-6 backdrop-blur-sm space-y-5">
+                  <div>
+                    <h3 className="text-lg font-semibold text-white">Signal Defaults</h3>
+                    <p className="text-sm text-white/65">
+                      Set workspace defaults used when rendering signal windows.
+                    </p>
+                  </div>
 
-                      {(deliveryPreference === 'email_only' || deliveryPreference === 'slack_then_email') && (
-                        <div className="space-y-3">
-                          <div className="flex items-center gap-2 text-sm font-medium text-white/80">
-                            <span>Email for alerts</span>
-                            <TooltipProvider delayDuration={120}>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Info className="h-4 w-4 cursor-help text-white/60" />
-                                </TooltipTrigger>
-                                <TooltipContent side="top" className="max-w-xs leading-relaxed">
-                                  Enter the email address to receive alerts. Leave blank to default to your account email.
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
-                          </div>
-                          <Input
-                            placeholder={initialUser?.email || 'you@company.com'}
-                            value={emailDigestTo}
-                            onChange={(event) => setEmailDigestTo(event.target.value)}
-                            disabled={slackLoading}
-                            className="mt-1"
-                          />
-                        </div>
-                      )}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 text-sm font-medium text-white/80">
+                      <span>Time Zone</span>
+                      <TooltipProvider delayDuration={120}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Info className="h-4 w-4 cursor-help text-white/60" />
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-xs leading-relaxed">
+                            Sets your workspace local time for daily alert timing and date-based views.
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                    <Select
+                      value={timeZone}
+                      onValueChange={(value) => setTimeZone(value)}
+                      disabled={slackLoading}
+                    >
+                      <SelectTrigger className="w-full border-white/20 bg-white/5 text-white">
+                        <SelectValue placeholder="Choose a time zone" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-72 bg-black/90 text-white">
+                        {timeZoneOptions.map((zone) => (
+                          <SelectItem key={zone} value={zone}>
+                            {zone}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-2 text-sm font-medium text-white/80">
-                          <span>Time zone</span>
-                          <TooltipProvider delayDuration={120}>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Info className="h-4 w-4 cursor-help text-white/60" />
-                              </TooltipTrigger>
-                              <TooltipContent side="top" className="max-w-xs leading-relaxed">
-                                Canon converts local day boundaries in this time zone to UTC before querying history and signal windows.
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        </div>
-                        <Select
-                          value={timeZone}
-                          onValueChange={(value) => setTimeZone(value)}
-                          disabled={slackLoading}
-                        >
-                          <SelectTrigger className="w-full border-white/20 bg-white/5 text-white">
-                            <SelectValue placeholder="Choose a time zone" />
-                          </SelectTrigger>
-                          <SelectContent className="max-h-72 bg-black/90 text-white">
-                            {timeZoneOptions.map((zone) => (
-                              <SelectItem key={zone} value={zone}>
-                                {zone}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 text-sm font-medium text-white/80">
+                      <span>Signal Lookback Days</span>
+                      <TooltipProvider delayDuration={120}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Info className="h-4 w-4 cursor-help text-white/60" />
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-xs leading-relaxed">
+                            Number of previous full days shown in Signals. Baseline uses the same number of days immediately before. Range: 1-30.
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={30}
+                      value={windowDays}
+                      onChange={(event) =>
+                        setWindowDays(Math.max(1, Math.min(30, Number(event.target.value) || 1)))
+                      }
+                      className="w-28 border-white/20 bg-white/5 text-white"
+                    />
+                  </div>
+                </div>
 
-                      {slackError ? <p className="text-xs text-red-300">{slackError}</p> : null}
-                      {slackMessage ? <p className="text-xs text-emerald-300">{slackMessage}</p> : null}
+                <div className="rounded-xl border border-white/10 bg-zinc-800 p-6 backdrop-blur-sm space-y-4">
+                  {slackError ? <p className="text-xs text-red-300">{slackError}</p> : null}
+                  {slackMessage ? <p className="text-xs text-emerald-300">{slackMessage}</p> : null}
 
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-2 text-sm font-medium text-white/80">
-                          <span>Analysis window</span>
-                          <TooltipProvider delayDuration={120}>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Info className="h-4 w-4 cursor-help text-white/60" />
-                              </TooltipTrigger>
-                              <TooltipContent side="top" className="max-w-xs leading-relaxed">
-                                Sets the default number of days for Signals. History uses its own calendar range selection. Range: 1–30 days.
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        </div>
-                        <Input
-                          type="number"
-                          min={1}
-                          max={30}
-                          value={windowDays}
-                          onChange={(event) =>
-                            setWindowDays(Math.max(1, Math.min(30, Number(event.target.value) || 1)))
-                          }
-                          className="w-28 border-white/20 bg-white/5 text-white"
-                        />
-                      </div>
                   <div className="flex items-center gap-3">
                     <Button
                       onClick={saveSlackChannel}
@@ -616,7 +638,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                           Saving...
                         </span>
                       ) : (
-                        'Save delivery settings'
+                        'Save Preferences'
                       )}
                     </Button>
                   </div>
