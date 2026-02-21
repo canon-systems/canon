@@ -14,19 +14,6 @@ const MIN_ROBUST_SAMPLES = 4;
 const ELEVATED_Z_SCORE = 2.5;
 const SIGNIFICANT_Z_SCORE = 3.5;
 
-function pct(value: number): string {
-  const abs = Math.abs(value);
-  if (abs >= 100) return `${value.toFixed(0)}%`;
-  if (abs >= 10) return `${value.toFixed(1)}%`;
-  return `${value.toFixed(2)}%`;
-}
-
-function points(value: number): string {
-  const abs = Math.abs(value);
-  if (abs >= 10) return `${value.toFixed(1)} pts`;
-  return `${value.toFixed(2)} pts`;
-}
-
 function percentChange(current: number, baseline: number): number {
   const absolute = current - baseline;
   if (baseline === 0) {
@@ -125,20 +112,20 @@ export function evaluateSignalRules(params: {
   const { window_current, metrics } = comparison;
   const window_baseline = baselineWindow || robustBaseline.window_baseline;
 
-  const regressionZ = zScore(metrics.regression_rate.current_value, robustBaseline.metrics.regression_rate);
+  const regressionZ = zScore(metrics.tickets_regressed.current_value, robustBaseline.metrics.tickets_regressed);
   const regressionSeverity = regressionZ == null ? null : severityFromZScore(regressionZ, 'increase');
   if (regressionSeverity && regressionZ != null) {
-    const baselineValue = robustBaseline.metrics.regression_rate.median;
-    const absoluteChange = metrics.regression_rate.current_value - baselineValue;
-    const relativeChange = percentChange(metrics.regression_rate.current_value, baselineValue);
+    const baselineValue = robustBaseline.metrics.tickets_regressed.median;
+    const absoluteChange = metrics.tickets_regressed.current_value - baselineValue;
+    const relativeChange = percentChange(metrics.tickets_regressed.current_value, baselineValue);
     out.push(
       buildSignal({
         type: 'regression_spike',
         severity: regressionSeverity,
-        metricKey: 'regression_rate',
-        title: 'Regression rate increased',
-        summary: `Regression rate is ${pct(metrics.regression_rate.current_value * 100)} vs robust median ${pct(baselineValue * 100)} (${points(absoluteChange * 100)}, z=${regressionZ.toFixed(2)}).`,
-        currentValue: metrics.regression_rate.current_value,
+        metricKey: 'tickets_regressed',
+        title: 'Ticket regressions increased',
+        summary: `Regressed tickets were ${metrics.tickets_regressed.current_value.toFixed(0)} versus a typical baseline of ${baselineValue.toFixed(0)}.`,
+        currentValue: metrics.tickets_regressed.current_value,
         baselineValue,
         absoluteChange,
         percentChange: relativeChange,
@@ -146,14 +133,14 @@ export function evaluateSignalRules(params: {
         windowEnd: window_current.end,
         baselineStart: window_baseline.start,
         baselineEnd: window_baseline.end,
-        evidence: baseEvidence('regression_rate', {
+        evidence: baseEvidence('tickets_regressed', {
           tickets_regressed_current: metrics.tickets_regressed.current_value,
           tickets_regressed_baseline_median: robustBaseline.metrics.tickets_regressed.median,
           detector: 'robust_mad_zscore',
           z_score: regressionZ,
-          sample_size: robustBaseline.metrics.regression_rate.sample_size,
-          mad: robustBaseline.metrics.regression_rate.mad,
-          sigma: robustBaseline.metrics.regression_rate.sigma,
+          sample_size: robustBaseline.metrics.tickets_regressed.sample_size,
+          mad: robustBaseline.metrics.tickets_regressed.mad,
+          sigma: robustBaseline.metrics.tickets_regressed.sigma,
         }),
       })
     );
@@ -171,7 +158,7 @@ export function evaluateSignalRules(params: {
         severity: throughputSeverity,
         metricKey: 'tickets_completed',
         title: 'Ticket throughput dropped',
-        summary: `Tickets completed are ${metrics.tickets_completed.current_value.toFixed(0)} vs robust median ${baselineValue.toFixed(0)} (z=${throughputZ.toFixed(2)}).`,
+        summary: `Completed tickets were ${metrics.tickets_completed.current_value.toFixed(0)} versus a typical baseline of ${baselineValue.toFixed(0)}.`,
         currentValue: metrics.tickets_completed.current_value,
         baselineValue,
         absoluteChange,
@@ -203,7 +190,7 @@ export function evaluateSignalRules(params: {
         severity: mergeSeverity,
         metricKey: 'prs_merged',
         title: 'Merge throughput dropped',
-        summary: `Merged PRs are ${metrics.prs_merged.current_value.toFixed(0)} vs robust median ${baselineValue.toFixed(0)} (z=${mergeZ.toFixed(2)}).`,
+        summary: `Merged PRs were ${metrics.prs_merged.current_value.toFixed(0)} versus a typical baseline of ${baselineValue.toFixed(0)}.`,
         currentValue: metrics.prs_merged.current_value,
         baselineValue,
         absoluteChange,
@@ -235,7 +222,7 @@ export function evaluateSignalRules(params: {
         severity: topRepoSeverity,
         metricKey: 'repo_distribution',
         title: 'Repository concentration detected',
-        summary: `${topRepo.key} accounts for ${(topRepo.share * 100).toFixed(1)}% of GitHub activity (robust median ${(baselineValue * 100).toFixed(1)}%, z=${topRepoZ.toFixed(2)}).`,
+        summary: `${topRepo.key} accounted for ${(topRepo.share * 100).toFixed(1)}% of GitHub activity versus a typical baseline of ${(baselineValue * 100).toFixed(1)}%.`,
         currentValue: topRepo.share,
         baselineValue,
         absoluteChange,
@@ -278,7 +265,7 @@ export function evaluateSignalRules(params: {
         severity: topDomainSeverity,
         metricKey: 'domain_distribution',
         title: 'Domain focus shifted',
-        summary: `${topDomain.key} accounts for ${(topDomain.share * 100).toFixed(1)}% of weighted activity (robust median ${(baselineValue * 100).toFixed(1)}%, z=${topDomainZ.toFixed(2)}).`,
+        summary: `${topDomain.key} accounted for ${(topDomain.share * 100).toFixed(1)}% of weighted activity versus a typical baseline of ${(baselineValue * 100).toFixed(1)}%.`,
         currentValue: topDomain.share,
         baselineValue,
         absoluteChange,

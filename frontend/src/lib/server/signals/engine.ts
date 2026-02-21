@@ -398,7 +398,7 @@ export async function runSignalEngineForWindow(params: {
 
   const ticketingProviders = new Set(['jira', 'asana', 'linear']);
   const githubProviders = new Set(['github']);
-  const ticketingMetricKeys = new Set(['regression_rate', 'tickets_completed']);
+  const ticketingMetricKeys = new Set(['tickets_regressed', 'tickets_completed']);
   const githubMetricKeys = new Set(['prs_merged', 'repo_distribution']);
   const ticketingSources = sources.filter((source) => ticketingProviders.has(source.provider));
   const githubSources = sources.filter((source) => githubProviders.has(source.provider));
@@ -825,8 +825,22 @@ export async function getSignalInvestigation(params: {
     }>;
   } | null;
   evidence: {
-    tickets: Array<{ id: string; summary: string | null; occurred_at: string | null; url: string | null }>;
+    tickets: Array<{
+      id: string;
+      summary: string | null;
+      occurred_at: string | null;
+      kind: string | null;
+      url: string | null;
+    }>;
+    tickets_baseline: Array<{
+      id: string;
+      summary: string | null;
+      occurred_at: string | null;
+      kind: string | null;
+      url: string | null;
+    }>;
     prs: Array<{ id: string; repo: string | null; occurred_at: string | null; kind: string | null; url: string | null }>;
+    prs_baseline: Array<{ id: string; repo: string | null; occurred_at: string | null; kind: string | null; url: string | null }>;
     repos: Array<{ id: string; activity: number; baseline_activity: number }>;
     domains: Array<{ id: string; activity: number; baseline_activity: number }>;
   };
@@ -838,7 +852,7 @@ export async function getSignalInvestigation(params: {
       signal: null,
       baseline_panel: null,
       direction: null,
-      evidence: { tickets: [], prs: [], repos: [], domains: [] },
+      evidence: { tickets: [], tickets_baseline: [], prs: [], prs_baseline: [], repos: [], domains: [] },
     };
   }
 
@@ -858,8 +872,22 @@ export async function getSignalInvestigation(params: {
     sourceIds = Array.isArray(run?.source_ids) ? run.source_ids.filter((id): id is string => typeof id === 'string') : [];
   }
 
-  const tickets: Array<{ id: string; summary: string | null; occurred_at: string | null; url: string | null }> = [];
+  const tickets: Array<{
+    id: string;
+    summary: string | null;
+    occurred_at: string | null;
+    kind: string | null;
+    url: string | null;
+  }> = [];
   const prs: Array<{ id: string; repo: string | null; occurred_at: string | null; kind: string | null; url: string | null }> = [];
+  const ticketsBaseline: Array<{
+    id: string;
+    summary: string | null;
+    occurred_at: string | null;
+    kind: string | null;
+    url: string | null;
+  }> = [];
+  const prsBaseline: Array<{ id: string; repo: string | null; occurred_at: string | null; kind: string | null; url: string | null }> = [];
   const currentRepoCounts = new Map<string, number>();
   const baselineRepoCounts = new Map<string, number>();
   const currentDomainCounts = new Map<string, number>();
@@ -928,7 +956,7 @@ export async function getSignalInvestigation(params: {
       end: signal.baseline_end,
     };
 
-    const [currentDiff, baselineDiff, eventsResult, currentCountEventsResult, baselineCountEventsResult] = await Promise.all([
+    const [currentDiff, baselineDiff, eventsResult, baselineEventsResult, currentCountEventsResult, baselineCountEventsResult] = await Promise.all([
       runDiffForSourcesWithBreakdown(userId, sourceIds, currentWindow, supabase),
       runDiffForSourcesWithBreakdown(userId, sourceIds, baselineWindow, supabase),
       supabase
@@ -937,6 +965,14 @@ export async function getSignalInvestigation(params: {
         .in('source_id', sourceIds)
         .gte('occurred_at', signal.window_start)
         .lte('occurred_at', signal.window_end)
+        .order('occurred_at', { ascending: false })
+        .limit(250),
+      supabase
+        .from('diff_event_canonical')
+        .select('source_id, provider, event_kind, entity_id, source_full_name, occurred_at, metadata')
+        .in('source_id', sourceIds)
+        .gte('occurred_at', signal.baseline_start)
+        .lte('occurred_at', signal.baseline_end)
         .order('occurred_at', { ascending: false })
         .limit(250),
       supabase
@@ -1026,6 +1062,7 @@ export async function getSignalInvestigation(params: {
     };
 
     const events = eventsResult.data as CanonicalEventRow[] | null;
+    const baselineEvents = baselineEventsResult.data as CanonicalEventRow[] | null;
     const currentCountEvents = (currentCountEventsResult.data || []) as Array<{
       source_id?: string | null;
       source_full_name: string | null;
@@ -1055,40 +1092,50 @@ export async function getSignalInvestigation(params: {
       baselineDomainCounts.set(domain, (baselineDomainCounts.get(domain) || 0) + 1);
     }
 
-    for (const event of events || []) {
-      const provider = (event.provider || '').toLowerCase();
-      const kind = event.event_kind || null;
-      const entityId = event.entity_id || null;
-      const repo = event.source_full_name || null;
-      const metadata = (event.metadata || {}) as Record<string, unknown>;
+    const mapEventsToEvidence = (
+      rows: CanonicalEventRow[] | null,
+      targetTickets: typeof tickets,
+      targetPrs: typeof prs
+    ): void => {
+      for (const event of rows || []) {
+        const provider = (event.provider || '').toLowerCase();
+        const kind = event.event_kind || null;
+        const entityId = event.entity_id || null;
+        const repo = event.source_full_name || null;
+        const metadata = (event.metadata || {}) as Record<string, unknown>;
 
-      if (provider === 'jira' && entityId && kind && kind.startsWith('ticket_')) {
-        const summary =
-          typeof metadata.summary === 'string'
-            ? metadata.summary
-            : typeof metadata.title === 'string'
-              ? metadata.title
-              : null;
-        if (!tickets.some((t) => t.id === entityId && t.occurred_at === event.occurred_at)) {
-          tickets.push({
+        if (provider === 'jira' && entityId && kind && kind.startsWith('ticket_')) {
+          const summary =
+            typeof metadata.summary === 'string'
+              ? metadata.summary
+              : typeof metadata.title === 'string'
+                ? metadata.title
+                : null;
+          if (!targetTickets.some((t) => t.id === entityId && t.occurred_at === event.occurred_at && t.kind === kind)) {
+            targetTickets.push({
+              id: entityId,
+              summary,
+              occurred_at: event.occurred_at,
+              kind,
+              url: jiraIssueUrl(entityId, jiraBrowseBaseByProject),
+            });
+          }
+        }
+
+        if (provider === 'github' && entityId && kind && kind.startsWith('pr_')) {
+          targetPrs.push({
             id: entityId,
-            summary,
+            repo,
             occurred_at: event.occurred_at,
-            url: jiraIssueUrl(entityId, jiraBrowseBaseByProject),
+            kind,
+            url: githubPullRequestUrl(repo, entityId),
           });
         }
       }
+    };
 
-      if (provider === 'github' && entityId && kind && kind.startsWith('pr_')) {
-        prs.push({
-          id: entityId,
-          repo,
-          occurred_at: event.occurred_at,
-          kind,
-          url: githubPullRequestUrl(repo, entityId),
-        });
-      }
-    }
+    mapEventsToEvidence(events, tickets, prs);
+    mapEventsToEvidence(baselineEvents, ticketsBaseline, prsBaseline);
   }
 
   const repos = Array.from(new Set([...currentRepoCounts.keys(), ...baselineRepoCounts.keys()]))
@@ -1123,7 +1170,9 @@ export async function getSignalInvestigation(params: {
     },
     evidence: {
       tickets: tickets.slice(0, 25),
+      tickets_baseline: ticketsBaseline.slice(0, 25),
       prs: prs.slice(0, 25),
+      prs_baseline: prsBaseline.slice(0, 25),
       repos,
       domains,
     },

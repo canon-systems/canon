@@ -138,7 +138,7 @@ export const dailySignalAlerts = inngest.createFunction(
             supabase,
             userId,
             channel: settings.slack_channel,
-            text: formatDailySignalAlertMessage({ window, signals }),
+            text: formatDailySignalAlertMessage({ window, signals, timeZone: settings.time_zone }),
           });
         }
 
