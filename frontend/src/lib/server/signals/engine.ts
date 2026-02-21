@@ -406,8 +406,10 @@ export async function listSignals(params: {
   limit?: number;
   windowStart?: string;
   windowEnd?: string;
+  detectedStart?: string;
+  detectedEnd?: string;
 }): Promise<SignalRecord[]> {
-  const { supabase, userId, severity, scope, windowStart, windowEnd } = params;
+  const { supabase, userId, severity, scope, windowStart, windowEnd, detectedStart, detectedEnd } = params;
   const limit = Math.min(7, Math.max(1, params.limit || 7));
   const fetchLimit = Math.max(30, limit * 20);
 
@@ -424,6 +426,8 @@ export async function listSignals(params: {
   if (scope) query = query.or(`scope_type.eq.${scope},scope_id.eq.${scope}`);
   if (windowStart) query = query.gte('window_start', windowStart);
   if (windowEnd) query = query.lte('window_end', windowEnd);
+  if (detectedStart) query = query.gte('created_at', detectedStart);
+  if (detectedEnd) query = query.lte('created_at', detectedEnd);
 
   const { data: rows } = (await query) as { data: SignalRow[] | null };
   if (!rows || rows.length === 0) return [];

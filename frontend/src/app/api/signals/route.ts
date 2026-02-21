@@ -50,14 +50,16 @@ export async function GET(request: NextRequest) {
     const endDateParam = parseDateParam(request.nextUrl.searchParams.get('end'));
     let windowStart: string | undefined;
     let windowEnd: string | undefined;
+    let detectedStart: string | undefined;
+    let detectedEnd: string | undefined;
 
     if (startDateParam && endDateParam) {
       const [fromDay, toDay] = startDateParam <= endDateParam ? [startDateParam, endDateParam] : [endDateParam, startDateParam];
       const startRange = localDayToUtcRange(fromDay, timeZone);
       const endRange = localDayToUtcRange(toDay, timeZone);
       if (startRange && endRange) {
-        windowStart = startRange.start;
-        windowEnd = endRange.end;
+        detectedStart = startRange.start;
+        detectedEnd = endRange.end;
       }
     } else {
       windowStart = windowStartFromParam(request.nextUrl.searchParams.get('window'), new Date(), undefined, timeZone);
@@ -71,6 +73,8 @@ export async function GET(request: NextRequest) {
       limit,
       windowStart,
       windowEnd,
+      detectedStart,
+      detectedEnd,
     });
 
     return NextResponse.json(

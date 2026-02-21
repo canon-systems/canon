@@ -59,8 +59,8 @@ export default async function SignalsPage({
 
   let selectedStartDate: string | null = null;
   let selectedEndDate: string | null = null;
-  let windowStart: string | undefined;
-  let windowEnd: string | undefined;
+  let detectedStart: string | undefined;
+  let detectedEnd: string | undefined;
 
   if (startDateParam && endDateParam) {
     const [fromDay, toDay] = startDateParam <= endDateParam ? [startDateParam, endDateParam] : [endDateParam, startDateParam];
@@ -69,8 +69,8 @@ export default async function SignalsPage({
     if (startRange && endRange) {
       selectedStartDate = fromDay;
       selectedEndDate = toDay;
-      windowStart = startRange.start;
-      windowEnd = endRange.end;
+      detectedStart = startRange.start;
+      detectedEnd = endRange.end;
     }
   }
 
@@ -80,8 +80,8 @@ export default async function SignalsPage({
     severity,
     scope,
     limit: 7,
-    windowStart,
-    windowEnd,
+    detectedStart,
+    detectedEnd,
   });
 
   const runIds = signals
