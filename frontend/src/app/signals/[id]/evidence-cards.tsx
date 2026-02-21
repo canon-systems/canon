@@ -70,12 +70,12 @@ function EvidenceList({ panel, evidence, timeZone }: { panel: PanelId; evidence:
                 rel="noreferrer"
                 className="font-medium text-white underline decoration-white/35 underline-offset-2 hover:text-white"
               >
-                {ticket.id}
+                {ticket.summary || 'Untitled Ticket'}
               </a>
             ) : (
-              <div className="font-medium text-white">{ticket.id}</div>
+              <div className="font-medium text-white">{ticket.summary || 'Untitled Ticket'}</div>
             )}
-            <div className="text-white/70">{ticket.summary || 'No summary'}</div>
+            <div className="text-sm text-white/65">{ticket.id}</div>
             <div className="text-xs text-white/55">{formatTimestamp(ticket.occurred_at, timeZone)}</div>
           </div>
         ))}

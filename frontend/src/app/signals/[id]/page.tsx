@@ -53,12 +53,6 @@ function formatMetricValue(metricKey: string, value: number): string {
   return `${value}`;
 }
 
-function baselineCoveragePercent(current: number, baseline: number): string {
-  if (!Number.isFinite(current) || !Number.isFinite(baseline)) return '0%';
-  if (baseline === 0) return current === 0 ? '100%' : 'No baseline';
-  return pct((current / baseline) * 100);
-}
-
 function formatChangeVsBaseline(signal: {
   metric_key: string;
   current_value: number;
@@ -102,10 +96,6 @@ function metricReadableName(metricKey: string): string {
 
 function changeVsBaselineTooltip(metricKey: string): string {
   return `How much ${metricReadableName(metricKey)} changed from your baseline period. Positive means up, negative means down.`;
-}
-
-function currentLevelVsBaselineTooltip(metricKey: string): string {
-  return `Current ${metricReadableName(metricKey)} compared to baseline. 100% is about the same, above is higher, below is lower.`;
 }
 
 function metricTooltip(metricKey: string): string {
@@ -216,10 +206,6 @@ export default async function SignalInvestigatePage({
                 <p>
                   <MetricLabelTooltip label="Change vs baseline" tip={changeVsBaselineTooltip(signal.metric_key)} />:{' '}
                   <span className="text-white">{formatChangeVsBaseline(signal)}</span>
-                </p>
-                <p>
-                  <MetricLabelTooltip label="Current level vs baseline" tip={currentLevelVsBaselineTooltip(signal.metric_key)} />:{' '}
-                  <span className="text-white">{baselineCoveragePercent(signal.current_value, signal.baseline_value)}</span>
                 </p>
                 <p className="text-white/70">
                   Current: <span className="text-white">{formatMetricValue(signal.metric_key, signal.current_value)}</span>{' '}
@@ -341,10 +327,6 @@ export default async function SignalInvestigatePage({
             <p>
               <MetricLabelTooltip label="Change vs baseline" tip={changeVsBaselineTooltip(signal.metric_key)} />:{' '}
               <span className="text-white">{formatChangeVsBaseline(signal)}</span>
-            </p>
-            <p>
-              <MetricLabelTooltip label="Current level vs baseline" tip={currentLevelVsBaselineTooltip(signal.metric_key)} />:{' '}
-              <span className="text-white">{baselineCoveragePercent(signal.current_value, signal.baseline_value)}</span>
             </p>
             <p className="text-xs text-white/60">
               Current range: {formatRange(signal.window_start, signal.window_end, timeZone)}
