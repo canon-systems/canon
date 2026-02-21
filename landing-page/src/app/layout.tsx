@@ -16,8 +16,8 @@ const spaceGrotesk = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: 'Canon — Truth Alignment Layer',
-  description: 'Keep shared understanding aligned with reality as systems change.',
+  title: 'Canon — Engineering Signals for Leaders',
+  description: 'Turn GitHub and Jira activity into clear daily and weekly leadership signals.',
 };
 
 export default function RootLayout({

@@ -36,6 +36,41 @@ function toDateOnlyUtc(value: string): string {
   return date.toISOString().slice(0, 10);
 }
 
+function toDateOnlyInTimeZone(value: string, timeZone: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(date);
+    const year = parts.find((part) => part.type === 'year')?.value;
+    const month = parts.find((part) => part.type === 'month')?.value;
+    const day = parts.find((part) => part.type === 'day')?.value;
+    if (!year || !month || !day) return value;
+    return `${year}-${month}-${day}`;
+  } catch {
+    return toDateOnlyUtc(value);
+  }
+}
+
+function resolveBaselineWindow(signals: SignalRecord[]): MetricWindow | null {
+  if (signals.length === 0) return null;
+  let start = '';
+  let end = '';
+
+  for (const signal of signals) {
+    if (!start || signal.baseline_start < start) start = signal.baseline_start;
+    if (!end || signal.baseline_end > end) end = signal.baseline_end;
+  }
+
+  if (!start || !end) return null;
+  return { start, end };
+}
+
 function formatNumber(value: number, maxFractionDigits = 1): string {
   if (!Number.isFinite(value)) return '0';
   return value.toLocaleString('en-US', {
@@ -77,6 +112,53 @@ function scopeSummary(signal: SignalRecord): string {
   if (signal.scope_type === 'repo' && signal.scope_id) return `Scope: Repo ${signal.scope_id}`;
   if (signal.scope_type === 'ticketing') return `Scope: ${signal.scope_id || 'Ticketing workspace'}`;
   return 'Scope: Global';
+}
+
+function surfaceCategoryLines(signal: SignalRecord): string[] {
+  const metadataTargetsRaw = signal.metadata?.targets;
+  const metadataTargets = Array.isArray(metadataTargetsRaw)
+    ? metadataTargetsRaw
+        .map((value) => (typeof value === 'string' ? value.trim() : ''))
+        .filter((value) => value.length > 0)
+    : [];
+
+  const scopeTargets =
+    typeof signal.scope_id === 'string'
+      ? signal.scope_id
+          .split(/[,|]/)
+          .map((value) => value.trim())
+          .filter((value) => value.length > 0)
+      : [];
+
+  const uniqueTargets = Array.from(new Set([...metadataTargets, ...scopeTargets]));
+
+  if (signal.scope_type === 'repo') {
+    const targets = uniqueTargets.length > 0 ? uniqueTargets : ['Unknown repository'];
+    return [
+      'Surface:',
+      '   Category: Repository',
+      '   Targets:',
+      ...targets.map((target) => `   - ${target}`),
+    ];
+  }
+
+  if (signal.scope_type === 'ticketing') {
+    const targets = uniqueTargets.length > 0 ? uniqueTargets : ['Workspace'];
+    return [
+      'Surface:',
+      '   Category: Ticketing',
+      '   Targets:',
+      ...targets.map((target) => `   - ${target}`),
+    ];
+  }
+
+  const targets = uniqueTargets.length > 0 ? uniqueTargets : ['Workspace-wide'];
+  return [
+    'Surface:',
+    '   Category: Global',
+    '   Targets:',
+    ...targets.map((target) => `   - ${target}`),
+  ];
 }
 
 function metricLabel(metricKey: string): string {
@@ -144,17 +226,25 @@ export function formatWeeklyDigestMessage(params: {
 export function formatDailySignalAlertMessage(params: {
   window: MetricWindow;
   signals: SignalRecord[];
+  timeZone?: string;
 }): string {
   const { window } = params;
+  const timeZone = typeof params.timeZone === 'string' && params.timeZone.trim().length > 0 ? params.timeZone.trim() : 'UTC';
   const signals = sortSignalsByPriority(params.signals);
   const topSignals = signals.slice(0, 5);
   const significantCount = signals.filter((signal) => signal.severity === 'significant').length;
   const elevatedCount = signals.length - significantCount;
+  const baselineWindow = resolveBaselineWindow(signals);
+  const windowStartLabel = toDateOnlyInTimeZone(window.start, timeZone);
+  const windowEndLabel = toDateOnlyInTimeZone(window.end, timeZone);
+  const baselineStartLabel = baselineWindow ? toDateOnlyInTimeZone(baselineWindow.start, timeZone) : 'n/a';
+  const baselineEndLabel = baselineWindow ? toDateOnlyInTimeZone(baselineWindow.end, timeZone) : 'n/a';
 
   const lines = [
     '*Canon Daily Signal Alert*',
-    `Window: ${toDateOnlyUtc(window.start)} to ${toDateOnlyUtc(window.end)} (UTC)`,
-    `Signals: ${signals.length} (${significantCount} significant, ${elevatedCount} elevated)`,
+    `Window: ${windowStartLabel} to ${windowEndLabel} (${timeZone})`,
+    `Baseline: ${baselineStartLabel} to ${baselineEndLabel} (${timeZone})`,
+    `Detected: ${signals.length} signal(s) (${significantCount} significant, ${elevatedCount} elevated)`,
     '',
   ];
 
@@ -163,17 +253,27 @@ export function formatDailySignalAlertMessage(params: {
     return lines.join('\n');
   }
 
+  if (significantCount > 0) {
+    lines.push(`Priority: review ${significantCount} significant signal(s) first.`);
+  } else {
+    lines.push('Priority: elevated signals only in this run.');
+  }
+  lines.push('');
+
   topSignals.forEach((signal, index) => {
-    lines.push(`${index + 1}. *${signal.title}* [${humanSeverity(signal.severity)}]`);
+    lines.push(`${index + 1}. [${humanSeverity(signal.severity).toUpperCase()}] *${signal.title}*`);
+    lines.push(`   ${signal.summary_line}`);
     lines.push(`   ${metricSummary(signal)}`);
-    lines.push(`   ${scopeSummary(signal)}`);
-    lines.push(`   Open: ${signalUrl(signal.id)}`);
+    for (const surfaceLine of surfaceCategoryLines(signal)) {
+      lines.push(`   ${surfaceLine}`);
+    }
+    lines.push(`   Click the link to investigate: ${signalUrl(signal.id)}`);
     if (index < topSignals.length - 1) lines.push('');
   });
 
   if (signals.length > topSignals.length) {
     lines.push('');
-    lines.push(`+${signals.length - topSignals.length} more signal(s) not shown.`);
+    lines.push(`+${signals.length - topSignals.length} additional signal(s) not shown.`);
   }
 
   return lines.join('\n');

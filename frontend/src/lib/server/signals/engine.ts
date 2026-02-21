@@ -5,7 +5,7 @@ import {
   type DiffDelta,
 } from '@/lib/server/diff/contracts';
 import { runDiffForSourcesWithBreakdown } from '@/lib/server/diff/runDiffForSources';
-import { computeAndCompareMetrics } from '@/lib/server/signals/baseline';
+import { computeAndCompareMetrics, computeRobustSignalBaseline } from '@/lib/server/signals/baseline';
 import { computeWeightedEffort } from '@/lib/server/signals/effortWeights';
 import { evaluateSignalRules } from '@/lib/server/signals/rules';
 import { getWorkspaceSignalSettings, resolveSignalSourceIds } from '@/lib/server/signals/settings';
@@ -17,14 +17,13 @@ import type {
   SignalRunResult,
   SignalSeverity,
 } from '@/lib/server/signals/types';
-import { getNormalizedWindowForDays } from '@/lib/server/signals/window';
+import { computeBaselineWindowForTimeZone, getNormalizedWindowForDays } from '@/lib/server/signals/window';
 
 type SignalRow = {
   id: string;
   type: string;
   severity: string;
   signal_run_id?: string | null;
-  primary_source_id?: string | null;
   scope_type: string;
   scope_id: string | null;
   metric_key: string;
@@ -86,26 +85,64 @@ function signalFingerprintKey(row: {
 }
 
 function toSignalRecord(row: SignalRow, evidence: SignalEvidenceRecord[]): SignalRecord {
+  const metricKey = row.metric_key;
+  let currentValue = Number(row.current_value || 0);
+  let baselineValue = Number(row.baseline_value || 0);
+  let absoluteChange = Number(row.absolute_change || 0);
+  let percentChange = Number(row.percent_change || 0);
+  let summaryLine = row.summary_line;
+
+  // Legacy rows stored regression rate as regressed/completed, which can exceed 100%.
+  // Normalize to regressed/(completed+regressed) when legacy-shaped values are detected.
+  if (metricKey === 'regression_rate' && (currentValue > 1 || baselineValue > 1)) {
+    const normalizedCurrent = currentValue > 0 ? currentValue / (1 + currentValue) : 0;
+    const normalizedBaseline = baselineValue > 0 ? baselineValue / (1 + baselineValue) : 0;
+    currentValue = normalizedCurrent;
+    baselineValue = normalizedBaseline;
+    absoluteChange = normalizedCurrent - normalizedBaseline;
+    if (normalizedBaseline === 0) {
+      percentChange = normalizedCurrent === 0 ? 0 : 100;
+    } else {
+      percentChange = ((normalizedCurrent - normalizedBaseline) / Math.abs(normalizedBaseline)) * 100;
+    }
+  }
+
+  if (metricKey === 'regression_rate') {
+    const pct = (value: number) => {
+      const n = Number.isFinite(value) ? value : 0;
+      const abs = Math.abs(n);
+      if (abs >= 100) return `${n.toFixed(0)}%`;
+      if (abs >= 10) return `${n.toFixed(1)}%`;
+      return `${n.toFixed(2)}%`;
+    };
+    const points = (value: number) => {
+      const n = Number.isFinite(value) ? value : 0;
+      const abs = Math.abs(n);
+      if (abs >= 10) return `${n.toFixed(1)} pts`;
+      return `${n.toFixed(2)} pts`;
+    };
+    summaryLine = `Regression rate is ${pct(currentValue * 100)} vs baseline ${pct(baselineValue * 100)} (${points(absoluteChange * 100)}).`;
+  }
+
   return {
     id: row.id,
     created_at: row.created_at,
     type: row.type as SignalRecord['type'],
     severity: row.severity as SignalSeverity,
     signal_run_id: row.signal_run_id,
-    primary_source_id: row.primary_source_id,
     scope_type: row.scope_type as SignalRecord['scope_type'],
     scope_id: row.scope_id,
-    metric_key: row.metric_key,
+    metric_key: metricKey,
     window_start: row.window_start,
     window_end: row.window_end,
     baseline_start: row.baseline_start,
     baseline_end: row.baseline_end,
-    current_value: Number(row.current_value || 0),
-    baseline_value: Number(row.baseline_value || 0),
-    absolute_change: Number(row.absolute_change || 0),
-    percent_change: Number(row.percent_change || 0),
+    current_value: currentValue,
+    baseline_value: baselineValue,
+    absolute_change: absoluteChange,
+    percent_change: percentChange,
     title: row.title,
-    summary_line: row.summary_line,
+    summary_line: summaryLine,
     metadata: row.metadata || {},
     evidence,
   };
@@ -221,14 +258,12 @@ async function insertSignalWithEvidence(params: {
   supabase: SupabaseClient;
   userId: string;
   signalRunId: string;
-  primarySourceId: string | null;
   signal: Omit<SignalRecord, 'id' | 'created_at'>;
 }): Promise<SignalRecord> {
-  const { supabase, userId, signalRunId, primarySourceId, signal } = params;
+  const { supabase, userId, signalRunId, signal } = params;
   const upsertPayload = {
     user_id: userId,
     signal_run_id: signalRunId,
-    primary_source_id: primarySourceId,
     type: signal.type,
     severity: signal.severity,
     scope_type: signal.scope_type,
@@ -252,7 +287,7 @@ async function insertSignalWithEvidence(params: {
     .from('signals')
     .upsert(upsertPayload, { onConflict: SIGNAL_FINGERPRINT_CONFLICT_COLUMNS })
     .select(
-      'id, type, severity, signal_run_id, primary_source_id, scope_type, scope_id, metric_key, window_start, window_end, baseline_start, baseline_end, current_value, baseline_value, absolute_change, percent_change, title, summary_line, metadata, created_at'
+      'id, type, severity, signal_run_id, scope_type, scope_id, metric_key, window_start, window_end, baseline_start, baseline_end, current_value, baseline_value, absolute_change, percent_change, title, summary_line, metadata, created_at'
     )
     .single()) as { data: SignalRow | null; error: { message: string } | null };
 
@@ -296,10 +331,29 @@ export async function runSignalEngine(params: {
   sourceIds?: string[];
 }): Promise<SignalRunResult> {
   const { supabase, userId } = params;
-
   const settings = await getWorkspaceSignalSettings({ supabase, userId });
   const sourceIds = await resolveSignalSourceIds({ supabase, userId, sourceIds: params.sourceIds });
   const window = defaultWindowForSettings(settings.baseline_window_days, settings.time_zone);
+
+  return runSignalEngineForWindow({
+    supabase,
+    userId,
+    sourceIds,
+    window,
+    timeZone: settings.time_zone,
+  });
+}
+
+export async function runSignalEngineForWindow(params: {
+  supabase: SupabaseClient;
+  userId: string;
+  sourceIds: string[];
+  window: MetricWindow;
+  timeZone?: string;
+}): Promise<SignalRunResult> {
+  const { supabase, userId, sourceIds, window } = params;
+  const settings = await getWorkspaceSignalSettings({ supabase, userId });
+  const timeZone = params.timeZone || settings.time_zone;
 
   const { data: sourceRows } = sourceIds.length
     ? await supabase
@@ -314,20 +368,39 @@ export async function runSignalEngine(params: {
     scope: (row.scope as Record<string, unknown> | null) || null,
   }));
 
-  const { current, baseline, comparison } = await computeAndCompareMetrics({
+  const { current, comparison } = await computeAndCompareMetrics({
     supabase,
     userId,
     sourceIds,
     window,
-    timeZone: settings.time_zone,
+    timeZone,
   });
 
-  const rawSignalDrafts = evaluateSignalRules(comparison);
+  const robustBaseline = await computeRobustSignalBaseline({
+    supabase,
+    userId,
+    sourceIds,
+    currentWindow: current.window,
+    timeZone,
+  });
+
+  const comparisonBaselineWindow = computeBaselineWindowForTimeZone(current.window, timeZone);
+
+  const rawSignalDrafts = evaluateSignalRules({
+    comparison,
+    robustBaseline,
+    baselineWindow: comparisonBaselineWindow,
+  });
 
   const ticketingProviders = new Set(['jira', 'asana', 'linear']);
+  const githubProviders = new Set(['github']);
+  const ticketingMetricKeys = new Set(['tickets_regressed', 'tickets_completed']);
+  const githubMetricKeys = new Set(['prs_merged', 'repo_distribution']);
   const ticketingSources = sources.filter((source) => ticketingProviders.has(source.provider));
+  const githubSources = sources.filter((source) => githubProviders.has(source.provider));
+  const hasTicketingSources = ticketingSources.length > 0;
+  const hasGithubSources = githubSources.length > 0;
   const allSourcesTicketing = sources.length > 0 && ticketingSources.length === sources.length;
-  const singleTicketingSource = sources.length === 1 && ticketingSources.length === 1;
 
   const ticketingLabel = (source: (typeof sources)[number]): string => {
     const name = typeof source.name === 'string' ? source.name.trim() : '';
@@ -341,19 +414,31 @@ export async function runSignalEngine(params: {
     return providerLabel;
   };
 
-  const signalDrafts = rawSignalDrafts.map((signal) => {
+  const ticketingScopeLabel = (): string | null => {
+    if (ticketingSources.length === 0) return null;
+    const labels = Array.from(new Set(ticketingSources.map(ticketingLabel).filter((label) => label.length > 0)));
+    if (labels.length === 0) return 'Ticketing';
+    return labels.join(', ');
+  };
+
+  const filteredSignalDrafts = rawSignalDrafts.filter((signal) => {
+    if (ticketingMetricKeys.has(signal.metric_key)) return hasTicketingSources;
+    if (githubMetricKeys.has(signal.metric_key)) return hasGithubSources;
+    return true;
+  });
+
+  const signalDrafts = filteredSignalDrafts.map((signal) => {
     if (signal.scope_type !== 'global') return signal;
 
-    if (singleTicketingSource) {
-      const src = ticketingSources[0];
-      return { ...signal, scope_type: 'ticketing' as const, scope_id: ticketingLabel(src) };
+    if (ticketingMetricKeys.has(signal.metric_key) && hasTicketingSources) {
+      return { ...signal, scope_type: 'ticketing' as const, scope_id: ticketingScopeLabel() };
     }
 
-    if (allSourcesTicketing) {
+    if (allSourcesTicketing && hasTicketingSources) {
       const label =
         ticketingSources.length === 1
           ? ticketingLabel(ticketingSources[0])
-          : 'Multiple ticketing workspaces';
+          : ticketingScopeLabel() || 'Ticketing';
       return { ...signal, scope_type: 'ticketing' as const, scope_id: label };
     }
 
@@ -367,8 +452,8 @@ export async function runSignalEngine(params: {
       source_ids: sourceIds,
       window_start: current.window.start,
       window_end: current.window.end,
-      baseline_start: baseline.window.start,
-      baseline_end: baseline.window.end,
+      baseline_start: comparisonBaselineWindow.start,
+      baseline_end: comparisonBaselineWindow.end,
     })
     .select('id')
     .single()) as { data: { id: string } | null; error: { message: string } | null };
@@ -385,7 +470,6 @@ export async function runSignalEngine(params: {
       supabase,
       userId,
       signalRunId: runId,
-      primarySourceId: sourceIds[0] || null,
       signal,
     });
     persistedSignals.push(inserted);
@@ -403,27 +487,32 @@ export async function listSignals(params: {
   userId: string;
   severity?: SignalSeverity;
   scope?: string;
+  metricKey?: string;
   limit?: number;
   windowStart?: string;
   windowEnd?: string;
   detectedStart?: string;
   detectedEnd?: string;
 }): Promise<SignalRecord[]> {
-  const { supabase, userId, severity, scope, windowStart, windowEnd, detectedStart, detectedEnd } = params;
-  const limit = Math.min(7, Math.max(1, params.limit || 7));
-  const fetchLimit = Math.max(30, limit * 20);
+  const { supabase, userId, severity, scope, metricKey, windowStart, windowEnd, detectedStart, detectedEnd } = params;
+  const requestedLimit = typeof params.limit === 'number' && Number.isFinite(params.limit)
+    ? Math.max(1, Math.floor(params.limit))
+    : null;
+  const fetchLimit = requestedLimit ? Math.max(30, requestedLimit * 20) : null;
 
   let query = supabase
     .from('signals')
     .select(
-      'id, type, severity, signal_run_id, primary_source_id, scope_type, scope_id, metric_key, window_start, window_end, baseline_start, baseline_end, current_value, baseline_value, absolute_change, percent_change, title, summary_line, metadata, created_at'
+      'id, type, severity, signal_run_id, scope_type, scope_id, metric_key, window_start, window_end, baseline_start, baseline_end, current_value, baseline_value, absolute_change, percent_change, title, summary_line, metadata, created_at'
     )
     .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-    .limit(fetchLimit);
+    .order('created_at', { ascending: false });
+
+  if (fetchLimit) query = query.limit(fetchLimit);
 
   if (severity) query = query.eq('severity', severity);
   if (scope) query = query.or(`scope_type.eq.${scope},scope_id.eq.${scope}`);
+  if (metricKey) query = query.eq('metric_key', metricKey);
   if (windowStart) query = query.gte('window_start', windowStart);
   if (windowEnd) query = query.lte('window_end', windowEnd);
   if (detectedStart) query = query.gte('created_at', detectedStart);
@@ -439,7 +528,7 @@ export async function listSignals(params: {
     if (seenFingerprints.has(fingerprint)) continue;
     seenFingerprints.add(fingerprint);
     dedupedRows.push(row);
-    if (dedupedRows.length >= limit) break;
+    if (requestedLimit && dedupedRows.length >= requestedLimit) break;
   }
   if (dedupedRows.length === 0) return [];
 
@@ -710,8 +799,22 @@ export async function getSignalInvestigation(params: {
     }>;
   } | null;
   evidence: {
-    tickets: Array<{ id: string; summary: string | null; occurred_at: string | null; url: string | null }>;
+    tickets: Array<{
+      id: string;
+      summary: string | null;
+      occurred_at: string | null;
+      kind: string | null;
+      url: string | null;
+    }>;
+    tickets_baseline: Array<{
+      id: string;
+      summary: string | null;
+      occurred_at: string | null;
+      kind: string | null;
+      url: string | null;
+    }>;
     prs: Array<{ id: string; repo: string | null; occurred_at: string | null; kind: string | null; url: string | null }>;
+    prs_baseline: Array<{ id: string; repo: string | null; occurred_at: string | null; kind: string | null; url: string | null }>;
     repos: Array<{ id: string; activity: number; baseline_activity: number }>;
     domains: Array<{ id: string; activity: number; baseline_activity: number }>;
   };
@@ -723,7 +826,7 @@ export async function getSignalInvestigation(params: {
       signal: null,
       baseline_panel: null,
       direction: null,
-      evidence: { tickets: [], prs: [], repos: [], domains: [] },
+      evidence: { tickets: [], tickets_baseline: [], prs: [], prs_baseline: [], repos: [], domains: [] },
     };
   }
 
@@ -743,8 +846,22 @@ export async function getSignalInvestigation(params: {
     sourceIds = Array.isArray(run?.source_ids) ? run.source_ids.filter((id): id is string => typeof id === 'string') : [];
   }
 
-  const tickets: Array<{ id: string; summary: string | null; occurred_at: string | null; url: string | null }> = [];
+  const tickets: Array<{
+    id: string;
+    summary: string | null;
+    occurred_at: string | null;
+    kind: string | null;
+    url: string | null;
+  }> = [];
   const prs: Array<{ id: string; repo: string | null; occurred_at: string | null; kind: string | null; url: string | null }> = [];
+  const ticketsBaseline: Array<{
+    id: string;
+    summary: string | null;
+    occurred_at: string | null;
+    kind: string | null;
+    url: string | null;
+  }> = [];
+  const prsBaseline: Array<{ id: string; repo: string | null; occurred_at: string | null; kind: string | null; url: string | null }> = [];
   const currentRepoCounts = new Map<string, number>();
   const baselineRepoCounts = new Map<string, number>();
   const currentDomainCounts = new Map<string, number>();
@@ -813,7 +930,7 @@ export async function getSignalInvestigation(params: {
       end: signal.baseline_end,
     };
 
-    const [currentDiff, baselineDiff, eventsResult, currentCountEventsResult, baselineCountEventsResult] = await Promise.all([
+    const [currentDiff, baselineDiff, eventsResult, baselineEventsResult, currentCountEventsResult, baselineCountEventsResult] = await Promise.all([
       runDiffForSourcesWithBreakdown(userId, sourceIds, currentWindow, supabase),
       runDiffForSourcesWithBreakdown(userId, sourceIds, baselineWindow, supabase),
       supabase
@@ -822,6 +939,14 @@ export async function getSignalInvestigation(params: {
         .in('source_id', sourceIds)
         .gte('occurred_at', signal.window_start)
         .lte('occurred_at', signal.window_end)
+        .order('occurred_at', { ascending: false })
+        .limit(250),
+      supabase
+        .from('diff_event_canonical')
+        .select('source_id, provider, event_kind, entity_id, source_full_name, occurred_at, metadata')
+        .in('source_id', sourceIds)
+        .gte('occurred_at', signal.baseline_start)
+        .lte('occurred_at', signal.baseline_end)
         .order('occurred_at', { ascending: false })
         .limit(250),
       supabase
@@ -847,7 +972,7 @@ export async function getSignalInvestigation(params: {
         .map((source) => [source.id, source] as const)
     );
     const sourceList = Array.from(sourceIndex.values());
-    const sourceShifts = sourceList
+    const sourceShiftsRaw = sourceList
       .map((source) => {
         const current = currentDiff.bySource[source.id] || emptyCanonicalDiff(currentWindow);
         const baseline = baselineDiff.bySource[source.id] || emptyCanonicalDiff(baselineWindow);
@@ -867,7 +992,9 @@ export async function getSignalInvestigation(params: {
           movement_score: score,
           metrics,
         };
-      })
+      });
+
+    const sourceShifts = sourceShiftsRaw
       .filter((item) => item.movement_score > 0)
       .sort((a, b) => b.movement_score - a.movement_score)
       .slice(0, 6);
@@ -909,6 +1036,7 @@ export async function getSignalInvestigation(params: {
     };
 
     const events = eventsResult.data as CanonicalEventRow[] | null;
+    const baselineEvents = baselineEventsResult.data as CanonicalEventRow[] | null;
     const currentCountEvents = (currentCountEventsResult.data || []) as Array<{
       source_id?: string | null;
       source_full_name: string | null;
@@ -938,40 +1066,50 @@ export async function getSignalInvestigation(params: {
       baselineDomainCounts.set(domain, (baselineDomainCounts.get(domain) || 0) + 1);
     }
 
-    for (const event of events || []) {
-      const provider = (event.provider || '').toLowerCase();
-      const kind = event.event_kind || null;
-      const entityId = event.entity_id || null;
-      const repo = event.source_full_name || null;
-      const metadata = (event.metadata || {}) as Record<string, unknown>;
+    const mapEventsToEvidence = (
+      rows: CanonicalEventRow[] | null,
+      targetTickets: typeof tickets,
+      targetPrs: typeof prs
+    ): void => {
+      for (const event of rows || []) {
+        const provider = (event.provider || '').toLowerCase();
+        const kind = event.event_kind || null;
+        const entityId = event.entity_id || null;
+        const repo = event.source_full_name || null;
+        const metadata = (event.metadata || {}) as Record<string, unknown>;
 
-      if (provider === 'jira' && entityId && kind && kind.startsWith('ticket_')) {
-        const summary =
-          typeof metadata.summary === 'string'
-            ? metadata.summary
-            : typeof metadata.title === 'string'
-              ? metadata.title
-              : null;
-        if (!tickets.some((t) => t.id === entityId && t.occurred_at === event.occurred_at)) {
-          tickets.push({
+        if (provider === 'jira' && entityId && kind && kind.startsWith('ticket_')) {
+          const summary =
+            typeof metadata.summary === 'string'
+              ? metadata.summary
+              : typeof metadata.title === 'string'
+                ? metadata.title
+                : null;
+          if (!targetTickets.some((t) => t.id === entityId && t.occurred_at === event.occurred_at && t.kind === kind)) {
+            targetTickets.push({
+              id: entityId,
+              summary,
+              occurred_at: event.occurred_at,
+              kind,
+              url: jiraIssueUrl(entityId, jiraBrowseBaseByProject),
+            });
+          }
+        }
+
+        if (provider === 'github' && entityId && kind && kind.startsWith('pr_')) {
+          targetPrs.push({
             id: entityId,
-            summary,
+            repo,
             occurred_at: event.occurred_at,
-            url: jiraIssueUrl(entityId, jiraBrowseBaseByProject),
+            kind,
+            url: githubPullRequestUrl(repo, entityId),
           });
         }
       }
+    };
 
-      if (provider === 'github' && entityId && kind && kind.startsWith('pr_')) {
-        prs.push({
-          id: entityId,
-          repo,
-          occurred_at: event.occurred_at,
-          kind,
-          url: githubPullRequestUrl(repo, entityId),
-        });
-      }
-    }
+    mapEventsToEvidence(events, tickets, prs);
+    mapEventsToEvidence(baselineEvents, ticketsBaseline, prsBaseline);
   }
 
   const repos = Array.from(new Set([...currentRepoCounts.keys(), ...baselineRepoCounts.keys()]))
@@ -1006,7 +1144,9 @@ export async function getSignalInvestigation(params: {
     },
     evidence: {
       tickets: tickets.slice(0, 25),
+      tickets_baseline: ticketsBaseline.slice(0, 25),
       prs: prs.slice(0, 25),
+      prs_baseline: prsBaseline.slice(0, 25),
       repos,
       domains,
     },

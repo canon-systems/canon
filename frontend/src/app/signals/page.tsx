@@ -14,6 +14,21 @@ import SignalsPageClient from './page-client';
 
 export const dynamic = 'force-dynamic';
 const TIME_ZONE_COOKIE = 'canon_tz';
+const SIGNAL_METRIC_KEYS = [
+  'regression_rate',
+  'tickets_completed',
+  'prs_merged',
+  'repo_distribution',
+  'domain_distribution',
+] as const;
+type SignalMetricKey = (typeof SIGNAL_METRIC_KEYS)[number];
+
+function parseMetricParam(value: string | string[] | undefined): SignalMetricKey | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  return SIGNAL_METRIC_KEYS.includes(trimmed as SignalMetricKey) ? (trimmed as SignalMetricKey) : undefined;
+}
 
 function parseDateParam(value: string | string[] | undefined): string | null {
   if (typeof value !== 'string') return null;
@@ -46,9 +61,11 @@ export default async function SignalsPage({
   const startDateParam = parseDateParam(params.start);
   const endDateParam = parseDateParam(params.end);
   const severityParam = typeof params.severity === 'string' ? params.severity : undefined;
+  const metricParam = parseMetricParam(params.metric) || parseMetricParam(params.metrc);
   const tzParam = typeof params.tz === 'string' ? params.tz : undefined;
   const severity = parseSignalSeverityParam(severityParam);
   const selectedSeverity = severity || 'all';
+  const selectedMetric = metricParam || 'all';
   const scope = typeof params.scope === 'string' && params.scope.trim().length > 0 ? params.scope : undefined;
   const cookieStore = await cookies();
   const cookieTimeZone = parseTimeZoneParam(cookieStore.get(TIME_ZONE_COOKIE)?.value);
@@ -78,8 +95,8 @@ export default async function SignalsPage({
     supabase,
     userId: user.id,
     severity,
+    metricKey: metricParam,
     scope,
-    limit: 7,
     detectedStart,
     detectedEnd,
   });
@@ -103,12 +120,7 @@ export default async function SignalsPage({
   const singleSourceIds = Array.from(sourceIdsByRun.values())
     .filter((ids) => ids.length === 1)
     .map((ids) => ids[0]);
-
-  const primarySourceIds = signals
-    .map((signal) => signal.primary_source_id)
-    .filter((id): id is string => typeof id === 'string' && id.length > 0);
-
-  const uniqueSourceIds = Array.from(new Set([...singleSourceIds, ...primarySourceIds]));
+  const uniqueSourceIds = Array.from(new Set(singleSourceIds));
 
   const sourceInfo = new Map<
     string,
@@ -141,9 +153,8 @@ export default async function SignalsPage({
     <SignalsPageClient
       signals={signals.map((signal) => {
         const sourceIds = signal.signal_run_id ? sourceIdsByRun.get(signal.signal_run_id) || [] : [];
-        const primarySourceId = signal.primary_source_id || null;
         const singleSourceId = sourceIds.length === 1 ? sourceIds[0] : null;
-        const chosenSourceId = primarySourceId || singleSourceId;
+        const chosenSourceId = singleSourceId;
         const sourceLabel = sourceLabelForId(chosenSourceId);
 
         return {
@@ -153,7 +164,6 @@ export default async function SignalsPage({
           summary_line: signal.summary_line,
           severity: signal.severity,
           scope: { type: signal.scope_type, id: signal.scope_id || null },
-          primary_source_id: signal.primary_source_id || null,
           metric_key: signal.metric_key,
           current_value: signal.current_value,
           baseline_value: signal.baseline_value,
@@ -166,6 +176,7 @@ export default async function SignalsPage({
       selectedStartDate={selectedStartDate}
       selectedEndDate={selectedEndDate}
       selectedSeverity={selectedSeverity}
+      selectedMetric={selectedMetric}
       timeZone={timeZone}
     />
   );

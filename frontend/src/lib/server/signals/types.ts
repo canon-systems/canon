@@ -44,6 +44,26 @@ export type MetricComparison = {
   };
 };
 
+export type RobustBaselineStat = {
+  median: number;
+  mad: number;
+  sigma: number;
+  sample_size: number;
+};
+
+export type RobustSignalBaseline = {
+  window_baseline: MetricWindow;
+  history_windows: MetricWindow[];
+  metrics: {
+    tickets_completed: RobustBaselineStat;
+    tickets_regressed: RobustBaselineStat;
+    regression_rate: RobustBaselineStat;
+    prs_merged: RobustBaselineStat;
+  };
+  repo_top_share: RobustBaselineStat;
+  domain_top_share: RobustBaselineStat;
+};
+
 export type SignalType =
   | 'regression_spike'
   | 'throughput_drop'
@@ -67,7 +87,6 @@ export type SignalRecord = {
   id: string;
   created_at?: string;
   signal_run_id?: string | null;
-  primary_source_id?: string | null;
   type: SignalType;
   severity: SignalSeverity;
   scope_type: SignalScopeType;

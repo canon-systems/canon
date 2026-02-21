@@ -5,6 +5,7 @@ import { patchSourceBackfillStatus } from '@/lib/server/diff/backfillStatus';
 import { createLogger, errorMessage } from '@/lib/server/logging';
 import {
   loadWorkspaceSourceForUser,
+  parseNonEmptyStringArray,
   parseSourceWorkerEvent,
   resolveSourceDisplayName,
 } from './shared/sourceWorker';
@@ -15,7 +16,12 @@ type BackfillRequestedEvent = {
   userId?: string;
   requestedDays?: number;
   installedAt?: string;
+  createdSourceIds?: string[];
 };
+
+function uniqueIds(ids: string[]): string[] {
+  return Array.from(new Set(ids.filter((id) => typeof id === 'string' && id.trim().length > 0)));
+}
 
 const log = createLogger('inngest.diff_backfill', {
   label: 'Backfill Worker',
@@ -32,12 +38,14 @@ export const diffSourceBackfill = inngest.createFunction(
     id: 'diff-source-backfill',
     name: 'Canon: Source Activity Backfill',
     retries: 1,
-    concurrency: { limit: 1 },
+    concurrency: { limit: 5 },
   },
   { event: 'diff/source.backfill.requested' },
   async ({ event, step }) => {
     const data = (event.data ?? {}) as BackfillRequestedEvent;
     const { sourceId, userId, sourceNameFromEvent } = parseSourceWorkerEvent(data);
+    const createdSourceIds = parseNonEmptyStringArray(data.createdSourceIds);
+    const setupBatchSourceIds = uniqueIds(createdSourceIds.length > 0 ? createdSourceIds : [sourceId]);
     const requestedDays = typeof data.requestedDays === 'number' ? data.requestedDays : undefined;
     const installedAt = typeof data.installedAt === 'string' ? data.installedAt : null;
     const installedAtDate = installedAt ? new Date(installedAt) : null;
@@ -92,6 +100,8 @@ export const diffSourceBackfill = inngest.createFunction(
       sourceName,
       userId,
       provider: sourceRow.provider,
+      setupBatchSourceCount: setupBatchSourceIds.length,
+      setupBatchSourceIds,
       requestedDays: requestedDays ?? null,
       installedAt: hasValidInstalledAt ? installedAtDate?.toISOString() : null,
     });
@@ -111,6 +121,8 @@ export const diffSourceBackfill = inngest.createFunction(
           sourceId: sourceRow.id,
           sourceName,
           provider: sourceRow.provider,
+          setupBatchSourceCount: setupBatchSourceIds.length,
+          setupBatchSourceIds,
           requestedDays: requestedDays ?? null,
           reason: result.skipped,
           fetchedEvents: result.fetched_events,
@@ -123,6 +135,8 @@ export const diffSourceBackfill = inngest.createFunction(
         sourceId: sourceRow.id,
         sourceName,
         provider: sourceRow.provider,
+        setupBatchSourceCount: setupBatchSourceIds.length,
+        setupBatchSourceIds,
         requestedDays: requestedDays ?? null,
         fetchedEvents: result.fetched_events,
         insertedEvents: result.inserted_events,
@@ -137,6 +151,8 @@ export const diffSourceBackfill = inngest.createFunction(
         sourceName,
         userId,
         provider: sourceRow.provider,
+        setupBatchSourceCount: setupBatchSourceIds.length,
+        setupBatchSourceIds,
         error: errorMessage(error),
       });
       throw error;

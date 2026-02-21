@@ -8,6 +8,12 @@ type CanonicalEvent = {
   source_full_name?: string | null;
   metadata?: Record<string, unknown>;
 };
+type CanonicalRollupRow = {
+  event_kind: string | null;
+  occurred_at: string | null;
+  source_full_name?: string | null;
+  metadata?: Record<string, unknown> | null;
+};
 
 type DailyIncrements = {
   prs_opened: number;
@@ -150,14 +156,6 @@ const applyEventToIncrements = (inc: DailyIncrements, event: CanonicalEvent) => 
   }
 };
 
-const normalizeReposTouched = (value: unknown): string[] => {
-  if (Array.isArray(value)) {
-    return value.filter((v) => typeof v === 'string' && v.trim().length > 0) as string[];
-  }
-  if (typeof value === 'string' && value.trim().length > 0) return [value];
-  return [];
-};
-
 export async function insertRawEvent(params: {
   supabase: SupabaseClient;
   sourceId: string;
@@ -242,57 +240,98 @@ export async function upsertDailyMetrics(params: {
   const { supabase, sourceId, provider, events, pathToFeature } = params;
   if (!events.length) return;
 
-  const byDay = new Map<string, DailyIncrements>();
-  const featureAgg = new Map<string, Map<string, DailyIncrements>>(); // day -> featureKey -> increments
-
-  const incrementFeature = (day: string, featureKey: string | null, mutate: (inc: DailyIncrements) => void) => {
-    if (!featureKey) return;
-    let featureMap = featureAgg.get(day);
-    if (!featureMap) {
-      featureMap = new Map<string, DailyIncrements>();
-      featureAgg.set(day, featureMap);
-    }
-    let inc = featureMap.get(featureKey);
-    if (!inc) {
-      inc = emptyIncrements();
-      featureMap.set(featureKey, inc);
-    }
-    mutate(inc);
+  const days = Array.from(new Set(events.map((event) => toUtcDay(event.occurred_at))));
+  const dayStartIso = (day: string): string => `${day}T00:00:00.000Z`;
+  const nextDayStartIso = (day: string): string => {
+    const start = new Date(dayStartIso(day));
+    start.setUTCDate(start.getUTCDate() + 1);
+    return start.toISOString();
   };
 
-  for (const event of events) {
-    const day = toUtcDay(event.occurred_at);
-    const inc = byDay.get(day) ?? emptyIncrements();
-    applyEventToIncrements(inc, event);
-    byDay.set(day, inc);
+  for (const day of days) {
+    const rows: CanonicalRollupRow[] = [];
+    const pageSize = 1000;
+    const maxPages = 500;
+    let offset = 0;
+    let page = 0;
 
-    const paths = Array.isArray(event.metadata?.paths) ? (event.metadata.paths as string[]) : [];
-    const featureKey =
-      paths.map((p) => (pathToFeature ? pathToFeature(p) : null)).find((k) => k) || null;
-    incrementFeature(day, featureKey, (finc) => applyEventToIncrements(finc, event));
-  }
+    while (page < maxPages) {
+      const { data, error } = await supabase
+        .from('diff_event_canonical')
+        .select('event_kind, occurred_at, source_full_name, metadata')
+        .eq('source_id', sourceId)
+        .gte('occurred_at', dayStartIso(day))
+        .lt('occurred_at', nextDayStartIso(day))
+        .order('occurred_at', { ascending: true })
+        .range(offset, offset + pageSize - 1);
 
-  for (const [day, inc] of byDay.entries()) {
-    const { data: existing, error: existingError } = await supabase
-      .from('diff_daily_metrics')
-      .select(
-        'prs_opened, prs_merged, prs_closed, commits_default, tickets_moved, tickets_completed, tickets_regressed, tickets_created, sources_touched, feature_counts'
-      )
-      .eq('source_id', sourceId)
-      .eq('day', day)
-      .maybeSingle();
-    if (existingError) {
-      log.error('daily_metrics_query_failed', {
-        sourceId,
-        provider,
-        day,
-        reason: existingError.message,
-      });
-      throw new Error(`Failed to query daily metrics: ${existingError.message}`);
+      if (error) {
+        log.error('daily_metrics_query_failed', {
+          sourceId,
+          provider,
+          day,
+          reason: error.message,
+        });
+        throw new Error(`Failed to query canonical events for rollup: ${error.message}`);
+      }
+      if (!data?.length) break;
+      rows.push(...(data as CanonicalRollupRow[]));
+      if (data.length < pageSize) break;
+      page += 1;
+      offset += pageSize;
     }
 
-    const existingRepos = normalizeReposTouched(existing?.sources_touched);
-    const mergedRepos = Array.from(new Set([...existingRepos, ...inc.sources_touched]));
+    const dayInc = emptyIncrements();
+    const featureCounts: Record<
+      string,
+      {
+        prs_opened: number;
+        prs_merged: number;
+        prs_closed: number;
+        commits_default: number;
+        tickets_moved: number;
+        tickets_completed: number;
+        tickets_regressed: number;
+        tickets_created: number;
+      }
+    > = {};
+
+    for (const row of rows) {
+      const normalized: CanonicalEvent = {
+        event_kind: typeof row.event_kind === 'string' ? row.event_kind : '',
+        occurred_at: coerceIso(row.occurred_at),
+        source_full_name: typeof row.source_full_name === 'string' ? row.source_full_name : null,
+        metadata: (row.metadata as Record<string, unknown>) ?? {},
+      };
+      applyEventToIncrements(dayInc, normalized);
+
+      const paths = Array.isArray(normalized.metadata?.paths)
+        ? (normalized.metadata.paths as string[])
+        : [];
+      const featureKey = paths.map((p) => (pathToFeature ? pathToFeature(p) : null)).find((k) => k) || null;
+      if (!featureKey) continue;
+      const bucket = featureCounts[featureKey] || {
+        prs_opened: 0,
+        prs_merged: 0,
+        prs_closed: 0,
+        commits_default: 0,
+        tickets_moved: 0,
+        tickets_completed: 0,
+        tickets_regressed: 0,
+        tickets_created: 0,
+      };
+      const featureInc = emptyIncrements();
+      applyEventToIncrements(featureInc, normalized);
+      bucket.prs_opened += featureInc.prs_opened;
+      bucket.prs_merged += featureInc.prs_merged;
+      bucket.prs_closed += featureInc.prs_closed;
+      bucket.commits_default += featureInc.commits_default;
+      bucket.tickets_moved += featureInc.tickets_moved;
+      bucket.tickets_completed += featureInc.tickets_completed;
+      bucket.tickets_regressed += featureInc.tickets_regressed;
+      bucket.tickets_created += featureInc.tickets_created;
+      featureCounts[featureKey] = bucket;
+    }
 
     const { error: upsertError } = await supabase
       .from('diff_daily_metrics')
@@ -301,61 +340,21 @@ export async function upsertDailyMetrics(params: {
           source_id: sourceId,
           day,
           provider,
-          prs_opened: (existing?.prs_opened ?? 0) + inc.prs_opened,
-          prs_merged: (existing?.prs_merged ?? 0) + inc.prs_merged,
-          prs_closed: (existing?.prs_closed ?? 0) + inc.prs_closed,
-          commits_default: (existing?.commits_default ?? 0) + inc.commits_default,
-          tickets_moved: (existing?.tickets_moved ?? 0) + inc.tickets_moved,
-          tickets_completed: (existing?.tickets_completed ?? 0) + inc.tickets_completed,
-          tickets_regressed: (existing?.tickets_regressed ?? 0) + inc.tickets_regressed,
-          tickets_created: (existing?.tickets_created ?? 0) + inc.tickets_created,
-          sources_touched: mergedRepos,
-          feature_counts: (() => {
-            const featureMap = featureAgg.get(day);
-            if (!featureMap || featureMap.size === 0) return existing?.feature_counts ?? {};
-            const current = (existing?.feature_counts as Record<string, unknown>) || {};
-            const out: Record<string, { prs_opened: number; prs_merged: number; prs_closed: number; commits_default: number; tickets_moved: number; tickets_completed: number; tickets_regressed: number; tickets_created: number }> = {};
-            for (const [k, v] of Object.entries(current)) {
-              if (typeof v !== 'object' || v === null) continue;
-              const val = v as Record<string, number>;
-              out[k] = {
-                prs_opened: Number(val.prs_opened || 0),
-                prs_merged: Number(val.prs_merged || 0),
-                prs_closed: Number(val.prs_closed || 0),
-                commits_default: Number(val.commits_default || 0),
-                tickets_moved: Number(val.tickets_moved || 0),
-                tickets_completed: Number(val.tickets_completed || 0),
-                tickets_regressed: Number(val.tickets_regressed || 0),
-                tickets_created: Number(val.tickets_created || 0),
-              };
-            }
-            for (const [featureKey, finc] of featureMap.entries()) {
-              const bucket = out[featureKey] || {
-                prs_opened: 0,
-                prs_merged: 0,
-                prs_closed: 0,
-                commits_default: 0,
-                tickets_moved: 0,
-                tickets_completed: 0,
-                tickets_regressed: 0,
-                tickets_created: 0,
-              };
-              bucket.prs_opened += finc.prs_opened;
-              bucket.prs_merged += finc.prs_merged;
-              bucket.prs_closed += finc.prs_closed;
-              bucket.commits_default += finc.commits_default;
-              bucket.tickets_moved += finc.tickets_moved;
-              bucket.tickets_completed += finc.tickets_completed;
-              bucket.tickets_regressed += finc.tickets_regressed;
-              bucket.tickets_created += finc.tickets_created;
-              out[featureKey] = bucket;
-            }
-            return out;
-          })(),
+          prs_opened: dayInc.prs_opened,
+          prs_merged: dayInc.prs_merged,
+          prs_closed: dayInc.prs_closed,
+          commits_default: dayInc.commits_default,
+          tickets_moved: dayInc.tickets_moved,
+          tickets_completed: dayInc.tickets_completed,
+          tickets_regressed: dayInc.tickets_regressed,
+          tickets_created: dayInc.tickets_created,
+          sources_touched: Array.from(dayInc.sources_touched),
+          feature_counts: featureCounts,
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'source_id,day' }
       );
+
     if (upsertError) {
       log.error('daily_metrics_upsert_failed', {
         sourceId,

@@ -1,17 +1,32 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Maximize2 } from 'lucide-react';
+import { ExternalLink, Maximize2 } from 'lucide-react';
 import { DateTime } from 'luxon';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { MetricLabelTooltip } from '@/components/metric-label-tooltip';
 
 type EvidencePayload = {
-  tickets: Array<{ id: string; summary: string | null; occurred_at: string | null; url: string | null }>;
+  tickets: Array<{
+    id: string;
+    summary: string | null;
+    occurred_at: string | null;
+    kind: string | null;
+    url: string | null;
+  }>;
+  tickets_baseline: Array<{
+    id: string;
+    summary: string | null;
+    occurred_at: string | null;
+    kind: string | null;
+    url: string | null;
+  }>;
   prs: Array<{ id: string; repo: string | null; occurred_at: string | null; kind: string | null; url: string | null }>;
+  prs_baseline: Array<{ id: string; repo: string | null; occurred_at: string | null; kind: string | null; url: string | null }>;
   repos: Array<{ id: string; activity: number; baseline_activity: number }>;
   domains: Array<{ id: string; activity: number; baseline_activity: number }>;
 };
@@ -57,56 +72,376 @@ function formatTimestamp(value: string | null, timeZone: string): string {
   return parsed.toFormat('MMM d, yyyy h:mm a');
 }
 
-function EvidenceList({ panel, evidence, timeZone }: { panel: PanelId; evidence: EvidencePayload; timeZone: string }) {
-  if (panel === 'tickets') {
-    if (evidence.tickets.length === 0) return <p>{PANEL_META.tickets.empty}</p>;
-    return (
-      <>
-        {evidence.tickets.map((ticket) => (
-          <div key={`${ticket.id}-${ticket.occurred_at}`} className="rounded border border-white/10 bg-zinc-800 px-3 py-2">
+function ticketKindLabel(kind: string | null): string {
+  if (kind === 'ticket_moved') return 'Moved';
+  if (kind === 'ticket_completed') return 'Completed';
+  if (kind === 'ticket_regressed') return 'Regressed';
+  if (kind === 'ticket_created') return 'Created';
+  return 'Event';
+}
+
+function ticketActivitySummary(tickets: EvidencePayload['tickets']): Array<{ label: string; count: number }> {
+  const counts = new Map<string, number>([
+    ['Moved', 0],
+    ['Created', 0],
+    ['Completed', 0],
+    ['Regressed', 0],
+  ]);
+
+  for (const ticket of tickets) {
+    const label = ticketKindLabel(ticket.kind);
+    counts.set(label, (counts.get(label) || 0) + 1);
+  }
+
+  return Array.from(counts.entries())
+    .filter(([, count]) => count > 0)
+    .map(([label, count]) => ({ label, count }));
+}
+
+function prKindLabel(kind: string | null): string {
+  if (kind === 'pr_opened') return 'Opened';
+  if (kind === 'pr_merged') return 'Merged';
+  if (kind === 'pr_closed') return 'Closed';
+  return 'Event';
+}
+
+function prActivitySummary(prs: EvidencePayload['prs']): Array<{ label: string; count: number }> {
+  const counts = new Map<string, number>([
+    ['Opened', 0],
+    ['Merged', 0],
+    ['Closed', 0],
+  ]);
+
+  for (const pr of prs) {
+    const label = prKindLabel(pr.kind);
+    counts.set(label, (counts.get(label) || 0) + 1);
+  }
+
+  return Array.from(counts.entries())
+    .filter(([, count]) => count > 0)
+    .map(([label, count]) => ({ label, count }));
+}
+
+function TicketEvidenceList({
+  tickets,
+  timeZone,
+  selectedLabels,
+  onToggleLabel,
+  onClearFilters,
+}: {
+  tickets: EvidencePayload['tickets'];
+  timeZone: string;
+  selectedLabels: string[];
+  onToggleLabel: (label: string) => void;
+  onClearFilters: () => void;
+}) {
+  if (tickets.length === 0) return <p className="text-white/70">No ticket evidence in this window.</p>;
+  const summary = ticketActivitySummary(tickets);
+  const filteredTickets =
+    selectedLabels.length === 0
+      ? tickets
+      : tickets.filter((ticket) => selectedLabels.includes(ticketKindLabel(ticket.kind)));
+  return (
+    <>
+      {summary.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5 pb-1">
+          {summary.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              onClick={() => onToggleLabel(item.label)}
+              className={`rounded border px-2 py-0.5 text-[11px] uppercase tracking-[0.06em] transition ${
+                selectedLabels.includes(item.label)
+                  ? 'border-white/45 bg-white !text-black'
+                  : 'border-white/15 bg-white/5 text-white/75 hover:border-white/30 hover:bg-white/10'
+              }`}
+            >
+              {item.label}: {item.count}
+            </button>
+          ))}
+          {selectedLabels.length > 0 ? (
+            <button
+              type="button"
+              onClick={onClearFilters}
+              className="rounded border border-white/20 bg-transparent px-2 py-0.5 text-[11px] uppercase tracking-[0.06em] text-white/70 hover:border-white/35 hover:text-white"
+            >
+              Clear
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {filteredTickets.length === 0 ? (
+        <p className="text-white/70">No ticket events match the selected filters.</p>
+      ) : null}
+      {filteredTickets.map((ticket) => (
+        <div key={`${ticket.id}-${ticket.occurred_at}-${ticket.kind}`} className="rounded border border-white/10 bg-zinc-800 px-3 py-2">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 space-y-0.5">
+              {ticket.url ? (
+                <a
+                  href={ticket.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium text-white underline decoration-white/35 underline-offset-2 hover:text-white"
+                >
+                  {ticket.summary || 'Untitled Ticket'}
+                </a>
+              ) : (
+                <div className="font-medium text-white">{ticket.summary || 'Untitled Ticket'}</div>
+              )}
+              <div className="text-sm text-white/65">
+                {ticket.id} · {ticketKindLabel(ticket.kind)}
+              </div>
+            </div>
             {ticket.url ? (
               <a
                 href={ticket.url}
                 target="_blank"
                 rel="noreferrer"
-                className="font-medium text-white underline decoration-white/35 underline-offset-2 hover:text-white"
+                aria-label={`Open ${ticket.id} in source`}
+                title="Open in source"
+                className="mt-0.5 rounded border border-white/15 p-1.5 text-white/70 transition hover:border-white/30 hover:bg-white/10 hover:text-white"
               >
-                {ticket.summary || 'Untitled Ticket'}
+                <ExternalLink className="h-3.5 w-3.5" />
               </a>
-            ) : (
-              <div className="font-medium text-white">{ticket.summary || 'Untitled Ticket'}</div>
-            )}
-            <div className="text-sm text-white/65">{ticket.id}</div>
-            <div className="text-xs text-white/55">{formatTimestamp(ticket.occurred_at, timeZone)}</div>
+            ) : null}
           </div>
-        ))}
-      </>
-    );
-  }
+          <div className="text-xs text-white/55">{formatTimestamp(ticket.occurred_at, timeZone)}</div>
+        </div>
+      ))}
+    </>
+  );
+}
 
-  if (panel === 'prs') {
-    if (evidence.prs.length === 0) return <p>{PANEL_META.prs.empty}</p>;
-    return (
-      <>
-        {evidence.prs.map((pr) => (
-          <div key={`${pr.id}-${pr.occurred_at}-${pr.kind}`} className="rounded border border-white/10 bg-zinc-800 px-3 py-2">
+function PullRequestEvidenceList({
+  prs,
+  timeZone,
+  selectedLabels,
+  onToggleLabel,
+  onClearFilters,
+}: {
+  prs: EvidencePayload['prs'];
+  timeZone: string;
+  selectedLabels: string[];
+  onToggleLabel: (label: string) => void;
+  onClearFilters: () => void;
+}) {
+  if (prs.length === 0) return <p className="text-white/70">No pull request evidence in this window.</p>;
+  const summary = prActivitySummary(prs);
+  const filteredPrs =
+    selectedLabels.length === 0
+      ? prs
+      : prs.filter((pr) => selectedLabels.includes(prKindLabel(pr.kind)));
+  return (
+    <>
+      {summary.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5 pb-1">
+          {summary.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              onClick={() => onToggleLabel(item.label)}
+              className={`rounded border px-2 py-0.5 text-[11px] uppercase tracking-[0.06em] transition ${
+                selectedLabels.includes(item.label)
+                  ? 'border-white/45 bg-white !text-black'
+                  : 'border-white/15 bg-white/5 text-white/75 hover:border-white/30 hover:bg-white/10'
+              }`}
+            >
+              {item.label}: {item.count}
+            </button>
+          ))}
+          {selectedLabels.length > 0 ? (
+            <button
+              type="button"
+              onClick={onClearFilters}
+              className="rounded border border-white/20 bg-transparent px-2 py-0.5 text-[11px] uppercase tracking-[0.06em] text-white/70 hover:border-white/35 hover:text-white"
+            >
+              Clear
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {filteredPrs.length === 0 ? (
+        <p className="text-white/70">No pull request events match the selected filters.</p>
+      ) : null}
+      {filteredPrs.map((pr) => (
+        <div key={`${pr.id}-${pr.occurred_at}-${pr.kind}`} className="rounded border border-white/10 bg-zinc-800 px-3 py-2">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 space-y-0.5">
+              {pr.url ? (
+                <a
+                  href={pr.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium text-white underline decoration-white/35 underline-offset-2 hover:text-white"
+                >
+                  PR {pr.id}
+                </a>
+              ) : (
+                <div className="font-medium text-white">PR {pr.id}</div>
+              )}
+              <div className="text-white/70">{pr.repo || 'Unknown repo'} · {prKindLabel(pr.kind)}</div>
+            </div>
             {pr.url ? (
               <a
                 href={pr.url}
                 target="_blank"
                 rel="noreferrer"
-                className="font-medium text-white underline decoration-white/35 underline-offset-2 hover:text-white"
+                aria-label={`Open PR ${pr.id} in source`}
+                title="Open in source"
+                className="mt-0.5 rounded border border-white/15 p-1.5 text-white/70 transition hover:border-white/30 hover:bg-white/10 hover:text-white"
               >
-                PR {pr.id}
+                <ExternalLink className="h-3.5 w-3.5" />
               </a>
-            ) : (
-              <div className="font-medium text-white">PR {pr.id}</div>
-            )}
-            <div className="text-white/70">{pr.repo || 'Unknown repo'} · {pr.kind || 'event'}</div>
-            <div className="text-xs text-white/55">{formatTimestamp(pr.occurred_at, timeZone)}</div>
+            ) : null}
           </div>
-        ))}
-      </>
+          <div className="text-xs text-white/55">{formatTimestamp(pr.occurred_at, timeZone)}</div>
+        </div>
+      ))}
+    </>
+  );
+}
+
+function TicketEvidenceTabs({
+  currentTickets,
+  baselineTickets,
+  timeZone,
+}: {
+  currentTickets: EvidencePayload['tickets'];
+  baselineTickets: EvidencePayload['tickets'];
+  timeZone: string;
+}) {
+  const [activeTab, setActiveTab] = useState<'current' | 'baseline'>('current');
+  const [selectedLabelsByTab, setSelectedLabelsByTab] = useState<{ current: string[]; baseline: string[] }>({
+    current: [],
+    baseline: [],
+  });
+
+  const toggleLabel = (label: string): void => {
+    setSelectedLabelsByTab((prev) => {
+      const currentLabels = prev[activeTab];
+      const nextLabels = currentLabels.includes(label)
+        ? currentLabels.filter((item) => item !== label)
+        : [...currentLabels, label];
+      return { ...prev, [activeTab]: nextLabels };
+    });
+  };
+
+  const clearFilters = (): void => {
+    setSelectedLabelsByTab((prev) => ({ ...prev, [activeTab]: [] }));
+  };
+
+  return (
+    <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'current' | 'baseline')} className="space-y-2">
+      <TabsList className="border border-white/10 bg-zinc-800">
+        <TabsTrigger value="current" className="data-[state=active]:!bg-white">
+          Current Window ({currentTickets.length})
+        </TabsTrigger>
+        <TabsTrigger value="baseline" className="data-[state=active]:!bg-white">
+          Baseline Window ({baselineTickets.length})
+        </TabsTrigger>
+      </TabsList>
+      <TabsContent value="current" className="mt-0 space-y-2">
+        <TicketEvidenceList
+          tickets={currentTickets}
+          timeZone={timeZone}
+          selectedLabels={selectedLabelsByTab.current}
+          onToggleLabel={toggleLabel}
+          onClearFilters={clearFilters}
+        />
+      </TabsContent>
+      <TabsContent value="baseline" className="mt-0 space-y-2">
+        <TicketEvidenceList
+          tickets={baselineTickets}
+          timeZone={timeZone}
+          selectedLabels={selectedLabelsByTab.baseline}
+          onToggleLabel={toggleLabel}
+          onClearFilters={clearFilters}
+        />
+      </TabsContent>
+    </Tabs>
+  );
+}
+
+function PullRequestEvidenceTabs({
+  currentPrs,
+  baselinePrs,
+  timeZone,
+}: {
+  currentPrs: EvidencePayload['prs'];
+  baselinePrs: EvidencePayload['prs'];
+  timeZone: string;
+}) {
+  const [activeTab, setActiveTab] = useState<'current' | 'baseline'>('current');
+  const [selectedLabelsByTab, setSelectedLabelsByTab] = useState<{ current: string[]; baseline: string[] }>({
+    current: [],
+    baseline: [],
+  });
+
+  const toggleLabel = (label: string): void => {
+    setSelectedLabelsByTab((prev) => {
+      const currentLabels = prev[activeTab];
+      const nextLabels = currentLabels.includes(label)
+        ? currentLabels.filter((item) => item !== label)
+        : [...currentLabels, label];
+      return { ...prev, [activeTab]: nextLabels };
+    });
+  };
+
+  const clearFilters = (): void => {
+    setSelectedLabelsByTab((prev) => ({ ...prev, [activeTab]: [] }));
+  };
+
+  return (
+    <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'current' | 'baseline')} className="space-y-2">
+      <TabsList className="border border-white/10 bg-zinc-800">
+        <TabsTrigger value="current" className="data-[state=active]:!bg-white">
+          Current Window ({currentPrs.length})
+        </TabsTrigger>
+        <TabsTrigger value="baseline" className="data-[state=active]:!bg-white">
+          Baseline Window ({baselinePrs.length})
+        </TabsTrigger>
+      </TabsList>
+      <TabsContent value="current" className="mt-0 space-y-2">
+        <PullRequestEvidenceList
+          prs={currentPrs}
+          timeZone={timeZone}
+          selectedLabels={selectedLabelsByTab.current}
+          onToggleLabel={toggleLabel}
+          onClearFilters={clearFilters}
+        />
+      </TabsContent>
+      <TabsContent value="baseline" className="mt-0 space-y-2">
+        <PullRequestEvidenceList
+          prs={baselinePrs}
+          timeZone={timeZone}
+          selectedLabels={selectedLabelsByTab.baseline}
+          onToggleLabel={toggleLabel}
+          onClearFilters={clearFilters}
+        />
+      </TabsContent>
+    </Tabs>
+  );
+}
+
+function EvidenceList({ panel, evidence, timeZone }: { panel: PanelId; evidence: EvidencePayload; timeZone: string }) {
+  if (panel === 'tickets') {
+    return (
+      <TicketEvidenceTabs
+        currentTickets={evidence.tickets}
+        baselineTickets={evidence.tickets_baseline}
+        timeZone={timeZone}
+      />
+    );
+  }
+
+  if (panel === 'prs') {
+    return (
+      <PullRequestEvidenceTabs
+        currentPrs={evidence.prs}
+        baselinePrs={evidence.prs_baseline}
+        timeZone={timeZone}
+      />
     );
   }
 

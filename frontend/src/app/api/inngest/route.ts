@@ -5,6 +5,7 @@ import {
   ingestJiraWebhook,
   sourceIngestRequested,
   dailySignalAlerts,
+  setupBatchFinalizeRequested,
 } from "../../../inngest";
 
 export const runtime = 'nodejs';
@@ -17,6 +18,7 @@ export const { GET, POST, PUT } = serve({
     dailySignalAlerts,
     diffSourceBackfill,
     ingestJiraWebhook,
+    setupBatchFinalizeRequested,
     sourceIngestRequested,
   ],
 });

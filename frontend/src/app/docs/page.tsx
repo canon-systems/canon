@@ -1,64 +1,120 @@
-import { BookOpen, Play, Clock } from 'lucide-react';
+import { BookOpen, CheckCircle2 } from 'lucide-react';
+import Link from 'next/link';
 
-interface VideoTutorial {
+interface GuideSection {
   id: string;
   title: string;
   description: string;
-  duration: string;
-  loomUrl: string;
-  embedUrl: string;
+  whereToGo: string;
+  links: Array<{ label: string; href: string }>;
   steps: string[];
+  beforeYouMoveOn: string;
 }
 
-const tutorials: VideoTutorial[] = [
-  {
-    id: 'github-connection',
-    title: 'Connect to Code Repository Provider',
-    description: 'Learn how to connect your repository provider account to Canon to enable repository access and automated documentation generation.',
-    duration: '2 min',
-    loomUrl: 'https://www.loom.com/share/d4e9e616b6c8418f8017992ddab28fed',
-    embedUrl: 'https://www.loom.com/embed/d4e9e616b6c8418f8017992ddab28fed',
-    steps: [
-      'Navigate to the Settings page',
-      'Select the "Integrations" tab',
-      'Find the repository connection and select "Connect"',
-      'Follow the prompts to authorize Canon to access your repository provider account',
-      'Once redirected back to Canon, you can start setting up your repository',
-    ]
-  },
-  {
-    id: 'repository-setup',
-    title: 'Set Up Your Repository',
-    description: 'Configure a specific repository for documentation generation after connecting your repository provider account.',
-    duration: '2-20 min (depending on the size of the repository)',
-    loomUrl: 'https://www.loom.com/share/3387f2b3cee048b589a5b6bcb43f2f07',
-    embedUrl: 'https://www.loom.com/embed/3387f2b3cee048b589a5b6bcb43f2f07',
-    steps: [
-      'Navigate to the "Connect Repo" page',
-      'Click the "Connect Your First Repository" button. If not already connected, you will be prompted to connect to your repository provider.',
-      'Enter the name of your repository ("canon", "first-app", etc.) and click the search button',
-      'Choose the repository you want to set up and then click the "Continue" button',
-      'Choose the branch and then click the "Connect Repository" button',
-      'Once redirected to the repository setup page, click the "Start Repository Setup" button',
-      'Once your repository is set up, you will be redirected to the connect repository page',
-    ]
-  },
-  {
-    id: 'generate-docs',
-    title: 'Generate Your First Documentation',
-    description: 'Create your first automated documentation after connecting to your repository provider and setting up your repository.',
-    duration: '5-10 min',
-    loomUrl: 'https://www.loom.com/share/99afa1b02056477083fca0c4ee4b02df',
-    embedUrl: 'https://www.loom.com/embed/99afa1b02056477083fca0c4ee4b02df',
-    steps: [
-      'Navigate to the "Generate Docs" page',
-      'Select the repository scope, document title, and LLM you would like to use',
-      'Select the repository, branch, and directory (if applicable), and the files that you want to generate documentation for (Note: Only repositories that are setup will be available)',
-      'Configure the documentation personality and structure. Be sure to be very detailed to achieve the best results',
-      'Click the "Analyze & Save" button to start the process',
-      'Once the process is complete, you will be redirected to the edit documentation page',
-    ]
+type RenderedStep = {
+  isSubstep: boolean;
+  label: string;
+  text: string;
+};
+
+function buildRenderedSteps(steps: string[]): RenderedStep[] {
+  const rendered: RenderedStep[] = [];
+  let topLevelNumber = 0;
+
+  for (const rawStep of steps) {
+    const substepMatch = rawStep.match(/^(\d+[a-z])\.\s*(.+)$/i);
+    if (substepMatch) {
+      rendered.push({
+        isSubstep: true,
+        label: substepMatch[1].toLowerCase(),
+        text: substepMatch[2],
+      });
+      continue;
+    }
+
+    topLevelNumber += 1;
+    rendered.push({
+      isSubstep: false,
+      label: String(topLevelNumber),
+      text: rawStep,
+    });
   }
+
+  return rendered;
+}
+
+const guideSections: GuideSection[] = [
+  {
+    id: 'integrate-and-configure',
+    title: 'Connect Integrations and Configure Preferences',
+    description: 'Set up your integrations and Slack delivery preferences before you add sources.',
+    whereToGo: 'Settings -> Integrations and Preferences',
+    links: [
+      { label: 'Go to Integrations', href: '/settings?tab=integrations' },
+      { label: 'Go to Preferences', href: '/settings?tab=preferences' },
+    ],
+    steps: [
+      'Open Settings and select the Integrations tab.',
+      'Connect the source integrations you want Canon to use.',
+      '2a. GitHub connection: provides repository activity such as commits and pull request signals.',
+      '2b. Jira connection: provides issue workflow activity such as created, moved, completed, and regressed work.',
+      '2c. Slack connection: enables Canon to deliver alert messages to your Slack workspace.',
+      'Complete each provider authorization flow, then return to Canon.',
+      'Confirm each integration shows as Connected before continuing.',
+      'Switch to the Preferences tab.',
+      'Choose the Slack delivery preference and enter the Slack Channel ID.',
+      'Set your Time Zone (the local timezone Canon uses for date windows and alert timing).',
+      'Set Signal Lookback Days (how many recent full days Canon includes when evaluating signal trends).',
+      'Click Save Preferences.',
+    ],
+    beforeYouMoveOn: 'Integrations are connected, Slack delivery is configured, and preferences are saved before source setup.',
+  },
+  {
+    id: 'setup-and-classify',
+    title: 'Set Up Sources and Classify Domains',
+    description: 'Add the specific sources you want to monitor and assign each one to a product domain. Domains are labels that group related work so Canon can organize trends and signals by product area.',
+    whereToGo: 'Sources',
+    links: [{ label: 'Go to Sources', href: '/sources' }],
+    steps: [
+      'Open the Sources page and click Add Source.',
+      'Pick the repos or projects you want to ingest, then add them.',
+      'Wait until each source reaches Ready status.',
+      'For each ready source, set a Domain value (preset or custom). Use the same domain for sources that belong to the same product area.',
+      '4a. Domains are the labels that map sources to product areas or teams so Canon can organize trends.',
+      '4b. Signals inherit domain tags so the History and Signals pages can surface activity in the right context.',
+    ],
+    beforeYouMoveOn: 'Your key sources are Ready and assigned to clear domains that match how your team thinks about product areas.',
+  },
+  {
+    id: 'use-history',
+    title: 'Use the History Page',
+    description: 'Compare recent activity against a baseline window to understand trend shifts across connected sources.',
+    whereToGo: 'History',
+    links: [{ label: 'Go to History', href: '/history' }],
+    steps: [
+      'Open History and click Select Primary Range.',
+      'Pick the date range you want to analyze and confirm it.',
+      'Review the Inside summary for a quick narrative of what changed.',
+      'Use the metric cards to compare Current vs Baseline values.',
+      'Open Detailed View and switch between Jira or GitHub tabs for event-level drill-down.',
+    ],
+    beforeYouMoveOn: 'You can explain what changed in your selected period and which source drove it.',
+  },
+  {
+    id: 'use-signals',
+    title: 'Use the Signals Page',
+    description: 'Monitor the highest-priority deviations and investigate individual signals quickly.',
+    whereToGo: 'Signals',
+    links: [{ label: 'Go to Signals', href: '/signals' }],
+    steps: [
+      'Open Signals to see the latest signal feed for your workspace.',
+      'Use Date Range to focus on a specific time window.',
+      'Filter by Severity and Metric to narrow the list.',
+      'Open any signal card (or click Investigate) to view full details.',
+      'Use this page daily to spot meaningful movement and escalate where needed.',
+    ],
+    beforeYouMoveOn: 'You can filter signals confidently and open details for fast investigation.',
+  },
 ];
 
 export default function DocumentationPage() {
@@ -72,80 +128,92 @@ export default function DocumentationPage() {
             </div>
           </div>
 
-          <h1 className="mb-4 text-4xl font-bold text-white">Video Tutorials</h1>
-          <p className="text-xl text-white/80">Master Canon with our comprehensive video guides and step-by-step instructions.</p>
+          <h1 className="mb-4 text-4xl font-bold text-white">How to Use Canon</h1>
+          <p className="text-xl text-white/80">
+            Follow this flow to connect your tools, configure Canon, and start monitoring changes with confidence.
+          </p>
+        </div>
+
+        <div className="mb-8 rounded-2xl border border-white/20 bg-white/10 p-5 backdrop-blur-md">
+          <p className="text-sm text-white/85">
+            Videos are coming soon. For now, this guide gives you the full step-by-step flow in plain language.
+          </p>
         </div>
 
         <div className="space-y-8">
-          {tutorials.map((tutorial, index) => (
-            <div key={tutorial.id} className="rounded-2xl border border-white/20 bg-white/10 backdrop-blur-md overflow-hidden">
-              <div className="border-b border-white/10 px-6 py-6">
+          {guideSections.map((section, index) => (
+            <div key={section.id} className="rounded-2xl border border-white/20 bg-white/10 backdrop-blur-md">
+              <div className="px-6 py-6">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-r from-gray-500 to-gray-600 text-white font-semibold text-sm">
+                    <div className="mb-2 flex items-center gap-3">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-r from-gray-500 to-gray-600 text-sm font-semibold text-white">
                         {index + 1}
                       </div>
-                      <h2 className="text-2xl font-bold text-white">{tutorial.title}</h2>
+                      <h2 className="text-2xl font-bold text-white">{section.title}</h2>
                     </div>
-                    <div className="flex items-center gap-4 mb-4">
-                      <div className="flex items-center gap-2 text-white/60">
-                        <Clock className="h-4 w-4" />
-                        <span className="text-sm">{tutorial.duration}</span>
+
+                    <div className="mb-4">
+                      <p className="text-xs uppercase tracking-[0.2em] text-white/60">Where to go</p>
+                      <p className="text-sm text-white/85">{section.whereToGo}</p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {section.links.map((link) => (
+                          <Link
+                            key={`${section.id}-${link.href}`}
+                            href={link.href}
+                            className="inline-flex items-center rounded-md border border-white/20 bg-white/5 px-3 py-1.5 text-xs font-medium text-white/90 transition-colors hover:bg-white/15"
+                          >
+                            {link.label}
+                          </Link>
+                        ))}
                       </div>
-                      <a
-                        href={tutorial.loomUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors text-sm"
-                      >
-                        <Play className="h-4 w-4" />
-                        Watch on Loom
-                      </a>
                     </div>
-                    <p className="text-white/80 leading-relaxed mb-6">{tutorial.description}</p>
+
+                    <p className="mb-6 leading-relaxed text-white/80">{section.description}</p>
 
                     <div className="border-t border-white/10 pt-6">
-                      <h3 className="text-lg font-semibold text-white mb-4">Step-by-Step Instructions</h3>
+                      <h3 className="mb-4 text-lg font-semibold text-white">Steps</h3>
                       <ol className="space-y-2">
-                        {tutorial.steps.map((step, stepIndex) => (
-                          <li key={stepIndex} className="flex items-start gap-3 text-white/80">
-                            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gray-600 text-white text-xs font-medium flex-shrink-0 mt-0.5">
-                              {stepIndex + 1}
+                        {buildRenderedSteps(section.steps).map((step, stepIndex) => (
+                          <li
+                            key={stepIndex}
+                            className={`flex items-start gap-3 text-white/80 ${step.isSubstep ? 'ml-9' : ''}`}
+                          >
+                            <span
+                              className={`mt-0.5 flex flex-shrink-0 items-center justify-center text-xs font-medium text-white ${step.isSubstep
+                                ? 'h-6 min-w-[2.25rem] rounded-md border border-white/20 bg-white/5 px-2'
+                                : 'h-6 w-6 rounded-full bg-gray-600'
+                                }`}
+                            >
+                              {step.label}
                             </span>
-                            <span className="leading-relaxed">{step}</span>
+                            <span className="leading-relaxed">{step.text}</span>
                           </li>
                         ))}
                       </ol>
                     </div>
-                  </div>
-                </div>
-              </div>
 
-              <div className="p-6">
-                <div className="aspect-video w-full">
-                  <iframe
-                    src={tutorial.embedUrl}
-                    frameBorder="0"
-                    allowFullScreen
-                    className="w-full h-full rounded-lg"
-                    title={tutorial.title}
-                  />
+                    <div className="mt-6 rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-4">
+                      <div className="flex items-center gap-2 text-emerald-200">
+                        <CheckCircle2 className="h-4 w-4" />
+                        <p className="text-sm font-medium">Before you move on</p>
+                      </div>
+                      <p className="mt-2 text-sm text-emerald-100/90">{section.beforeYouMoveOn}</p>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
           ))}
         </div>
 
-        <div className="mt-16 rounded-2xl border border-white/20 bg-white/10 backdrop-blur-md p-6">
+        <div className="mt-16 rounded-2xl border border-white/20 bg-white/10 p-6 backdrop-blur-md">
           <div className="text-center">
-            <h3 className="text-xl font-semibold text-white mb-4">Need More Help?</h3>
-            <p className="text-white/80 mb-6">
-              Can&apos;t find what you&apos;re looking for? Our support team is here to help.
-            </p>
+            <h3 className="mb-4 text-xl font-semibold text-white">Need More Help?</h3>
+            <p className="mb-6 text-white/80">If you get stuck, contact support and include your workspace and source details.</p>
             <a
-              href="mailto:sellers.e.john@gmail.com"
-              className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-gray-500 to-gray-600 text-white rounded-lg hover:from-gray-600 hover:to-gray-700 transition-all font-medium"
+              href="mailto:john@usecanon.com"
+              className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-gray-500 to-gray-600 px-6 py-3 font-medium text-white transition-all hover:from-gray-600 hover:to-gray-700"
             >
               Contact Support
             </a>

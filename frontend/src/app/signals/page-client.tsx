@@ -19,7 +19,6 @@ type SignalCard = {
   summary_line: string;
   severity: 'elevated' | 'significant';
   scope: { type: 'global' | 'repo' | 'ticketing'; id: string | null };
-  primary_source_id?: string | null;
   scope_label_override?: string | null;
   metric_key: string;
   current_value: number;
@@ -28,6 +27,16 @@ type SignalCard = {
   window_start: string;
   window_end: string;
 };
+
+const SIGNAL_METRIC_OPTIONS = [
+  'regression_rate',
+  'tickets_completed',
+  'prs_merged',
+  'repo_distribution',
+  'domain_distribution',
+] as const;
+
+type SignalMetricOption = (typeof SIGNAL_METRIC_OPTIONS)[number];
 
 function severityLabel(severity: SignalCard['severity']): string {
   return severity === 'significant' ? 'Significant' : 'Elevated';
@@ -60,6 +69,17 @@ function formatSignedPercent(value: number): string {
     maximumFractionDigits: digits,
   });
   return `${value > 0 ? '+' : ''}${formatted}%`;
+}
+
+function formatSignedPoints(value: number): string {
+  if (!Number.isFinite(value)) return '0 pts';
+  const abs = Math.abs(value);
+  const digits = abs >= 100 ? 0 : abs >= 10 ? 1 : 2;
+  const formatted = value.toLocaleString('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: digits,
+  });
+  return `${value > 0 ? '+' : ''}${formatted} pts`;
 }
 
 function formatCount(value: number): string {
@@ -119,7 +139,7 @@ function renderMetricSummary(signal: SignalCard): string {
   const deltaValue = isPercentMetric(signal.metric_key)
     ? normalizePercent(signal.current_value) - normalizePercent(signal.baseline_value)
     : relativePercentChange(signal.current_value, signal.baseline_value);
-  const delta = formatSignedPercent(deltaValue);
+  const delta = isPercentMetric(signal.metric_key) ? formatSignedPoints(deltaValue) : formatSignedPercent(deltaValue);
   return `${label}: ${current} vs ${baseline} baseline (${delta})`;
 }
 
@@ -141,12 +161,14 @@ export default function SignalsPageClient({
   selectedStartDate,
   selectedEndDate,
   selectedSeverity,
+  selectedMetric,
   timeZone,
 }: {
   signals: SignalCard[];
   selectedStartDate: string | null;
   selectedEndDate: string | null;
   selectedSeverity: 'all' | 'elevated' | 'significant';
+  selectedMetric: 'all' | SignalMetricOption;
   timeZone: string;
 }) {
   const router = useRouter();
@@ -168,6 +190,7 @@ export default function SignalsPageClient({
     const params = new URLSearchParams(searchParams.toString());
     if (!value || value === 'all') params.delete(key);
     else params.set(key, value);
+    if (key === 'metric') params.delete('metrc');
     router.push(`/signals?${params.toString()}`);
   };
 
@@ -220,6 +243,9 @@ export default function SignalsPageClient({
           <h1 className="text-2xl font-semibold text-white">Signals</h1>
           <p className="text-sm text-white/70">
             {windowLabel} · Time zone: {timeZone}
+          </p>
+          <p className="text-xs text-white/60">
+            Total: {signals.length.toLocaleString('en-US')} signal{signals.length === 1 ? '' : 's'}
           </p>
         </div>
       </div>
@@ -287,6 +313,25 @@ export default function SignalsPageClient({
               </SelectContent>
             </Select>
           </div>
+          <div className="flex flex-col gap-2">
+            <label className="text-xs uppercase tracking-[0.2em] text-white/60">Metric</label>
+            <Select
+              value={selectedMetric}
+              onValueChange={(value) => setParam('metric', value === 'all' ? null : value)}
+            >
+              <SelectTrigger className="w-auto min-w-[11rem] border-white/20 bg-black/60">
+                <SelectValue placeholder="Metric" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All</SelectItem>
+                {SIGNAL_METRIC_OPTIONS.map((metricKey) => (
+                  <SelectItem key={metricKey} value={metricKey}>
+                    {metricLabel(metricKey)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </CardContent>
       </Card>
 
@@ -298,7 +343,7 @@ export default function SignalsPageClient({
         </Card>
       ) : (
         <div className="grid gap-4">
-          {signals.slice(0, 7).map((signal) => (
+          {signals.map((signal) => (
             <Card
               key={signal.id}
               className="cursor-pointer border-white/10 bg-zinc-800 transition hover:border-white/30 hover:bg-zinc-700"

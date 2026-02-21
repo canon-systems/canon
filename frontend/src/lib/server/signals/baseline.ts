@@ -1,12 +1,27 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { ComputeMetricsInput, MetricComparison, MetricDelta, MetricSnapshot, MetricWindow } from '@/lib/server/signals/types';
+import type {
+  ComputeMetricsInput,
+  MetricComparison,
+  MetricDelta,
+  MetricSnapshot,
+  MetricWindow,
+  RobustBaselineStat,
+  RobustSignalBaseline,
+} from '@/lib/server/signals/types';
 import { computeMetrics } from '@/lib/server/signals/metrics';
 import { computeBaselineWindowForTimeZone, DEFAULT_SIGNAL_TIME_ZONE } from '@/lib/server/signals/window';
 
+const ROBUST_Z_SCALE = 1.4826;
+const DEFAULT_ROBUST_HISTORY_WINDOWS = 8;
+
 function asDelta(metricKey: string, current: number, baseline: number): MetricDelta {
   const absoluteChange = current - baseline;
-  const denominator = Math.max(Math.abs(baseline), 1);
-  const percentChange = (absoluteChange / denominator) * 100;
+  let percentChange = 0;
+  if (baseline === 0) {
+    percentChange = current === 0 ? 0 : current > 0 ? 100 : -100;
+  } else {
+    percentChange = (absoluteChange / Math.abs(baseline)) * 100;
+  }
 
   return {
     metric_key: metricKey,
@@ -81,5 +96,120 @@ export async function computeAndCompareMetrics(
     current: pair.current,
     baseline: pair.baseline,
     comparison: compareMetrics(pair.current, pair.baseline),
+  };
+}
+
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 0) {
+    return (sorted[mid - 1] + sorted[mid]) / 2;
+  }
+  return sorted[mid];
+}
+
+function toRobustStat(values: number[], sigmaFloor: number): RobustBaselineStat {
+  if (values.length === 0) {
+    return {
+      median: 0,
+      mad: 0,
+      sigma: Math.max(0.0001, sigmaFloor),
+      sample_size: 0,
+    };
+  }
+  const center = median(values);
+  const absDeviations = values.map((value) => Math.abs(value - center));
+  const mad = median(absDeviations);
+  const sigma = Math.max(mad * ROBUST_Z_SCALE, sigmaFloor, 0.0001);
+  return {
+    median: center,
+    mad,
+    sigma,
+    sample_size: values.length,
+  };
+}
+
+function topShare(distribution: Record<string, number>): number {
+  let max = 0;
+  for (const value of Object.values(distribution || {})) {
+    if (value > max) max = value;
+  }
+  return max;
+}
+
+function buildHistoricalWindows(params: {
+  currentWindow: MetricWindow;
+  timeZone: string;
+  count: number;
+}): MetricWindow[] {
+  const windows: MetricWindow[] = [];
+  let cursor = params.currentWindow;
+  for (let i = 0; i < params.count; i += 1) {
+    const previous = computeBaselineWindowForTimeZone(cursor, params.timeZone);
+    windows.push(previous);
+    cursor = previous;
+  }
+  return windows;
+}
+
+export async function computeRobustSignalBaseline(params: {
+  supabase: SupabaseClient;
+  userId: string;
+  sourceIds: string[];
+  currentWindow: MetricWindow;
+  timeZone?: string;
+  historyWindowCount?: number;
+}): Promise<RobustSignalBaseline> {
+  const {
+    supabase,
+    userId,
+    sourceIds,
+    currentWindow,
+    timeZone,
+    historyWindowCount = DEFAULT_ROBUST_HISTORY_WINDOWS,
+  } = params;
+  const normalizedTimeZone = timeZone || DEFAULT_SIGNAL_TIME_ZONE;
+  const count = Math.max(1, Math.floor(historyWindowCount));
+  const historyWindows = buildHistoricalWindows({
+    currentWindow,
+    timeZone: normalizedTimeZone,
+    count,
+  });
+
+  const snapshots = await Promise.all(
+    historyWindows.map((window) =>
+      computeMetrics({
+        supabase,
+        userId,
+        sourceIds,
+        window,
+      })
+    )
+  );
+
+  const ticketsCompletedSeries = snapshots.map((snapshot) => snapshot.tickets_completed);
+  const ticketsRegressedSeries = snapshots.map((snapshot) => snapshot.tickets_regressed);
+  const regressionRateSeries = snapshots.map((snapshot) => snapshot.regression_rate);
+  const prsMergedSeries = snapshots.map((snapshot) => snapshot.prs_merged);
+  const repoTopShareSeries = snapshots.map((snapshot) => topShare(snapshot.repo_distribution));
+  const domainTopShareSeries = snapshots.map((snapshot) => topShare(snapshot.domain_distribution));
+
+  const baselineWindow = {
+    start: historyWindows[historyWindows.length - 1]?.start || currentWindow.start,
+    end: historyWindows[0]?.end || currentWindow.end,
+  };
+
+  return {
+    window_baseline: baselineWindow,
+    history_windows: historyWindows,
+    metrics: {
+      tickets_completed: toRobustStat(ticketsCompletedSeries, 1),
+      tickets_regressed: toRobustStat(ticketsRegressedSeries, 1),
+      regression_rate: toRobustStat(regressionRateSeries, 0.02),
+      prs_merged: toRobustStat(prsMergedSeries, 1),
+    },
+    repo_top_share: toRobustStat(repoTopShareSeries, 0.02),
+    domain_top_share: toRobustStat(domainTopShareSeries, 0.02),
   };
 }

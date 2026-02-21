@@ -1,28 +1,43 @@
-import type { MetricComparison, SignalEvidenceRecord, SignalRecord, SignalSeverity, SignalType } from '@/lib/server/signals/types';
+import type {
+  MetricComparison,
+  MetricWindow,
+  RobustBaselineStat,
+  RobustSignalBaseline,
+  SignalEvidenceRecord,
+  SignalRecord,
+  SignalSeverity,
+  SignalType,
+} from '@/lib/server/signals/types';
 
 type SignalDraft = Omit<SignalRecord, 'id'>;
+const MIN_ROBUST_SAMPLES = 4;
+const ELEVATED_Z_SCORE = 2.5;
+const SIGNIFICANT_Z_SCORE = 3.5;
 
-function severityFromChange(params: {
-  percentChange: number;
-  elevatedWhen: (value: number) => boolean;
-  significantWhen: (value: number) => boolean;
-}): SignalSeverity | null {
-  const { percentChange, elevatedWhen, significantWhen } = params;
-  if (!elevatedWhen(percentChange)) return null;
-  if (significantWhen(percentChange)) return 'significant';
-  return 'elevated';
+function percentChange(current: number, baseline: number): number {
+  const absolute = current - baseline;
+  if (baseline === 0) {
+    if (current === 0) return 0;
+    return current > 0 ? 100 : -100;
+  }
+  return (absolute / Math.abs(baseline)) * 100;
 }
 
-function pct(value: number): string {
-  const abs = Math.abs(value);
-  if (abs >= 100) return `${value.toFixed(0)}%`;
-  if (abs >= 10) return `${value.toFixed(1)}%`;
-  return `${value.toFixed(2)}%`;
+function zScore(current: number, stats: RobustBaselineStat): number | null {
+  if (stats.sample_size < MIN_ROBUST_SAMPLES) return null;
+  if (!Number.isFinite(stats.sigma) || stats.sigma <= 0) return null;
+  return (current - stats.median) / stats.sigma;
 }
 
-function ratio(value: number): string {
-  if (!Number.isFinite(value)) return '0x';
-  return `${value.toFixed(1)}x`;
+function severityFromZScore(z: number, direction: 'increase' | 'decrease'): SignalSeverity | null {
+  if (direction === 'increase') {
+    if (z >= SIGNIFICANT_Z_SCORE) return 'significant';
+    if (z >= ELEVATED_Z_SCORE) return 'elevated';
+    return null;
+  }
+  if (z <= -SIGNIFICANT_Z_SCORE) return 'significant';
+  if (z <= -ELEVATED_Z_SCORE) return 'elevated';
+  return null;
 }
 
 function topDistributionEntry(distribution: Record<string, number>): { key: string; share: number } | null {
@@ -87,108 +102,131 @@ function buildSignal(params: {
   };
 }
 
-export function evaluateSignalRules(comparison: MetricComparison): SignalDraft[] {
+export function evaluateSignalRules(params: {
+  comparison: MetricComparison;
+  robustBaseline: RobustSignalBaseline;
+  baselineWindow?: MetricWindow;
+}): SignalDraft[] {
+  const { comparison, robustBaseline, baselineWindow } = params;
   const out: SignalDraft[] = [];
-  const { window_current, window_baseline, metrics } = comparison;
+  const { window_current, metrics } = comparison;
+  const window_baseline = baselineWindow || robustBaseline.window_baseline;
 
-  const regressionSeverity = severityFromChange({
-    percentChange: metrics.regression_rate.percent_change,
-    elevatedWhen: (value) => value >= 50,
-    significantWhen: (value) => value >= 100,
-  });
-  if (regressionSeverity) {
+  const regressionZ = zScore(metrics.tickets_regressed.current_value, robustBaseline.metrics.tickets_regressed);
+  const regressionSeverity = regressionZ == null ? null : severityFromZScore(regressionZ, 'increase');
+  if (regressionSeverity && regressionZ != null) {
+    const baselineValue = robustBaseline.metrics.tickets_regressed.median;
+    const absoluteChange = metrics.tickets_regressed.current_value - baselineValue;
+    const relativeChange = percentChange(metrics.tickets_regressed.current_value, baselineValue);
     out.push(
       buildSignal({
         type: 'regression_spike',
         severity: regressionSeverity,
-        metricKey: 'regression_rate',
-        title: 'Regression rate increased',
-        summary: `Regression rate is ${ratio(metrics.regression_rate.current_value / Math.max(metrics.regression_rate.baseline_value, 0.0001))} vs baseline (${pct(metrics.regression_rate.percent_change)}).`,
-        currentValue: metrics.regression_rate.current_value,
-        baselineValue: metrics.regression_rate.baseline_value,
-        absoluteChange: metrics.regression_rate.absolute_change,
-        percentChange: metrics.regression_rate.percent_change,
+        metricKey: 'tickets_regressed',
+        title: 'Ticket regressions increased',
+        summary: `Regressed tickets were ${metrics.tickets_regressed.current_value.toFixed(0)} versus a typical baseline of ${baselineValue.toFixed(0)}.`,
+        currentValue: metrics.tickets_regressed.current_value,
+        baselineValue,
+        absoluteChange,
+        percentChange: relativeChange,
         windowStart: window_current.start,
         windowEnd: window_current.end,
         baselineStart: window_baseline.start,
         baselineEnd: window_baseline.end,
-        evidence: baseEvidence('regression_rate', {
+        evidence: baseEvidence('tickets_regressed', {
           tickets_regressed_current: metrics.tickets_regressed.current_value,
-          tickets_regressed_baseline: metrics.tickets_regressed.baseline_value,
+          tickets_regressed_baseline_median: robustBaseline.metrics.tickets_regressed.median,
+          detector: 'robust_mad_zscore',
+          z_score: regressionZ,
+          sample_size: robustBaseline.metrics.tickets_regressed.sample_size,
+          mad: robustBaseline.metrics.tickets_regressed.mad,
+          sigma: robustBaseline.metrics.tickets_regressed.sigma,
         }),
       })
     );
   }
 
-  const throughputSeverity = severityFromChange({
-    percentChange: metrics.tickets_completed.percent_change,
-    elevatedWhen: (value) => value <= -30,
-    significantWhen: (value) => value <= -50,
-  });
-  if (throughputSeverity) {
+  const throughputZ = zScore(metrics.tickets_completed.current_value, robustBaseline.metrics.tickets_completed);
+  const throughputSeverity = throughputZ == null ? null : severityFromZScore(throughputZ, 'decrease');
+  if (throughputSeverity && throughputZ != null) {
+    const baselineValue = robustBaseline.metrics.tickets_completed.median;
+    const absoluteChange = metrics.tickets_completed.current_value - baselineValue;
+    const relativeChange = percentChange(metrics.tickets_completed.current_value, baselineValue);
     out.push(
       buildSignal({
         type: 'throughput_drop',
         severity: throughputSeverity,
         metricKey: 'tickets_completed',
         title: 'Ticket throughput dropped',
-        summary: `Tickets completed changed by ${pct(metrics.tickets_completed.percent_change)} vs baseline.`,
+        summary: `Completed tickets were ${metrics.tickets_completed.current_value.toFixed(0)} versus a typical baseline of ${baselineValue.toFixed(0)}.`,
         currentValue: metrics.tickets_completed.current_value,
-        baselineValue: metrics.tickets_completed.baseline_value,
-        absoluteChange: metrics.tickets_completed.absolute_change,
-        percentChange: metrics.tickets_completed.percent_change,
+        baselineValue,
+        absoluteChange,
+        percentChange: relativeChange,
         windowStart: window_current.start,
         windowEnd: window_current.end,
         baselineStart: window_baseline.start,
         baselineEnd: window_baseline.end,
-        evidence: baseEvidence('tickets_completed'),
+        evidence: baseEvidence('tickets_completed', {
+          detector: 'robust_mad_zscore',
+          z_score: throughputZ,
+          sample_size: robustBaseline.metrics.tickets_completed.sample_size,
+          mad: robustBaseline.metrics.tickets_completed.mad,
+          sigma: robustBaseline.metrics.tickets_completed.sigma,
+        }),
       })
     );
   }
 
-  const mergeSeverity = severityFromChange({
-    percentChange: metrics.prs_merged.percent_change,
-    elevatedWhen: (value) => value <= -30,
-    significantWhen: (value) => value <= -50,
-  });
-  if (mergeSeverity) {
+  const mergeZ = zScore(metrics.prs_merged.current_value, robustBaseline.metrics.prs_merged);
+  const mergeSeverity = mergeZ == null ? null : severityFromZScore(mergeZ, 'decrease');
+  if (mergeSeverity && mergeZ != null) {
+    const baselineValue = robustBaseline.metrics.prs_merged.median;
+    const absoluteChange = metrics.prs_merged.current_value - baselineValue;
+    const relativeChange = percentChange(metrics.prs_merged.current_value, baselineValue);
     out.push(
       buildSignal({
         type: 'merge_drop',
         severity: mergeSeverity,
         metricKey: 'prs_merged',
         title: 'Merge throughput dropped',
-        summary: `PR merges changed by ${pct(metrics.prs_merged.percent_change)} vs baseline.`,
+        summary: `Merged PRs were ${metrics.prs_merged.current_value.toFixed(0)} versus a typical baseline of ${baselineValue.toFixed(0)}.`,
         currentValue: metrics.prs_merged.current_value,
-        baselineValue: metrics.prs_merged.baseline_value,
-        absoluteChange: metrics.prs_merged.absolute_change,
-        percentChange: metrics.prs_merged.percent_change,
+        baselineValue,
+        absoluteChange,
+        percentChange: relativeChange,
         windowStart: window_current.start,
         windowEnd: window_current.end,
         baselineStart: window_baseline.start,
         baselineEnd: window_baseline.end,
-        evidence: baseEvidence('prs_merged'),
+        evidence: baseEvidence('prs_merged', {
+          detector: 'robust_mad_zscore',
+          z_score: mergeZ,
+          sample_size: robustBaseline.metrics.prs_merged.sample_size,
+          mad: robustBaseline.metrics.prs_merged.mad,
+          sigma: robustBaseline.metrics.prs_merged.sigma,
+        }),
       })
     );
   }
 
   const topRepo = topDistributionEntry(comparison.repo_distribution.current);
-  if (topRepo && topRepo.share > 0.6) {
-    const severity: SignalSeverity = topRepo.share > 0.75 ? 'significant' : 'elevated';
+  const topRepoZ = topRepo ? zScore(topRepo.share, robustBaseline.repo_top_share) : null;
+  const topRepoSeverity = topRepoZ == null ? null : severityFromZScore(topRepoZ, 'increase');
+  if (topRepo && topRepoSeverity && topRepoZ != null) {
+    const baselineValue = robustBaseline.repo_top_share.median;
+    const absoluteChange = topRepo.share - baselineValue;
     out.push(
       buildSignal({
         type: 'repo_concentration',
-        severity,
+        severity: topRepoSeverity,
         metricKey: 'repo_distribution',
         title: 'Repository concentration detected',
-        summary: `${topRepo.key} accounts for ${(topRepo.share * 100).toFixed(1)}% of GitHub activity.`,
+        summary: `${topRepo.key} accounted for ${(topRepo.share * 100).toFixed(1)}% of GitHub activity versus a typical baseline of ${(baselineValue * 100).toFixed(1)}%.`,
         currentValue: topRepo.share,
-        baselineValue: comparison.repo_distribution.baseline[topRepo.key] || 0,
-        absoluteChange: topRepo.share - (comparison.repo_distribution.baseline[topRepo.key] || 0),
-        percentChange:
-          ((topRepo.share - (comparison.repo_distribution.baseline[topRepo.key] || 0)) /
-            Math.max(Math.abs(comparison.repo_distribution.baseline[topRepo.key] || 0), 0.0001)) *
-          100,
+        baselineValue,
+        absoluteChange,
+        percentChange: percentChange(topRepo.share, baselineValue),
         windowStart: window_current.start,
         windowEnd: window_current.end,
         baselineStart: window_baseline.start,
@@ -201,7 +239,14 @@ export function evaluateSignalRules(comparison: MetricComparison): SignalDraft[]
             evidence_id: topRepo.key,
             label: topRepo.key,
             rank: 1,
-            payload: { share: topRepo.share },
+            payload: {
+              share: topRepo.share,
+              detector: 'robust_mad_zscore',
+              z_score: topRepoZ,
+              sample_size: robustBaseline.repo_top_share.sample_size,
+              mad: robustBaseline.repo_top_share.mad,
+              sigma: robustBaseline.repo_top_share.sigma,
+            },
           },
         ],
       })
@@ -209,43 +254,46 @@ export function evaluateSignalRules(comparison: MetricComparison): SignalDraft[]
   }
 
   const topDomain = topDistributionEntry(comparison.domain_distribution.current);
-  if (topDomain) {
-    const baselineShare = comparison.domain_distribution.baseline[topDomain.key] || 0;
-    const shareDelta = topDomain.share - baselineShare;
-    const hasMeaningfulFocusShift = topDomain.share >= 0.55 && (shareDelta >= 0.1 || topDomain.share >= 0.7);
-    if (hasMeaningfulFocusShift) {
-      const severity: SignalSeverity = topDomain.share >= 0.75 || shareDelta >= 0.2 ? 'significant' : 'elevated';
-      out.push(
-        buildSignal({
-          type: 'domain_concentration',
-          severity,
-          metricKey: 'domain_distribution',
-          title: 'Domain focus shifted',
-          summary: `${topDomain.key} accounts for ${(topDomain.share * 100).toFixed(1)}% of weighted activity (baseline ${(baselineShare * 100).toFixed(1)}%).`,
-          currentValue: topDomain.share,
-          baselineValue: baselineShare,
-          absoluteChange: shareDelta,
-          percentChange: (shareDelta / Math.max(Math.abs(baselineShare), 0.0001)) * 100,
-          windowStart: window_current.start,
-          windowEnd: window_current.end,
-          baselineStart: window_baseline.start,
-          baselineEnd: window_baseline.end,
-          evidence: [
-            {
-              evidence_type: 'metric',
-              evidence_id: `domain:${topDomain.key}`,
-              label: topDomain.key,
-              rank: 1,
-              payload: {
-                domain: topDomain.key,
-                current_share: topDomain.share,
-                baseline_share: baselineShare,
-              },
+  const topDomainZ = topDomain ? zScore(topDomain.share, robustBaseline.domain_top_share) : null;
+  const topDomainSeverity = topDomainZ == null ? null : severityFromZScore(topDomainZ, 'increase');
+  if (topDomain && topDomainSeverity && topDomainZ != null) {
+    const baselineValue = robustBaseline.domain_top_share.median;
+    const absoluteChange = topDomain.share - baselineValue;
+    out.push(
+      buildSignal({
+        type: 'domain_concentration',
+        severity: topDomainSeverity,
+        metricKey: 'domain_distribution',
+        title: 'Domain focus shifted',
+        summary: `${topDomain.key} accounted for ${(topDomain.share * 100).toFixed(1)}% of weighted activity versus a typical baseline of ${(baselineValue * 100).toFixed(1)}%.`,
+        currentValue: topDomain.share,
+        baselineValue,
+        absoluteChange,
+        percentChange: percentChange(topDomain.share, baselineValue),
+        windowStart: window_current.start,
+        windowEnd: window_current.end,
+        baselineStart: window_baseline.start,
+        baselineEnd: window_baseline.end,
+        evidence: [
+          {
+            evidence_type: 'metric',
+            evidence_id: `domain:${topDomain.key}`,
+            label: topDomain.key,
+            rank: 1,
+            payload: {
+              domain: topDomain.key,
+              current_share: topDomain.share,
+              baseline_share: baselineValue,
+              detector: 'robust_mad_zscore',
+              z_score: topDomainZ,
+              sample_size: robustBaseline.domain_top_share.sample_size,
+              mad: robustBaseline.domain_top_share.mad,
+              sigma: robustBaseline.domain_top_share.sigma,
             },
-          ],
-        })
-      );
-    }
+          },
+        ],
+      })
+    );
   }
 
   return out;
