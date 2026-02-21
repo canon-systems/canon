@@ -12,6 +12,22 @@ type CanonicalEventAggRow = {
 const PAGE_SIZE = 1000;
 const MAX_PAGES = 500;
 
+function describeSupabaseError(error: unknown): { code: string; message: string } {
+  if (!error || typeof error !== 'object') return { code: '', message: '' };
+  const code = 'code' in error && typeof error.code === 'string' ? error.code : '';
+  const message = 'message' in error && typeof error.message === 'string' ? error.message : '';
+  return { code, message };
+}
+
+function isNonFatalCanonicalReadError(error: unknown): boolean {
+  const { code, message } = describeSupabaseError(error);
+  const normalized = message.toLowerCase();
+  if (code === '42P01') return true; // relation does not exist
+  if (code === '42501') return true; // insufficient_privilege / RLS denied
+  if (normalized.includes('diff_event_canonical') && normalized.includes('does not exist')) return true;
+  return false;
+}
+
 function addRepo(diff: CanonicalDiff, repoFullName: string | null): void {
   if (!repoFullName || !repoFullName.trim()) return;
   if (!diff.repos_touched.includes(repoFullName)) {
@@ -71,8 +87,8 @@ export async function computeCanonicalDiffFromEvents(params: {
       .range(offset, offset + PAGE_SIZE - 1);
 
     if (error || !rows?.length) {
-      if (error) {
-        console.error('[computeCanonicalDiffFromEvents] failed to load canonical events', error);
+      if (error && !isNonFatalCanonicalReadError(error)) {
+        console.warn('[computeCanonicalDiffFromEvents] canonical event read failed; returning empty aggregate', error);
       }
       break;
     }

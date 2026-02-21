@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import { DateTime } from 'luxon';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
 import { listSignals } from '@/lib/server/signals/engine';
@@ -8,6 +9,23 @@ import { normalizeTimeZone, parseSignalSeverityParam, parseTimeZoneParam, window
 
 export const dynamic = 'force-dynamic';
 const TIME_ZONE_COOKIE = 'canon_tz';
+
+function parseDateParam(value: string | null): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return null;
+  return trimmed;
+}
+
+function localDayToUtcRange(day: string, timeZone: string): { start: string; end: string } | null {
+  const localStart = DateTime.fromISO(day, { zone: timeZone }).startOf('day');
+  if (!localStart.isValid) return null;
+  const localEnd = localStart.plus({ days: 1 }).minus({ milliseconds: 1 });
+  const start = localStart.toUTC().toISO({ suppressMilliseconds: false });
+  const end = localEnd.toUTC().toISO({ suppressMilliseconds: false });
+  if (!start || !end) return null;
+  return { start, end };
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -28,7 +46,22 @@ export async function GET(request: NextRequest) {
     const settings = await getWorkspaceSignalSettings({ supabase, userId: user.id });
     const settingsTimeZone = parseTimeZoneParam(settings.time_zone);
     const timeZone = normalizeTimeZone(parseTimeZoneParam(tzParam) || cookieTimeZone || settingsTimeZone);
-    const windowStart = windowStartFromParam(request.nextUrl.searchParams.get('window'), new Date(), undefined, timeZone);
+    const startDateParam = parseDateParam(request.nextUrl.searchParams.get('start'));
+    const endDateParam = parseDateParam(request.nextUrl.searchParams.get('end'));
+    let windowStart: string | undefined;
+    let windowEnd: string | undefined;
+
+    if (startDateParam && endDateParam) {
+      const [fromDay, toDay] = startDateParam <= endDateParam ? [startDateParam, endDateParam] : [endDateParam, startDateParam];
+      const startRange = localDayToUtcRange(fromDay, timeZone);
+      const endRange = localDayToUtcRange(toDay, timeZone);
+      if (startRange && endRange) {
+        windowStart = startRange.start;
+        windowEnd = endRange.end;
+      }
+    } else {
+      windowStart = windowStartFromParam(request.nextUrl.searchParams.get('window'), new Date(), undefined, timeZone);
+    }
 
     const signals = await listSignals({
       supabase,
@@ -37,6 +70,7 @@ export async function GET(request: NextRequest) {
       scope,
       limit,
       windowStart,
+      windowEnd,
     });
 
     return NextResponse.json(

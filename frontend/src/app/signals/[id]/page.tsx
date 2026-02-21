@@ -7,10 +7,11 @@ import { createClient } from '@/lib/supabase/server';
 import { getSignalInvestigation } from '@/lib/server/signals/engine';
 import { getWorkspaceSignalSettings } from '@/lib/server/signals/settings';
 import { normalizeTimeZone, parseTimeZoneParam } from '@/lib/server/signals/window';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { MetricLabelTooltip } from '@/components/metric-label-tooltip';
+import EvidenceCards from './evidence-cards';
 
 export const dynamic = 'force-dynamic';
 const TIME_ZONE_COOKIE = 'canon_tz';
@@ -53,8 +54,27 @@ function formatMetricValue(metricKey: string, value: number): string {
 }
 
 function baselineCoveragePercent(current: number, baseline: number): string {
-  if (!Number.isFinite(current) || !Number.isFinite(baseline) || baseline === 0) return '0%';
+  if (!Number.isFinite(current) || !Number.isFinite(baseline)) return '0%';
+  if (baseline === 0) return current === 0 ? '100%' : 'No baseline';
   return pct((current / baseline) * 100);
+}
+
+function formatChangeVsBaseline(signal: {
+  metric_key: string;
+  current_value: number;
+  baseline_value: number;
+  absolute_change: number;
+  percent_change: number;
+}): string {
+  if (isRateMetric(signal.metric_key)) {
+    const deltaPoints = signal.absolute_change * 100;
+    const sign = deltaPoints > 0 ? '+' : '';
+    if (signal.baseline_value === 0 && signal.current_value > 0) {
+      return `${sign}${pct(deltaPoints)} pts (new from 0%)`;
+    }
+    return `${sign}${pct(deltaPoints)} pts`;
+  }
+  return pct(signal.percent_change);
 }
 
 function metricReadableName(metricKey: string): string {
@@ -195,7 +215,7 @@ export default async function SignalInvestigatePage({
                 </p>
                 <p>
                   <MetricLabelTooltip label="Change vs baseline" tip={changeVsBaselineTooltip(signal.metric_key)} />:{' '}
-                  <span className="text-white">{pct(signal.percent_change)}</span>
+                  <span className="text-white">{formatChangeVsBaseline(signal)}</span>
                 </p>
                 <p>
                   <MetricLabelTooltip label="Current level vs baseline" tip={currentLevelVsBaselineTooltip(signal.metric_key)} />:{' '}
@@ -320,7 +340,7 @@ export default async function SignalInvestigatePage({
             <p className="text-white/75">Directional data is still being prepared for this signal.</p>
             <p>
               <MetricLabelTooltip label="Change vs baseline" tip={changeVsBaselineTooltip(signal.metric_key)} />:{' '}
-              <span className="text-white">{pct(signal.percent_change)}</span>
+              <span className="text-white">{formatChangeVsBaseline(signal)}</span>
             </p>
             <p>
               <MetricLabelTooltip label="Current level vs baseline" tip={currentLevelVsBaselineTooltip(signal.metric_key)} />:{' '}
@@ -336,90 +356,7 @@ export default async function SignalInvestigatePage({
         </Card>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card className="border-white/10 bg-zinc-800">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base text-white">
-              <MetricLabelTooltip
-                label="Execution Tickets"
-                tip="Ticket evidence linked to this signal window; use this to inspect delivery and quality movement."
-              />
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm text-white/80">
-            {evidence.tickets.length === 0 ? <p>No ticket evidence in this signal window.</p> : null}
-            {evidence.tickets.map((ticket) => (
-              <div key={`${ticket.id}-${ticket.occurred_at}`} className="rounded border border-white/10 bg-zinc-800 px-3 py-2">
-                {ticket.url ? (
-                  <a
-                    href={ticket.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="font-medium text-white underline decoration-white/35 underline-offset-2 hover:text-white"
-                  >
-                    {ticket.id}
-                  </a>
-                ) : (
-                  <div className="font-medium text-white">{ticket.id}</div>
-                )}
-                <div className="text-white/70">{ticket.summary || 'No summary'}</div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-
-        <Card className="border-white/10 bg-zinc-800">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base text-white">
-              <MetricLabelTooltip
-                label="Code Integration"
-                tip="PR evidence linked to this signal window; use this to inspect merge and integration behavior."
-              />
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm text-white/80">
-            {evidence.prs.length === 0 ? <p>No PR evidence in this signal window.</p> : null}
-            {evidence.prs.map((pr) => (
-              <div key={`${pr.id}-${pr.occurred_at}-${pr.kind}`} className="rounded border border-white/10 bg-zinc-800 px-3 py-2">
-                {pr.url ? (
-                  <a
-                    href={pr.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="font-medium text-white underline decoration-white/35 underline-offset-2 hover:text-white"
-                  >
-                    PR {pr.id}
-                  </a>
-                ) : (
-                  <div className="font-medium text-white">PR {pr.id}</div>
-                )}
-                <div className="text-white/70">{pr.repo || 'Unknown repo'} · {pr.kind || 'event'}</div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-
-        <Card className="border-white/10 bg-zinc-800">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base text-white">
-              <MetricLabelTooltip
-                label="Active Surfaces"
-                tip="Repositories or engineering surfaces with meaningful activity in the current signal window."
-              />
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm text-white/80">
-            {evidence.repos.length === 0 ? <p>No active surface evidence in this signal window.</p> : null}
-            {evidence.repos.map((repo) => (
-              <div key={repo.id} className="flex items-center justify-between rounded border border-white/10 bg-zinc-800 px-3 py-2">
-                <span className="text-white">{repo.id}</span>
-                <span className="text-white/70">{repo.activity}</span>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-
-      </div>
+      <EvidenceCards evidence={evidence} timeZone={timeZone} />
     </div>
   );
 }

@@ -1,12 +1,15 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { CalendarDays } from 'lucide-react';
 import { DateTime } from 'luxon';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Calendar, type DateRange } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 type SignalCard = {
@@ -128,32 +131,94 @@ function renderMetricSummary(signal: SignalCard): string {
   return `${label}: ${current} vs ${baseline} baseline (${delta})`;
 }
 
+function normalizeCalendarDay(date: Date): string {
+  const yyyy = String(date.getFullYear());
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function dateFromLocalDay(day: string): Date | undefined {
+  const parsed = DateTime.fromISO(day, { zone: 'utc' });
+  if (!parsed.isValid) return undefined;
+  return new Date(parsed.year, parsed.month - 1, parsed.day);
+}
 
 export default function SignalsPageClient({
   signals,
-  windowDays,
+  selectedStartDate,
+  selectedEndDate,
   selectedSeverity,
   timeZone,
 }: {
   signals: SignalCard[];
-  windowDays: number | null;
+  selectedStartDate: string | null;
+  selectedEndDate: string | null;
   selectedSeverity: 'all' | 'elevated' | 'significant';
   timeZone: string;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+  const [selectedDateRange, setSelectedDateRange] = useState<DateRange>(() => ({
+    from: selectedStartDate ? dateFromLocalDay(selectedStartDate) : undefined,
+    to: selectedEndDate ? dateFromLocalDay(selectedEndDate) : undefined,
+  }));
 
   const windowLabel = useMemo(() => {
-    if (windowDays == null) return 'Latest signals across all windows';
-    if (windowDays <= 1) return 'Signals in the last day';
-    return `Signals in the last ${windowDays} days`;
-  }, [windowDays]);
+    if (!selectedStartDate || !selectedEndDate) return 'Latest signals across all dates';
+    return selectedStartDate === selectedEndDate
+      ? `Signals on ${selectedStartDate}`
+      : `Signals from ${selectedStartDate} to ${selectedEndDate}`;
+  }, [selectedStartDate, selectedEndDate]);
 
   const setParam = (key: string, value: string | null) => {
     const params = new URLSearchParams(searchParams.toString());
     if (!value || value === 'all') params.delete(key);
     else params.set(key, value);
     router.push(`/signals?${params.toString()}`);
+  };
+
+  const setDateRangeParams = (start: string | null, end: string | null) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (start && end) {
+      params.set('start', start);
+      params.set('end', end);
+    } else {
+      params.delete('start');
+      params.delete('end');
+    }
+    params.delete('window');
+    router.push(`/signals?${params.toString()}`);
+  };
+
+  const selectedWindowDraft = useMemo(() => {
+    if (!selectedDateRange.from || !selectedDateRange.to) return null;
+    const fromDay = normalizeCalendarDay(selectedDateRange.from);
+    const toDay = normalizeCalendarDay(selectedDateRange.to);
+    return fromDay <= toDay ? { start: fromDay, end: toDay } : { start: toDay, end: fromDay };
+  }, [selectedDateRange]);
+
+  const onDatePickerOpenChange = (open: boolean) => {
+    setIsDatePickerOpen(open);
+    if (open) {
+      setSelectedDateRange({
+        from: selectedStartDate ? dateFromLocalDay(selectedStartDate) : undefined,
+        to: selectedEndDate ? dateFromLocalDay(selectedEndDate) : undefined,
+      });
+    }
+  };
+
+  const applyDateRange = () => {
+    if (!selectedWindowDraft) return;
+    setDateRangeParams(selectedWindowDraft.start, selectedWindowDraft.end);
+    setIsDatePickerOpen(false);
+  };
+
+  const clearDateRange = () => {
+    setDateRangeParams(null, null);
+    setSelectedDateRange({ from: undefined, to: undefined });
+    setIsDatePickerOpen(false);
   };
 
   return (
@@ -170,21 +235,49 @@ export default function SignalsPageClient({
       <Card className="border-white/10 bg-zinc-900">
         <CardContent className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-center">
           <div className="flex flex-col gap-2">
-            <label className="text-xs uppercase tracking-[0.2em] text-white/60">Window</label>
-            <Select
-              value={windowDays == null ? 'all' : String(windowDays)}
-              onValueChange={(value) => setParam('window', value === 'all' ? null : value)}
-            >
-              <SelectTrigger className="w-auto min-w-[7rem] border-white/20 bg-black/60">
-                <SelectValue placeholder="Window" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All windows</SelectItem>
-                <SelectItem value="7">7 days</SelectItem>
-                <SelectItem value="14">14 days</SelectItem>
-                <SelectItem value="30">30 days</SelectItem>
-              </SelectContent>
-            </Select>
+            <label className="text-xs uppercase tracking-[0.2em] text-white/60">Date Range</label>
+            <Popover open={isDatePickerOpen} onOpenChange={onDatePickerOpenChange}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className="w-auto min-w-[11rem] justify-start border-white/20 bg-black/60 text-white hover:bg-black/70">
+                  <CalendarDays className="mr-2 h-4 w-4" />
+                  {selectedStartDate && selectedEndDate ? `${selectedStartDate} to ${selectedEndDate}` : 'Select range'}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="start" sideOffset={8} className="w-auto border-white/10 bg-black/95 p-0">
+                <Calendar
+                  mode="range"
+                  numberOfMonths={1}
+                  selected={selectedDateRange}
+                  onSelect={(range) => setSelectedDateRange(range || { from: undefined, to: undefined })}
+                  defaultMonth={selectedDateRange.from || new Date()}
+                  disabled={(date) => date > new Date()}
+                />
+                <div className="border-t border-white/10 p-3">
+                  <p className="text-xs text-white/70">
+                    Date range:{' '}
+                    {selectedWindowDraft ? `${selectedWindowDraft.start} to ${selectedWindowDraft.end}` : 'Choose start and end dates'}
+                  </p>
+                  <div className="mt-3 flex items-center justify-end gap-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="h-8 px-3 text-white/70 hover:text-white"
+                      onClick={clearDateRange}
+                    >
+                      Clear
+                    </Button>
+                    <Button
+                      type="button"
+                      className="h-8 px-3 bg-white text-black hover:bg-white/90"
+                      disabled={!selectedWindowDraft}
+                      onClick={applyDateRange}
+                    >
+                      Confirm Range
+                    </Button>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
           <div className="flex flex-col gap-2">
             <label className="text-xs uppercase tracking-[0.2em] text-white/60">Severity</label>

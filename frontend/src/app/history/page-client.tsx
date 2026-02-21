@@ -228,6 +228,16 @@ function signed(value: number): string {
   return `${value}`;
 }
 
+function normalizeHistoryFetchError(error: unknown): string {
+  if (error instanceof TypeError && /failed to fetch/i.test(error.message)) {
+    return 'Unable to reach history service. Please retry.';
+  }
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+  return 'Failed to load Canon History';
+}
+
 function formatDateTime(iso: string | null | undefined, timeZone: string): string {
   if (!iso) return 'unknown time';
   const date = DateTime.fromISO(iso, { zone: 'utc' }).setZone(timeZone);
@@ -451,7 +461,7 @@ function metricRows(data: CompareResponse): Array<{ key: string; current: number
       delta: data.delta.prs_merged,
     },
     {
-      key: 'Commits on default',
+      key: 'Commits',
       current: data.primary.commits_default,
       baseline: data.baseline.commits_default,
       delta: data.delta.commits_default,
@@ -504,7 +514,6 @@ export default function HistoryPageClient({
     latestRequestRef.current = requestId;
     setIsRefreshing(true);
     setError(null);
-    setData(null);
     setLastUpdatedAt(null);
 
     try {
@@ -533,8 +542,7 @@ export default function HistoryPageClient({
       setLastUpdatedAt(new Date().toISOString());
     } catch (fetchError) {
       if (latestRequestRef.current !== requestId) return;
-      const message = fetchError instanceof Error ? fetchError.message : 'Failed to load Canon History';
-      setError(message);
+      setError(normalizeHistoryFetchError(fetchError));
     } finally {
       if (latestRequestRef.current === requestId) {
         setIsRefreshing(false);

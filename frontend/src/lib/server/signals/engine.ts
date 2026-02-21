@@ -499,6 +499,7 @@ export async function getSignalDetail(params: {
 }
 
 type CanonicalEventRow = {
+  source_id?: string | null;
   provider: string | null;
   event_kind: string | null;
   entity_id: string | null;
@@ -708,6 +709,7 @@ export async function getSignalInvestigation(params: {
     tickets: Array<{ id: string; summary: string | null; occurred_at: string | null; url: string | null }>;
     prs: Array<{ id: string; repo: string | null; occurred_at: string | null; kind: string | null; url: string | null }>;
     repos: Array<{ id: string; activity: number }>;
+    domains: Array<{ id: string; activity: number }>;
   };
 }> {
   const { supabase, userId, signalId } = params;
@@ -717,7 +719,7 @@ export async function getSignalInvestigation(params: {
       signal: null,
       baseline_panel: null,
       direction: null,
-      evidence: { tickets: [], prs: [], repos: [] },
+      evidence: { tickets: [], prs: [], repos: [], domains: [] },
     };
   }
 
@@ -740,6 +742,7 @@ export async function getSignalInvestigation(params: {
   const tickets: Array<{ id: string; summary: string | null; occurred_at: string | null; url: string | null }> = [];
   const prs: Array<{ id: string; repo: string | null; occurred_at: string | null; kind: string | null; url: string | null }> = [];
   const repoCounts = new Map<string, number>();
+  const domainCounts = new Map<string, number>();
   let direction: {
     headline: string;
     summary: string;
@@ -768,12 +771,22 @@ export async function getSignalInvestigation(params: {
 
   if (sourceIds.length > 0) {
     const jiraBrowseBaseByProject = new Map<string, string>();
+    const sourceDomainById = new Map<string, string>();
     const { data: sourceRows } = await supabase
       .from('workspace_sources')
-      .select('provider, scope')
+      .select('id, provider, scope, domain')
       .eq('user_id', userId)
       .in('id', sourceIds);
     for (const row of sourceRows || []) {
+      const sourceId = typeof row.id === 'string' ? row.id : '';
+      const domain =
+        typeof (row as { domain?: unknown }).domain === 'string' && (row as { domain?: string }).domain?.trim()
+          ? (row as { domain?: string }).domain!.trim()
+          : 'Unassigned';
+      if (sourceId) {
+        sourceDomainById.set(sourceId, domain);
+      }
+
       const provider = typeof row.provider === 'string' ? row.provider.toLowerCase() : '';
       if (provider !== 'jira') continue;
       const scope = (row.scope as Record<string, unknown> | null) || null;
@@ -799,7 +812,7 @@ export async function getSignalInvestigation(params: {
       runDiffForSourcesWithBreakdown(userId, sourceIds, baselineWindow, supabase),
       supabase
         .from('diff_event_canonical')
-        .select('provider, event_kind, entity_id, repo_full_name, occurred_at, metadata')
+        .select('source_id, provider, event_kind, entity_id, repo_full_name, occurred_at, metadata')
         .in('source_id', sourceIds)
         .gte('occurred_at', signal.window_start)
         .lte('occurred_at', signal.window_end)
@@ -878,11 +891,13 @@ export async function getSignalInvestigation(params: {
     const events = eventsResult.data as CanonicalEventRow[] | null;
 
     for (const event of events || []) {
+      const sourceId = typeof event.source_id === 'string' ? event.source_id : '';
       const provider = (event.provider || '').toLowerCase();
       const kind = event.event_kind || null;
       const entityId = event.entity_id || null;
       const repo = event.repo_full_name || null;
       const metadata = (event.metadata || {}) as Record<string, unknown>;
+      const domain = sourceDomainById.get(sourceId) || 'Unassigned';
 
       if (provider === 'jira' && entityId && kind && kind.startsWith('ticket_')) {
         const summary =
@@ -914,10 +929,15 @@ export async function getSignalInvestigation(params: {
       if (repo) {
         repoCounts.set(repo, (repoCounts.get(repo) || 0) + 1);
       }
+      domainCounts.set(domain, (domainCounts.get(domain) || 0) + 1);
     }
   }
 
   const repos = Array.from(repoCounts.entries())
+    .map(([id, activity]) => ({ id, activity }))
+    .sort((a, b) => b.activity - a.activity)
+    .slice(0, 10);
+  const domains = Array.from(domainCounts.entries())
     .map(([id, activity]) => ({ id, activity }))
     .sort((a, b) => b.activity - a.activity)
     .slice(0, 10);
@@ -939,6 +959,7 @@ export async function getSignalInvestigation(params: {
       tickets: tickets.slice(0, 25),
       prs: prs.slice(0, 25),
       repos,
+      domains,
     },
     direction,
   };
