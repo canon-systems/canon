@@ -712,8 +712,8 @@ export async function getSignalInvestigation(params: {
   evidence: {
     tickets: Array<{ id: string; summary: string | null; occurred_at: string | null; url: string | null }>;
     prs: Array<{ id: string; repo: string | null; occurred_at: string | null; kind: string | null; url: string | null }>;
-    repos: Array<{ id: string; activity: number }>;
-    domains: Array<{ id: string; activity: number }>;
+    repos: Array<{ id: string; activity: number; baseline_activity: number }>;
+    domains: Array<{ id: string; activity: number; baseline_activity: number }>;
   };
 }> {
   const { supabase, userId, signalId } = params;
@@ -745,8 +745,10 @@ export async function getSignalInvestigation(params: {
 
   const tickets: Array<{ id: string; summary: string | null; occurred_at: string | null; url: string | null }> = [];
   const prs: Array<{ id: string; repo: string | null; occurred_at: string | null; kind: string | null; url: string | null }> = [];
-  const repoCounts = new Map<string, number>();
-  const domainCounts = new Map<string, number>();
+  const currentRepoCounts = new Map<string, number>();
+  const baselineRepoCounts = new Map<string, number>();
+  const currentDomainCounts = new Map<string, number>();
+  const baselineDomainCounts = new Map<string, number>();
   let direction: {
     headline: string;
     summary: string;
@@ -811,7 +813,7 @@ export async function getSignalInvestigation(params: {
       end: signal.baseline_end,
     };
 
-    const [currentDiff, baselineDiff, eventsResult] = await Promise.all([
+    const [currentDiff, baselineDiff, eventsResult, currentCountEventsResult, baselineCountEventsResult] = await Promise.all([
       runDiffForSourcesWithBreakdown(userId, sourceIds, currentWindow, supabase),
       runDiffForSourcesWithBreakdown(userId, sourceIds, baselineWindow, supabase),
       supabase
@@ -822,6 +824,20 @@ export async function getSignalInvestigation(params: {
         .lte('occurred_at', signal.window_end)
         .order('occurred_at', { ascending: false })
         .limit(250),
+      supabase
+        .from('diff_event_canonical')
+        .select('source_id, repo_full_name')
+        .in('source_id', sourceIds)
+        .gte('occurred_at', signal.window_start)
+        .lte('occurred_at', signal.window_end)
+        .limit(5000),
+      supabase
+        .from('diff_event_canonical')
+        .select('source_id, repo_full_name')
+        .in('source_id', sourceIds)
+        .gte('occurred_at', signal.baseline_start)
+        .lte('occurred_at', signal.baseline_end)
+        .limit(5000),
     ]);
 
     const aggregateDelta = diffDelta(currentDiff.aggregate, baselineDiff.aggregate);
@@ -893,15 +909,41 @@ export async function getSignalInvestigation(params: {
     };
 
     const events = eventsResult.data as CanonicalEventRow[] | null;
+    const currentCountEvents = (currentCountEventsResult.data || []) as Array<{
+      source_id?: string | null;
+      repo_full_name: string | null;
+    }>;
+    const baselineCountEvents = (baselineCountEventsResult.data || []) as Array<{
+      source_id?: string | null;
+      repo_full_name: string | null;
+    }>;
+
+    for (const event of currentCountEvents) {
+      const sourceId = typeof event.source_id === 'string' ? event.source_id : '';
+      const repo = event.repo_full_name || null;
+      const domain = sourceDomainById.get(sourceId) || 'Unassigned';
+      if (repo) {
+        currentRepoCounts.set(repo, (currentRepoCounts.get(repo) || 0) + 1);
+      }
+      currentDomainCounts.set(domain, (currentDomainCounts.get(domain) || 0) + 1);
+    }
+
+    for (const event of baselineCountEvents) {
+      const sourceId = typeof event.source_id === 'string' ? event.source_id : '';
+      const repo = event.repo_full_name || null;
+      const domain = sourceDomainById.get(sourceId) || 'Unassigned';
+      if (repo) {
+        baselineRepoCounts.set(repo, (baselineRepoCounts.get(repo) || 0) + 1);
+      }
+      baselineDomainCounts.set(domain, (baselineDomainCounts.get(domain) || 0) + 1);
+    }
 
     for (const event of events || []) {
-      const sourceId = typeof event.source_id === 'string' ? event.source_id : '';
       const provider = (event.provider || '').toLowerCase();
       const kind = event.event_kind || null;
       const entityId = event.entity_id || null;
       const repo = event.repo_full_name || null;
       const metadata = (event.metadata || {}) as Record<string, unknown>;
-      const domain = sourceDomainById.get(sourceId) || 'Unassigned';
 
       if (provider === 'jira' && entityId && kind && kind.startsWith('ticket_')) {
         const summary =
@@ -929,21 +971,24 @@ export async function getSignalInvestigation(params: {
           url: githubPullRequestUrl(repo, entityId),
         });
       }
-
-      if (repo) {
-        repoCounts.set(repo, (repoCounts.get(repo) || 0) + 1);
-      }
-      domainCounts.set(domain, (domainCounts.get(domain) || 0) + 1);
     }
   }
 
-  const repos = Array.from(repoCounts.entries())
-    .map(([id, activity]) => ({ id, activity }))
-    .sort((a, b) => b.activity - a.activity)
+  const repos = Array.from(new Set([...currentRepoCounts.keys(), ...baselineRepoCounts.keys()]))
+    .map((id) => ({
+      id,
+      activity: currentRepoCounts.get(id) || 0,
+      baseline_activity: baselineRepoCounts.get(id) || 0,
+    }))
+    .sort((a, b) => Math.max(b.activity, b.baseline_activity) - Math.max(a.activity, a.baseline_activity))
     .slice(0, 10);
-  const domains = Array.from(domainCounts.entries())
-    .map(([id, activity]) => ({ id, activity }))
-    .sort((a, b) => b.activity - a.activity)
+  const domains = Array.from(new Set([...currentDomainCounts.keys(), ...baselineDomainCounts.keys()]))
+    .map((id) => ({
+      id,
+      activity: currentDomainCounts.get(id) || 0,
+      baseline_activity: baselineDomainCounts.get(id) || 0,
+    }))
+    .sort((a, b) => Math.max(b.activity, b.baseline_activity) - Math.max(a.activity, a.baseline_activity))
     .slice(0, 10);
 
   return {

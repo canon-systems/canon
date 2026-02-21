@@ -6,13 +6,14 @@ import { DateTime } from 'luxon';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Progress } from '@/components/ui/progress';
 import { MetricLabelTooltip } from '@/components/metric-label-tooltip';
 
 type EvidencePayload = {
   tickets: Array<{ id: string; summary: string | null; occurred_at: string | null; url: string | null }>;
   prs: Array<{ id: string; repo: string | null; occurred_at: string | null; kind: string | null; url: string | null }>;
-  repos: Array<{ id: string; activity: number }>;
-  domains: Array<{ id: string; activity: number }>;
+  repos: Array<{ id: string; activity: number; baseline_activity: number }>;
+  domains: Array<{ id: string; activity: number; baseline_activity: number }>;
 };
 
 type PanelId = 'tickets' | 'prs' | 'repos' | 'domains';
@@ -111,12 +112,30 @@ function EvidenceList({ panel, evidence, timeZone }: { panel: PanelId; evidence:
 
   if (panel === 'repos') {
     if (evidence.repos.length === 0) return <p>{PANEL_META.repos.empty}</p>;
+    const maxActivity = Math.max(
+      1,
+      ...evidence.repos.flatMap((repo) => [repo.activity, repo.baseline_activity])
+    );
     return (
       <>
         {evidence.repos.map((repo) => (
-          <div key={repo.id} className="flex items-center justify-between rounded border border-white/10 bg-zinc-800 px-3 py-2">
-            <span className="text-white">{repo.id}</span>
-            <span className="text-white/70">{repo.activity}</span>
+          <div key={repo.id} className="rounded border border-white/10 bg-zinc-800 px-3 py-2">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-white">{repo.id}</span>
+              <span className="text-xs text-white/65">{repo.activity} vs {repo.baseline_activity}</span>
+            </div>
+            <div className="mt-2 space-y-1.5">
+              <div className="grid grid-cols-[4rem_1fr_auto] items-center gap-2 text-[11px] text-white/65">
+                <span>Current</span>
+                <Progress value={(repo.activity / maxActivity) * 100} className="h-1.5" />
+                <span className="font-mono text-white/70">{repo.activity}</span>
+              </div>
+              <div className="grid grid-cols-[4rem_1fr_auto] items-center gap-2 text-[11px] text-white/55">
+                <span>Baseline</span>
+                <Progress value={(repo.baseline_activity / maxActivity) * 100} className="h-1.5 opacity-70" />
+                <span className="font-mono text-white/60">{repo.baseline_activity}</span>
+              </div>
+            </div>
           </div>
         ))}
       </>
@@ -124,15 +143,31 @@ function EvidenceList({ panel, evidence, timeZone }: { panel: PanelId; evidence:
   }
 
   if (evidence.domains.length === 0) return <p>{PANEL_META.domains.empty}</p>;
-  const total = evidence.domains.reduce((sum, domain) => sum + domain.activity, 0);
+  const maxActivity = Math.max(
+    1,
+    ...evidence.domains.flatMap((domain) => [domain.activity, domain.baseline_activity])
+  );
   return (
     <>
       {evidence.domains.map((domain) => {
-        const percentage = total > 0 ? ((domain.activity / total) * 100).toFixed(2) : '0.00';
         return (
-          <div key={domain.id} className="flex items-center justify-between rounded border border-white/10 bg-zinc-800 px-3 py-2">
-            <span className="text-white">{domain.id}</span>
-            <span className="text-white/70">{domain.activity} ({percentage}%)</span>
+          <div key={domain.id} className="rounded border border-white/10 bg-zinc-800 px-3 py-2">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-white">{domain.id}</span>
+              <span className="text-xs text-white/65">{domain.activity} vs {domain.baseline_activity}</span>
+            </div>
+            <div className="mt-2 space-y-1.5">
+              <div className="grid grid-cols-[4rem_1fr_auto] items-center gap-2 text-[11px] text-white/65">
+                <span>Current</span>
+                <Progress value={(domain.activity / maxActivity) * 100} className="h-1.5" />
+                <span className="font-mono text-white/70">{domain.activity}</span>
+              </div>
+              <div className="grid grid-cols-[4rem_1fr_auto] items-center gap-2 text-[11px] text-white/55">
+                <span>Baseline</span>
+                <Progress value={(domain.baseline_activity / maxActivity) * 100} className="h-1.5 opacity-70" />
+                <span className="font-mono text-white/60">{domain.baseline_activity}</span>
+              </div>
+            </div>
           </div>
         );
       })}

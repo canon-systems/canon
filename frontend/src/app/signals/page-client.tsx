@@ -38,14 +38,6 @@ function severityClass(severity: SignalCard['severity']): string {
   return 'border-yellow-400/40 bg-yellow-500/10 text-yellow-100';
 }
 
-function scopeLabel(signal: SignalCard): string {
-  if (signal.scope_label_override) return signal.scope_label_override;
-  if (signal.scope.type === 'ticketing') return signal.scope.id || 'Source unavailable';
-  if (signal.scope.type === 'repo' && signal.scope.id) return signal.scope.id;
-  if (signal.scope.type === 'global') return 'Source unavailable';
-  return 'Source unavailable';
-}
-
 function formatTimestamp(value: string | null, timeZone: string): string {
   if (!value) return 'N/A';
   const date = DateTime.fromISO(value, { zone: 'utc' }).setZone(timeZone);
@@ -326,9 +318,6 @@ export default function SignalsPageClient({
                   <div className="flex items-center gap-2">
                     <Badge variant="outline" className={severityClass(signal.severity)}>
                       {severityLabel(signal.severity)}
-                    </Badge>
-                    <Badge variant="outline" className="border-white/20 bg-white/5 text-white/70">
-                      {scopeLabel(signal)}
                     </Badge>
                   </div>
                 </div>
