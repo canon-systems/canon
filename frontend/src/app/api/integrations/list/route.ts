@@ -23,12 +23,7 @@ export async function GET() {
       return NextResponse.json({ error: 'Failed to fetch connections' }, { status: 500 });
     }
 
-    const activeConnections = (connections || [])
-      .filter((connection) => {
-        const provider = typeof connection.provider === 'string' ? connection.provider.toLowerCase() : '';
-        return provider !== 'notion';
-      })
-      .map((connection) => ({
+    const activeConnections = (connections || []).map((connection) => ({
         ...connection,
         provider: canonicalProvider(connection.provider),
       }));
