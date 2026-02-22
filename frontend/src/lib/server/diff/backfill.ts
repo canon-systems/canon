@@ -383,11 +383,7 @@ async function updateBackfillStatus(params: {
     .maybeSingle();
 
   if (readError) {
-    log.warn('status_payload_read_failed', {
-      sourceId,
-      error: readError.message,
-    });
-    return;
+    throw new Error(`Failed to read status_payload for ${sourceId}: ${readError.message}`);
   }
 
   const statusPayload = asRecord(source?.status_payload);
@@ -416,6 +412,7 @@ async function updateBackfillStatus(params: {
       sourceId,
       error: writeError.message,
     });
+    throw new Error(`Failed to update status_payload for ${sourceId}: ${writeError.message}`);
   }
 }
 

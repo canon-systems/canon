@@ -168,6 +168,8 @@ export async function POST(request: NextRequest) {
 
     // Kick off ingestion via Inngest workers (durable in serverless; not tied to request lifetime)
     const createdSourceIds = (data || []).map((r) => r.id);
+    const sortedBatchIds = [...createdSourceIds].sort();
+    const setupBatchEventId = `source-setup-batch-finalize:${user.id}:${sortedBatchIds.join(',')}`;
 
     for (const row of data || []) {
       const provider = typeof row.provider === 'string' ? row.provider.toLowerCase() : '';
@@ -181,6 +183,7 @@ export async function POST(request: NextRequest) {
           : new Date().toISOString();
 
       await inngest.send({
+        id: `source-ingest-requested:${row.id}`,
         name: 'source/ingest.requested',
         data: {
           sourceId: row.id,
@@ -204,6 +207,7 @@ export async function POST(request: NextRequest) {
         });
         try {
           await inngest.send({
+            id: `diff-source-backfill-requested:${row.id}`,
             name: 'diff/source.backfill.requested',
             data: {
               sourceId: row.id,
@@ -236,6 +240,7 @@ export async function POST(request: NextRequest) {
     }
 
     await inngest.send({
+      id: setupBatchEventId,
       name: 'source/setup.batch.finalize.requested',
       data: {
         userId: user.id,

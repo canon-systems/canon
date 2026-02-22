@@ -176,11 +176,14 @@ async function updateStatus(
     ...extras,
   };
 
-  const { data: existing } = await supabase
+  const { data: existing, error: readError } = await supabase
     .from('workspace_sources')
     .select('status_payload')
     .eq('id', sourceId)
     .maybeSingle();
+  if (readError) {
+    throw new Error(`Failed to read source status for ${sourceId}: ${readError.message}`);
+  }
 
   const existingPayload =
     existing?.status_payload && typeof existing.status_payload === 'object'
@@ -192,7 +195,7 @@ async function updateStatus(
     ...payload,
   };
 
-  await supabase
+  const { error: writeError } = await supabase
     .from('workspace_sources')
     .update({
       status_payload: mergedPayload,
@@ -202,6 +205,9 @@ async function updateStatus(
       updated_at: new Date().toISOString(),
     })
     .eq('id', sourceId);
+  if (writeError) {
+    throw new Error(`Failed to update source status for ${sourceId}: ${writeError.message}`);
+  }
 }
 
 async function updateStage(
@@ -223,7 +229,7 @@ export async function ingestGitHubSource(
   const branch = typeof source.scope?.branch === 'string' ? source.scope.branch : 'main';
   if (!repo) {
     await updateStatus(supabase, source.id, 'failed', 0, { error: 'Missing repo in scope' });
-    return;
+    throw new Error('Missing repo in scope');
   }
 
   try {
@@ -231,15 +237,17 @@ export async function ingestGitHubSource(
     await updateStage(supabase, source.id, 'ready', 100, 'Setup complete');
     ingestLog.info('github_complete', { sourceId: source.id, repo, branch });
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
     ingestLog.error('github_failed', {
       sourceId: source.id,
       repo,
       branch,
-      error: err instanceof Error ? err.message : String(err),
+      error: message,
     });
     await updateStatus(supabase, source.id, 'failed', 0, {
-      error: err instanceof Error ? err.message : String(err),
+      error: message,
     });
+    throw err instanceof Error ? err : new Error(message);
   }
 }
 
@@ -261,14 +269,16 @@ export async function ingestIssueSource(
     await updateStage(supabase, source.id, 'ready', 100, 'Setup complete');
     ingestLog.info('issue_complete', { sourceId: source.id, provider });
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
     ingestLog.error('issue_failed', {
       sourceId: source.id,
       provider,
-      error: err instanceof Error ? err.message : String(err),
+      error: message,
     });
     await updateStatus(supabase, source.id, 'failed', 0, {
-      error: err instanceof Error ? err.message : String(err),
+      error: message,
     });
+    throw err instanceof Error ? err : new Error(message);
   }
 }
 

@@ -20,11 +20,14 @@ export async function patchSourceBackfillStatus(params: {
   patch: BackfillStatusPatch;
 }): Promise<void> {
   const { supabase, sourceId, patch } = params;
-  const { data: source } = await supabase
+  const { data: source, error: readError } = await supabase
     .from('workspace_sources')
     .select('status_payload')
     .eq('id', sourceId)
     .maybeSingle();
+  if (readError) {
+    throw new Error(`Failed to read backfill status for ${sourceId}: ${readError.message}`);
+  }
 
   const statusPayload = asRecord(source?.status_payload);
   const existingBackfill = asRecord(statusPayload.backfill);
@@ -34,7 +37,7 @@ export async function patchSourceBackfillStatus(params: {
     updated_at: patch.updated_at ?? new Date().toISOString(),
   };
 
-  await supabase
+  const { error: writeError } = await supabase
     .from('workspace_sources')
     .update({
       status_payload: {
@@ -44,5 +47,7 @@ export async function patchSourceBackfillStatus(params: {
       updated_at: new Date().toISOString(),
     })
     .eq('id', sourceId);
+  if (writeError) {
+    throw new Error(`Failed to update backfill status for ${sourceId}: ${writeError.message}`);
+  }
 }
-

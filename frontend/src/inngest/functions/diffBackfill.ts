@@ -38,7 +38,11 @@ export const diffSourceBackfill = inngest.createFunction(
     id: 'diff-source-backfill',
     name: 'Canon: Source Activity Backfill',
     retries: 1,
-    concurrency: { limit: 5 },
+    idempotency: 'event.data.sourceId',
+    concurrency: [
+      { limit: 5 },
+      { limit: 1, key: 'event.data.sourceId' },
+    ],
   },
   { event: 'diff/source.backfill.requested' },
   async ({ event, step }) => {

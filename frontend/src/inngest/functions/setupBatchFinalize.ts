@@ -137,7 +137,13 @@ export const setupBatchFinalizeRequested = inngest.createFunction(
     id: 'setup-batch-finalize-requested',
     name: 'Canon: Setup Batch Finalize',
     retries: 1,
-    concurrency: { limit: 5 },
+    concurrency: [
+      { limit: 5 },
+      { limit: 1, key: 'event.data.userId' },
+    ],
+    timeouts: {
+      finish: '5m',
+    },
   },
   { event: 'source/setup.batch.finalize.requested' },
   async ({ event, step }) => {
@@ -203,13 +209,9 @@ export const setupBatchFinalizeRequested = inngest.createFunction(
               pendingBackfillSourceIds: status.pendingBackfillSourceIds,
               attempts: attempt,
             });
-            return {
-              skipped: true,
-              reason: 'batch_timed_out',
-              missingSourceIds: status.missingSourceIds,
-              pendingSetupSourceIds: status.pendingSetupSourceIds,
-              pendingBackfillSourceIds: status.pendingBackfillSourceIds,
-            };
+            throw new Error(
+              `Setup batch readiness timed out after ${attempt} attempts: missing=${status.missingSourceIds.length}, pendingSetup=${status.pendingSetupSourceIds.length}, pendingBackfill=${status.pendingBackfillSourceIds.length}`
+            );
           }
 
           log.info('batch_pending', {
