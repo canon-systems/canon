@@ -31,7 +31,11 @@ export const sourceIngestRequested = inngest.createFunction(
     id: 'source-ingest-requested',
     name: 'Canon: Source Setup Ingest',
     retries: 1,
-    concurrency: { limit: 3 },
+    idempotency: 'event.data.sourceId',
+    concurrency: [
+      { limit: 5 },
+      { limit: 1, key: 'event.data.sourceId' },
+    ],
   },
   { event: 'source/ingest.requested' },
   async ({ event, step }) => {
