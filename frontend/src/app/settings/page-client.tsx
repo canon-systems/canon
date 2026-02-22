@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Skeleton } from '@/components/ui/skeleton';
 import { ATLASSIAN_PROVIDER, canonicalProvider } from '@/lib/providers';
 
 type JiraSetupSite = { id: string; name: string; url: string; projectKeys: string[]; jql: string };
@@ -824,9 +825,37 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
           </DialogHeader>
           <div className="min-h-0 overflow-y-auto space-y-4 pt-2">
             {jiraSetupLoading && (
-              <div className="flex items-center gap-2 text-sm text-white/70">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading…
+              <div className="space-y-4">
+                <div>
+                  <Skeleton className="mb-1.5 h-3 w-24 rounded bg-white/15" />
+                  <div className="flex gap-2">
+                    <Skeleton className="h-9 flex-1 rounded border border-white/10 bg-white/10" />
+                    <Skeleton className="h-9 w-16 shrink-0 rounded" />
+                  </div>
+                </div>
+                <div>
+                  <Skeleton className="mb-1.5 h-3 w-28 rounded bg-white/15" />
+                  <div className="flex gap-2">
+                    <Skeleton className="h-9 flex-1 rounded border border-white/10 bg-white/10" />
+                    <Skeleton className="h-9 w-16 shrink-0 rounded" />
+                  </div>
+                </div>
+                <div>
+                  <Skeleton className="mb-1.5 h-3 w-32 rounded bg-white/15" />
+                  <ul className="mt-2 space-y-1.5">
+                    <Skeleton className="h-4 w-full max-w-xs rounded" />
+                    <Skeleton className="h-4 w-4/5 max-w-sm rounded" />
+                    <Skeleton className="h-4 w-3/4 max-w-[10rem] rounded" />
+                  </ul>
+                </div>
+                <div className="space-y-2">
+                  <Skeleton className="h-3 w-36 rounded bg-white/15" />
+                  <Skeleton className="h-4 w-full max-w-md rounded" />
+                  <div className="flex gap-2">
+                    <Skeleton className="h-9 flex-1 rounded" />
+                    <Skeleton className="h-9 w-16 shrink-0 rounded" />
+                  </div>
+                </div>
               </div>
             )}
             {jiraSetupError && (
