@@ -53,7 +53,14 @@ interface SourcesPageClientProps {
 
 type StatusFilter = 'all' | 'ready' | 'processing' | 'failed' | 'not_started';
 
-type GithubRepo = { id: string; full_name: string; name: string; default_branch: string };
+type GithubRepo = {
+  id: string;
+  full_name: string;
+  name: string;
+  default_branch: string;
+  installation_id: string | null;
+  organization_id: string | null;
+};
 type JiraProject = { id: string; key: string; name: string; cloudId?: string };
 
 const processingStatuses = new Set([
@@ -152,11 +159,17 @@ const parseGithubRepos = (data: unknown): GithubRepo[] => {
       const idValue = obj.id ?? fullName ?? name;
       if (!idValue) return null;
       const defaultBranch = typeof obj.default_branch === 'string' ? obj.default_branch : 'main';
+      const installationId =
+        obj.installation_id !== undefined && obj.installation_id !== null ? String(obj.installation_id) : null;
+      const organizationId =
+        obj.organization_id !== undefined && obj.organization_id !== null ? String(obj.organization_id) : null;
       return {
         id: String(idValue),
         full_name: fullName || name,
         name: name || fullName,
         default_branch: defaultBranch,
+        installation_id: installationId,
+        organization_id: organizationId,
       };
     })
     .filter((repo): repo is GithubRepo => Boolean(repo?.id));
@@ -310,7 +323,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
   const [showSourceDialog, setShowSourceDialog] = useState(false);
   const [loadingSources, setLoadingSources] = useState(false);
   const [loadError, setLoadError] = useState('');
-  const [availableGithub, setAvailableGithub] = useState<Array<{ id: string; full_name: string; name: string; default_branch: string }>>([]);
+  const [availableGithub, setAvailableGithub] = useState<GithubRepo[]>([]);
   const [availableJira, setAvailableJira] = useState<Array<{ id: string; key: string; name: string; cloudId?: string }>>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectedDomainsBySourceKey, setSelectedDomainsBySourceKey] = useState<Record<string, string>>({});
@@ -512,7 +525,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
         ),
       ]);
 
-      let ghRepos: Array<{ id: string; full_name: string; name: string; default_branch: string }> = [];
+      let ghRepos: GithubRepo[] = [];
 
       if (ghRes.status === 'fulfilled') {
         ghRepos = parseGithubRepos(ghRes.value.data);
@@ -613,7 +626,13 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
           sources.push({
             provider: 'github',
             name: repoLabel,
-            scope: { repo: repo.full_name, branch: repo.default_branch || 'main' },
+            scope: {
+              repo: repo.full_name,
+              repo_id: repo.id,
+              installation_id: repo.installation_id ?? null,
+              organization_id: repo.organization_id ?? null,
+              branch: repo.default_branch || 'main',
+            },
             connection_id: null,
             domain: (selectedDomainsBySourceKey[key] || '').trim() || null,
           });
