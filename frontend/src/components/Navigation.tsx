@@ -46,11 +46,11 @@ const primaryNav: NavItem[] = [
   { href: '/signals', label: 'Signals', icon: Radio, matchPrefix: true },
   { href: '/history', label: 'History', icon: History, matchPrefix: true },
   { href: '/logs', label: 'Logs', icon: Activity },
+  { href: '/docs', label: 'Docs', icon: BookOpen, matchPrefix: true },
 ];
 
 const secondaryNav: NavItem[] = [
   { href: '/settings', label: 'Settings', icon: Settings, matchPrefix: true },
-  { href: '/docs', label: 'Tutorials', icon: BookOpen },
 ];
 
 export function Navigation({ user, session, onLogout }: NavigationProps) {
@@ -156,12 +156,6 @@ export function Navigation({ user, session, onLogout }: NavigationProps) {
                 <Link href="/settings">
                   <Settings className="mr-2 h-4 w-4" />
                   Settings
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href="/docs">
-                  <BookOpen className="mr-2 h-4 w-4" />
-                  Tutorials
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />

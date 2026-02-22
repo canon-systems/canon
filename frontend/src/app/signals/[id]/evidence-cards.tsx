@@ -581,7 +581,7 @@ export default function EvidenceCards({ evidence, timeZone }: { evidence: Eviden
       </div>
 
       <Dialog open={expandedPanel !== null} onOpenChange={(open) => !open && setExpandedPanel(null)}>
-        <DialogContent className="max-h-[85vh] max-w-5xl border-white/10 bg-black/95 p-0">
+        <DialogContent className="max-w-5xl p-0">
           {expandedPanel && expandedMeta ? (
             <>
               <DialogHeader className="border-b border-white/10 px-6 py-4">

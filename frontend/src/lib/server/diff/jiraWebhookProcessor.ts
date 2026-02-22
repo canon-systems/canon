@@ -9,6 +9,7 @@ import {
 } from '@/lib/server/diff/webhookIngest';
 import { createLogger, errorMessage } from '@/lib/server/logging';
 import { withConfluenceAccessToken } from '@/lib/server/oauth/tokenStore';
+import { patchSourceWebhookStatus } from '@/lib/server/diff/backfillStatus';
 
 const JIRA_SOURCE_PROVIDERS = ['jira', 'atlassian'] as const;
 
@@ -259,13 +260,17 @@ async function getJiraSourceContext(supabase: ReturnType<typeof createServiceRol
     ? (sourceRow.scope as Record<string, unknown>)
     : {};
   const cloudId = typeof scope.cloudId === 'string' && scope.cloudId.trim().length > 0 ? scope.cloudId : null;
+  const expectedProjectKey =
+    typeof scope.project === 'string' && scope.project.trim().length > 0
+      ? scope.project.trim().toUpperCase()
+      : null;
   const sourceName =
     typeof sourceRow?.name === 'string' && sourceRow.name.trim().length > 0
       ? sourceRow.name.trim()
       : null;
 
   if (!sourceRow?.connection_id) {
-    return { sourceName, connectionId: null, cloudId };
+    return { sourceName, connectionId: null, cloudId, expectedProjectKey };
   }
 
   const { data: connectionRow } = await supabase
@@ -290,6 +295,7 @@ async function getJiraSourceContext(supabase: ReturnType<typeof createServiceRol
     sourceName,
     connectionId: connectionRow?.connection_id ?? null,
     cloudId: cloudId || metadataCloudId,
+    expectedProjectKey,
   };
 }
 
@@ -385,6 +391,55 @@ export async function processJiraWebhookPayload(
     hasConnectionId: Boolean(sourceContext.connectionId),
     cloudId: sourceContext.cloudId,
   });
+
+  try {
+    const normalizedProjectKey = typeof projectKey === 'string' ? projectKey.trim().toUpperCase() : null;
+    const projectMismatch = Boolean(
+      sourceContext.expectedProjectKey &&
+      normalizedProjectKey &&
+      sourceContext.expectedProjectKey !== normalizedProjectKey
+    );
+    const signatureMissingSecret = params.signatureReason === 'missing_secret';
+    const signatureInvalid = params.signatureValid === false;
+    const webhookStatus = signatureInvalid
+      ? 'error'
+      : projectMismatch || signatureMissingSecret
+        ? 'warning'
+        : 'healthy';
+
+    await patchSourceWebhookStatus({
+      supabase,
+      sourceId,
+      patch: {
+        status: webhookStatus,
+        last_received_at: new Date().toISOString(),
+        last_webhook_event: webhookEvent,
+        last_issue_key: issueKey,
+        last_project_key: normalizedProjectKey,
+        expected_project_key: sourceContext.expectedProjectKey,
+        signature: {
+          present: Boolean(params.signaturePresent),
+          valid: Boolean(params.signatureValid),
+          reason: params.signatureReason ?? null,
+        },
+        warning_reason: signatureInvalid
+          ? 'invalid_signature'
+          : projectMismatch
+            ? 'project_mismatch'
+            : signatureMissingSecret
+              ? 'missing_secret'
+              : null,
+      },
+    });
+  } catch (error) {
+    log.warn('process_skipped', {
+      requestId,
+      sourceId,
+      sourceName,
+      reason: 'webhook_status_patch_failed',
+      error: errorMessage(error),
+    });
+  }
 
   try {
     await insertRawEvent({
