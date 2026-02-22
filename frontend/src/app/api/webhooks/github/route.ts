@@ -26,13 +26,49 @@ const verifyGithubSignature = (rawBody: string, signature: string | null, secret
   return timingSafeEqual(digest, signature);
 };
 
+const KNOWN_GITHUB_EVENTS = new Set([
+  'ping',
+  'push',
+  'pull_request',
+  'pull_request_review',
+  'pull_request_review_comment',
+  'issues',
+  'issue_comment',
+  'create',
+  'delete',
+  'release',
+  'check_run',
+  'check_suite',
+  'workflow_run',
+  'workflow_job',
+  'repository',
+  'installation',
+  'installation_repositories',
+]);
+
 export async function POST(request: NextRequest) {
   const rawBody = await request.text();
   const signature = request.headers.get('x-hub-signature-256');
-  const eventType = request.headers.get('x-github-event') || 'unknown';
+  const eventType = request.headers.get('x-github-event');
   const deliveryId = request.headers.get('x-github-delivery');
 
-  if (!verifyGithubSignature(rawBody, signature, process.env.GITHUB_WEBHOOK_SECRET)) {
+  if (!eventType) {
+    return NextResponse.json({ ok: false, error: 'Missing x-github-event header' }, { status: 400 });
+  }
+  if (!KNOWN_GITHUB_EVENTS.has(eventType)) {
+    return NextResponse.json({ ok: false, error: 'Unknown GitHub event type' }, { status: 400 });
+  }
+  if (!deliveryId) {
+    return NextResponse.json({ ok: false, error: 'Missing x-github-delivery header' }, { status: 400 });
+  }
+
+  const webhookSecret = process.env.GITHUB_WEBHOOK_SECRET;
+  const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production';
+  if (isProduction && !webhookSecret) {
+    return NextResponse.json({ ok: false, error: 'GitHub webhook secret is not configured' }, { status: 500 });
+  }
+
+  if (!verifyGithubSignature(rawBody, signature, webhookSecret)) {
     return NextResponse.json({ ok: false, error: 'Invalid signature' }, { status: 401 });
   }
 
@@ -47,14 +83,50 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const repository = payload.repository as { full_name?: string } | undefined;
+  const installation = payload.installation as { id?: number | string } | undefined;
+  const installationId = installation?.id != null ? String(installation.id) : null;
+  if (!installationId) {
+    return NextResponse.json({ ok: false, error: 'Missing installation.id' }, { status: 400 });
+  }
+
+  const repository = payload.repository as { id?: number | string; full_name?: string } | undefined;
   const repoFullName = repository?.full_name;
-  if (!repoFullName) {
-    return NextResponse.json({ ok: true, skipped: 'missing repo' });
+  const repositoryId = repository?.id != null ? String(repository.id) : null;
+
+  // Repo-scoped events must include repository.id.
+  if (repository && !repositoryId) {
+    return NextResponse.json({ ok: false, error: 'Missing repository.id' }, { status: 400 });
   }
 
   const supabase = createServiceRoleClient();
-  const sourceId = await resolveGithubSourceId(supabase, repoFullName);
+
+  const { data: activeConnections } = await supabase
+    .from('oauth_connections')
+    .select('id, connection_id, metadata')
+    .eq('provider', 'github')
+    .eq('status', 'active');
+
+  const installationIsKnown = (activeConnections || []).some((row) => {
+    const connectionInstallationId = row.connection_id != null ? String(row.connection_id) : '';
+    const metadata = row.metadata && typeof row.metadata === 'object'
+      ? (row.metadata as Record<string, unknown>)
+      : {};
+    const metadataInstallationId =
+      metadata.installation_id !== undefined && metadata.installation_id !== null
+        ? String(metadata.installation_id)
+        : '';
+    return connectionInstallationId === installationId || metadataInstallationId === installationId;
+  });
+
+  if (!installationIsKnown) {
+    return NextResponse.json({ ok: false, error: 'Unknown or inactive installation' }, { status: 403 });
+  }
+
+  const resolution = await resolveGithubSourceId(supabase, {
+    installationId,
+    repositoryId,
+  });
+  const sourceId = resolution.sourceId;
   if (!sourceId) {
     return NextResponse.json({ ok: true, skipped: 'source not found' });
   }

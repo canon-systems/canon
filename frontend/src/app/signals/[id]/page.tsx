@@ -118,7 +118,7 @@ function metricTooltip(metricKey: string): string {
     case 'commits_default':
       return 'Number of commits to the default branch in this period.';
     case 'repos_touched':
-      return 'Number of repositories with activity in this period.';
+      return 'Number of surfaces with activity in this period.';
     case 'regression_rate':
       return 'Percent of ticket movement that regressed ((regressed / (completed + regressed)) * 100). Lower is better.';
     case 'domain_distribution':
@@ -262,7 +262,7 @@ export default async function SignalInvestigatePage({
                 <p className="text-xs uppercase tracking-[0.18em] text-white/50">
                   <MetricLabelTooltip
                     label="Newly Active Surfaces"
-                    tip="Repositories that had activity now but had none in baseline."
+                    tip="Surfaces that had activity now but had none in baseline."
                   />
                 </p>
                 {payload.direction.focus.repos_added.length === 0 ? (
@@ -279,7 +279,7 @@ export default async function SignalInvestigatePage({
                 <p className="text-xs uppercase tracking-[0.18em] text-white/50">
                   <MetricLabelTooltip
                     label="Reduced Surfaces"
-                    tip="Repositories that had activity in baseline but not in this period."
+                    tip="Surfaces that had activity in baseline but not in this period."
                   />
                 </p>
                 {payload.direction.focus.repos_removed.length === 0 ? (

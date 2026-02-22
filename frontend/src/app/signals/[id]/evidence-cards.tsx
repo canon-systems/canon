@@ -73,7 +73,7 @@ const PANEL_META: Record<
   },
   repos: {
     label: 'Active Surfaces',
-    tip: 'Repositories with activity in this signal window.',
+    tip: 'Surfaces with activity in this signal window.',
     empty: 'No active surface evidence in this signal window.',
     dialogDescription: 'Detailed activity across touched repositories and surfaces.',
   },
@@ -170,11 +170,10 @@ function TicketEvidenceList({
               key={item.label}
               type="button"
               onClick={() => onToggleLabel(item.label)}
-              className={`rounded border px-2 py-0.5 text-[11px] uppercase tracking-[0.06em] transition ${
-                selectedLabels.includes(item.label)
-                  ? 'border-white/45 bg-white !text-black'
-                  : 'border-white/15 bg-white/5 text-white/75 hover:border-white/30 hover:bg-white/10'
-              }`}
+              className={`rounded border px-2 py-0.5 text-[11px] uppercase tracking-[0.06em] transition ${selectedLabels.includes(item.label)
+                ? 'border-white/45 bg-white !text-black'
+                : 'border-white/15 bg-white/5 text-white/75 hover:border-white/30 hover:bg-white/10'
+                }`}
             >
               {item.label}: {item.count}
             </button>
@@ -266,11 +265,10 @@ function PullRequestEvidenceList({
               key={item.label}
               type="button"
               onClick={() => onToggleLabel(item.label)}
-              className={`rounded border px-2 py-0.5 text-[11px] uppercase tracking-[0.06em] transition ${
-                selectedLabels.includes(item.label)
-                  ? 'border-white/45 bg-white !text-black'
-                  : 'border-white/15 bg-white/5 text-white/75 hover:border-white/30 hover:bg-white/10'
-              }`}
+              className={`rounded border px-2 py-0.5 text-[11px] uppercase tracking-[0.06em] transition ${selectedLabels.includes(item.label)
+                ? 'border-white/45 bg-white !text-black'
+                : 'border-white/15 bg-white/5 text-white/75 hover:border-white/30 hover:bg-white/10'
+                }`}
             >
               {item.label}: {item.count}
             </button>

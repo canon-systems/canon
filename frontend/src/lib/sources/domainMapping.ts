@@ -76,6 +76,11 @@ export function buildSourceIdentifier(params: {
   const scope = params.scope || {};
 
   if (provider === 'github') {
+    const installationId = normalizeScopeValue(scope.installation_id);
+    const repoId = normalizeScopeValue(scope.repo_id);
+    if (installationId && repoId) {
+      return `gh:${installationId}:${repoId}`.slice(0, SOURCE_IDENTIFIER_MAX_LENGTH);
+    }
     const repo = normalizeIdentifierPart(scope.repo);
     if (repo) return repo.slice(0, SOURCE_IDENTIFIER_MAX_LENGTH);
   }

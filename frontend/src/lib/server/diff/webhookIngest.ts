@@ -338,39 +338,92 @@ export async function upsertDailyMetrics(params: {
   }
 }
 
-export async function resolveGithubSourceId(supabase: SupabaseClient, repoFullName: string): Promise<string | null> {
-  const repoLower = repoFullName.trim().toLowerCase();
-  if (!repoLower) return null;
+export type GithubSourceResolution = {
+  sourceId: string | null;
+  strategy: 'installation_repo_id' | 'installation_only' | 'none';
+};
 
-  const { data: byIdentifier } = await supabase
-    .from('workspace_sources')
-    .select('id')
-    .eq('provider', 'github')
-    .eq('source_identifier', repoLower)
-    .limit(1);
-
-  if (byIdentifier && byIdentifier.length > 0) return byIdentifier[0].id as string;
-
-  const { data: direct } = await supabase
-    .from('workspace_sources')
-    .select('id, scope')
-    .eq('provider', 'github')
-    .contains('scope', { repo: repoFullName })
-    .limit(1);
-
-  if (direct && direct.length > 0) return direct[0].id as string;
+export async function resolveGithubSourceId(
+  supabase: SupabaseClient,
+  params: {
+    installationId?: string | number | null;
+    repositoryId?: string | number | null;
+  }
+): Promise<GithubSourceResolution> {
+  const installationId =
+    params.installationId !== undefined && params.installationId !== null
+      ? String(params.installationId).trim()
+      : '';
+  const repositoryId =
+    params.repositoryId !== undefined && params.repositoryId !== null
+      ? String(params.repositoryId).trim()
+      : '';
 
   const { data: allSources } = await supabase
     .from('workspace_sources')
-    .select('id, scope')
+    .select('id, scope, source_identifier, connection_id')
     .eq('provider', 'github');
 
-  const match = (allSources || []).find((row) => {
-    const scope = (row.scope as { repo?: string }) || {};
-    return typeof scope.repo === 'string' && scope.repo.toLowerCase() === repoLower;
+  if (!allSources || allSources.length === 0) {
+    return { sourceId: null, strategy: 'none' };
+  }
+
+  const { data: activeConnections } = await supabase
+    .from('oauth_connections')
+    .select('id, connection_id, metadata')
+    .eq('provider', 'github')
+    .eq('status', 'active');
+
+  const matchingConnectionIds = new Set<string>();
+  if (installationId && activeConnections) {
+    for (const row of activeConnections) {
+      const metadata = row.metadata && typeof row.metadata === 'object'
+        ? (row.metadata as Record<string, unknown>)
+        : {};
+      const metadataInstallationId =
+        metadata.installation_id !== undefined && metadata.installation_id !== null
+          ? String(metadata.installation_id).trim()
+          : '';
+      const connectionInstallationId =
+        row.connection_id !== undefined && row.connection_id !== null
+          ? String(row.connection_id).trim()
+          : '';
+      if (metadataInstallationId === installationId || connectionInstallationId === installationId) {
+        matchingConnectionIds.add(String(row.id));
+      }
+    }
+  }
+
+  const sourceRows = allSources.map((row) => {
+    const scope = row.scope && typeof row.scope === 'object' ? (row.scope as Record<string, unknown>) : {};
+    const scopeInstallationId =
+      scope.installation_id !== undefined && scope.installation_id !== null
+        ? String(scope.installation_id).trim()
+        : '';
+    const scopeRepoId = scope.repo_id !== undefined && scope.repo_id !== null ? String(scope.repo_id).trim() : '';
+    const sourceConnectionId = row.connection_id ? String(row.connection_id) : '';
+    const installationMatches = installationId
+      ? (scopeInstallationId === installationId || matchingConnectionIds.has(sourceConnectionId))
+      : false;
+    const repositoryIdMatches = repositoryId ? scopeRepoId === repositoryId : false;
+    return {
+      id: String(row.id),
+      installationMatches,
+      repositoryIdMatches,
+    };
   });
 
-  return match ? (match.id as string) : null;
+  const byInstallationAndRepo = sourceRows.find((row) => row.installationMatches && row.repositoryIdMatches);
+  if (byInstallationAndRepo) {
+    return { sourceId: byInstallationAndRepo.id, strategy: 'installation_repo_id' };
+  }
+
+  const byInstallationOnly = sourceRows.find((row) => row.installationMatches);
+  if (byInstallationOnly) {
+    return { sourceId: byInstallationOnly.id, strategy: 'installation_only' };
+  }
+
+  return { sourceId: null, strategy: 'none' };
 }
 
 export async function resolveJiraSourceId(

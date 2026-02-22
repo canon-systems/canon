@@ -53,8 +53,8 @@ export async function POST(request: NextRequest) {
         per_page: 100
       });
       const repoList = Array.isArray((installRepos as { repositories?: unknown[] }).repositories)
-        ? (installRepos as { repositories: Array<{ id: number; name: string; full_name: string; html_url: string; description: string | null; private: boolean; default_branch: string; language: string | null; updated_at: string; owner?: { login?: string } }> }).repositories
-        : (installRepos as { repositories?: Array<{ id: number; name: string; full_name: string; html_url: string; description: string | null; private: boolean; default_branch: string; language: string | null; updated_at: string; owner?: { login?: string } }> }).repositories || [];
+        ? (installRepos as { repositories: Array<{ id: number; name: string; full_name: string; html_url: string; description: string | null; private: boolean; default_branch: string; language: string | null; updated_at: string; owner?: { login?: string; id?: number; type?: string } }> }).repositories
+        : (installRepos as { repositories?: Array<{ id: number; name: string; full_name: string; html_url: string; description: string | null; private: boolean; default_branch: string; language: string | null; updated_at: string; owner?: { login?: string; id?: number; type?: string } }> }).repositories || [];
 
       const repos = Array.isArray(repoList) ? repoList : [];
 
@@ -63,6 +63,9 @@ export async function POST(request: NextRequest) {
           id: r.id,
           name: r.name,
           full_name: r.full_name,
+          installation_id: installationId,
+          owner_id: r.owner?.id ?? null,
+          organization_id: r.owner?.type === 'Organization' ? (r.owner?.id ?? null) : null,
           html_url: r.html_url,
           description: r.description,
           private: r.private,
@@ -129,7 +132,7 @@ export async function POST(request: NextRequest) {
       default_branch: string;
       language: string | null;
       updated_at: string;
-      owner?: { login?: string };
+      owner?: { login?: string; id?: number; type?: string };
     }> = [];
 
     try {
@@ -137,8 +140,8 @@ export async function POST(request: NextRequest) {
         per_page: 100
       });
       const repoList = Array.isArray((installRepos as { repositories?: unknown[] }).repositories)
-        ? (installRepos as { repositories: Array<{ id: number; name: string; full_name: string; html_url: string; description: string | null; private: boolean; default_branch: string; language: string | null; updated_at: string; owner?: { login?: string } }> }).repositories
-        : (installRepos as { repositories?: Array<{ id: number; name: string; full_name: string; html_url: string; description: string | null; private: boolean; default_branch: string; language: string | null; updated_at: string; owner?: { login?: string } }> }).repositories || [];
+        ? (installRepos as { repositories: Array<{ id: number; name: string; full_name: string; html_url: string; description: string | null; private: boolean; default_branch: string; language: string | null; updated_at: string; owner?: { login?: string; id?: number; type?: string } }> }).repositories
+        : (installRepos as { repositories?: Array<{ id: number; name: string; full_name: string; html_url: string; description: string | null; private: boolean; default_branch: string; language: string | null; updated_at: string; owner?: { login?: string; id?: number; type?: string } }> }).repositories || [];
       if (Array.isArray(repoList)) {
         const ownerLower = owner.toLowerCase();
         repos.push(...repoList.filter((r) => r.owner?.login?.toLowerCase() === ownerLower));
@@ -174,6 +177,9 @@ export async function POST(request: NextRequest) {
         id: r.id,
         name: r.name,
         full_name: r.full_name,
+        installation_id: installationId,
+        owner_id: r.owner?.id ?? null,
+        organization_id: r.owner?.type === 'Organization' ? (r.owner?.id ?? null) : null,
         html_url: r.html_url,
         description: r.description,
         private: r.private,
