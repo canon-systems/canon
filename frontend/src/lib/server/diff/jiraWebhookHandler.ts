@@ -94,8 +94,7 @@ export async function handleJiraWebhook(request: NextRequest) {
   const signature = readSignature(request);
 
   const urlToken = request.nextUrl.searchParams.get('t');
-  const secretFromToken = urlToken ? await getJiraWebhookSecretByToken(urlToken) : null;
-  const webhookSecret = secretFromToken ?? process.env.JIRA_WEBHOOK_SECRET;
+  const webhookSecret = urlToken ? await getJiraWebhookSecretByToken(urlToken) : null;
   const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production';
 
   if (isProduction && !webhookSecret) {
@@ -110,7 +109,7 @@ export async function handleJiraWebhook(request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Webhook secret is not configured' }, { status: 500 });
   }
 
-  const signatureResult = verifyHmacSignature(rawBody, signature, webhookSecret);
+  const signatureResult = verifyHmacSignature(rawBody, signature, webhookSecret ?? undefined);
 
   log.info('webhook_received', {
     requestId,

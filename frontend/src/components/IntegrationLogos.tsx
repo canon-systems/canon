@@ -4,13 +4,12 @@ import * as simpleIcons from 'simple-icons';
 
 interface IntegrationLogosProps {
   size?: number;
-  provider: 'notion' | 'slack' | 'confluence' | 'atlassian' | 'jira' | 'github' | 'coda';
+  provider: 'slack' | 'confluence' | 'atlassian' | 'jira' | 'github' | 'coda';
   color?: string;
 }
 
 // Map provider names to simple-icons export names
 const iconMap: Record<string, keyof typeof simpleIcons> = {
-  'notion': 'siNotion',
   'slack': 'siSlack',
   'confluence': 'siConfluence',
   'atlassian': 'siAtlassian',
@@ -20,7 +19,7 @@ const iconMap: Record<string, keyof typeof simpleIcons> = {
 };
 
 export function IntegrationLogos({ size = 24, provider, color }: IntegrationLogosProps) {
-  const iconKey = iconMap[provider] || 'siNotion';
+  const iconKey = iconMap[provider] || 'siSlack';
   const icon = simpleIcons[iconKey] as { title: string; hex: string; path: string };
   const fill = color || `#${icon.hex}`;
 
