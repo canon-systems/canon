@@ -1130,8 +1130,8 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
           if (!open) setDeleteTarget(null);
         }}
       >
-        <DialogContent className="max-w-md border-white/10 bg-black/95">
-          <DialogTitle className="text-white">Disconnect Source?</DialogTitle>
+        <DialogContent className="max-w-md">
+          <DialogTitle>Disconnect Source?</DialogTitle>
           <div className="space-y-4 text-sm text-white/70">
             <p>
               This will delete the record for{' '}
@@ -1164,7 +1164,7 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
           if (!open) closeCustomDomainDialog();
         }}
       >
-        <DialogContent className="max-w-md border-white/10 bg-black/95">
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Use Custom Domain?</DialogTitle>
             <DialogDescription>
@@ -1215,8 +1215,8 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
           }
         }}
       >
-        <DialogContent className="max-w-2xl border-white/10 bg-black/95">
-          <DialogTitle className="text-white">Add Sources</DialogTitle>
+        <DialogContent className="max-w-2xl">
+          <DialogTitle>Add Sources</DialogTitle>
           <p className="text-sm text-white/70">
             Select the sources you want to connect, then click “Add sources”. We’ll start ingesting them in the background.
           </p>

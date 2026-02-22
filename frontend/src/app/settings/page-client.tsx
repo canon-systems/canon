@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ATLASSIAN_PROVIDER, canonicalProvider } from '@/lib/providers';
 
 type JiraSetupSite = { id: string; name: string; url: string; projectKeys: string[]; jql: string };
@@ -815,14 +815,14 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
 
       {/* Jira Webhook Setup Modal */}
       <Dialog open={jiraWebhookModalOpen} onOpenChange={setJiraWebhookModalOpen}>
-        <DialogContent className="max-w-lg border-white/10 bg-zinc-900 text-white">
+        <DialogContent className="max-w-lg grid grid-rows-[auto_minmax(0,1fr)]">
           <DialogHeader>
             <DialogTitle>Configure Jira webhook</DialogTitle>
             <DialogDescription className="text-white/70">
               Add a webhook in your Jira site admin (Settings → System → WebHooks) using the values below. Then add Jira sources on the Sources page.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 pt-2">
+          <div className="min-h-0 overflow-y-auto space-y-4 pt-2">
             {jiraSetupLoading && (
               <div className="flex items-center gap-2 text-sm text-white/70">
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -880,7 +880,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                 </div>
                 {jiraSetupData.sites.length > 0 && (
                   <div className="space-y-2">
-                    <p className="text-xs font-medium uppercase tracking-wide text-white/60">Recommended JQL per site</p>
+                    <p className="text-xs font-medium uppercase tracking-wide text-white/60">Recommended JQL</p>
                     {jiraSetupData.sites.map((site) => (
                       <div key={site.id}>
                         <p className="mb-1 text-sm font-medium text-white">{site.name}</p>
@@ -914,73 +914,57 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
       </Dialog>
 
       {/* Disconnect Confirmation Modal */}
-      {disconnectModalOpen && connectionToDisconnect && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
-          onClick={closeDisconnectModal}
-          onKeyDown={(e) => e.key === 'Escape' && closeDisconnectModal()}
-          role="dialog"
-          aria-modal="true"
-        >
-          <div
-            className="w-full max-w-md rounded-xl border border-white/20 bg-black/90 p-6 shadow-xl backdrop-blur-md"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="mb-4 text-xl font-semibold text-white">Disconnect Integration</h2>
-            <p className="mb-6 text-white/70">
-              Are you sure you want to disconnect from <span className="font-semibold text-white">
-                {getProviderName(connectionToDisconnect.provider)}
-              </span>? This action cannot be undone.
-            </p>
-            {connectionToDisconnect.provider === 'github' && (
-              <label className="mb-6 flex items-start gap-3 rounded-lg border border-white/10 bg-zinc-800 p-3 text-sm text-white/70">
-                <input
-                  type="checkbox"
-                  className="mt-1 h-4 w-4 accent-red-500"
-                  checked={uninstallOnDisconnect}
-                  onChange={(e) => setUninstallOnDisconnect(e.target.checked)}
-                />
-                <span>
-                  Also open GitHub to uninstall the app for this installation.
-                </span>
-              </label>
-            )}
-            <div className="flex justify-end gap-3">
-              <Button
-                variant="outline"
-                onClick={closeDisconnectModal}
-                className="border-white/20 text-white/80 hover:bg-white/10"
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="secondary"
-                className="border-red-500/50 bg-red-500/10 text-red-200 hover:bg-red-500/20"
-                onClick={async () => {
-                  if (connectionToDisconnect) {
-                    await disconnect(connectionToDisconnect.connectionId, connectionToDisconnect.provider);
-                    closeDisconnectModal();
-                    if (connectionToDisconnect.provider === 'github' && uninstallOnDisconnect) {
-                      if (githubInstallationId) {
-                        window.open(`https://github.com/settings/installations/${githubInstallationId}`, '_blank', 'noopener');
-                      } else {
-                        const installUrl = process.env.NEXT_PUBLIC_GITHUB_APP_INSTALL_URL;
-                        if (installUrl) {
-                          window.open(installUrl, '_blank', 'noopener');
-                        } else {
-                          setError('GitHub App install URL is not configured.');
-                        }
-                      }
+      <Dialog open={disconnectModalOpen && connectionToDisconnect !== null} onOpenChange={(open) => !open && closeDisconnectModal()}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Disconnect Integration</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to disconnect from{' '}
+              <span className="font-semibold text-white">
+                {connectionToDisconnect ? getProviderName(connectionToDisconnect.provider) : ''}
+              </span>
+              ? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          {connectionToDisconnect?.provider === 'github' && (
+            <label className="flex items-start gap-3 rounded-lg border border-white/10 bg-zinc-800 p-3 text-sm text-white/70">
+              <input
+                type="checkbox"
+                className="mt-1 h-4 w-4 accent-red-500"
+                checked={uninstallOnDisconnect}
+                onChange={(e) => setUninstallOnDisconnect(e.target.checked)}
+              />
+              <span>Also open GitHub to uninstall the app for this installation.</span>
+            </label>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={closeDisconnectModal} className="border-white/20 text-white/80 hover:bg-white/10">
+              Cancel
+            </Button>
+            <Button
+              variant="secondary"
+              className="border-red-500/50 bg-red-500/10 text-red-200 hover:bg-red-500/20"
+              onClick={async () => {
+                if (connectionToDisconnect) {
+                  await disconnect(connectionToDisconnect.connectionId, connectionToDisconnect.provider);
+                  closeDisconnectModal();
+                  if (connectionToDisconnect.provider === 'github' && uninstallOnDisconnect) {
+                    if (githubInstallationId) {
+                      window.open(`https://github.com/settings/installations/${githubInstallationId}`, '_blank', 'noopener');
+                    } else {
+                      const installUrl = process.env.NEXT_PUBLIC_GITHUB_APP_INSTALL_URL;
+                      if (installUrl) window.open(installUrl, '_blank', 'noopener');
+                      else setError('GitHub App install URL is not configured.');
                     }
                   }
-                }}
-              >
-                Disconnect
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+                }
+              }}
+            >
+              Disconnect
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
     </>
   );
