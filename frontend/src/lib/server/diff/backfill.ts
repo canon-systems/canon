@@ -122,6 +122,8 @@ function mapGitHubEvent(event: GitHubDiffEvent, kind: CanonicalEvent['event_kind
     source_full_name: event.repo || null,
     metadata: {
       ingest_source: 'provider_api_backfill',
+      from: event.from_branch ?? null,
+      to: event.to_branch ?? null,
       paths: Array.isArray(event.files) ? event.files : [],
     },
   };

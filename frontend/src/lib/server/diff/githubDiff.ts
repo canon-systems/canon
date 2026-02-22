@@ -7,6 +7,8 @@ export type GitHubDiffEvent = {
   entity_id?: string | null;
   action: 'opened' | 'merged' | 'closed_unmerged' | 'commit';
   timestamp: string;
+  from_branch?: string | null;
+  to_branch?: string | null;
   files?: string[];
 };
 
@@ -110,6 +112,8 @@ export async function getGitHubDiffForRepo(params: DiffParams): Promise<GitHubDi
           entity_id: String(pr.number),
           action: 'opened',
           timestamp: pr.created_at,
+          from_branch: typeof pr.head?.ref === 'string' ? pr.head.ref : null,
+          to_branch: typeof pr.base?.ref === 'string' ? pr.base.ref : null,
           files,
         });
       }
@@ -121,6 +125,8 @@ export async function getGitHubDiffForRepo(params: DiffParams): Promise<GitHubDi
           entity_id: String(pr.number),
           action: 'merged',
           timestamp: pr.merged_at!,
+          from_branch: typeof pr.head?.ref === 'string' ? pr.head.ref : null,
+          to_branch: typeof pr.base?.ref === 'string' ? pr.base.ref : null,
           files,
         });
       }
@@ -132,6 +138,8 @@ export async function getGitHubDiffForRepo(params: DiffParams): Promise<GitHubDi
           entity_id: String(pr.number),
           action: 'closed_unmerged',
           timestamp: pr.closed_at!,
+          from_branch: typeof pr.head?.ref === 'string' ? pr.head.ref : null,
+          to_branch: typeof pr.base?.ref === 'string' ? pr.base.ref : null,
           files,
         });
       }

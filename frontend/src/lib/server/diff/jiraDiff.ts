@@ -1,4 +1,4 @@
-import { getProviderAccessToken, withConfluenceAccessToken } from '@/lib/server/oauth/tokenStore';
+import { withConfluenceAccessToken } from '@/lib/server/oauth/tokenStore';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 
 export type JiraTicketEvent = {
@@ -31,6 +31,7 @@ type JiraStatusCategoryLookup = {
   byId: Map<string, JiraStatusCategoryName>;
   byName: Map<string, JiraStatusCategoryName>;
 };
+type JiraApiStatusError = Error & { status?: number };
 type JiraHistoryItem = {
   field?: unknown;
   from?: unknown;
@@ -52,6 +53,53 @@ const normalizeStatusCategory = (value?: string | null): string | null => {
 };
 
 const isDoneCategory = (value?: string | null) => normalizeStatusCategory(value) === 'done';
+
+function createJiraApiStatusError(path: string, status: number): JiraApiStatusError {
+  const error = new Error(`Jira API request failed: ${path} (status=${status})`) as JiraApiStatusError;
+  error.status = status;
+  return error;
+}
+
+async function fetchJiraApi(connectionId: string, cloudId: string, path: string): Promise<Response> {
+  return withConfluenceAccessToken({
+    connectionId,
+    run: async (token) => {
+      const response = await fetch(`https://api.atlassian.com/ex/jira/${cloudId}${path}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json',
+        },
+      });
+      if (response.status === 401) {
+        throw createJiraApiStatusError(path, response.status);
+      }
+      return response;
+    },
+  });
+}
+
+function addStatusesToLookup(
+  statuses: unknown[],
+  byId: Map<string, JiraStatusCategoryName>,
+  byName: Map<string, JiraStatusCategoryName>
+) {
+  for (const status of statuses) {
+    const id = status && typeof status === 'object' && 'id' in status ? String((status as { id?: unknown }).id ?? '') : null;
+    const name = status && typeof status === 'object' && 'name' in status
+      ? normalizeStatusName(String((status as { name?: unknown }).name ?? ''))
+      : null;
+    const category = status && typeof status === 'object' && 'statusCategory' in status
+      ? ((status as { statusCategory?: { key?: string; name?: string } }).statusCategory?.key
+        ?? (status as { statusCategory?: { key?: string; name?: string } }).statusCategory?.name)
+      : null;
+    if (id && typeof category === 'string' && category.trim().length > 0) {
+      byId.set(id, category);
+    }
+    if (name && typeof category === 'string' && category.trim().length > 0) {
+      byName.set(name, category);
+    }
+  }
+}
 
 /** Date-only yyyy-MM-dd for JQL from an ISO timestamp. */
 function toJqlDateOnly(value: string): string {
@@ -121,48 +169,50 @@ async function getJiraConnection(userId: string) {
   return { connectionId: connection.connection_id, cloudId, jiraCloudId };
 }
 
-async function getStatusCategoryMap(accessToken: string, cloudId: string) {
-  const response = await fetch(`https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3/status`, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      Accept: 'application/json',
-    },
-  });
-
-  if (!response.ok) {
-    return { byId: new Map<string, JiraStatusCategoryName>(), byName: new Map<string, JiraStatusCategoryName>() };
-  }
-
-  const data = await response.json().catch(() => []);
+async function getStatusCategoryMap(connectionId: string, cloudId: string) {
   const byId = new Map<string, JiraStatusCategoryName>();
   const byName = new Map<string, JiraStatusCategoryName>();
-  if (Array.isArray(data)) {
-    for (const status of data) {
-      const id = status?.id ? String(status.id) : null;
-      const name = normalizeStatusName(typeof status?.name === 'string' ? status.name : null);
-      const category = status?.statusCategory?.key ?? status?.statusCategory?.name;
-      if (id && typeof category === 'string') {
-        byId.set(id, category);
-      }
-      if (name && typeof category === 'string') {
-        byName.set(name, category);
-      }
+
+  const response = await fetchJiraApi(connectionId, cloudId, '/rest/api/3/status');
+  if (response.ok) {
+    const data = await response.json().catch(() => []);
+    if (Array.isArray(data)) {
+      addStatusesToLookup(data, byId, byName);
+      if (byId.size > 0) return { byId, byName };
     }
   }
+
+  let startAt = 0;
+  const maxResults = 200;
+  for (let page = 0; page < 10; page += 1) {
+    const searchResponse = await fetchJiraApi(
+      connectionId,
+      cloudId,
+      `/rest/api/3/statuses/search?startAt=${startAt}&maxResults=${maxResults}`
+    );
+    if (!searchResponse.ok) break;
+    const payload = await searchResponse.json().catch(() => null);
+    const values = Array.isArray(payload?.values) ? payload.values : [];
+    if (values.length === 0) break;
+    addStatusesToLookup(values, byId, byName);
+
+    const isLast = payload && typeof payload === 'object' && 'isLast' in payload
+      ? Boolean((payload as { isLast?: unknown }).isLast)
+      : false;
+    const fetched = values.length;
+    startAt += fetched;
+    if (isLast || fetched < maxResults) break;
+  }
+
   return { byId, byName };
 }
 
 async function getStatusCategoryById(
-  accessToken: string,
+  connectionId: string,
   cloudId: string,
   statusId: string
 ): Promise<{ category: string | null; name: string | null } | null> {
-  const firstResponse = await fetch(`https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3/status/${encodeURIComponent(statusId)}`, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      Accept: 'application/json',
-    },
-  });
+  const firstResponse = await fetchJiraApi(connectionId, cloudId, `/rest/api/3/status/${encodeURIComponent(statusId)}`);
 
   if (firstResponse.ok) {
     const data = await firstResponse.json().catch(() => null);
@@ -173,12 +223,7 @@ async function getStatusCategoryById(
     };
   }
 
-  const secondResponse = await fetch(`https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3/statuses/search?id=${encodeURIComponent(statusId)}`, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      Accept: 'application/json',
-    },
-  });
+  const secondResponse = await fetchJiraApi(connectionId, cloudId, `/rest/api/3/statuses/search?id=${encodeURIComponent(statusId)}`);
   if (!secondResponse.ok) return null;
   const payload = await secondResponse.json().catch(() => null);
   const values = Array.isArray(payload?.values) ? payload.values : [];
@@ -198,16 +243,16 @@ async function getStatusCategoryById(
 }
 
 async function hydrateMissingStatusCategories(params: {
-  accessToken: string;
+  connectionId: string;
   cloudId: string;
   statusCategoryLookup: JiraStatusCategoryLookup;
   statusIds: string[];
 }): Promise<void> {
-  const { accessToken, cloudId, statusCategoryLookup, statusIds } = params;
+  const { connectionId, cloudId, statusCategoryLookup, statusIds } = params;
   const missing = Array.from(new Set(statusIds.filter((id) => id && !statusCategoryLookup.byId.has(id))));
   for (const statusId of missing) {
     try {
-      const resolved = await getStatusCategoryById(accessToken, cloudId, statusId);
+      const resolved = await getStatusCategoryById(connectionId, cloudId, statusId);
       if (resolved?.category) {
         statusCategoryLookup.byId.set(statusId, resolved.category);
         if (resolved.name) {
@@ -250,14 +295,6 @@ export async function getJiraDiffForProject(params: JiraDiffParams): Promise<Jir
     throw new Error('Jira workspace not selected.');
   }
 
-  const accessToken = await getProviderAccessToken({
-    provider: 'atlassian',
-    connectionId: connection.connectionId,
-  });
-  if (!accessToken) {
-    throw new Error('Missing Jira access token.');
-  }
-
   const startMs = Date.parse(start);
   const endMs = Date.parse(end);
   if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
@@ -287,7 +324,7 @@ export async function getJiraDiffForProject(params: JiraDiffParams): Promise<Jir
   const tickets_regressed: JiraTicketEvent[] = [];
   const tickets_new: JiraTicketEvent[] = [];
 
-  const statusCategoryLookup = await getStatusCategoryMap(accessToken, cloudId);
+  const statusCategoryLookup = await getStatusCategoryMap(connection.connectionId, cloudId);
 
   const maxResults = 50;
   let nextPageToken: string | undefined;
@@ -353,7 +390,7 @@ export async function getJiraDiffForProject(params: JiraDiffParams): Promise<Jir
           });
       });
       await hydrateMissingStatusCategories({
-        accessToken,
+        connectionId: connection.connectionId,
         cloudId,
         statusCategoryLookup,
         statusIds,

@@ -804,6 +804,8 @@ export async function getSignalInvestigation(params: {
       summary: string | null;
       occurred_at: string | null;
       kind: string | null;
+      from_status: string | null;
+      to_status: string | null;
       url: string | null;
     }>;
     tickets_baseline: Array<{
@@ -811,10 +813,28 @@ export async function getSignalInvestigation(params: {
       summary: string | null;
       occurred_at: string | null;
       kind: string | null;
+      from_status: string | null;
+      to_status: string | null;
       url: string | null;
     }>;
-    prs: Array<{ id: string; repo: string | null; occurred_at: string | null; kind: string | null; url: string | null }>;
-    prs_baseline: Array<{ id: string; repo: string | null; occurred_at: string | null; kind: string | null; url: string | null }>;
+    prs: Array<{
+      id: string;
+      repo: string | null;
+      occurred_at: string | null;
+      kind: string | null;
+      from_branch: string | null;
+      to_branch: string | null;
+      url: string | null;
+    }>;
+    prs_baseline: Array<{
+      id: string;
+      repo: string | null;
+      occurred_at: string | null;
+      kind: string | null;
+      from_branch: string | null;
+      to_branch: string | null;
+      url: string | null;
+    }>;
     repos: Array<{ id: string; activity: number; baseline_activity: number }>;
     domains: Array<{ id: string; activity: number; baseline_activity: number }>;
   };
@@ -851,17 +871,37 @@ export async function getSignalInvestigation(params: {
     summary: string | null;
     occurred_at: string | null;
     kind: string | null;
+    from_status: string | null;
+    to_status: string | null;
     url: string | null;
   }> = [];
-  const prs: Array<{ id: string; repo: string | null; occurred_at: string | null; kind: string | null; url: string | null }> = [];
+  const prs: Array<{
+    id: string;
+    repo: string | null;
+    occurred_at: string | null;
+    kind: string | null;
+    from_branch: string | null;
+    to_branch: string | null;
+    url: string | null;
+  }> = [];
   const ticketsBaseline: Array<{
     id: string;
     summary: string | null;
     occurred_at: string | null;
     kind: string | null;
+    from_status: string | null;
+    to_status: string | null;
     url: string | null;
   }> = [];
-  const prsBaseline: Array<{ id: string; repo: string | null; occurred_at: string | null; kind: string | null; url: string | null }> = [];
+  const prsBaseline: Array<{
+    id: string;
+    repo: string | null;
+    occurred_at: string | null;
+    kind: string | null;
+    from_branch: string | null;
+    to_branch: string | null;
+    url: string | null;
+  }> = [];
   const currentRepoCounts = new Map<string, number>();
   const baselineRepoCounts = new Map<string, number>();
   const currentDomainCounts = new Map<string, number>();
@@ -1079,6 +1119,9 @@ export async function getSignalInvestigation(params: {
         const metadata = (event.metadata || {}) as Record<string, unknown>;
 
         if (provider === 'jira' && entityId && kind && kind.startsWith('ticket_')) {
+          const fromStatus = typeof metadata.from === 'string' ? metadata.from : null;
+          const toStatusFromMove = typeof metadata.to === 'string' ? metadata.to : null;
+          const toStatusFromStatus = typeof metadata.status === 'string' ? metadata.status : null;
           const summary =
             typeof metadata.summary === 'string'
               ? metadata.summary
@@ -1091,17 +1134,23 @@ export async function getSignalInvestigation(params: {
               summary,
               occurred_at: event.occurred_at,
               kind,
+              from_status: fromStatus,
+              to_status: toStatusFromMove ?? toStatusFromStatus,
               url: jiraIssueUrl(entityId, jiraBrowseBaseByProject),
             });
           }
         }
 
         if (provider === 'github' && entityId && kind && kind.startsWith('pr_')) {
+          const fromBranch = typeof metadata.from === 'string' ? metadata.from : null;
+          const toBranch = typeof metadata.to === 'string' ? metadata.to : null;
           targetPrs.push({
             id: entityId,
             repo,
             occurred_at: event.occurred_at,
             kind,
+            from_branch: fromBranch,
+            to_branch: toBranch,
             url: githubPullRequestUrl(repo, entityId),
           });
         }

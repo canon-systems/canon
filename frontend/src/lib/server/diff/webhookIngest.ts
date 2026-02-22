@@ -513,8 +513,8 @@ export function extractGithubCanonicalEvents(payload: Record<string, unknown>): 
           source_full_name: repoFullName,
           metadata: {
             title: pullRequestTitle,
-            from: 'open',
-            to: 'merged',
+            from: headRef,
+            to: baseRef,
             status: 'merged',
           },
         });
@@ -526,8 +526,8 @@ export function extractGithubCanonicalEvents(payload: Record<string, unknown>): 
           source_full_name: repoFullName,
           metadata: {
             title: pullRequestTitle,
-            from: 'open',
-            to: 'closed',
+            from: headRef,
+            to: baseRef,
             status: 'closed',
           },
         });
