@@ -78,22 +78,41 @@ export const ingestJiraWebhook = inngest.createFunction(
     };
 
     try {
+      let jiraApiStepIndex = 0;
       const jiraApiRequest: JiraApiRequest = async ({ connectionId, cloudId, path }) =>
         withConfluenceAccessToken({
           connectionId,
           run: async (token) => {
-            const response = await step.fetch(`https://api.atlassian.com/ex/jira/${cloudId}${path}`, {
-              headers: {
-                Authorization: `Bearer ${token}`,
-                Accept: 'application/json',
-              },
+            jiraApiStepIndex += 1;
+            const safePath = path
+              .replace(/[^a-zA-Z0-9]+/g, '-')
+              .replace(/^-+|-+$/g, '')
+              .slice(0, 60);
+            const stepId = `jira-api-${jiraApiStepIndex}-${cloudId}-${safePath || 'request'}`;
+
+            const result = await step.run(stepId, async () => {
+              const response = await fetch(`https://api.atlassian.com/ex/jira/${cloudId}${path}`, {
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  Accept: 'application/json',
+                },
+              });
+              return {
+                status: response.status,
+                headers: Object.fromEntries(response.headers.entries()),
+                body: await response.text(),
+              };
             });
-            if (response.status === 401) {
+
+            if (result.status === 401) {
               const error = new Error(`Jira API request failed: ${path} (status=401)`) as Error & { status?: number };
               error.status = 401;
               throw error;
             }
-            return response;
+            return new Response(result.body, {
+              status: result.status,
+              headers: result.headers,
+            });
           },
         });
 

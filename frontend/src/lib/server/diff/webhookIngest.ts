@@ -62,6 +62,11 @@ const log = createLogger('diff.webhook_ingest', {
   },
 });
 
+const isMissingProviderColumnError = (message: string): boolean => {
+  const normalized = message.toLowerCase();
+  return normalized.includes('provider') && normalized.includes('column');
+};
+
 export async function filterNewCanonicalEvents(params: {
   supabase: SupabaseClient;
   sourceId: string;
@@ -213,15 +218,31 @@ export async function insertCanonicalEvents(params: {
   const { error } = await supabase
     .from('diff_event_canonical')
     .upsert(rows, { onConflict: 'source_id,event_kind,entity_id,occurred_at' });
-  if (error) {
+  if (!error) return;
+
+  // Backward-compatible fallback for installations where diff_event_canonical has no provider column.
+  if (isMissingProviderColumnError(error.message)) {
+    const rowsWithoutProvider = rows.map(({ provider: _provider, ...rest }) => rest);
+    const { error: fallbackError } = await supabase
+      .from('diff_event_canonical')
+      .upsert(rowsWithoutProvider, { onConflict: 'source_id,event_kind,entity_id,occurred_at' });
+    if (!fallbackError) return;
     log.error('canonical_event_upsert_failed', {
       sourceId,
       provider,
       count: rows.length,
-      reason: error.message,
+      reason: fallbackError.message,
     });
-    throw new Error(`Failed to upsert canonical events: ${error.message}`);
+    throw new Error(`Failed to upsert canonical events: ${fallbackError.message}`);
   }
+
+  log.error('canonical_event_upsert_failed', {
+    sourceId,
+    provider,
+    count: rows.length,
+    reason: error.message,
+  });
+  throw new Error(`Failed to upsert canonical events: ${error.message}`);
 }
 
 export async function upsertDailyMetrics(params: {
