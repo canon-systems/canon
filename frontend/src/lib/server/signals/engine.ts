@@ -601,6 +601,48 @@ type CanonicalEventRow = {
   metadata: Record<string, unknown> | null;
 };
 
+const CANONICAL_EVENTS_PAGE_SIZE = 1000;
+const CANONICAL_EVENTS_MAX_PAGES = 500;
+
+async function listCanonicalEventsForWindow(params: {
+  supabase: SupabaseClient;
+  sourceIds: string[];
+  start: string;
+  end: string;
+}): Promise<CanonicalEventRow[]> {
+  const { supabase, sourceIds, start, end } = params;
+  if (sourceIds.length === 0) return [];
+
+  const out: CanonicalEventRow[] = [];
+  let offset = 0;
+
+  for (let page = 0; page < CANONICAL_EVENTS_MAX_PAGES; page += 1) {
+    const { data, error } = await supabase
+      .from('diff_event_canonical')
+      .select('source_id, provider, event_kind, entity_id, source_full_name, occurred_at, metadata')
+      .in('source_id', sourceIds)
+      .gte('occurred_at', start)
+      .lte('occurred_at', end)
+      .order('occurred_at', { ascending: false })
+      .range(offset, offset + CANONICAL_EVENTS_PAGE_SIZE - 1);
+
+    if (error || !data?.length) {
+      if (error) {
+        console.warn('[getSignalInvestigation] failed to fetch canonical events', error);
+      }
+      break;
+    }
+
+    out.push(...(data as CanonicalEventRow[]));
+    if (data.length < CANONICAL_EVENTS_PAGE_SIZE) {
+      break;
+    }
+    offset += CANONICAL_EVENTS_PAGE_SIZE;
+  }
+
+  return out;
+}
+
 function directionHeadlineForSignal(signal: SignalRecord): string {
   if (signal.type === 'regression_spike') return 'System quality risk increased';
   if (signal.type === 'throughput_drop') return 'Delivery velocity slowed';
@@ -970,39 +1012,21 @@ export async function getSignalInvestigation(params: {
       end: signal.baseline_end,
     };
 
-    const [currentDiff, baselineDiff, eventsResult, baselineEventsResult, currentCountEventsResult, baselineCountEventsResult] = await Promise.all([
+    const [currentDiff, baselineDiff, events, baselineEvents] = await Promise.all([
       runDiffForSourcesWithBreakdown(userId, sourceIds, currentWindow, supabase),
       runDiffForSourcesWithBreakdown(userId, sourceIds, baselineWindow, supabase),
-      supabase
-        .from('diff_event_canonical')
-        .select('source_id, provider, event_kind, entity_id, source_full_name, occurred_at, metadata')
-        .in('source_id', sourceIds)
-        .gte('occurred_at', signal.window_start)
-        .lte('occurred_at', signal.window_end)
-        .order('occurred_at', { ascending: false })
-        .limit(250),
-      supabase
-        .from('diff_event_canonical')
-        .select('source_id, provider, event_kind, entity_id, source_full_name, occurred_at, metadata')
-        .in('source_id', sourceIds)
-        .gte('occurred_at', signal.baseline_start)
-        .lte('occurred_at', signal.baseline_end)
-        .order('occurred_at', { ascending: false })
-        .limit(250),
-      supabase
-        .from('diff_event_canonical')
-        .select('source_id, source_full_name')
-        .in('source_id', sourceIds)
-        .gte('occurred_at', signal.window_start)
-        .lte('occurred_at', signal.window_end)
-        .limit(5000),
-      supabase
-        .from('diff_event_canonical')
-        .select('source_id, source_full_name')
-        .in('source_id', sourceIds)
-        .gte('occurred_at', signal.baseline_start)
-        .lte('occurred_at', signal.baseline_end)
-        .limit(5000),
+      listCanonicalEventsForWindow({
+        supabase,
+        sourceIds,
+        start: signal.window_start,
+        end: signal.window_end,
+      }),
+      listCanonicalEventsForWindow({
+        supabase,
+        sourceIds,
+        start: signal.baseline_start,
+        end: signal.baseline_end,
+      }),
     ]);
 
     const aggregateDelta = diffDelta(currentDiff.aggregate, baselineDiff.aggregate);
@@ -1075,18 +1099,7 @@ export async function getSignalInvestigation(params: {
       source_shifts: sourceShifts,
     };
 
-    const events = eventsResult.data as CanonicalEventRow[] | null;
-    const baselineEvents = baselineEventsResult.data as CanonicalEventRow[] | null;
-    const currentCountEvents = (currentCountEventsResult.data || []) as Array<{
-      source_id?: string | null;
-      source_full_name: string | null;
-    }>;
-    const baselineCountEvents = (baselineCountEventsResult.data || []) as Array<{
-      source_id?: string | null;
-      source_full_name: string | null;
-    }>;
-
-    for (const event of currentCountEvents) {
+    for (const event of events) {
       const sourceId = typeof event.source_id === 'string' ? event.source_id : '';
       const repo = event.source_full_name || null;
       const domain = sourceDomainById.get(sourceId) || 'Unassigned';
@@ -1096,7 +1109,7 @@ export async function getSignalInvestigation(params: {
       currentDomainCounts.set(domain, (currentDomainCounts.get(domain) || 0) + 1);
     }
 
-    for (const event of baselineCountEvents) {
+    for (const event of baselineEvents) {
       const sourceId = typeof event.source_id === 'string' ? event.source_id : '';
       const repo = event.source_full_name || null;
       const domain = sourceDomainById.get(sourceId) || 'Unassigned';
@@ -1111,7 +1124,32 @@ export async function getSignalInvestigation(params: {
       targetTickets: typeof tickets,
       targetPrs: typeof prs
     ): void => {
-      for (const event of rows || []) {
+      const eventRows = rows || [];
+      const ticketMoveMetadata = new Map<string, {
+        from_status: string | null;
+        to_status: string | null;
+        summary: string | null;
+      }>();
+
+      for (const event of eventRows) {
+        const provider = (event.provider || '').toLowerCase();
+        const kind = event.event_kind || null;
+        const entityId = event.entity_id || null;
+        if (provider !== 'jira' || kind !== 'ticket_moved' || !entityId || !event.occurred_at) continue;
+        const metadata = (event.metadata || {}) as Record<string, unknown>;
+        ticketMoveMetadata.set(`${entityId}::${event.occurred_at}`, {
+          from_status: typeof metadata.from === 'string' ? metadata.from : null,
+          to_status: typeof metadata.to === 'string' ? metadata.to : null,
+          summary:
+            typeof metadata.summary === 'string'
+              ? metadata.summary
+              : typeof metadata.title === 'string'
+                ? metadata.title
+                : null,
+        });
+      }
+
+      for (const event of eventRows) {
         const provider = (event.provider || '').toLowerCase();
         const kind = event.event_kind || null;
         const entityId = event.entity_id || null;
@@ -1119,15 +1157,24 @@ export async function getSignalInvestigation(params: {
         const metadata = (event.metadata || {}) as Record<string, unknown>;
 
         if (provider === 'jira' && entityId && kind && kind.startsWith('ticket_')) {
-          const fromStatus = typeof metadata.from === 'string' ? metadata.from : null;
-          const toStatusFromMove = typeof metadata.to === 'string' ? metadata.to : null;
+          const moveMetadata = event.occurred_at
+            ? ticketMoveMetadata.get(`${entityId}::${event.occurred_at}`)
+            : undefined;
+          const fromStatus =
+            (typeof metadata.from === 'string' ? metadata.from : null) ??
+            moveMetadata?.from_status ??
+            null;
+          const toStatusFromMove =
+            (typeof metadata.to === 'string' ? metadata.to : null) ??
+            moveMetadata?.to_status ??
+            null;
           const toStatusFromStatus = typeof metadata.status === 'string' ? metadata.status : null;
           const summary =
             typeof metadata.summary === 'string'
               ? metadata.summary
               : typeof metadata.title === 'string'
                 ? metadata.title
-                : null;
+                : moveMetadata?.summary ?? null;
           if (!targetTickets.some((t) => t.id === entityId && t.occurred_at === event.occurred_at && t.kind === kind)) {
             targetTickets.push({
               id: entityId,
@@ -1192,10 +1239,10 @@ export async function getSignalInvestigation(params: {
       baseline_end: signal.baseline_end,
     },
     evidence: {
-      tickets: tickets.slice(0, 25),
-      tickets_baseline: ticketsBaseline.slice(0, 25),
-      prs: prs.slice(0, 25),
-      prs_baseline: prsBaseline.slice(0, 25),
+      tickets,
+      tickets_baseline: ticketsBaseline,
+      prs,
+      prs_baseline: prsBaseline,
       repos,
       domains,
     },

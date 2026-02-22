@@ -2,7 +2,6 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { getGitHubDiffForRepo, type GitHubDiffEvent } from '@/lib/server/diff/githubDiff';
 import { getJiraDiffForProject, type JiraTicketEvent } from '@/lib/server/diff/jiraDiff';
 import { filterNewCanonicalEvents, insertCanonicalEvents, upsertDailyMetrics } from '@/lib/server/diff/webhookIngest';
-import { featureKeyFromPath } from '@/lib/server/services/sourceIngest';
 import { createLogger, errorMessage } from '@/lib/server/logging';
 
 const DEFAULT_DIFF_BACKFILL_DAYS = 14;
@@ -676,7 +675,6 @@ export async function runDiffBackfillForSource(params: {
               sourceId: source.id,
               provider,
               events: newEvents,
-              pathToFeature: featureKeyFromPath,
             });
           } catch (error) {
             const message = errorMessage(error);
