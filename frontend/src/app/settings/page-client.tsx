@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Settings, User, Link2, Mail, Check, Loader2, Github, Info } from 'lucide-react';
+import { Settings, User, Link2, Mail, Check, Loader2, Github, Info, Copy, ClipboardCheck } from 'lucide-react';
 import { IntegrationLogos } from '@/components/IntegrationLogos';
 import { getIntegrationsCached, clearIntegrationsCache } from '@/lib/client/integrationsCache';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
@@ -11,7 +11,16 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ATLASSIAN_PROVIDER, canonicalProvider } from '@/lib/providers';
+
+type JiraSetupSite = { id: string; name: string; url: string; projectKeys: string[]; jql: string };
+type JiraSetupData = {
+  webhookUrl: string;
+  webhookSecret: string;
+  scopes: string[];
+  sites: JiraSetupSite[];
+};
 
 interface Connection {
   id: string;
@@ -112,6 +121,11 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   const [windowDays, setWindowDays] = useState<number>(7);
   const [timeZone, setTimeZone] = useState<string>(() => resolveBrowserTimeZone());
   const [timeZoneOptions, setTimeZoneOptions] = useState<string[]>(FALLBACK_TIMEZONES);
+  const [jiraWebhookModalOpen, setJiraWebhookModalOpen] = useState(false);
+  const [jiraSetupData, setJiraSetupData] = useState<JiraSetupData | null>(null);
+  const [jiraSetupLoading, setJiraSetupLoading] = useState(false);
+  const [jiraSetupError, setJiraSetupError] = useState('');
+  const [jiraCopiedField, setJiraCopiedField] = useState<string | null>(null);
 
   useEffect(() => {
     const intlWithSupportedValues = Intl as unknown as { supportedValuesOf?: (key: string) => string[] };
@@ -161,12 +175,18 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     if (successParam === 'true') {
       const provider = searchParams.get('provider') || 'service';
       setSuccess(`Successfully connected to ${provider}!`);
-      // Clean URL but keep tab param
       const tab = searchParams.get('tab') || 'integrations';
       router.replace(`/settings?tab=${tab}`);
       if (tabParam !== 'integrations') {
         setActiveTab('integrations');
       }
+      if (provider === 'atlassian') {
+        setJiraWebhookModalOpen(true);
+      }
+    }
+    const jiraWebhookParam = searchParams.get('jira_webhook');
+    if (jiraWebhookParam === '1' && tabParam === 'integrations') {
+      setJiraWebhookModalOpen(true);
     }
     if (errorParam) {
       setError(decodeURIComponent(errorParam));
@@ -187,6 +207,48 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   useEffect(() => {
     loadConnections();
   }, [loadConnections]);
+
+  useEffect(() => {
+    if (!jiraWebhookModalOpen) return;
+    let cancelled = false;
+    setJiraSetupLoading(true);
+    setJiraSetupError('');
+    fetch('/api/webhooks/jira/setup')
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled) return;
+        if (data?.error) {
+          setJiraSetupError(data.error || 'Failed to load setup');
+          setJiraSetupData(null);
+          return;
+        }
+        setJiraSetupData({
+          webhookUrl: typeof data.webhookUrl === 'string' ? data.webhookUrl : '',
+          webhookSecret: typeof data.webhookSecret === 'string' ? data.webhookSecret : '',
+          scopes: Array.isArray(data.scopes) ? data.scopes : [],
+          sites: Array.isArray(data.sites) ? data.sites : [],
+        });
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setJiraSetupError(err instanceof Error ? err.message : 'Failed to load setup');
+          setJiraSetupData(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setJiraSetupLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [jiraWebhookModalOpen]);
+
+  const copyJiraField = useCallback(async (value: string, field: string) => {
+    if (!value?.trim()) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setJiraCopiedField(field);
+      setTimeout(() => setJiraCopiedField((c) => (c === field ? null : c)), 1800);
+    } catch { /* ignore */ }
+  }, []);
 
   const loadDeliverySettings = useCallback(async () => {
     setSlackLoading(true);
@@ -677,6 +739,15 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end sm:gap-3 w-full sm:w-auto">
                           {connected ? (
                             <>
+                              {card.provider === ATLASSIAN_PROVIDER && (
+                                <Button
+                                  onClick={() => setJiraWebhookModalOpen(true)}
+                                  variant="secondary"
+                                  className="w-full sm:w-auto border-white/20 bg-white/10 text-white hover:bg-white/20"
+                                >
+                                  Configure Jira webhook
+                                </Button>
+                              )}
                               {card.provider === 'github' && (
                                 <Button
                                   onClick={() => {
@@ -741,6 +812,106 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Jira Webhook Setup Modal */}
+      <Dialog open={jiraWebhookModalOpen} onOpenChange={setJiraWebhookModalOpen}>
+        <DialogContent className="max-w-lg border-white/10 bg-zinc-900 text-white">
+          <DialogHeader>
+            <DialogTitle>Configure Jira webhook</DialogTitle>
+            <DialogDescription className="text-white/70">
+              Add a webhook in your Jira site admin (Settings → System → WebHooks) using the values below. Then add Jira sources on the Sources page.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            {jiraSetupLoading && (
+              <div className="flex items-center gap-2 text-sm text-white/70">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading…
+              </div>
+            )}
+            {jiraSetupError && (
+              <p className="text-sm text-red-300">{jiraSetupError}</p>
+            )}
+            {jiraSetupData && !jiraSetupLoading && (
+              <>
+                <div>
+                  <p className="mb-1 text-xs font-medium uppercase tracking-wide text-white/60">Webhook URL</p>
+                  <div className="flex gap-2">
+                    <code className="flex-1 truncate rounded border border-white/10 bg-black/30 px-2 py-1.5 text-xs text-white">
+                      {jiraSetupData.webhookUrl}
+                    </code>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="shrink-0 border-white/20 text-white hover:bg-white/10"
+                      onClick={() => copyJiraField(jiraSetupData.webhookUrl, 'url')}
+                    >
+                      {jiraCopiedField === 'url' ? <ClipboardCheck className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                      {jiraCopiedField === 'url' ? 'Copied' : 'Copy'}
+                    </Button>
+                  </div>
+                </div>
+                <div>
+                  <p className="mb-1 text-xs font-medium uppercase tracking-wide text-white/60">Webhook secret</p>
+                  <div className="flex gap-2">
+                    <code className="flex-1 rounded border border-white/10 bg-black/30 px-2 py-1.5 text-xs text-white">
+                      •••••••••••••••••
+                    </code>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="shrink-0 border-white/20 text-white hover:bg-white/10"
+                      onClick={() => copyJiraField(jiraSetupData.webhookSecret, 'secret')}
+                    >
+                      {jiraCopiedField === 'secret' ? <ClipboardCheck className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                      {jiraCopiedField === 'secret' ? 'Copied' : 'Copy'}
+                    </Button>
+                  </div>
+                </div>
+                <div>
+                  <p className="mb-1 text-xs font-medium uppercase tracking-wide text-white/60">Scopes (enable in Jira)</p>
+                  <ul className="list-inside list-disc text-sm text-white/80">
+                    {jiraSetupData.scopes.map((scope) => (
+                      <li key={scope}>{scope}</li>
+                    ))}
+                  </ul>
+                </div>
+                {jiraSetupData.sites.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium uppercase tracking-wide text-white/60">Recommended JQL per site</p>
+                    {jiraSetupData.sites.map((site) => (
+                      <div key={site.id}>
+                        <p className="mb-1 text-sm font-medium text-white">{site.name}</p>
+                        <div className="flex gap-2">
+                          <code className="flex-1 truncate rounded border border-white/10 bg-black/30 px-2 py-1.5 text-xs text-white">
+                            {site.jql || `project in (${site.projectKeys.join(', ') || '…'})`}
+                          </code>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="shrink-0 border-white/20 text-white hover:bg-white/10"
+                            onClick={() => copyJiraField(site.jql || '', `jql-${site.id}`)}
+                            disabled={!site.jql}
+                          >
+                            {jiraCopiedField === `jql-${site.id}` ? <ClipboardCheck className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                            {jiraCopiedField === `jql-${site.id}` ? 'Copied' : 'Copy'}
+                          </Button>
+                        </div>
+                        {site.projectKeys.length > 0 && (
+                          <p className="mt-1 text-xs text-white/50">Projects: {site.projectKeys.join(', ')}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Disconnect Confirmation Modal */}
       {disconnectModalOpen && connectionToDisconnect && (

@@ -238,6 +238,19 @@ type BackfillStatus = {
   error?: string | null;
 };
 
+type JiraWebhookStatus = {
+  status?: string;
+  last_received_at?: string;
+  warning_reason?: string | null;
+  last_project_key?: string | null;
+  expected_project_key?: string | null;
+  signature?: {
+    present?: boolean;
+    valid?: boolean;
+    reason?: string | null;
+  } | null;
+};
+
 type CustomDomainDialogTarget =
   | {
     kind: 'repo';
@@ -262,6 +275,22 @@ const getBackfillStatus = (repo: Repository): BackfillStatus => {
 };
 
 const getRawBackfillStatus = (repo: Repository) => ((getBackfillStatus(repo).status as string) || '').toLowerCase();
+
+const getJiraWebhookStatus = (repo: Repository): JiraWebhookStatus => {
+  if (repo.provider !== 'jira') return {};
+  const payload = repo.status_payload && typeof repo.status_payload === 'object'
+    ? repo.status_payload
+    : {};
+  const raw = (payload as { webhook?: unknown }).webhook;
+  return raw && typeof raw === 'object' ? (raw as JiraWebhookStatus) : {};
+};
+
+const formatWebhookSeenAt = (value?: string): string => {
+  if (typeof value !== 'string' || value.trim().length === 0) return 'No webhook deliveries yet';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return 'Last delivery time unavailable';
+  return `Last delivery: ${parsed.toLocaleString()}`;
+};
 
 const isBackfillActive = (repo: Repository): boolean => {
   const status = getRawBackfillStatus(repo);
@@ -397,6 +426,15 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
     const failed = repoList.filter((r) => getStatusBucket(r) === 'failed').length;
     const notStarted = repoList.filter((r) => getStatusBucket(r) === 'not_started').length;
     return { total: repoList.length, ready, processing, failed, notStarted };
+  }, [repoList]);
+
+  const jiraHealth = useMemo(() => {
+    const jiraSources = repoList.filter((repo) => repo.provider === 'jira');
+    const healthy = jiraSources.filter((repo) => (getJiraWebhookStatus(repo).status || '').toLowerCase() === 'healthy').length;
+    const warning = jiraSources.filter((repo) => (getJiraWebhookStatus(repo).status || '').toLowerCase() === 'warning').length;
+    const error = jiraSources.filter((repo) => (getJiraWebhookStatus(repo).status || '').toLowerCase() === 'error').length;
+    const unverified = Math.max(0, jiraSources.length - healthy - warning - error);
+    return { total: jiraSources.length, healthy, warning, error, unverified };
   }, [repoList]);
 
   const existingSourceKeys = useMemo(() => {
@@ -856,6 +894,23 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
         </CardContent>
       </Card>
 
+      {jiraHealth.total > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-zinc-800 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-white/80">Jira webhook:</span>
+            <Badge variant={jiraHealth.error > 0 ? 'destructive' : jiraHealth.warning > 0 ? 'outline' : jiraHealth.healthy > 0 ? 'success' : 'outline'}>
+              {jiraHealth.healthy}/{jiraHealth.total} healthy
+            </Badge>
+          </div>
+          <Button variant="outline" size="sm" className="border-white/20 text-white hover:bg-white/10" asChild>
+            <Link href="/settings?tab=integrations&jira_webhook=1">
+              <Link2 className="h-4 w-4" />
+              Configure webhook
+            </Link>
+          </Button>
+        </div>
+      )}
+
       {filteredRepos.length === 0 ? (
         <Card className="border-white/10 bg-zinc-900 p-10 text-center">
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-white/10">
@@ -894,6 +949,26 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
           {filteredRepos.map((repo) => {
             const statusMeta = getStatusMeta(repo);
             const repoLabel = repoNameOnly(repo.name);
+            const webhookStatus = getJiraWebhookStatus(repo);
+            const webhookState = (webhookStatus.status || '').toLowerCase();
+            const jiraWebhookMeta = (() => {
+              if (repo.provider !== 'jira') return null;
+              if (webhookState === 'healthy') {
+                return { label: 'Webhook healthy', variant: 'success' as const, detail: formatWebhookSeenAt(webhookStatus.last_received_at) };
+              }
+              if (webhookState === 'error') {
+                return { label: 'Webhook error', variant: 'destructive' as const, detail: formatWebhookSeenAt(webhookStatus.last_received_at) };
+              }
+              if (webhookState === 'warning') {
+                const warningReason = webhookStatus.warning_reason || webhookStatus.signature?.reason || 'configuration warning';
+                return {
+                  label: 'Webhook warning',
+                  variant: 'outline' as const,
+                  detail: `${warningReason.replace(/_/g, ' ')} · ${formatWebhookSeenAt(webhookStatus.last_received_at)}`,
+                };
+              }
+              return { label: 'Webhook not verified', variant: 'outline' as const, detail: 'Send a Jira issue update to verify delivery' };
+            })();
             const canAssignDomain = getStatusBucket(repo) === 'ready';
             const currentDomain = typeof repo.domain === 'string' ? repo.domain.trim() : '';
             const hasCustomCurrentDomain = currentDomain.length > 0 && !isPresetDomain(currentDomain);
@@ -920,6 +995,16 @@ export default function SourcesPageClient({ repositories }: SourcesPageClientPro
                   <div className="min-w-0">
                     <div className="truncate text-base font-semibold text-white">{repoLabel}</div>
                     <div className="flex items-center gap-2 text-sm text-white/70">{displayScope(repo)}</div>
+                    {jiraWebhookMeta ? (
+                      <div className="mt-1 flex flex-col gap-1">
+                        <div>
+                          <Badge variant={jiraWebhookMeta.variant} className="text-[11px]">
+                            {jiraWebhookMeta.label}
+                          </Badge>
+                        </div>
+                        <span className="text-xs text-white/60">{jiraWebhookMeta.detail}</span>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
 

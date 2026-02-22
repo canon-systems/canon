@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { inngest } from '@/inngest/client';
 import { createLogger, errorMessage } from '@/lib/server/logging';
+import { getJiraWebhookSecretByToken } from '@/lib/server/jira/webhookSecret';
 
 type SignatureReason =
   | 'missing_secret'
@@ -91,7 +92,25 @@ export async function handleJiraWebhook(request: NextRequest) {
   const receivedAt = new Date().toISOString();
   const rawBody = await request.text();
   const signature = readSignature(request);
-  const signatureResult = verifyHmacSignature(rawBody, signature, process.env.JIRA_WEBHOOK_SECRET);
+
+  const urlToken = request.nextUrl.searchParams.get('t');
+  const secretFromToken = urlToken ? await getJiraWebhookSecretByToken(urlToken) : null;
+  const webhookSecret = secretFromToken ?? process.env.JIRA_WEBHOOK_SECRET;
+  const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production';
+
+  if (isProduction && !webhookSecret) {
+    log.error('signature_rejected', {
+      requestId,
+      signaturePresent: Boolean(signature),
+      signatureReason: 'missing_secret',
+      hasSecret: false,
+      hasToken: Boolean(urlToken),
+      environment: process.env.VERCEL_ENV || process.env.NODE_ENV || 'unknown',
+    });
+    return NextResponse.json({ ok: false, error: 'Webhook secret is not configured' }, { status: 500 });
+  }
+
+  const signatureResult = verifyHmacSignature(rawBody, signature, webhookSecret);
 
   log.info('webhook_received', {
     requestId,
@@ -99,7 +118,7 @@ export async function handleJiraWebhook(request: NextRequest) {
     signaturePresent: signatureResult.signaturePresent,
     signatureValid: signatureResult.valid,
     signatureReason: signatureResult.reason,
-    hasSecret: Boolean(process.env.JIRA_WEBHOOK_SECRET),
+    hasSecret: Boolean(webhookSecret),
   });
 
   if (!signatureResult.valid) {

@@ -72,7 +72,7 @@ const guideSections: GuideSection[] = [
   {
     id: 'jira-webhook',
     title: 'Set Up the Canon Webhook in Jira',
-    description: 'So Canon can receive live issue updates, someone with Jira administrator access adds one webhook in Jira that points to Canon. If that’s you, follow the steps below; if not, your Jira administrator can do it—share this section with them.',
+    description: 'So Canon can receive live issue updates, a Jira administrator creates one webhook in Jira that points to Canon and uses your Canon webhook secret. Share this section with your Jira admin if needed.',
     whereToGo: 'Jira: Settings (gear) → System → Advanced → WebHooks',
     links: [
       { label: 'Go to Sources', href: '/sources' },
@@ -81,13 +81,15 @@ const guideSections: GuideSection[] = [
       'In Jira: click the Settings (gear) icon, then System. In the left sidebar under Advanced, click WebHooks.',
       'Click Create a WebHook (or Add webhook).',
       'Name: use “Canon Integration” (or any name you’ll recognize). Set Status to Enabled.',
-      'URL: enter the Canon webhook URL (you\'ll see it in Canon when you connect Jira, or your team can provide it).',
+      'Get the Canon webhook URL and Canon webhook secret from your Canon workspace setup (or your Canon admin).',
+      'URL: paste the Canon webhook URL into Jira exactly as provided.',
+      'Secret: paste the Canon webhook secret into Jira. Canon requires signed webhook payloads in production.',
       'Events: under Issue, select created and updated (these are the scopes Canon needs).',
-      'JQL filter: use it to limit events to only the sites (projects) you want Canon to track. Enter a JQL query that matches those projects.',
-      'If your team uses an optional webhook secret for security, enter it in the Secret field; otherwise leave it blank.',
+      'JQL filter: limit events to projects Canon tracks. Example: project in (ENG, PLATFORM). Include only connected project keys.',
       'Click Create or Save. The webhook will appear in the list and Jira will start sending events to Canon.',
+      'Validate setup: update any issue in one of the selected projects, then confirm the Jira source shows “Webhook healthy” in Canon Sources.',
     ],
-    beforeYouMoveOn: 'The Canon webhook is in Jira, enabled, and uses the correct URL so Canon receives issue events.',
+    beforeYouMoveOn: 'The Canon webhook is enabled in Jira, uses Canon URL + secret, filters the right projects with JQL, and shows healthy status in Sources.',
   },
   {
     id: 'setup-and-classify',
