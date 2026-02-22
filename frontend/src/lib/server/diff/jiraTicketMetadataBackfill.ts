@@ -54,6 +54,11 @@ const PAGE_SIZE = 1000;
 const MAX_PAGES = 500;
 const ISSUE_FETCH_LIMIT = 5000;
 
+function isMissingProviderColumnError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return normalized.includes('provider') && normalized.includes('column');
+}
+
 function asObject(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -192,19 +197,34 @@ async function listCandidateEvents(params: {
   let offset = 0;
 
   for (let page = 0; page < MAX_PAGES; page += 1) {
-    let query = supabase
+    const base = supabase
       .from('diff_event_canonical')
       .select('source_id, event_kind, entity_id, occurred_at, metadata')
-      .eq('provider', 'jira')
       .in('event_kind', ['ticket_moved', 'ticket_completed', 'ticket_regressed'])
       .order('occurred_at', { ascending: false })
       .range(offset, offset + PAGE_SIZE - 1);
 
+    let queryWithProvider = base.eq('provider', 'jira');
     if (sourceIds && sourceIds.length > 0) {
-      query = query.in('source_id', sourceIds);
+      queryWithProvider = queryWithProvider.in('source_id', sourceIds);
     }
 
-    const { data, error } = await query;
+    let { data, error } = await queryWithProvider;
+    if (error && isMissingProviderColumnError(error.message)) {
+      let queryWithoutProvider = supabase
+        .from('diff_event_canonical')
+        .select('source_id, event_kind, entity_id, occurred_at, metadata')
+        .in('event_kind', ['ticket_moved', 'ticket_completed', 'ticket_regressed'])
+        .order('occurred_at', { ascending: false })
+        .range(offset, offset + PAGE_SIZE - 1);
+      if (sourceIds && sourceIds.length > 0) {
+        queryWithoutProvider = queryWithoutProvider.in('source_id', sourceIds);
+      }
+      const fallback = await queryWithoutProvider;
+      data = fallback.data;
+      error = fallback.error;
+    }
+
     if (error || !data?.length) break;
     out.push(...(data as CanonicalEventRow[]));
     if (data.length < PAGE_SIZE) break;
