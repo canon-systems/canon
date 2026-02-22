@@ -137,7 +137,7 @@ export const setupBatchFinalizeRequested = inngest.createFunction(
     id: 'setup-batch-finalize-requested',
     name: 'Canon: Setup Batch Finalize',
     retries: 1,
-    concurrency: { limit: 10 },
+    concurrency: { limit: 5 },
   },
   { event: 'source/setup.batch.finalize.requested' },
   async ({ event, step }) => {
