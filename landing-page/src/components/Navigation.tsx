@@ -7,7 +7,7 @@ import { ArrowRight, Menu, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
-const appHref = 'https://sync-swart.vercel.app/login';
+const appHref = 'https://app.usecanon.com';
 
 const navLinks = [
   { title: 'Features', href: '#features' },

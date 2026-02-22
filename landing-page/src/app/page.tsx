@@ -1,4 +1,8 @@
-import { ArrowRight, Github, Slack } from 'lucide-react';
+'use client';
+
+import { ArrowRight, Github, Slack, X } from 'lucide-react';
+import Image from 'next/image';
+import { useState } from 'react';
 
 import { IntegrationLogos } from '@/components/IntegrationLogos';
 import { Navigation } from '@/components/Navigation';
@@ -8,7 +12,60 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Separator } from '@/components/ui/separator';
 
 export default function LandingPage() {
-  const appHref = 'https://sync-swart.vercel.app/login';
+  const appHref = 'https://app.usecanon.com';
+  const [expandedImage, setExpandedImage] = useState<{ src: string; alt: string } | null>(null);
+  const evidenceLayers = [
+    {
+      layer: 'Layer 01',
+      stage: 'Signal Summary',
+      title: 'Leadership Brief, Compressed',
+      description:
+        'Canon surfaces the most meaningful shifts first so leaders can align quickly without wading through raw activity.',
+      image: '/signals.png',
+      alt: 'Canon signals view listing significant execution shifts and investigation actions.',
+      highlights: ['Prioritized change signal', 'Severity and impact context', 'Direct investigate path'],
+    },
+    {
+      layer: 'Layer 02',
+      stage: 'Delta Metrics',
+      title: 'Baseline vs Current, Side by Side',
+      description:
+        'Metric movement is shown as clear deltas so teams can separate normal variance from material execution change.',
+      image: '/history%20jira.png',
+      alt: 'Canon history view showing baseline comparisons and detailed movement summaries.',
+      highlights: ['Directional movement panels', 'Current vs baseline windows', 'Execution trend clarity'],
+    },
+    {
+      layer: 'Layer 03',
+      stage: 'Source Evidence',
+      title: 'Open the Evidence Dossier',
+      description:
+        'Every claim is backed by underlying activity context so teams can validate why a signal was raised before acting.',
+      image: '/investigate%20top.png',
+      alt: 'Canon investigate page top section with baseline context, directional movers, and summary metrics.',
+      highlights: ['Baseline context', 'Top directional movers', 'Explainable signal rationale'],
+    },
+    {
+      layer: 'Layer 04',
+      stage: 'Event-Level Detail',
+      title: 'Trace the Underlying Events',
+      description:
+        'Drill from the summary into granular records to confirm exactly what moved in the active window.',
+      image: '/investigate%20bottom.png',
+      alt: 'Canon investigate page lower section with detailed activity and breakdown panels.',
+      highlights: ['Granular activity records', 'Window-by-window comparison', 'Verification before escalation'],
+    },
+    {
+      layer: 'Layer 05',
+      stage: 'Action Trail',
+      title: 'Close the Loop With Auditability',
+      description:
+        'Execution logs preserve an auditable trail of what was processed and when, keeping decisions accountable.',
+      image: '/logs.png',
+      alt: 'Canon logs interface showing automation events, run metadata, and completion states.',
+      highlights: ['End-to-end run history', 'Operational accountability', 'Repeatable leadership cadence'],
+    },
+  ];
 
   return (
     <div className="relative min-h-screen text-white">
@@ -213,6 +270,94 @@ export default function LandingPage() {
         </section>
 
         <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8">
+          <div className="space-y-6">
+            <div className="space-y-3">
+              <Badge variant="secondary">Product Tour</Badge>
+              <h2 className="font-display text-2xl font-semibold text-white sm:text-3xl">
+                See Canon capabilities in action.
+              </h2>
+              <p className="max-w-3xl text-white/85">
+                Canon turns execution data into clear operating context, with fast investigations, source-level detail,
+                and a complete action trail for confident decisions.
+              </p>
+            </div>
+
+            <div className="grid gap-6 lg:grid-cols-[0.72fr_1.28fr] lg:items-start">
+              <div className="glass-panel p-6 sm:p-7 lg:sticky lg:top-24">
+                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-white/70">Reveal Sequence</p>
+                <h3 className="mt-3 font-display text-2xl font-semibold text-white">From Brief to Ground Truth</h3>
+                <p className="mt-3 text-sm text-white/80">
+                  Instead of static screenshots, the stack reveals how each layer strengthens confidence before a
+                  leadership action is taken.
+                </p>
+                <div className="mt-6 space-y-2">
+                  {evidenceLayers.map((layer, idx) => (
+                    <div key={layer.stage} className="flex items-center justify-between rounded-xl border border-white/20 bg-white/[0.03] px-3 py-2 text-xs text-white/80">
+                      <span>{layer.stage}</span>
+                      <span className="font-medium text-white/90">0{idx + 1}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-6 pb-4 lg:pt-8">
+                {evidenceLayers.map((layer, idx) => (
+                  <article
+                    key={layer.title}
+                    className={`relative rounded-3xl border border-white/25 bg-gradient-to-br from-white/[0.06] via-white/[0.03] to-white/[0.015] p-4 shadow-[0_24px_70px_rgba(0,0,0,0.5)] sm:p-6 ${
+                      idx % 2 === 0 ? 'lg:mr-5' : 'lg:ml-5'
+                    }`}
+                    style={{ zIndex: evidenceLayers.length - idx }}
+                  >
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline">{layer.layer}</Badge>
+                        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">{layer.stage}</p>
+                      </div>
+                    </div>
+
+                    <div className="group relative overflow-hidden rounded-2xl border border-white/25 bg-black/60">
+                      <button
+                        type="button"
+                        onClick={() => setExpandedImage({ src: layer.image, alt: layer.alt })}
+                        className="block w-full cursor-zoom-in"
+                        aria-label={`Expand image for ${layer.title}`}
+                      >
+                        <Image
+                          src={layer.image}
+                          alt={layer.alt}
+                          width={3442}
+                          height={1922}
+                          className="h-auto w-full object-cover"
+                        />
+                        <span className="pointer-events-none absolute bottom-3 right-3 rounded-full border border-white/30 bg-black/65 px-3 py-1 text-xs text-white/90 opacity-95 transition group-hover:bg-black/75">
+                          Click to expand
+                        </span>
+                      </button>
+                    </div>
+
+                    <div className="mt-5">
+                      <h3 className="font-display text-xl font-semibold text-white sm:text-2xl">{layer.title}</h3>
+                      <p className="mt-3 text-white/85">{layer.description}</p>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {layer.highlights.map((highlight) => (
+                          <span
+                            key={highlight}
+                            className="rounded-full border border-white/20 bg-white/[0.04] px-3 py-1 text-xs text-white/80"
+                          >
+                            {highlight}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8">
           <div className="grid gap-8 lg:grid-cols-2">
             <div className="glass-panel p-8">
               <h3 className="font-display text-2xl font-semibold">What Leaders Decide With Canon</h3>
@@ -396,6 +541,36 @@ export default function LandingPage() {
           </div>
         </section>
       </main>
+
+      {expandedImage && (
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-black/85 p-4 sm:p-8"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Expanded product image"
+          onClick={() => setExpandedImage(null)}
+        >
+          <div className="relative max-h-[92vh] w-full max-w-[1600px]" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => setExpandedImage(null)}
+              className="absolute right-2 top-2 z-10 inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/30 bg-black/75 text-white transition hover:bg-black"
+              aria-label="Close expanded image"
+            >
+              <X className="h-5 w-5" />
+            </button>
+            <div className="overflow-hidden rounded-2xl border border-white/25 bg-black/90 shadow-[0_30px_100px_rgba(0,0,0,0.75)]">
+              <Image
+                src={expandedImage.src}
+                alt={expandedImage.alt}
+                width={3442}
+                height={1922}
+                className="h-auto max-h-[90vh] w-full object-contain"
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       <footer className="relative border-t border-white/25">
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-10 text-sm text-white/80 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
