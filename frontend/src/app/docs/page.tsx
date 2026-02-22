@@ -70,6 +70,26 @@ const guideSections: GuideSection[] = [
     beforeYouMoveOn: 'Integrations are connected, Slack delivery is configured, and preferences are saved before source setup.',
   },
   {
+    id: 'jira-webhook',
+    title: 'Set Up the Canon Webhook in Jira',
+    description: 'So Canon can receive live issue updates, someone with Jira administrator access adds one webhook in Jira that points to Canon. If that’s you, follow the steps below; if not, your Jira administrator can do it—share this section with them.',
+    whereToGo: 'Jira: Settings (gear) → System → Advanced → WebHooks',
+    links: [
+      { label: 'Go to Sources', href: '/sources' },
+    ],
+    steps: [
+      'In Jira: click the Settings (gear) icon, then System. In the left sidebar under Advanced, click WebHooks.',
+      'Click Create a WebHook (or Add webhook).',
+      'Name: use “Canon Integration” (or any name you’ll recognize). Set Status to Enabled.',
+      'URL: enter the Canon webhook URL (you\'ll see it in Canon when you connect Jira, or your team can provide it).',
+      'Events: under Issue, select created and updated (these are the scopes Canon needs).',
+      'JQL filter: use it to limit events to only the sites (projects) you want Canon to track. Enter a JQL query that matches those projects.',
+      'If your team uses an optional webhook secret for security, enter it in the Secret field; otherwise leave it blank.',
+      'Click Create or Save. The webhook will appear in the list and Jira will start sending events to Canon.',
+    ],
+    beforeYouMoveOn: 'The Canon webhook is in Jira, enabled, and uses the correct URL so Canon receives issue events.',
+  },
+  {
     id: 'setup-and-classify',
     title: 'Set Up Sources and Classify Domains',
     description: 'Add the specific sources you want to monitor and assign each one to a product domain. Domains are labels that group related work so Canon can organize trends and signals by product area.',
