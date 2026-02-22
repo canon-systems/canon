@@ -18,10 +18,73 @@ type JiraStatusCategoryLookup = {
   byName: Map<string, JiraStatusCategoryName>;
 };
 
+type JiraApiStatusError = Error & { status?: number };
+export type JiraApiRequest = (params: {
+  connectionId: string;
+  cloudId: string;
+  path: string;
+}) => Promise<Response>;
+
 function normalizeStatusName(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const normalized = value.trim().toLowerCase();
   return normalized.length > 0 ? normalized : null;
+}
+
+function createJiraApiStatusError(path: string, status: number): JiraApiStatusError {
+  const error = new Error(`Jira API request failed: ${path} (status=${status})`) as JiraApiStatusError;
+  error.status = status;
+  return error;
+}
+
+async function fetchJiraApi(
+  connectionId: string,
+  cloudId: string,
+  path: string,
+  jiraApiRequest?: JiraApiRequest
+): Promise<Response> {
+  if (jiraApiRequest) {
+    return jiraApiRequest({ connectionId, cloudId, path });
+  }
+  return withConfluenceAccessToken({
+    connectionId,
+    run: async (token) => {
+      const response = await fetch(`https://api.atlassian.com/ex/jira/${cloudId}${path}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json',
+        },
+      });
+      if (response.status === 401) {
+        // Throwing with status lets tokenStore refresh/retry via withConfluenceAccessToken.
+        throw createJiraApiStatusError(path, response.status);
+      }
+      return response;
+    },
+  });
+}
+
+function addStatusesToLookup(
+  statuses: unknown[],
+  byId: Map<string, JiraStatusCategoryName>,
+  byName: Map<string, JiraStatusCategoryName>
+) {
+  for (const status of statuses) {
+    const id = status && typeof status === 'object' && 'id' in status ? String((status as { id?: unknown }).id ?? '') : null;
+    const name = status && typeof status === 'object' && 'name' in status
+      ? normalizeStatusName((status as { name?: unknown }).name)
+      : null;
+    const category = status && typeof status === 'object' && 'statusCategory' in status
+      ? ((status as { statusCategory?: { key?: string; name?: string } }).statusCategory?.key
+        ?? (status as { statusCategory?: { key?: string; name?: string } }).statusCategory?.name)
+      : null;
+    if (id && typeof category === 'string' && category.trim().length > 0) {
+      byId.set(id, category);
+    }
+    if (name && typeof category === 'string' && category.trim().length > 0) {
+      byName.set(name, category);
+    }
+  }
 }
 
 export type ProcessJiraWebhookPayloadParams = {
@@ -67,52 +130,58 @@ const log = createLogger('diff.jira_webhook_processor', {
   },
 });
 
-async function getStatusCategoryMap(connectionId: string, cloudId: string) {
-  const response = await withConfluenceAccessToken({
-    connectionId,
-    run: async (token) =>
-      fetch(`https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3/status`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/json',
-        },
-      }),
-  });
-
-  if (!response.ok) {
-    return { byId: new Map<string, JiraStatusCategoryName>(), byName: new Map<string, JiraStatusCategoryName>() };
-  }
-
-  const data = await response.json().catch(() => []);
+async function getStatusCategoryMap(connectionId: string, cloudId: string, jiraApiRequest?: JiraApiRequest) {
   const byId = new Map<string, JiraStatusCategoryName>();
   const byName = new Map<string, JiraStatusCategoryName>();
-  if (Array.isArray(data)) {
-    for (const status of data) {
-      const id = status?.id ? String(status.id) : null;
-      const name = normalizeStatusName(status?.name);
-      const category = status?.statusCategory?.key ?? status?.statusCategory?.name;
-      if (id && typeof category === 'string') {
-        byId.set(id, category);
-      }
-      if (name && typeof category === 'string') {
-        byName.set(name, category);
-      }
+
+  const response = await fetchJiraApi(connectionId, cloudId, '/rest/api/3/status', jiraApiRequest);
+  if (response.ok) {
+    const data = await response.json().catch(() => []);
+    if (Array.isArray(data)) {
+      addStatusesToLookup(data, byId, byName);
+      if (byId.size > 0) return { byId, byName };
     }
   }
+
+  // Fallback for Jira variants where /status is unavailable or returns incomplete data.
+  let startAt = 0;
+  const maxResults = 200;
+  for (let page = 0; page < 10; page += 1) {
+    const searchResponse = await fetchJiraApi(
+      connectionId,
+      cloudId,
+      `/rest/api/3/statuses/search?startAt=${startAt}&maxResults=${maxResults}`,
+      jiraApiRequest
+    );
+    if (!searchResponse.ok) break;
+    const payload = await searchResponse.json().catch(() => null);
+    const values = Array.isArray(payload?.values) ? payload.values : [];
+    if (values.length === 0) break;
+    addStatusesToLookup(values, byId, byName);
+
+    const isLast = payload && typeof payload === 'object' && 'isLast' in payload
+      ? Boolean((payload as { isLast?: unknown }).isLast)
+      : false;
+    const fetched = values.length;
+    startAt += fetched;
+    if (isLast || fetched < maxResults) break;
+  }
+
   return { byId, byName };
 }
 
-async function getStatusCategoryById(connectionId: string, cloudId: string, statusId: string) {
-  const firstResponse = await withConfluenceAccessToken({
+async function getStatusCategoryById(
+  connectionId: string,
+  cloudId: string,
+  statusId: string,
+  jiraApiRequest?: JiraApiRequest
+) {
+  const firstResponse = await fetchJiraApi(
     connectionId,
-    run: async (token) =>
-      fetch(`https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3/status/${encodeURIComponent(statusId)}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/json',
-        },
-      }),
-  });
+    cloudId,
+    `/rest/api/3/status/${encodeURIComponent(statusId)}`,
+    jiraApiRequest
+  );
   if (firstResponse.ok) {
     const data = await firstResponse.json().catch(() => null);
     const category = data?.statusCategory?.key ?? data?.statusCategory?.name;
@@ -124,16 +193,12 @@ async function getStatusCategoryById(connectionId: string, cloudId: string, stat
   }
 
   // Fallback endpoint for Jira variants where /status/{id} is unavailable.
-  const secondResponse = await withConfluenceAccessToken({
+  const secondResponse = await fetchJiraApi(
     connectionId,
-    run: async (token) =>
-      fetch(`https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3/statuses/search?id=${encodeURIComponent(statusId)}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/json',
-        },
-      }),
-  });
+    cloudId,
+    `/rest/api/3/statuses/search?id=${encodeURIComponent(statusId)}`,
+    jiraApiRequest
+  );
   if (!secondResponse.ok) return null;
   const payload = await secondResponse.json().catch(() => null);
   const values = Array.isArray(payload?.values) ? payload.values : [];
@@ -158,15 +223,16 @@ async function hydrateMissingStatusCategories(params: {
   cloudId: string;
   statusCategoryLookup: JiraStatusCategoryLookup;
   statusIds: string[];
+  jiraApiRequest?: JiraApiRequest;
 }): Promise<number> {
-  const { connectionId, cloudId, statusCategoryLookup, statusIds } = params;
+  const { connectionId, cloudId, statusCategoryLookup, statusIds, jiraApiRequest } = params;
   const missing = Array.from(new Set(statusIds.filter((id) => id && !statusCategoryLookup.byId.has(id))));
   if (missing.length === 0) return 0;
 
   let hydrated = 0;
   for (const statusId of missing) {
     try {
-      const resolved = await getStatusCategoryById(connectionId, cloudId, statusId);
+      const resolved = await getStatusCategoryById(connectionId, cloudId, statusId, jiraApiRequest);
       if (resolved?.category) {
         statusCategoryLookup.byId.set(statusId, resolved.category);
         if (resolved.name) {
@@ -228,7 +294,8 @@ async function getJiraSourceContext(supabase: ReturnType<typeof createServiceRol
 }
 
 export async function processJiraWebhookPayload(
-  params: ProcessJiraWebhookPayloadParams
+  params: ProcessJiraWebhookPayloadParams,
+  options: { jiraApiRequest?: JiraApiRequest } = {}
 ): Promise<JiraWebhookProcessResult> {
   const startedAt = Date.now();
   const { payload } = params;
@@ -355,7 +422,11 @@ export async function processJiraWebhookPayload(
   if (hasStatusChange && sourceContext.connectionId && sourceContext.cloudId) {
     statusCategoryLookup = { byId: new Map(), byName: new Map() };
     try {
-      statusCategoryLookup = await getStatusCategoryMap(sourceContext.connectionId, sourceContext.cloudId);
+      statusCategoryLookup = await getStatusCategoryMap(
+        sourceContext.connectionId,
+        sourceContext.cloudId,
+        options.jiraApiRequest
+      );
       const statusIds = changelogItems
         .filter((item) => item?.field === 'status')
         .flatMap((item) => {
@@ -369,6 +440,7 @@ export async function processJiraWebhookPayload(
         cloudId: sourceContext.cloudId,
         statusCategoryLookup,
         statusIds,
+        jiraApiRequest: options.jiraApiRequest,
       });
       log.info('status_map_loaded', {
         requestId,

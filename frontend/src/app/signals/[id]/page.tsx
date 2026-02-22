@@ -217,38 +217,38 @@ export default async function SignalInvestigatePage({
                 </p>
               </div>
             </div>
-            {payload.direction.movement ? (
-              <div className="grid gap-2 md:grid-cols-2">
-                {payload.direction.source_mix.has_jira ? (
-                  <div className="rounded border border-white/10 bg-zinc-800 px-3 py-2">
-                    <p className="text-xs uppercase tracking-[0.18em] text-white/50">
-                      <MetricLabelTooltip label="Completed Work" tip={metricTooltip('tickets_completed')} />
-                    </p>
-                    <p className="text-white">
-                      {payload.direction.movement.tickets_completed.current} vs {payload.direction.movement.tickets_completed.baseline} ({signed(payload.direction.movement.tickets_completed.delta)})
-                    </p>
-                  </div>
-                ) : null}
-                {payload.direction.source_mix.has_jira ? (
-                  <div className="rounded border border-white/10 bg-zinc-800 px-3 py-2">
-                    <p className="text-xs uppercase tracking-[0.18em] text-white/50">
-                      <MetricLabelTooltip label="Regressions" tip={metricTooltip('tickets_regressed')} />
-                    </p>
-                    <p className="text-white">
-                      {payload.direction.movement.tickets_regressed.current} vs {payload.direction.movement.tickets_regressed.baseline} ({signed(payload.direction.movement.tickets_regressed.delta)})
-                    </p>
-                  </div>
-                ) : null}
-                {payload.direction.source_mix.has_github ? (
-                  <div className="rounded border border-white/10 bg-zinc-800 px-3 py-2">
-                    <p className="text-xs uppercase tracking-[0.18em] text-white/50">
-                      <MetricLabelTooltip label="Merged PRs" tip={metricTooltip('prs_merged')} />
-                    </p>
-                    <p className="text-white">
-                      {payload.direction.movement.prs_merged.current} vs {payload.direction.movement.prs_merged.baseline} ({signed(payload.direction.movement.prs_merged.delta)})
-                    </p>
-                  </div>
-                ) : null}
+            <div className="grid gap-2 md:grid-cols-2">
+              {payload.direction.movement && payload.direction.source_mix.has_jira ? (
+                <div className="rounded border border-white/10 bg-zinc-800 px-3 py-2">
+                  <p className="text-xs uppercase tracking-[0.18em] text-white/50">
+                    <MetricLabelTooltip label="Completed Work" tip={metricTooltip('tickets_completed')} />
+                  </p>
+                  <p className="text-white">
+                    {payload.direction.movement.tickets_completed.current} vs {payload.direction.movement.tickets_completed.baseline} ({signed(payload.direction.movement.tickets_completed.delta)})
+                  </p>
+                </div>
+              ) : null}
+              {payload.direction.movement && payload.direction.source_mix.has_jira ? (
+                <div className="rounded border border-white/10 bg-zinc-800 px-3 py-2">
+                  <p className="text-xs uppercase tracking-[0.18em] text-white/50">
+                    <MetricLabelTooltip label="Regressions" tip={metricTooltip('tickets_regressed')} />
+                  </p>
+                  <p className="text-white">
+                    {payload.direction.movement.tickets_regressed.current} vs {payload.direction.movement.tickets_regressed.baseline} ({signed(payload.direction.movement.tickets_regressed.delta)})
+                  </p>
+                </div>
+              ) : null}
+              {payload.direction.movement && payload.direction.source_mix.has_github ? (
+                <div className="rounded border border-white/10 bg-zinc-800 px-3 py-2">
+                  <p className="text-xs uppercase tracking-[0.18em] text-white/50">
+                    <MetricLabelTooltip label="Merged PRs" tip={metricTooltip('prs_merged')} />
+                  </p>
+                  <p className="text-white">
+                    {payload.direction.movement.prs_merged.current} vs {payload.direction.movement.prs_merged.baseline} ({signed(payload.direction.movement.prs_merged.delta)})
+                  </p>
+                </div>
+              ) : null}
+              {payload.direction.movement ? (
                 <div className="rounded border border-white/10 bg-zinc-800 px-3 py-2">
                   <p className="text-xs uppercase tracking-[0.18em] text-white/50">
                     <MetricLabelTooltip label="Surface Breadth" tip={metricTooltip('repos_touched')} />
@@ -257,9 +257,7 @@ export default async function SignalInvestigatePage({
                     {payload.direction.movement.repos_touched.current} vs {payload.direction.movement.repos_touched.baseline} ({signed(payload.direction.movement.repos_touched.delta)})
                   </p>
                 </div>
-              </div>
-            ) : null}
-            <div className="grid gap-3 md:grid-cols-2">
+              ) : null}
               <div className="rounded border border-white/10 bg-zinc-800 px-3 py-2">
                 <p className="text-xs uppercase tracking-[0.18em] text-white/50">
                   <MetricLabelTooltip

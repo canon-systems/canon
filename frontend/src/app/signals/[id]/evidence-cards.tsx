@@ -16,6 +16,8 @@ type EvidencePayload = {
     summary: string | null;
     occurred_at: string | null;
     kind: string | null;
+    from_status: string | null;
+    to_status: string | null;
     url: string | null;
   }>;
   tickets_baseline: Array<{
@@ -23,10 +25,28 @@ type EvidencePayload = {
     summary: string | null;
     occurred_at: string | null;
     kind: string | null;
+    from_status: string | null;
+    to_status: string | null;
     url: string | null;
   }>;
-  prs: Array<{ id: string; repo: string | null; occurred_at: string | null; kind: string | null; url: string | null }>;
-  prs_baseline: Array<{ id: string; repo: string | null; occurred_at: string | null; kind: string | null; url: string | null }>;
+  prs: Array<{
+    id: string;
+    repo: string | null;
+    occurred_at: string | null;
+    kind: string | null;
+    from_branch: string | null;
+    to_branch: string | null;
+    url: string | null;
+  }>;
+  prs_baseline: Array<{
+    id: string;
+    repo: string | null;
+    occurred_at: string | null;
+    kind: string | null;
+    from_branch: string | null;
+    to_branch: string | null;
+    url: string | null;
+  }>;
   repos: Array<{ id: string; activity: number; baseline_activity: number }>;
   domains: Array<{ id: string; activity: number; baseline_activity: number }>;
 };
@@ -192,6 +212,11 @@ function TicketEvidenceList({
               <div className="text-sm text-white/65">
                 {ticket.id} · {ticketKindLabel(ticket.kind)}
               </div>
+              {ticket.from_status || ticket.to_status ? (
+                <div className="text-sm text-white/65">
+                  Status: {ticket.from_status || 'Unknown'} -&gt; {ticket.to_status || 'Unknown'}
+                </div>
+              ) : null}
             </div>
             {ticket.url ? (
               <a
@@ -281,6 +306,11 @@ function PullRequestEvidenceList({
                 <div className="font-medium text-white">PR {pr.id}</div>
               )}
               <div className="text-white/70">{pr.repo || 'Unknown repo'} · {prKindLabel(pr.kind)}</div>
+              {pr.from_branch || pr.to_branch ? (
+                <div className="text-sm text-white/65">
+                  Branch: {pr.from_branch || 'Unknown'} -&gt; {pr.to_branch || 'Unknown'}
+                </div>
+              ) : null}
             </div>
             {pr.url ? (
               <a

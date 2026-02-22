@@ -12,7 +12,6 @@ type CanonicalRollupRow = {
   event_kind: string | null;
   occurred_at: string | null;
   source_full_name?: string | null;
-  metadata?: Record<string, unknown> | null;
 };
 
 type DailyIncrements = {
@@ -24,7 +23,6 @@ type DailyIncrements = {
   tickets_completed: number;
   tickets_regressed: number;
   tickets_created: number;
-  sources_touched: Set<string>;
 };
 
 const emptyIncrements = (): DailyIncrements => ({
@@ -36,7 +34,6 @@ const emptyIncrements = (): DailyIncrements => ({
   tickets_completed: 0,
   tickets_regressed: 0,
   tickets_created: 0,
-  sources_touched: new Set(),
 });
 
 const toUtcDay = (value: string): string => {
@@ -151,9 +148,6 @@ const applyEventToIncrements = (inc: DailyIncrements, event: CanonicalEvent) => 
     default:
       break;
   }
-  if (event.source_full_name) {
-    inc.sources_touched.add(event.source_full_name);
-  }
 };
 
 export async function insertRawEvent(params: {
@@ -235,9 +229,8 @@ export async function upsertDailyMetrics(params: {
   sourceId: string;
   provider: string;
   events: CanonicalEvent[];
-  pathToFeature?: (path: string) => string | null;
 }) {
-  const { supabase, sourceId, provider, events, pathToFeature } = params;
+  const { supabase, sourceId, provider, events } = params;
   if (!events.length) return;
 
   const days = Array.from(new Set(events.map((event) => toUtcDay(event.occurred_at))));
@@ -258,7 +251,7 @@ export async function upsertDailyMetrics(params: {
     while (page < maxPages) {
       const { data, error } = await supabase
         .from('diff_event_canonical')
-        .select('event_kind, occurred_at, source_full_name, metadata')
+        .select('event_kind, occurred_at, source_full_name')
         .eq('source_id', sourceId)
         .gte('occurred_at', dayStartIso(day))
         .lt('occurred_at', nextDayStartIso(day))
@@ -282,55 +275,14 @@ export async function upsertDailyMetrics(params: {
     }
 
     const dayInc = emptyIncrements();
-    const featureCounts: Record<
-      string,
-      {
-        prs_opened: number;
-        prs_merged: number;
-        prs_closed: number;
-        commits_default: number;
-        tickets_moved: number;
-        tickets_completed: number;
-        tickets_regressed: number;
-        tickets_created: number;
-      }
-    > = {};
 
     for (const row of rows) {
       const normalized: CanonicalEvent = {
         event_kind: typeof row.event_kind === 'string' ? row.event_kind : '',
         occurred_at: coerceIso(row.occurred_at),
         source_full_name: typeof row.source_full_name === 'string' ? row.source_full_name : null,
-        metadata: (row.metadata as Record<string, unknown>) ?? {},
       };
       applyEventToIncrements(dayInc, normalized);
-
-      const paths = Array.isArray(normalized.metadata?.paths)
-        ? (normalized.metadata.paths as string[])
-        : [];
-      const featureKey = paths.map((p) => (pathToFeature ? pathToFeature(p) : null)).find((k) => k) || null;
-      if (!featureKey) continue;
-      const bucket = featureCounts[featureKey] || {
-        prs_opened: 0,
-        prs_merged: 0,
-        prs_closed: 0,
-        commits_default: 0,
-        tickets_moved: 0,
-        tickets_completed: 0,
-        tickets_regressed: 0,
-        tickets_created: 0,
-      };
-      const featureInc = emptyIncrements();
-      applyEventToIncrements(featureInc, normalized);
-      bucket.prs_opened += featureInc.prs_opened;
-      bucket.prs_merged += featureInc.prs_merged;
-      bucket.prs_closed += featureInc.prs_closed;
-      bucket.commits_default += featureInc.commits_default;
-      bucket.tickets_moved += featureInc.tickets_moved;
-      bucket.tickets_completed += featureInc.tickets_completed;
-      bucket.tickets_regressed += featureInc.tickets_regressed;
-      bucket.tickets_created += featureInc.tickets_created;
-      featureCounts[featureKey] = bucket;
     }
 
     const { error: upsertError } = await supabase
@@ -348,8 +300,6 @@ export async function upsertDailyMetrics(params: {
           tickets_completed: dayInc.tickets_completed,
           tickets_regressed: dayInc.tickets_regressed,
           tickets_created: dayInc.tickets_created,
-          sources_touched: Array.from(dayInc.sources_touched),
-          feature_counts: featureCounts,
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'source_id,day' }
@@ -513,8 +463,8 @@ export function extractGithubCanonicalEvents(payload: Record<string, unknown>): 
           source_full_name: repoFullName,
           metadata: {
             title: pullRequestTitle,
-            from: 'open',
-            to: 'merged',
+            from: headRef,
+            to: baseRef,
             status: 'merged',
           },
         });
@@ -526,8 +476,8 @@ export function extractGithubCanonicalEvents(payload: Record<string, unknown>): 
           source_full_name: repoFullName,
           metadata: {
             title: pullRequestTitle,
-            from: 'open',
-            to: 'closed',
+            from: headRef,
+            to: baseRef,
             status: 'closed',
           },
         });
@@ -679,7 +629,14 @@ export function extractJiraCanonicalEvents(
         occurred_at: changeTime,
         entity_id: issueKey,
         source_full_name: jiraWorkspace,
-        metadata: { status: status?.name || null, summary },
+        metadata: {
+          from: fromStatusName,
+          to: toStatusName,
+          from_id: fromIdForCategory,
+          to_id: toIdForCategory,
+          status: status?.name || null,
+          summary,
+        },
       });
     }
 
@@ -689,7 +646,14 @@ export function extractJiraCanonicalEvents(
         occurred_at: changeTime,
         entity_id: issueKey,
         source_full_name: jiraWorkspace,
-        metadata: { status: status?.name || null, summary },
+        metadata: {
+          from: fromStatusName,
+          to: toStatusName,
+          from_id: fromIdForCategory,
+          to_id: toIdForCategory,
+          status: status?.name || null,
+          summary,
+        },
       });
     }
   }

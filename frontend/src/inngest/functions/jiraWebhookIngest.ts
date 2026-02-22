@@ -1,9 +1,11 @@
 import { inngest } from '../client';
 import {
   processJiraWebhookPayload,
+  type JiraApiRequest,
   type ProcessJiraWebhookPayloadParams,
 } from '@/lib/server/diff/jiraWebhookProcessor';
 import { createLogger, errorMessage } from '@/lib/server/logging';
+import { withConfluenceAccessToken } from '@/lib/server/oauth/tokenStore';
 
 type JiraWebhookReceivedEvent = {
   requestId?: string;
@@ -76,7 +78,26 @@ export const ingestJiraWebhook = inngest.createFunction(
     };
 
     try {
-      const result = await step.run('process-jira-webhook', async () => processJiraWebhookPayload(params));
+      const jiraApiRequest: JiraApiRequest = async ({ connectionId, cloudId, path }) =>
+        withConfluenceAccessToken({
+          connectionId,
+          run: async (token) => {
+            const response = await step.fetch(`https://api.atlassian.com/ex/jira/${cloudId}${path}`, {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                Accept: 'application/json',
+              },
+            });
+            if (response.status === 401) {
+              const error = new Error(`Jira API request failed: ${path} (status=401)`) as Error & { status?: number };
+              error.status = 401;
+              throw error;
+            }
+            return response;
+          },
+        });
+
+      const result = await processJiraWebhookPayload(params, { jiraApiRequest });
       log.info('worker_complete', {
         requestId,
         webhookId: data.webhookId ?? null,
