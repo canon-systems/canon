@@ -114,7 +114,6 @@ export type WorkspaceSignalSettings = {
   email_digest_enabled: boolean;
   email_digest_to: string | null;
   delivery_preference: 'slack_only' | 'email_only' | 'slack_then_email';
-  source_ids: string[];
 };
 
 export type ComputeMetricsInput = {
