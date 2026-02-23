@@ -17,6 +17,16 @@ export default function LandingPage() {
   const evidenceLayers = [
     {
       layer: 'Layer 01',
+      stage: 'Connected Sources',
+      title: 'Where Execution Data Lives',
+      description:
+        'Canon connects to the systems where work actually happens—repositories, boards, and channels—so every signal is grounded in real activity.',
+      image: '/sources.png',
+      alt: 'Canon sources view showing connected workspaces and integration status.',
+      highlights: ['Connected workspaces', 'Integration health', 'Single pane for inputs'],
+    },
+    {
+      layer: 'Layer 02',
       stage: 'Signal Summary',
       title: 'Leadership Brief, Compressed',
       description:
@@ -26,17 +36,37 @@ export default function LandingPage() {
       highlights: ['Prioritized change signal', 'Severity and impact context', 'Direct investigate path'],
     },
     {
-      layer: 'Layer 02',
-      stage: 'Delta Metrics',
-      title: 'Baseline vs Current, Side by Side',
+      layer: 'Layer 03',
+      stage: 'History Overview',
+      title: 'Baseline and Deltas at a Glance',
       description:
-        'Metric movement is shown as clear deltas so teams can separate normal variance from material execution change.',
+        'See how metrics and momentum compare to baseline so teams can separate normal variance from material execution change.',
+      image: '/history%20top.png',
+      alt: 'Canon history overview with baseline comparison and trend context.',
+      highlights: ['Baseline comparison', 'Trend context', 'At-a-glance deltas'],
+    },
+    {
+      layer: 'Layer 04',
+      stage: 'Workstream Deltas',
+      title: 'Jira: Baseline vs Current, Side by Side',
+      description:
+        'Ticket and workstream movement is shown as clear deltas so backlog flow, blockers, and completion dynamics stay visible.',
       image: '/history%20jira.png',
-      alt: 'Canon history view showing baseline comparisons and detailed movement summaries.',
+      alt: 'Canon history view for Jira showing baseline comparisons and workstream movement.',
       highlights: ['Directional movement panels', 'Current vs baseline windows', 'Execution trend clarity'],
     },
     {
-      layer: 'Layer 03',
+      layer: 'Layer 05',
+      stage: 'Delivery Deltas',
+      title: 'GitHub: Code and Velocity in Context',
+      description:
+        'Delivery and code activity are compared to baseline so commits, PR flow, and execution trend shifts are easy to interpret.',
+      image: '/history%20github.png',
+      alt: 'Canon history view for GitHub showing baseline comparisons and delivery metrics.',
+      highlights: ['Commit and PR context', 'Velocity vs baseline', 'Delivery trend clarity'],
+    },
+    {
+      layer: 'Layer 06',
       stage: 'Source Evidence',
       title: 'Open the Evidence Dossier',
       description:
@@ -46,7 +76,7 @@ export default function LandingPage() {
       highlights: ['Baseline context', 'Top directional movers', 'Explainable signal rationale'],
     },
     {
-      layer: 'Layer 04',
+      layer: 'Layer 07',
       stage: 'Event-Level Detail',
       title: 'Trace the Underlying Events',
       description:
@@ -55,16 +85,6 @@ export default function LandingPage() {
       alt: 'Canon investigate page lower section with detailed activity and breakdown panels.',
       highlights: ['Granular activity records', 'Window-by-window comparison', 'Verification before escalation'],
     },
-    {
-      layer: 'Layer 05',
-      stage: 'Action Trail',
-      title: 'Close the Loop With Auditability',
-      description:
-        'Execution logs preserve an auditable trail of what was processed and when, keeping decisions accountable.',
-      image: '/logs.png',
-      alt: 'Canon logs interface showing automation events, run metadata, and completion states.',
-      highlights: ['End-to-end run history', 'Operational accountability', 'Repeatable leadership cadence'],
-    },
   ];
 
   return (
@@ -72,14 +92,14 @@ export default function LandingPage() {
       <Navigation />
 
       <main className="relative">
-        <section id="features" className="mx-auto max-w-7xl px-4 pb-12 pt-10 sm:px-6 lg:px-8 lg:pb-16 lg:pt-16 scroll-mt-[77px]">
+        <section id="features" className="mx-auto max-w-[90rem] px-4 pb-12 pt-10 sm:px-6 lg:px-8 lg:pb-16 lg:pt-16 scroll-mt-[77px]">
           <div className="grid gap-10 lg:grid-cols-[1.15fr_0.85fr] lg:items-center">
             <div className="animate-rise space-y-6">
               <Badge variant="secondary">Automated Knowledge Infrastructure</Badge>
               <h1 className="font-display text-4xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">
                 Canon turns execution noise into leadership signal.
               </h1>
-              <p className="text-lg leading-relaxed text-white/85">
+              <p className="leading-relaxed text-white/85">
                 Canon continuously reads real work across engineering systems, detects meaningful shifts, and delivers
                 daily and weekly guidance leaders can act on.
               </p>
@@ -96,16 +116,16 @@ export default function LandingPage() {
               </div>
               <div className="grid gap-4 sm:grid-cols-3">
                 <div className="rounded-2xl border border-white/25 bg-white/[0.03] p-4">
-                  <p className="text-sm font-medium text-white">Change Visibility</p>
-                  <p className="mt-1 text-sm text-white/80">See meaningful delivery and dependency shifts as they happen.</p>
+                  <p className="font-medium text-white">Change Visibility</p>
+                  <p className="mt-1 text-white/80">See meaningful delivery and dependency shifts as they happen.</p>
                 </div>
                 <div className="rounded-2xl border border-white/25 bg-white/[0.03] p-4">
-                  <p className="text-sm font-medium text-white">Execution Clarity</p>
-                  <p className="mt-1 text-sm text-white/80">Understand what changed and why it matters right now.</p>
+                  <p className="font-medium text-white">Execution Clarity</p>
+                  <p className="mt-1 text-white/80">Understand what changed and why it matters right now.</p>
                 </div>
                 <div className="rounded-2xl border border-white/25 bg-white/[0.03] p-4">
-                  <p className="text-sm font-medium text-white">Faster Decisions</p>
-                  <p className="mt-1 text-sm text-white/80">Route the right signal to the right owner, fast.</p>
+                  <p className="font-medium text-white">Faster Decisions</p>
+                  <p className="mt-1 text-white/80">Route the right signal to the right owner, fast.</p>
                 </div>
               </div>
             </div>
@@ -117,7 +137,7 @@ export default function LandingPage() {
                   <Badge variant="secondary">Live</Badge>
                 </div>
                 <Separator className="my-4" />
-                <div className="space-y-4 text-sm">
+                <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <span className="text-white/80">Delivery Status</span>
                     <span className="font-medium text-white">Active</span>
@@ -132,13 +152,13 @@ export default function LandingPage() {
                   </div>
                 </div>
                 <Separator className="my-4" />
-                <div className="rounded-2xl border border-white/25 bg-white/[0.03] p-4 text-sm text-white/80">
+                <div className="rounded-2xl border border-white/25 bg-white/[0.03] p-4 text-white/80">
                   Canon highlights meaningful shifts and links every claim to source evidence.
                 </div>
               </div>
               <div className="rounded-3xl border border-white/25 bg-gradient-to-br from-white/[0.06] via-white/[0.03] to-white/[0.01] p-5 shadow-[0_20px_80px_rgba(0,0,0,0.45)]">
                 <p className="text-xs font-semibold uppercase tracking-[0.3em] text-white/80">Output Cadence</p>
-                <div className="mt-4 grid grid-cols-3 gap-3 text-sm">
+                <div className="mt-4 grid grid-cols-3 gap-3">
                   <div className="rounded-2xl border border-white/25 bg-white/[0.05] p-3 text-center text-white">
                     Daily
                     <p className="text-xs text-white/80">Priority Signals</p>
@@ -157,7 +177,7 @@ export default function LandingPage() {
           </div>
         </section>
 
-        <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8">
+        <section className="mx-auto max-w-[90rem] px-4 pb-16 sm:px-6 lg:px-8">
           <div className="space-y-6">
             <div className="space-y-3">
               <Badge variant="secondary">What You Get</Badge>
@@ -177,7 +197,7 @@ export default function LandingPage() {
                   <CardDescription className="text-white/85">Decision-ready summary every day.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-sm text-white/85">Net momentum and the most important changes.</p>
+                  <p className="text-white/85">Net momentum and the most important changes.</p>
                 </CardContent>
               </Card>
               <Card className="h-full">
@@ -186,7 +206,7 @@ export default function LandingPage() {
                   <CardDescription className="text-white/85">Trends over time, not just snapshots.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-sm text-white/85">Track trajectory by team, initiative, or workspace.</p>
+                  <p className="text-white/85">Track trajectory by team, initiative, or workspace.</p>
                 </CardContent>
               </Card>
               <Card className="h-full">
@@ -195,7 +215,7 @@ export default function LandingPage() {
                   <CardDescription className="text-white/85">Meaningful deltas with context.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-sm text-white/85">Cut through noise and review changes that actually impact outcomes.</p>
+                  <p className="text-white/85">Cut through noise and review changes that actually impact outcomes.</p>
                 </CardContent>
               </Card>
               <Card className="h-full">
@@ -204,14 +224,14 @@ export default function LandingPage() {
                   <CardDescription className="text-white/85">Surface issues when they need attention.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-sm text-white/85">Route important shifts to owners before they become blockers.</p>
+                  <p className="text-white/85">Route important shifts to owners before they become blockers.</p>
                 </CardContent>
               </Card>
             </div>
           </div>
         </section>
 
-        <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8 scroll-mt-[77px]" id="workflow">
+        <section className="mx-auto max-w-[90rem] px-4 pb-16 sm:px-6 lg:px-8 scroll-mt-[77px]" id="workflow">
           <div className="space-y-6">
             <div className="space-y-3">
               <Badge variant="secondary">Operating Loop</Badge>
@@ -260,7 +280,7 @@ export default function LandingPage() {
                         </span>
                         {step.title}
                       </div>
-                      <p className="text-sm text-white/80">{step.body}</p>
+                      <p className="text-white/80">{step.body}</p>
                     </div>
                   </div>
                 ))}
@@ -269,7 +289,7 @@ export default function LandingPage() {
           </div>
         </section>
 
-        <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8">
+        <section className="mx-auto max-w-[90rem] px-4 pb-16 sm:px-6 lg:px-8">
           <div className="space-y-6">
             <div className="space-y-3">
               <Badge variant="secondary">Product Tour</Badge>
@@ -282,11 +302,11 @@ export default function LandingPage() {
               </p>
             </div>
 
-            <div className="grid gap-6 lg:grid-cols-[0.72fr_1.28fr] lg:items-start">
+            <div className="grid gap-6 lg:grid-cols-[0.52fr_1.48fr] lg:items-start">
               <div className="glass-panel p-6 sm:p-7 lg:sticky lg:top-24">
                 <p className="text-xs font-semibold uppercase tracking-[0.3em] text-white/70">Reveal Sequence</p>
                 <h3 className="mt-3 font-display text-2xl font-semibold text-white">From Brief to Ground Truth</h3>
-                <p className="mt-3 text-sm text-white/80">
+                <p className="mt-3 text-white/80">
                   Instead of static screenshots, the stack reveals how each layer strengthens confidence before a
                   leadership action is taken.
                 </p>
@@ -304,9 +324,7 @@ export default function LandingPage() {
                 {evidenceLayers.map((layer, idx) => (
                   <article
                     key={layer.title}
-                    className={`relative rounded-3xl border border-white/25 bg-gradient-to-br from-white/[0.06] via-white/[0.03] to-white/[0.015] p-4 shadow-[0_24px_70px_rgba(0,0,0,0.5)] sm:p-6 ${
-                      idx % 2 === 0 ? 'lg:mr-5' : 'lg:ml-5'
-                    }`}
+                    className="relative rounded-3xl border border-white/25 bg-gradient-to-br from-white/[0.06] via-white/[0.03] to-white/[0.015] p-4 shadow-[0_24px_70px_rgba(0,0,0,0.5)] sm:p-6"
                     style={{ zIndex: evidenceLayers.length - idx }}
                   >
                     <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
@@ -343,7 +361,7 @@ export default function LandingPage() {
                         {layer.highlights.map((highlight) => (
                           <span
                             key={highlight}
-                            className="rounded-full border border-white/20 bg-white/[0.04] px-3 py-1 text-xs text-white/80"
+                            className="rounded-full border border-white/20 bg-white px-3 py-1 text-xs font-medium text-black"
                           >
                             {highlight}
                           </span>
@@ -357,7 +375,7 @@ export default function LandingPage() {
           </div>
         </section>
 
-        <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8">
+        <section className="mx-auto max-w-[90rem] px-4 pb-16 sm:px-6 lg:px-8">
           <div className="grid gap-8 lg:grid-cols-2">
             <div className="glass-panel p-8">
               <h3 className="font-display text-2xl font-semibold">What Leaders Decide With Canon</h3>
@@ -373,7 +391,7 @@ export default function LandingPage() {
                 <Badge variant="outline">Change Priority</Badge>
               </div>
               <Separator className="my-6" />
-              <p className="text-sm text-white/85">
+              <p className="text-white/85">
                 Every signal is traceable to source events so decisions stay grounded in reality.
               </p>
             </div>
@@ -382,7 +400,7 @@ export default function LandingPage() {
               <p className="mt-3 text-white/85">
                 Canon supports automation where safe and human review where needed.
               </p>
-              <div className="mt-6 space-y-4 text-sm">
+              <div className="mt-6 space-y-4">
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <p className="font-medium text-white">Auto-Send</p>
@@ -409,7 +427,7 @@ export default function LandingPage() {
           </div>
         </section>
 
-        <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8 scroll-mt-[77px]" id="integrations">
+        <section className="mx-auto max-w-[90rem] px-4 pb-16 sm:px-6 lg:px-8 scroll-mt-[77px]" id="integrations">
           <div className="space-y-6">
             <div className="space-y-3">
               <Badge variant="secondary">Integrations</Badge>
@@ -432,7 +450,7 @@ export default function LandingPage() {
                   <CardDescription className="text-white/85">Code activity and delivery velocity.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-sm text-white/85">Track commits, PR flow, and execution trend shifts.</p>
+                  <p className="text-white/85">Track commits, PR flow, and execution trend shifts.</p>
                 </CardContent>
               </Card>
               <Card className="h-full">
@@ -446,7 +464,7 @@ export default function LandingPage() {
                   <CardDescription className="text-white/85">Workstream and ticket movement.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-sm text-white/85">Understand backlog flow, blockers, and completion dynamics.</p>
+                  <p className="text-white/85">Understand backlog flow, blockers, and completion dynamics.</p>
                 </CardContent>
               </Card>
               <Card className="h-full">
@@ -460,14 +478,14 @@ export default function LandingPage() {
                   <CardDescription className="text-white/85">Signals in leadership communication flow.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-sm text-white/85">Route daily signals, weekly insights, and change alerts to the right channels.</p>
+                  <p className="text-white/85">Route daily signals, weekly insights, and change alerts to the right channels.</p>
                 </CardContent>
               </Card>
             </div>
           </div>
         </section>
 
-        <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8 scroll-mt-[77px]" id="security">
+        <section className="mx-auto max-w-[90rem] px-4 pb-16 sm:px-6 lg:px-8 scroll-mt-[77px]" id="security">
           <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
             <div className="glass-panel p-6 sm:p-8">
               <h3 className="font-display text-xl font-semibold text-white">Security, By Default</h3>
@@ -497,15 +515,15 @@ export default function LandingPage() {
               </div>
               <Separator className="my-4" />
               <div className="space-y-4">
-                <div className="rounded-xl border border-white/25 bg-white/[0.04] px-4 py-3 text-sm font-medium text-white">
+                <div className="rounded-xl border border-white/25 bg-white/[0.04] px-4 py-3 font-medium text-white">
                   Connect
                   <p className="text-xs font-normal text-white/80">OAuth to GitHub / Atlassian / Slack</p>
                 </div>
-                <div className="rounded-xl border border-white/25 bg-white/[0.06] px-4 py-3 text-sm font-medium text-white">
+                <div className="rounded-xl border border-white/25 bg-white/[0.06] px-4 py-3 font-medium text-white">
                   Canon
                   <p className="text-xs font-normal text-white/80">Encrypt tokens &rarr; ingest events &rarr; compute signals</p>
                 </div>
-                <div className="rounded-xl border border-white/25 bg-white/[0.04] px-4 py-3 text-sm font-medium text-white">
+                <div className="rounded-xl border border-white/25 bg-white/[0.04] px-4 py-3 font-medium text-white">
                   Outputs
                   <p className="text-xs font-normal text-white/80">Daily signal, weekly insight, change alerts</p>
                 </div>
@@ -514,7 +532,7 @@ export default function LandingPage() {
           </div>
         </section>
 
-        <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8">
+        <section className="mx-auto max-w-[90rem] px-4 pb-16 sm:px-6 lg:px-8">
           <div className="rounded-3xl border border-white/25 bg-white/[0.03] p-8 sm:p-10">
             <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
               <div>
@@ -573,7 +591,7 @@ export default function LandingPage() {
       )}
 
       <footer className="relative border-t border-white/25">
-        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-10 text-sm text-white/80 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
+        <div className="mx-auto flex max-w-[90rem] flex-col gap-4 px-4 py-10 text-white/80 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
           <p>© 2026 Canon</p>
           <a href="mailto:john@usecanon.com" className="transition hover:text-white">
             Contact

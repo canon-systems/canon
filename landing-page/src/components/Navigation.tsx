@@ -43,7 +43,7 @@ export function Navigation() {
 
     return (
         <header className="sticky top-0 z-50 w-full border-b border-white/25 bg-white/[0.06] backdrop-blur-xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]">
-            <nav className="relative mx-auto flex max-w-7xl items-center justify-between px-4 py-4 md:px-6 lg:px-8">
+            <nav className="relative mx-auto flex max-w-[90rem] items-center justify-between px-4 py-4 md:px-6 lg:px-8">
                 <Link href="/" className="flex items-center gap-3 rounded-xl border border-white/15 bg-white/5 px-3 py-2 transition hover:border-white/25 hover:bg-white/10">
                     <Image
                         src="/web-app-manifest-512x512.png"
@@ -53,8 +53,8 @@ export function Navigation() {
                         className="h-10 w-10 rounded-lg border border-white/25"
                     />
                     <div className="flex flex-col leading-tight">
-                        <span className="text-sm font-semibold text-white">Canon</span>
-                        <span className="text-[11px] uppercase tracking-[0.2em] text-white/80">Workspace</span>
+                        <span className="font-semibold text-white">Canon</span>
+                        <span className="text-xs uppercase tracking-[0.2em] text-white/80">Workspace</span>
                     </div>
                 </Link>
 
@@ -63,7 +63,7 @@ export function Navigation() {
                         <a
                             key={link.title}
                             href={link.href}
-                            className="relative pb-3 pt-1 text-sm font-medium text-white/90 transition-colors hover:text-white"
+                            className="relative pb-3 pt-1 font-medium text-white/90 transition-colors hover:text-white"
                             onClick={(e) => handleNavLinkClick(e, link.href)}
                         >
                             {link.title}
@@ -104,7 +104,7 @@ export function Navigation() {
                             <a
                                 key={link.title}
                                 href={link.href}
-                                className="flex items-center gap-3 rounded-xl border border-white/25 px-3 py-3 text-sm text-white/90 transition hover:bg-white/10"
+                                className="flex items-center gap-3 rounded-xl border border-white/25 px-3 py-3 text-white/90 transition hover:bg-white/10"
                                 onClick={(e) => handleNavLinkClick(e, link.href)}
                             >
                                 {link.title}

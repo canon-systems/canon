@@ -27,7 +27,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={`dark ${spaceGrotesk.variable} ${fraunces.variable}`}>
-      <body className="min-h-screen bg-black text-white antialiased overflow-x-hidden">
+      <body className="min-h-screen bg-black text-base text-white antialiased overflow-x-hidden">
         <div className="app-shell">
           <div className="app-shell__backdrop" aria-hidden="true">
             <div className="app-shell__grid" />
