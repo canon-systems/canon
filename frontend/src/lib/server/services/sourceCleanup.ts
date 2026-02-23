@@ -28,42 +28,6 @@ async function deleteBySourceId(params: {
   }
 }
 
-async function removeSourceFromSignalSettings(params: {
-  supabase: AppSupabaseClient;
-  userId: string;
-  sourceId: string;
-}) {
-  const { supabase, userId, sourceId } = params;
-  const { data, error } = (await supabase
-    .from('workspace_signal_settings')
-    .select('source_ids')
-    .eq('user_id', userId)
-    .maybeSingle()) as { data: { source_ids?: unknown } | null; error: DeleteErrorLike | null };
-
-  if (error) {
-    if (isMissingSchemaError(error)) return;
-    throw error;
-  }
-
-  const current = Array.isArray(data?.source_ids)
-    ? data.source_ids.filter((id): id is string => typeof id === 'string')
-    : [];
-  if (!current.includes(sourceId)) return;
-
-  const next = current.filter((id) => id !== sourceId);
-  const { error: updateError } = await supabase
-    .from('workspace_signal_settings')
-    .update({
-      source_ids: next,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('user_id', userId);
-
-  if (updateError && !isMissingSchemaError(updateError)) {
-    throw updateError;
-  }
-}
-
 export async function deleteSourceDependents(params: {
   supabase: AppSupabaseClient;
   userId: string;
@@ -136,6 +100,4 @@ export async function deleteSourceDependents(params: {
   if (usageDeleteError && !isMissingSchemaError(usageDeleteError)) {
     throw usageDeleteError;
   }
-
-  await removeSourceFromSignalSettings({ supabase, userId, sourceId });
 }

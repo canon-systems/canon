@@ -135,24 +135,21 @@ function severityBadgeClass(severity: string): string {
   return 'border-yellow-400/40 bg-yellow-500/12 text-yellow-100';
 }
 
-export default async function SignalInvestigatePage({
-  params,
-  searchParams,
-}: {
+type PageProps = {
   params: Promise<{ id: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
+};
+
+export default async function SignalInvestigatePage(props: PageProps) {
+  const [{ id }, query] = await Promise.all([props.params, props.searchParams]);
   const { session, user } = await getSession();
   if (!session || !user) {
     redirect('/login');
   }
 
-  const query = await searchParams;
   const requestedTimeZone = typeof query.tz === 'string' ? parseTimeZoneParam(query.tz) : null;
   const cookieStore = await cookies();
   const cookieTimeZone = parseTimeZoneParam(cookieStore.get(TIME_ZONE_COOKIE)?.value);
-
-  const { id } = await params;
   const supabase = await createClient();
   const settings = await getWorkspaceSignalSettings({ supabase, userId: user.id });
   const settingsTimeZone = parseTimeZoneParam(settings.time_zone);

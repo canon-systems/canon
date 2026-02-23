@@ -1,5 +1,4 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { DIFF_SOURCE_PROVIDERS } from '@/lib/server/sources/providers';
 import type { WorkspaceSignalSettings } from '@/lib/server/signals/types';
 import { DEFAULT_SIGNAL_TIME_ZONE, normalizeTimeZone, parseTimeZoneParam } from '@/lib/server/signals/window';
 
@@ -10,7 +9,6 @@ const DEFAULTS: Omit<WorkspaceSignalSettings, 'user_id'> = {
   email_digest_enabled: false,
   email_digest_to: null,
   delivery_preference: 'slack_only',
-  source_ids: [],
 };
 
 function isMissingTimeZoneColumnError(error: unknown): boolean {
@@ -68,7 +66,6 @@ function normalizeSettings(userId: string, row?: Record<string, unknown> | null)
       row?.delivery_preference === 'slack_then_email'
         ? row.delivery_preference
         : DEFAULTS.delivery_preference,
-    source_ids: Array.isArray(row?.source_ids) ? row!.source_ids.filter((id): id is string => typeof id === 'string') : [],
   };
 }
 
@@ -120,7 +117,6 @@ export async function updateWorkspaceSignalSettings(params: {
       patch.delivery_preference === 'slack_then_email'
         ? patch.delivery_preference
         : current.delivery_preference,
-    source_ids: Array.isArray(patch.source_ids) ? patch.source_ids : current.source_ids,
     user_id: userId,
   };
 
@@ -141,14 +137,10 @@ export async function resolveSignalSourceIds(params: {
   const explicit = Array.isArray(sourceIds) ? sourceIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0) : [];
   if (explicit.length > 0) return explicit;
 
-  const settings = await getWorkspaceSignalSettings({ supabase, userId });
-  if (settings.source_ids.length > 0) return settings.source_ids;
-
   const { data: sourceRows } = await supabase
     .from('workspace_sources')
     .select('id, provider')
-    .eq('user_id', userId)
-    .in('provider', [...DIFF_SOURCE_PROVIDERS]);
+    .eq('user_id', userId);
 
   return (sourceRows || [])
     .map((row) => row.id as string)
