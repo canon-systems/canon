@@ -13,6 +13,7 @@ type SetupBatchFinalizeEvent = {
 
 type SetupBatchStatus = {
   sourceCount: number;
+  foundSourceCount: number;
   diffSourceCount: number;
   missingSourceIds: string[];
   pendingSetupSourceIds: string[];
@@ -51,6 +52,7 @@ async function getSetupBatchStatus(params: {
   if (batchSourceIds.length === 0) {
     return {
       sourceCount: 0,
+      foundSourceCount: 0,
       diffSourceCount: 0,
       missingSourceIds: [],
       pendingSetupSourceIds: [],
@@ -91,24 +93,30 @@ async function getSetupBatchStatus(params: {
     const setupStatus = asText(statusPayload.status);
     const backfill = asRecord(statusPayload.backfill);
     const backfillStatus = asText(backfill.status);
+    const diffProvider = isDiffProvider(source.provider);
+    const setupReady =
+      setupStatus === 'ready' ||
+      setupStatus === 'draft_ready' ||
+      (diffProvider && backfillStatus === 'done');
 
     if (setupStatus === 'failed' || backfillStatus === 'failed') {
       failedSourceIds.push(sourceId);
       continue;
     }
 
-    if (setupStatus !== 'ready') {
+    if (!setupReady) {
       pendingSetupSourceIds.push(sourceId);
       continue;
     }
 
-    if (isDiffProvider(source.provider) && backfillStatus !== 'done') {
+    if (diffProvider && backfillStatus !== 'done') {
       pendingBackfillSourceIds.push(sourceId);
     }
   }
 
   return {
     sourceCount: batchSourceIds.length,
+    foundSourceCount: rowById.size,
     diffSourceCount,
     missingSourceIds,
     pendingSetupSourceIds,
@@ -194,8 +202,20 @@ export const setupBatchFinalizeRequested = inngest.createFunction(
           };
         }
 
+        if (status.foundSourceCount === 0) {
+          log.info('worker_cancelled', {
+            userId,
+            sourceCount: status.sourceCount,
+            sourceIds,
+            reason: 'all_sources_removed',
+          });
+          return {
+            skipped: true,
+            reason: 'all_sources_removed',
+          };
+        }
+
         if (
-          status.missingSourceIds.length > 0 ||
           status.pendingSetupSourceIds.length > 0 ||
           status.pendingBackfillSourceIds.length > 0
         ) {
@@ -203,6 +223,7 @@ export const setupBatchFinalizeRequested = inngest.createFunction(
             log.warn('batch_timed_out', {
               userId,
               sourceCount: status.sourceCount,
+              foundSourceCount: status.foundSourceCount,
               sourceIds,
               missingSourceIds: status.missingSourceIds,
               pendingSetupSourceIds: status.pendingSetupSourceIds,
@@ -210,13 +231,14 @@ export const setupBatchFinalizeRequested = inngest.createFunction(
               attempts: attempt,
             });
             throw new Error(
-              `Setup batch readiness timed out after ${attempt} attempts: missing=${status.missingSourceIds.length}, pendingSetup=${status.pendingSetupSourceIds.length}, pendingBackfill=${status.pendingBackfillSourceIds.length}`
+              `Setup batch readiness timed out after ${attempt} attempts: found=${status.foundSourceCount}, pendingSetup=${status.pendingSetupSourceIds.length}, pendingBackfill=${status.pendingBackfillSourceIds.length}`
             );
           }
 
           log.info('batch_pending', {
             userId,
             sourceCount: status.sourceCount,
+            foundSourceCount: status.foundSourceCount,
             sourceIds,
             missingSourceIds: status.missingSourceIds,
             pendingSetupSourceIds: status.pendingSetupSourceIds,

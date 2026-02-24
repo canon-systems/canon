@@ -4,8 +4,8 @@ import { getJiraDiffForProject, type JiraTicketEvent } from '@/lib/server/diff/j
 import { filterNewCanonicalEvents, insertCanonicalEvents, upsertDailyMetrics } from '@/lib/server/diff/webhookIngest';
 import { createLogger, errorMessage } from '@/lib/server/logging';
 
-const DEFAULT_DIFF_BACKFILL_DAYS = 14;
-const MAX_DIFF_BACKFILL_DAYS = 30;
+const DEFAULT_DIFF_BACKFILL_DAYS = 30;
+const MAX_DIFF_BACKFILL_DAYS = 60;
 const MAX_RATE_LIMIT_RETRIES = 4;
 const RATE_LIMIT_BASE_DELAY_MS = 1_500;
 const RATE_LIMIT_MAX_DELAY_MS = 60_000;
@@ -64,13 +64,10 @@ function clampBackfillDays(days: number): number {
 }
 
 /**
- * Single place for backfill window sizing. For now this is static (default 14 days)
+ * Single place for backfill window sizing. For now this is static (default 30 days)
  * and can later be replaced with entitlement/plan logic without touching callers.
  */
-export function resolveDiffBackfillDays(requestedDays?: number): number {
-  if (Number.isFinite(requestedDays)) {
-    return clampBackfillDays(requestedDays as number);
-  }
+export function resolveDiffBackfillDays(): number {
   const configuredDays = Number(process.env.DIFF_BACKFILL_DAYS);
   return clampBackfillDays(configuredDays);
 }
@@ -318,6 +315,10 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
+function asText(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
 function trimUndefined<T extends Record<string, unknown>>(value: T): T {
   return Object.fromEntries(
     Object.entries(value).filter(([, entry]) => entry !== undefined)
@@ -389,14 +390,32 @@ async function updateBackfillStatus(params: {
 
   const statusPayload = asRecord(source?.status_payload);
   const existingBackfill = asRecord(statusPayload.backfill);
+  const existingSetupStatus = asText(statusPayload.status).toLowerCase();
   const mergedBackfill = trimUndefined({
     ...existingBackfill,
     ...patch,
     updated_at: new Date().toISOString(),
   });
 
+  const shouldPromoteSetupReady =
+    asText(patch.status).toLowerCase() === 'done' &&
+    existingSetupStatus !== 'ready' &&
+    existingSetupStatus !== 'draft_ready' &&
+    existingSetupStatus !== 'failed' &&
+    existingSetupStatus !== 'error';
+
   const nextStatusPayload = {
     ...statusPayload,
+    ...(shouldPromoteSetupReady
+      ? {
+          status: 'ready',
+          progress_pct:
+            typeof statusPayload.progress_pct === 'number' && Number.isFinite(statusPayload.progress_pct)
+              ? Math.max(100, Math.round(statusPayload.progress_pct))
+              : 100,
+          step_label: 'Setup complete',
+        }
+      : {}),
     backfill: mergedBackfill,
   };
 
@@ -420,13 +439,12 @@ async function updateBackfillStatus(params: {
 export async function runDiffBackfillForSource(params: {
   supabase: SupabaseClient;
   source: DiffBackfillSource;
-  requestedDays?: number;
   now?: Date;
 }): Promise<DiffBackfillResult> {
-  const { supabase, source, requestedDays, now } = params;
+  const { supabase, source, now } = params;
   const provider = source.provider.toLowerCase();
   const sourceName = resolveBackfillSourceName(source) ?? source.id;
-  const days = resolveDiffBackfillDays(requestedDays);
+  const days = resolveDiffBackfillDays();
   const window = buildDiffBackfillWindow(days, now);
   const dailyWindows = splitIntoDailyWindows(window);
   const providerLabel = providerName(provider);

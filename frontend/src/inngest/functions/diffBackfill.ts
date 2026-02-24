@@ -14,7 +14,6 @@ type BackfillRequestedEvent = {
   sourceId?: string;
   sourceName?: string;
   userId?: string;
-  requestedDays?: number;
   installedAt?: string;
   createdSourceIds?: string[];
 };
@@ -50,7 +49,6 @@ export const diffSourceBackfill = inngest.createFunction(
     const { sourceId, userId, sourceNameFromEvent } = parseSourceWorkerEvent(data);
     const createdSourceIds = parseNonEmptyStringArray(data.createdSourceIds);
     const setupBatchSourceIds = uniqueIds(createdSourceIds.length > 0 ? createdSourceIds : [sourceId]);
-    const requestedDays = typeof data.requestedDays === 'number' ? data.requestedDays : undefined;
     const installedAt = typeof data.installedAt === 'string' ? data.installedAt : null;
     const installedAtDate = installedAt ? new Date(installedAt) : null;
     const hasValidInstalledAt = Boolean(installedAtDate && !Number.isNaN(installedAtDate.getTime()));
@@ -106,7 +104,6 @@ export const diffSourceBackfill = inngest.createFunction(
       provider: sourceRow.provider,
       setupBatchSourceCount: setupBatchSourceIds.length,
       setupBatchSourceIds,
-      requestedDays: requestedDays ?? null,
       installedAt: hasValidInstalledAt ? installedAtDate?.toISOString() : null,
     });
 
@@ -115,7 +112,6 @@ export const diffSourceBackfill = inngest.createFunction(
         runDiffBackfillForSource({
           supabase,
           source: sourceRow,
-          requestedDays,
           now: hasValidInstalledAt ? installedAtDate ?? undefined : undefined,
         })
       );
@@ -127,7 +123,6 @@ export const diffSourceBackfill = inngest.createFunction(
           provider: sourceRow.provider,
           setupBatchSourceCount: setupBatchSourceIds.length,
           setupBatchSourceIds,
-          requestedDays: requestedDays ?? null,
           reason: result.skipped,
           fetchedEvents: result.fetched_events,
           insertedEvents: result.inserted_events,
@@ -141,7 +136,6 @@ export const diffSourceBackfill = inngest.createFunction(
         provider: sourceRow.provider,
         setupBatchSourceCount: setupBatchSourceIds.length,
         setupBatchSourceIds,
-        requestedDays: requestedDays ?? null,
         fetchedEvents: result.fetched_events,
         insertedEvents: result.inserted_events,
         windowStart: result.window.start,

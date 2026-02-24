@@ -49,8 +49,35 @@ type EvidencePayload = {
   }>;
   repos: Array<{ id: string; activity: number; baseline_activity: number }>;
   domains: Array<{ id: string; activity: number; baseline_activity: number }>;
+  windows?: Array<{
+    id: string;
+    label: string;
+    window_start: string;
+    window_end: string;
+    tickets: Array<{
+      id: string;
+      summary: string | null;
+      occurred_at: string | null;
+      kind: string | null;
+      from_status: string | null;
+      to_status: string | null;
+      url: string | null;
+    }>;
+    prs: Array<{
+      id: string;
+      repo: string | null;
+      occurred_at: string | null;
+      kind: string | null;
+      from_branch: string | null;
+      to_branch: string | null;
+      url: string | null;
+    }>;
+    repos: Array<{ id: string; activity: number }>;
+    domains: Array<{ id: string; activity: number }>;
+  }>;
 };
 
+type WindowEvidence = NonNullable<EvidencePayload['windows']>[number];
 type PanelId = 'tickets' | 'prs' | 'repos' | 'domains';
 
 const PANEL_ORDER: PanelId[] = ['tickets', 'prs', 'repos', 'domains'];
@@ -61,27 +88,27 @@ const PANEL_META: Record<
 > = {
   tickets: {
     label: 'Ticket Activity',
-    tip: 'Ticket events included in this signal window.',
-    empty: 'No ticket evidence in this signal window.',
-    dialogDescription: 'Detailed ticket evidence for the current signal window.',
+    tip: 'Ticket events for the selected window.',
+    empty: 'No ticket evidence for this window.',
+    dialogDescription: 'Detailed ticket evidence by window.',
   },
   prs: {
     label: 'Pull Request Activity',
-    tip: 'Pull request events included in this signal window.',
-    empty: 'No PR evidence in this signal window.',
-    dialogDescription: 'Detailed pull request evidence for the current signal window.',
+    tip: 'Pull request events for the selected window.',
+    empty: 'No PR evidence for this window.',
+    dialogDescription: 'Detailed pull request evidence by window.',
   },
   repos: {
     label: 'Active Surfaces',
-    tip: 'Surfaces with activity in this signal window.',
-    empty: 'No active surface evidence in this signal window.',
-    dialogDescription: 'Detailed activity across touched repositories and surfaces.',
+    tip: 'Surfaces with activity in the selected window.',
+    empty: 'No active surface evidence for this window.',
+    dialogDescription: 'Detailed surface activity by window.',
   },
   domains: {
     label: 'Domain Breakdown',
-    tip: 'Activity grouped by domain for this signal window.',
-    empty: 'No domain activity in this signal window.',
-    dialogDescription: 'Detailed domain distribution for the current signal window.',
+    tip: 'Domain activity for the selected window.',
+    empty: 'No domain activity for this window.',
+    dialogDescription: 'Detailed domain distribution by window.',
   },
 };
 
@@ -90,6 +117,14 @@ function formatTimestamp(value: string | null, timeZone: string): string {
   const parsed = DateTime.fromISO(value, { zone: 'utc' }).setZone(timeZone);
   if (!parsed.isValid) return value;
   return parsed.toFormat('MMM d, yyyy h:mm a');
+}
+
+function formatWindowRange(start: string, end: string, timeZone: string): string {
+  if (!start || !end) return '';
+  const startDate = DateTime.fromISO(start, { zone: 'utc' }).setZone(timeZone);
+  const endDate = DateTime.fromISO(end, { zone: 'utc' }).setZone(timeZone);
+  if (!startDate.isValid || !endDate.isValid) return '';
+  return `${startDate.toFormat('MMM d')} - ${endDate.toFormat('MMM d, yyyy')}`;
 }
 
 function ticketKindLabel(kind: string | null): string {
@@ -140,6 +175,35 @@ function prActivitySummary(prs: EvidencePayload['prs']): Array<{ label: string; 
   return Array.from(counts.entries())
     .filter(([, count]) => count > 0)
     .map(([label, count]) => ({ label, count }));
+}
+
+function buildWindowTabs(evidence: EvidencePayload): WindowEvidence[] {
+  if (Array.isArray(evidence.windows) && evidence.windows.length > 0) {
+    return evidence.windows;
+  }
+
+  return [
+    {
+      id: 'current',
+      label: 'Current Window',
+      window_start: '',
+      window_end: '',
+      tickets: evidence.tickets,
+      prs: evidence.prs,
+      repos: evidence.repos.map((repo) => ({ id: repo.id, activity: repo.activity })),
+      domains: evidence.domains.map((domain) => ({ id: domain.id, activity: domain.activity })),
+    },
+    {
+      id: 'prior',
+      label: 'Prior Window',
+      window_start: '',
+      window_end: '',
+      tickets: evidence.tickets_baseline,
+      prs: evidence.prs_baseline,
+      repos: evidence.repos.map((repo) => ({ id: repo.id, activity: repo.baseline_activity })),
+      domains: evidence.domains.map((domain) => ({ id: domain.id, activity: domain.baseline_activity })),
+    },
+  ];
 }
 
 function TicketEvidenceList({
@@ -330,24 +394,13 @@ function PullRequestEvidenceList({
   );
 }
 
-function TicketEvidenceTabs({
-  currentTickets,
-  baselineTickets,
-  timeZone,
-}: {
-  currentTickets: EvidencePayload['tickets'];
-  baselineTickets: EvidencePayload['tickets'];
-  timeZone: string;
-}) {
-  const [activeTab, setActiveTab] = useState<'current' | 'baseline'>('current');
-  const [selectedLabelsByTab, setSelectedLabelsByTab] = useState<{ current: string[]; baseline: string[] }>({
-    current: [],
-    baseline: [],
-  });
+function TicketEvidenceTabs({ windows, timeZone }: { windows: WindowEvidence[]; timeZone: string }) {
+  const [activeTab, setActiveTab] = useState<string>(windows[0]?.id || '');
+  const [selectedLabelsByTab, setSelectedLabelsByTab] = useState<Record<string, string[]>>({});
 
   const toggleLabel = (label: string): void => {
     setSelectedLabelsByTab((prev) => {
-      const currentLabels = prev[activeTab];
+      const currentLabels = prev[activeTab] || [];
       const nextLabels = currentLabels.includes(label)
         ? currentLabels.filter((item) => item !== label)
         : [...currentLabels, label];
@@ -360,55 +413,39 @@ function TicketEvidenceTabs({
   };
 
   return (
-    <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'current' | 'baseline')} className="space-y-2">
+    <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-2">
       <TabsList className="border border-white/10 bg-zinc-800">
-        <TabsTrigger value="current" className="data-[state=active]:!bg-white">
-          Current Window ({currentTickets.length})
-        </TabsTrigger>
-        <TabsTrigger value="baseline" className="data-[state=active]:!bg-white">
-          Baseline Window ({baselineTickets.length})
-        </TabsTrigger>
+        {windows.map((window) => (
+          <TabsTrigger key={window.id} value={window.id} className="data-[state=active]:!bg-white">
+            {window.label} ({window.tickets.length})
+          </TabsTrigger>
+        ))}
       </TabsList>
-      <TabsContent value="current" className="mt-0 space-y-2">
-        <TicketEvidenceList
-          tickets={currentTickets}
-          timeZone={timeZone}
-          selectedLabels={selectedLabelsByTab.current}
-          onToggleLabel={toggleLabel}
-          onClearFilters={clearFilters}
-        />
-      </TabsContent>
-      <TabsContent value="baseline" className="mt-0 space-y-2">
-        <TicketEvidenceList
-          tickets={baselineTickets}
-          timeZone={timeZone}
-          selectedLabels={selectedLabelsByTab.baseline}
-          onToggleLabel={toggleLabel}
-          onClearFilters={clearFilters}
-        />
-      </TabsContent>
+      {windows.map((window) => (
+        <TabsContent key={window.id} value={window.id} className="mt-0 space-y-2">
+          {window.window_start && window.window_end ? (
+            <p className="text-xs text-white/55">{formatWindowRange(window.window_start, window.window_end, timeZone)}</p>
+          ) : null}
+          <TicketEvidenceList
+            tickets={window.tickets}
+            timeZone={timeZone}
+            selectedLabels={selectedLabelsByTab[window.id] || []}
+            onToggleLabel={toggleLabel}
+            onClearFilters={clearFilters}
+          />
+        </TabsContent>
+      ))}
     </Tabs>
   );
 }
 
-function PullRequestEvidenceTabs({
-  currentPrs,
-  baselinePrs,
-  timeZone,
-}: {
-  currentPrs: EvidencePayload['prs'];
-  baselinePrs: EvidencePayload['prs'];
-  timeZone: string;
-}) {
-  const [activeTab, setActiveTab] = useState<'current' | 'baseline'>('current');
-  const [selectedLabelsByTab, setSelectedLabelsByTab] = useState<{ current: string[]; baseline: string[] }>({
-    current: [],
-    baseline: [],
-  });
+function PullRequestEvidenceTabs({ windows, timeZone }: { windows: WindowEvidence[]; timeZone: string }) {
+  const [activeTab, setActiveTab] = useState<string>(windows[0]?.id || '');
+  const [selectedLabelsByTab, setSelectedLabelsByTab] = useState<Record<string, string[]>>({});
 
   const toggleLabel = (label: string): void => {
     setSelectedLabelsByTab((prev) => {
-      const currentLabels = prev[activeTab];
+      const currentLabels = prev[activeTab] || [];
       const nextLabels = currentLabels.includes(label)
         ? currentLabels.filter((item) => item !== label)
         : [...currentLabels, label];
@@ -421,140 +458,155 @@ function PullRequestEvidenceTabs({
   };
 
   return (
-    <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'current' | 'baseline')} className="space-y-2">
+    <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-2">
       <TabsList className="border border-white/10 bg-zinc-800">
-        <TabsTrigger value="current" className="data-[state=active]:!bg-white">
-          Current Window ({currentPrs.length})
-        </TabsTrigger>
-        <TabsTrigger value="baseline" className="data-[state=active]:!bg-white">
-          Baseline Window ({baselinePrs.length})
-        </TabsTrigger>
+        {windows.map((window) => (
+          <TabsTrigger key={window.id} value={window.id} className="data-[state=active]:!bg-white">
+            {window.label} ({window.prs.length})
+          </TabsTrigger>
+        ))}
       </TabsList>
-      <TabsContent value="current" className="mt-0 space-y-2">
-        <PullRequestEvidenceList
-          prs={currentPrs}
-          timeZone={timeZone}
-          selectedLabels={selectedLabelsByTab.current}
-          onToggleLabel={toggleLabel}
-          onClearFilters={clearFilters}
-        />
-      </TabsContent>
-      <TabsContent value="baseline" className="mt-0 space-y-2">
-        <PullRequestEvidenceList
-          prs={baselinePrs}
-          timeZone={timeZone}
-          selectedLabels={selectedLabelsByTab.baseline}
-          onToggleLabel={toggleLabel}
-          onClearFilters={clearFilters}
-        />
-      </TabsContent>
+      {windows.map((window) => (
+        <TabsContent key={window.id} value={window.id} className="mt-0 space-y-2">
+          {window.window_start && window.window_end ? (
+            <p className="text-xs text-white/55">{formatWindowRange(window.window_start, window.window_end, timeZone)}</p>
+          ) : null}
+          <PullRequestEvidenceList
+            prs={window.prs}
+            timeZone={timeZone}
+            selectedLabels={selectedLabelsByTab[window.id] || []}
+            onToggleLabel={toggleLabel}
+            onClearFilters={clearFilters}
+          />
+        </TabsContent>
+      ))}
     </Tabs>
   );
+}
+
+function ReposEvidenceTabs({ windows, timeZone }: { windows: WindowEvidence[]; timeZone: string }) {
+  const [activeTab, setActiveTab] = useState<string>(windows[0]?.id || '');
+  if (windows.length === 0) return <p>{PANEL_META.repos.empty}</p>;
+  return (
+    <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-2">
+      <TabsList className="border border-white/10 bg-zinc-800">
+        {windows.map((window) => (
+          <TabsTrigger key={window.id} value={window.id} className="data-[state=active]:!bg-white">
+            {window.label} ({window.repos.length})
+          </TabsTrigger>
+        ))}
+      </TabsList>
+      {windows.map((window) => {
+        const maxActivity = Math.max(1, ...window.repos.map((repo) => repo.activity), 1);
+        return (
+          <TabsContent key={window.id} value={window.id} className="mt-0 space-y-2">
+            {window.window_start && window.window_end ? (
+              <p className="text-xs text-white/55">{formatWindowRange(window.window_start, window.window_end, timeZone)}</p>
+            ) : null}
+            {window.repos.length === 0 ? <p className="text-white/70">No surface activity in this window.</p> : null}
+            {window.repos.map((repo) => (
+              <div key={repo.id} className="rounded border border-white/10 bg-zinc-800 px-3 py-2">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-white">{repo.id}</span>
+                </div>
+                <div className="mt-2 grid min-w-0 grid-cols-[1fr_auto] items-center gap-3 text-[11px] text-white/65">
+                  <Progress value={(repo.activity / maxActivity) * 100} className="h-2 min-w-0" />
+                  <span className="shrink-0 font-mono text-white/70">{repo.activity}</span>
+                </div>
+              </div>
+            ))}
+          </TabsContent>
+        );
+      })}
+    </Tabs>
+  );
+}
+
+function DomainsEvidenceTabs({ windows, timeZone }: { windows: WindowEvidence[]; timeZone: string }) {
+  const [activeTab, setActiveTab] = useState<string>(windows[0]?.id || '');
+  if (windows.length === 0) return <p>{PANEL_META.domains.empty}</p>;
+  return (
+    <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-2">
+      <TabsList className="border border-white/10 bg-zinc-800">
+        {windows.map((window) => (
+          <TabsTrigger key={window.id} value={window.id} className="data-[state=active]:!bg-white">
+            {window.label} ({window.domains.length})
+          </TabsTrigger>
+        ))}
+      </TabsList>
+      {windows.map((window) => {
+        const totalActivity = Math.max(1, window.domains.reduce((sum, item) => sum + item.activity, 0));
+        return (
+          <TabsContent key={window.id} value={window.id} className="mt-0 space-y-2">
+            {window.window_start && window.window_end ? (
+              <p className="text-xs text-white/55">{formatWindowRange(window.window_start, window.window_end, timeZone)}</p>
+            ) : null}
+            {window.domains.length === 0 ? <p className="text-white/70">No domain activity in this window.</p> : null}
+            {window.domains.map((domain) => {
+              const pct = totalActivity > 0 ? (domain.activity / totalActivity) * 100 : 0;
+              const pctLabel = pct >= 10 ? pct.toFixed(0) : pct.toFixed(1);
+              return (
+                <div key={domain.id} className="rounded border border-white/10 bg-zinc-800 px-3 py-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-white">{domain.id}</span>
+                    <span className="font-mono text-[11px] text-white/70">{pctLabel}%</span>
+                  </div>
+                  <div className="mt-2 grid min-w-0 grid-cols-[1fr_auto] items-center gap-3 text-[11px] text-white/65">
+                    <Progress value={pct} className="h-2 min-w-0" />
+                    <span className="shrink-0 font-mono text-white/70">{pctLabel}%</span>
+                  </div>
+                </div>
+              );
+            })}
+          </TabsContent>
+        );
+      })}
+    </Tabs>
+  );
+}
+
+function panelActivityCount(panel: PanelId, windows: WindowEvidence[]): number {
+  const current = windows[0];
+  if (!current) return 0;
+  if (panel === 'tickets') return current.tickets.length;
+  if (panel === 'prs') return current.prs.length;
+  if (panel === 'repos') return current.repos.length;
+  return current.domains.length;
 }
 
 function EvidenceList({ panel, evidence, timeZone }: { panel: PanelId; evidence: EvidencePayload; timeZone: string }) {
+  const windows = buildWindowTabs(evidence);
+
   if (panel === 'tickets') {
-    return (
-      <TicketEvidenceTabs
-        currentTickets={evidence.tickets}
-        baselineTickets={evidence.tickets_baseline}
-        timeZone={timeZone}
-      />
-    );
+    return <TicketEvidenceTabs windows={windows} timeZone={timeZone} />;
   }
 
   if (panel === 'prs') {
-    return (
-      <PullRequestEvidenceTabs
-        currentPrs={evidence.prs}
-        baselinePrs={evidence.prs_baseline}
-        timeZone={timeZone}
-      />
-    );
+    return <PullRequestEvidenceTabs windows={windows} timeZone={timeZone} />;
   }
 
   if (panel === 'repos') {
-    if (evidence.repos.length === 0) return <p>{PANEL_META.repos.empty}</p>;
-    const maxActivity = Math.max(
-      1,
-      ...evidence.repos.flatMap((repo) => [repo.activity, repo.baseline_activity])
-    );
-    return (
-      <>
-        {evidence.repos.map((repo) => (
-          <div key={repo.id} className="rounded border border-white/10 bg-zinc-800 px-3 py-2">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-white">{repo.id}</span>
-              <span className="text-xs text-white/65">{repo.activity} vs {repo.baseline_activity}</span>
-            </div>
-            <div className="mt-2 space-y-1.5">
-              <div className="grid grid-cols-[4rem_1fr_auto] items-center gap-2 text-[11px] text-white/65">
-                <span>Current</span>
-                <Progress value={(repo.activity / maxActivity) * 100} className="h-1.5" />
-                <span className="font-mono text-white/70">{repo.activity}</span>
-              </div>
-              <div className="grid grid-cols-[4rem_1fr_auto] items-center gap-2 text-[11px] text-white/55">
-                <span>Baseline</span>
-                <Progress value={(repo.baseline_activity / maxActivity) * 100} className="h-1.5 opacity-70" />
-                <span className="font-mono text-white/60">{repo.baseline_activity}</span>
-              </div>
-            </div>
-          </div>
-        ))}
-      </>
-    );
+    return <ReposEvidenceTabs windows={windows} timeZone={timeZone} />;
   }
 
-  if (evidence.domains.length === 0) return <p>{PANEL_META.domains.empty}</p>;
-  const maxActivity = Math.max(
-    1,
-    ...evidence.domains.flatMap((domain) => [domain.activity, domain.baseline_activity])
-  );
-  return (
-    <>
-      {evidence.domains.map((domain) => {
-        return (
-          <div key={domain.id} className="rounded border border-white/10 bg-zinc-800 px-3 py-2">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-white">{domain.id}</span>
-              <span className="text-xs text-white/65">{domain.activity} vs {domain.baseline_activity}</span>
-            </div>
-            <div className="mt-2 space-y-1.5">
-              <div className="grid grid-cols-[4rem_1fr_auto] items-center gap-2 text-[11px] text-white/65">
-                <span>Current</span>
-                <Progress value={(domain.activity / maxActivity) * 100} className="h-1.5" />
-                <span className="font-mono text-white/70">{domain.activity}</span>
-              </div>
-              <div className="grid grid-cols-[4rem_1fr_auto] items-center gap-2 text-[11px] text-white/55">
-                <span>Baseline</span>
-                <Progress value={(domain.baseline_activity / maxActivity) * 100} className="h-1.5 opacity-70" />
-                <span className="font-mono text-white/60">{domain.baseline_activity}</span>
-              </div>
-            </div>
-          </div>
-        );
-      })}
-    </>
-  );
-}
+  if (panel === 'domains') {
+    return <DomainsEvidenceTabs windows={windows} timeZone={timeZone} />;
+  }
 
-function panelActivityCount(panel: PanelId, evidence: EvidencePayload): number {
-  if (panel === 'tickets') return evidence.tickets.length;
-  if (panel === 'prs') return evidence.prs.length;
-  if (panel === 'repos') return evidence.repos.length;
-  return evidence.domains.length;
+  return null;
 }
 
 export default function EvidenceCards({ evidence, timeZone }: { evidence: EvidencePayload; timeZone: string }) {
   const [expandedPanel, setExpandedPanel] = useState<PanelId | null>(null);
   const expandedMeta = useMemo(() => (expandedPanel ? PANEL_META[expandedPanel] : null), [expandedPanel]);
+  const windows = useMemo(() => buildWindowTabs(evidence), [evidence]);
 
   return (
     <>
       <div className="grid items-stretch gap-4 lg:grid-cols-2">
         {PANEL_ORDER.map((panel) => {
           const meta = PANEL_META[panel];
-          const activityCount = panelActivityCount(panel, evidence);
+          const activityCount = panelActivityCount(panel, windows);
           return (
             <Card key={panel} className="h-[24rem] min-h-0 border-white/10 bg-zinc-800">
               <CardHeader className="flex flex-row items-center justify-between pb-2">

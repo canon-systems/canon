@@ -96,6 +96,9 @@ export async function GET(request: NextRequest) {
           percent_change: signal.percent_change,
           window_start: signal.window_start,
           window_end: signal.window_end,
+          risk_posture: signal.structural?.risk?.posture || null,
+          structural_sentence: signal.structural?.sentence || null,
+          confidence: signal.structural?.confidence || null,
         })),
       },
       { status: 200 }

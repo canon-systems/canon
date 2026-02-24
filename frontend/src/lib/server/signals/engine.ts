@@ -9,15 +9,23 @@ import { computeAndCompareMetrics, computeRobustSignalBaseline } from '@/lib/ser
 import { computeWeightedEffort } from '@/lib/server/signals/effortWeights';
 import { evaluateSignalRules } from '@/lib/server/signals/rules';
 import { getWorkspaceSignalSettings, resolveSignalSourceIds } from '@/lib/server/signals/settings';
+import {
+  buildStructuralSentence,
+  computeDomainVolatility,
+  confidenceFromHistory,
+  evaluatePersistenceFromBreaches,
+  evaluateRiskPosture,
+} from '@/lib/server/signals/structural';
 import type {
   MetricComparison,
   MetricWindow,
+  SignalStructuralMetadata,
   SignalEvidenceRecord,
   SignalRecord,
   SignalRunResult,
   SignalSeverity,
 } from '@/lib/server/signals/types';
-import { computeBaselineWindowForTimeZone, getNormalizedWindowForDays } from '@/lib/server/signals/window';
+import { computeBaselineWindowForTimeZone, getNormalizedWindowForDays, windowDayCount } from '@/lib/server/signals/window';
 
 type SignalRow = {
   id: string;
@@ -84,6 +92,29 @@ function signalFingerprintKey(row: {
   ].join('|');
 }
 
+export function dedupeSignalRowsByFingerprint<T extends {
+  type: string;
+  scope_type: string;
+  scope_id: string | null;
+  metric_key: string;
+  window_start: string;
+  window_end: string;
+  baseline_start: string;
+  baseline_end: string;
+}>(rows: T[]): T[] {
+  const dedupedRows: T[] = [];
+  const seenFingerprints = new Set<string>();
+
+  for (const row of rows) {
+    const fingerprint = signalFingerprintKey(row);
+    if (seenFingerprints.has(fingerprint)) continue;
+    seenFingerprints.add(fingerprint);
+    dedupedRows.push(row);
+  }
+
+  return dedupedRows;
+}
+
 function toSignalRecord(row: SignalRow, evidence: SignalEvidenceRecord[]): SignalRecord {
   const metricKey = row.metric_key;
   let currentValue = Number(row.current_value || 0);
@@ -124,6 +155,13 @@ function toSignalRecord(row: SignalRow, evidence: SignalEvidenceRecord[]): Signa
     summaryLine = `Regression rate is ${pct(currentValue * 100)} vs baseline ${pct(baselineValue * 100)} (${points(absoluteChange * 100)}).`;
   }
 
+  const structural = (() => {
+    const structuralRaw = row.metadata && typeof row.metadata.structural === 'object'
+      ? (row.metadata.structural as SignalStructuralMetadata)
+      : null;
+    return structuralRaw || undefined;
+  })();
+
   return {
     id: row.id,
     created_at: row.created_at,
@@ -144,6 +182,7 @@ function toSignalRecord(row: SignalRow, evidence: SignalEvidenceRecord[]): Signa
     title: row.title,
     summary_line: summaryLine,
     metadata: row.metadata || {},
+    structural,
     evidence,
   };
 }
@@ -252,6 +291,118 @@ export function sortSignalsByPriority<T extends { severity: string; percent_chan
 function defaultWindowForSettings(baselineDays: number, timeZone: string): MetricWindow {
   const window = getNormalizedWindowForDays(baselineDays, new Date(), undefined, timeZone);
   return { start: window.start, end: window.end };
+}
+
+function patternMemoryWindowCount(lookbackDays: number): number {
+  const normalizedDays = Math.max(1, Math.floor(lookbackDays || 7));
+  const dynamic = Math.ceil(normalizedDays / 7) + 2;
+  return Math.max(3, Math.min(8, dynamic));
+}
+
+function metricValueForWindow(params: {
+  signal: {
+    metric_key: string;
+    scope_id?: string | null;
+    evidence: SignalEvidenceRecord[];
+  };
+  comparison: MetricComparison;
+}): number {
+  const { signal, comparison } = params;
+  if (signal.metric_key === 'tickets_completed') return comparison.metrics.tickets_completed.current_value;
+  if (signal.metric_key === 'tickets_regressed') return comparison.metrics.tickets_regressed.current_value;
+  if (signal.metric_key === 'prs_merged') return comparison.metrics.prs_merged.current_value;
+  if (signal.metric_key === 'prs_opened') return comparison.metrics.prs_opened.current_value;
+  if (signal.metric_key === 'repos_touched') return comparison.metrics.repos_touched.current_value;
+  if (signal.metric_key === 'regression_rate') return comparison.metrics.regression_rate.current_value;
+
+  if (signal.metric_key === 'repo_distribution') {
+    const key = signal.scope_id || '';
+    return Number(comparison.repo_distribution.current[key] || 0);
+  }
+
+  if (signal.metric_key === 'domain_distribution') {
+    const evidenceDomain = signal.evidence.find((item) => typeof item.payload?.domain === 'string')?.payload?.domain;
+    const key = typeof evidenceDomain === 'string' && evidenceDomain.trim().length > 0
+      ? evidenceDomain.trim()
+      : signal.scope_id || '';
+    if (key) return Number(comparison.domain_distribution.current[key] || 0);
+    const topShare = Object.values(comparison.domain_distribution.current || {}).reduce(
+      (max, value) => Math.max(max, Number(value || 0)),
+      0
+    );
+    return topShare;
+  }
+
+  return 0;
+}
+
+function formatOnsetSummary(signal: {
+  metric_key: string;
+  current_value: number;
+  title: string;
+}, onsetValue: number): string {
+  const currentValue = signal.current_value;
+  const absoluteChange = currentValue - onsetValue;
+  if (signal.metric_key === 'regression_rate' || signal.metric_key.includes('distribution')) {
+    const pointsDelta = absoluteChange * 100;
+    const delta = `${pointsDelta > 0 ? '+' : ''}${pointsDelta.toFixed(1)} pts`;
+    return `${signal.title}. Current ${((currentValue || 0) * 100).toFixed(1)}% vs onset ${((onsetValue || 0) * 100).toFixed(1)}% (${delta}).`;
+  }
+  const percent =
+    onsetValue === 0 ? (currentValue === 0 ? 0 : 100) : ((currentValue - onsetValue) / Math.abs(onsetValue)) * 100;
+  const signedPercent = `${percent > 0 ? '+' : ''}${Math.abs(percent) >= 100 ? percent.toFixed(0) : percent.toFixed(1)}%`;
+  return `${signal.title}. Current ${currentValue.toFixed(0)} vs onset ${onsetValue.toFixed(0)} (${signedPercent}).`;
+}
+
+function evaluateTrendConsistency(values: number[]): {
+  dominant_direction: 'increase' | 'decrease' | 'mixed' | 'flat';
+  consistency_ratio: number;
+  is_consistent: boolean;
+  is_mixed: boolean;
+  total_windows: number;
+  directional_windows: number;
+} {
+  if (values.length <= 1) {
+    return {
+      dominant_direction: 'flat',
+      consistency_ratio: 0,
+      is_consistent: false,
+      is_mixed: false,
+      total_windows: Math.max(values.length - 1, 0),
+      directional_windows: 0,
+    };
+  }
+
+  const onset = values[0] || 0;
+  const rest = values.slice(1);
+  let increasing = 0;
+  let decreasing = 0;
+  for (const value of rest) {
+    if (value > onset) increasing += 1;
+    else if (value < onset) decreasing += 1;
+  }
+
+  const directionalWindows = Math.max(increasing, decreasing);
+  const totalWindows = rest.length;
+  const consistencyRatio = totalWindows > 0 ? directionalWindows / totalWindows : 0;
+  const isMixed = increasing > 0 && decreasing > 0;
+  const dominant =
+    directionalWindows === 0
+      ? 'flat'
+      : increasing === decreasing
+        ? 'mixed'
+        : increasing > decreasing
+          ? 'increase'
+          : 'decrease';
+
+  return {
+    dominant_direction: dominant,
+    consistency_ratio: consistencyRatio,
+    is_consistent: consistencyRatio >= 0.75 && directionalWindows > 0,
+    is_mixed: isMixed,
+    total_windows: totalWindows,
+    directional_windows: directionalWindows,
+  };
 }
 
 async function insertSignalWithEvidence(params: {
@@ -386,12 +537,6 @@ export async function runSignalEngineForWindow(params: {
 
   const comparisonBaselineWindow = computeBaselineWindowForTimeZone(current.window, timeZone);
 
-  const rawSignalDrafts = evaluateSignalRules({
-    comparison,
-    robustBaseline,
-    baselineWindow: comparisonBaselineWindow,
-  });
-
   const ticketingProviders = new Set(['jira', 'asana', 'linear']);
   const githubProviders = new Set(['github']);
   const ticketingMetricKeys = new Set(['tickets_regressed', 'tickets_completed']);
@@ -421,29 +566,204 @@ export async function runSignalEngineForWindow(params: {
     return labels.join(', ');
   };
 
-  const filteredSignalDrafts = rawSignalDrafts.filter((signal) => {
-    if (ticketingMetricKeys.has(signal.metric_key)) return hasTicketingSources;
-    if (githubMetricKeys.has(signal.metric_key)) return hasGithubSources;
-    return true;
+  const normalizeSignalDrafts = (
+    windowComparison: MetricComparison,
+    baseline: Awaited<ReturnType<typeof computeRobustSignalBaseline>>,
+    baselineWindow: MetricWindow
+  ) => {
+    const rawSignalDrafts = evaluateSignalRules({
+      comparison: windowComparison,
+      robustBaseline: baseline,
+      baselineWindow,
+    });
+
+    const filteredSignalDrafts = rawSignalDrafts.filter((signal) => {
+      if (ticketingMetricKeys.has(signal.metric_key)) return hasTicketingSources;
+      if (githubMetricKeys.has(signal.metric_key)) return hasGithubSources;
+      return true;
+    });
+
+    return filteredSignalDrafts.map((signal) => {
+      if (signal.scope_type !== 'global') return signal;
+
+      if (ticketingMetricKeys.has(signal.metric_key) && hasTicketingSources) {
+        return { ...signal, scope_type: 'ticketing' as const, scope_id: ticketingScopeLabel() };
+      }
+
+      if (allSourcesTicketing && hasTicketingSources) {
+        const label =
+          ticketingSources.length === 1
+            ? ticketingLabel(ticketingSources[0])
+            : ticketingScopeLabel() || 'Ticketing';
+        return { ...signal, scope_type: 'ticketing' as const, scope_id: label };
+      }
+
+      return signal;
+    });
+  };
+
+  const signalDrafts = normalizeSignalDrafts(comparison, robustBaseline, comparisonBaselineWindow);
+
+  const persistenceLookbackWindows = patternMemoryWindowCount(settings.baseline_window_days);
+  const historicalSignals: Array<{
+    window: MetricWindow;
+    drafts: typeof signalDrafts;
+    domainDistribution: Record<string, number>;
+    comparison: MetricComparison;
+  }> = [];
+  let cursorWindow = current.window;
+  for (let index = 0; index < persistenceLookbackWindows; index += 1) {
+    const previousWindow = computeBaselineWindowForTimeZone(cursorWindow, timeZone);
+    const previousPair = await computeAndCompareMetrics({
+      supabase,
+      userId,
+      sourceIds,
+      window: previousWindow,
+      timeZone,
+    });
+    const previousRobust = await computeRobustSignalBaseline({
+      supabase,
+      userId,
+      sourceIds,
+      currentWindow: previousPair.current.window,
+      timeZone,
+    });
+    const previousBaselineWindow = computeBaselineWindowForTimeZone(previousPair.current.window, timeZone);
+    const previousDrafts = normalizeSignalDrafts(previousPair.comparison, previousRobust, previousBaselineWindow);
+
+    historicalSignals.push({
+      window: previousWindow,
+      drafts: previousDrafts,
+      domainDistribution: previousPair.comparison.domain_distribution.current,
+      comparison: previousPair.comparison,
+    });
+    cursorWindow = previousWindow;
+  }
+
+  const historicalWindowCount = historicalSignals.length;
+  const confidence = confidenceFromHistory(historicalWindowCount);
+  const historyCoverageDays = windowDayCount(current.window, timeZone) * (historicalWindowCount + 1);
+  const volatility = computeDomainVolatility({
+    historical: historicalSignals.map((item) => item.domainDistribution).reverse(),
+    current: comparison.domain_distribution.current,
   });
 
-  const signalDrafts = filteredSignalDrafts.map((signal) => {
-    if (signal.scope_type !== 'global') return signal;
+  const enrichedSignalDrafts = signalDrafts
+    .map((signal) => {
+    const breachByWindow = historicalSignals.map((item) =>
+      item.drafts.some((historicalSignal) =>
+        historicalSignal.type === signal.type &&
+        historicalSignal.metric_key === signal.metric_key &&
+        historicalSignal.scope_type === signal.scope_type &&
+        (historicalSignal.scope_id || null) === (signal.scope_id || null)
+      )
+    );
+    const legacyPersistence = evaluatePersistenceFromBreaches({
+      breaches: breachByWindow,
+      minimumLookback: 3,
+      requiredBreaches: 2,
+    });
 
-    if (ticketingMetricKeys.has(signal.metric_key) && hasTicketingSources) {
-      return { ...signal, scope_type: 'ticketing' as const, scope_id: ticketingScopeLabel() };
+    const historicalMetricHistory = historicalSignals
+      .slice()
+      .reverse()
+      .map((item, index) => ({
+        label: `Window ${index + 1}`,
+        value: metricValueForWindow({ signal, comparison: item.comparison }),
+        window_start: item.window.start,
+        window_end: item.window.end,
+      }));
+    const trendSeries = [...historicalMetricHistory.map((item) => item.value), signal.current_value];
+    const onsetValue = trendSeries[0] ?? signal.current_value;
+    const trend = evaluateTrendConsistency(trendSeries);
+    const allowOneOffSignificant = signal.severity === 'significant';
+    if (!trend.is_consistent && !trend.is_mixed && !allowOneOffSignificant) {
+      return null;
     }
 
-    if (allSourcesTicketing && hasTicketingSources) {
-      const label =
-        ticketingSources.length === 1
-          ? ticketingLabel(ticketingSources[0])
-          : ticketingScopeLabel() || 'Ticketing';
-      return { ...signal, scope_type: 'ticketing' as const, scope_id: label };
-    }
+    const zScoreRaw = signal.evidence.find((evidence) => typeof evidence.payload?.z_score === 'number')?.payload?.z_score;
+    const zScore = typeof zScoreRaw === 'number' ? zScoreRaw : null;
+    const baseRisk = evaluateRiskPosture({
+      severity: signal.severity,
+      signalType: signal.type,
+      isSustained: trend.is_consistent,
+      zScore,
+    });
+    const persistence = {
+      ...legacyPersistence,
+      lookback_windows: trend.total_windows,
+      breach_windows: trend.directional_windows,
+      is_sustained: trend.is_consistent,
+      current_streak: legacyPersistence.current_streak,
+    };
 
-    return signal;
-  });
+    const risk = trend.is_mixed
+      ? {
+          ...baseRisk,
+          posture: 'elevated' as const,
+          drivers: Array.from(new Set([...baseRisk.drivers, 'mixed movement (monitoring)'])),
+        }
+      : baseRisk;
+
+    const structural: SignalStructuralMetadata = {
+      persistence,
+      confidence,
+      risk,
+      volatility,
+      history_coverage_days: historyCoverageDays,
+      trend: {
+        onset_value: onsetValue,
+        current_value: signal.current_value,
+        dominant_direction: trend.dominant_direction,
+        consistency_ratio: trend.consistency_ratio,
+        is_consistent: trend.is_consistent,
+        is_mixed: trend.is_mixed,
+        total_windows: trend.total_windows,
+        directional_windows: trend.directional_windows,
+      },
+    };
+    if (structural.persistence) {
+      structural.persistence.metric_history = [
+        ...historicalMetricHistory,
+        {
+          label: 'Current',
+          value: signal.current_value,
+          is_current: true,
+          window_start: signal.window_start,
+          window_end: signal.window_end,
+        },
+      ];
+    }
+    structural.sentence = buildStructuralSentence({
+      signal: {
+        type: signal.type,
+        title: signal.title,
+        severity: signal.severity,
+      },
+      structural,
+    });
+
+    return {
+      ...signal,
+      summary_line: formatOnsetSummary(
+        {
+          metric_key: signal.metric_key,
+          current_value: signal.current_value,
+          title: signal.title,
+        },
+        onsetValue
+      ),
+      baseline_value: onsetValue,
+      absolute_change: signal.current_value - onsetValue,
+      percent_change:
+        onsetValue === 0 ? (signal.current_value === 0 ? 0 : 100) : ((signal.current_value - onsetValue) / Math.abs(onsetValue)) * 100,
+      metadata: {
+        ...(signal.metadata || {}),
+        structural,
+      },
+    };
+    })
+    .filter((signal): signal is NonNullable<typeof signal> => Boolean(signal));
 
   const { data: runRow } = (await supabase
     .from('signal_runs')
@@ -465,7 +785,7 @@ export async function runSignalEngineForWindow(params: {
   const runId = runRow.id;
 
   const persistedSignals: SignalRecord[] = [];
-  for (const signal of signalDrafts) {
+  for (const signal of enrichedSignalDrafts) {
     const inserted = await insertSignalWithEvidence({
       supabase,
       userId,
@@ -521,14 +841,9 @@ export async function listSignals(params: {
   const { data: rows } = (await query) as { data: SignalRow[] | null };
   if (!rows || rows.length === 0) return [];
 
-  const dedupedRows: SignalRow[] = [];
-  const seenFingerprints = new Set<string>();
-  for (const row of rows) {
-    const fingerprint = signalFingerprintKey(row);
-    if (seenFingerprints.has(fingerprint)) continue;
-    seenFingerprints.add(fingerprint);
-    dedupedRows.push(row);
-    if (requestedLimit && dedupedRows.length >= requestedLimit) break;
+  const dedupedRows = dedupeSignalRowsByFingerprint(rows);
+  if (requestedLimit && dedupedRows.length > requestedLimit) {
+    dedupedRows.length = requestedLimit;
   }
   if (dedupedRows.length === 0) return [];
 
@@ -798,59 +1113,77 @@ function sourceMovementScore(metrics: SourceShiftMetric[]): number {
   return computeWeightedEffort(weightedCounts);
 }
 
-export async function getSignalInvestigation(params: {
-  supabase: SupabaseClient;
-  userId: string;
-  signalId: string;
-}): Promise<{
-  signal: SignalRecord | null;
-  baseline_panel: {
-    metric_key: string;
-    current_value: number;
-    baseline_value: number;
-    absolute_change: number;
-    percent_change: number;
+type InvestigationDirection = {
+  headline: string;
+  summary: string;
+  movement: {
+    tickets_completed: { current: number; baseline: number; delta: number };
+    tickets_regressed: { current: number; baseline: number; delta: number };
+    prs_merged: { current: number; baseline: number; delta: number };
+    repos_touched: { current: number; baseline: number; delta: number };
+  } | null;
+  focus: {
+    repos_added: string[];
+    repos_removed: string[];
+  };
+  source_mix: {
+    has_jira: boolean;
+    has_github: boolean;
+  };
+  source_shifts: Array<{
+    source_id: string;
+    source_name: string;
+    provider: string;
+    movement_score: number;
+    metrics: SourceShiftMetric[];
+  }>;
+};
+
+type InvestigationEvidence = {
+  tickets: Array<{
+    id: string;
+    summary: string | null;
+    occurred_at: string | null;
+    kind: string | null;
+    from_status: string | null;
+    to_status: string | null;
+    url: string | null;
+  }>;
+  tickets_baseline: Array<{
+    id: string;
+    summary: string | null;
+    occurred_at: string | null;
+    kind: string | null;
+    from_status: string | null;
+    to_status: string | null;
+    url: string | null;
+  }>;
+  prs: Array<{
+    id: string;
+    repo: string | null;
+    occurred_at: string | null;
+    kind: string | null;
+    from_branch: string | null;
+    to_branch: string | null;
+    url: string | null;
+  }>;
+  prs_baseline: Array<{
+    id: string;
+    repo: string | null;
+    occurred_at: string | null;
+    kind: string | null;
+    from_branch: string | null;
+    to_branch: string | null;
+    url: string | null;
+  }>;
+  repos: Array<{ id: string; activity: number; baseline_activity: number }>;
+  domains: Array<{ id: string; activity: number; baseline_activity: number }>;
+  windows: Array<{
+    id: string;
+    label: string;
     window_start: string;
     window_end: string;
-    baseline_start: string;
-    baseline_end: string;
-  } | null;
-  direction: {
-    headline: string;
-    summary: string;
-    movement: {
-      tickets_completed: { current: number; baseline: number; delta: number };
-      tickets_regressed: { current: number; baseline: number; delta: number };
-      prs_merged: { current: number; baseline: number; delta: number };
-      repos_touched: { current: number; baseline: number; delta: number };
-    } | null;
-    focus: {
-      repos_added: string[];
-      repos_removed: string[];
-    };
-    source_mix: {
-      has_jira: boolean;
-      has_github: boolean;
-    };
-    source_shifts: Array<{
-      source_id: string;
-      source_name: string;
-      provider: string;
-      movement_score: number;
-      metrics: SourceShiftMetric[];
-    }>;
-  } | null;
-  evidence: {
     tickets: Array<{
-      id: string;
-      summary: string | null;
-      occurred_at: string | null;
-      kind: string | null;
-      from_status: string | null;
-      to_status: string | null;
-      url: string | null;
-    }>;
-    tickets_baseline: Array<{
       id: string;
       summary: string | null;
       occurred_at: string | null;
@@ -868,27 +1201,43 @@ export async function getSignalInvestigation(params: {
       to_branch: string | null;
       url: string | null;
     }>;
-    prs_baseline: Array<{
-      id: string;
-      repo: string | null;
-      occurred_at: string | null;
-      kind: string | null;
-      from_branch: string | null;
-      to_branch: string | null;
-      url: string | null;
-    }>;
-    repos: Array<{ id: string; activity: number; baseline_activity: number }>;
-    domains: Array<{ id: string; activity: number; baseline_activity: number }>;
-  };
+    repos: Array<{ id: string; activity: number }>;
+    domains: Array<{ id: string; activity: number }>;
+  }>;
+};
+
+export async function getSignalInvestigation(params: {
+  supabase: SupabaseClient;
+  userId: string;
+  signalId: string;
+}): Promise<{
+  signal: SignalRecord | null;
+  structural: SignalStructuralMetadata | null;
+  structural_sentence: string | null;
+  baseline_panel: {
+    metric_key: string;
+    current_value: number;
+    baseline_value: number;
+    absolute_change: number;
+    percent_change: number;
+    window_start: string;
+    window_end: string;
+    baseline_start: string;
+    baseline_end: string;
+  } | null;
+  direction: InvestigationDirection | null;
+  evidence: InvestigationEvidence;
 }> {
   const { supabase, userId, signalId } = params;
   const signal = await getSignalDetail({ supabase, userId, signalId });
   if (!signal) {
     return {
       signal: null,
+      structural: null,
+      structural_sentence: null,
       baseline_panel: null,
       direction: null,
-      evidence: { tickets: [], tickets_baseline: [], prs: [], prs_baseline: [], repos: [], domains: [] },
+      evidence: { tickets: [], tickets_baseline: [], prs: [], prs_baseline: [], repos: [], domains: [], windows: [] },
     };
   }
 
@@ -908,71 +1257,16 @@ export async function getSignalInvestigation(params: {
     sourceIds = Array.isArray(run?.source_ids) ? run.source_ids.filter((id): id is string => typeof id === 'string') : [];
   }
 
-  const tickets: Array<{
-    id: string;
-    summary: string | null;
-    occurred_at: string | null;
-    kind: string | null;
-    from_status: string | null;
-    to_status: string | null;
-    url: string | null;
-  }> = [];
-  const prs: Array<{
-    id: string;
-    repo: string | null;
-    occurred_at: string | null;
-    kind: string | null;
-    from_branch: string | null;
-    to_branch: string | null;
-    url: string | null;
-  }> = [];
-  const ticketsBaseline: Array<{
-    id: string;
-    summary: string | null;
-    occurred_at: string | null;
-    kind: string | null;
-    from_status: string | null;
-    to_status: string | null;
-    url: string | null;
-  }> = [];
-  const prsBaseline: Array<{
-    id: string;
-    repo: string | null;
-    occurred_at: string | null;
-    kind: string | null;
-    from_branch: string | null;
-    to_branch: string | null;
-    url: string | null;
-  }> = [];
+  const tickets: InvestigationEvidence['tickets'] = [];
+  const prs: InvestigationEvidence['prs'] = [];
+  const ticketsBaseline: InvestigationEvidence['tickets_baseline'] = [];
+  const prsBaseline: InvestigationEvidence['prs_baseline'] = [];
   const currentRepoCounts = new Map<string, number>();
   const baselineRepoCounts = new Map<string, number>();
   const currentDomainCounts = new Map<string, number>();
   const baselineDomainCounts = new Map<string, number>();
-  let direction: {
-    headline: string;
-    summary: string;
-    movement: {
-      tickets_completed: { current: number; baseline: number; delta: number };
-      tickets_regressed: { current: number; baseline: number; delta: number };
-      prs_merged: { current: number; baseline: number; delta: number };
-      repos_touched: { current: number; baseline: number; delta: number };
-    } | null;
-    focus: {
-      repos_added: string[];
-      repos_removed: string[];
-    };
-    source_mix: {
-      has_jira: boolean;
-      has_github: boolean;
-    };
-    source_shifts: Array<{
-      source_id: string;
-      source_name: string;
-      provider: string;
-      movement_score: number;
-      metrics: SourceShiftMetric[];
-    }>;
-  } | null = null;
+  const evidenceWindows: InvestigationEvidence['windows'] = [];
+  let direction: InvestigationDirection | null = null;
 
   if (sourceIds.length > 0) {
     const jiraBrowseBaseByProject = new Map<string, string>();
@@ -1206,6 +1500,96 @@ export async function getSignalInvestigation(params: {
 
     mapEventsToEvidence(events, tickets, prs);
     mapEventsToEvidence(baselineEvents, ticketsBaseline, prsBaseline);
+
+    const metricHistory = signal.structural?.persistence?.metric_history || [];
+    const metricHistoryCount = metricHistory.length;
+    const historyWindows = metricHistory
+      .map((entry, index) => ({
+        id: `history-${index}`,
+        label:
+          index === 0
+            ? 'Onset Window'
+            : index === metricHistoryCount - 1
+              ? 'Latest Window'
+              : `Window ${index}`,
+        window_start: entry.window_start || '',
+        window_end: entry.window_end || '',
+      }))
+      .filter((entry) => entry.window_start && entry.window_end);
+
+    const fallbackWindows = [
+      {
+        id: 'prior',
+        label: 'Onset Window',
+        window_start: signal.baseline_start,
+        window_end: signal.baseline_end,
+      },
+      {
+        id: 'current',
+        label: 'Latest Window',
+        window_start: signal.window_start,
+        window_end: signal.window_end,
+      },
+    ];
+    const windowsToMaterialize = historyWindows.length > 0 ? historyWindows : fallbackWindows;
+    const windowEvents = await Promise.all(
+      windowsToMaterialize.map(async (window) => {
+        const rows = await listCanonicalEventsForWindow({
+          supabase,
+          sourceIds,
+          start: window.window_start,
+          end: window.window_end,
+        });
+        return { window, rows };
+      })
+    );
+
+    const mapRowsToWindowEvidence = (
+      rows: CanonicalEventRow[] | null
+    ): Pick<InvestigationEvidence['windows'][number], 'tickets' | 'prs' | 'repos' | 'domains'> => {
+      const windowTickets: InvestigationEvidence['windows'][number]['tickets'] = [];
+      const windowPrs: InvestigationEvidence['windows'][number]['prs'] = [];
+      const windowRepoCounts = new Map<string, number>();
+      const windowDomainCounts = new Map<string, number>();
+
+      mapEventsToEvidence(rows, windowTickets, windowPrs);
+      for (const event of rows || []) {
+        const sourceId = typeof event.source_id === 'string' ? event.source_id : '';
+        const repo = event.source_full_name || null;
+        const domain = sourceDomainById.get(sourceId) || 'Unassigned';
+        if (repo) {
+          windowRepoCounts.set(repo, (windowRepoCounts.get(repo) || 0) + 1);
+        }
+        windowDomainCounts.set(domain, (windowDomainCounts.get(domain) || 0) + 1);
+      }
+
+      const windowRepos = Array.from(windowRepoCounts.entries())
+        .map(([id, activity]) => ({ id, activity }))
+        .sort((a, b) => b.activity - a.activity)
+        .slice(0, 10);
+      const windowDomains = Array.from(windowDomainCounts.entries())
+        .map(([id, activity]) => ({ id, activity }))
+        .sort((a, b) => b.activity - a.activity)
+        .slice(0, 10);
+
+      return {
+        tickets: windowTickets,
+        prs: windowPrs,
+        repos: windowRepos,
+        domains: windowDomains,
+      };
+    };
+
+    for (const item of windowEvents) {
+      const materialized = mapRowsToWindowEvidence(item.rows);
+      evidenceWindows.push({
+        id: item.window.id,
+        label: item.window.label,
+        window_start: item.window.window_start,
+        window_end: item.window.window_end,
+        ...materialized,
+      });
+    }
   }
 
   const repos = Array.from(new Set([...currentRepoCounts.keys(), ...baselineRepoCounts.keys()]))
@@ -1227,6 +1611,8 @@ export async function getSignalInvestigation(params: {
 
   return {
     signal,
+    structural: signal.structural || null,
+    structural_sentence: signal.structural?.sentence || null,
     baseline_panel: {
       metric_key: signal.metric_key,
       current_value: signal.current_value,
@@ -1245,6 +1631,7 @@ export async function getSignalInvestigation(params: {
       prs_baseline: prsBaseline,
       repos,
       domains,
+      windows: evidenceWindows,
     },
     direction,
   };
