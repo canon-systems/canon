@@ -191,6 +191,17 @@ function metricSummary(signal: SignalRecord): string {
   return `${label} change vs baseline: ${formatSignedPercent(pctChange)}`;
 }
 
+function structuralSummary(signal: SignalRecord): string | null {
+  const posture = signal.structural?.risk?.posture;
+  const sentence = signal.structural?.sentence;
+  const confidence = signal.structural?.confidence;
+  const parts: string[] = [];
+  if (posture) parts.push(`Execution posture: ${posture.toUpperCase()}`);
+  if (sentence) parts.push(sentence);
+  if (confidence && confidence !== 'mature') parts.push(`Confidence: ${confidence}`);
+  return parts.length > 0 ? parts.join(' | ') : null;
+}
+
 export function formatWeeklyDigestMessage(params: {
   window: MetricWindow;
   signals: SignalRecord[];
@@ -215,6 +226,8 @@ export function formatWeeklyDigestMessage(params: {
   signals.forEach((signal, index) => {
     lines.push(`${index + 1}. *${signal.title}* [${humanSeverity(signal.severity)}]`);
     lines.push(`   ${metricSummary(signal)}`);
+    const structural = structuralSummary(signal);
+    if (structural) lines.push(`   ${structural}`);
     lines.push(`   ${scopeSummary(signal)}`);
     lines.push(`   Open: ${signalUrl(signal.id)}`);
     if (index < signals.length - 1) lines.push('');
@@ -264,6 +277,8 @@ export function formatDailySignalAlertMessage(params: {
     lines.push(`${index + 1}. [${humanSeverity(signal.severity).toUpperCase()}] *${signal.title}*`);
     lines.push(`   ${signal.summary_line}`);
     lines.push(`   ${metricSummary(signal)}`);
+    const structural = structuralSummary(signal);
+    if (structural) lines.push(`   ${structural}`);
     for (const surfaceLine of surfaceCategoryLines(signal)) {
       lines.push(`   ${surfaceLine}`);
     }
@@ -300,9 +315,10 @@ export function formatWeeklyDigestEmail(params: {
   } else {
     for (const signal of signals) {
       textLines.push(`- [${signal.severity.toUpperCase()}] ${signal.title} - ${signal.summary_line}`);
+      if (structuralSummary(signal)) textLines.push(`  ${structuralSummary(signal)}`);
       textLines.push(`  Investigate: ${signalUrl(signal.id)}`);
       htmlItems.push(
-        `<li><strong>[${signal.severity.toUpperCase()}]</strong> ${signal.title}<br/>${signal.summary_line}<br/><a href=\"${signalUrl(signal.id)}\">Investigate</a></li>`
+        `<li><strong>[${signal.severity.toUpperCase()}]</strong> ${signal.title}<br/>${signal.summary_line}${structuralSummary(signal) ? `<br/>${structuralSummary(signal)}` : ''}<br/><a href=\"${signalUrl(signal.id)}\">Investigate</a></li>`
       );
     }
   }
@@ -345,9 +361,10 @@ export function formatDailySignalAlertEmail(params: {
   } else {
     for (const signal of signals) {
       textLines.push(`- [${signal.severity.toUpperCase()}] ${signal.title} - ${signal.summary_line}`);
+      if (structuralSummary(signal)) textLines.push(`  ${structuralSummary(signal)}`);
       textLines.push(`  Investigate: ${signalUrl(signal.id)}`);
       htmlItems.push(
-        `<li><strong>[${signal.severity.toUpperCase()}]</strong> ${signal.title}<br/>${signal.summary_line}<br/><a href=\"${signalUrl(signal.id)}\">Investigate</a></li>`
+        `<li><strong>[${signal.severity.toUpperCase()}]</strong> ${signal.title}<br/>${signal.summary_line}${structuralSummary(signal) ? `<br/>${structuralSummary(signal)}` : ''}<br/><a href=\"${signalUrl(signal.id)}\">Investigate</a></li>`
       );
     }
   }

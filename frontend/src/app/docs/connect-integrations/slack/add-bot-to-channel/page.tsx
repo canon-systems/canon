@@ -1,6 +1,3 @@
-import { ChevronRight } from 'lucide-react';
-import Link from 'next/link';
-
 import { DocSection } from '../../../_components/doc-section';
 
 export default function SlackAddBotToChannelPage() {

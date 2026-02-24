@@ -72,6 +72,8 @@ export type SignalType =
   | 'domain_concentration';
 
 export type SignalSeverity = 'elevated' | 'significant';
+export type StructuralConfidence = 'early' | 'building' | 'mature';
+export type RiskPosture = 'low' | 'elevated' | 'high' | 'critical';
 
 export type SignalScopeType = 'global' | 'repo' | 'ticketing';
 
@@ -81,6 +83,50 @@ export type SignalEvidenceRecord = {
   label?: string;
   rank: number;
   payload?: Record<string, unknown>;
+};
+
+export type SignalStructuralMetadata = {
+  persistence?: {
+    lookback_windows: number;
+    breach_windows: number;
+    is_sustained: boolean;
+    current_streak: number;
+    metric_history?: Array<{
+      label: string;
+      value: number;
+      window_start?: string;
+      window_end?: string;
+      is_current?: boolean;
+      is_baseline?: boolean;
+    }>;
+  };
+  confidence?: StructuralConfidence;
+  risk?: {
+    posture: RiskPosture;
+    score: number;
+    drivers: string[];
+  };
+  volatility?: {
+    primary_domain: string | null;
+    domain_scores: Array<{
+      domain: string;
+      score: number;
+      trend: 'rising' | 'flat' | 'falling';
+      current_share: number;
+    }>;
+  };
+  history_coverage_days?: number;
+  trend?: {
+    onset_value: number;
+    current_value: number;
+    dominant_direction: 'increase' | 'decrease' | 'mixed' | 'flat';
+    consistency_ratio: number;
+    is_consistent: boolean;
+    is_mixed: boolean;
+    total_windows: number;
+    directional_windows: number;
+  };
+  sentence?: string;
 };
 
 export type SignalRecord = {
@@ -103,6 +149,7 @@ export type SignalRecord = {
   title: string;
   summary_line: string;
   metadata?: Record<string, unknown>;
+  structural?: SignalStructuralMetadata;
   evidence: SignalEvidenceRecord[];
 };
 

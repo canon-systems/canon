@@ -222,7 +222,11 @@ export async function insertCanonicalEvents(params: {
 
   // Backward-compatible fallback for installations where diff_event_canonical has no provider column.
   if (isMissingProviderColumnError(error.message)) {
-    const rowsWithoutProvider = rows.map(({ provider: _provider, ...rest }) => rest);
+    const rowsWithoutProvider = rows.map((row) => {
+      const rowWithoutProvider = { ...row };
+      delete (rowWithoutProvider as { provider?: string }).provider;
+      return rowWithoutProvider;
+    });
     const { error: fallbackError } = await supabase
       .from('diff_event_canonical')
       .upsert(rowsWithoutProvider, { onConflict: 'source_id,event_kind,entity_id,occurred_at' });

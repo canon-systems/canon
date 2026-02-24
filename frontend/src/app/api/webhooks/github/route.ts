@@ -90,7 +90,6 @@ export async function POST(request: NextRequest) {
   }
 
   const repository = payload.repository as { id?: number | string; full_name?: string } | undefined;
-  const repoFullName = repository?.full_name;
   const repositoryId = repository?.id != null ? String(repository.id) : null;
 
   // Repo-scoped events must include repository.id.

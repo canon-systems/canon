@@ -171,6 +171,9 @@ export default async function SignalsPage({
           window_start: signal.window_start,
           window_end: signal.window_end,
           scope_label_override: chosenSourceId ? sourceLabel : null,
+          risk_posture: signal.structural?.risk?.posture || null,
+          structural_sentence: signal.structural?.sentence || null,
+          confidence: signal.structural?.confidence || null,
         };
       })}
       selectedStartDate={selectedStartDate}

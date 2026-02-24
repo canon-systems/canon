@@ -216,13 +216,15 @@ export function evaluateSignalRules(params: {
   if (topRepo && topRepoSeverity && topRepoZ != null) {
     const baselineValue = robustBaseline.repo_top_share.median;
     const absoluteChange = topRepo.share - baselineValue;
+    const pointsDelta = absoluteChange * 100;
+    const signedPoints = `${pointsDelta > 0 ? '+' : ''}${pointsDelta.toFixed(1)} pts`;
     out.push(
       buildSignal({
         type: 'repo_concentration',
         severity: topRepoSeverity,
         metricKey: 'repo_distribution',
         title: 'Repository concentration detected',
-        summary: `${topRepo.key} accounted for ${(topRepo.share * 100).toFixed(1)}% of GitHub activity versus a typical baseline of ${(baselineValue * 100).toFixed(1)}%.`,
+        summary: `${topRepo.key} accounted for ${(topRepo.share * 100).toFixed(1)}% of GitHub activity versus a typical baseline of ${(baselineValue * 100).toFixed(1)}% (${signedPoints}).`,
         currentValue: topRepo.share,
         baselineValue,
         absoluteChange,
@@ -259,13 +261,15 @@ export function evaluateSignalRules(params: {
   if (topDomain && topDomainSeverity && topDomainZ != null) {
     const baselineValue = robustBaseline.domain_top_share.median;
     const absoluteChange = topDomain.share - baselineValue;
+    const pointsDelta = absoluteChange * 100;
+    const signedPoints = `${pointsDelta > 0 ? '+' : ''}${pointsDelta.toFixed(1)} pts`;
     out.push(
       buildSignal({
         type: 'domain_concentration',
         severity: topDomainSeverity,
         metricKey: 'domain_distribution',
         title: 'Domain focus shifted',
-        summary: `${topDomain.key} accounted for ${(topDomain.share * 100).toFixed(1)}% of weighted activity versus a typical baseline of ${(baselineValue * 100).toFixed(1)}%.`,
+        summary: `${topDomain.key} accounted for ${(topDomain.share * 100).toFixed(1)}% of weighted activity versus a typical baseline of ${(baselineValue * 100).toFixed(1)}% (${signedPoints}).`,
         currentValue: topDomain.share,
         baselineValue,
         absoluteChange,

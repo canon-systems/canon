@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Calendar, type DateRange } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { postureLabel, shouldRenderMetricSummary, structuralSentenceForDisplay } from './signal-card-helpers';
 
 type SignalCard = {
   id: string;
@@ -26,6 +27,9 @@ type SignalCard = {
   percent_change: number;
   window_start: string;
   window_end: string;
+  risk_posture: 'low' | 'elevated' | 'high' | 'critical' | null;
+  structural_sentence: string | null;
+  confidence: 'early' | 'building' | 'mature' | null;
 };
 
 const SIGNAL_METRIC_OPTIONS = [
@@ -42,9 +46,11 @@ function severityLabel(severity: SignalCard['severity']): string {
   return severity === 'significant' ? 'Significant' : 'Elevated';
 }
 
-function severityClass(severity: SignalCard['severity']): string {
-  if (severity === 'significant') return 'border-red-400/40 bg-red-500/10 text-red-100';
-  return 'border-yellow-400/40 bg-yellow-500/10 text-yellow-100';
+function riskBadgeClass(posture: SignalCard['risk_posture']): string {
+  if (posture === 'critical') return 'border-red-300/50 bg-red-500/15 text-red-100';
+  if (posture === 'high') return 'border-orange-300/45 bg-orange-500/15 text-orange-100';
+  if (posture === 'elevated') return 'border-yellow-300/45 bg-yellow-500/15 text-yellow-100';
+  return 'border-emerald-300/45 bg-emerald-500/15 text-emerald-100';
 }
 
 function formatTimestamp(value: string | null, timeZone: string): string {
@@ -82,22 +88,6 @@ function formatSignedPoints(value: number): string {
   return `${value > 0 ? '+' : ''}${formatted} pts`;
 }
 
-function formatCount(value: number): string {
-  if (!Number.isFinite(value)) return '0';
-  return Math.round(value).toLocaleString('en-US');
-}
-
-function formatPercentValue(value: number): string {
-  if (!Number.isFinite(value)) return '0%';
-  const normalized = Math.abs(value) <= 1 ? value * 100 : value;
-  const abs = Math.abs(normalized);
-  const digits = abs >= 100 ? 0 : abs >= 10 ? 1 : 2;
-  return `${normalized.toLocaleString('en-US', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: digits,
-  })}%`;
-}
-
 function metricLabel(metricKey: string): string {
   if (metricKey === 'regression_rate') return 'Regression rate';
   if (metricKey === 'tickets_completed') return 'Tickets completed';
@@ -108,13 +98,6 @@ function metricLabel(metricKey: string): string {
   if (metricKey === 'repo_distribution') return 'Repo concentration';
   if (metricKey === 'domain_distribution') return 'Domain concentration';
   return metricKey.replace(/_/g, ' ');
-}
-
-function metricValue(metricKey: string, value: number): string {
-  if (metricKey === 'regression_rate' || metricKey === 'repo_distribution' || metricKey === 'domain_distribution') {
-    return formatPercentValue(value);
-  }
-  return formatCount(value);
 }
 
 function isPercentMetric(metricKey: string): boolean {
@@ -132,15 +115,13 @@ function relativePercentChange(current: number, baseline: number): number {
   return ((current - baseline) / Math.abs(baseline)) * 100;
 }
 
-function renderMetricSummary(signal: SignalCard): string {
-  const label = metricLabel(signal.metric_key);
-  const current = metricValue(signal.metric_key, signal.current_value);
-  const baseline = metricValue(signal.metric_key, signal.baseline_value);
+function formatMetricDelta(signal: SignalCard): string {
+  if (!shouldRenderMetricSummary(signal.metric_key)) return '';
   const deltaValue = isPercentMetric(signal.metric_key)
     ? normalizePercent(signal.current_value) - normalizePercent(signal.baseline_value)
     : relativePercentChange(signal.current_value, signal.baseline_value);
   const delta = isPercentMetric(signal.metric_key) ? formatSignedPoints(deltaValue) : formatSignedPercent(deltaValue);
-  return `${label}: ${current} vs ${baseline} baseline (${delta})`;
+  return ` (${delta})`;
 }
 
 function normalizeCalendarDay(date: Date): string {
@@ -193,6 +174,8 @@ export default function SignalsPageClient({
     if (key === 'metric') params.delete('metrc');
     router.push(`/signals?${params.toString()}`);
   };
+
+  const signalDetailHref = (signalId: string): string => `/signals/${signalId}`;
 
   const setDateRangeParams = (start: string | null, end: string | null) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -343,17 +326,19 @@ export default function SignalsPageClient({
         </Card>
       ) : (
         <div className="grid gap-4">
-          {signals.map((signal) => (
+          {signals.map((signal) => {
+            const structuralDisplay = structuralSentenceForDisplay(signal.structural_sentence);
+            return (
             <Card
               key={signal.id}
               className="cursor-pointer border-white/10 bg-zinc-800 transition hover:border-white/30 hover:bg-zinc-700"
               role="button"
               tabIndex={0}
-              onClick={() => router.push(`/signals/${signal.id}`)}
+              onClick={() => router.push(signalDetailHref(signal.id))}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' || event.key === ' ') {
                   event.preventDefault();
-                  router.push(`/signals/${signal.id}`);
+                  router.push(signalDetailHref(signal.id));
                 }
               }}
             >
@@ -361,15 +346,26 @@ export default function SignalsPageClient({
                 <div className="flex items-start justify-between gap-3">
                   <CardTitle className="text-base text-white">{signal.title}</CardTitle>
                   <div className="flex items-center gap-2">
-                    <Badge variant="outline" className={severityClass(signal.severity)}>
-                      {severityLabel(signal.severity)}
-                    </Badge>
+                    {signal.risk_posture ? (
+                      <Badge variant="outline" className={riskBadgeClass(signal.risk_posture)}>
+                        {postureLabel(signal.risk_posture)}
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="border-white/25 bg-white/8 text-white/80">
+                        {severityLabel(signal.severity)}
+                      </Badge>
+                    )}
                   </div>
                 </div>
               </CardHeader>
               <CardContent className="space-y-3">
-                <p className="text-sm text-white/80">{signal.summary_line}</p>
-                <p className="text-xs text-white/65">{renderMetricSummary(signal)}</p>
+                <p className="text-sm text-white/80">
+                  {signal.summary_line}
+                  {formatMetricDelta(signal)}
+                </p>
+                {structuralDisplay ? (
+                  <p className="text-xs text-white/70">{structuralDisplay}</p>
+                ) : null}
                 <div className="grid grid-cols-[1fr_auto] items-end gap-3">
                   <div>
                     <div className="space-y-1.5">
@@ -378,6 +374,9 @@ export default function SignalsPageClient({
                       <p className="text-xs text-white/70">
                         Window: {formatDateOnly(signal.window_start, timeZone)} to {formatDateOnly(signal.window_end, timeZone)}
                       </p>
+                      {signal.confidence ? (
+                        <p className="text-xs text-white/60">Confidence: {signal.confidence}</p>
+                      ) : null}
                     </div>
                   </div>
                   <Button
@@ -385,12 +384,13 @@ export default function SignalsPageClient({
                     className="self-end bg-white text-black hover:bg-white/90"
                     onClick={(event) => event.stopPropagation()}
                   >
-                    <Link href={`/signals/${signal.id}`}>Investigate</Link>
+                    <Link href={signalDetailHref(signal.id)}>Investigate</Link>
                   </Button>
                 </div>
               </CardContent>
             </Card>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
