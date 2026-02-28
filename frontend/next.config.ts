@@ -6,8 +6,6 @@ const nextConfig: NextConfig = {
   // Ensure packages using Node.js APIs are not bundled for Edge Runtime
   // This prevents Next.js from trying to bundle these packages, which may use __dirname
   serverExternalPackages: [
-    // Nango packages
-    '@nangohq/node',
     // GitHub/Octokit packages
     '@octokit/rest',
     '@octokit/core',

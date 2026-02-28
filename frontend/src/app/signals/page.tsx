@@ -17,7 +17,6 @@ const TIME_ZONE_COOKIE = 'canon_tz';
 const SIGNAL_METRIC_KEYS = [
   'regression_rate',
   'tickets_completed',
-  'prs_merged',
   'repo_distribution',
   'domain_distribution',
 ] as const;

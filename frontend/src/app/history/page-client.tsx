@@ -631,9 +631,9 @@ export default function HistoryPageClient({
           </div>
           <Popover open={isRangePickerOpen} onOpenChange={onRangePickerOpenChange}>
             <PopoverTrigger asChild>
-              <Button variant="outline" className="border-white/25 bg-zinc-800 text-white hover:bg-zinc-700">
+              <Button variant="outline" className="border-black/25 bg-white !text-black hover:bg-gray-100 [background-clip:unset] [-webkit-background-clip:unset]">
                 {isRefreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CalendarDays className="mr-2 h-4 w-4" />}
-                Select Primary Range
+                Select Date Range
               </Button>
             </PopoverTrigger>
             <PopoverContent align="end" sideOffset={8} className="w-auto border-white/10 bg-black/95 p-0">
@@ -780,7 +780,17 @@ export default function HistoryPageClient({
                 <CardContent className="space-y-1 text-sm">
                   <p className="text-white">Current: {metric.current}</p>
                   <p className="text-white/70">Baseline: {metric.baseline}</p>
-                  <p className={metric.delta >= 0 ? 'text-emerald-300' : 'text-rose-300'}>
+                  <p
+                    className={
+                      metric.key === 'Tickets regressed'
+                        ? metric.delta >= 0
+                          ? 'text-rose-300'
+                          : 'text-emerald-300'
+                        : metric.delta >= 0
+                          ? 'text-emerald-300'
+                          : 'text-rose-300'
+                    }
+                  >
                     Delta: {signed(metric.delta)}
                   </p>
                 </CardContent>

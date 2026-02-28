@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { MetricLabelTooltip } from '@/components/metric-label-tooltip';
 
 type EvidencePayload = {
@@ -79,6 +79,7 @@ type EvidencePayload = {
 
 type WindowEvidence = NonNullable<EvidencePayload['windows']>[number];
 type PanelId = 'tickets' | 'prs' | 'repos' | 'domains';
+const ALL_SOURCES_VALUE = '__all_sources__';
 
 const PANEL_ORDER: PanelId[] = ['tickets', 'prs', 'repos', 'domains'];
 
@@ -135,6 +136,15 @@ function ticketKindLabel(kind: string | null): string {
   return 'Event';
 }
 
+function ticketSourceLabel(ticketId: string | null | undefined): string {
+  if (typeof ticketId !== 'string') return 'Unknown Source';
+  const trimmed = ticketId.trim();
+  if (!trimmed) return 'Unknown Source';
+  const dashIndex = trimmed.indexOf('-');
+  if (dashIndex <= 0) return 'Unknown Source';
+  return trimmed.slice(0, dashIndex).toUpperCase();
+}
+
 function ticketActivitySummary(tickets: EvidencePayload['tickets']): Array<{ label: string; count: number }> {
   const counts = new Map<string, number>([
     ['Moved', 0],
@@ -184,16 +194,6 @@ function buildWindowTabs(evidence: EvidencePayload): WindowEvidence[] {
 
   return [
     {
-      id: 'current',
-      label: 'Current Window',
-      window_start: '',
-      window_end: '',
-      tickets: evidence.tickets,
-      prs: evidence.prs,
-      repos: evidence.repos.map((repo) => ({ id: repo.id, activity: repo.activity })),
-      domains: evidence.domains.map((domain) => ({ id: domain.id, activity: domain.activity })),
-    },
-    {
       id: 'prior',
       label: 'Prior Window',
       window_start: '',
@@ -203,6 +203,16 @@ function buildWindowTabs(evidence: EvidencePayload): WindowEvidence[] {
       repos: evidence.repos.map((repo) => ({ id: repo.id, activity: repo.baseline_activity })),
       domains: evidence.domains.map((domain) => ({ id: domain.id, activity: domain.baseline_activity })),
     },
+    {
+      id: 'current',
+      label: 'Current Window',
+      window_start: '',
+      window_end: '',
+      tickets: evidence.tickets,
+      prs: evidence.prs,
+      repos: evidence.repos.map((repo) => ({ id: repo.id, activity: repo.activity })),
+      domains: evidence.domains.map((domain) => ({ id: domain.id, activity: domain.activity })),
+    },
   ];
 }
 
@@ -210,21 +220,26 @@ function TicketEvidenceList({
   tickets,
   timeZone,
   selectedLabels,
+  selectedSource,
   onToggleLabel,
   onClearFilters,
 }: {
   tickets: EvidencePayload['tickets'];
   timeZone: string;
   selectedLabels: string[];
+  selectedSource: string;
   onToggleLabel: (label: string) => void;
   onClearFilters: () => void;
 }) {
   if (tickets.length === 0) return <p className="text-white/70">No ticket evidence in this window.</p>;
   const summary = ticketActivitySummary(tickets);
+  const sourceFilteredTickets = selectedSource === ALL_SOURCES_VALUE
+    ? tickets
+    : tickets.filter((ticket) => ticketSourceLabel(ticket.id) === selectedSource);
   const filteredTickets =
     selectedLabels.length === 0
-      ? tickets
-      : tickets.filter((ticket) => selectedLabels.includes(ticketKindLabel(ticket.kind)));
+      ? sourceFilteredTickets
+      : sourceFilteredTickets.filter((ticket) => selectedLabels.includes(ticketKindLabel(ticket.kind)));
   return (
     <>
       {summary.length > 0 ? (
@@ -305,21 +320,26 @@ function PullRequestEvidenceList({
   prs,
   timeZone,
   selectedLabels,
+  selectedSource,
   onToggleLabel,
   onClearFilters,
 }: {
   prs: EvidencePayload['prs'];
   timeZone: string;
   selectedLabels: string[];
+  selectedSource: string;
   onToggleLabel: (label: string) => void;
   onClearFilters: () => void;
 }) {
   if (prs.length === 0) return <p className="text-white/70">No pull request evidence in this window.</p>;
   const summary = prActivitySummary(prs);
+  const sourceFilteredPrs = selectedSource === ALL_SOURCES_VALUE
+    ? prs
+    : prs.filter((pr) => (pr.repo || 'Unknown Source') === selectedSource);
   const filteredPrs =
     selectedLabels.length === 0
-      ? prs
-      : prs.filter((pr) => selectedLabels.includes(prKindLabel(pr.kind)));
+      ? sourceFilteredPrs
+      : sourceFilteredPrs.filter((pr) => selectedLabels.includes(prKindLabel(pr.kind)));
   return (
     <>
       {summary.length > 0 ? (
@@ -395,8 +415,11 @@ function PullRequestEvidenceList({
 }
 
 function TicketEvidenceTabs({ windows, timeZone }: { windows: WindowEvidence[]; timeZone: string }) {
-  const [activeTab, setActiveTab] = useState<string>(windows[0]?.id || '');
+  const windowsLatestFirst = useMemo(() => [...windows].reverse(), [windows]);
+  const [selectedId, setSelectedId] = useState<string>(windowsLatestFirst[0]?.id || '');
   const [selectedLabelsByTab, setSelectedLabelsByTab] = useState<Record<string, string[]>>({});
+  const [selectedSourceByTab, setSelectedSourceByTab] = useState<Record<string, string>>({});
+  const activeTab = windows.some((w) => w.id === selectedId) ? selectedId : windowsLatestFirst[0]?.id ?? '';
 
   const toggleLabel = (label: string): void => {
     setSelectedLabelsByTab((prev) => {
@@ -412,36 +435,71 @@ function TicketEvidenceTabs({ windows, timeZone }: { windows: WindowEvidence[]; 
     setSelectedLabelsByTab((prev) => ({ ...prev, [activeTab]: [] }));
   };
 
+  const selectedWindow = windows.find((w) => w.id === activeTab);
+  const sourceOptions = useMemo(() => {
+    if (!selectedWindow) return [];
+    return Array.from(new Set(selectedWindow.tickets.map((ticket) => ticketSourceLabel(ticket.id)))).sort();
+  }, [selectedWindow]);
+  const selectedSource = selectedSourceByTab[activeTab] || ALL_SOURCES_VALUE;
+  const resolvedSource = sourceOptions.includes(selectedSource) ? selectedSource : ALL_SOURCES_VALUE;
+
   return (
-    <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-2">
-      <TabsList className="border border-white/10 bg-zinc-800">
-        {windows.map((window) => (
-          <TabsTrigger key={window.id} value={window.id} className="data-[state=active]:!bg-white">
-            {window.label} ({window.tickets.length})
-          </TabsTrigger>
-        ))}
-      </TabsList>
-      {windows.map((window) => (
-        <TabsContent key={window.id} value={window.id} className="mt-0 space-y-2">
-          {window.window_start && window.window_end ? (
-            <p className="text-xs text-white/55">{formatWindowRange(window.window_start, window.window_end, timeZone)}</p>
+    <div className="space-y-2">
+      <Select value={activeTab} onValueChange={setSelectedId}>
+        <SelectTrigger className="inline-flex h-10 w-auto min-w-[12rem] rounded-2xl border border-white/10 bg-zinc-800 px-3 text-white/70 hover:bg-zinc-700 hover:text-white/90">
+          <SelectValue placeholder="Select window" />
+        </SelectTrigger>
+        <SelectContent>
+          {windowsLatestFirst.map((window) => (
+            <SelectItem key={window.id} value={window.id}>
+              {window.label} ({window.tickets.length})
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {sourceOptions.length > 0 ? (
+        <Select
+          value={resolvedSource}
+          onValueChange={(value) => setSelectedSourceByTab((prev) => ({ ...prev, [activeTab]: value }))}
+        >
+          <SelectTrigger className="inline-flex h-10 w-auto min-w-[12rem] rounded-2xl border border-white/10 bg-zinc-800 px-3 text-white/70 hover:bg-zinc-700 hover:text-white/90">
+            <SelectValue placeholder="Filter by source" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL_SOURCES_VALUE}>All Sources</SelectItem>
+            {sourceOptions.map((source) => (
+              <SelectItem key={source} value={source}>
+                {source}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ) : null}
+      {selectedWindow ? (
+        <div className="mt-0 space-y-2">
+          {selectedWindow.window_start && selectedWindow.window_end ? (
+            <p className="text-xs text-white/55">{formatWindowRange(selectedWindow.window_start, selectedWindow.window_end, timeZone)}</p>
           ) : null}
           <TicketEvidenceList
-            tickets={window.tickets}
+            tickets={selectedWindow.tickets}
             timeZone={timeZone}
-            selectedLabels={selectedLabelsByTab[window.id] || []}
+            selectedLabels={selectedLabelsByTab[selectedWindow.id] || []}
+            selectedSource={resolvedSource}
             onToggleLabel={toggleLabel}
             onClearFilters={clearFilters}
           />
-        </TabsContent>
-      ))}
-    </Tabs>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
 function PullRequestEvidenceTabs({ windows, timeZone }: { windows: WindowEvidence[]; timeZone: string }) {
-  const [activeTab, setActiveTab] = useState<string>(windows[0]?.id || '');
+  const windowsLatestFirst = useMemo(() => [...windows].reverse(), [windows]);
+  const [selectedId, setSelectedId] = useState<string>(windowsLatestFirst[0]?.id || '');
   const [selectedLabelsByTab, setSelectedLabelsByTab] = useState<Record<string, string[]>>({});
+  const [selectedSourceByTab, setSelectedSourceByTab] = useState<Record<string, string>>({});
+  const activeTab = windows.some((w) => w.id === selectedId) ? selectedId : windowsLatestFirst[0]?.id ?? '';
 
   const toggleLabel = (label: string): void => {
     setSelectedLabelsByTab((prev) => {
@@ -457,116 +515,234 @@ function PullRequestEvidenceTabs({ windows, timeZone }: { windows: WindowEvidenc
     setSelectedLabelsByTab((prev) => ({ ...prev, [activeTab]: [] }));
   };
 
+  const selectedWindow = windows.find((w) => w.id === activeTab);
+  const sourceOptions = useMemo(() => {
+    if (!selectedWindow) return [];
+    return Array.from(new Set(selectedWindow.prs.map((pr) => pr.repo || 'Unknown Source'))).sort();
+  }, [selectedWindow]);
+  const selectedSource = selectedSourceByTab[activeTab] || ALL_SOURCES_VALUE;
+  const resolvedSource = sourceOptions.includes(selectedSource) ? selectedSource : ALL_SOURCES_VALUE;
+
   return (
-    <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-2">
-      <TabsList className="border border-white/10 bg-zinc-800">
-        {windows.map((window) => (
-          <TabsTrigger key={window.id} value={window.id} className="data-[state=active]:!bg-white">
-            {window.label} ({window.prs.length})
-          </TabsTrigger>
-        ))}
-      </TabsList>
-      {windows.map((window) => (
-        <TabsContent key={window.id} value={window.id} className="mt-0 space-y-2">
-          {window.window_start && window.window_end ? (
-            <p className="text-xs text-white/55">{formatWindowRange(window.window_start, window.window_end, timeZone)}</p>
+    <div className="space-y-2">
+      <Select value={activeTab} onValueChange={setSelectedId}>
+        <SelectTrigger className="inline-flex h-10 w-auto min-w-[12rem] rounded-2xl border border-white/10 bg-zinc-800 px-3 text-white/70 hover:bg-zinc-700 hover:text-white/90">
+          <SelectValue placeholder="Select window" />
+        </SelectTrigger>
+        <SelectContent>
+          {windowsLatestFirst.map((window) => (
+            <SelectItem key={window.id} value={window.id}>
+              {window.label} ({window.prs.length})
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {sourceOptions.length > 0 ? (
+        <Select
+          value={resolvedSource}
+          onValueChange={(value) => setSelectedSourceByTab((prev) => ({ ...prev, [activeTab]: value }))}
+        >
+          <SelectTrigger className="inline-flex h-10 w-auto min-w-[12rem] rounded-2xl border border-white/10 bg-zinc-800 px-3 text-white/70 hover:bg-zinc-700 hover:text-white/90">
+            <SelectValue placeholder="Filter by source" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL_SOURCES_VALUE}>All Sources</SelectItem>
+            {sourceOptions.map((source) => (
+              <SelectItem key={source} value={source}>
+                {source}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ) : null}
+      {selectedWindow ? (
+        <div className="mt-0 space-y-2">
+          {selectedWindow.window_start && selectedWindow.window_end ? (
+            <p className="text-xs text-white/55">{formatWindowRange(selectedWindow.window_start, selectedWindow.window_end, timeZone)}</p>
           ) : null}
           <PullRequestEvidenceList
-            prs={window.prs}
+            prs={selectedWindow.prs}
             timeZone={timeZone}
-            selectedLabels={selectedLabelsByTab[window.id] || []}
+            selectedLabels={selectedLabelsByTab[selectedWindow.id] || []}
+            selectedSource={resolvedSource}
             onToggleLabel={toggleLabel}
             onClearFilters={clearFilters}
           />
-        </TabsContent>
-      ))}
-    </Tabs>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
 function ReposEvidenceTabs({ windows, timeZone }: { windows: WindowEvidence[]; timeZone: string }) {
-  const [activeTab, setActiveTab] = useState<string>(windows[0]?.id || '');
+  const windowsLatestFirst = useMemo(() => [...windows].reverse(), [windows]);
+  const [selectedId, setSelectedId] = useState<string>(windowsLatestFirst[0]?.id || '');
+  const [selectedSourceByTab, setSelectedSourceByTab] = useState<Record<string, string>>({});
+  const activeTab = windows.some((w) => w.id === selectedId) ? selectedId : windowsLatestFirst[0]?.id ?? '';
+  const selectedWindow = windows.find((w) => w.id === activeTab);
+  const sourceOptions = useMemo(() => {
+    if (!selectedWindow) return [];
+    return Array.from(new Set(selectedWindow.repos.map((repo) => repo.id))).sort();
+  }, [selectedWindow]);
+  const selectedSource = selectedSourceByTab[activeTab] || ALL_SOURCES_VALUE;
+  const resolvedSource = sourceOptions.includes(selectedSource) ? selectedSource : ALL_SOURCES_VALUE;
+
   if (windows.length === 0) return <p>{PANEL_META.repos.empty}</p>;
   return (
-    <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-2">
-      <TabsList className="border border-white/10 bg-zinc-800">
-        {windows.map((window) => (
-          <TabsTrigger key={window.id} value={window.id} className="data-[state=active]:!bg-white">
-            {window.label} ({window.repos.length})
-          </TabsTrigger>
-        ))}
-      </TabsList>
-      {windows.map((window) => {
-        const maxActivity = Math.max(1, ...window.repos.map((repo) => repo.activity), 1);
-        return (
-          <TabsContent key={window.id} value={window.id} className="mt-0 space-y-2">
-            {window.window_start && window.window_end ? (
-              <p className="text-xs text-white/55">{formatWindowRange(window.window_start, window.window_end, timeZone)}</p>
-            ) : null}
-            {window.repos.length === 0 ? <p className="text-white/70">No surface activity in this window.</p> : null}
-            {window.repos.map((repo) => (
-              <div key={repo.id} className="rounded border border-white/10 bg-zinc-800 px-3 py-2">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-white">{repo.id}</span>
-                </div>
-                <div className="mt-2 grid min-w-0 grid-cols-[1fr_auto] items-center gap-3 text-[11px] text-white/65">
-                  <Progress value={(repo.activity / maxActivity) * 100} className="h-2 min-w-0" />
-                  <span className="shrink-0 font-mono text-white/70">{repo.activity}</span>
-                </div>
-              </div>
+    <div className="space-y-2">
+      <Select value={activeTab} onValueChange={setSelectedId}>
+        <SelectTrigger className="inline-flex h-10 w-auto min-w-[12rem] rounded-2xl border border-white/10 bg-zinc-800 px-3 text-white/70 hover:bg-zinc-700 hover:text-white/90">
+          <SelectValue placeholder="Select window" />
+        </SelectTrigger>
+        <SelectContent>
+          {windowsLatestFirst.map((window) => (
+            <SelectItem key={window.id} value={window.id}>
+              {window.label} ({window.repos.length})
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {sourceOptions.length > 0 ? (
+        <Select
+          value={resolvedSource}
+          onValueChange={(value) => setSelectedSourceByTab((prev) => ({ ...prev, [activeTab]: value }))}
+        >
+          <SelectTrigger className="inline-flex h-10 w-auto min-w-[12rem] rounded-2xl border border-white/10 bg-zinc-800 px-3 text-white/70 hover:bg-zinc-700 hover:text-white/90">
+            <SelectValue placeholder="Filter by source" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL_SOURCES_VALUE}>All Sources</SelectItem>
+            {sourceOptions.map((source) => (
+              <SelectItem key={source} value={source}>
+                {source}
+              </SelectItem>
             ))}
-          </TabsContent>
-        );
-      })}
-    </Tabs>
+          </SelectContent>
+        </Select>
+      ) : null}
+      {selectedWindow ? (
+        <div className="mt-0 space-y-2">
+          {selectedWindow.window_start && selectedWindow.window_end ? (
+            <p className="text-xs text-white/55">{formatWindowRange(selectedWindow.window_start, selectedWindow.window_end, timeZone)}</p>
+          ) : null}
+          {selectedWindow.repos.length === 0 ? (
+            <p className="text-white/70">No surface activity in this window.</p>
+          ) : (
+            (() => {
+              const repos = resolvedSource === ALL_SOURCES_VALUE
+                ? selectedWindow.repos
+                : selectedWindow.repos.filter((repo) => repo.id === resolvedSource);
+              if (repos.length === 0) {
+                return <p className="text-white/70">No surface activity for the selected source.</p>;
+              }
+              const maxActivity = Math.max(1, ...repos.map((repo) => repo.activity), 1);
+              return repos.map((repo) => (
+                <div key={repo.id} className="rounded border border-white/10 bg-zinc-800 px-3 py-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-white">{repo.id}</span>
+                  </div>
+                  <div className="mt-2 grid min-w-0 grid-cols-[1fr_auto] items-center gap-3 text-[11px] text-white/65">
+                    <Progress value={(repo.activity / maxActivity) * 100} className="h-2 min-w-0" />
+                    <span className="shrink-0 font-mono text-white/70">{repo.activity}</span>
+                  </div>
+                </div>
+              ));
+            })()
+          )}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
 function DomainsEvidenceTabs({ windows, timeZone }: { windows: WindowEvidence[]; timeZone: string }) {
-  const [activeTab, setActiveTab] = useState<string>(windows[0]?.id || '');
+  const windowsLatestFirst = useMemo(() => [...windows].reverse(), [windows]);
+  const [selectedId, setSelectedId] = useState<string>(windowsLatestFirst[0]?.id || '');
+  const [selectedSourceByTab, setSelectedSourceByTab] = useState<Record<string, string>>({});
+  const activeTab = windows.some((w) => w.id === selectedId) ? selectedId : windowsLatestFirst[0]?.id ?? '';
+  const selectedWindow = windows.find((w) => w.id === activeTab);
+  const sourceOptions = useMemo(() => {
+    if (!selectedWindow) return [];
+    return Array.from(new Set(selectedWindow.domains.map((domain) => domain.id))).sort();
+  }, [selectedWindow]);
+  const selectedSource = selectedSourceByTab[activeTab] || ALL_SOURCES_VALUE;
+  const resolvedSource = sourceOptions.includes(selectedSource) ? selectedSource : ALL_SOURCES_VALUE;
+
   if (windows.length === 0) return <p>{PANEL_META.domains.empty}</p>;
   return (
-    <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-2">
-      <TabsList className="border border-white/10 bg-zinc-800">
-        {windows.map((window) => (
-          <TabsTrigger key={window.id} value={window.id} className="data-[state=active]:!bg-white">
-            {window.label} ({window.domains.length})
-          </TabsTrigger>
-        ))}
-      </TabsList>
-      {windows.map((window) => {
-        const totalActivity = Math.max(1, window.domains.reduce((sum, item) => sum + item.activity, 0));
-        return (
-          <TabsContent key={window.id} value={window.id} className="mt-0 space-y-2">
-            {window.window_start && window.window_end ? (
-              <p className="text-xs text-white/55">{formatWindowRange(window.window_start, window.window_end, timeZone)}</p>
-            ) : null}
-            {window.domains.length === 0 ? <p className="text-white/70">No domain activity in this window.</p> : null}
-            {window.domains.map((domain) => {
-              const pct = totalActivity > 0 ? (domain.activity / totalActivity) * 100 : 0;
-              const pctLabel = pct >= 10 ? pct.toFixed(0) : pct.toFixed(1);
-              return (
-                <div key={domain.id} className="rounded border border-white/10 bg-zinc-800 px-3 py-2">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-white">{domain.id}</span>
-                    <span className="font-mono text-[11px] text-white/70">{pctLabel}%</span>
+    <div className="space-y-2">
+      <Select value={activeTab} onValueChange={setSelectedId}>
+        <SelectTrigger className="inline-flex h-10 w-auto min-w-[12rem] rounded-2xl border border-white/10 bg-zinc-800 px-3 text-white/70 hover:bg-zinc-700 hover:text-white/90">
+          <SelectValue placeholder="Select window" />
+        </SelectTrigger>
+        <SelectContent>
+          {windowsLatestFirst.map((window) => (
+            <SelectItem key={window.id} value={window.id}>
+              {window.label} ({window.domains.length})
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {sourceOptions.length > 0 ? (
+        <Select
+          value={resolvedSource}
+          onValueChange={(value) => setSelectedSourceByTab((prev) => ({ ...prev, [activeTab]: value }))}
+        >
+          <SelectTrigger className="inline-flex h-10 w-auto min-w-[12rem] rounded-2xl border border-white/10 bg-zinc-800 px-3 text-white/70 hover:bg-zinc-700 hover:text-white/90">
+            <SelectValue placeholder="Filter by source" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL_SOURCES_VALUE}>All Sources</SelectItem>
+            {sourceOptions.map((source) => (
+              <SelectItem key={source} value={source}>
+                {source}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ) : null}
+      {selectedWindow ? (
+        <div className="mt-0 space-y-2">
+          {selectedWindow.window_start && selectedWindow.window_end ? (
+            <p className="text-xs text-white/55">{formatWindowRange(selectedWindow.window_start, selectedWindow.window_end, timeZone)}</p>
+          ) : null}
+          {selectedWindow.domains.length === 0 ? (
+            <p className="text-white/70">No domain activity in this window.</p>
+          ) : (
+            (() => {
+              const domains = resolvedSource === ALL_SOURCES_VALUE
+                ? selectedWindow.domains
+                : selectedWindow.domains.filter((domain) => domain.id === resolvedSource);
+              if (domains.length === 0) {
+                return <p className="text-white/70">No domain activity for the selected source.</p>;
+              }
+              const totalActivity = Math.max(1, domains.reduce((sum, item) => sum + item.activity, 0));
+              return domains.map((domain) => {
+                const pct = totalActivity > 0 ? (domain.activity / totalActivity) * 100 : 0;
+                const pctLabel = pct >= 10 ? pct.toFixed(0) : pct.toFixed(1);
+                return (
+                  <div key={domain.id} className="rounded border border-white/10 bg-zinc-800 px-3 py-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-white">{domain.id}</span>
+                      <span className="font-mono text-[11px] text-white/70">{pctLabel}%</span>
+                    </div>
+                    <div className="mt-2 grid min-w-0 grid-cols-[1fr_auto] items-center gap-3 text-[11px] text-white/65">
+                      <Progress value={pct} className="h-2 min-w-0" />
+                      <span className="shrink-0 font-mono text-white/70">{pctLabel}%</span>
+                    </div>
                   </div>
-                  <div className="mt-2 grid min-w-0 grid-cols-[1fr_auto] items-center gap-3 text-[11px] text-white/65">
-                    <Progress value={pct} className="h-2 min-w-0" />
-                    <span className="shrink-0 font-mono text-white/70">{pctLabel}%</span>
-                  </div>
-                </div>
-              );
-            })}
-          </TabsContent>
-        );
-      })}
-    </Tabs>
+                );
+              });
+            })()
+          )}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
 function panelActivityCount(panel: PanelId, windows: WindowEvidence[]): number {
-  const current = windows[0];
+  const current = windows[windows.length - 1];
   if (!current) return 0;
   if (panel === 'tickets') return current.tickets.length;
   if (panel === 'prs') return current.prs.length;
