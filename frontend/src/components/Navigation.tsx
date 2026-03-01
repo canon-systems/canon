@@ -42,14 +42,14 @@ type NavItem = {
 };
 
 const primaryNav: NavItem[] = [
-  { href: '/sources', label: 'Sources', icon: Layers },
-  { href: '/signals', label: 'Signals', icon: Radio, matchPrefix: true },
+  { href: '/signals', label: 'Briefing', icon: Radio, matchPrefix: true },
   { href: '/history', label: 'History', icon: History, matchPrefix: true },
-  { href: '/logs', label: 'Logs', icon: Activity },
-  { href: '/docs', label: 'Docs', icon: BookOpen, matchPrefix: true },
+  { href: '/sources', label: 'Data Sources', icon: Layers },
 ];
 
 const secondaryNav: NavItem[] = [
+  { href: '/logs', label: 'Activity', icon: Activity },
+  { href: '/docs', label: 'Guidance', icon: BookOpen, matchPrefix: true },
   { href: '/settings', label: 'Settings', icon: Settings, matchPrefix: true },
 ];
 
@@ -86,7 +86,7 @@ export function Navigation({ user, session, onLogout }: NavigationProps) {
           </div>
           <div className="flex flex-col leading-tight">
             <span className="text-sm font-semibold text-white">Canon</span>
-            <span className="text-[11px] uppercase tracking-[0.2em] text-white/60">Workspace</span>
+            <span className="text-[11px] uppercase tracking-[0.2em] text-white/60">Executive View</span>
           </div>
         </Link>
 
@@ -152,12 +152,17 @@ export function Navigation({ user, session, onLogout }: NavigationProps) {
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem asChild>
-                <Link href="/settings">
-                  <Settings className="mr-2 h-4 w-4" />
-                  Settings
-                </Link>
-              </DropdownMenuItem>
+              {secondaryNav.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <DropdownMenuItem key={item.href} asChild>
+                    <Link href={item.href}>
+                      <Icon className="mr-2 h-4 w-4" />
+                      {item.label}
+                    </Link>
+                  </DropdownMenuItem>
+                );
+              })}
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 className="text-red-300 focus:bg-red-500/10 focus:text-red-200"

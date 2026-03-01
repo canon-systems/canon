@@ -17,7 +17,6 @@ const TIME_ZONE_COOKIE = 'canon_tz';
 const SIGNAL_METRIC_KEYS = [
   'regression_rate',
   'tickets_completed',
-  'prs_merged',
   'repo_distribution',
   'domain_distribution',
 ] as const;
@@ -73,11 +72,13 @@ export default async function SignalsPage({
   const settings = await getWorkspaceSignalSettings({ supabase, userId: user.id });
   const settingsTimeZone = parseTimeZoneParam(settings.time_zone);
   const timeZone = normalizeTimeZone(parseTimeZoneParam(tzParam) || cookieTimeZone || settingsTimeZone);
+  const todayInTimeZone = DateTime.now().setZone(timeZone).toFormat('yyyy-LL-dd');
+  const todayRange = localDayToUtcRange(todayInTimeZone, timeZone);
 
-  let selectedStartDate: string | null = null;
-  let selectedEndDate: string | null = null;
-  let detectedStart: string | undefined;
-  let detectedEnd: string | undefined;
+  let selectedStartDate: string | null = todayInTimeZone;
+  let selectedEndDate: string | null = todayInTimeZone;
+  let detectedStart: string | undefined = todayRange?.start;
+  let detectedEnd: string | undefined = todayRange?.end;
 
   if (startDateParam && endDateParam) {
     const [fromDay, toDay] = startDateParam <= endDateParam ? [startDateParam, endDateParam] : [endDateParam, startDateParam];

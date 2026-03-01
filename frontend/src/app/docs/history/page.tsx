@@ -8,7 +8,7 @@ export default function HistoryPage() {
       whereToGo="History Page"
       links={[{ label: 'Go to History', href: '/history' }]}
       steps={[
-        { label: '1', text: 'Open History and click Select Primary Range.' },
+        { label: '1', text: 'Open History and click Select Date Range.' },
         { label: '2', text: 'Choose the date range you want to analyze and confirm.' },
         { label: '3', text: 'Read the Inside summary for a quick narrative of what changed.' },
         { label: '4', text: 'Use the metric cards to compare Current vs Baseline.' },

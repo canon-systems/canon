@@ -100,7 +100,7 @@ function normalizePercent(value: number): number {
 
 function relativePercentChange(current: number, baseline: number): number {
   if (!Number.isFinite(current) || !Number.isFinite(baseline)) return 0;
-  if (baseline === 0) return current === 0 ? 0 : 100;
+  if (baseline === 0) return 0;
   return ((current - baseline) / Math.abs(baseline)) * 100;
 }
 
@@ -187,8 +187,13 @@ function metricSummary(signal: SignalRecord): string {
 
   const current = Math.round(signal.current_value);
   const baseline = Math.round(signal.baseline_value);
+  const absolute = current - baseline;
+  if (baseline === 0) {
+    if (current === 0) return `${label} change vs baseline: No change (0)`;
+    return `${label} change vs baseline: ${formatSignedNumber(absolute)} (from 0)`;
+  }
   const pctChange = relativePercentChange(current, baseline);
-  return `${label} change vs baseline: ${formatSignedPercent(pctChange)}`;
+  return `${label} change vs baseline: ${formatSignedNumber(absolute)} absolute (${formatSignedPercent(pctChange)})`;
 }
 
 function structuralSummary(signal: SignalRecord): string | null {

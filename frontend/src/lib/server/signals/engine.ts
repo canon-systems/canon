@@ -10,7 +10,6 @@ import { computeWeightedEffort } from '@/lib/server/signals/effortWeights';
 import { evaluateSignalRules } from '@/lib/server/signals/rules';
 import { getWorkspaceSignalSettings, resolveSignalSourceIds } from '@/lib/server/signals/settings';
 import {
-  buildStructuralSentence,
   computeDomainVolatility,
   confidenceFromHistory,
   evaluatePersistenceFromBreaches,
@@ -348,10 +347,17 @@ function formatOnsetSummary(signal: {
     const delta = `${pointsDelta > 0 ? '+' : ''}${pointsDelta.toFixed(1)} pts`;
     return `${signal.title}. Current ${((currentValue || 0) * 100).toFixed(1)}% vs onset ${((onsetValue || 0) * 100).toFixed(1)}% (${delta}).`;
   }
-  const percent =
-    onsetValue === 0 ? (currentValue === 0 ? 0 : 100) : ((currentValue - onsetValue) / Math.abs(onsetValue)) * 100;
+  if (onsetValue === 0) {
+    if (currentValue === 0) {
+      return `${signal.title}. Current ${currentValue.toFixed(0)} vs onset ${onsetValue.toFixed(0)} (no change).`;
+    }
+    const signedAbsolute = `${absoluteChange > 0 ? '+' : ''}${absoluteChange.toFixed(0)}`;
+    return `${signal.title}. Current ${currentValue.toFixed(0)} vs onset ${onsetValue.toFixed(0)} (${signedAbsolute} from 0).`;
+  }
+  const percent = ((currentValue - onsetValue) / Math.abs(onsetValue)) * 100;
+  const signedAbsolute = `${absoluteChange > 0 ? '+' : ''}${absoluteChange.toFixed(0)}`;
   const signedPercent = `${percent > 0 ? '+' : ''}${Math.abs(percent) >= 100 ? percent.toFixed(0) : percent.toFixed(1)}%`;
-  return `${signal.title}. Current ${currentValue.toFixed(0)} vs onset ${onsetValue.toFixed(0)} (${signedPercent}).`;
+  return `${signal.title}. Current ${currentValue.toFixed(0)} vs onset ${onsetValue.toFixed(0)} (${signedAbsolute} absolute, ${signedPercent}).`;
 }
 
 function evaluateTrendConsistency(values: number[]): {
@@ -508,9 +514,9 @@ export async function runSignalEngineForWindow(params: {
 
   const { data: sourceRows } = sourceIds.length
     ? await supabase
-        .from('workspace_sources')
-        .select('id, provider, name, scope')
-        .in('id', sourceIds)
+      .from('workspace_sources')
+      .select('id, provider, name, scope')
+      .in('id', sourceIds)
     : { data: [] };
   const sources = (sourceRows || []).map((row) => ({
     id: row.id as string,
@@ -650,118 +656,110 @@ export async function runSignalEngineForWindow(params: {
 
   const enrichedSignalDrafts = signalDrafts
     .map((signal) => {
-    const breachByWindow = historicalSignals.map((item) =>
-      item.drafts.some((historicalSignal) =>
-        historicalSignal.type === signal.type &&
-        historicalSignal.metric_key === signal.metric_key &&
-        historicalSignal.scope_type === signal.scope_type &&
-        (historicalSignal.scope_id || null) === (signal.scope_id || null)
-      )
-    );
-    const legacyPersistence = evaluatePersistenceFromBreaches({
-      breaches: breachByWindow,
-      minimumLookback: 3,
-      requiredBreaches: 2,
-    });
+      const breachByWindow = historicalSignals.map((item) =>
+        item.drafts.some((historicalSignal) =>
+          historicalSignal.type === signal.type &&
+          historicalSignal.metric_key === signal.metric_key &&
+          historicalSignal.scope_type === signal.scope_type &&
+          (historicalSignal.scope_id || null) === (signal.scope_id || null)
+        )
+      );
+      const legacyPersistence = evaluatePersistenceFromBreaches({
+        breaches: breachByWindow,
+        minimumLookback: 3,
+        requiredBreaches: 2,
+      });
 
-    const historicalMetricHistory = historicalSignals
-      .slice()
-      .reverse()
-      .map((item, index) => ({
-        label: `Window ${index + 1}`,
-        value: metricValueForWindow({ signal, comparison: item.comparison }),
-        window_start: item.window.start,
-        window_end: item.window.end,
-      }));
-    const trendSeries = [...historicalMetricHistory.map((item) => item.value), signal.current_value];
-    const onsetValue = trendSeries[0] ?? signal.current_value;
-    const trend = evaluateTrendConsistency(trendSeries);
-    const allowOneOffSignificant = signal.severity === 'significant';
-    if (!trend.is_consistent && !trend.is_mixed && !allowOneOffSignificant) {
-      return null;
-    }
+      const historicalMetricHistory = historicalSignals
+        .slice()
+        .reverse()
+        .map((item, index) => ({
+          label: `Window ${index + 1}`,
+          value: metricValueForWindow({ signal, comparison: item.comparison }),
+          window_start: item.window.start,
+          window_end: item.window.end,
+        }));
+      const trendSeries = [...historicalMetricHistory.map((item) => item.value), signal.current_value];
+      const onsetValue = trendSeries[0] ?? signal.current_value;
+      const trend = evaluateTrendConsistency(trendSeries);
+      const allowOneOffSignificant = signal.severity === 'significant';
+      if (!trend.is_consistent && !trend.is_mixed && !allowOneOffSignificant) {
+        return null;
+      }
 
-    const zScoreRaw = signal.evidence.find((evidence) => typeof evidence.payload?.z_score === 'number')?.payload?.z_score;
-    const zScore = typeof zScoreRaw === 'number' ? zScoreRaw : null;
-    const baseRisk = evaluateRiskPosture({
-      severity: signal.severity,
-      signalType: signal.type,
-      isSustained: trend.is_consistent,
-      zScore,
-    });
-    const persistence = {
-      ...legacyPersistence,
-      lookback_windows: trend.total_windows,
-      breach_windows: trend.directional_windows,
-      is_sustained: trend.is_consistent,
-      current_streak: legacyPersistence.current_streak,
-    };
+      const zScoreRaw = signal.evidence.find((evidence) => typeof evidence.payload?.z_score === 'number')?.payload?.z_score;
+      const zScore = typeof zScoreRaw === 'number' ? zScoreRaw : null;
+      const baseRisk = evaluateRiskPosture({
+        severity: signal.severity,
+        signalType: signal.type,
+        isSustained: trend.is_consistent,
+        zScore,
+      });
+      const persistence = {
+        ...legacyPersistence,
+        lookback_windows: trend.total_windows,
+        breach_windows: trend.directional_windows,
+        is_sustained: trend.is_consistent,
+        current_streak: legacyPersistence.current_streak,
+      };
 
-    const risk = trend.is_mixed
-      ? {
+      const risk = trend.is_mixed
+        ? {
           ...baseRisk,
           posture: 'elevated' as const,
           drivers: Array.from(new Set([...baseRisk.drivers, 'mixed movement (monitoring)'])),
         }
-      : baseRisk;
+        : baseRisk;
 
-    const structural: SignalStructuralMetadata = {
-      persistence,
-      confidence,
-      risk,
-      volatility,
-      history_coverage_days: historyCoverageDays,
-      trend: {
-        onset_value: onsetValue,
-        current_value: signal.current_value,
-        dominant_direction: trend.dominant_direction,
-        consistency_ratio: trend.consistency_ratio,
-        is_consistent: trend.is_consistent,
-        is_mixed: trend.is_mixed,
-        total_windows: trend.total_windows,
-        directional_windows: trend.directional_windows,
-      },
-    };
-    if (structural.persistence) {
-      structural.persistence.metric_history = [
-        ...historicalMetricHistory,
-        {
-          label: 'Current',
-          value: signal.current_value,
-          is_current: true,
-          window_start: signal.window_start,
-          window_end: signal.window_end,
-        },
-      ];
-    }
-    structural.sentence = buildStructuralSentence({
-      signal: {
-        type: signal.type,
-        title: signal.title,
-        severity: signal.severity,
-      },
-      structural,
-    });
-
-    return {
-      ...signal,
-      summary_line: formatOnsetSummary(
-        {
-          metric_key: signal.metric_key,
+      const structural: SignalStructuralMetadata = {
+        persistence,
+        confidence,
+        risk,
+        volatility,
+        history_coverage_days: historyCoverageDays,
+        trend: {
+          onset_value: onsetValue,
           current_value: signal.current_value,
-          title: signal.title,
+          dominant_direction: trend.dominant_direction,
+          consistency_ratio: trend.consistency_ratio,
+          is_consistent: trend.is_consistent,
+          is_mixed: trend.is_mixed,
+          total_windows: trend.total_windows,
+          directional_windows: trend.directional_windows,
         },
-        onsetValue
-      ),
-      baseline_value: onsetValue,
-      absolute_change: signal.current_value - onsetValue,
-      percent_change:
-        onsetValue === 0 ? (signal.current_value === 0 ? 0 : 100) : ((signal.current_value - onsetValue) / Math.abs(onsetValue)) * 100,
-      metadata: {
-        ...(signal.metadata || {}),
-        structural,
-      },
-    };
+      };
+      if (structural.persistence) {
+        structural.persistence.metric_history = [
+          ...historicalMetricHistory,
+          {
+            label: 'Current',
+            value: signal.current_value,
+            is_current: true,
+            window_start: signal.window_start,
+            window_end: signal.window_end,
+          },
+        ];
+      }
+
+      return {
+        ...signal,
+        summary_line: formatOnsetSummary(
+          {
+            metric_key: signal.metric_key,
+            current_value: signal.current_value,
+            title: signal.title,
+          },
+          onsetValue
+        ),
+        baseline_value: onsetValue,
+        absolute_change: signal.current_value - onsetValue,
+        percent_change:
+          onsetValue === 0 ? (signal.current_value === 0 ? 0 : 100) : ((signal.current_value - onsetValue) / Math.abs(onsetValue)) * 100,
+        metadata: {
+          ...(signal.metadata || {}),
+          structural,
+        },
+      };
     })
     .filter((signal): signal is NonNullable<typeof signal> => Boolean(signal));
 

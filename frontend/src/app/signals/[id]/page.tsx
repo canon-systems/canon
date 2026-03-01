@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { cookies } from 'next/headers';
 import { notFound, redirect } from 'next/navigation';
-import { DateTime } from 'luxon';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
 import { getSignalInvestigation } from '@/lib/server/signals/engine';
@@ -13,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { MetricLabelTooltip } from '@/components/metric-label-tooltip';
 import { structuralSentenceForDisplay } from '../signal-card-helpers';
 import EvidenceCards from './evidence-cards';
+import MetricProgressionChart from './metric-progression-chart';
 
 export const dynamic = 'force-dynamic';
 const TIME_ZONE_COOKIE = 'canon_tz';
@@ -39,60 +39,14 @@ function signed(value: number): string {
   return `${value}`;
 }
 
-function formatDay(value: string, timeZone: string): string {
-  const parsed = DateTime.fromISO(value, { zone: 'utc' }).setZone(timeZone);
-  if (!parsed.isValid) return value;
-  return parsed.toFormat('MMM d, yyyy');
-}
-
-function formatRange(start: string, end: string, timeZone: string): string {
-  const startLabel = formatDay(start, timeZone);
-  const endLabel = formatDay(end, timeZone);
-  if (startLabel === endLabel) return startLabel;
-  return `${startLabel} to ${endLabel}`;
+function signedPoints(value: number): string {
+  return `${value > 0 ? '+' : ''}${points(value)}`;
 }
 
 function isRateMetric(metricKey: string): boolean {
   return metricKey === 'regression_rate' || metricKey.includes('distribution');
 }
 
-function formatMetricValue(metricKey: string, value: number): string {
-  if (!Number.isFinite(value)) return '0';
-  if (isRateMetric(metricKey)) return pct(value * 100);
-  return `${value}`;
-}
-
-function formatDeltaVsReference(metricKey: string, value: number, referenceValue: number, label: string): string {
-  const delta = value - referenceValue;
-  if (isRateMetric(metricKey)) {
-    const pointsDelta = delta * 100;
-    const signedDelta = pointsDelta > 0 ? `+${points(pointsDelta)}` : points(pointsDelta);
-    return `${signedDelta} pts vs ${label}`;
-  }
-  const percentDelta =
-    referenceValue === 0
-      ? value === 0
-        ? 0
-        : 100
-      : ((value - referenceValue) / Math.abs(referenceValue)) * 100;
-  return `${percentDelta > 0 ? '+' : ''}${pct(percentDelta)} vs ${label}`;
-}
-
-function formatStepDelta(metricKey: string, value: number, previousValue: number): string {
-  const delta = value - previousValue;
-  if (isRateMetric(metricKey)) {
-    const pointsDelta = delta * 100;
-    const signedDelta = pointsDelta > 0 ? `+${points(pointsDelta)}` : points(pointsDelta);
-    return `${signedDelta} pts vs prior window`;
-  }
-  const percentDelta =
-    previousValue === 0
-      ? value === 0
-        ? 0
-        : 100
-      : ((value - previousValue) / Math.abs(previousValue)) * 100;
-  return `${percentDelta > 0 ? '+' : ''}${pct(percentDelta)} vs prior window`;
-}
 
 function formatChangeVsBaseline(signal: {
   metric_key: string;
@@ -108,27 +62,31 @@ function formatChangeVsBaseline(signal: {
     }
     return `${deltaPoints > 0 ? '+' : ''}${points(deltaPoints)} pts`;
   }
-  return pct(signal.percent_change);
+  if (signal.baseline_value === 0) {
+    if (signal.current_value === 0) return 'No change (0)';
+    return `${signedPoints(signal.absolute_change)} (from 0)`;
+  }
+  return `${signedPoints(signal.absolute_change)} (${pct(signal.percent_change)})`;
 }
 
 function metricReadableName(metricKey: string): string {
   switch (metricKey) {
     case 'tickets_completed':
-      return 'completed tickets';
+      return 'delivery pace';
     case 'tickets_regressed':
-      return 'regressed tickets';
+      return 'reopened work';
     case 'prs_merged':
-      return 'merged pull requests';
+      return 'engineering throughput';
     case 'prs_opened':
-      return 'opened pull requests';
+      return 'work intake';
     case 'commits_default':
-      return 'commits';
+      return 'commit volume';
     case 'repos_touched':
-      return 'active surfaces';
+      return 'execution spread';
     case 'regression_rate':
-      return 'regression rate';
+      return 'quality risk';
     case 'domain_distribution':
-      return 'domain concentration';
+      return 'domain focus';
     default:
       return 'this metric';
   }
@@ -137,23 +95,23 @@ function metricReadableName(metricKey: string): string {
 function metricDisplayLabel(metricKey: string): string {
   switch (metricKey) {
     case 'tickets_completed':
-      return 'Completed Tickets';
+      return 'Delivery Pace';
     case 'tickets_regressed':
-      return 'Regressed Tickets';
+      return 'Reopened Work';
     case 'prs_merged':
-      return 'Merged Pull Requests';
+      return 'Work Completed';
     case 'prs_opened':
-      return 'Opened Pull Requests';
+      return 'Work Started';
     case 'commits_default':
-      return 'Commits';
+      return 'Commit Volume';
     case 'repos_touched':
       return 'Active Surfaces';
     case 'regression_rate':
-      return 'Regression Rate';
+      return 'Quality Risk';
     case 'domain_distribution':
-      return 'Domain Concentration';
+      return 'Domain Focus';
     case 'repo_distribution':
-      return 'Repository Concentration';
+      return 'Repository Focus';
     default: {
       const label = metricKey.replace(/_/g, ' ').trim();
       if (!label) return 'Metric';
@@ -257,7 +215,6 @@ export default async function SignalInvestigatePage(props: PageProps) {
   const structuralDisplay = structuralSentenceForDisplay(payload.structural_sentence);
   const category = signalCategory(signal.type);
   const trendHistory = (payload.structural?.persistence?.metric_history || []).filter((entry) => !entry.is_baseline);
-  const onsetValue = trendHistory[0]?.value ?? signal.current_value;
   const direction = payload.direction || {
     headline: 'Directional data is still being prepared for this signal.',
     summary: '',
@@ -416,40 +373,16 @@ export default async function SignalInvestigatePage(props: PageProps) {
             )}
           </div>
           {trendHistory.length > 1 ? (
-            <div className="rounded border border-white/10 bg-zinc-900/70 px-3 py-3">
-              <p className="text-xs uppercase tracking-[0.14em] text-white/50">Metric Progression by Window</p>
-              <div className="mt-3 space-y-2">
-                {trendHistory.map((entry, index) => {
-                  const priorValue = index > 0 ? trendHistory[index - 1]?.value ?? onsetValue : onsetValue;
-                  const timelineLabel =
-                    index === 0 ? 'Onset Window' : index === trendHistory.length - 1 ? 'Latest Window' : `Window ${index}`;
-                  return (
-                    <div
-                      key={`${entry.label}-${entry.window_start || ''}`}
-                      className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 rounded border border-white/10 bg-zinc-800/50 px-3 py-2 text-xs"
-                    >
-                      <div className="min-w-0">
-                        <span className="font-medium text-white">{timelineLabel}</span>
-                        {entry.window_start && entry.window_end ? (
-                          <span className="ml-1.5 text-white/60">{formatRange(entry.window_start, entry.window_end, timeZone)}</span>
-                        ) : null}
-                      </div>
-                      <div className="flex shrink-0 items-baseline gap-3">
-                        <span className="text-white">{formatMetricValue(signal.metric_key, entry.value)}</span>
-                        {index === 0 ? (
-                          <span className="text-white/60">Starting point</span>
-                        ) : (
-                          <>
-                            <span className="text-white/60">{formatDeltaVsReference(signal.metric_key, entry.value, onsetValue, 'onset')}</span>
-                            <span className="text-white/50">{formatStepDelta(signal.metric_key, entry.value, priorValue)}</span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+            <MetricProgressionChart
+              entries={trendHistory.map((entry) => ({
+                label: entry.label,
+                window_start: entry.window_start || null,
+                window_end: entry.window_end || null,
+                value: entry.value,
+              }))}
+              metricKey={signal.metric_key}
+              timeZone={timeZone}
+            />
           ) : (
             <p className="text-xs text-white/60">
               Window progression appears once enough comparable windows are available.
