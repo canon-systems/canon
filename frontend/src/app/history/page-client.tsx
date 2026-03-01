@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useMemo, useRef, useState } from 'react';
-import { CalendarDays, Loader2 } from 'lucide-react';
+import { CalendarDays, ExternalLink, Loader2 } from 'lucide-react';
 import { DateTime } from 'luxon';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -864,22 +864,37 @@ export default function HistoryPageClient({
                                     const lineKey = `${section.label}-${sourceGroup.source}-${row.issue_key}-${row.occurred_at}-${idx}`;
                                     const transition = renderTransition(row.from, row.to);
                                     const status = row.status || null;
+                                    const issueUrl = jiraIssueUrl(row.issue_key, jiraBrowseBaseByProject);
                                     return (
-                                      <div key={lineKey} className="space-y-0.5">
-                                        {jiraIssueUrl(row.issue_key, jiraBrowseBaseByProject) ? (
-                                          <a
-                                            href={jiraIssueUrl(row.issue_key, jiraBrowseBaseByProject) || undefined}
-                                            target="_blank"
-                                            rel="noreferrer"
-                                            className="text-white/90 underline decoration-white/35 underline-offset-2 hover:text-white"
-                                          >
-                                            {renderJiraTicketLabel(row)}
-                                          </a>
-                                        ) : (
-                                          <p className="text-white/90">
-                                            {renderJiraTicketLabel(row)}
-                                          </p>
-                                        )}
+                                      <div key={lineKey} className="rounded-md border border-white/10 bg-black/20 px-2.5 py-2 space-y-1">
+                                        <div className="flex items-start justify-between gap-3">
+                                          {issueUrl ? (
+                                            <a
+                                              href={issueUrl}
+                                              target="_blank"
+                                              rel="noreferrer"
+                                              className="text-white/90 underline decoration-white/35 underline-offset-2 hover:text-white"
+                                            >
+                                              {renderJiraTicketLabel(row)}
+                                            </a>
+                                          ) : (
+                                            <p className="text-white/90">
+                                              {renderJiraTicketLabel(row)}
+                                            </p>
+                                          )}
+                                          {issueUrl ? (
+                                            <a
+                                              href={issueUrl}
+                                              target="_blank"
+                                              rel="noreferrer"
+                                              aria-label={`Open ${row.issue_key || 'ticket'} in source`}
+                                              title="Open in source"
+                                              className="mt-0.5 rounded border border-white/15 p-1.5 text-white/70 transition hover:border-white/30 hover:bg-white/10 hover:text-white"
+                                            >
+                                              <ExternalLink className="h-3.5 w-3.5" />
+                                            </a>
+                                          ) : null}
+                                        </div>
                                         <p className="text-white/60">{transition || status || 'No state transition provided'}</p>
                                         <p className="text-white/40">{formatDateTime(row.occurred_at, timeZone)}</p>
                                       </div>
@@ -919,24 +934,44 @@ export default function HistoryPageClient({
                                   {sourceGroup.source} ({sourceGroup.rows.length})
                                 </summary>
                                 <div className="mt-2 space-y-2">
-                                  {sourceGroup.rows.map((row, idx) => (
-                                    <div key={`commit-${sourceGroup.source}-${row.sha}-${row.occurred_at}-${idx}`} className="space-y-0.5">
-                                      {githubCommitUrl(row.repo, row.sha) ? (
-                                        <a
-                                          href={githubCommitUrl(row.repo, row.sha) || undefined}
-                                          target="_blank"
-                                          rel="noreferrer"
-                                          className="font-mono text-white/90 underline decoration-white/35 underline-offset-2 hover:text-white"
-                                        >
-                                          {(row.sha || 'commit').slice(0, 10)}
-                                        </a>
-                                      ) : (
-                                        <p className="font-mono text-white/90">{(row.sha || 'commit').slice(0, 10)}</p>
-                                      )}
-                                      <p className="text-white/60">{row.message || 'No commit message available'}</p>
-                                      <p className="text-white/40">{formatDateTime(row.occurred_at, timeZone)}</p>
-                                    </div>
-                                  ))}
+                                  {sourceGroup.rows.map((row, idx) => {
+                                    const commitUrl = githubCommitUrl(row.repo, row.sha);
+                                    return (
+                                      <div
+                                        key={`commit-${sourceGroup.source}-${row.sha}-${row.occurred_at}-${idx}`}
+                                        className="rounded-md border border-white/10 bg-black/20 px-2.5 py-2 space-y-1"
+                                      >
+                                        <div className="flex items-start justify-between gap-3">
+                                          {commitUrl ? (
+                                            <a
+                                              href={commitUrl}
+                                              target="_blank"
+                                              rel="noreferrer"
+                                              className="font-mono text-white/90 underline decoration-white/35 underline-offset-2 hover:text-white"
+                                            >
+                                              {(row.sha || 'commit').slice(0, 10)}
+                                            </a>
+                                          ) : (
+                                            <p className="font-mono text-white/90">{(row.sha || 'commit').slice(0, 10)}</p>
+                                          )}
+                                          {commitUrl ? (
+                                            <a
+                                              href={commitUrl}
+                                              target="_blank"
+                                              rel="noreferrer"
+                                              aria-label={`Open commit ${(row.sha || 'commit').slice(0, 10)} in source`}
+                                              title="Open in source"
+                                              className="mt-0.5 rounded border border-white/15 p-1.5 text-white/70 transition hover:border-white/30 hover:bg-white/10 hover:text-white"
+                                            >
+                                              <ExternalLink className="h-3.5 w-3.5" />
+                                            </a>
+                                          ) : null}
+                                        </div>
+                                        <p className="text-white/60">{row.message || 'No commit message available'}</p>
+                                        <p className="text-white/40">{formatDateTime(row.occurred_at, timeZone)}</p>
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               </details>
                             ))
@@ -951,21 +986,38 @@ export default function HistoryPageClient({
                                     const transition = renderTransition(row.from, row.to);
                                     const prUrl = githubPullRequestUrl(row.repo, row.number);
                                     return (
-                                      <div key={`pr-${section.label}-${sourceGroup.source}-${row.number}-${row.occurred_at}-${idx}`} className="space-y-0.5">
-                                        {prUrl ? (
-                                          <a
-                                            href={prUrl}
-                                            target="_blank"
-                                            rel="noreferrer"
-                                            className="text-white/90 underline decoration-white/35 underline-offset-2 hover:text-white"
-                                          >
-                                            PR #{row.number || '?'} {row.title ? `- ${row.title}` : ''}
-                                          </a>
-                                        ) : (
-                                          <p className="text-white/90">
-                                            PR #{row.number || '?'} {row.title ? `- ${row.title}` : ''}
-                                          </p>
-                                        )}
+                                      <div
+                                        key={`pr-${section.label}-${sourceGroup.source}-${row.number}-${row.occurred_at}-${idx}`}
+                                        className="rounded-md border border-white/10 bg-black/20 px-2.5 py-2 space-y-1"
+                                      >
+                                        <div className="flex items-start justify-between gap-3">
+                                          {prUrl ? (
+                                            <a
+                                              href={prUrl}
+                                              target="_blank"
+                                              rel="noreferrer"
+                                              className="text-white/90 underline decoration-white/35 underline-offset-2 hover:text-white"
+                                            >
+                                              PR #{row.number || '?'} {row.title ? `- ${row.title}` : ''}
+                                            </a>
+                                          ) : (
+                                            <p className="text-white/90">
+                                              PR #{row.number || '?'} {row.title ? `- ${row.title}` : ''}
+                                            </p>
+                                          )}
+                                          {prUrl ? (
+                                            <a
+                                              href={prUrl}
+                                              target="_blank"
+                                              rel="noreferrer"
+                                              aria-label={`Open PR ${row.number || '?'} in source`}
+                                              title="Open in source"
+                                              className="mt-0.5 rounded border border-white/15 p-1.5 text-white/70 transition hover:border-white/30 hover:bg-white/10 hover:text-white"
+                                            >
+                                              <ExternalLink className="h-3.5 w-3.5" />
+                                            </a>
+                                          ) : null}
+                                        </div>
                                         <p className="text-white/60">{transition || row.status || 'No transition provided'}</p>
                                         <p className="text-white/40">{formatDateTime(row.occurred_at, timeZone)}</p>
                                       </div>
