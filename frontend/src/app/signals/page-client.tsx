@@ -83,6 +83,17 @@ function formatSignedPoints(value: number): string {
   return `${value > 0 ? '+' : ''}${formatted} pts`;
 }
 
+function formatSignedCount(value: number): string {
+  if (!Number.isFinite(value)) return '0';
+  const abs = Math.abs(value);
+  const digits = abs >= 100 ? 0 : abs >= 10 ? 1 : 2;
+  const formatted = value.toLocaleString('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: digits,
+  });
+  return `${value > 0 ? '+' : ''}${formatted}`;
+}
+
 function metricLabel(metricKey: string): string {
   if (metricKey === 'regression_rate') return 'Quality risk';
   if (metricKey === 'tickets_completed') return 'Delivery pace';
@@ -106,17 +117,25 @@ function normalizePercent(value: number): number {
 
 function relativePercentChange(current: number, baseline: number): number {
   if (!Number.isFinite(current) || !Number.isFinite(baseline)) return 0;
-  if (baseline === 0) return current === 0 ? 0 : 100;
+  if (baseline === 0) return 0;
   return ((current - baseline) / Math.abs(baseline)) * 100;
 }
 
 function formatMetricDelta(signal: SignalCard): string {
   if (!shouldRenderMetricSummary(signal.metric_key)) return '';
-  const deltaValue = isPercentMetric(signal.metric_key)
-    ? normalizePercent(signal.current_value) - normalizePercent(signal.baseline_value)
-    : relativePercentChange(signal.current_value, signal.baseline_value);
-  const delta = isPercentMetric(signal.metric_key) ? formatSignedPoints(deltaValue) : formatSignedPercent(deltaValue);
-  return ` (${delta})`;
+  if (isPercentMetric(signal.metric_key)) {
+    const pointsChange = normalizePercent(signal.current_value) - normalizePercent(signal.baseline_value);
+    return ` (${formatSignedPoints(pointsChange)})`;
+  }
+
+  const absoluteChange = signal.current_value - signal.baseline_value;
+  if (signal.baseline_value === 0) {
+    if (signal.current_value === 0) return ' (No change)';
+    return ` (${formatSignedCount(absoluteChange)} from 0)`;
+  }
+
+  const percent = relativePercentChange(signal.current_value, signal.baseline_value);
+  return ` (${formatSignedCount(absoluteChange)}, ${formatSignedPercent(percent)})`;
 }
 
 function normalizeCalendarDay(date: Date): string {

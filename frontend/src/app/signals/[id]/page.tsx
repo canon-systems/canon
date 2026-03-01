@@ -39,6 +39,10 @@ function signed(value: number): string {
   return `${value}`;
 }
 
+function signedPoints(value: number): string {
+  return `${value > 0 ? '+' : ''}${points(value)}`;
+}
+
 function isRateMetric(metricKey: string): boolean {
   return metricKey === 'regression_rate' || metricKey.includes('distribution');
 }
@@ -58,7 +62,11 @@ function formatChangeVsBaseline(signal: {
     }
     return `${deltaPoints > 0 ? '+' : ''}${points(deltaPoints)} pts`;
   }
-  return pct(signal.percent_change);
+  if (signal.baseline_value === 0) {
+    if (signal.current_value === 0) return 'No change (0)';
+    return `${signedPoints(signal.absolute_change)} (from 0)`;
+  }
+  return `${signedPoints(signal.absolute_change)} (${pct(signal.percent_change)})`;
 }
 
 function metricReadableName(metricKey: string): string {

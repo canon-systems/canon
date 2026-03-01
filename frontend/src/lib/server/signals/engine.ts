@@ -347,10 +347,17 @@ function formatOnsetSummary(signal: {
     const delta = `${pointsDelta > 0 ? '+' : ''}${pointsDelta.toFixed(1)} pts`;
     return `${signal.title}. Current ${((currentValue || 0) * 100).toFixed(1)}% vs onset ${((onsetValue || 0) * 100).toFixed(1)}% (${delta}).`;
   }
-  const percent =
-    onsetValue === 0 ? (currentValue === 0 ? 0 : 100) : ((currentValue - onsetValue) / Math.abs(onsetValue)) * 100;
+  if (onsetValue === 0) {
+    if (currentValue === 0) {
+      return `${signal.title}. Current ${currentValue.toFixed(0)} vs onset ${onsetValue.toFixed(0)} (no change).`;
+    }
+    const signedAbsolute = `${absoluteChange > 0 ? '+' : ''}${absoluteChange.toFixed(0)}`;
+    return `${signal.title}. Current ${currentValue.toFixed(0)} vs onset ${onsetValue.toFixed(0)} (${signedAbsolute} from 0).`;
+  }
+  const percent = ((currentValue - onsetValue) / Math.abs(onsetValue)) * 100;
+  const signedAbsolute = `${absoluteChange > 0 ? '+' : ''}${absoluteChange.toFixed(0)}`;
   const signedPercent = `${percent > 0 ? '+' : ''}${Math.abs(percent) >= 100 ? percent.toFixed(0) : percent.toFixed(1)}%`;
-  return `${signal.title}. Current ${currentValue.toFixed(0)} vs onset ${onsetValue.toFixed(0)} (${signedPercent}).`;
+  return `${signal.title}. Current ${currentValue.toFixed(0)} vs onset ${onsetValue.toFixed(0)} (${signedAbsolute} absolute, ${signedPercent}).`;
 }
 
 function evaluateTrendConsistency(values: number[]): {
