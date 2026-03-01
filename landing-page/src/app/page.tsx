@@ -16,7 +16,6 @@ export default function LandingPage() {
   const [expandedImage, setExpandedImage] = useState<{ src: string; alt: string } | null>(null);
   const evidenceLayers = [
     {
-      layer: 'Layer 01',
       stage: 'Connected Sources',
       title: 'Where Execution Data Lives',
       description:
@@ -26,17 +25,15 @@ export default function LandingPage() {
       highlights: ['Connected workspaces', 'Integration health', 'Single pane for inputs'],
     },
     {
-      layer: 'Layer 02',
-      stage: 'Signal Summary',
-      title: 'Leadership Brief, Compressed',
+      stage: 'Executive Briefing',
+      title: 'Decision-Ready Narrative for Leadership',
       description:
-        'Canon surfaces the most meaningful shifts first so leaders can align quickly without wading through raw activity.',
-      image: '/signals.png',
-      alt: 'Canon signals view listing significant execution shifts and investigation actions.',
-      highlights: ['Prioritized change signal', 'Severity and impact context', 'Direct investigate path'],
+        'Canon transforms detected shifts into a concise executive briefing so leaders can align on risk, momentum, and next actions in minutes.',
+      image: '/executive%20briefing.png',
+      alt: 'Canon executive briefing view showing prioritized updates and leadership-ready narrative context.',
+      highlights: ['Leadership narrative output', 'Action-oriented summary', 'Cross-team alignment context'],
     },
     {
-      layer: 'Layer 03',
       stage: 'History Overview',
       title: 'Baseline and Deltas at a Glance',
       description:
@@ -46,7 +43,6 @@ export default function LandingPage() {
       highlights: ['Baseline comparison', 'Trend context', 'At-a-glance deltas'],
     },
     {
-      layer: 'Layer 04',
       stage: 'Workstream Deltas',
       title: 'Jira: Baseline vs Current, Side by Side',
       description:
@@ -56,7 +52,6 @@ export default function LandingPage() {
       highlights: ['Directional movement panels', 'Current vs baseline windows', 'Execution trend clarity'],
     },
     {
-      layer: 'Layer 05',
       stage: 'Delivery Deltas',
       title: 'GitHub: Code and Velocity in Context',
       description:
@@ -66,7 +61,6 @@ export default function LandingPage() {
       highlights: ['Commit and PR context', 'Velocity vs baseline', 'Delivery trend clarity'],
     },
     {
-      layer: 'Layer 06',
       stage: 'Source Evidence',
       title: 'Open the Evidence Dossier',
       description:
@@ -76,7 +70,6 @@ export default function LandingPage() {
       highlights: ['Baseline context', 'Top directional movers', 'Explainable signal rationale'],
     },
     {
-      layer: 'Layer 07',
       stage: 'Event-Level Detail',
       title: 'Trace the Underlying Events',
       description:
@@ -329,7 +322,7 @@ export default function LandingPage() {
                   >
                     <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
-                        <Badge variant="outline">{layer.layer}</Badge>
+                        <Badge variant="outline">Layer {String(idx + 1).padStart(2, '0')}</Badge>
                         <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">{layer.stage}</p>
                       </div>
                     </div>
@@ -479,6 +472,13 @@ export default function LandingPage() {
                 </CardHeader>
                 <CardContent>
                   <p className="text-white/85">Route daily signals, weekly insights, and change alerts to the right channels.</p>
+                </CardContent>
+              </Card>
+              <Card className="sm:col-span-3 min-h-[110px] bg-gradient-to-r from-white/[0.08] via-white/[0.04] to-white/[0.02]">
+                <CardContent className="flex h-full items-center justify-center px-6 py-6">
+                  <p className="max-w-4xl text-center text-sm text-white/85">
+                    Need another tool in your stack? Canon can integrate with additional systems based on your operating environment.
+                  </p>
                 </CardContent>
               </Card>
             </div>
