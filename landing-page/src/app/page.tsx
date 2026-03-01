@@ -2,7 +2,7 @@
 
 import { ArrowRight, Github, Slack, X } from 'lucide-react';
 import Image from 'next/image';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { IntegrationLogos } from '@/components/IntegrationLogos';
 import { Navigation } from '@/components/Navigation';
@@ -14,9 +14,11 @@ import { Separator } from '@/components/ui/separator';
 export default function LandingPage() {
   const appHref = 'https://app.usecanon.com';
   const [expandedImage, setExpandedImage] = useState<{ src: string; alt: string } | null>(null);
+  const [activeEvidenceIndex, setActiveEvidenceIndex] = useState(0);
+  const evidenceCardRefs = useRef<Array<HTMLElement | null>>([]);
+  const evidenceVisibilityRatios = useRef<Map<number, number>>(new Map());
   const evidenceLayers = [
     {
-      layer: 'Layer 01',
       stage: 'Connected Sources',
       title: 'Where Execution Data Lives',
       description:
@@ -26,17 +28,15 @@ export default function LandingPage() {
       highlights: ['Connected workspaces', 'Integration health', 'Single pane for inputs'],
     },
     {
-      layer: 'Layer 02',
-      stage: 'Signal Summary',
-      title: 'Leadership Brief, Compressed',
+      stage: 'Executive Briefing',
+      title: 'Decision-Ready Narrative for Leadership',
       description:
-        'Canon surfaces the most meaningful shifts first so leaders can align quickly without wading through raw activity.',
-      image: '/signals.png',
-      alt: 'Canon signals view listing significant execution shifts and investigation actions.',
-      highlights: ['Prioritized change signal', 'Severity and impact context', 'Direct investigate path'],
+        'Canon transforms detected shifts into a concise executive briefing so leaders can align on risk, momentum, and next actions in minutes.',
+      image: '/executive%20briefing.png',
+      alt: 'Canon executive briefing view showing prioritized updates and leadership-ready narrative context.',
+      highlights: ['Leadership narrative output', 'Action-oriented summary', 'Cross-team alignment context'],
     },
     {
-      layer: 'Layer 03',
       stage: 'History Overview',
       title: 'Baseline and Deltas at a Glance',
       description:
@@ -46,27 +46,24 @@ export default function LandingPage() {
       highlights: ['Baseline comparison', 'Trend context', 'At-a-glance deltas'],
     },
     {
-      layer: 'Layer 04',
       stage: 'Workstream Deltas',
-      title: 'Jira: Baseline vs Current, Side by Side',
+      title: 'Work Tracking: Baseline vs Current, Side by Side',
       description:
         'Ticket and workstream movement is shown as clear deltas so backlog flow, blockers, and completion dynamics stay visible.',
       image: '/history%20jira.png',
-      alt: 'Canon history view for Jira showing baseline comparisons and workstream movement.',
+      alt: 'Canon history view for a work tracking system showing baseline comparisons and workstream movement.',
       highlights: ['Directional movement panels', 'Current vs baseline windows', 'Execution trend clarity'],
     },
     {
-      layer: 'Layer 05',
       stage: 'Delivery Deltas',
-      title: 'GitHub: Code and Velocity in Context',
+      title: 'Code Delivery: Velocity in Context',
       description:
         'Delivery and code activity are compared to baseline so commits, PR flow, and execution trend shifts are easy to interpret.',
       image: '/history%20github.png',
-      alt: 'Canon history view for GitHub showing baseline comparisons and delivery metrics.',
+      alt: 'Canon history view for a source code platform showing baseline comparisons and delivery metrics.',
       highlights: ['Commit and PR context', 'Velocity vs baseline', 'Delivery trend clarity'],
     },
     {
-      layer: 'Layer 06',
       stage: 'Source Evidence',
       title: 'Open the Evidence Dossier',
       description:
@@ -76,7 +73,6 @@ export default function LandingPage() {
       highlights: ['Baseline context', 'Top directional movers', 'Explainable signal rationale'],
     },
     {
-      layer: 'Layer 07',
       stage: 'Event-Level Detail',
       title: 'Trace the Underlying Events',
       description:
@@ -86,6 +82,44 @@ export default function LandingPage() {
       highlights: ['Granular activity records', 'Window-by-window comparison', 'Verification before escalation'],
     },
   ];
+
+  useEffect(() => {
+    evidenceCardRefs.current = evidenceCardRefs.current.slice(0, evidenceLayers.length);
+    evidenceVisibilityRatios.current = new Map();
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const idx = Number((entry.target as HTMLElement).dataset.layerIndex);
+          if (Number.isNaN(idx)) continue;
+          evidenceVisibilityRatios.current.set(idx, entry.isIntersecting ? entry.intersectionRatio : 0);
+        }
+
+        let nextActive = 0;
+        let highestRatio = -1;
+        for (const [idx, ratio] of evidenceVisibilityRatios.current.entries()) {
+          if (ratio > highestRatio) {
+            highestRatio = ratio;
+            nextActive = idx;
+          }
+        }
+
+        if (highestRatio > 0) {
+          setActiveEvidenceIndex((prev) => (prev === nextActive ? prev : nextActive));
+        }
+      },
+      {
+        threshold: [0.2, 0.35, 0.5, 0.65, 0.8],
+        rootMargin: '-15% 0px -35% 0px',
+      }
+    );
+
+    for (const cardRef of evidenceCardRefs.current) {
+      if (cardRef) observer.observe(cardRef);
+    }
+
+    return () => observer.disconnect();
+  }, [evidenceLayers.length]);
 
   return (
     <div className="relative min-h-screen text-white">
@@ -97,7 +131,7 @@ export default function LandingPage() {
             <div className="animate-rise space-y-6">
               <Badge variant="secondary">Automated Knowledge Infrastructure</Badge>
               <h1 className="font-display text-4xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">
-                Canon turns execution noise into leadership signal.
+                Canon Turns Execution Noise Into Leadership Signal.
               </h1>
               <p className="leading-relaxed text-white/85">
                 Canon continuously reads real work across engineering systems, detects meaningful shifts, and delivers
@@ -182,7 +216,7 @@ export default function LandingPage() {
             <div className="space-y-3">
               <Badge variant="secondary">What You Get</Badge>
               <h2 className="font-display text-2xl font-semibold text-white sm:text-3xl">
-                Canon is an operating layer for leadership decisions.
+                Canon Is an Operating Layer for Leadership Decisions.
               </h2>
               <p className="max-w-3xl text-white/85">
                 Instead of waiting for status rollups, leaders get a continuous signal stream: what changed, where
@@ -236,7 +270,7 @@ export default function LandingPage() {
             <div className="space-y-3">
               <Badge variant="secondary">Operating Loop</Badge>
               <h2 className="font-display text-2xl font-semibold text-white sm:text-3xl">
-                How Canon works in production.
+                How Canon Works in Production.
               </h2>
               <p className="max-w-3xl text-white/85">
                 Canon sits between raw execution data and leadership decisions, so every signal is timely, explainable,
@@ -294,7 +328,7 @@ export default function LandingPage() {
             <div className="space-y-3">
               <Badge variant="secondary">Product Tour</Badge>
               <h2 className="font-display text-2xl font-semibold text-white sm:text-3xl">
-                See Canon capabilities in action.
+                See Canon Capabilities in Action.
               </h2>
               <p className="max-w-3xl text-white/85">
                 Canon turns execution data into clear operating context, with fast investigations, source-level detail,
@@ -312,9 +346,18 @@ export default function LandingPage() {
                 </p>
                 <div className="mt-6 space-y-2">
                   {evidenceLayers.map((layer, idx) => (
-                    <div key={layer.stage} className="flex items-center justify-between rounded-xl border border-white/20 bg-white/[0.03] px-3 py-2 text-xs text-white/80">
+                    <div
+                      key={layer.stage}
+                      className={`flex items-center justify-between rounded-xl border px-3 py-2 text-xs transition ${
+                        activeEvidenceIndex === idx
+                          ? 'border-white bg-white text-black shadow-[0_12px_30px_rgba(0,0,0,0.45)]'
+                          : 'border-white/20 bg-white/[0.03] text-white/80'
+                      }`}
+                    >
                       <span>{layer.stage}</span>
-                      <span className="font-medium text-white/90">0{idx + 1}</span>
+                      <span className={`font-medium ${activeEvidenceIndex === idx ? 'text-black' : 'text-white/90'}`}>
+                        {String(idx + 1).padStart(2, '0')}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -324,13 +367,32 @@ export default function LandingPage() {
                 {evidenceLayers.map((layer, idx) => (
                   <article
                     key={layer.title}
-                    className="relative rounded-3xl border border-white/25 bg-gradient-to-br from-white/[0.06] via-white/[0.03] to-white/[0.015] p-4 shadow-[0_24px_70px_rgba(0,0,0,0.5)] sm:p-6"
+                    ref={(el) => {
+                      evidenceCardRefs.current[idx] = el;
+                    }}
+                    data-layer-index={idx}
+                    className={`relative rounded-3xl border p-4 shadow-[0_24px_70px_rgba(0,0,0,0.5)] transition-all duration-300 sm:p-6 ${
+                      activeEvidenceIndex === idx
+                        ? 'border-white bg-white text-black'
+                        : 'border-white/25 bg-gradient-to-br from-white/[0.06] via-white/[0.03] to-white/[0.015]'
+                    }`}
                     style={{ zIndex: evidenceLayers.length - idx }}
                   >
                     <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
-                        <Badge variant="outline">{layer.layer}</Badge>
-                        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">{layer.stage}</p>
+                        <Badge
+                          variant="outline"
+                          className={activeEvidenceIndex === idx ? 'border-black/25 bg-black/10 text-black' : undefined}
+                        >
+                          Layer {String(idx + 1).padStart(2, '0')}
+                        </Badge>
+                        <p
+                          className={`text-xs font-semibold uppercase tracking-[0.22em] ${
+                            activeEvidenceIndex === idx ? 'text-black/70' : 'text-white/70'
+                          }`}
+                        >
+                          {layer.stage}
+                        </p>
                       </div>
                     </div>
 
@@ -355,13 +417,25 @@ export default function LandingPage() {
                     </div>
 
                     <div className="mt-5">
-                      <h3 className="font-display text-xl font-semibold text-white sm:text-2xl">{layer.title}</h3>
-                      <p className="mt-3 text-white/85">{layer.description}</p>
+                      <h3
+                        className={`font-display text-xl font-semibold sm:text-2xl ${
+                          activeEvidenceIndex === idx ? 'text-black' : 'text-white'
+                        }`}
+                      >
+                        {layer.title}
+                      </h3>
+                      <p className={`mt-3 ${activeEvidenceIndex === idx ? 'text-black/80' : 'text-white/85'}`}>
+                        {layer.description}
+                      </p>
                       <div className="mt-4 flex flex-wrap gap-2">
                         {layer.highlights.map((highlight) => (
                           <span
                             key={highlight}
-                            className="rounded-full border border-white/20 bg-white px-3 py-1 text-xs font-medium text-black"
+                            className={`rounded-full border px-3 py-1 text-xs font-medium ${
+                              activeEvidenceIndex === idx
+                                ? 'border-black/20 bg-black/10 text-black'
+                                : 'border-white/20 bg-white text-black'
+                            }`}
                           >
                             {highlight}
                           </span>
@@ -432,7 +506,7 @@ export default function LandingPage() {
             <div className="space-y-3">
               <Badge variant="secondary">Integrations</Badge>
               <h2 className="font-display text-2xl font-semibold text-white sm:text-3xl">
-                Inputs from core systems. Outputs to operating channels.
+                Inputs From Core Systems. Outputs to Operating Channels.
               </h2>
               <p className="max-w-3xl text-white/85">
                 Canon connects to where execution happens and delivers back into where decisions happen.
@@ -445,7 +519,7 @@ export default function LandingPage() {
                     <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-white/25 bg-white/5">
                       <Github className="h-6 w-6 text-white" />
                     </div>
-                    <CardTitle className="text-white">GitHub</CardTitle>
+                    <CardTitle className="text-white">Source Code Platforms</CardTitle>
                   </div>
                   <CardDescription className="text-white/85">Code activity and delivery velocity.</CardDescription>
                 </CardHeader>
@@ -459,7 +533,7 @@ export default function LandingPage() {
                     <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-white/25 bg-white/5">
                       <IntegrationLogos provider="atlassian" size={24} />
                     </div>
-                    <CardTitle className="text-white">Atlassian</CardTitle>
+                    <CardTitle className="text-white">Work Tracking Platforms</CardTitle>
                   </div>
                   <CardDescription className="text-white/85">Workstream and ticket movement.</CardDescription>
                 </CardHeader>
@@ -479,6 +553,13 @@ export default function LandingPage() {
                 </CardHeader>
                 <CardContent>
                   <p className="text-white/85">Route daily signals, weekly insights, and change alerts to the right channels.</p>
+                </CardContent>
+              </Card>
+              <Card className="sm:col-span-3 min-h-[110px] bg-gradient-to-r from-white/[0.08] via-white/[0.04] to-white/[0.02]">
+                <CardContent className="flex h-full items-center justify-center px-6 py-6">
+                  <p className="max-w-4xl text-center text-sm text-white/85">
+                    Need another tool in your stack? Canon can integrate with additional systems based on your operating environment.
+                  </p>
                 </CardContent>
               </Card>
             </div>
@@ -517,7 +598,7 @@ export default function LandingPage() {
               <div className="space-y-4">
                 <div className="rounded-xl border border-white/25 bg-white/[0.04] px-4 py-3 font-medium text-white">
                   Connect
-                  <p className="text-xs font-normal text-white/80">OAuth to GitHub / Atlassian / Slack</p>
+                  <p className="text-xs font-normal text-white/80">OAuth to source, work tracking, and communication systems</p>
                 </div>
                 <div className="rounded-xl border border-white/25 bg-white/[0.06] px-4 py-3 font-medium text-white">
                   Canon
