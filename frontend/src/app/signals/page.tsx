@@ -72,11 +72,13 @@ export default async function SignalsPage({
   const settings = await getWorkspaceSignalSettings({ supabase, userId: user.id });
   const settingsTimeZone = parseTimeZoneParam(settings.time_zone);
   const timeZone = normalizeTimeZone(parseTimeZoneParam(tzParam) || cookieTimeZone || settingsTimeZone);
+  const todayInTimeZone = DateTime.now().setZone(timeZone).toFormat('yyyy-LL-dd');
+  const todayRange = localDayToUtcRange(todayInTimeZone, timeZone);
 
-  let selectedStartDate: string | null = null;
-  let selectedEndDate: string | null = null;
-  let detectedStart: string | undefined;
-  let detectedEnd: string | undefined;
+  let selectedStartDate: string | null = todayInTimeZone;
+  let selectedEndDate: string | null = todayInTimeZone;
+  let detectedStart: string | undefined = todayRange?.start;
+  let detectedEnd: string | undefined = todayRange?.end;
 
   if (startDateParam && endDateParam) {
     const [fromDay, toDay] = startDateParam <= endDateParam ? [startDateParam, endDateParam] : [endDateParam, startDateParam];

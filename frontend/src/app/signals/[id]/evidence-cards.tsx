@@ -444,39 +444,41 @@ function TicketEvidenceTabs({ windows, timeZone }: { windows: WindowEvidence[]; 
   const resolvedSource = sourceOptions.includes(selectedSource) ? selectedSource : ALL_SOURCES_VALUE;
 
   return (
-    <div className="space-y-2">
-      <Select value={activeTab} onValueChange={setSelectedId}>
-        <SelectTrigger className="inline-flex h-10 w-auto min-w-[12rem] rounded-2xl border border-white/10 bg-zinc-800 px-3 text-white/70 hover:bg-zinc-700 hover:text-white/90">
-          <SelectValue placeholder="Select window" />
-        </SelectTrigger>
-        <SelectContent>
-          {windowsLatestFirst.map((window) => (
-            <SelectItem key={window.id} value={window.id}>
-              {window.label} ({window.tickets.length})
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      {sourceOptions.length > 0 ? (
-        <Select
-          value={resolvedSource}
-          onValueChange={(value) => setSelectedSourceByTab((prev) => ({ ...prev, [activeTab]: value }))}
-        >
-          <SelectTrigger className="inline-flex h-10 w-auto min-w-[12rem] rounded-2xl border border-white/10 bg-zinc-800 px-3 text-white/70 hover:bg-zinc-700 hover:text-white/90">
-            <SelectValue placeholder="Filter by source" />
+    <div className="space-y-3 pt-1">
+      <div className={sourceOptions.length > 0 ? 'grid gap-3 sm:grid-cols-2' : 'grid gap-3'}>
+        <Select value={activeTab} onValueChange={setSelectedId}>
+          <SelectTrigger className="inline-flex h-10 w-full min-w-[12rem] rounded-2xl border border-white/10 bg-zinc-800 px-3 text-white/70 hover:bg-zinc-700 hover:text-white/90 focus:ring-offset-0">
+            <SelectValue placeholder="Select window" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={ALL_SOURCES_VALUE}>All Sources</SelectItem>
-            {sourceOptions.map((source) => (
-              <SelectItem key={source} value={source}>
-                {source}
+            {windowsLatestFirst.map((window) => (
+              <SelectItem key={window.id} value={window.id}>
+                {window.label} ({window.tickets.length})
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
-      ) : null}
+        {sourceOptions.length > 0 ? (
+          <Select
+            value={resolvedSource}
+            onValueChange={(value) => setSelectedSourceByTab((prev) => ({ ...prev, [activeTab]: value }))}
+          >
+            <SelectTrigger className="inline-flex h-10 w-full min-w-[12rem] rounded-2xl border border-white/10 bg-zinc-800 px-3 text-white/70 hover:bg-zinc-700 hover:text-white/90 focus:ring-offset-0">
+              <SelectValue placeholder="Filter by source" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_SOURCES_VALUE}>All Sources</SelectItem>
+              {sourceOptions.map((source) => (
+                <SelectItem key={source} value={source}>
+                  {source}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
+      </div>
       {selectedWindow ? (
-        <div className="mt-0 space-y-2">
+        <div className="mt-0 space-y-3">
           {selectedWindow.window_start && selectedWindow.window_end ? (
             <p className="text-xs text-white/55">{formatWindowRange(selectedWindow.window_start, selectedWindow.window_end, timeZone)}</p>
           ) : null}
@@ -524,39 +526,41 @@ function PullRequestEvidenceTabs({ windows, timeZone }: { windows: WindowEvidenc
   const resolvedSource = sourceOptions.includes(selectedSource) ? selectedSource : ALL_SOURCES_VALUE;
 
   return (
-    <div className="space-y-2">
-      <Select value={activeTab} onValueChange={setSelectedId}>
-        <SelectTrigger className="inline-flex h-10 w-auto min-w-[12rem] rounded-2xl border border-white/10 bg-zinc-800 px-3 text-white/70 hover:bg-zinc-700 hover:text-white/90">
-          <SelectValue placeholder="Select window" />
-        </SelectTrigger>
-        <SelectContent>
-          {windowsLatestFirst.map((window) => (
-            <SelectItem key={window.id} value={window.id}>
-              {window.label} ({window.prs.length})
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      {sourceOptions.length > 0 ? (
-        <Select
-          value={resolvedSource}
-          onValueChange={(value) => setSelectedSourceByTab((prev) => ({ ...prev, [activeTab]: value }))}
-        >
-          <SelectTrigger className="inline-flex h-10 w-auto min-w-[12rem] rounded-2xl border border-white/10 bg-zinc-800 px-3 text-white/70 hover:bg-zinc-700 hover:text-white/90">
-            <SelectValue placeholder="Filter by source" />
+    <div className="space-y-3 pt-1">
+      <div className={sourceOptions.length > 0 ? 'grid gap-3 sm:grid-cols-2' : 'grid gap-3'}>
+        <Select value={activeTab} onValueChange={setSelectedId}>
+          <SelectTrigger className="inline-flex h-10 w-full min-w-[12rem] rounded-2xl border border-white/10 bg-zinc-800 px-3 text-white/70 hover:bg-zinc-700 hover:text-white/90 focus:ring-offset-0">
+            <SelectValue placeholder="Select window" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={ALL_SOURCES_VALUE}>All Sources</SelectItem>
-            {sourceOptions.map((source) => (
-              <SelectItem key={source} value={source}>
-                {source}
+            {windowsLatestFirst.map((window) => (
+              <SelectItem key={window.id} value={window.id}>
+                {window.label} ({window.prs.length})
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
-      ) : null}
+        {sourceOptions.length > 0 ? (
+          <Select
+            value={resolvedSource}
+            onValueChange={(value) => setSelectedSourceByTab((prev) => ({ ...prev, [activeTab]: value }))}
+          >
+            <SelectTrigger className="inline-flex h-10 w-full min-w-[12rem] rounded-2xl border border-white/10 bg-zinc-800 px-3 text-white/70 hover:bg-zinc-700 hover:text-white/90 focus:ring-offset-0">
+              <SelectValue placeholder="Filter by source" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_SOURCES_VALUE}>All Sources</SelectItem>
+              {sourceOptions.map((source) => (
+                <SelectItem key={source} value={source}>
+                  {source}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
+      </div>
       {selectedWindow ? (
-        <div className="mt-0 space-y-2">
+        <div className="mt-0 space-y-3">
           {selectedWindow.window_start && selectedWindow.window_end ? (
             <p className="text-xs text-white/55">{formatWindowRange(selectedWindow.window_start, selectedWindow.window_end, timeZone)}</p>
           ) : null}
@@ -589,39 +593,41 @@ function ReposEvidenceTabs({ windows, timeZone }: { windows: WindowEvidence[]; t
 
   if (windows.length === 0) return <p>{PANEL_META.repos.empty}</p>;
   return (
-    <div className="space-y-2">
-      <Select value={activeTab} onValueChange={setSelectedId}>
-        <SelectTrigger className="inline-flex h-10 w-auto min-w-[12rem] rounded-2xl border border-white/10 bg-zinc-800 px-3 text-white/70 hover:bg-zinc-700 hover:text-white/90">
-          <SelectValue placeholder="Select window" />
-        </SelectTrigger>
-        <SelectContent>
-          {windowsLatestFirst.map((window) => (
-            <SelectItem key={window.id} value={window.id}>
-              {window.label} ({window.repos.length})
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      {sourceOptions.length > 0 ? (
-        <Select
-          value={resolvedSource}
-          onValueChange={(value) => setSelectedSourceByTab((prev) => ({ ...prev, [activeTab]: value }))}
-        >
-          <SelectTrigger className="inline-flex h-10 w-auto min-w-[12rem] rounded-2xl border border-white/10 bg-zinc-800 px-3 text-white/70 hover:bg-zinc-700 hover:text-white/90">
-            <SelectValue placeholder="Filter by source" />
+    <div className="space-y-3 pt-1">
+      <div className={sourceOptions.length > 0 ? 'grid gap-3 sm:grid-cols-2' : 'grid gap-3'}>
+        <Select value={activeTab} onValueChange={setSelectedId}>
+          <SelectTrigger className="inline-flex h-10 w-full min-w-[12rem] rounded-2xl border border-white/10 bg-zinc-800 px-3 text-white/70 hover:bg-zinc-700 hover:text-white/90 focus:ring-offset-0">
+            <SelectValue placeholder="Select window" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={ALL_SOURCES_VALUE}>All Sources</SelectItem>
-            {sourceOptions.map((source) => (
-              <SelectItem key={source} value={source}>
-                {source}
+            {windowsLatestFirst.map((window) => (
+              <SelectItem key={window.id} value={window.id}>
+                {window.label} ({window.repos.length})
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
-      ) : null}
+        {sourceOptions.length > 0 ? (
+          <Select
+            value={resolvedSource}
+            onValueChange={(value) => setSelectedSourceByTab((prev) => ({ ...prev, [activeTab]: value }))}
+          >
+            <SelectTrigger className="inline-flex h-10 w-full min-w-[12rem] rounded-2xl border border-white/10 bg-zinc-800 px-3 text-white/70 hover:bg-zinc-700 hover:text-white/90 focus:ring-offset-0">
+              <SelectValue placeholder="Filter by source" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_SOURCES_VALUE}>All Sources</SelectItem>
+              {sourceOptions.map((source) => (
+                <SelectItem key={source} value={source}>
+                  {source}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
+      </div>
       {selectedWindow ? (
-        <div className="mt-0 space-y-2">
+        <div className="mt-0 space-y-3">
           {selectedWindow.window_start && selectedWindow.window_end ? (
             <p className="text-xs text-white/55">{formatWindowRange(selectedWindow.window_start, selectedWindow.window_end, timeZone)}</p>
           ) : null}
@@ -670,39 +676,41 @@ function DomainsEvidenceTabs({ windows, timeZone }: { windows: WindowEvidence[];
 
   if (windows.length === 0) return <p>{PANEL_META.domains.empty}</p>;
   return (
-    <div className="space-y-2">
-      <Select value={activeTab} onValueChange={setSelectedId}>
-        <SelectTrigger className="inline-flex h-10 w-auto min-w-[12rem] rounded-2xl border border-white/10 bg-zinc-800 px-3 text-white/70 hover:bg-zinc-700 hover:text-white/90">
-          <SelectValue placeholder="Select window" />
-        </SelectTrigger>
-        <SelectContent>
-          {windowsLatestFirst.map((window) => (
-            <SelectItem key={window.id} value={window.id}>
-              {window.label} ({window.domains.length})
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      {sourceOptions.length > 0 ? (
-        <Select
-          value={resolvedSource}
-          onValueChange={(value) => setSelectedSourceByTab((prev) => ({ ...prev, [activeTab]: value }))}
-        >
-          <SelectTrigger className="inline-flex h-10 w-auto min-w-[12rem] rounded-2xl border border-white/10 bg-zinc-800 px-3 text-white/70 hover:bg-zinc-700 hover:text-white/90">
-            <SelectValue placeholder="Filter by source" />
+    <div className="space-y-3 pt-1">
+      <div className={sourceOptions.length > 0 ? 'grid gap-3 sm:grid-cols-2' : 'grid gap-3'}>
+        <Select value={activeTab} onValueChange={setSelectedId}>
+          <SelectTrigger className="inline-flex h-10 w-full min-w-[12rem] rounded-2xl border border-white/10 bg-zinc-800 px-3 text-white/70 hover:bg-zinc-700 hover:text-white/90 focus:ring-offset-0">
+            <SelectValue placeholder="Select window" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={ALL_SOURCES_VALUE}>All Sources</SelectItem>
-            {sourceOptions.map((source) => (
-              <SelectItem key={source} value={source}>
-                {source}
+            {windowsLatestFirst.map((window) => (
+              <SelectItem key={window.id} value={window.id}>
+                {window.label} ({window.domains.length})
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
-      ) : null}
+        {sourceOptions.length > 0 ? (
+          <Select
+            value={resolvedSource}
+            onValueChange={(value) => setSelectedSourceByTab((prev) => ({ ...prev, [activeTab]: value }))}
+          >
+            <SelectTrigger className="inline-flex h-10 w-full min-w-[12rem] rounded-2xl border border-white/10 bg-zinc-800 px-3 text-white/70 hover:bg-zinc-700 hover:text-white/90 focus:ring-offset-0">
+              <SelectValue placeholder="Filter by source" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_SOURCES_VALUE}>All Sources</SelectItem>
+              {sourceOptions.map((source) => (
+                <SelectItem key={source} value={source}>
+                  {source}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
+      </div>
       {selectedWindow ? (
-        <div className="mt-0 space-y-2">
+        <div className="mt-0 space-y-3">
           {selectedWindow.window_start && selectedWindow.window_end ? (
             <p className="text-xs text-white/55">{formatWindowRange(selectedWindow.window_start, selectedWindow.window_end, timeZone)}</p>
           ) : null}
@@ -800,7 +808,7 @@ export default function EvidenceCards({ evidence, timeZone }: { evidence: Eviden
                   <Maximize2 className="h-3.5 w-3.5" />
                 </Button>
               </CardHeader>
-              <CardContent className="h-[calc(24rem-4.5rem)] overflow-y-auto space-y-2 pr-2 text-sm text-white/80">
+              <CardContent className="h-[calc(24rem-4.5rem)] overflow-y-auto space-y-3 pt-1 pr-2 text-sm text-white/80">
                 <EvidenceList panel={panel} evidence={evidence} timeZone={timeZone} />
               </CardContent>
             </Card>

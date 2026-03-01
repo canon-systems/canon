@@ -177,7 +177,7 @@ export default function SignalsPageClient({
   const topDecisions = useMemo(() => signals.slice(0, 3), [signals]);
 
   const windowLabel = useMemo(() => {
-    if (!selectedStartDate || !selectedEndDate) return 'Since your last check-in';
+    if (!selectedStartDate || !selectedEndDate) return 'Today';
     return selectedStartDate === selectedEndDate
       ? `On ${selectedStartDate}`
       : `${selectedStartDate} to ${selectedEndDate}`;
@@ -308,7 +308,7 @@ export default function SignalsPageClient({
               <PopoverTrigger asChild>
                 <Button variant="outline" className="w-auto min-w-[11rem] justify-start border-white/20 bg-black/60 text-white hover:bg-black/70">
                   <CalendarDays className="mr-2 h-4 w-4" />
-                  {selectedStartDate && selectedEndDate ? `${selectedStartDate} to ${selectedEndDate}` : 'Since last check-in'}
+                  {selectedStartDate && selectedEndDate ? `${selectedStartDate} to ${selectedEndDate}` : 'Today'}
                 </Button>
               </PopoverTrigger>
               <PopoverContent align="start" sideOffset={8} className="w-auto border-white/10 bg-black/95 p-0">
