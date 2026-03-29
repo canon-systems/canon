@@ -1,639 +1,600 @@
-'use client';
+import type { Metadata } from 'next';
+import { ArrowRight, Github, Slack } from 'lucide-react';
 
-import { ArrowRight, Github, Slack, X } from 'lucide-react';
-import Image from 'next/image';
-import { useEffect, useRef, useState } from 'react';
-
+import { FaqAccordion } from '@/components/landing-page/FaqAccordion';
+import { ProductTour } from '@/components/landing-page/ProductTour';
 import { IntegrationLogos } from '@/components/IntegrationLogos';
 import { Navigation } from '@/components/Navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Separator } from '@/components/ui/separator';
+
+const requestAccessHref = 'https://app.usecanon.com';
+
+export const metadata: Metadata = {
+  title: 'Canon | Engineering visibility that comes to you',
+  description:
+    "Canon turns your engineering tools into a daily briefing, so you always know what shipped, what's stuck, and what needs your attention.",
+  openGraph: {
+    title: 'Canon | Engineering visibility that comes to you',
+    description:
+      "Canon turns your engineering tools into a daily briefing, so you always know what shipped, what's stuck, and what needs your attention.",
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Canon | Engineering visibility that comes to you',
+    description:
+      "Canon turns your engineering tools into a daily briefing, so you always know what shipped, what's stuck, and what needs your attention.",
+  },
+};
+
+const signalCards = [
+  {
+    eyebrow: 'Delivery Signal',
+    title: 'PR merge rate dropped below baseline',
+    detail: '3 pull requests are open beyond median cycle time compared with the last 7-day baseline window.',
+    value: '-38%',
+    tone: 'amber',
+  },
+  {
+    eyebrow: 'Execution Signal',
+    title: 'Tickets reopened above normal',
+    detail: 'Four Jira tickets moved back to in-progress this window, materially above the expected baseline.',
+    value: '+4',
+    tone: 'rose',
+  },
+  {
+    eyebrow: 'Momentum Signal',
+    title: 'Commit velocity is stable',
+    detail: 'Default branch activity remains within normal range, so leadership can focus on the true exceptions.',
+    value: 'Stable',
+    tone: 'emerald',
+  },
+] as const;
+
+const operatingRhythm = [
+  'Connect GitHub, Jira, and Slack in one session.',
+  'Canon backfills recent history immediately so the first briefing has context on day one.',
+  'Each window is compared to a matching baseline, not a generic benchmark.',
+  'Only meaningful deltas are pushed to leadership in a briefing or alert.',
+];
+
+const evidenceLayers = [
+  {
+    stage: 'Connected Sources',
+    title: 'Canon starts where your engineering truth already lives.',
+    description:
+      'A clean integration layer keeps inputs visible, healthy, and attributable so leadership never has to guess where a signal came from.',
+    image: '/sources.png',
+    alt: 'Canon sources view showing connected workspaces and integration status for GitHub, Jira, and Slack.',
+    highlights: ['Connected workspaces', 'Integration health', 'One operating surface'],
+  },
+  {
+    stage: 'Executive Briefing',
+    title: 'Leadership gets the update in plain language.',
+    description:
+      'Canon turns engineering activity into a readable summary of what shipped, what is blocked, and what needs a decision.',
+    image: '/executive%20briefing.png',
+    alt: 'Canon executive briefing showing what shipped, what is stuck, and what needs attention this week.',
+    highlights: ['Plain-language narrative', 'Action-oriented output', 'Shared context'],
+  },
+  {
+    stage: 'History Overview',
+    title: 'Baseline and current windows are easy to compare.',
+    description:
+      'Trend shifts are shown in context, so normal variance does not get mistaken for meaningful change.',
+    image: '/history%20top.png',
+    alt: 'Canon history overview showing baseline comparison and trend context across engineering systems.',
+    highlights: ['Baseline comparison', 'Trend context', 'At-a-glance deltas'],
+  },
+  {
+    stage: 'Workstream Deltas',
+    title: 'Work tracking signals are visible before they become narrative debt.',
+    description:
+      'Ticket creation, regression, and backlog movement are laid out side by side so delivery flow is easier to interpret.',
+    image: '/history%20jira.png',
+    alt: 'Canon history view for Jira showing baseline comparisons and workstream movement side by side.',
+    highlights: ['Flow imbalances', 'Window comparison', 'Operational clarity'],
+  },
+  {
+    stage: 'Delivery Deltas',
+    title: 'Code delivery is measured with context, not gut feel.',
+    description:
+      'Commits, pull requests, and velocity shifts are scored against normal behavior so teams can respond with confidence.',
+    image: '/history%20github.png',
+    alt: 'Canon history view for GitHub showing baseline comparisons and delivery metrics over the active window.',
+    highlights: ['Commit context', 'Velocity shifts', 'Delivery patterns'],
+  },
+  {
+    stage: 'Source Evidence',
+    title: 'Every surfaced signal can be opened and verified.',
+    description:
+      'Canon gives leaders the evidence trail behind the summary so an alert can be trusted before it triggers follow-up.',
+    image: '/investigate%20top.png',
+    alt: 'Canon investigate page showing baseline context, directional movers, and summary metrics for a briefing item.',
+    highlights: ['Explainable briefings', 'Baseline rationale', 'Top movers'],
+  },
+  {
+    stage: 'Event Detail',
+    title: 'Granular activity stays within reach when the stakes are higher.',
+    description:
+      'From the signal, you can drill into the underlying records and verify exactly what changed inside the active window.',
+    image: '/investigate%20bottom.png',
+    alt: 'Canon investigate page lower section with detailed activity and breakdown panels for event-level verification.',
+    highlights: ['Granular records', 'Traceable evidence', 'Decision confidence'],
+  },
+] as const;
+
+const faqItems = [
+  {
+    question: 'What tools does Canon connect to?',
+    answer:
+      "Canon currently connects to GitHub, Jira, and Slack, with more integrations on the way. If your stack isn't listed, reach out at john@usecanon.com and we'll let you know what's coming.",
+  },
+  {
+    question: 'Will I get a briefing every single day?',
+    answer:
+      "Only when there's something worth telling you. If nothing meaningful changed in your engineering systems, Canon stays quiet.",
+  },
+  {
+    question: 'How does Canon decide what is meaningful?',
+    answer:
+      'Canon compares your current activity window to a matching baseline window of the same length, then surfaces deviations that materially differ from what is normal for your team.',
+  },
+  {
+    question: 'How long does setup take?',
+    answer:
+      'Most teams are connected and receiving their first briefing within a single session. No heavy implementation, dashboard project, or custom rules engine required.',
+  },
+  {
+    question: 'Who is Canon built for?',
+    answer:
+      'Canon is built for technical founders, CTOs, and VPs/Heads/Directors of Engineering who need operating visibility without building a reporting stack.',
+  },
+  {
+    question: 'Is my data secure?',
+    answer:
+      'Yes. Canon uses OAuth for integrations, encrypts tokens at rest, and only reads from explicitly connected workspaces and repositories. Canon never writes to your tools.',
+  },
+];
+
+function toneClasses(tone: (typeof signalCards)[number]['tone']) {
+  if (tone === 'amber') {
+    return {
+      shell: 'border-amber-300/30 bg-[linear-gradient(180deg,rgba(255,251,235,0.16),rgba(255,251,235,0.04))]',
+      eyebrow: 'text-amber-200/90',
+      value: 'text-amber-100',
+      pill: 'border-amber-200/25 bg-amber-200/10 text-amber-50',
+    };
+  }
+
+  if (tone === 'rose') {
+    return {
+      shell: 'border-rose-300/30 bg-[linear-gradient(180deg,rgba(255,241,242,0.16),rgba(255,241,242,0.04))]',
+      eyebrow: 'text-rose-200/90',
+      value: 'text-rose-100',
+      pill: 'border-rose-200/25 bg-rose-200/10 text-rose-50',
+    };
+  }
+
+  return {
+    shell: 'border-emerald-300/30 bg-[linear-gradient(180deg,rgba(236,253,245,0.14),rgba(236,253,245,0.04))]',
+    eyebrow: 'text-emerald-200/90',
+    value: 'text-emerald-100',
+    pill: 'border-emerald-200/25 bg-emerald-200/10 text-emerald-50',
+  };
+}
 
 export default function LandingPage() {
-  const appHref = 'https://app.usecanon.com';
-  const [expandedImage, setExpandedImage] = useState<{ src: string; alt: string } | null>(null);
-  const [activeEvidenceIndex, setActiveEvidenceIndex] = useState(0);
-  const evidenceCardRefs = useRef<Array<HTMLElement | null>>([]);
-  const evidenceVisibilityRatios = useRef<Map<number, number>>(new Map());
-  const evidenceLayers = [
-    {
-      stage: 'Connected Sources',
-      title: 'Where Execution Data Lives',
-      description:
-        'Canon connects to the systems where work actually happens—repositories, boards, and channels—so every signal is grounded in real activity.',
-      image: '/sources.png',
-      alt: 'Canon sources view showing connected workspaces and integration status.',
-      highlights: ['Connected workspaces', 'Integration health', 'Single pane for inputs'],
-    },
-    {
-      stage: 'Executive Briefing',
-      title: 'Decision-Ready Narrative for Leadership',
-      description:
-        'Canon transforms detected shifts into a concise executive briefing so leaders can align on risk, momentum, and next actions in minutes.',
-      image: '/executive%20briefing.png',
-      alt: 'Canon executive briefing view showing prioritized updates and leadership-ready narrative context.',
-      highlights: ['Leadership narrative output', 'Action-oriented summary', 'Cross-team alignment context'],
-    },
-    {
-      stage: 'History Overview',
-      title: 'Baseline and Deltas at a Glance',
-      description:
-        'See how metrics and momentum compare to baseline so teams can separate normal variance from material execution change.',
-      image: '/history%20top.png',
-      alt: 'Canon history overview with baseline comparison and trend context.',
-      highlights: ['Baseline comparison', 'Trend context', 'At-a-glance deltas'],
-    },
-    {
-      stage: 'Workstream Deltas',
-      title: 'Work Tracking: Baseline vs Current, Side by Side',
-      description:
-        'Ticket and workstream movement is shown as clear deltas so backlog flow, blockers, and completion dynamics stay visible.',
-      image: '/history%20jira.png',
-      alt: 'Canon history view for a work tracking system showing baseline comparisons and workstream movement.',
-      highlights: ['Directional movement panels', 'Current vs baseline windows', 'Execution trend clarity'],
-    },
-    {
-      stage: 'Delivery Deltas',
-      title: 'Code Delivery: Velocity in Context',
-      description:
-        'Delivery and code activity are compared to baseline so commits, PR flow, and execution trend shifts are easy to interpret.',
-      image: '/history%20github.png',
-      alt: 'Canon history view for a source code platform showing baseline comparisons and delivery metrics.',
-      highlights: ['Commit and PR context', 'Velocity vs baseline', 'Delivery trend clarity'],
-    },
-    {
-      stage: 'Source Evidence',
-      title: 'Open the Evidence Dossier',
-      description:
-        'Every claim is backed by underlying activity context so teams can validate why a signal was raised before acting.',
-      image: '/investigate%20top.png',
-      alt: 'Canon investigate page top section with baseline context, directional movers, and summary metrics.',
-      highlights: ['Baseline context', 'Top directional movers', 'Explainable signal rationale'],
-    },
-    {
-      stage: 'Event-Level Detail',
-      title: 'Trace the Underlying Events',
-      description:
-        'Drill from the summary into granular records to confirm exactly what moved in the active window.',
-      image: '/investigate%20bottom.png',
-      alt: 'Canon investigate page lower section with detailed activity and breakdown panels.',
-      highlights: ['Granular activity records', 'Window-by-window comparison', 'Verification before escalation'],
-    },
-  ];
-
-  useEffect(() => {
-    evidenceCardRefs.current = evidenceCardRefs.current.slice(0, evidenceLayers.length);
-    evidenceVisibilityRatios.current = new Map();
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          const idx = Number((entry.target as HTMLElement).dataset.layerIndex);
-          if (Number.isNaN(idx)) continue;
-          evidenceVisibilityRatios.current.set(idx, entry.isIntersecting ? entry.intersectionRatio : 0);
-        }
-
-        let nextActive = 0;
-        let highestRatio = -1;
-        for (const [idx, ratio] of evidenceVisibilityRatios.current.entries()) {
-          if (ratio > highestRatio) {
-            highestRatio = ratio;
-            nextActive = idx;
-          }
-        }
-
-        if (highestRatio > 0) {
-          setActiveEvidenceIndex((prev) => (prev === nextActive ? prev : nextActive));
-        }
-      },
-      {
-        threshold: [0.2, 0.35, 0.5, 0.65, 0.8],
-        rootMargin: '-15% 0px -35% 0px',
-      }
-    );
-
-    for (const cardRef of evidenceCardRefs.current) {
-      if (cardRef) observer.observe(cardRef);
-    }
-
-    return () => observer.disconnect();
-  }, [evidenceLayers.length]);
-
   return (
     <div className="relative min-h-screen text-white">
       <Navigation />
 
-      <main className="relative">
-        <section id="features" className="mx-auto max-w-[90rem] px-4 pb-12 pt-10 sm:px-6 lg:px-8 lg:pb-16 lg:pt-16 scroll-mt-[77px]">
-          <div className="grid gap-10 lg:grid-cols-[1.15fr_0.85fr] lg:items-center">
-            <div className="animate-rise space-y-6">
-              <Badge variant="secondary">Automated Knowledge Infrastructure</Badge>
-              <h1 className="font-display text-4xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">
-                Canon Turns Execution Noise Into Leadership Signal.
-              </h1>
-              <p className="leading-relaxed text-white/85">
-                Canon continuously reads real work across engineering systems, detects meaningful shifts, and delivers
-                daily and weekly guidance leaders can act on.
-              </p>
+      <main className="relative overflow-hidden">
+        <section
+          id="features"
+          className="mx-auto max-w-[94rem] px-4 pb-20 pt-10 sm:px-6 lg:px-8 lg:pb-24 lg:pt-16 scroll-mt-[88px]"
+        >
+          <div className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[46rem]">
+            <div className="absolute left-[6%] top-10 h-72 w-72 rounded-full bg-cyan-300/12 blur-3xl" />
+            <div className="absolute right-[10%] top-24 h-80 w-80 rounded-full bg-amber-200/10 blur-3xl" />
+            <div className="absolute left-1/3 top-52 h-96 w-96 rounded-full bg-fuchsia-300/8 blur-3xl" />
+          </div>
+
+          <div className="grid gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-start">
+            <div className="space-y-8">
+              <div className="space-y-5">
+                <Badge className="border-white/15 bg-white/8 px-3 py-1 text-[11px] uppercase tracking-[0.28em] text-white/80 hover:bg-white/8">
+                  Built for engineering leaders
+                </Badge>
+                <div className="max-w-4xl space-y-5">
+                  <h1 className="font-display text-5xl font-semibold leading-[0.94] tracking-[-0.04em] text-white sm:text-6xl lg:text-[5.8rem]">
+                    Engineering visibility that comes to you.
+                  </h1>
+                  <p className="max-w-2xl text-base leading-8 text-white/74 sm:text-lg">
+                    Canon turns your engineering tools into a daily briefing, so you always know what shipped, what's stuck, and what needs your attention. Only when there's something worth saying.
+                  </p>
+                </div>
+              </div>
+
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                <Button size="lg" asChild>
-                  <a href={appHref} target="_blank" rel="noopener noreferrer">
-                    Open Canon
+                <Button size="lg" className="h-12 rounded-full bg-white px-6 text-black hover:bg-white/90" asChild>
+                  <a href={requestAccessHref} target="_blank" rel="noopener noreferrer">
+                    Request Access
                     <ArrowRight className="h-4 w-4" />
                   </a>
                 </Button>
-                <Button size="lg" variant="secondary" asChild>
-                  <a href="#workflow">See the Operating Loop</a>
+                <Button
+                  size="lg"
+                  variant="secondary"
+                  className="h-12 rounded-full border border-white/15 bg-white/8 px-6 text-white hover:bg-white/12"
+                  asChild
+                >
+                  <a href="#product-tour">See the product</a>
                 </Button>
               </div>
-              <div className="grid gap-4 sm:grid-cols-3">
-                <div className="rounded-2xl border border-white/25 bg-white/[0.03] p-4">
-                  <p className="font-medium text-white">Change Visibility</p>
-                  <p className="mt-1 text-white/80">See meaningful delivery and dependency shifts as they happen.</p>
-                </div>
-                <div className="rounded-2xl border border-white/25 bg-white/[0.03] p-4">
-                  <p className="font-medium text-white">Execution Clarity</p>
-                  <p className="mt-1 text-white/80">Understand what changed and why it matters right now.</p>
-                </div>
-                <div className="rounded-2xl border border-white/25 bg-white/[0.03] p-4">
-                  <p className="font-medium text-white">Faster Decisions</p>
-                  <p className="mt-1 text-white/80">Route the right signal to the right owner, fast.</p>
-                </div>
-              </div>
-            </div>
 
-            <div className="animate-rise animate-rise-delay-1 space-y-4">
-              <div className="rounded-3xl border border-white/25 bg-white/[0.03] p-6 shadow-[0_20px_80px_rgba(0,0,0,0.6)]">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold uppercase tracking-[0.3em] text-white/80">Daily Signal</p>
-                  <Badge variant="secondary">Live</Badge>
-                </div>
-                <Separator className="my-4" />
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-white/80">Delivery Status</span>
-                    <span className="font-medium text-white">Active</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-white/80">Execution Health</span>
-                    <span className="font-medium text-white/80">Stable</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-white/80">Momentum</span>
-                    <span className="font-medium text-white/80">Down 12%</span>
-                  </div>
-                </div>
-                <Separator className="my-4" />
-                <div className="rounded-2xl border border-white/25 bg-white/[0.03] p-4 text-white/80">
-                  Canon highlights meaningful shifts and links every claim to source evidence.
-                </div>
-              </div>
-              <div className="rounded-3xl border border-white/25 bg-gradient-to-br from-white/[0.06] via-white/[0.03] to-white/[0.01] p-5 shadow-[0_20px_80px_rgba(0,0,0,0.45)]">
-                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-white/80">Output Cadence</p>
-                <div className="mt-4 grid grid-cols-3 gap-3">
-                  <div className="rounded-2xl border border-white/25 bg-white/[0.05] p-3 text-center text-white">
-                    Daily
-                    <p className="text-xs text-white/80">Priority Signals</p>
-                  </div>
-                  <div className="rounded-2xl border border-white/25 bg-white/[0.05] p-3 text-center text-white">
-                    Weekly
-                    <p className="text-xs text-white/80">Trend Insight</p>
-                  </div>
-                  <div className="rounded-2xl border border-white/25 bg-white/[0.05] p-3 text-center text-white">
-                    On-Change
-                    <p className="text-xs text-white/80">Change Alerts</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="mx-auto max-w-[90rem] px-4 pb-16 sm:px-6 lg:px-8">
-          <div className="space-y-6">
-            <div className="space-y-3">
-              <Badge variant="secondary">What You Get</Badge>
-              <h2 className="font-display text-2xl font-semibold text-white sm:text-3xl">
-                Canon Is an Operating Layer for Leadership Decisions.
-              </h2>
-              <p className="max-w-3xl text-white/85">
-                Instead of waiting for status rollups, leaders get a continuous signal stream: what changed, where
-                momentum is rising or slowing, and what should be addressed first.
-              </p>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <Card className="h-full bg-gradient-to-br from-white/[0.06] via-white/[0.03] to-white/[0.01]">
-                <CardHeader>
-                  <CardTitle className="text-white">Daily Signal</CardTitle>
-                  <CardDescription className="text-white/85">Decision-ready summary every day.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-white/85">Net momentum and the most important changes.</p>
-                </CardContent>
-              </Card>
-              <Card className="h-full">
-                <CardHeader>
-                  <CardTitle className="text-white">Weekly Insight</CardTitle>
-                  <CardDescription className="text-white/85">Trends over time, not just snapshots.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-white/85">Track trajectory by team, initiative, or workspace.</p>
-                </CardContent>
-              </Card>
-              <Card className="h-full">
-                <CardHeader>
-                  <CardTitle className="text-white">Canonical History</CardTitle>
-                  <CardDescription className="text-white/85">Meaningful deltas with context.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-white/85">Cut through noise and review changes that actually impact outcomes.</p>
-                </CardContent>
-              </Card>
-              <Card className="h-full">
-                <CardHeader>
-                  <CardTitle className="text-white">Change Alerts</CardTitle>
-                  <CardDescription className="text-white/85">Surface issues when they need attention.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-white/85">Route important shifts to owners before they become blockers.</p>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-        </section>
-
-        <section className="mx-auto max-w-[90rem] px-4 pb-16 sm:px-6 lg:px-8 scroll-mt-[77px]" id="workflow">
-          <div className="space-y-6">
-            <div className="space-y-3">
-              <Badge variant="secondary">Operating Loop</Badge>
-              <h2 className="font-display text-2xl font-semibold text-white sm:text-3xl">
-                How Canon Works in Production.
-              </h2>
-              <p className="max-w-3xl text-white/85">
-                Canon sits between raw execution data and leadership decisions, so every signal is timely, explainable,
-                and tied to source evidence.
-              </p>
-            </div>
-
-            <div className="glass-panel p-6 sm:p-8">
-              <div className="grid gap-4 sm:grid-cols-4">
+              <div className="grid gap-3 sm:grid-cols-3">
                 {[
-                  {
-                    title: 'Ingest',
-                    body: 'Read activity from connected systems.',
-                    accent: 'from-cyan-400/30 via-blue-400/20 to-white/0',
-                  },
-                  {
-                    title: 'Normalize',
-                    body: 'Convert events into a consistent canonical model.',
-                    accent: 'from-emerald-400/30 via-teal-400/20 to-white/0',
-                  },
-                  {
-                    title: 'Detect',
-                    body: 'Compute significant changes and trend shifts.',
-                    accent: 'from-amber-400/30 via-orange-400/20 to-white/0',
-                  },
-                  {
-                    title: 'Deliver',
-                    body: 'Route concise summaries and alerts to leadership channels.',
-                    accent: 'from-violet-400/30 via-purple-400/20 to-white/0',
-                  },
-                ].map((step, idx) => (
+                  ['What shipped', 'A concise record of delivered work, straight from your tools.'],
+                  ["What's stuck", 'Blockers and regressions surfaced before they become leadership surprises.'],
+                  ['What needs you', 'Signals routed only when a decision or intervention is actually needed.'],
+                ].map(([title, body]) => (
                   <div
-                    key={step.title}
-                    className="relative overflow-hidden rounded-2xl border border-white/25 bg-white/[0.03] p-4 shadow-[0_12px_50px_rgba(0,0,0,0.45)]"
+                    key={title}
+                    className="rounded-[1.75rem] border border-white/10 bg-[#0f1012] p-5"
                   >
-                    <div className={`absolute inset-0 bg-gradient-to-br ${step.accent}`} aria-hidden />
-                    <div className="relative flex flex-col gap-2">
-                      <div className="flex items-center gap-2 text-xs uppercase tracking-[0.25em] text-white/80">
-                        <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-white/20 bg-white/10 text-[11px] font-semibold">
-                          {idx + 1}
-                        </span>
-                        {step.title}
-                      </div>
-                      <p className="text-white/80">{step.body}</p>
-                    </div>
+                    <p className="text-sm font-medium text-white">{title}</p>
+                    <p className="mt-2 text-sm leading-6 text-white/62">{body}</p>
                   </div>
                 ))}
               </div>
-            </div>
-          </div>
-        </section>
 
-        <section className="mx-auto max-w-[90rem] px-4 pb-16 sm:px-6 lg:px-8">
-          <div className="space-y-6">
-            <div className="space-y-3">
-              <Badge variant="secondary">Product Tour</Badge>
-              <h2 className="font-display text-2xl font-semibold text-white sm:text-3xl">
-                See Canon Capabilities in Action.
-              </h2>
-              <p className="max-w-3xl text-white/85">
-                Canon turns execution data into clear operating context, with fast investigations, source-level detail,
-                and a complete action trail for confident decisions.
-              </p>
-            </div>
-
-            <div className="grid gap-6 lg:grid-cols-[0.52fr_1.48fr] lg:items-start">
-              <div className="glass-panel p-6 sm:p-7 lg:sticky lg:top-24">
-                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-white/70">Reveal Sequence</p>
-                <h3 className="mt-3 font-display text-2xl font-semibold text-white">From Brief to Ground Truth</h3>
-                <p className="mt-3 text-white/80">
-                  Instead of static screenshots, the stack reveals how each layer strengthens confidence before a
-                  leadership action is taken.
-                </p>
-                <div className="mt-6 space-y-2">
-                  {evidenceLayers.map((layer, idx) => (
-                    <div
-                      key={layer.stage}
-                      className={`flex items-center justify-between rounded-xl border px-3 py-2 text-xs transition ${
-                        activeEvidenceIndex === idx
-                          ? 'border-white bg-white text-black shadow-[0_12px_30px_rgba(0,0,0,0.45)]'
-                          : 'border-white/20 bg-white/[0.03] text-white/80'
-                      }`}
-                    >
-                      <span>{layer.stage}</span>
-                      <span className={`font-medium ${activeEvidenceIndex === idx ? 'text-black' : 'text-white/90'}`}>
-                        {String(idx + 1).padStart(2, '0')}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-6 pb-4 lg:pt-8">
-                {evidenceLayers.map((layer, idx) => (
-                  <article
-                    key={layer.title}
-                    ref={(el) => {
-                      evidenceCardRefs.current[idx] = el;
-                    }}
-                    data-layer-index={idx}
-                    className={`relative rounded-3xl border p-4 shadow-[0_24px_70px_rgba(0,0,0,0.5)] transition-all duration-300 sm:p-6 ${
-                      activeEvidenceIndex === idx
-                        ? 'border-white bg-white text-black'
-                        : 'border-white/25 bg-gradient-to-br from-white/[0.06] via-white/[0.03] to-white/[0.015]'
-                    }`}
-                    style={{ zIndex: evidenceLayers.length - idx }}
-                  >
-                    <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <Badge
-                          variant="outline"
-                          className={activeEvidenceIndex === idx ? 'border-black/25 bg-black/10 text-black' : undefined}
-                        >
-                          Layer {String(idx + 1).padStart(2, '0')}
-                        </Badge>
-                        <p
-                          className={`text-xs font-semibold uppercase tracking-[0.22em] ${
-                            activeEvidenceIndex === idx ? 'text-black/70' : 'text-white/70'
-                          }`}
-                        >
-                          {layer.stage}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="group relative overflow-hidden rounded-2xl border border-white/25 bg-black/60">
-                      <button
-                        type="button"
-                        onClick={() => setExpandedImage({ src: layer.image, alt: layer.alt })}
-                        className="block w-full cursor-zoom-in"
-                        aria-label={`Expand image for ${layer.title}`}
-                      >
-                        <Image
-                          src={layer.image}
-                          alt={layer.alt}
-                          width={3442}
-                          height={1922}
-                          className="h-auto w-full object-cover"
-                        />
-                        <span className="pointer-events-none absolute bottom-3 right-3 rounded-full border border-white/30 bg-black/65 px-3 py-1 text-xs text-white/90 opacity-95 transition group-hover:bg-black/75">
-                          Click to expand
-                        </span>
-                      </button>
-                    </div>
-
-                    <div className="mt-5">
-                      <h3
-                        className={`font-display text-xl font-semibold sm:text-2xl ${
-                          activeEvidenceIndex === idx ? 'text-black' : 'text-white'
-                        }`}
-                      >
-                        {layer.title}
-                      </h3>
-                      <p className={`mt-3 ${activeEvidenceIndex === idx ? 'text-black/80' : 'text-white/85'}`}>
-                        {layer.description}
-                      </p>
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        {layer.highlights.map((highlight) => (
-                          <span
-                            key={highlight}
-                            className={`rounded-full border px-3 py-1 text-xs font-medium ${
-                              activeEvidenceIndex === idx
-                                ? 'border-black/20 bg-black/10 text-black'
-                                : 'border-white/20 bg-white text-black'
-                            }`}
-                          >
-                            {highlight}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="mx-auto max-w-[90rem] px-4 pb-16 sm:px-6 lg:px-8">
-          <div className="grid gap-8 lg:grid-cols-2">
-            <div className="glass-panel p-8">
-              <h3 className="font-display text-2xl font-semibold">What Leaders Decide With Canon</h3>
-              <p className="mt-3 text-white/85">
-                Canon is built for operating decisions: where to intervene, what to prioritize, and how to communicate
-                changes and momentum clearly across the business.
-              </p>
-              <div className="mt-6 flex flex-wrap gap-2">
-                <Badge variant="outline">Delivery Trends</Badge>
-                <Badge variant="outline">Execution Health</Badge>
-                <Badge variant="outline">Team Momentum</Badge>
-                <Badge variant="outline">Cross-Team Alignment</Badge>
-                <Badge variant="outline">Change Priority</Badge>
-              </div>
-              <Separator className="my-6" />
-              <p className="text-white/85">
-                Every signal is traceable to source events so decisions stay grounded in reality.
-              </p>
-            </div>
-            <div className="glass-panel p-8">
-              <h3 className="font-display text-2xl font-semibold">Control and Governance</h3>
-              <p className="mt-3 text-white/85">
-                Canon supports automation where safe and human review where needed.
-              </p>
-              <div className="mt-6 space-y-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="font-medium text-white">Auto-Send</p>
-                    <p className="text-white/85">Routine digests and stable patterns.</p>
-                  </div>
-                  <Badge>Routine</Badge>
-                </div>
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="font-medium text-white">Queue + Confirm</p>
-                    <p className="text-white/85">Default review path for material updates.</p>
-                  </div>
-                  <Badge variant="secondary">Default</Badge>
-                </div>
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="font-medium text-white">Escalate</p>
-                    <p className="text-white/85">Material shifts requiring immediate leadership attention.</p>
-                  </div>
-                  <Badge variant="outline">High Priority</Badge>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="mx-auto max-w-[90rem] px-4 pb-16 sm:px-6 lg:px-8 scroll-mt-[77px]" id="integrations">
-          <div className="space-y-6">
-            <div className="space-y-3">
-              <Badge variant="secondary">Integrations</Badge>
-              <h2 className="font-display text-2xl font-semibold text-white sm:text-3xl">
-                Inputs From Core Systems. Outputs to Operating Channels.
-              </h2>
-              <p className="max-w-3xl text-white/85">
-                Canon connects to where execution happens and delivers back into where decisions happen.
-              </p>
-            </div>
-            <div className="grid gap-6 sm:grid-cols-3">
-              <Card className="h-full bg-gradient-to-br from-white/[0.06] via-white/[0.03] to-white/[0.01]">
-                <CardHeader>
-                  <div className="mb-2 flex items-center gap-3">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-white/25 bg-white/5">
-                      <Github className="h-6 w-6 text-white" />
-                    </div>
-                    <CardTitle className="text-white">Source Code Platforms</CardTitle>
-                  </div>
-                  <CardDescription className="text-white/85">Code activity and delivery velocity.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-white/85">Track commits, PR flow, and execution trend shifts.</p>
-                </CardContent>
-              </Card>
-              <Card className="h-full">
-                <CardHeader>
-                  <div className="mb-2 flex items-center gap-3">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-white/25 bg-white/5">
-                      <IntegrationLogos provider="atlassian" size={24} />
-                    </div>
-                    <CardTitle className="text-white">Work Tracking Platforms</CardTitle>
-                  </div>
-                  <CardDescription className="text-white/85">Workstream and ticket movement.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-white/85">Understand backlog flow, blockers, and completion dynamics.</p>
-                </CardContent>
-              </Card>
-              <Card className="h-full">
-                <CardHeader>
-                  <div className="mb-2 flex items-center gap-3">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-white/25 bg-white/5">
-                      <Slack className="h-6 w-6 text-white" />
-                    </div>
-                    <CardTitle className="text-white">Slack</CardTitle>
-                  </div>
-                  <CardDescription className="text-white/85">Signals in leadership communication flow.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-white/85">Route daily signals, weekly insights, and change alerts to the right channels.</p>
-                </CardContent>
-              </Card>
-              <Card className="sm:col-span-3 min-h-[110px] bg-gradient-to-r from-white/[0.08] via-white/[0.04] to-white/[0.02]">
-                <CardContent className="flex h-full items-center justify-center px-6 py-6">
-                  <p className="max-w-4xl text-center text-sm text-white/85">
-                    Need another tool in your stack? Canon can integrate with additional systems based on your operating environment.
+              <div className="flex flex-col gap-3 rounded-[2rem] border border-white/10 bg-[#111214] p-5 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-medium text-white">No briefing for the sake of it.</p>
+                  <p className="mt-1 text-sm text-white/62">
+                    Canon stays quiet when engineering is operating within baseline.
                   </p>
-                </CardContent>
-              </Card>
+                </div>
+                <div className="rounded-full border border-white/12 bg-black/35 px-4 py-2 text-xs uppercase tracking-[0.22em] text-white/72">
+                  Only when it matters
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-5 lg:pt-10">
+              <div className="rounded-[2.2rem] border border-white/10 bg-[#111214] p-5 shadow-[0_30px_80px_rgba(0,0,0,0.45)]">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.3em] text-white/55">
+                      Canon detected
+                    </p>
+                    <p className="mt-2 text-sm text-white/65">An executive-ready view of engineering momentum.</p>
+                  </div>
+                </div>
+
+                <div className="mt-5 space-y-3">
+                  {signalCards.map((card) => {
+                    const tone = toneClasses(card.tone);
+                    return (
+                      <div
+                        key={card.title}
+                        className={`rounded-[1.6rem] border p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] ${tone.shell}`}
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <p className={`text-[11px] font-semibold uppercase tracking-[0.24em] ${tone.eyebrow}`}>
+                              {card.eyebrow}
+                            </p>
+                            <p className="mt-2 text-base font-medium text-white">{card.title}</p>
+                            <p className="mt-2 max-w-md text-sm leading-6 text-white/62">{card.detail}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className={`font-display text-3xl font-semibold tracking-[-0.04em] ${tone.value}`}>
+                              {card.value}
+                            </p>
+                            <span className={`mt-2 inline-flex rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.24em] ${tone.pill}`}>
+                              surfaced
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <p className="mt-4 text-xs uppercase tracking-[0.2em] text-white/38">
+                  Severity is scored against your configured baseline window.
+                </p>
+              </div>
+
+              <div className="rounded-[2rem] border border-white/10 bg-[#0d0e10] p-6">
+                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-white/55">Monday briefing</p>
+                <p className="mt-3 max-w-lg font-display text-2xl font-semibold tracking-[-0.03em] text-white">
+                  A calm, high-signal summary that leadership can read in minutes.
+                </p>
+                <p className="mt-3 max-w-lg text-sm leading-6 text-white/62">
+                  Canon sends the findings to the user, with context already assembled, so leadership does not have to
+                  go looking for meaning across dashboards and tools.
+                </p>
+              </div>
             </div>
           </div>
         </section>
 
-        <section className="mx-auto max-w-[90rem] px-4 pb-16 sm:px-6 lg:px-8 scroll-mt-[77px]" id="security">
-          <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-            <div className="glass-panel p-6 sm:p-8">
-              <h3 className="font-display text-xl font-semibold text-white">Security, By Default</h3>
-              <ul className="mt-4 space-y-3 text-white/85">
-                <li className="flex items-start gap-2">
-                  <span className="mt-1 h-1.5 w-1.5 rounded-full bg-white/70" />
-                  <span>OAuth sign-ins include tamper checks to prevent replayed authentication flows.</span>
+        <section className="mx-auto max-w-[94rem] px-4 pb-20 sm:px-6 lg:px-8">
+          <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
+            <div className="relative overflow-hidden rounded-[2.4rem] border border-cyan-300/15 bg-[linear-gradient(145deg,rgba(18,24,32,0.98),rgba(12,13,15,1))] p-8 shadow-[0_28px_80px_rgba(0,0,0,0.35)]">
+              <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(125,211,252,0.14),transparent_36%),radial-gradient(circle_at_bottom_right,rgba(253,230,138,0.08),transparent_30%)]" />
+              <div className="relative">
+                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-cyan-100/68">Why Canon is different</p>
+                <h2 className="mt-4 font-display text-3xl font-semibold tracking-[-0.03em] text-white sm:text-4xl">
+                  Leaders should not have to assemble the story of engineering by hand.
+                </h2>
+                <p className="mt-5 max-w-2xl text-base leading-8 text-white/68">
+                  Canon closes the gap between raw engineering activity and executive understanding by pushing findings to
+                  the user, not by asking leaders to live in another analytics surface.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="relative overflow-hidden rounded-[2rem] border border-cyan-300/15 bg-[linear-gradient(180deg,rgba(16,17,19,1),rgba(10,11,13,1))] p-7">
+                <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-cyan-300 via-sky-400 to-cyan-200" />
+                <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-cyan-100/58">Search tax</p>
+                <p className="mt-4 font-display text-5xl font-semibold tracking-[-0.05em] text-white sm:text-6xl">25%</p>
+                <p className="mt-4 text-sm leading-7 text-white/64">
+                  Executives and teams spend a quarter of the workweek searching for information about what is happening
+                  across the organization.
+                </p>
+              </div>
+              <div className="relative overflow-hidden rounded-[2rem] border border-amber-300/15 bg-[linear-gradient(180deg,rgba(16,17,19,1),rgba(10,11,13,1))] p-7">
+                <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-amber-200 via-yellow-300 to-orange-200" />
+                <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-amber-100/58">Confidence gap</p>
+                <p className="mt-4 font-display text-5xl font-semibold tracking-[-0.05em] text-white sm:text-6xl">7%</p>
+                <p className="mt-4 text-sm leading-7 text-white/64">
+                  Only a small minority of leaders feel confident they understand how team activity connects to company
+                  priorities.
+                </p>
+              </div>
+              <div className="relative overflow-hidden rounded-[2rem] border border-amber-300/15 bg-[linear-gradient(135deg,rgba(250,204,21,0.08),rgba(17,18,20,1))] p-7 sm:col-span-2">
+                <div className="pointer-events-none absolute right-0 top-0 h-28 w-28 rounded-full bg-amber-200/10 blur-2xl" />
+                <p className="text-sm leading-7 text-white/66">
+                  Source: Atlassian State of Teams 2025, surveying 200 Fortune 1000 executives and 12,000 knowledge
+                  workers.
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="workflow" className="mx-auto max-w-[94rem] px-4 pb-20 sm:px-6 lg:px-8 scroll-mt-[88px]">
+          <div className="grid gap-8 lg:grid-cols-[0.75fr_1.25fr]">
+            <div className="space-y-4">
+              <Badge className="border-white/12 bg-white/7 text-white/75 hover:bg-white/7">Operating rhythm</Badge>
+              <h2 className="font-display text-3xl font-semibold tracking-[-0.03em] text-white sm:text-4xl">
+                Set up once. Get context every time it actually matters.
+              </h2>
+              <p className="max-w-xl text-base leading-8 text-white/68">
+                Canon works like an operating layer between your engineering systems and the places leadership already
+                pays attention.
+              </p>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              {operatingRhythm.map((step, index) => (
+                <div
+                  key={step}
+                  className="rounded-[1.9rem] border border-white/10 bg-[#101113] p-6"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/12 bg-white/8 text-xs font-semibold text-white/78">
+                      {String(index + 1).padStart(2, '0')}
+                    </span>
+                    <p className="text-sm font-medium uppercase tracking-[0.18em] text-white/48">Step {index + 1}</p>
+                  </div>
+                  <p className="mt-5 text-base leading-7 text-white/72">{step}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="mx-auto max-w-[94rem] px-4 pb-20 sm:px-6 lg:px-8" id="product-tour">
+          <ProductTour
+            eyebrow="Product tour"
+            title="From signal to source evidence in one surface."
+            description="Canon should feel legible at every zoom level. Start with the briefing, then move into baseline context, workstream deltas, and event-level verification when needed."
+            layers={evidenceLayers}
+          />
+        </section>
+
+        <section className="mx-auto max-w-[94rem] px-4 pb-20 sm:px-6 lg:px-8">
+          <div className="grid gap-6 lg:grid-cols-3">
+            <div className="group relative overflow-hidden rounded-[2rem] border border-cyan-300/12 bg-[linear-gradient(180deg,rgba(16,17,19,1),rgba(11,12,14,1))] p-7 shadow-[0_24px_60px_rgba(0,0,0,0.24)]">
+              <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-200/50 to-transparent" />
+              <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(125,211,252,0.12),transparent_34%)] opacity-70" />
+              <div className="relative">
+                <p className="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-100/58">Leadership use case</p>
+                <h3 className="mt-4 font-display text-2xl font-semibold tracking-[-0.03em] text-white">
+                  Decide where to intervene.
+                </h3>
+                <p className="mt-4 text-sm leading-7 text-white/66">
+                  Canon is built for operating questions: where momentum changed, what became risky, and what deserves
+                  immediate communication.
+                </p>
+              </div>
+            </div>
+            <div className="group relative overflow-hidden rounded-[2rem] border border-amber-300/12 bg-[linear-gradient(180deg,rgba(16,17,19,1),rgba(11,12,14,1))] p-7 shadow-[0_24px_60px_rgba(0,0,0,0.24)]">
+              <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-amber-200/50 to-transparent" />
+              <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(253,230,138,0.1),transparent_34%)] opacity-70" />
+              <div className="relative">
+                <p className="text-xs font-semibold uppercase tracking-[0.28em] text-amber-100/58">Operating model</p>
+                <h3 className="mt-4 font-display text-2xl font-semibold tracking-[-0.03em] text-white">
+                  Baseline, not guesswork.
+                </h3>
+                <p className="mt-4 text-sm leading-7 text-white/66">
+                  Signals are scored against a configurable baseline window so leadership sees meaningful change instead of
+                  raw volume.
+                </p>
+              </div>
+            </div>
+            <div className="group relative overflow-hidden rounded-[2rem] border border-emerald-300/12 bg-[linear-gradient(180deg,rgba(16,17,19,1),rgba(11,12,14,1))] p-7 shadow-[0_24px_60px_rgba(0,0,0,0.24)]">
+              <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-emerald-200/50 to-transparent" />
+              <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(110,231,183,0.1),transparent_34%)] opacity-70" />
+              <div className="relative">
+                <p className="text-xs font-semibold uppercase tracking-[0.28em] text-emerald-100/58">Evidence model</p>
+                <h3 className="mt-4 font-display text-2xl font-semibold tracking-[-0.03em] text-white">
+                  Traceable before actionable.
+                </h3>
+                <p className="mt-4 text-sm leading-7 text-white/66">
+                  Every briefing can be followed down to supporting activity context before a leader escalates or
+                  reprioritizes.
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section
+          className="mx-auto max-w-[94rem] px-4 pb-20 sm:px-6 lg:px-8 scroll-mt-[88px]"
+          id="integrations"
+        >
+          <div className="grid gap-6 lg:grid-cols-[0.7fr_1.3fr]">
+            <div className="space-y-4">
+              <Badge className="border-white/12 bg-white/7 text-white/75 hover:bg-white/7">Integrations</Badge>
+              <h2 className="font-display text-3xl font-semibold tracking-[-0.03em] text-white sm:text-4xl">
+                Inputs from the systems your team already trusts.
+              </h2>
+              <p className="text-base leading-8 text-white/68">
+                Canon connects to where engineering work is actually happening, then routes the output back into the
+                channels where leadership already operates.
+              </p>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="rounded-[2rem] border border-white/10 bg-[#101113] p-6">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/12 bg-black/30">
+                  <Github className="h-6 w-6 text-white" aria-hidden />
+                </div>
+                <h3 className="mt-5 font-display text-2xl font-semibold tracking-[-0.03em] text-white">GitHub</h3>
+                <p className="mt-3 text-sm leading-7 text-white/64">
+                  Track pull request flow, commit activity, and delivery trend shifts with baseline context.
+                </p>
+              </div>
+
+              <div className="rounded-[2rem] border border-white/10 bg-[#101113] p-6">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/12 bg-black/30">
+                  <IntegrationLogos provider="atlassian" size={24} />
+                </div>
+                <h3 className="mt-5 font-display text-2xl font-semibold tracking-[-0.03em] text-white">Jira</h3>
+                <p className="mt-3 text-sm leading-7 text-white/64">
+                  Understand ticket movement, backlog pressure, and workstream regressions before they spread.
+                </p>
+              </div>
+
+              <div className="rounded-[2rem] border border-white/10 bg-[#101113] p-6">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/12 bg-black/30">
+                  <Slack className="h-6 w-6 text-white" aria-hidden />
+                </div>
+                <h3 className="mt-5 font-display text-2xl font-semibold tracking-[-0.03em] text-white">Slack</h3>
+                <p className="mt-3 text-sm leading-7 text-white/64">
+                  Deliver briefings and alerts into the communication layer your team already checks first.
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section
+          className="mx-auto max-w-[94rem] px-4 pb-20 sm:px-6 lg:px-8 scroll-mt-[88px]"
+          id="security"
+        >
+          <div className="grid gap-6 lg:grid-cols-[1.12fr_0.88fr]">
+            <div className="rounded-[2.2rem] border border-white/10 bg-[#101113] p-8">
+              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-white/48">Security</p>
+              <h2 className="mt-4 font-display text-3xl font-semibold tracking-[-0.03em] text-white sm:text-4xl">
+                Security is part of the operating model, not an afterthought.
+              </h2>
+              <ul className="mt-6 space-y-4 text-sm leading-7 text-white/68">
+                <li className="flex gap-3">
+                  <span className="mt-3 h-1.5 w-1.5 shrink-0 rounded-full bg-white/60" aria-hidden />
+                  OAuth sign-ins include tamper checks to prevent replayed authentication flows.
                 </li>
-                <li className="flex items-start gap-2">
-                  <span className="mt-1 h-1.5 w-1.5 rounded-full bg-white/70" />
-                  <span>Tokens are encrypted at rest before storage.</span>
+                <li className="flex gap-3">
+                  <span className="mt-3 h-1.5 w-1.5 shrink-0 rounded-full bg-white/60" aria-hidden />
+                  Tokens are encrypted at rest before storage.
                 </li>
-                <li className="flex items-start gap-2">
-                  <span className="mt-1 h-1.5 w-1.5 rounded-full bg-white/70" />
-                  <span>Connected-data access requires a valid authenticated session.</span>
+                <li className="flex gap-3">
+                  <span className="mt-3 h-1.5 w-1.5 shrink-0 rounded-full bg-white/60" aria-hidden />
+                  Connected-data access requires a valid authenticated session.
                 </li>
-                <li className="flex items-start gap-2">
-                  <span className="mt-1 h-1.5 w-1.5 rounded-full bg-white/70" />
-                  <span>Canon only reads explicitly connected workspaces and repositories.</span>
+                <li className="flex gap-3">
+                  <span className="mt-3 h-1.5 w-1.5 shrink-0 rounded-full bg-white/60" aria-hidden />
+                  Canon only reads explicitly connected workspaces and repositories, and never writes to your tools.
                 </li>
               </ul>
             </div>
-            <div className="glass-panel p-6 sm:p-8">
-              <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-[0.25em] text-white/80">
-                <span>Data Flow</span>
-                <span>At a Glance</span>
-              </div>
-              <Separator className="my-4" />
-              <div className="space-y-4">
-                <div className="rounded-xl border border-white/25 bg-white/[0.04] px-4 py-3 font-medium text-white">
-                  Connect
-                  <p className="text-xs font-normal text-white/80">OAuth to source, work tracking, and communication systems</p>
-                </div>
-                <div className="rounded-xl border border-white/25 bg-white/[0.06] px-4 py-3 font-medium text-white">
-                  Canon
-                  <p className="text-xs font-normal text-white/80">Encrypt tokens &rarr; ingest events &rarr; compute signals</p>
-                </div>
-                <div className="rounded-xl border border-white/25 bg-white/[0.04] px-4 py-3 font-medium text-white">
-                  Outputs
-                  <p className="text-xs font-normal text-white/80">Daily signal, weekly insight, change alerts</p>
-                </div>
+
+            <div className="rounded-[2.2rem] border border-white/10 bg-[#111214] p-8">
+              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-white/48">Data flow</p>
+              <div className="mt-6 space-y-4">
+                {[
+                  ['Connect', 'OAuth access to source code, work tracking, and communication systems.'],
+                  ['Compute', 'Canon encrypts tokens, ingests events, and scores deviations against baseline.'],
+                  ['Route', 'Briefings and alerts go to the channels where operating decisions already happen.'],
+                ].map(([title, body]) => (
+                  <div key={title} className="rounded-[1.5rem] border border-white/10 bg-[#0b0c0e] p-5">
+                    <p className="text-sm font-medium text-white">{title}</p>
+                    <p className="mt-2 text-sm leading-6 text-white/62">{body}</p>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
         </section>
 
-        <section className="mx-auto max-w-[90rem] px-4 pb-16 sm:px-6 lg:px-8">
-          <div className="rounded-3xl border border-white/25 bg-white/[0.03] p-8 sm:p-10">
-            <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <h2 className="font-display text-2xl font-semibold text-white sm:text-3xl">
-                  Replace Status Theater with Signal.
+        <section className="mx-auto max-w-[94rem] px-4 pb-20 sm:px-6 lg:px-8">
+          <div className="grid gap-6 lg:grid-cols-[0.74fr_1.26fr]">
+            <div className="space-y-4">
+              <Badge className="border-white/12 bg-white/7 text-white/75 hover:bg-white/7">FAQ</Badge>
+              <h2 className="font-display text-3xl font-semibold tracking-[-0.03em] text-white sm:text-4xl">
+                Common questions
+              </h2>
+            </div>
+
+            <FaqAccordion items={faqItems} />
+          </div>
+        </section>
+
+        <section className="mx-auto max-w-[94rem] px-4 pb-20 sm:px-6 lg:px-8">
+          <div className="rounded-[2.5rem] border border-white/10 bg-[linear-gradient(140deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-8 sm:p-10 lg:p-12">
+            <div className="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
+              <div className="max-w-3xl">
+                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-white/48">Final call</p>
+                <h2 className="mt-4 font-display text-4xl font-semibold tracking-[-0.04em] text-white sm:text-5xl">
+                  Give leadership one source of truth for engineering movement.
                 </h2>
-                <p className="mt-2 max-w-2xl text-white/85">
-                  Canon gives leadership a reliable view of execution and momentum, updated continuously from real
-                  system activity.
+                <p className="mt-4 text-base leading-8 text-white/68">
+                  Canon replaces reactive status gathering with a readable operating layer grounded in the systems your
+                  team already uses every day.
                 </p>
               </div>
+
               <div className="flex flex-col gap-3 sm:flex-row">
-                <Button size="lg" asChild>
-                  <a href={appHref} target="_blank" rel="noopener noreferrer">
-                    Open Canon
+                <Button size="lg" className="h-12 rounded-full bg-white px-6 text-black hover:bg-white/90" asChild>
+                  <a href={requestAccessHref} target="_blank" rel="noopener noreferrer">
+                    Request Access
                     <ArrowRight className="h-4 w-4" />
                   </a>
                 </Button>
-                <Button size="lg" variant="secondary" asChild>
-                  <a href="mailto:john@usecanon.com">Ask a Question</a>
+                <Button
+                  size="lg"
+                  variant="secondary"
+                  className="h-12 rounded-full border border-white/15 bg-white/8 px-6 text-white hover:bg-white/12"
+                  asChild
+                >
+                  <a href="mailto:john@usecanon.com">Ask a question</a>
                 </Button>
               </div>
             </div>
@@ -641,38 +602,8 @@ export default function LandingPage() {
         </section>
       </main>
 
-      {expandedImage && (
-        <div
-          className="fixed inset-0 z-[120] flex items-center justify-center bg-black/85 p-4 sm:p-8"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Expanded product image"
-          onClick={() => setExpandedImage(null)}
-        >
-          <div className="relative max-h-[92vh] w-full max-w-[1600px]" onClick={(e) => e.stopPropagation()}>
-            <button
-              type="button"
-              onClick={() => setExpandedImage(null)}
-              className="absolute right-2 top-2 z-10 inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/30 bg-black/75 text-white transition hover:bg-black"
-              aria-label="Close expanded image"
-            >
-              <X className="h-5 w-5" />
-            </button>
-            <div className="overflow-hidden rounded-2xl border border-white/25 bg-black/90 shadow-[0_30px_100px_rgba(0,0,0,0.75)]">
-              <Image
-                src={expandedImage.src}
-                alt={expandedImage.alt}
-                width={3442}
-                height={1922}
-                className="h-auto max-h-[90vh] w-full object-contain"
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
-      <footer className="relative border-t border-white/25">
-        <div className="mx-auto flex max-w-[90rem] flex-col gap-4 px-4 py-10 text-white/80 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
+      <footer className="relative border-t border-white/10">
+        <div className="mx-auto flex max-w-[94rem] flex-col gap-4 px-4 py-10 text-white/62 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
           <p>© 2026 Canon</p>
           <a href="mailto:john@usecanon.com" className="transition hover:text-white">
             Contact
