@@ -36,39 +36,23 @@ function toDateOnlyUtc(value: string): string {
   return date.toISOString().slice(0, 10);
 }
 
-function toDateOnlyInTimeZone(value: string, timeZone: string): string {
+function toShortDateInTimeZone(value: string, timeZone: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
 
   try {
-    const parts = new Intl.DateTimeFormat('en-US', {
+    return new Intl.DateTimeFormat('en-US', {
       timeZone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).formatToParts(date);
-    const year = parts.find((part) => part.type === 'year')?.value;
-    const month = parts.find((part) => part.type === 'month')?.value;
-    const day = parts.find((part) => part.type === 'day')?.value;
-    if (!year || !month || !day) return value;
-    return `${year}-${month}-${day}`;
+      month: 'short',
+      day: 'numeric',
+    }).format(date);
   } catch {
     return toDateOnlyUtc(value);
   }
 }
 
-function resolveBaselineWindow(signals: SignalRecord[]): MetricWindow | null {
-  if (signals.length === 0) return null;
-  let start = '';
-  let end = '';
-
-  for (const signal of signals) {
-    if (!start || signal.baseline_start < start) start = signal.baseline_start;
-    if (!end || signal.baseline_end > end) end = signal.baseline_end;
-  }
-
-  if (!start || !end) return null;
-  return { start, end };
+function toShortDateRangeInTimeZone(start: string, end: string, timeZone: string): string {
+  return `${toShortDateInTimeZone(start, timeZone)} - ${toShortDateInTimeZone(end, timeZone)}`;
 }
 
 function formatNumber(value: number, maxFractionDigits = 1): string {
@@ -108,57 +92,22 @@ function humanSeverity(severity: SignalRecord['severity']): string {
   return severity === 'significant' ? 'Significant' : 'Elevated';
 }
 
+function pluralize(count: number, singular: string, plural = `${singular}s`): string {
+  return `${formatNumber(count, 0)} ${Math.abs(count) === 1 ? singular : plural}`;
+}
+
+function windowLengthInDays(window: MetricWindow): number {
+  const start = new Date(window.start);
+  const end = new Date(window.end);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
+  const msPerDay = 24 * 60 * 60 * 1000;
+  return Math.max(1, Math.floor((end.getTime() - start.getTime()) / msPerDay) + 1);
+}
+
 function scopeSummary(signal: SignalRecord): string {
   if (signal.scope_type === 'repo' && signal.scope_id) return `Scope: Repo ${signal.scope_id}`;
   if (signal.scope_type === 'ticketing') return `Scope: ${signal.scope_id || 'Ticketing workspace'}`;
   return 'Scope: Global';
-}
-
-function surfaceCategoryLines(signal: SignalRecord): string[] {
-  const metadataTargetsRaw = signal.metadata?.targets;
-  const metadataTargets = Array.isArray(metadataTargetsRaw)
-    ? metadataTargetsRaw
-        .map((value) => (typeof value === 'string' ? value.trim() : ''))
-        .filter((value) => value.length > 0)
-    : [];
-
-  const scopeTargets =
-    typeof signal.scope_id === 'string'
-      ? signal.scope_id
-          .split(/[,|]/)
-          .map((value) => value.trim())
-          .filter((value) => value.length > 0)
-      : [];
-
-  const uniqueTargets = Array.from(new Set([...metadataTargets, ...scopeTargets]));
-
-  if (signal.scope_type === 'repo') {
-    const targets = uniqueTargets.length > 0 ? uniqueTargets : ['Unknown repository'];
-    return [
-      'Surface:',
-      '   Category: Repository',
-      '   Targets:',
-      ...targets.map((target) => `   - ${target}`),
-    ];
-  }
-
-  if (signal.scope_type === 'ticketing') {
-    const targets = uniqueTargets.length > 0 ? uniqueTargets : ['Workspace'];
-    return [
-      'Surface:',
-      '   Category: Ticketing',
-      '   Targets:',
-      ...targets.map((target) => `   - ${target}`),
-    ];
-  }
-
-  const targets = uniqueTargets.length > 0 ? uniqueTargets : ['Workspace-wide'];
-  return [
-    'Surface:',
-    '   Category: Global',
-    '   Targets:',
-    ...targets.map((target) => `   - ${target}`),
-  ];
 }
 
 function metricLabel(metricKey: string): string {
@@ -207,6 +156,212 @@ function structuralSummary(signal: SignalRecord): string | null {
   return parts.length > 0 ? parts.join(' | ') : null;
 }
 
+function signalTargets(signal: SignalRecord): string[] {
+  const metadataTargetsRaw = signal.metadata?.targets;
+  const metadataTargets = Array.isArray(metadataTargetsRaw)
+    ? metadataTargetsRaw
+        .map((value) => (typeof value === 'string' ? value.trim() : ''))
+        .filter((value) => value.length > 0)
+    : [];
+
+  const scopeTargets =
+    typeof signal.scope_id === 'string'
+      ? signal.scope_id
+          .split(/[,|]/)
+          .map((value) => value.trim())
+          .filter((value) => value.length > 0)
+      : [];
+
+  return Array.from(new Set([...metadataTargets, ...scopeTargets]));
+}
+
+function primaryArea(signal: SignalRecord): string {
+  const targets = signalTargets(signal);
+  if (signal.scope_type === 'ticketing') {
+    return targets[0] || signal.scope_id || 'This team';
+  }
+  if (signal.scope_type === 'repo') {
+    return targets[0] || 'This repo';
+  }
+  return targets[0] || 'This team';
+}
+
+function persistenceSummary(signal: SignalRecord): string | null {
+  const persistence = signal.structural?.persistence;
+  if (!persistence) return null;
+
+  if (persistence.current_streak >= 2) {
+    return `This has held for ${persistence.current_streak} straight windows.`;
+  }
+
+  if (persistence.is_sustained) {
+    return `This pattern is sustained across ${persistence.breach_windows} of the last ${persistence.lookback_windows} windows.`;
+  }
+
+  return null;
+}
+
+function headlineSummary(signals: SignalRecord[]): string {
+  const significantCount = signals.filter((signal) => signal.severity === 'significant').length;
+  const elevatedCount = signals.length - significantCount;
+
+  if (signals.length === 1) {
+    return significantCount === 1 ? '1 significant signal needs attention.' : '1 elevated signal needs attention.';
+  }
+
+  if (significantCount > 0 && elevatedCount > 0) {
+    return `${signals.length} signals need attention: ${significantCount} significant and ${elevatedCount} elevated.`;
+  }
+
+  if (significantCount > 0) {
+    return `${signals.length} significant signals need attention.`;
+  }
+
+  return `${signals.length} elevated signals need attention.`;
+}
+
+function plainSignalHeadline(signal: SignalRecord, windowDays: number): string {
+  const area = primaryArea(signal);
+  const streak = signal.structural?.persistence?.current_streak || 0;
+  const durationDays = streak > 0 && windowDays > 0 ? streak * windowDays : 0;
+
+  if (signal.type === 'merge_drop' || signal.type === 'throughput_drop') {
+    if (durationDays > 0) return `Work in ${area} has been lower than usual for ${durationDays} days.`;
+    return `Work in ${area} is lower than usual.`;
+  }
+  if (signal.type === 'regression_spike') {
+    if (durationDays > 0) return `More tickets in ${area} have moved backward for ${durationDays} days.`;
+    return `More tickets in ${area} are moving backward than usual.`;
+  }
+  if (signal.type === 'repo_concentration' || signal.type === 'domain_concentration') {
+    return `More of the work is staying in ${area} than usual.`;
+  }
+  return `${area} needs attention.`;
+}
+
+type RollingWindowLine = {
+  window_start: string;
+  window_end: string;
+  entries: Array<{
+    metric_key: string;
+    value: number;
+    is_current: boolean;
+  }>;
+};
+
+function plainMetricLine(metricKey: string, value: number, isCurrent: boolean): string | null {
+  const rounded = Math.round(value);
+
+  if (metricKey === 'prs_merged') {
+    if (rounded <= 0) return 'No PRs were merged.';
+    if (isCurrent && rounded === 1) return 'Only 1 PR was merged.';
+    return `${pluralize(rounded, 'PR')} ${rounded === 1 ? 'was' : 'were'} merged.`;
+  }
+
+  if (metricKey === 'tickets_completed') {
+    if (rounded <= 0) return 'No tickets were finished.';
+    if (isCurrent && rounded <= 2) return `Only ${pluralize(rounded, 'ticket')} ${rounded === 1 ? 'was' : 'were'} finished.`;
+    return `${pluralize(rounded, 'ticket')} ${rounded === 1 ? 'was' : 'were'} finished.`;
+  }
+
+  if (metricKey === 'tickets_regressed') {
+    if (rounded <= 0) return 'No tickets moved backward.';
+    return `${pluralize(rounded, 'ticket')} ${rounded === 1 ? 'moved' : 'moved'} backward.`;
+  }
+
+  if (metricKey === 'repo_distribution') {
+    const share = normalizePercent(value);
+    return `${formatNumber(share, 0)}% of the work stayed in one repo.`;
+  }
+
+  return null;
+}
+
+function rollingHistory(signal: SignalRecord): RollingWindowLine[] {
+  const history = signal.structural?.persistence?.metric_history;
+  if (!Array.isArray(history) || history.length === 0) return [];
+
+  return history
+    .filter(
+      (entry): entry is NonNullable<typeof entry> =>
+        Boolean(entry && typeof entry.window_start === 'string' && typeof entry.window_end === 'string' && typeof entry.value === 'number')
+    )
+    .map((entry) => ({
+      window_start: entry.window_start || '',
+      window_end: entry.window_end || '',
+      entries: [
+        {
+          metric_key: signal.metric_key,
+          value: entry.value,
+          is_current: Boolean(entry.is_current),
+        },
+      ],
+    }));
+}
+
+function combineRollingWindows(signals: SignalRecord[]): RollingWindowLine[] {
+  const grouped = new Map<string, RollingWindowLine>();
+
+  for (const signal of signals) {
+    for (const item of rollingHistory(signal)) {
+      const key = `${item.window_start}__${item.window_end}`;
+      const existing = grouped.get(key);
+      if (existing) {
+        existing.entries.push(...item.entries);
+      } else {
+        grouped.set(key, {
+          window_start: item.window_start,
+          window_end: item.window_end,
+          entries: [...item.entries],
+        });
+      }
+    }
+  }
+
+  return Array.from(grouped.values())
+    .sort((a, b) => new Date(a.window_start).getTime() - new Date(b.window_start).getTime())
+    .slice(-4);
+}
+
+function rollingWindowLabel(index: number, total: number): string {
+  if (index === 0) return 'Onset';
+  if (index === total - 1) return 'Current';
+  return `Window ${index}`;
+}
+
+function rollingWindowBody(windowLine: RollingWindowLine): string[] {
+  const seen = new Set<string>();
+  const lines: string[] = [];
+
+  for (const entry of windowLine.entries) {
+    if (seen.has(entry.metric_key)) continue;
+    seen.add(entry.metric_key);
+    const line = plainMetricLine(entry.metric_key, entry.value, entry.is_current);
+    if (line) lines.push(line);
+  }
+
+  return lines;
+}
+
+function fallbackPlainSignalBlock(signal: SignalRecord): string[] {
+  const lines = [`*${humanSeverity(signal.severity)}: ${signal.title}*`];
+
+  if (signal.metric_key === 'prs_merged') {
+    lines.push(`Right now: ${plainMetricLine(signal.metric_key, signal.current_value, true)}`);
+  } else if (signal.metric_key === 'tickets_completed') {
+    lines.push(`Right now: ${plainMetricLine(signal.metric_key, signal.current_value, true)}`);
+  } else if (signal.metric_key === 'tickets_regressed') {
+    lines.push(`Right now: ${plainMetricLine(signal.metric_key, signal.current_value, true)}`);
+  } else {
+    lines.push(`Right now: ${signal.summary_line}`);
+  }
+
+  const persistence = persistenceSummary(signal);
+  if (persistence) lines.push(persistence);
+  lines.push(`Look here: ${signalUrl(signal.id)}`);
+  return lines;
+}
+
 export function formatWeeklyDigestMessage(params: {
   window: MetricWindow;
   signals: SignalRecord[];
@@ -250,19 +405,21 @@ export function formatDailySignalAlertMessage(params: {
   const timeZone = typeof params.timeZone === 'string' && params.timeZone.trim().length > 0 ? params.timeZone.trim() : 'UTC';
   const signals = sortSignalsByPriority(params.signals);
   const topSignals = signals.slice(0, 5);
-  const significantCount = signals.filter((signal) => signal.severity === 'significant').length;
-  const elevatedCount = signals.length - significantCount;
-  const baselineWindow = resolveBaselineWindow(signals);
-  const windowStartLabel = toDateOnlyInTimeZone(window.start, timeZone);
-  const windowEndLabel = toDateOnlyInTimeZone(window.end, timeZone);
-  const baselineStartLabel = baselineWindow ? toDateOnlyInTimeZone(baselineWindow.start, timeZone) : 'n/a';
-  const baselineEndLabel = baselineWindow ? toDateOnlyInTimeZone(baselineWindow.end, timeZone) : 'n/a';
+  const primarySignal = topSignals[0] || null;
+  const windowRangeLabel = toShortDateRangeInTimeZone(window.start, window.end, timeZone);
+  const windowDays = windowLengthInDays(window);
+  const rollingSignals = topSignals.filter((signal) =>
+    signal.metric_key === 'prs_merged' ||
+    signal.metric_key === 'tickets_completed' ||
+    signal.metric_key === 'tickets_regressed' ||
+    signal.metric_key === 'repo_distribution'
+  );
+  const historyWindows = combineRollingWindows(rollingSignals);
 
   const lines = [
-    '*Canon Daily Signal Alert*',
-    `Window: ${windowStartLabel} to ${windowEndLabel} (${timeZone})`,
-    `Baseline: ${baselineStartLabel} to ${baselineEndLabel} (${timeZone})`,
-    `Detected: ${signals.length} signal(s) (${significantCount} significant, ${elevatedCount} elevated)`,
+    '*Signal Alert Rolling*',
+    `*${windowDays}-Day Window:*`,
+    windowRangeLabel,
     '',
   ];
 
@@ -271,30 +428,33 @@ export function formatDailySignalAlertMessage(params: {
     return lines.join('\n');
   }
 
-  if (significantCount > 0) {
-    lines.push(`Priority: review ${significantCount} significant signal(s) first.`);
-  } else {
-    lines.push('Priority: elevated signals only in this run.');
-  }
-  lines.push('');
-
-  topSignals.forEach((signal, index) => {
-    lines.push(`${index + 1}. [${humanSeverity(signal.severity).toUpperCase()}] *${signal.title}*`);
-    lines.push(`   ${signal.summary_line}`);
-    lines.push(`   ${metricSummary(signal)}`);
-    const structural = structuralSummary(signal);
-    if (structural) lines.push(`   ${structural}`);
-    for (const surfaceLine of surfaceCategoryLines(signal)) {
-      lines.push(`   ${surfaceLine}`);
-    }
-    lines.push(`   Click the link to investigate: ${signalUrl(signal.id)}`);
-    if (index < topSignals.length - 1) lines.push('');
-  });
-
-  if (signals.length > topSignals.length) {
+  if (primarySignal) {
+    lines.push(plainSignalHeadline(primarySignal, windowDays));
     lines.push('');
-    lines.push(`+${signals.length - topSignals.length} additional signal(s) not shown.`);
+  } else {
+    lines.push(headlineSummary(signals));
+    lines.push('');
   }
+
+  if (historyWindows.length >= 2) {
+    historyWindows.forEach((historyWindow, index) => {
+      lines.push(`*${rollingWindowLabel(index, historyWindows.length)}* (${toShortDateRangeInTimeZone(historyWindow.window_start, historyWindow.window_end, timeZone)})`);
+      for (const line of rollingWindowBody(historyWindow)) {
+        lines.push(line);
+      }
+      if (index < historyWindows.length - 1) lines.push('');
+    });
+  } else {
+    topSignals.forEach((signal, index) => {
+      for (const line of fallbackPlainSignalBlock(signal)) {
+        lines.push(line);
+      }
+      if (index < topSignals.length - 1) lines.push('');
+    });
+  }
+
+  lines.push('');
+  lines.push('If this is planned, fine. If not, now is the time to ask why.');
 
   return lines.join('\n');
 }
