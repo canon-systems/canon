@@ -12,7 +12,6 @@ import { getWorkspaceSignalSettings, resolveSignalSourceIds } from '@/lib/server
 import {
   computeDomainVolatility,
   confidenceFromHistory,
-  evaluatePersistenceFromBreaches,
   evaluateRiskPosture,
 } from '@/lib/server/signals/structural';
 import type {
@@ -411,6 +410,109 @@ function evaluateTrendConsistency(values: number[]): {
   };
 }
 
+function confirmedStreakLengthForSeverity(severity: SignalSeverity): number {
+  return severity === 'significant' ? 3 : 2;
+}
+
+function resolveCurrentBreachStreak(params: {
+  signal: {
+    severity: SignalSeverity;
+    type: SignalRecord['type'];
+    metric_key: string;
+    scope_type: SignalRecord['scope_type'];
+    scope_id?: string | null;
+    current_value: number;
+    window_start: string;
+    window_end: string;
+    evidence: SignalEvidenceRecord[];
+  };
+  historicalSignals: Array<{
+    window: MetricWindow;
+    drafts: Array<{
+      type: string;
+      metric_key: string;
+      scope_type: string;
+      scope_id?: string | null;
+    }>;
+    comparison: MetricComparison;
+  }>;
+}): {
+  orderedHistory: Array<{
+    label: string;
+    value: number;
+    window_start: string;
+    window_end: string;
+    is_current?: boolean;
+    breached: boolean;
+  }>;
+  streakHistory: Array<{
+    label: string;
+    value: number;
+    window_start: string;
+    window_end: string;
+    is_current?: boolean;
+    breached: boolean;
+  }>;
+  current_streak: number;
+  breach_windows: number;
+  lookback_windows: number;
+  is_sustained: boolean;
+  onset_value: number;
+} {
+  const historicalEntries = params.historicalSignals
+    .slice()
+    .reverse()
+    .map((item, index) => {
+      const breached = item.drafts.some((historicalSignal) =>
+        historicalSignal.type === params.signal.type &&
+        historicalSignal.metric_key === params.signal.metric_key &&
+        historicalSignal.scope_type === params.signal.scope_type &&
+        (historicalSignal.scope_id || null) === (params.signal.scope_id || null)
+      );
+
+      return {
+        label: `Window ${index + 1}`,
+        value: metricValueForWindow({ signal: params.signal, comparison: item.comparison }),
+        window_start: item.window.start,
+        window_end: item.window.end,
+        breached,
+      };
+    });
+
+  const orderedHistory = [
+    ...historicalEntries,
+    {
+      label: 'Current',
+      value: params.signal.current_value,
+      is_current: true,
+      window_start: params.signal.window_start,
+      window_end: params.signal.window_end,
+      breached: true,
+    },
+  ];
+
+  let streakStartIndex = orderedHistory.length - 1;
+  while (streakStartIndex > 0 && orderedHistory[streakStartIndex - 1]?.breached) {
+    streakStartIndex -= 1;
+  }
+
+  const streakHistory = orderedHistory.slice(streakStartIndex);
+  const currentStreak = streakHistory.length;
+  const lookbackWindows = orderedHistory.length;
+  const breachWindows = streakHistory.filter((entry) => entry.breached).length;
+  const minimumConfirmedStreak = confirmedStreakLengthForSeverity(params.signal.severity);
+
+  return {
+    orderedHistory,
+    streakHistory,
+    current_streak: currentStreak,
+    breach_windows: breachWindows,
+    lookback_windows: lookbackWindows,
+    is_sustained: currentStreak >= minimumConfirmedStreak,
+    onset_value: streakHistory[0]?.value ?? params.signal.current_value,
+  };
+}
+
 async function insertSignalWithEvidence(params: {
   supabase: SupabaseClient;
   userId: string;
@@ -656,51 +758,31 @@ export async function runSignalEngineForWindow(params: {
 
   const enrichedSignalDrafts = signalDrafts
     .map((signal) => {
-      const breachByWindow = historicalSignals.map((item) =>
-        item.drafts.some((historicalSignal) =>
-          historicalSignal.type === signal.type &&
-          historicalSignal.metric_key === signal.metric_key &&
-          historicalSignal.scope_type === signal.scope_type &&
-          (historicalSignal.scope_id || null) === (signal.scope_id || null)
-        )
-      );
-      const legacyPersistence = evaluatePersistenceFromBreaches({
-        breaches: breachByWindow,
-        minimumLookback: 3,
-        requiredBreaches: 2,
+      const streak = resolveCurrentBreachStreak({
+        signal,
+        historicalSignals,
       });
-
-      const historicalMetricHistory = historicalSignals
-        .slice()
-        .reverse()
-        .map((item, index) => ({
-          label: `Window ${index + 1}`,
-          value: metricValueForWindow({ signal, comparison: item.comparison }),
-          window_start: item.window.start,
-          window_end: item.window.end,
-        }));
-      const trendSeries = [...historicalMetricHistory.map((item) => item.value), signal.current_value];
-      const onsetValue = trendSeries[0] ?? signal.current_value;
-      const trend = evaluateTrendConsistency(trendSeries);
-      const allowOneOffSignificant = signal.severity === 'significant';
-      if (!trend.is_consistent && !trend.is_mixed && !allowOneOffSignificant) {
+      if (!streak.is_sustained) {
         return null;
       }
+
+      const trendSeries = streak.streakHistory.map((item) => item.value);
+      const onsetValue = streak.onset_value;
+      const trend = evaluateTrendConsistency(trendSeries);
 
       const zScoreRaw = signal.evidence.find((evidence) => typeof evidence.payload?.z_score === 'number')?.payload?.z_score;
       const zScore = typeof zScoreRaw === 'number' ? zScoreRaw : null;
       const baseRisk = evaluateRiskPosture({
         severity: signal.severity,
         signalType: signal.type,
-        isSustained: trend.is_consistent,
+        isSustained: streak.is_sustained,
         zScore,
       });
       const persistence = {
-        ...legacyPersistence,
-        lookback_windows: trend.total_windows,
-        breach_windows: trend.directional_windows,
-        is_sustained: trend.is_consistent,
-        current_streak: legacyPersistence.current_streak,
+        lookback_windows: streak.lookback_windows,
+        breach_windows: streak.breach_windows,
+        is_sustained: streak.is_sustained,
+        current_streak: streak.current_streak,
       };
 
       const risk = trend.is_mixed
@@ -730,14 +812,13 @@ export async function runSignalEngineForWindow(params: {
       };
       if (structural.persistence) {
         structural.persistence.metric_history = [
-          ...historicalMetricHistory,
-          {
-            label: 'Current',
-            value: signal.current_value,
-            is_current: true,
-            window_start: signal.window_start,
-            window_end: signal.window_end,
-          },
+          ...streak.streakHistory.map((item) => ({
+            label: item.label,
+            value: item.value,
+            is_current: Boolean(item.is_current),
+            window_start: item.window_start,
+            window_end: item.window_end,
+          })),
         ];
       }
 
