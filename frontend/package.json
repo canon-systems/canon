@@ -11,6 +11,7 @@
     "setup:tree-sitter": "node ../../setup-tree-sitter.js"
   },
   "dependencies": {
+    "@ai-sdk/gateway": "^3.0.115",
     "@octokit/auth-app": "^7.2.0",
     "@octokit/rest": "^22.0.1",
     "@radix-ui/react-avatar": "^1.1.11",
@@ -29,6 +30,7 @@
     "@tiptap/extension-underline": "^3.6.6",
     "@tiptap/react": "^3.6.6",
     "@tiptap/starter-kit": "^3.6.6",
+    "ai": "^6.0.184",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -37,7 +39,7 @@
     "elkjs": "^0.11.0",
     "graphology": "^0.26.0",
     "graphology-communities-louvain": "^2.0.2",
-    "inngest": "^3.19.16",
+    "inngest": "^3.54.2",
     "jszip": "^3.10.1",
     "lucide-react": "^0.469.0",
     "luxon": "^3.7.2",

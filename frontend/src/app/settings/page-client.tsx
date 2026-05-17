@@ -2,26 +2,13 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Settings, User, Link2, Mail, Check, Loader2, Github, Info, Copy, ClipboardCheck } from 'lucide-react';
+import { Settings, User, Link2, Mail, Check, Loader2 } from 'lucide-react';
 import { IntegrationLogos } from '@/components/IntegrationLogos';
 import { getIntegrationsCached, clearIntegrationsCache } from '@/lib/client/integrationsCache';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Skeleton } from '@/components/ui/skeleton';
-import { ATLASSIAN_PROVIDER, canonicalProvider } from '@/lib/providers';
-
-type JiraSetupSite = { id: string; name: string; url: string; projectKeys: string[]; jql: string };
-type JiraSetupData = {
-  webhookUrl: string;
-  webhookSecret: string;
-  scopes: string[];
-  sites: JiraSetupSite[];
-};
 
 interface Connection {
   id: string;
@@ -33,74 +20,20 @@ interface Connection {
   updated_at: string;
 }
 
-type TabId = 'profile' | 'preferences' | 'integrations';
+type TabId = 'profile' | 'integrations';
 
 interface SettingsPageClientProps {
   user: SupabaseUser | null;
 }
 
-type IntegrationCard = {
-  provider: string;
-  name: string;
-  description: string;
-  icon: React.ReactNode;
-  comingSoon?: boolean;
-};
-
 const tabs: Array<{ id: TabId; name: string; icon: React.ComponentType<{ className?: string }> }> = [
   { id: 'profile', name: 'Profile', icon: User },
-  { id: 'preferences', name: 'Preferences', icon: Settings },
   { id: 'integrations', name: 'Integrations', icon: Link2 }
 ];
-
-const integrationCards: IntegrationCard[] = [
-  {
-    provider: 'github',
-    name: 'GitHub',
-    description: 'Install our GitHub App to sync repos and PR context.',
-    icon: <Github className="h-7 w-7 text-white" />
-  },
-  {
-    provider: 'slack',
-    name: 'Slack',
-    description: 'Connect Slack to receive signal alerts in your channel.',
-    icon: <IntegrationLogos provider="slack" size={28} />
-  },
-  {
-    provider: 'atlassian',
-    name: 'Atlassian',
-    description: 'Connect Jira and Confluence. Keep spaces and issues in sync.',
-    icon: <IntegrationLogos provider="atlassian" size={28} />
-  }
-];
-
-const FALLBACK_TIMEZONES = [
-  'UTC',
-  'America/Los_Angeles',
-  'America/Denver',
-  'America/Chicago',
-  'America/New_York',
-  'Europe/London',
-  'Europe/Berlin',
-  'Asia/Tokyo',
-];
-
-function resolveBrowserTimeZone(): string {
-  const resolved = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  return typeof resolved === 'string' && resolved.trim().length > 0 ? resolved : 'UTC';
-}
 
 export function SettingsPageClient({ user: initialUser }: SettingsPageClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-
-  const deliveryPreferenceOptions: Array<{
-    value: 'slack_only';
-    label: string;
-    helper: string;
-  }> = [
-      { value: 'slack_only', label: 'Slack', helper: 'Post to your configured Slack channel' },
-    ];
 
   const [activeTab, setActiveTab] = useState<TabId>('profile');
   const [user] = useState<SupabaseUser | null>(initialUser);
@@ -109,42 +42,13 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [debugNote, setDebugNote] = useState<string | null>(null);
   const [disconnectModalOpen, setDisconnectModalOpen] = useState(false);
   const [connectionToDisconnect, setConnectionToDisconnect] = useState<{ connectionId: string; provider: string } | null>(null);
-  const [uninstallOnDisconnect, setUninstallOnDisconnect] = useState(false);
-  const [slackChannel, setSlackChannel] = useState('');
-  const [slackLoading, setSlackLoading] = useState(true);
-  const [slackSaving, setSlackSaving] = useState(false);
-  const [slackMessage, setSlackMessage] = useState('');
-  const [slackError, setSlackError] = useState('');
-  const [deliveryPreference, setDeliveryPreference] = useState<'slack_only'>('slack_only');
-  const [windowDays, setWindowDays] = useState<number>(7);
-  const [timeZone, setTimeZone] = useState<string>(() => resolveBrowserTimeZone());
-  const [timeZoneOptions, setTimeZoneOptions] = useState<string[]>(FALLBACK_TIMEZONES);
-  const [jiraWebhookModalOpen, setJiraWebhookModalOpen] = useState(false);
-  const [jiraSetupData, setJiraSetupData] = useState<JiraSetupData | null>(null);
-  const [jiraSetupLoading, setJiraSetupLoading] = useState(false);
-  const [jiraSetupError, setJiraSetupError] = useState('');
-  const [jiraCopiedField, setJiraCopiedField] = useState<string | null>(null);
-
-  useEffect(() => {
-    const intlWithSupportedValues = Intl as unknown as { supportedValuesOf?: (key: string) => string[] };
-    const supportedValuesOf = intlWithSupportedValues.supportedValuesOf;
-    if (typeof supportedValuesOf !== 'function') return;
-
-    const zones = supportedValuesOf('timeZone');
-    if (!Array.isArray(zones) || zones.length === 0) return;
-
-    const merged = Array.from(new Set([...FALLBACK_TIMEZONES, ...zones]));
-    setTimeZoneOptions(merged);
-  }, []);
 
   const loadConnections = useCallback(async (force = false) => {
     setLoading(true);
     try {
       const data = await getIntegrationsCached(force);
-      // Map IntegrationConnection[] to Connection[] by adding required fields
       const mappedConnections: Connection[] = (data.connections || []).map((conn) => ({
         id: conn.id || conn.connection_id || '',
         provider: conn.provider || '',
@@ -162,170 +66,52 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     }
   }, []);
 
-  // Get active tab from URL query param
   useEffect(() => {
     const tabParam = searchParams.get('tab');
-    const validTabs: TabId[] = ['profile', 'preferences', 'integrations'];
+    const validTabs: TabId[] = ['profile', 'integrations'];
     if (tabParam && validTabs.includes(tabParam as TabId)) {
       setActiveTab(tabParam as TabId);
     }
 
-    // Check for URL params (for OAuth callbacks)
     const successParam = searchParams.get('success');
     const errorParam = searchParams.get('error');
     if (successParam === 'true') {
       const provider = searchParams.get('provider') || 'service';
       setSuccess(`Successfully connected to ${provider}!`);
-      const tab = searchParams.get('tab') || 'integrations';
-      router.replace(`/settings?tab=${tab}`);
-      if (tabParam !== 'integrations') {
-        setActiveTab('integrations');
-      }
-      if (provider === 'atlassian') {
-        setJiraWebhookModalOpen(true);
-      }
-    }
-    const jiraWebhookParam = searchParams.get('jira_webhook');
-    if (jiraWebhookParam === '1' && tabParam === 'integrations') {
-      setJiraWebhookModalOpen(true);
+      router.replace(`/settings?tab=integrations`);
+      setActiveTab('integrations');
     }
     if (errorParam) {
       setError(decodeURIComponent(errorParam));
-      const provider = searchParams.get('provider') || 'atlassian';
-      setDebugNote(`Last ${provider} error: ${decodeURIComponent(errorParam)}`);
-      const tab = searchParams.get('tab') || 'integrations';
-      router.replace(`/settings?tab=${tab}`);
-      if (tabParam !== 'integrations') {
-        setActiveTab('integrations');
-      }
+      router.replace(`/settings?tab=integrations`);
+      setActiveTab('integrations');
     }
-
-    if (tabParam === 'integrations' || (!tabParam && activeTab === 'integrations')) {
-      loadConnections();
-    }
-  }, [searchParams, router, activeTab, loadConnections]);
+  }, [searchParams, router]);
 
   useEffect(() => {
     loadConnections();
   }, [loadConnections]);
 
-  useEffect(() => {
-    if (!jiraWebhookModalOpen) return;
-    let cancelled = false;
-    setJiraSetupLoading(true);
-    setJiraSetupError('');
-    fetch('/api/webhooks/jira/setup')
-      .then((res) => res.json())
-      .then((data) => {
-        if (cancelled) return;
-        if (data?.error) {
-          setJiraSetupError(data.error || 'Failed to load setup');
-          setJiraSetupData(null);
-          return;
-        }
-        setJiraSetupData({
-          webhookUrl: typeof data.webhookUrl === 'string' ? data.webhookUrl : '',
-          webhookSecret: typeof data.webhookSecret === 'string' ? data.webhookSecret : '',
-          scopes: Array.isArray(data.scopes) ? data.scopes : [],
-          sites: Array.isArray(data.sites) ? data.sites : [],
-        });
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setJiraSetupError(err instanceof Error ? err.message : 'Failed to load setup');
-          setJiraSetupData(null);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setJiraSetupLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [jiraWebhookModalOpen]);
-
-  const copyJiraField = useCallback(async (value: string, field: string) => {
-    if (!value?.trim()) return;
-    try {
-      await navigator.clipboard.writeText(value);
-      setJiraCopiedField(field);
-      setTimeout(() => setJiraCopiedField((c) => (c === field ? null : c)), 1800);
-    } catch { /* ignore */ }
-  }, []);
-
-  const loadDeliverySettings = useCallback(async () => {
-    setSlackLoading(true);
-    try {
-      const response = await fetch('/api/settings/delivery', { credentials: 'include' });
-      if (!response.ok) {
-        throw new Error('Failed to load delivery settings');
-      }
-      const payload = await response.json();
-      const channel = payload?.slack_channel;
-      setSlackChannel(typeof channel === 'string' ? channel : '');
-      setDeliveryPreference('slack_only');
-      if (typeof payload?.baseline_window_days === 'number') {
-        setWindowDays(Math.max(1, Math.min(30, Math.floor(payload.baseline_window_days))));
-      }
-      const resolvedZone =
-        typeof payload?.time_zone === 'string' && payload.time_zone.trim().length > 0
-          ? payload.time_zone.trim()
-          : resolveBrowserTimeZone();
-      setTimeZone(resolvedZone);
-      setTimeZoneOptions((prev) => (prev.includes(resolvedZone) ? prev : [resolvedZone, ...prev]));
-    } catch (err: unknown) {
-      setSlackError(err instanceof Error ? err.message : 'Failed to load delivery settings');
-    } finally {
-      setSlackLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadDeliverySettings();
-  }, [loadDeliverySettings]);
-
-  async function connectToProvider(providerName: string) {
-    const normalizedProvider = canonicalProvider(providerName);
+  async function connectSlack() {
     setConnecting(true);
     setError('');
     setSuccess('');
-    setDebugNote(null);
-
     try {
-      if (normalizedProvider === 'github') {
-        const installUrl = process.env.NEXT_PUBLIC_GITHUB_APP_INSTALL_URL;
-        if (!installUrl) {
-          throw new Error('GitHub App install URL is not configured.');
-        }
-        window.location.href = installUrl;
-        return;
-      }
-      if (normalizedProvider === ATLASSIAN_PROVIDER) {
-        window.location.href = '/api/oauth/confluence/start';
-        return;
-      }
-      if (normalizedProvider === 'slack') {
-        window.location.href = '/api/oauth/slack/start';
-        return;
-      }
-
-      throw new Error(`${getProviderDisplayName(normalizedProvider)} integration is not available yet.`);
+      window.location.href = '/api/oauth/slack/start';
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to connect');
-      console.error('Connection error:', err);
       setConnecting(false);
     }
   }
 
-
   function openDisconnectModal(connectionId: string, provider: string) {
     setConnectionToDisconnect({ connectionId, provider });
-    setUninstallOnDisconnect(provider === 'github');
     setDisconnectModalOpen(true);
   }
 
   function closeDisconnectModal() {
     setDisconnectModalOpen(false);
     setConnectionToDisconnect(null);
-    setUninstallOnDisconnect(false);
   }
 
   async function disconnect(connectionId: string, provider: string) {
@@ -337,32 +123,16 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
       });
 
       if (!response.ok) {
-        const data = await response.json();
+        const data = (await response.json()) as { error?: string };
         throw new Error(data.error || 'Failed to disconnect');
       }
 
-      setSuccess(`Disconnected from ${getProviderDisplayName(provider)}`);
+      setSuccess(`Disconnected from Slack`);
       clearIntegrationsCache();
       await loadConnections(true);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to disconnect');
     }
-  }
-
-  function getProviderDisplayName(provider: string) {
-    const normalized = canonicalProvider(provider);
-    if (normalized === 'github') return 'GitHub';
-    if (normalized === 'slack') return 'Slack';
-    if (normalized === ATLASSIAN_PROVIDER) return 'Atlassian';
-    return normalized.charAt(0).toUpperCase() + normalized.slice(1);
-  }
-
-  function getProviderName(provider: string) {
-    const normalized = canonicalProvider(provider);
-    if (normalized === 'github') return 'GitHub';
-    if (normalized === 'slack') return 'Slack';
-    if (normalized === ATLASSIAN_PROVIDER) return 'Atlassian';
-    return normalized.charAt(0).toUpperCase() + normalized.slice(1);
   }
 
   function formatDate(dateString: string) {
@@ -379,64 +149,19 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     router.push(`/settings?tab=${tabId}`, { scroll: false });
   }
 
-  // Connection status helpers for integrations tab
-  const gitHubConnection = connections.find(c => c.provider === 'github' && c.status === 'active');
-  const githubInstallationId = (() => {
-    const meta = gitHubConnection?.metadata;
-    if (meta && typeof meta === 'object' && 'installation_id' in meta) {
-      const value = Number((meta as Record<string, unknown>).installation_id);
-      if (Number.isFinite(value) && value > 0) return value;
-    }
-    const fallback = Number(gitHubConnection?.connection_id);
-    return Number.isFinite(fallback) && fallback > 0 ? fallback : null;
-  })();
-
-  async function saveSlackChannel() {
-    setSlackSaving(true);
-    setSlackMessage('');
-    setSlackError('');
-    try {
-      const response = await fetch('/api/settings/delivery', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          slack_channel: slackChannel.trim() || null,
-          email_digest_enabled: false,
-          email_digest_to: null,
-          delivery_preference: 'slack_only',
-          baseline_window_days: windowDays,
-          time_zone: timeZone,
-        }),
-      });
-
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
-        throw new Error(payload.error || 'Failed to save delivery settings');
-      }
-
-      setSlackMessage('Delivery settings saved.');
-    } catch (err: unknown) {
-      setSlackError(err instanceof Error ? err.message : 'Failed to save delivery settings');
-    } finally {
-      setSlackSaving(false);
-    }
-  }
+  const slackConnection = connections.find(c => c.provider === 'slack' && c.status === 'active');
 
   return (
     <>
-      <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-2">
             <Settings className="h-8 w-8 text-white" />
             <h1 className="text-3xl font-bold text-white">Settings</h1>
           </div>
-          <p className="text-white/70">
-            Manage your account settings and integrations.
-          </p>
+          <p className="text-white/70">Manage your account and Slack integration.</p>
         </div>
 
-        {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTabAndUpdateUrl} className="mb-8">
           <TabsList className="bg-zinc-800 border border-white/10">
             {tabs.map(tab => {
@@ -449,523 +174,125 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
               );
             })}
           </TabsList>
+
           <TabsContent value="profile" className="mt-6">
-            {/* Profile Tab */}
-            <div>
-              <div className="mb-6">
-                <h2 className="text-2xl font-semibold text-white mb-2">Profile</h2>
-                <p className="text-white/70">Manage your account information</p>
-              </div>
-
-              <div className="rounded-xl border border-white/10 bg-zinc-800 p-6 backdrop-blur-sm">
-                <div className="space-y-6">
-                  <div className="flex items-center gap-4">
-                    <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white/10">
-                      <User className="h-8 w-8 text-white/70" />
-                    </div>
-                    <div>
-                      <p className="text-lg font-semibold text-white">{user?.email || 'User'}</p>
-                      <p className="text-sm text-white/60">Account ID: {user?.id || 'N/A'}</p>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-white/80 mb-2">
-                        <Mail className="inline h-4 w-4 mr-2" />
-                        Email Address
-                      </label>
-                      <div className="rounded-lg border border-white/10 bg-zinc-800 px-4 py-3 text-white">
-                        {initialUser?.email || 'Not available'}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="pt-4 border-t border-white/10">
-                    <p className="text-sm text-white/60">
-                      Profile management features coming soon. For now, your account information is managed through authentication.
-                    </p>
-                  </div>
+            <div className="rounded-xl border border-white/10 bg-zinc-800 p-6">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white/10">
+                  <User className="h-8 w-8 text-white/70" />
+                </div>
+                <div>
+                  <p className="text-lg font-semibold text-white">{user?.email || 'User'}</p>
+                  <p className="text-sm text-white/60">Account ID: {user?.id || 'N/A'}</p>
                 </div>
               </div>
-            </div>
-          </TabsContent>
 
-          <TabsContent value="preferences" className="mt-6">
-            {/* Preferences Tab */}
-            <div className="space-y-6">
-              <div className="mb-6">
-                <h2 className="text-2xl font-semibold text-white mb-2">Preferences</h2>
-                <p className="text-white/70">
-                  Configure alert delivery and default signal analysis behavior.
-                </p>
-              </div>
-
-              <div className="space-y-4">
-                <div className="rounded-xl border border-white/10 bg-zinc-800 p-6 backdrop-blur-sm space-y-5">
-                  <div>
-                    <h3 className="text-lg font-semibold text-white">Alert Delivery</h3>
-                    <p className="text-sm text-white/65">
-                      Choose where daily signal alerts should go and set delivery destinations.
-                    </p>
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2 text-sm font-medium text-white/80">
-                      <span>Delivery Preference</span>
-                      <TooltipProvider delayDuration={120}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Info className="h-4 w-4 cursor-help text-white/60" />
-                          </TooltipTrigger>
-                          <TooltipContent side="top" className="max-w-xs leading-relaxed">
-                            Alerts are currently delivered through Slack.
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </div>
-                    <Select
-                      value={deliveryPreference}
-                      onValueChange={(value) =>
-                        setDeliveryPreference(value === 'slack_only' ? value : 'slack_only')
-                      }
-                      disabled={slackLoading}
-                    >
-                      <SelectTrigger className="w-full border-white/20 bg-white/5 text-white">
-                        <SelectValue placeholder="Choose how alerts are delivered" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-black/90 text-white">
-                        {deliveryPreferenceOptions.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2 text-sm font-medium text-white/80">
-                      <span>Slack Channel ID</span>
-                      <TooltipProvider delayDuration={120}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Info className="h-4 w-4 cursor-help text-white/60" />
-                          </TooltipTrigger>
-                          <TooltipContent side="top" className="max-w-xs leading-relaxed">
-                            Enter the Slack channel for alerts. Use a channel ID like C0123456789. For private channels, invite the app first.
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </div>
-                    <Input
-                      placeholder="Find your channel ID in Slack channel settings"
-                      value={slackChannel}
-                      onChange={(event) => setSlackChannel(event.target.value)}
-                      disabled={slackLoading}
-                      className="mt-1"
-                    />
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-white/10 bg-zinc-800 p-6 backdrop-blur-sm space-y-5">
-                  <div>
-                    <h3 className="text-lg font-semibold text-white">Signal Defaults</h3>
-                    <p className="text-sm text-white/65">
-                      Set workspace defaults used when rendering signal windows.
-                    </p>
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2 text-sm font-medium text-white/80">
-                      <span>Time Zone</span>
-                      <TooltipProvider delayDuration={120}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Info className="h-4 w-4 cursor-help text-white/60" />
-                          </TooltipTrigger>
-                          <TooltipContent side="top" className="max-w-xs leading-relaxed">
-                            Sets your workspace local time for daily alert timing and date-based views.
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </div>
-                    <Select
-                      value={timeZone}
-                      onValueChange={(value) => setTimeZone(value)}
-                      disabled={slackLoading}
-                    >
-                      <SelectTrigger className="w-full border-white/20 bg-white/5 text-white">
-                        <SelectValue placeholder="Choose a time zone" />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-72 bg-black/90 text-white">
-                        {timeZoneOptions.map((zone) => (
-                          <SelectItem key={zone} value={zone}>
-                            {zone}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2 text-sm font-medium text-white/80">
-                      <span>Signal Lookback Days</span>
-                      <TooltipProvider delayDuration={120}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Info className="h-4 w-4 cursor-help text-white/60" />
-                          </TooltipTrigger>
-                          <TooltipContent side="top" className="max-w-xs leading-relaxed">
-                            Number of previous full days shown in Signals. Baseline uses the same number of days immediately before. Range: 1-30.
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </div>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={30}
-                      value={windowDays}
-                      onChange={(event) =>
-                        setWindowDays(Math.max(1, Math.min(30, Number(event.target.value) || 1)))
-                      }
-                      className="w-28 border-white/20 bg-white/5 text-white"
-                    />
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-white/10 bg-zinc-800 p-6 backdrop-blur-sm space-y-4">
-                  {slackError ? <p className="text-xs text-red-300">{slackError}</p> : null}
-                  {slackMessage ? <p className="text-xs text-emerald-300">{slackMessage}</p> : null}
-
-                  <div className="flex items-center gap-3">
-                    <Button
-                      onClick={saveSlackChannel}
-                      disabled={slackSaving || slackLoading}
-                      className="bg-blue-600 text-white hover:bg-blue-700"
-                    >
-                      {slackSaving ? (
-                        <span className="flex items-center gap-2">
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          Saving...
-                        </span>
-                      ) : (
-                        'Save Preferences'
-                      )}
-                    </Button>
-                  </div>
+              <div>
+                <label className="block text-sm font-medium text-white/80 mb-2">
+                  <Mail className="inline h-4 w-4 mr-2" />
+                  Email Address
+                </label>
+                <div className="rounded-lg border border-white/10 bg-zinc-900 px-4 py-3 text-white">
+                  {user?.email || 'Not available'}
                 </div>
               </div>
             </div>
           </TabsContent>
 
           <TabsContent value="integrations" className="mt-6">
-            {/* Integrations Tab */}
-            <div>
-              {/* Success/Error Messages */}
-              {success && (
-                <div className="mb-6 rounded-lg border border-green-500/50 bg-green-500/10 p-4 text-green-200">
-                  <div className="flex items-center gap-2">
-                    <Check className="h-5 w-5" />
-                    <p>{success}</p>
-                  </div>
-                </div>
-              )}
-
-              {error && (
-                <div className="mb-6 rounded-lg border border-red-500/50 bg-red-500/10 p-4 text-red-200">
-                  <p className="font-medium">Error</p>
-                  <p className="text-sm">{error}</p>
-                </div>
-              )}
-              {debugNote && (
-                <div className="mb-6 rounded-lg border border-blue-500/50 bg-blue-500/10 p-4 text-blue-100">
-                  <p className="text-sm">{debugNote}</p>
-                </div>
-              )}
-
-              {/* Integrations */}
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="text-xl font-semibold text-white">Integrations</h2>
-                    <p className="text-sm text-white/60">Connect the tools you use; view and manage them in one list.</p>
-                  </div>
-                  {loading && (
-                    <span className="flex items-center gap-2 text-sm text-white/60">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Refreshing
-                    </span>
-                  )}
-                </div>
-
-                <div className="space-y-3">
-                  {integrationCards.map(card => {
-                    const connection = connections.find(c => c.provider === card.provider);
-                    const connected = connection?.status === 'active';
-                    const connectedOn = connection?.created_at ? formatDate(connection.created_at) : null;
-
-                    return (
-                      <div
-                        key={card.provider}
-                        className="rounded-lg border border-white/10 bg-zinc-800 p-4 backdrop-blur-sm flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
-                      >
-                        <div className="flex items-start gap-3">
-                          <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white/5">
-                            {card.icon}
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <h3 className="text-lg font-semibold text-white">{card.name}</h3>
-                              {connected && (
-                                <span className="flex items-center gap-1 rounded-full bg-green-500/20 px-2 py-0.5 text-[11px] text-green-300">
-                                  <Check className="h-3 w-3" />
-                                  Connected
-                                </span>
-                              )}
-                              {card.comingSoon && !connected && (
-                                <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-white/60">
-                                  Coming soon
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-sm text-white/60">{card.description}</p>
-                            {connectedOn && (
-                              <p className="mt-1 text-xs text-white/50">Connected {connectedOn}</p>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end sm:gap-3 w-full sm:w-auto">
-                          {connected ? (
-                            <>
-                              {card.provider === ATLASSIAN_PROVIDER && (
-                                <Button
-                                  onClick={() => setJiraWebhookModalOpen(true)}
-                                  variant="secondary"
-                                  className="w-full sm:w-auto border-white/20 bg-white/10 text-white hover:bg-white/20"
-                                >
-                                  Configure Jira webhook
-                                </Button>
-                              )}
-                              {card.provider === 'github' && (
-                                <Button
-                                  onClick={() => {
-                                    if (githubInstallationId) {
-                                      window.open(`https://github.com/settings/installations/${githubInstallationId}`, '_blank', 'noopener');
-                                      return;
-                                    }
-                                    const installUrl = process.env.NEXT_PUBLIC_GITHUB_APP_INSTALL_URL;
-                                    if (installUrl) {
-                                      window.open(installUrl, '_blank', 'noopener');
-                                    } else {
-                                      setError('GitHub App install URL is not configured.');
-                                    }
-                                  }}
-                                  variant="secondary"
-                                  className="w-full sm:w-auto border-white/20 bg-white/10 text-white hover:bg-white/20"
-                                >
-                                  Manage installation
-                                </Button>
-                              )}
-                              <Button
-                                onClick={() => {
-                                  if (connection) openDisconnectModal(connection.connection_id, card.provider);
-                                }}
-                                variant="secondary"
-                                className="w-full sm:w-auto border-red-500/50 bg-red-500/10 text-red-200 hover:bg-red-500/20"
-                              >
-                                Disconnect
-                              </Button>
-                            </>
-                          ) : !card.comingSoon ? (
-                            <Button
-                              onClick={() => connectToProvider(card.provider)}
-                              disabled={connecting}
-                              className="w-full sm:w-auto bg-blue-600 text-white hover:bg-blue-700"
-                            >
-                              {connecting ? (
-                                <span className="flex items-center justify-center gap-2">
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                  Connecting...
-                                </span>
-                              ) : (
-                                <span className="flex items-center justify-center gap-2">
-                                  <Link2 className="h-4 w-4" />
-                                  {`Connect ${card.name}`}
-                                </span>
-                              )}
-                            </Button>
-                          ) : (
-                            <div className="flex items-center gap-2 text-sm text-white/50">
-                              <Loader2 className="h-4 w-4 animate-spin text-white/40" />
-                              <span>Coming soon</span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
+            {success && (
+              <div className="mb-6 rounded-lg border border-green-500/50 bg-green-500/10 p-4 text-green-200">
+                <div className="flex items-center gap-2">
+                  <Check className="h-5 w-5" />
+                  <p>{success}</p>
                 </div>
               </div>
+            )}
+
+            {error && (
+              <div className="mb-6 rounded-lg border border-red-500/50 bg-red-500/10 p-4 text-red-200">
+                <p className="text-sm">{error}</p>
+              </div>
+            )}
+
+            <div className="space-y-4">
+              <div>
+                <h2 className="text-xl font-semibold text-white mb-1">Slack workspace</h2>
+                <p className="text-sm text-white/60">Connect your Slack workspace so Canon can send onboarding DMs to new hires.</p>
+              </div>
+
+              <div className="rounded-lg border border-white/10 bg-zinc-800 p-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white/5">
+                    <IntegrationLogos provider="slack" size={28} />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-lg font-semibold text-white">Slack</h3>
+                      {slackConnection && (
+                        <span className="flex items-center gap-1 rounded-full bg-green-500/20 px-2 py-0.5 text-[11px] text-green-300">
+                          <Check className="h-3 w-3" />
+                          Connected
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-white/60">Connect Slack to enable Canon&apos;s onboarding DMs and knowledge sync.</p>
+                    {slackConnection && (
+                      <p className="mt-1 text-xs text-white/50">Connected {formatDate(slackConnection.created_at)}</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex gap-2 sm:flex-col">
+                  {slackConnection ? (
+                    <Button
+                      onClick={() => openDisconnectModal(slackConnection.connection_id, 'slack')}
+                      variant="secondary"
+                      className="border-red-500/50 bg-red-500/10 text-red-200 hover:bg-red-500/20"
+                    >
+                      Disconnect
+                    </Button>
+                  ) : (
+                    <Button
+                      onClick={connectSlack}
+                      disabled={connecting}
+                      className="bg-blue-600 text-white hover:bg-blue-700"
+                    >
+                      {connecting ? (
+                        <span className="flex items-center gap-2">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Connecting...
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-2">
+                          <Link2 className="h-4 w-4" />
+                          Connect Slack
+                        </span>
+                      )}
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {loading && (
+                <div className="flex items-center gap-2 text-sm text-white/50">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading integration status...
+                </div>
+              )}
             </div>
           </TabsContent>
         </Tabs>
       </div>
 
-      {/* Jira Webhook Setup Modal */}
-      <Dialog open={jiraWebhookModalOpen} onOpenChange={setJiraWebhookModalOpen}>
-        <DialogContent className="max-w-lg grid grid-rows-[auto_minmax(0,1fr)]">
-          <DialogHeader>
-            <DialogTitle>Configure Jira webhook</DialogTitle>
-            <DialogDescription className="text-white/70">
-              Add a webhook in your Jira site admin (Settings → System → WebHooks) using the values below. Then add Jira sources on the Sources page.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="min-h-0 overflow-y-auto space-y-4 pt-2">
-            {jiraSetupLoading && (
-              <div className="space-y-4">
-                <div>
-                  <Skeleton className="mb-1.5 h-3 w-24 rounded bg-white/15" />
-                  <div className="flex gap-2">
-                    <Skeleton className="h-9 flex-1 rounded border border-white/10 bg-white/10" />
-                    <Skeleton className="h-9 w-16 shrink-0 rounded" />
-                  </div>
-                </div>
-                <div>
-                  <Skeleton className="mb-1.5 h-3 w-28 rounded bg-white/15" />
-                  <div className="flex gap-2">
-                    <Skeleton className="h-9 flex-1 rounded border border-white/10 bg-white/10" />
-                    <Skeleton className="h-9 w-16 shrink-0 rounded" />
-                  </div>
-                </div>
-                <div>
-                  <Skeleton className="mb-1.5 h-3 w-32 rounded bg-white/15" />
-                  <ul className="mt-2 space-y-1.5">
-                    <Skeleton className="h-4 w-full max-w-xs rounded" />
-                    <Skeleton className="h-4 w-4/5 max-w-sm rounded" />
-                    <Skeleton className="h-4 w-3/4 max-w-[10rem] rounded" />
-                  </ul>
-                </div>
-                <div className="space-y-2">
-                  <Skeleton className="h-3 w-36 rounded bg-white/15" />
-                  <Skeleton className="h-4 w-full max-w-md rounded" />
-                  <div className="flex gap-2">
-                    <Skeleton className="h-9 flex-1 rounded" />
-                    <Skeleton className="h-9 w-16 shrink-0 rounded" />
-                  </div>
-                </div>
-              </div>
-            )}
-            {jiraSetupError && (
-              <p className="text-sm text-red-300">{jiraSetupError}</p>
-            )}
-            {jiraSetupData && !jiraSetupLoading && (
-              <>
-                <div>
-                  <p className="mb-1 text-xs font-medium uppercase tracking-wide text-white/60">Webhook URL</p>
-                  <div className="flex gap-2">
-                    <code className="flex-1 truncate rounded border border-white/10 bg-black/30 px-2 py-1.5 text-xs text-white">
-                      {jiraSetupData.webhookUrl}
-                    </code>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="shrink-0 border-white/20 text-white hover:bg-white/10"
-                      onClick={() => copyJiraField(jiraSetupData.webhookUrl, 'url')}
-                    >
-                      {jiraCopiedField === 'url' ? <ClipboardCheck className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                      {jiraCopiedField === 'url' ? 'Copied' : 'Copy'}
-                    </Button>
-                  </div>
-                </div>
-                <div>
-                  <p className="mb-1 text-xs font-medium uppercase tracking-wide text-white/60">Webhook secret</p>
-                  <div className="flex gap-2">
-                    <code className="flex-1 rounded border border-white/10 bg-black/30 px-2 py-1.5 text-xs text-white">
-                      •••••••••••••••••
-                    </code>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="shrink-0 border-white/20 text-white hover:bg-white/10"
-                      onClick={() => copyJiraField(jiraSetupData.webhookSecret, 'secret')}
-                    >
-                      {jiraCopiedField === 'secret' ? <ClipboardCheck className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                      {jiraCopiedField === 'secret' ? 'Copied' : 'Copy'}
-                    </Button>
-                  </div>
-                </div>
-                <div>
-                  <p className="mb-1 text-xs font-medium uppercase tracking-wide text-white/60">Scopes (enable in Jira)</p>
-                  <ul className="list-inside list-disc text-sm text-white/80">
-                    {jiraSetupData.scopes.map((scope) => (
-                      <li key={scope}>{scope}</li>
-                    ))}
-                  </ul>
-                </div>
-                {jiraSetupData.sites.length > 0 && (
-                  <div className="space-y-2">
-                    <p className="text-xs font-medium uppercase tracking-wide text-white/60">Recommended JQL</p>
-                    {jiraSetupData.sites.map((site) => (
-                      <div key={site.id}>
-                        <p className="mb-1 text-sm font-medium text-white">{site.name}</p>
-                        <div className="flex gap-2">
-                          <code className="flex-1 truncate rounded border border-white/10 bg-black/30 px-2 py-1.5 text-xs text-white">
-                            {site.jql || `project in (${site.projectKeys.join(', ') || '…'})`}
-                          </code>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="shrink-0 border-white/20 text-white hover:bg-white/10"
-                            onClick={() => copyJiraField(site.jql || '', `jql-${site.id}`)}
-                            disabled={!site.jql}
-                          >
-                            {jiraCopiedField === `jql-${site.id}` ? <ClipboardCheck className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                            {jiraCopiedField === `jql-${site.id}` ? 'Copied' : 'Copy'}
-                          </Button>
-                        </div>
-                        {site.projectKeys.length > 0 && (
-                          <p className="mt-1 text-xs text-white/50">Projects: {site.projectKeys.join(', ')}</p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Disconnect Confirmation Modal */}
       <Dialog open={disconnectModalOpen && connectionToDisconnect !== null} onOpenChange={(open) => !open && closeDisconnectModal()}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Disconnect Integration</DialogTitle>
+            <DialogTitle>Disconnect Slack</DialogTitle>
             <DialogDescription>
-              Are you sure you want to disconnect from{' '}
-              <span className="font-semibold text-white">
-                {connectionToDisconnect ? getProviderName(connectionToDisconnect.provider) : ''}
-              </span>
-              ? This action cannot be undone.
+              Are you sure you want to disconnect Slack? Canon will no longer be able to send DMs to new hires.
             </DialogDescription>
           </DialogHeader>
-          {connectionToDisconnect?.provider === 'github' && (
-            <label className="flex items-start gap-3 rounded-lg border border-white/10 bg-zinc-800 p-3 text-sm text-white/70">
-              <input
-                type="checkbox"
-                className="mt-1 h-4 w-4 accent-red-500"
-                checked={uninstallOnDisconnect}
-                onChange={(e) => setUninstallOnDisconnect(e.target.checked)}
-              />
-              <span>Also open GitHub to uninstall the app for this installation.</span>
-            </label>
-          )}
           <DialogFooter>
             <Button variant="outline" onClick={closeDisconnectModal} className="border-white/20 text-white/80 hover:bg-white/10">
               Cancel
@@ -977,15 +304,6 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                 if (connectionToDisconnect) {
                   await disconnect(connectionToDisconnect.connectionId, connectionToDisconnect.provider);
                   closeDisconnectModal();
-                  if (connectionToDisconnect.provider === 'github' && uninstallOnDisconnect) {
-                    if (githubInstallationId) {
-                      window.open(`https://github.com/settings/installations/${githubInstallationId}`, '_blank', 'noopener');
-                    } else {
-                      const installUrl = process.env.NEXT_PUBLIC_GITHUB_APP_INSTALL_URL;
-                      if (installUrl) window.open(installUrl, '_blank', 'noopener');
-                      else setError('GitHub App install URL is not configured.');
-                    }
-                  }
                 }
               }}
             >
@@ -994,7 +312,6 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
     </>
   );
 }

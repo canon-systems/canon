@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,7 +8,6 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, AlertTriangle, Info } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
 
 export function LoginPageClient() {
   const supabase = createClient();
@@ -58,7 +57,7 @@ export function LoginPageClient() {
         email,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/signals`
+          emailRedirectTo: `${window.location.origin}/dashboard`
         }
       });
 
@@ -71,7 +70,7 @@ export function LoginPageClient() {
       if (signupData.session) {
         // Wait a moment for cookies to sync, then redirect with full page reload
         await new Promise(resolve => setTimeout(resolve, 100));
-        window.location.href = '/signals';
+        window.location.href = '/dashboard';
         return;
       }
 
@@ -103,7 +102,7 @@ export function LoginPageClient() {
       if (data.session) {
         // Wait a moment for cookies to sync, then redirect with full page reload
         await new Promise(resolve => setTimeout(resolve, 100));
-        window.location.href = '/signals';
+        window.location.href = '/dashboard';
         return;
       }
 
@@ -116,11 +115,10 @@ export function LoginPageClient() {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-10 sm:px-6 lg:px-8">
-      <div className="relative z-10 mx-auto flex w-full max-w-xl flex-col items-center gap-8">
+    <div className="flex min-h-screen items-center justify-center bg-zinc-950 px-4 py-10">
+      <div className="mx-auto flex w-full max-w-md flex-col items-center gap-8">
         <div className="w-full space-y-6">
           <div className="space-y-3">
-            <Badge>Automated Knowledge Infrastructure</Badge>
             <h1 className="text-3xl font-semibold sm:text-4xl">
               {mode === 'forgot' ? 'Reset Your Password' : mode === 'login' ? 'Welcome Back' : 'Create Your Workspace'}
             </h1>

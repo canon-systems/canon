@@ -1,9 +1,4 @@
-// Export all Inngest functions
-export { diffSourceBackfill } from "./functions/diffBackfill";
-export { ingestJiraWebhook } from "./functions/jiraWebhookIngest";
-export { sourceIngestRequested } from "./functions/sourceIngest";
-export { dailySignalAlerts } from "./functions/dailySignalAlerts";
-export { setupBatchFinalizeRequested } from "./functions/setupBatchFinalize";
-
-// Export client
+export { slackKnowledgeSync } from "./functions/slackKnowledgeSync";
+export { dailyRampCheck } from "./functions/dailyRampCheck";
+export { accessCoordinator } from "./functions/accessCoordinator";
 export { inngest } from "./client";

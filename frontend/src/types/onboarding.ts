@@ -1,0 +1,109 @@
+export type HireRole = 'AI Solutions Architect' | 'Solutions Engineer' | 'Implementation Engineer';
+export type HireStatus = 'active' | 'paused' | 'completed';
+export type KnowledgeProvider = 'slack' | 'notion' | 'google_drive' | 'confluence';
+export type KnowledgeSourceStatus = 'pending' | 'syncing' | 'active' | 'error';
+export type DeliveryStatus = 'pending' | 'delivered' | 'failed';
+export type AccessRequestStatus = 'pending' | 'sent' | 'acknowledged' | 'granted';
+
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  owner_id: string;
+  slack_team_id: string | null;
+  slack_bot_token: string | null;
+  created_at: string;
+}
+
+export interface NewHire {
+  id: string;
+  organization_id: string;
+  created_by: string;
+  name: string;
+  email: string;
+  role: HireRole;
+  slack_user_id: string | null;
+  start_date: string;
+  ramp_day: number;
+  status: HireStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NewHireWithCounts extends NewHire {
+  delivery_count: number;
+  access_request_count: number;
+}
+
+export interface KnowledgeSource {
+  id: string;
+  organization_id: string;
+  provider: KnowledgeProvider;
+  name: string;
+  slack_channel_id: string | null;
+  slack_channel_name: string | null;
+  status: KnowledgeSourceStatus;
+  last_synced_at: string | null;
+  chunk_count: number;
+  error_message: string | null;
+  created_at: string;
+}
+
+export interface KnowledgeChunk {
+  id: string;
+  organization_id: string;
+  source_id: string;
+  content: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface RampMilestone {
+  id: string;
+  organization_id: string | null;
+  role: HireRole;
+  day_trigger: number;
+  title: string;
+  description: string;
+  knowledge_query: string;
+  created_at: string;
+}
+
+export interface RampDelivery {
+  id: string;
+  new_hire_id: string;
+  milestone_id: string | null;
+  delivery_status: DeliveryStatus;
+  delivery_channel: string;
+  content_delivered: string | null;
+  slack_ts: string | null;
+  delivered_at: string | null;
+  error_message: string | null;
+  created_at: string;
+  milestone?: RampMilestone;
+}
+
+export interface AccessRequest {
+  id: string;
+  new_hire_id: string;
+  tool_name: string;
+  requested_from_name: string;
+  requested_from_email: string;
+  requested_from_slack_id: string | null;
+  status: AccessRequestStatus;
+  sent_at: string | null;
+  created_at: string;
+}
+
+export interface SlackChannel {
+  id: string;
+  name: string;
+  member_count: number;
+  topic: string;
+}
+
+export interface NewHireDetail extends NewHire {
+  deliveries: RampDelivery[];
+  access_requests: AccessRequest[];
+  next_milestone: RampMilestone | null;
+}

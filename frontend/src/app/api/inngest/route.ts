@@ -1,11 +1,9 @@
 import { serve } from "inngest/next";
 import {
   inngest,
-  diffSourceBackfill,
-  ingestJiraWebhook,
-  sourceIngestRequested,
-  dailySignalAlerts,
-  setupBatchFinalizeRequested,
+  slackKnowledgeSync,
+  dailyRampCheck,
+  accessCoordinator,
 } from "../../../inngest";
 
 export const runtime = 'nodejs';
@@ -14,11 +12,8 @@ export const maxDuration = 300;
 export const { GET, POST, PUT } = serve({
   client: inngest,
   functions: [
-    // checkAndRunAutomations,
-    dailySignalAlerts,
-    diffSourceBackfill,
-    ingestJiraWebhook,
-    setupBatchFinalizeRequested,
-    sourceIngestRequested,
+    slackKnowledgeSync,
+    dailyRampCheck,
+    accessCoordinator,
   ],
 });

@@ -84,7 +84,6 @@ export function UpdatePasswordPageClient() {
       <div className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-10 sm:px-6 lg:px-8">
         <div className="relative z-10 mx-auto flex w-full max-w-xl flex-col items-center gap-6">
           <div className="space-y-3 text-center">
-            <Badge>Automated Knowledge Infrastructure</Badge>
             <h1 className="text-3xl font-semibold sm:text-4xl">Link Expired or Invalid</h1>
             <p className="text-white/70">
               This password reset link may have expired or already been used. Request a new link from the login page.
@@ -103,7 +102,6 @@ export function UpdatePasswordPageClient() {
       <div className="relative z-10 mx-auto flex w-full max-w-xl flex-col items-center gap-8">
         <div className="w-full space-y-6">
           <div className="space-y-3">
-            <Badge>Automated Knowledge Infrastructure</Badge>
             <h1 className="text-3xl font-semibold sm:text-4xl">Set New Password</h1>
             <p className="text-white/70">
               Enter your new password below. Use at least 6 characters.
