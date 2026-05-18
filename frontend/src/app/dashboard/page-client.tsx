@@ -15,6 +15,7 @@ type HireRow = {
   start_date: string;
   ramp_day: number;
   status: string;
+  ramp_deliveries?: [{ count: number }];
 };
 
 type AccessRow = {
@@ -28,7 +29,8 @@ type AccessRow = {
 
 type DashboardData = {
   active_hires: HireRow[];
-  deliveries_this_week: number;
+  all_hires_count: number;
+  total_deliveries: number;
   pending_access_count: number;
   stalled_requests: AccessRow[];
 };
@@ -54,7 +56,16 @@ export function DashboardClient() {
         fetch('/api/onboarding/access-requests'),
       ]);
       const hiresJson = (await hiresRes.json()) as { hires?: HireRow[] };
-      const accessJson = (await accessRes.json()) as { access_requests?: Array<{ id: string; tool_name: string; requested_from_name: string; sent_at: string | null; status: string; new_hire_id: string }> };
+      const accessJson = (await accessRes.json()) as {
+        access_requests?: Array<{
+          id: string;
+          tool_name: string;
+          requested_from_name: string;
+          sent_at: string | null;
+          status: string;
+          new_hire_id: string;
+        }>;
+      };
 
       const allHires: HireRow[] = hiresJson.hires ?? [];
       const activeHires = allHires.filter((h) => h.status === 'active');
@@ -69,17 +80,18 @@ export function DashboardClient() {
           return { ...r, new_hire_name: hire?.name ?? 'Unknown' };
         });
 
-      const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-      const deliveriesRes = await fetch(`/api/onboarding/new-hires`);
-      void deliveriesRes;
+      const totalDeliveries = allHires.reduce((sum, h) => {
+        const count = h.ramp_deliveries?.[0]?.count ?? 0;
+        return sum + count;
+      }, 0);
 
       setData({
         active_hires: activeHires,
-        deliveries_this_week: 0,
+        all_hires_count: allHires.length,
+        total_deliveries: totalDeliveries,
         pending_access_count: allRequests.filter((r) => r.status === 'pending' || r.status === 'sent').length,
         stalled_requests: stalled,
       });
-      void weekAgo;
     } catch {
       // silent
     } finally {
@@ -90,14 +102,14 @@ export function DashboardClient() {
   useEffect(() => { void load(); }, [load]);
 
   const stats = [
-    { label: 'Active new hires', value: data?.active_hires.length ?? 0, icon: Users, href: '/new-hires' },
-    { label: 'Deliveries this week', value: data?.deliveries_this_week ?? 0, icon: MessageSquare, href: null },
+    { label: 'Active hires', value: data?.active_hires.length ?? 0, icon: Users, href: '/new-hires' },
+    { label: 'Deliveries sent', value: data?.total_deliveries ?? 0, icon: MessageSquare, href: null },
     { label: 'Pending access', value: data?.pending_access_count ?? 0, icon: Key, href: null },
   ];
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8 space-y-8">
+      <div className="mx-auto max-w-6xl space-y-8">
         <Skeleton className="h-9 w-40 bg-white/10" />
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {[1, 2, 3].map((i) => <Skeleton key={i} className="h-28 bg-white/10 rounded-xl" />)}
@@ -111,7 +123,7 @@ export function DashboardClient() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8 space-y-8">
+    <div className="mx-auto max-w-6xl space-y-8">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-white">Dashboard</h1>
@@ -119,12 +131,14 @@ export function DashboardClient() {
             {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
           </p>
         </div>
-        <Link href="/new-hires/new">
-          <Button size="sm" className="bg-white text-black hover:bg-white/90 flex items-center gap-1.5">
-            <Plus className="h-4 w-4" />
-            Add hire
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link href="/new-hires/new">
+            <Button size="sm" className="bg-white text-black hover:bg-white/90 flex items-center gap-1.5">
+              <Plus className="h-4 w-4" />
+              Add hire
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {/* Stat cards */}
@@ -162,11 +176,13 @@ export function DashboardClient() {
             <div className="flex flex-col items-center justify-center py-10 text-center">
               <Users className="h-8 w-8 text-white/20 mb-3" />
               <p className="text-white/40 text-sm">No active hires</p>
-              <Link href="/new-hires/new">
-                <Button variant="ghost" size="sm" className="mt-2 text-white/40 hover:text-white text-xs">
-                  Add your first hire →
-                </Button>
-              </Link>
+              <div className="mt-2">
+                <Link href="/new-hires/new">
+                  <Button variant="ghost" size="sm" className="text-white/40 hover:text-white text-xs">
+                    Add your first hire →
+                  </Button>
+                </Link>
+              </div>
             </div>
           ) : (
             <div className="space-y-3">

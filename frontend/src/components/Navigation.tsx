@@ -10,7 +10,6 @@ import {
   Database,
   Target,
   Settings,
-  BookOpen,
   LogOut,
   ChevronLeft,
   ChevronRight,
@@ -33,7 +32,6 @@ const primaryNav = [
 
 const secondaryNav = [
   { href: '/settings', label: 'Settings', icon: Settings, exact: false },
-  { href: '/docs', label: 'Docs', icon: BookOpen, exact: false },
 ];
 
 export function Navigation({ user, onLogout }: NavigationProps) {
@@ -71,43 +69,44 @@ export function Navigation({ user, onLogout }: NavigationProps) {
   return (
     <aside
       className={cn(
-        'flex h-screen shrink-0 flex-col border-r border-white/[0.08] bg-zinc-900 transition-all duration-200',
+        'relative flex h-screen shrink-0 flex-col border-r border-white/[0.08] bg-zinc-900 transition-all duration-200',
         collapsed ? 'w-14' : 'w-60'
       )}
     >
+      {/* Toggle button — centered vertically on the right edge */}
+      <button
+        onClick={toggle}
+        title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        className="absolute -right-3 top-1/2 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full border border-white/[0.12] bg-zinc-800 text-white/40 shadow-md transition-colors hover:bg-zinc-700 hover:text-white/80"
+      >
+        {collapsed ? (
+          <ChevronRight className="h-3 w-3" />
+        ) : (
+          <ChevronLeft className="h-3 w-3" />
+        )}
+      </button>
+
       {/* Brand header */}
       <div
         className={cn(
           'flex items-center border-b border-white/[0.08]',
-          collapsed ? 'justify-center px-0 py-5' : 'justify-between px-4 py-5'
+          collapsed ? 'justify-center px-0 py-5' : 'gap-3 px-5 py-5'
         )}
       >
-        <div className={cn('flex items-center', collapsed ? '' : 'gap-3')}>
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-zinc-800">
-            <Image
-              src="/web-app-manifest-512x512.png"
-              alt="Canon"
-              width={20}
-              height={20}
-              className="rounded"
-            />
-          </div>
-          {!collapsed && (
-            <div className="flex flex-col leading-tight">
-              <span className="text-sm font-semibold text-white">Canon</span>
-              <span className="text-[10px] uppercase tracking-widest text-white/40">Onboarding Agent</span>
-            </div>
-          )}
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-zinc-800">
+          <Image
+            src="/web-app-manifest-512x512.png"
+            alt="Canon"
+            width={20}
+            height={20}
+            className="rounded"
+          />
         </div>
-
         {!collapsed && (
-          <button
-            onClick={toggle}
-            title="Collapse sidebar"
-            className="rounded p-1 text-white/30 hover:bg-white/5 hover:text-white/70 transition-colors"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
+          <div className="flex flex-col leading-tight">
+            <span className="text-sm font-semibold text-white">Canon</span>
+            <span className="text-[10px] uppercase tracking-widest text-white/40">Onboarding Agent</span>
+          </div>
         )}
       </div>
 
@@ -151,19 +150,6 @@ export function Navigation({ user, onLogout }: NavigationProps) {
           })}
         </div>
 
-        {/* Expand button when collapsed */}
-        {collapsed && (
-          <>
-            <div className="my-3 border-t border-white/[0.08]" />
-            <button
-              onClick={toggle}
-              title="Expand sidebar"
-              className="flex w-full items-center justify-center rounded-lg py-2 text-white/30 hover:bg-white/5 hover:text-white/70 transition-colors"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </>
-        )}
       </nav>
 
       {/* User footer */}

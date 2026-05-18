@@ -231,9 +231,9 @@ export function NewHireDetailClient() {
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1.5">
                         {deliveryBadge(d.delivery_status)}
-                        {(d as unknown as { milestone?: { day_trigger: number; title: string } }).milestone && (
+                        {d.milestone && (
                           <span className="text-white text-sm font-medium">
-                            Day {(d as unknown as { milestone: { day_trigger: number; title: string } }).milestone.day_trigger} — {(d as unknown as { milestone: { day_trigger: number; title: string } }).milestone.title}
+                            Day {d.milestone.day_trigger} — {d.milestone.title}
                           </span>
                         )}
                       </div>

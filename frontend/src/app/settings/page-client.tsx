@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Settings, User, Link2, Mail, Check, Loader2 } from 'lucide-react';
+import { Settings, User, Link2, Mail, Check, Loader2, Sparkles } from 'lucide-react';
 import { IntegrationLogos } from '@/components/IntegrationLogos';
 import { getIntegrationsCached, clearIntegrationsCache } from '@/lib/client/integrationsCache';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
@@ -44,6 +44,8 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   const [success, setSuccess] = useState('');
   const [disconnectModalOpen, setDisconnectModalOpen] = useState(false);
   const [connectionToDisconnect, setConnectionToDisconnect] = useState<{ connectionId: string; provider: string } | null>(null);
+  const [demoSeeded, setDemoSeeded] = useState(false);
+  const [demoToggling, setDemoToggling] = useState(false);
 
   const loadConnections = useCallback(async (force = false) => {
     setLoading(true);
@@ -90,7 +92,23 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
 
   useEffect(() => {
     loadConnections();
+    fetch('/api/seed-demo')
+      .then((r) => r.json())
+      .then((d: { seeded?: boolean }) => setDemoSeeded(d.seeded ?? false))
+      .catch(() => null);
   }, [loadConnections]);
+
+  async function toggleDemo() {
+    setDemoToggling(true);
+    try {
+      await fetch('/api/seed-demo', { method: demoSeeded ? 'DELETE' : 'POST' });
+      const res = await fetch('/api/seed-demo');
+      const d = (await res.json()) as { seeded?: boolean };
+      setDemoSeeded(d.seeded ?? false);
+    } finally {
+      setDemoToggling(false);
+    }
+  }
 
   async function connectSlack() {
     setConnecting(true);
@@ -283,6 +301,38 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
             </div>
           </TabsContent>
         </Tabs>
+
+        {/* Demo data */}
+        <div className="mt-2 rounded-xl border border-white/10 bg-zinc-900 p-5 flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium text-white">Demo data</p>
+            <p className="text-xs text-white/40 mt-0.5">
+              {demoSeeded
+                ? 'Sample hires, deliveries, and access requests are loaded.'
+                : 'Load sample data to explore Canon with realistic hires and milestones.'}
+            </p>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={toggleDemo}
+            disabled={demoToggling}
+            className={
+              demoSeeded
+                ? 'border-white/20 text-white/40 hover:bg-white/5 hover:text-red-400 shrink-0 flex items-center gap-1.5'
+                : 'border-white/20 text-white/60 hover:bg-white/10 shrink-0 flex items-center gap-1.5'
+            }
+          >
+            {demoToggling ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="h-3.5 w-3.5" />
+            )}
+            {demoToggling
+              ? (demoSeeded ? 'Clearing...' : 'Loading...')
+              : (demoSeeded ? 'Clear demo data' : 'Load demo data')}
+          </Button>
+        </div>
       </div>
 
       <Dialog open={disconnectModalOpen && connectionToDisconnect !== null} onOpenChange={(open) => !open && closeDisconnectModal()}>

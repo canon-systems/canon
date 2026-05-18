@@ -39,9 +39,12 @@ export async function GET(request: NextRequest) {
 
     if (orgId) {
       const orgSpecific = allMilestones.filter((m) => m.organization_id === orgId);
-      const orgRoles = new Set(orgSpecific.map((m) => m.role));
-      const globalFallback = allMilestones.filter((m) => m.organization_id === null && !orgRoles.has(m.role));
-      result = [...orgSpecific, ...globalFallback].sort((a, b) => a.day_trigger - b.day_trigger);
+      // Org-specific milestones override global ones at the same role+day_trigger; others still show
+      const orgCovered = new Set(orgSpecific.map((m) => `${m.role}:${m.day_trigger}`));
+      const globals = allMilestones.filter(
+        (m) => m.organization_id === null && !orgCovered.has(`${m.role}:${m.day_trigger}`)
+      );
+      result = [...orgSpecific, ...globals].sort((a, b) => a.day_trigger - b.day_trigger);
     }
 
     return NextResponse.json({ milestones: result });
