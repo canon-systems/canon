@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   Users,
   Database,
+  Radar,
   Target,
   Settings,
   LogOut,
@@ -28,6 +29,7 @@ const primaryNav = [
   { href: '/new-hires', label: 'New Hires', icon: Users, exact: false },
   { href: '/knowledge', label: 'Knowledge', icon: Database, exact: false },
   { href: '/milestones', label: 'Milestones', icon: Target, exact: false },
+  { href: '/readiness', label: 'Readiness', icon: Radar, exact: false },
 ];
 
 const secondaryNav = [
@@ -37,17 +39,21 @@ const secondaryNav = [
 export function Navigation({ user, onLogout }: NavigationProps) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
-  const [mounted, setMounted] = useState(false);
+  const loadedPreference = useRef(false);
 
   useEffect(() => {
-    setMounted(true);
-    const saved = localStorage.getItem('canon-nav-collapsed');
-    if (saved === 'true') setCollapsed(true);
+    const id = window.setTimeout(() => {
+      const saved = localStorage.getItem('canon-nav-collapsed');
+      if (saved === 'true') setCollapsed(true);
+      loadedPreference.current = true;
+    }, 0);
+
+    return () => window.clearTimeout(id);
   }, []);
 
   useEffect(() => {
-    if (mounted) localStorage.setItem('canon-nav-collapsed', String(collapsed));
-  }, [collapsed, mounted]);
+    if (loadedPreference.current) localStorage.setItem('canon-nav-collapsed', String(collapsed));
+  }, [collapsed]);
 
   const isActive = (href: string, exact = false) => {
     if (exact) return pathname === href;
@@ -105,7 +111,6 @@ export function Navigation({ user, onLogout }: NavigationProps) {
         {!collapsed && (
           <div className="flex flex-col leading-tight">
             <span className="text-sm font-semibold text-white">Canon</span>
-            <span className="text-[10px] uppercase tracking-widest text-white/40">Onboarding Agent</span>
           </div>
         )}
       </div>

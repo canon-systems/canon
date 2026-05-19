@@ -311,6 +311,70 @@ const CUSTOM_MILESTONES = [
   },
 ];
 
+const DEMO_READINESS_ITEMS = [
+  {
+    category: 'product_change' as const,
+    title: 'Product API limits changed',
+    summary: 'API rate limit behavior changed for enterprise workspaces.',
+    recommended_action: 'send readiness note to AI SAs and update Day 14 milestone.',
+    impact_level: 'high' as const,
+    affected_roles: ['AI Solutions Architect', 'Solutions Engineer'],
+    source_url: 'demo://readiness/product-api-limits',
+    source_metadata: { demo: true, signals_reviewed: 6, stale_knowledge_areas: 1, milestones_covered_percent: 82 },
+    status: 'reviewed' as const,
+  },
+  {
+    category: 'customer_objection' as const,
+    title: 'Workspace permissions confusion',
+    summary: 'Three Slack threads mention confusion around workspace permissions.',
+    recommended_action: 'Send a readiness note to AI SAs with the updated workspace permissions talk track.',
+    impact_level: 'high' as const,
+    affected_roles: ['AI Solutions Architect', 'Solutions Engineer', 'Implementation Engineer'],
+    source_url: 'demo://readiness/workspace-permissions',
+    source_metadata: { demo: true, signals_reviewed: 3, stale_knowledge_areas: 1 },
+    status: 'draft' as const,
+  },
+  {
+    category: 'demo_guidance' as const,
+    title: 'Customer-owned LLM routing objection',
+    summary: 'New objection pattern detected around customer-owned LLM routing.',
+    recommended_action: 'Refresh demo guidance with the approved customer-owned LLM routing response.',
+    impact_level: 'medium' as const,
+    affected_roles: ['AI Solutions Architect', 'Solutions Engineer'],
+    source_url: 'demo://readiness/customer-owned-llm-routing',
+    source_metadata: { demo: true, signals_reviewed: 5, stale_knowledge_areas: 1 },
+    status: 'reviewed' as const,
+  },
+  {
+    category: 'implementation_pattern' as const,
+    title: 'Day 14 call prep needs a permissions checkpoint',
+    summary: 'Recent implementation threads show workspace permission assumptions are delaying handoffs.',
+    recommended_action: 'Add a Day 14 milestone checkpoint for workspace permission ownership before customer prep calls.',
+    impact_level: 'low' as const,
+    affected_roles: ['Implementation Engineer'],
+    source_url: 'demo://readiness/day-14-permissions-checkpoint',
+    source_metadata: { demo: true, signals_reviewed: 5, stale_knowledge_areas: 1 },
+    status: 'draft' as const,
+  },
+];
+
+async function seedDemoReadinessItems(supabase: Awaited<ReturnType<typeof createClient>>, organizationId: string) {
+  await supabase
+    .from('readiness_items')
+    .delete()
+    .eq('organization_id', organizationId)
+    .like('source_url', 'demo://readiness/%');
+
+  await supabase.from('readiness_items').insert(
+    DEMO_READINESS_ITEMS.map((item) => ({
+      organization_id: organizationId,
+      source: 'slack',
+      ...item,
+      updated_at: new Date().toISOString(),
+    }))
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Seed handler
 // ---------------------------------------------------------------------------
@@ -323,14 +387,23 @@ export async function GET() {
   const { data: org } = await supabase.from('organizations').select('id').single();
   if (!org) return NextResponse.json({ seeded: false });
 
-  const { data } = await supabase
+  const { data: demoHires } = await supabase
     .from('new_hires')
     .select('id')
     .eq('organization_id', org.id)
     .like('email', '%@demo.usecanon.com')
     .limit(1);
 
-  return NextResponse.json({ seeded: (data?.length ?? 0) > 0 });
+  const { data: demoReadinessItems } = await supabase
+    .from('readiness_items')
+    .select('id')
+    .eq('organization_id', org.id)
+    .like('source_url', 'demo://readiness/%')
+    .limit(1);
+
+  return NextResponse.json({
+    seeded: (demoHires?.length ?? 0) > 0 || (demoReadinessItems?.length ?? 0) > 0,
+  });
 }
 
 export async function POST() {
@@ -364,6 +437,7 @@ export async function POST() {
     .eq('organization_id', orgId)
     .like('email', '%@demo.usecanon.com');
   if (existing && existing.length > 0) {
+    await seedDemoReadinessItems(supabase, orgId);
     return NextResponse.json({ message: 'Demo data already loaded', already_seeded: true });
   }
 
@@ -379,6 +453,8 @@ export async function POST() {
   await supabase.from('ramp_milestones').insert(
     CUSTOM_MILESTONES.map((m) => ({ ...m, organization_id: orgId }))
   );
+
+  await seedDemoReadinessItems(supabase, orgId);
 
   // Fetch global milestones (organization_id IS NULL) — if seed.sql was never run,
   // create them now via service role (RLS blocks null-org inserts from regular users).
@@ -490,6 +566,7 @@ export async function POST() {
     hires: DEMO_HIRES.length,
     knowledge_sources: DEMO_KNOWLEDGE_SOURCES.length,
     custom_milestones: CUSTOM_MILESTONES.length,
+    readiness_items: DEMO_READINESS_ITEMS.length,
     deliveries: totalDeliveries,
     access_requests: totalAccessRequests,
   });
@@ -520,6 +597,12 @@ export async function DELETE() {
     .from('ramp_milestones')
     .delete()
     .eq('organization_id', org.id);
+
+  await supabase
+    .from('readiness_items')
+    .delete()
+    .eq('organization_id', org.id)
+    .like('source_url', 'demo://readiness/%');
 
   return NextResponse.json({ message: 'Demo data cleared' });
 }

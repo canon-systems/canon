@@ -4,6 +4,45 @@ export type KnowledgeProvider = 'slack' | 'notion' | 'google_drive' | 'confluenc
 export type KnowledgeSourceStatus = 'pending' | 'syncing' | 'active' | 'error';
 export type DeliveryStatus = 'pending' | 'delivered' | 'failed';
 export type AccessRequestStatus = 'pending' | 'sent' | 'acknowledged' | 'granted';
+export type ReadinessCategory = 'product_change' | 'customer_objection' | 'demo_guidance' | 'implementation_pattern';
+export type ReadinessImpactLevel = 'low' | 'medium' | 'high';
+export type ReadinessStatus = 'draft' | 'reviewed' | 'sent' | 'archived';
+
+export interface ReadinessCard {
+  title: string;
+  detail: string;
+  category: ReadinessCategory;
+}
+
+export interface ReadinessAffectedRole {
+  role: HireRole;
+  impact: 'High impact' | 'Medium impact' | 'Low impact';
+  progress: number;
+}
+
+export interface ReadinessHealthStat {
+  label: string;
+  value: string;
+}
+
+export interface ReadinessItem {
+  id: string;
+  organization_id: string;
+  category: ReadinessCategory;
+  title: string;
+  summary: string;
+  recommended_action: string | null;
+  impact_level: ReadinessImpactLevel;
+  affected_roles: HireRole[];
+  source: string | null;
+  source_url: string | null;
+  source_metadata: Record<string, unknown>;
+  status: ReadinessStatus;
+  detected_at: string;
+  sent_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
 
 export interface Organization {
   id: string;
@@ -93,6 +132,17 @@ export interface AccessRequest {
   status: AccessRequestStatus;
   sent_at: string | null;
   created_at: string;
+}
+
+export interface ReadinessBrief {
+  title: string;
+  subtitle: string;
+  detected_shift: string;
+  bullets: string[];
+  cards: ReadinessCard[];
+  affected_roles: ReadinessAffectedRole[];
+  health_stats: ReadinessHealthStat[];
+  items: ReadinessItem[];
 }
 
 export interface SlackChannel {

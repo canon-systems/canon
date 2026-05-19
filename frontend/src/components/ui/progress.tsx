@@ -3,10 +3,11 @@ import { cn } from "./utils";
 
 interface ProgressProps extends React.HTMLAttributes<HTMLDivElement> {
   value?: number;
+  indicatorClassName?: string;
 }
 
 const Progress = React.forwardRef<HTMLDivElement, ProgressProps>(
-  ({ className, value = 0, ...props }, ref) => {
+  ({ className, indicatorClassName, value = 0, ...props }, ref) => {
     const pct = Math.min(100, Math.max(0, value));
     return (
       <div
@@ -18,7 +19,10 @@ const Progress = React.forwardRef<HTMLDivElement, ProgressProps>(
         {...props}
       >
         <div
-          className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-[transform] duration-300 ease-out"
+          className={cn(
+            "h-full rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-[transform] duration-300 ease-out",
+            indicatorClassName
+          )}
           style={{ width: `${pct}%` }}
         />
       </div>
