@@ -104,13 +104,11 @@ export function RootLayoutClient({
   }
 
   return (
-    <div className="flex h-screen bg-zinc-950 text-white overflow-hidden">
+    <div className="flex h-screen overflow-hidden" style={{ backgroundColor: 'var(--bg-page)' }}>
       <Navigation user={initialUser} session={initialSession} onLogout={handleLogout} />
-      <div className="flex-1 overflow-y-auto">
-        <main className="p-6 lg:p-8">
-          {children}
-        </main>
-      </div>
+      <main className="flex-1 overflow-hidden flex flex-col">
+        {children}
+      </main>
     </div>
   );
 }

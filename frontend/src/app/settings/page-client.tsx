@@ -2,13 +2,23 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Settings, User, Link2, Mail, Check, Loader2, Sparkles } from 'lucide-react';
+import {
+  IconActivity,
+  IconBell,
+  IconBuilding,
+  IconKey,
+  IconLoader2,
+  IconPlug,
+  IconSparkles,
+  IconTrash,
+  IconUser,
+} from '@tabler/icons-react';
 import { IntegrationLogos } from '@/components/IntegrationLogos';
 import { getIntegrationsCached, clearIntegrationsCache } from '@/lib/client/integrationsCache';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Avatar } from '@/components/ui/avatar';
 
 interface Connection {
   id: string;
@@ -20,22 +30,29 @@ interface Connection {
   updated_at: string;
 }
 
-type TabId = 'profile' | 'integrations';
-
 interface SettingsPageClientProps {
   user: SupabaseUser | null;
 }
 
-const tabs: Array<{ id: TabId; name: string; icon: React.ComponentType<{ className?: string }> }> = [
-  { id: 'profile', name: 'Profile', icon: User },
-  { id: 'integrations', name: 'Integrations', icon: Link2 }
+const settingSections = [
+  { section: 'Account', items: [{ id: 'profile', label: 'Profile', icon: IconUser }, { id: 'org', label: 'Organization', icon: IconBuilding }] },
+  { section: 'Connections', items: [{ id: 'integrations', label: 'Integrations', icon: IconPlug }, { id: 'notifications', label: 'Notifications', icon: IconBell }] },
+  {
+    section: 'Developer',
+    items: [
+      { id: 'apikeys', label: 'API Keys', icon: IconKey },
+      { id: 'logs', label: 'Usage Logs', icon: IconActivity },
+      { id: 'placeholders', label: 'Placeholder Values', icon: IconSparkles },
+    ],
+  },
+  { section: 'Danger', items: [{ id: 'delete', label: 'Delete Account', icon: IconTrash, danger: true }] },
 ];
 
 export function SettingsPageClient({ user: initialUser }: SettingsPageClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [activeTab, setActiveTab] = useState<TabId>('profile');
+  const [activeSetting, setActiveSetting] = useState('profile');
   const [user] = useState<SupabaseUser | null>(initialUser);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [loading, setLoading] = useState(true);
@@ -62,7 +79,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
       }));
       setConnections(mappedConnections);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load connections');
+      setError(err instanceof Error ? err.message : 'Failed to Load Connections');
     } finally {
       setLoading(false);
     }
@@ -70,9 +87,9 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
 
   useEffect(() => {
     const tabParam = searchParams.get('tab');
-    const validTabs: TabId[] = ['profile', 'integrations'];
-    if (tabParam && validTabs.includes(tabParam as TabId)) {
-      setActiveTab(tabParam as TabId);
+    const validTabs = ['profile', 'integrations'];
+    if (tabParam && validTabs.includes(tabParam)) {
+      setActiveSetting(tabParam);
     }
 
     const successParam = searchParams.get('success');
@@ -81,12 +98,12 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
       const provider = searchParams.get('provider') || 'service';
       setSuccess(`Successfully connected to ${provider}!`);
       router.replace(`/settings?tab=integrations`);
-      setActiveTab('integrations');
+      setActiveSetting('integrations');
     }
     if (errorParam) {
       setError(decodeURIComponent(errorParam));
       router.replace(`/settings?tab=integrations`);
-      setActiveTab('integrations');
+      setActiveSetting('integrations');
     }
   }, [searchParams, router]);
 
@@ -117,7 +134,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     try {
       window.location.href = '/api/oauth/slack/start';
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to connect');
+      setError(err instanceof Error ? err.message : 'Failed to Connect');
       setConnecting(false);
     }
   }
@@ -142,14 +159,14 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
 
       if (!response.ok) {
         const data = (await response.json()) as { error?: string };
-        throw new Error(data.error || 'Failed to disconnect');
+        throw new Error(data.error || 'Failed to Disconnect');
       }
 
       setSuccess(`Disconnected from Slack`);
       clearIntegrationsCache();
       await loadConnections(true);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to disconnect');
+      setError(err instanceof Error ? err.message : 'Failed to Disconnect');
     }
   }
 
@@ -161,182 +178,222 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     });
   }
 
-  function setActiveTabAndUpdateUrl(value: string) {
-    const tabId = value as TabId;
-    setActiveTab(tabId);
-    router.push(`/settings?tab=${tabId}`, { scroll: false });
+  function setActiveSettingAndUpdateUrl(value: string) {
+    setActiveSetting(value);
+    if (value === 'profile' || value === 'integrations') {
+      router.push(`/settings?tab=${value}`, { scroll: false });
+    }
   }
 
   const slackConnection = connections.find(c => c.provider === 'slack' && c.status === 'active');
+  const displayName = (user?.user_metadata?.full_name as string | undefined) ?? user?.email?.split('@')[0] ?? 'User';
+
+  const integrations = [
+    {
+      id: 'slack',
+      provider: 'slack' as const,
+      name: 'Slack',
+      description: 'Send onboarding DMs and sync channel knowledge.',
+      iconBg: '#4A154B',
+      iconColor: '#fff',
+      connected: !!slackConnection,
+      workspace: slackConnection ? `Connected ${formatDate(slackConnection.created_at)}` : '',
+      action: slackConnection ? () => openDisconnectModal(slackConnection.connection_id, 'slack') : connectSlack,
+    },
+  ];
+
+  function renderProfile() {
+    return (
+      <div className="max-w-2xl">
+        <div className="rounded-[10px] px-[18px] py-4 flex items-center gap-[14px] mb-4 border" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}>
+          <Avatar name={user?.email ?? 'User'} size="lg" />
+          <div>
+            <div className="text-[15px] font-medium" style={{ color: 'var(--text-primary)' }}>{displayName}</div>
+            <div className="text-[13px] mt-[2px]" style={{ color: 'var(--text-secondary)' }}>{user?.email || 'Not Available'}</div>
+            <div className="text-[11px] mt-[2px] font-mono" style={{ color: 'var(--text-tertiary)' }}>{user?.id || 'N/A'}</div>
+          </div>
+        </div>
+
+        {[
+          { label: 'Display Name', value: displayName, hint: 'This is shown inside Canon.' },
+          { label: 'Email', value: user?.email || '', hint: 'Email is managed by your authentication provider.' },
+        ].map((field) => (
+          <div key={field.label} className="mb-[14px]">
+            <label className="block text-[12px] font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
+              {field.label}
+            </label>
+            <input
+              value={field.value}
+              readOnly
+              className="w-full px-3 py-2 rounded-[7px] text-[13px] border outline-none transition-all duration-[120ms]"
+              style={{
+                backgroundColor: 'var(--bg-primary)',
+                color: 'var(--text-primary)',
+                borderColor: 'var(--border-secondary)',
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = 'var(--canon-purple)';
+                e.target.style.boxShadow = '0 0 0 3px rgba(107,92,231,0.12)';
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = 'var(--border-secondary)';
+                e.target.style.boxShadow = 'none';
+              }}
+            />
+            <p className="text-[11px] mt-1" style={{ color: 'var(--text-tertiary)' }}>{field.hint}</p>
+          </div>
+        ))}
+        <div className="flex justify-end mt-1"><Button>Save Changes</Button></div>
+      </div>
+    );
+  }
+
+  function renderIntegrations() {
+    return (
+      <div className="max-w-3xl">
+        {success && (
+          <div className="mb-4 rounded-[8px] border px-[14px] py-3 text-[13px]" style={{ backgroundColor: 'var(--green-bg)', borderColor: 'var(--green-border)', color: 'var(--green-text)' }}>
+            {success}
+          </div>
+        )}
+        {error && (
+          <div className="mb-4 rounded-[8px] border px-[14px] py-3 text-[13px]" style={{ backgroundColor: 'var(--red-bg)', borderColor: 'var(--red-border)', color: 'var(--red-text)' }}>
+            {error}
+          </div>
+        )}
+
+        {integrations.map((int) => (
+          <div key={int.id} className="rounded-[10px] px-4 py-[14px] flex items-center gap-[14px] mb-[10px] border" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}>
+            <div className="w-9 h-9 rounded-[9px] flex items-center justify-center flex-shrink-0" style={{ backgroundColor: int.iconBg, color: int.iconColor }}>
+              <IntegrationLogos provider={int.provider} size={22} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[14px] font-medium" style={{ color: 'var(--text-primary)' }}>{int.name}</div>
+              <div className="text-[12px] mt-[2px]" style={{ color: 'var(--text-secondary)' }}>{int.description}</div>
+              <div className="flex items-center gap-[5px] mt-1">
+                <div className="w-[6px] h-[6px] rounded-full" style={{ backgroundColor: int.connected ? 'var(--green)' : 'var(--border-secondary)' }} />
+                <span className="text-[11px]" style={{ color: int.connected ? 'var(--green-text)' : 'var(--text-tertiary)' }}>
+                  {int.connected ? `Connected · ${int.workspace}` : 'Not Connected'}
+                </span>
+              </div>
+            </div>
+            {int.connected ? (
+              <Button variant="destructive" onClick={int.action}>Disconnect</Button>
+            ) : (
+              <Button variant="secondary" onClick={int.action} disabled={connecting}>
+                {connecting ? <IconLoader2 size={13} className="animate-spin" /> : <IconPlug size={13} />}
+                Connect
+              </Button>
+            )}
+          </div>
+        ))}
+
+        {loading && (
+          <div className="flex items-center gap-2 text-[12px]" style={{ color: 'var(--text-tertiary)' }}>
+            <IconLoader2 size={14} className="animate-spin" /> Loading Integration Status...
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function renderPlaceholderValues() {
+    return (
+      <div className="max-w-3xl">
+        <div className="mb-4">
+          <h2 className="text-[18px] font-medium" style={{ color: 'var(--text-primary)' }}>Placeholder Values</h2>
+          <p className="text-[13px] mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>
+            Toggle sample onboarding data for UI review and local testing.
+          </p>
+        </div>
+
+        <div className="rounded-[10px] px-4 py-[14px] flex items-center gap-[14px] border" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}>
+          <div className="w-8 h-8 rounded-[8px] flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'var(--canon-purple-light)' }}>
+            {demoToggling ? (
+              <IconLoader2 size={15} className="animate-spin" style={{ color: 'var(--canon-purple)' }} />
+            ) : (
+              <IconSparkles size={15} style={{ color: 'var(--canon-purple)' }} />
+            )}
+          </div>
+          <div className="flex-1">
+            <div className="text-[13px] font-medium" style={{ color: 'var(--text-primary)' }}>{demoSeeded ? 'Clear Placeholder Values' : 'Load Placeholder Values'}</div>
+            <div className="text-[12px] mt-[2px]" style={{ color: 'var(--text-secondary)' }}>
+              {demoSeeded
+                ? 'Remove sample hires, deliveries, access requests, milestones, and readiness notes loaded for testing.'
+                : 'Load sample hires, deliveries, access requests, milestones, and readiness notes for testing.'}
+            </div>
+          </div>
+          <Button variant={demoSeeded ? 'destructive' : 'secondary'} onClick={toggleDemo} disabled={demoToggling}>
+            {demoToggling ? <IconLoader2 size={13} className="animate-spin" /> : <IconSparkles size={13} />}
+            {demoToggling ? 'Working...' : demoSeeded ? 'Clear Values' : 'Load Values'}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  function renderPlaceholder(label: string) {
+    return (
+      <div className="max-w-2xl rounded-[10px] border px-5 py-8 text-center" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}>
+        <div className="text-[14px] font-medium" style={{ color: 'var(--text-secondary)' }}>{label}</div>
+        <div className="text-[12px] mt-2" style={{ color: 'var(--text-tertiary)' }}>This settings section is ready for configuration content.</div>
+      </div>
+    );
+  }
 
   return (
     <>
-      <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mb-8">
-          <div className="flex items-center gap-3 mb-2">
-            <Settings className="h-8 w-8 text-white" />
-            <h1 className="text-3xl font-bold text-white">Settings</h1>
-          </div>
-          <p className="text-white/70">Manage your account and Slack integration.</p>
+      <div className="flex h-full flex-col overflow-hidden">
+        <div className="px-6 pt-5 pb-4 border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
+          <h1 className="text-[20px] font-medium" style={{ color: 'var(--text-primary)' }}>Settings</h1>
+          <p className="text-[13px] mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>Manage Your Account and Workspace Connections</p>
         </div>
 
-        <Tabs value={activeTab} onValueChange={setActiveTabAndUpdateUrl} className="mb-8">
-          <TabsList className="bg-zinc-800 border border-white/10">
-            {tabs.map(tab => {
-              const Icon = tab.icon;
-              return (
-                <TabsTrigger key={tab.id} value={tab.id} className="flex items-center gap-2 data-[state=active]:bg-white/10 data-[state=active]:text-white">
-                  <Icon className="h-4 w-4" />
-                  {tab.name}
-                </TabsTrigger>
-              );
-            })}
-          </TabsList>
-
-          <TabsContent value="profile" className="mt-6">
-            <div className="rounded-xl border border-white/10 bg-zinc-800 p-6">
-              <div className="flex items-center gap-4 mb-6">
-                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white/10">
-                  <User className="h-8 w-8 text-white/70" />
+        <div className="flex flex-1 overflow-hidden">
+          <div className="flex-shrink-0 py-5 overflow-y-auto border-r" style={{ width: 180, borderColor: 'var(--border-tertiary)' }}>
+            {settingSections.map(({ section, items }) => (
+              <div key={section}>
+                <div className="text-[10px] font-medium uppercase tracking-[0.08em] px-4 pt-[10px] pb-1" style={{ color: 'var(--text-tertiary)' }}>
+                  {section}
                 </div>
-                <div>
-                  <p className="text-lg font-semibold text-white">{user?.email || 'User'}</p>
-                  <p className="text-sm text-white/60">Account ID: {user?.id || 'N/A'}</p>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-white/80 mb-2">
-                  <Mail className="inline h-4 w-4 mr-2" />
-                  Email Address
-                </label>
-                <div className="rounded-lg border border-white/10 bg-zinc-900 px-4 py-3 text-white">
-                  {user?.email || 'Not available'}
-                </div>
-              </div>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="integrations" className="mt-6">
-            {success && (
-              <div className="mb-6 rounded-lg border border-green-500/50 bg-green-500/10 p-4 text-green-200">
-                <div className="flex items-center gap-2">
-                  <Check className="h-5 w-5" />
-                  <p>{success}</p>
-                </div>
-              </div>
-            )}
-
-            {error && (
-              <div className="mb-6 rounded-lg border border-red-500/50 bg-red-500/10 p-4 text-red-200">
-                <p className="text-sm">{error}</p>
-              </div>
-            )}
-
-            <div className="space-y-4">
-              <div>
-                <h2 className="text-xl font-semibold text-white mb-1">Slack workspace</h2>
-                <p className="text-sm text-white/60">Connect your Slack workspace so Canon can send onboarding DMs to new hires.</p>
-              </div>
-
-              <div className="rounded-lg border border-white/10 bg-zinc-800 p-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-start gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white/5">
-                    <IntegrationLogos provider="slack" size={28} />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-lg font-semibold text-white">Slack</h3>
-                      {slackConnection && (
-                        <span className="flex items-center gap-1 rounded-full bg-green-500/20 px-2 py-0.5 text-[11px] text-green-300">
-                          <Check className="h-3 w-3" />
-                          Connected
-                        </span>
-                      )}
+                {items.map((item) => {
+                  const Icon = item.icon;
+                  const danger = 'danger' in item && item.danger;
+                  return (
+                    <div
+                      key={item.id}
+                      onClick={() => setActiveSettingAndUpdateUrl(item.id)}
+                      className="flex items-center gap-2 px-4 py-[7px] text-[13px] mx-2 rounded-[5px] cursor-pointer transition-colors duration-[120ms]"
+                      style={{
+                        backgroundColor: activeSetting === item.id ? 'var(--canon-purple-light)' : 'transparent',
+                        color: danger ? 'var(--red-text)' : activeSetting === item.id ? 'var(--canon-purple-dark)' : 'var(--text-secondary)',
+                        fontWeight: activeSetting === item.id ? 500 : 400,
+                      }}
+                    >
+                      <Icon size={14} />
+                      {item.label}
                     </div>
-                    <p className="text-sm text-white/60">Connect Slack to enable Canon&apos;s onboarding DMs and knowledge sync.</p>
-                    {slackConnection && (
-                      <p className="mt-1 text-xs text-white/50">Connected {formatDate(slackConnection.created_at)}</p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex gap-2 sm:flex-col">
-                  {slackConnection ? (
-                    <Button
-                      onClick={() => openDisconnectModal(slackConnection.connection_id, 'slack')}
-                      variant="secondary"
-                      className="border-red-500/50 bg-red-500/10 text-red-200 hover:bg-red-500/20"
-                    >
-                      Disconnect
-                    </Button>
-                  ) : (
-                    <Button
-                      onClick={connectSlack}
-                      disabled={connecting}
-                      className="bg-blue-600 text-white hover:bg-blue-700"
-                    >
-                      {connecting ? (
-                        <span className="flex items-center gap-2">
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          Connecting...
-                        </span>
-                      ) : (
-                        <span className="flex items-center gap-2">
-                          <Link2 className="h-4 w-4" />
-                          Connect Slack
-                        </span>
-                      )}
-                    </Button>
-                  )}
-                </div>
+                  );
+                })}
               </div>
-
-              {loading && (
-                <div className="flex items-center gap-2 text-sm text-white/50">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Loading integration status...
-                </div>
-              )}
-            </div>
-          </TabsContent>
-        </Tabs>
-
-        {/* Demo data */}
-        <div className="mt-2 rounded-xl border border-white/10 bg-zinc-900 p-5 flex items-center justify-between gap-4">
-          <div>
-            <p className="text-sm font-medium text-white">Demo data</p>
-            <p className="text-xs text-white/40 mt-0.5">
-              {demoSeeded
-                ? 'Sample hires, deliveries, and access requests are loaded.'
-                : 'Load sample data to explore Canon with realistic hires and milestones.'}
-            </p>
+            ))}
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={toggleDemo}
-            disabled={demoToggling}
-            className={
-              demoSeeded
-                ? 'border-white/20 text-white/40 hover:bg-white/5 hover:text-red-400 shrink-0 flex items-center gap-1.5'
-                : 'border-white/20 text-white/60 hover:bg-white/10 shrink-0 flex items-center gap-1.5'
-            }
-          >
-            {demoToggling ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Sparkles className="h-3.5 w-3.5" />
-            )}
-            {demoToggling
-              ? (demoSeeded ? 'Clearing...' : 'Loading...')
-              : (demoSeeded ? 'Clear demo data' : 'Load demo data')}
-          </Button>
+
+          <div className="flex-1 overflow-y-auto px-7 py-6">
+            {activeSetting === 'profile' && renderProfile()}
+            {activeSetting === 'integrations' && renderIntegrations()}
+            {activeSetting === 'placeholders' && renderPlaceholderValues()}
+            {activeSetting === 'delete' && renderPlaceholder('Delete Account')}
+            {activeSetting === 'org' && renderPlaceholder('Organization')}
+            {activeSetting === 'notifications' && renderPlaceholder('Notifications')}
+            {activeSetting === 'apikeys' && renderPlaceholder('API Keys')}
+            {activeSetting === 'logs' && renderPlaceholder('Usage Logs')}
+          </div>
         </div>
       </div>
 
       <Dialog open={disconnectModalOpen && connectionToDisconnect !== null} onOpenChange={(open) => !open && closeDisconnectModal()}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
           <DialogHeader>
             <DialogTitle>Disconnect Slack</DialogTitle>
             <DialogDescription>
@@ -344,12 +401,11 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={closeDisconnectModal} className="border-white/20 text-white/80 hover:bg-white/10">
+            <Button variant="secondary" onClick={closeDisconnectModal}>
               Cancel
             </Button>
             <Button
-              variant="secondary"
-              className="border-red-500/50 bg-red-500/10 text-red-200 hover:bg-red-500/20"
+              variant="destructive"
               onClick={async () => {
                 if (connectionToDisconnect) {
                   await disconnect(connectionToDisconnect.connectionId, connectionToDisconnect.provider);

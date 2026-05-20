@@ -19,32 +19,32 @@ function Calendar({
     <DayPicker
       showOutsideDays={showOutsideDays}
       navLayout="around"
-      className={cn('rdp-root p-3 text-white', className)}
+      className={cn('rdp-root p-3 text-[var(--text-primary)]', className)}
       classNames={{
         root: 'rdp-root',
         months: 'flex flex-col sm:flex-row gap-2',
         month: 'flex flex-col gap-2 relative',
         month_caption: 'flex justify-center items-center min-h-9 pt-1 pb-2 mx-9 relative',
-        caption_label: 'text-sm font-medium text-white',
+        caption_label: 'text-sm font-medium text-[var(--text-primary)]',
         nav: 'flex items-center gap-1',
-        button_previous: 'absolute left-0 top-0 h-9 w-9 bg-transparent p-0 opacity-70 hover:opacity-100 inline-flex items-center justify-center rounded border border-white/20 text-white hover:bg-white/10',
-        button_next: 'absolute right-0 top-0 h-9 w-9 bg-transparent p-0 opacity-70 hover:opacity-100 inline-flex items-center justify-center rounded border border-white/20 text-white hover:bg-white/10',
+        button_previous: 'absolute left-0 top-0 h-9 w-9 bg-transparent p-0 opacity-70 hover:opacity-100 inline-flex items-center justify-center rounded border border-[var(--border-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-secondary)]',
+        button_next: 'absolute right-0 top-0 h-9 w-9 bg-transparent p-0 opacity-70 hover:opacity-100 inline-flex items-center justify-center rounded border border-[var(--border-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-secondary)]',
         month_grid: 'w-full border-collapse',
         weekdays: 'flex',
-        weekday: 'text-white/60 rounded-md w-9 font-normal text-[0.8rem]',
+        weekday: 'text-[var(--text-secondary)] rounded-md w-9 font-normal text-[0.8rem]',
         week: 'flex w-full mt-1',
-        day: 'relative p-0 text-center text-sm focus-within:relative focus-within:z-20 [&:has([aria-selected])]:bg-white/10 [&:has([aria-selected].day-outside)]:bg-white/5 [&:has([aria-selected].day-range-end)]:rounded-r-md',
+        day: 'relative p-0 text-center text-sm focus-within:relative focus-within:z-20 [&:has([aria-selected])]:bg-[var(--bg-secondary)] [&:has([aria-selected].day-outside)]:bg-[var(--bg-secondary)] [&:has([aria-selected].day-range-end)]:rounded-r-md',
         day_button:
-          'h-9 w-9 p-0 font-normal aria-selected:opacity-100 rounded-md border border-transparent hover:bg-white/10 hover:border-white/20 text-white inline-flex items-center justify-center',
-        range_start: 'day-range-start rounded-l-md bg-white/20 text-white',
-        range_middle: 'day-range-middle bg-white/10 rounded-none',
-        range_end: 'day-range-end rounded-r-md bg-white/20 text-white',
+          'h-9 w-9 p-0 font-normal aria-selected:opacity-100 rounded-md border border-transparent hover:bg-[var(--bg-secondary)] hover:border-[var(--border-tertiary)] text-[var(--text-primary)] inline-flex items-center justify-center',
+        range_start: 'day-range-start rounded-l-md bg-[var(--bg-secondary)] text-[var(--text-primary)]',
+        range_middle: 'day-range-middle bg-[var(--bg-secondary)] rounded-none',
+        range_end: 'day-range-end rounded-r-md bg-[var(--bg-secondary)] text-[var(--text-primary)]',
         selected:
-          'bg-white text-black hover:bg-white hover:text-black focus:bg-white focus:text-black',
-        today: 'bg-white/20 text-white',
+          'bg-[var(--text-primary)] text-[var(--bg-page)] hover:bg-[var(--text-primary)] hover:text-[var(--bg-page)] focus:bg-[var(--text-primary)] focus:text-[var(--bg-page)]',
+        today: 'bg-[var(--bg-secondary)] text-[var(--text-primary)]',
         outside:
-          'day-outside text-white/40 opacity-50 aria-selected:bg-white/5 aria-selected:text-white/40',
-        disabled: 'text-white/30 opacity-50',
+          'day-outside text-[var(--text-secondary)] opacity-50 aria-selected:bg-[var(--bg-secondary)] aria-selected:text-[var(--text-secondary)]',
+        disabled: 'text-[var(--text-secondary)] opacity-50',
         hidden: 'invisible',
         ...classNames,
       }}

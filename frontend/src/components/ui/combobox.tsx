@@ -54,18 +54,18 @@ export function Combobox({
           type="button"
           disabled={disabled}
           className={cn(
-            'flex h-10 w-full items-center justify-between gap-2 rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/15 focus:border-white/40 focus:outline-none focus:ring-1 focus:ring-white/20 disabled:cursor-not-allowed disabled:opacity-50',
+            'flex h-10 w-full items-center justify-between gap-2 rounded-md border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] px-3 py-2 text-sm text-[var(--text-primary)] transition hover:bg-[var(--bg-secondary)] focus:border-[var(--border-tertiary)] focus:outline-none focus:ring-1 focus:ring-white/20 disabled:cursor-not-allowed disabled:opacity-50',
             className
           )}
         >
-          <span className={cn('truncate', !selected?.label && 'text-white/50')}>
+          <span className={cn('truncate', !selected?.label && 'text-[var(--text-secondary)]')}>
             {selected?.label ?? placeholder}
           </span>
-          <ChevronsUpDown className="h-4 w-4 shrink-0 text-white/50" />
+          <ChevronsUpDown className="h-4 w-4 shrink-0 text-[var(--text-secondary)]" />
         </button>
       </PopoverTrigger>
       <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-        <Command className="rounded-lg border-0 shadow-none">
+        <Command className="rounded-lg border-0 ">
           <CommandInput placeholder={searchPlaceholder} />
           <CommandList style={{ maxHeight: listMaxHeight }}>
             <CommandEmpty>{emptyText}</CommandEmpty>

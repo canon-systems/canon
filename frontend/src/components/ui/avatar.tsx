@@ -1,49 +1,39 @@
-"use client";
+const AVATAR_COLORS = [
+  '#6B5CE7',
+  '#0D9488',
+  '#2563EB',
+  '#E05D44',
+  '#16A34A',
+  '#9333EA',
+  '#D97706',
+];
 
-import * as React from "react";
-import * as AvatarPrimitive from "@radix-ui/react-avatar";
-import { cn } from "./utils";
+function getColor(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i += 1) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
 
-const Avatar = React.forwardRef<
-  React.ElementRef<typeof AvatarPrimitive.Root>,
-  React.ComponentPropsWithoutRef<typeof AvatarPrimitive.Root>
->(({ className, ...props }, ref) => (
-  <AvatarPrimitive.Root
-    ref={ref}
-    className={cn(
-      "relative flex h-9 w-9 shrink-0 overflow-hidden rounded-full",
-      className
-    )}
-    {...props}
-  />
-));
-Avatar.displayName = AvatarPrimitive.Root.displayName;
+function getInitials(name: string): string {
+  return name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase();
+}
 
-const AvatarImage = React.forwardRef<
-  React.ElementRef<typeof AvatarPrimitive.Image>,
-  React.ComponentPropsWithoutRef<typeof AvatarPrimitive.Image>
->(({ className, ...props }, ref) => (
-  <AvatarPrimitive.Image
-    ref={ref}
-    className={cn("aspect-square h-full w-full", className)}
-    {...props}
-  />
-));
-AvatarImage.displayName = AvatarPrimitive.Image.displayName;
+const sizes = {
+  lg: 'w-11 h-11 text-[15px]',
+  md: 'w-[34px] h-[34px] text-[12px]',
+  sm: 'w-8 h-8 text-[11px]',
+  xs: 'w-[26px] h-[26px] text-[10px]',
+};
 
-const AvatarFallback = React.forwardRef<
-  React.ElementRef<typeof AvatarPrimitive.Fallback>,
-  React.ComponentPropsWithoutRef<typeof AvatarPrimitive.Fallback>
->(({ className, ...props }, ref) => (
-  <AvatarPrimitive.Fallback
-    ref={ref}
-    className={cn(
-      "flex h-full w-full items-center justify-center rounded-full bg-white/10 text-sm font-semibold text-white",
-      className
-    )}
-    {...props}
-  />
-));
-AvatarFallback.displayName = AvatarPrimitive.Fallback.displayName;
-
-export { Avatar, AvatarImage, AvatarFallback };
+export function Avatar({ name, size = 'md' }: { name: string; size?: keyof typeof sizes }) {
+  return (
+    <div
+      className={`${sizes[size]} rounded-full flex items-center justify-center font-medium text-[var(--text-primary)] flex-shrink-0`}
+      style={{ backgroundColor: getColor(name) }}
+    >
+      {getInitials(name)}
+    </div>
+  );
+}

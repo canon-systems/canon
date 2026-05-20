@@ -7,13 +7,13 @@ const alertVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-white/10 text-white border-white/20",
+        default: "bg-[var(--bg-secondary)] text-[var(--text-primary)] border-[var(--border-tertiary)]",
         destructive:
-          "border-white/25 bg-white/10 text-white [&>svg]:text-white/80",
+          "border-[var(--border-tertiary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] [&>svg]:text-[var(--text-secondary)]",
         warning:
-          "border-white/20 bg-white/10 text-white [&>svg]:text-white/80",
+          "border-[var(--border-tertiary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] [&>svg]:text-[var(--text-secondary)]",
         success:
-          "border-white/20 bg-white/10 text-white [&>svg]:text-white/80",
+          "border-[var(--border-tertiary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] [&>svg]:text-[var(--text-secondary)]",
       },
     },
     defaultVariants: {

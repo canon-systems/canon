@@ -75,10 +75,10 @@ export function AccessClient() {
   if (loading) {
     return (
       <div className="mx-auto max-w-5xl space-y-6">
-        <Skeleton className="h-8 w-40 bg-white/10" />
-        <Skeleton className="h-10 w-full bg-white/10 rounded-xl" />
+        <Skeleton className="h-8 w-40 bg-[var(--bg-secondary)]" />
+        <Skeleton className="h-10 w-full bg-[var(--bg-secondary)] rounded-xl" />
         <div className="space-y-2">
-          {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-14 bg-white/10 rounded-xl" />)}
+          {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-14 bg-[var(--bg-secondary)] rounded-xl" />)}
         </div>
       </div>
     );
@@ -87,35 +87,35 @@ export function AccessClient() {
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-white">Access Requests</h1>
-        <p className="text-white/50 text-sm mt-0.5">
-          {counts.pending + counts.sent} pending · {counts.acknowledged} acknowledged · {counts.granted} granted
+        <h1 className="text-2xl font-medium text-[var(--text-primary)]">Access Requests</h1>
+        <p className="text-[var(--text-secondary)] text-sm mt-0.5">
+          {counts.pending + counts.sent} Pending · {counts.acknowledged} Acknowledged · {counts.granted} Granted
         </p>
       </div>
 
       {requests.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-white/10 py-16 text-center">
-          <Key className="h-10 w-10 text-white/20 mb-3" />
-          <h3 className="text-white font-medium mb-1">No access requests yet</h3>
-          <p className="text-white/40 text-sm mb-5 max-w-xs">
+        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-[var(--border-tertiary)] py-16 text-center">
+          <Key className="h-10 w-10 text-[var(--text-secondary)] mb-3" />
+          <h3 className="text-[var(--text-primary)] font-medium mb-1">No Access Requests Yet</h3>
+          <p className="text-[var(--text-secondary)] text-sm mb-5 max-w-xs">
             Access requests are created automatically when you add a new hire, based on their role.
           </p>
           <Link href="/new-hires/new">
-            <Button size="sm" className="bg-white text-black hover:bg-white/90">Add a new hire</Button>
+            <Button size="sm" className="bg-[var(--text-primary)] text-[var(--bg-page)] hover:bg-[var(--bg-secondary)]">Add a New Hire</Button>
           </Link>
         </div>
       ) : (
         <>
           {/* Filter tabs */}
-          <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-zinc-900 p-1 w-fit">
+          <div className="flex items-center gap-1 rounded-lg border border-[var(--border-tertiary)] bg-zinc-900 p-1 w-fit">
             {(['all', ...STATUS_ORDER] as const).map((s) => (
               <button
                 key={s}
                 onClick={() => setStatusFilter(s)}
                 className={`px-3 py-1.5 rounded-md text-xs transition-colors capitalize ${
                   statusFilter === s
-                    ? 'bg-white/10 text-white'
-                    : 'text-white/50 hover:text-white/80'
+                    ? 'bg-[var(--bg-secondary)] text-[var(--text-primary)]'
+                    : 'text-[var(--text-secondary)] hover:text-[var(--text-secondary)]'
                 }`}
               >
                 {s === 'all' ? `All (${counts.all})` : `${s.charAt(0).toUpperCase() + s.slice(1)} (${counts[s as keyof typeof counts]})`}
@@ -123,36 +123,36 @@ export function AccessClient() {
             ))}
           </div>
 
-          <div className="rounded-xl border border-white/10 bg-zinc-900 overflow-hidden">
+          <div className="rounded-xl border border-[var(--border-tertiary)] bg-zinc-900 overflow-hidden">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-white/10">
-                  <th className="text-left px-4 py-3 text-white/40 font-medium text-xs uppercase tracking-wide">Tool</th>
-                  <th className="text-left px-4 py-3 text-white/40 font-medium text-xs uppercase tracking-wide">New hire</th>
-                  <th className="text-left px-4 py-3 text-white/40 font-medium text-xs uppercase tracking-wide hidden sm:table-cell">Requested from</th>
-                  <th className="text-left px-4 py-3 text-white/40 font-medium text-xs uppercase tracking-wide">Status</th>
-                  <th className="text-left px-4 py-3 text-white/40 font-medium text-xs uppercase tracking-wide hidden md:table-cell">Sent</th>
+                <tr className="border-b border-[var(--border-tertiary)]">
+                  <th className="text-left px-4 py-3 text-[var(--text-secondary)] font-medium text-xs uppercase tracking-wide">Tool</th>
+                  <th className="text-left px-4 py-3 text-[var(--text-secondary)] font-medium text-xs uppercase tracking-wide">New Hire</th>
+                  <th className="text-left px-4 py-3 text-[var(--text-secondary)] font-medium text-xs uppercase tracking-wide hidden sm:table-cell">Requested From</th>
+                  <th className="text-left px-4 py-3 text-[var(--text-secondary)] font-medium text-xs uppercase tracking-wide">Status</th>
+                  <th className="text-left px-4 py-3 text-[var(--text-secondary)] font-medium text-xs uppercase tracking-wide hidden md:table-cell">Sent</th>
                   <th className="px-4 py-3" />
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((req) => (
-                  <tr key={req.id} className="border-b border-white/5 last:border-0 hover:bg-white/5 transition-colors">
-                    <td className="px-4 py-3 text-white font-medium">{req.tool_name}</td>
+                  <tr key={req.id} className="border-b border-[var(--border-tertiary)] last:border-0 hover:bg-[var(--bg-secondary)] transition-colors">
+                    <td className="px-4 py-3 text-[var(--text-primary)] font-medium">{req.tool_name}</td>
                     <td className="px-4 py-3">
-                      <Link href={`/new-hires/${req.new_hire_id}`} className="text-white hover:text-white/80 transition-colors">
+                      <Link href={`/new-hires/${req.new_hire_id}`} className="text-[var(--text-primary)] hover:text-[var(--text-secondary)] transition-colors">
                         {req.new_hires?.name ?? '—'}
                       </Link>
                       {req.new_hires?.role && (
-                        <p className="text-white/30 text-xs">{req.new_hires.role}</p>
+                        <p className="text-[var(--text-secondary)] text-xs">{req.new_hires.role}</p>
                       )}
                     </td>
                     <td className="px-4 py-3 hidden sm:table-cell">
-                      <p className="text-white/60">{req.requested_from_name}</p>
-                      <p className="text-white/30 text-xs">{req.requested_from_email}</p>
+                      <p className="text-[var(--text-secondary)]">{req.requested_from_name}</p>
+                      <p className="text-[var(--text-secondary)] text-xs">{req.requested_from_email}</p>
                     </td>
                     <td className="px-4 py-3">{statusBadge(req.status)}</td>
-                    <td className="px-4 py-3 text-white/40 hidden md:table-cell">{formatDate(req.sent_at)}</td>
+                    <td className="px-4 py-3 text-[var(--text-secondary)] hidden md:table-cell">{formatDate(req.sent_at)}</td>
                     <td className="px-4 py-3">
                       {req.status !== 'granted' && (
                         <Button
@@ -160,9 +160,9 @@ export function AccessClient() {
                           variant="outline"
                           onClick={() => markGranted(req.id)}
                           disabled={updating === req.id}
-                          className="border-white/20 text-white/60 hover:bg-white/10 text-xs h-7"
+                          className="border-[var(--border-tertiary)] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] text-xs h-7"
                         >
-                          {updating === req.id ? 'Marking...' : 'Mark granted'}
+                          {updating === req.id ? 'Marking...' : 'Mark Granted'}
                         </Button>
                       )}
                     </td>

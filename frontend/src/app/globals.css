@@ -4,12 +4,57 @@
   color-scheme: dark;
   --font-ui-fallback: "Inter", "SF Pro Display", "Segoe UI", system-ui, -apple-system, sans-serif;
   --font-display-fallback: "Space Grotesk", "Inter", "SF Pro Display", sans-serif;
+  /* Brand */
+  --canon-purple: #6B5CE7;
+  --canon-purple-light: rgba(107, 92, 231, 0.14);
+  --canon-purple-border: rgba(107, 92, 231, 0.55);
+  --canon-purple-dark: #6B5CE7;
+
+  /* Surfaces */
+  --bg-page: #10100F;
+  --bg-sidebar: #242522;
+  --bg-primary: #30302D;
+  --bg-secondary: #242522;
+  --bg-tertiary: #171716;
+
+  /* Borders */
+  --border-tertiary: #3A3A35;
+  --border-secondary: #4A4A43;
+
+  /* Text */
+  --text-primary: #F5F3EF;
+  --text-secondary: #C9C5BD;
+  --text-tertiary: #9B968E;
+
+  /* Semantic: Green */
+  --green: #16A34A;
+  --green-bg: rgba(22, 163, 74, 0.18);
+  --green-border: rgba(22, 163, 74, 0.25);
+  --green-text: #16A34A;
+
+  /* Semantic: Amber */
+  --amber: #D97706;
+  --amber-bg: rgba(217, 119, 6, 0.18);
+  --amber-border: rgba(217, 119, 6, 0.25);
+  --amber-text: #C45500;
+
+  /* Semantic: Red */
+  --red: #DC2626;
+  --red-bg: rgba(220, 38, 38, 0.18);
+  --red-border: rgba(220, 38, 38, 0.25);
+  --red-text: #EF4444;
+
+  /* Semantic: Teal */
+  --teal: #0D9488;
+  --teal-bg: rgba(13, 148, 136, 0.12);
+
+  /* Semantic: Blue */
+  --blue: #2563EB;
+  --blue-bg: rgba(37, 99, 235, 0.12);
+
   --bg-base: #000;
-  --bg-secondary: #050505;
   --bg-elevated: rgba(12, 12, 12, 0.9);
   --bg-highlight: rgba(255, 255, 255, 0.04);
-  --text-primary: #ffffff;
-  --text-secondary: #d5d5d5;
   --text-muted: #9ca3af;
   --accent: #f5f5f5;
   --accent-secondary: #f8fafc;
@@ -65,7 +110,7 @@ body {
   }
 
   line-height: 1.6;
-  background: #09090b; /* zinc-950 */
+  background-color: var(--bg-page);
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
 }

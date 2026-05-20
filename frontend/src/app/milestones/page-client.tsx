@@ -1,22 +1,21 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { Target, Plus, Pencil, X } from 'lucide-react';
+import { Fragment, useState, useEffect, useCallback } from 'react';
+import { IconInfoCircle, IconTarget, IconX } from '@tabler/icons-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { AddMilestoneCard, MilestoneCard } from '@/components/milestone-card';
 import type { HireRole, RampMilestone } from '@/types/onboarding';
 
 const ROLES: HireRole[] = ['AI Solutions Architect', 'Solutions Engineer', 'Implementation Engineer'];
 
-const ROLE_COLORS: Record<HireRole, string> = {
-  'AI Solutions Architect': 'bg-purple-500/20 text-purple-300',
-  'Solutions Engineer': 'bg-blue-500/20 text-blue-300',
-  'Implementation Engineer': 'bg-emerald-500/20 text-emerald-300',
+const ROLE_META: Record<HireRole, { id: string; color: string; abbr: string; label: string }> = {
+  'AI Solutions Architect': { id: 'ai-sa', color: '#0D9488', abbr: 'AI', label: 'AI Solutions Architect' },
+  'Solutions Engineer': { id: 'se', color: '#6B5CE7', abbr: 'SE', label: 'Solutions Engineer' },
+  'Implementation Engineer': { id: 'ie', color: '#2563EB', abbr: 'IE', label: 'Implementation Engineer' },
 };
 
 type MilestoneForm = {
@@ -77,187 +76,147 @@ export function MilestonesClient() {
   const byRole = (role: HireRole) =>
     milestones.filter((m) => m.role === role).sort((a, b) => a.day_trigger - b.day_trigger);
 
+  const activeMilestones = byRole(activeRole);
+
   if (loading) {
     return (
-      <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8 space-y-6">
-        <Skeleton className="h-8 w-32 bg-white/10" />
-        <Skeleton className="h-10 w-full bg-white/10 rounded-xl" />
-        <div className="space-y-3">
-          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-24 bg-white/10 rounded-xl" />)}
+      <div className="flex h-full flex-col">
+        <div className="px-6 py-5 border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
+          <Skeleton className="h-8 w-40 bg-[var(--bg-primary)]" />
+        </div>
+        <div className="px-6 py-4 space-y-3">
+          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-24 rounded-[10px] bg-[var(--bg-primary)]" />)}
         </div>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8 space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-white">Milestones</h1>
-        <p className="text-white/50 text-sm mt-0.5">What Canon delivers and when</p>
+    <div className="flex h-full flex-col overflow-hidden">
+      <div className="px-6 pt-5 pb-4 border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
+        <h1 className="text-[20px] font-medium" style={{ color: 'var(--text-primary)' }}>Milestones</h1>
+        <p className="text-[13px] mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>What Canon Delivers and When</p>
       </div>
 
-      <div className="rounded-lg border border-white/10 bg-white/5 px-4 py-3">
-        <p className="text-white/50 text-sm">These milestone templates drive Canon&apos;s proactive Slack messages. Global defaults apply to all workspaces; org-specific milestones override them.</p>
-      </div>
-
-      <Tabs value={activeRole} onValueChange={(v) => { setActiveRole(v as HireRole); setShowAddForm(false); }}>
-        <TabsList className="bg-zinc-900 border border-white/10 h-auto gap-0">
-          {ROLES.map((role) => (
-            <TabsTrigger
-              key={role}
-              value={role}
-              className="data-[state=active]:bg-white/10 data-[state=active]:text-white text-white/50 text-xs py-2 px-4"
-            >
-              {role}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-
+      <div className="flex gap-[10px] px-6 py-[14px] border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
         {ROLES.map((role) => {
-          const roleMilestones = byRole(role);
+          const meta = ROLE_META[role];
+          const active = activeRole === role;
           return (
-            <TabsContent key={role} value={role} className="mt-4 space-y-3">
-              {roleMilestones.length === 0 ? (
-                <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-white/10 py-12 text-center">
-                  <Target className="h-9 w-9 text-white/20 mb-3" />
-                  <p className="text-white/40 text-sm">No milestones for this role yet.</p>
-                </div>
-              ) : (
-                <div className="relative pl-5 border-l border-white/10 space-y-3">
-                  {roleMilestones.map((m) => (
-                    <div key={m.id} className="relative">
-                      <div className="absolute -left-6 top-5 h-2 w-2 rounded-full bg-blue-500 border-2 border-zinc-950" />
-                      <div className="rounded-xl border border-white/10 bg-zinc-900 p-5">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex items-start gap-3 flex-1">
-                            <Badge className="bg-white/10 text-white border-0 text-xs shrink-0 mt-0.5">Day {m.day_trigger}</Badge>
-                            <div className="flex-1">
-                              <p className="text-white font-medium">{m.title}</p>
-                              <p className="text-white/50 text-sm mt-1">{m.description}</p>
-                              <div className="flex items-center gap-2 mt-2">
-                                <span className="text-white/30 text-xs">Query:</span>
-                                <span className="text-white/40 text-xs font-mono truncate max-w-xs">{m.knowledge_query}</span>
-                              </div>
-                              {m.organization_id === null && (
-                                <Badge className={`${ROLE_COLORS[role]} border-0 text-xs mt-2`}>Global default</Badge>
-                              )}
-                            </div>
-                          </div>
-                          {m.organization_id !== null && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => { setEditingMilestone(m); }}
-                              className="text-white/30 hover:text-white/70 h-7 w-7 p-0 shrink-0"
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {!showAddForm ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => { setShowAddForm(true); setForm(emptyForm(role)); }}
-                  className="border-white/20 text-white/60 hover:bg-white/10 flex items-center gap-1.5 h-8 text-xs"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  Add milestone
-                </Button>
-              ) : (
-                <form onSubmit={handleAdd} className="rounded-xl border border-white/10 bg-zinc-900 p-5 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <p className="text-white text-sm font-medium">New milestone</p>
-                    <button type="button" onClick={() => setShowAddForm(false)} className="text-white/30 hover:text-white/70">
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Input
-                      type="number"
-                      value={form.day_trigger}
-                      onChange={(e) => setField('day_trigger', e.target.value)}
-                      placeholder="Day (e.g. 45)"
-                      className="border-white/10 bg-white/5 text-white placeholder:text-white/30 text-sm"
-                    />
-                    <Input
-                      value={form.title}
-                      onChange={(e) => setField('title', e.target.value)}
-                      placeholder="Milestone title"
-                      className="border-white/10 bg-white/5 text-white placeholder:text-white/30 text-sm"
-                    />
-                  </div>
-                  <Textarea
-                    value={form.description}
-                    onChange={(e) => setField('description', e.target.value)}
-                    placeholder="What this milestone covers"
-                    className="border-white/10 bg-white/5 text-white placeholder:text-white/30 text-sm min-h-[72px]"
-                  />
-                  <Input
-                    value={form.knowledge_query}
-                    onChange={(e) => setField('knowledge_query', e.target.value)}
-                    placeholder="Knowledge query keywords"
-                    className="border-white/10 bg-white/5 text-white placeholder:text-white/30 text-sm"
-                  />
-                  <div className="flex gap-2">
-                    <Button type="submit" disabled={submitting} size="sm" className="bg-white text-black hover:bg-white/90 h-8 text-xs">
-                      {submitting ? 'Saving...' : 'Save milestone'}
-                    </Button>
-                    <Button type="button" size="sm" variant="outline" onClick={() => setShowAddForm(false)} className="border-white/20 text-white/60 hover:bg-white/10 h-8 text-xs">
-                      Cancel
-                    </Button>
-                  </div>
-                </form>
-              )}
-            </TabsContent>
+            <button
+              key={meta.id}
+              onClick={() => { setActiveRole(role); setShowAddForm(false); setForm(emptyForm(role)); }}
+              className="flex items-center gap-[7px] px-[14px] py-2 rounded-[8px] border text-[13px] transition-all duration-[120ms] cursor-pointer"
+              style={{
+                backgroundColor: active ? 'var(--canon-purple-light)' : 'transparent',
+                borderColor: active ? 'var(--canon-purple-border)' : 'var(--border-tertiary)',
+                color: active ? 'var(--canon-purple-dark)' : 'var(--text-secondary)',
+                fontWeight: active ? 500 : 400,
+              }}
+            >
+              <div className="w-[22px] h-[22px] rounded-[5px] flex items-center justify-center text-[11px] font-medium text-[var(--text-primary)] flex-shrink-0" style={{ backgroundColor: meta.color }}>
+                {meta.abbr}
+              </div>
+              {meta.label}
+              <span
+                className="text-[11px] px-[6px] py-[1px] rounded-[4px]"
+                style={{
+                  backgroundColor: active ? 'var(--canon-purple-light)' : 'var(--bg-secondary)',
+                  color: active ? 'var(--canon-purple-dark)' : 'var(--text-tertiary)',
+                }}
+              >
+                {byRole(role).length}
+              </span>
+            </button>
           );
         })}
-      </Tabs>
+      </div>
 
-      {/* Edit dialog */}
+      <div
+        className="mx-6 mt-[14px] px-[14px] py-[10px] rounded-[8px] flex items-center gap-2 text-[12px] leading-[1.5] border"
+        style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-tertiary)', color: 'var(--text-secondary)' }}
+      >
+        <IconInfoCircle size={14} style={{ color: 'var(--canon-purple)', flexShrink: 0 }} />
+        Global defaults apply to all new hires in this role. Add org-specific milestones to override or extend them for your team.
+      </div>
+
+      {activeMilestones.length === 0 && !showAddForm ? (
+        <div className="flex flex-col items-center justify-center flex-1 gap-3 py-12">
+          <IconTarget size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
+          <div className="text-[14px] font-medium" style={{ color: 'var(--text-secondary)' }}>No Milestones for This Role</div>
+          <div className="text-[12px] text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
+            Add a milestone to define what Canon should send for this role.
+          </div>
+          <Button size="sm" onClick={() => { setShowAddForm(true); setForm(emptyForm(activeRole)); }}>Add Milestone</Button>
+        </div>
+      ) : (
+        <div className="flex gap-5 px-6 py-4 overflow-y-auto flex-1">
+          <div className="flex flex-col items-center pt-[6px] flex-shrink-0">
+            {activeMilestones.map((_, i) => (
+              <Fragment key={i}>
+                <div className="w-[10px] h-[10px] rounded-full flex-shrink-0 z-10" style={{ backgroundColor: 'var(--canon-purple)' }} />
+                {i < activeMilestones.length - 1 && (
+                  <div className="w-[2px] flex-1 my-1 min-h-[60px]" style={{ backgroundColor: 'var(--border-tertiary)' }} />
+                )}
+              </Fragment>
+            ))}
+          </div>
+          <div className="flex-1 flex flex-col gap-3 pb-4">
+            {activeMilestones.map((m) => (
+              <MilestoneCard key={m.id} milestone={m} onEdit={setEditingMilestone} />
+            ))}
+            {!showAddForm ? (
+              <AddMilestoneCard roleName={ROLE_META[activeRole].label} onAdd={() => { setShowAddForm(true); setForm(emptyForm(activeRole)); }} />
+            ) : (
+              <form onSubmit={handleAdd} className="rounded-[10px] border p-4 space-y-4" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}>
+                <div className="flex items-center justify-between">
+                  <p className="text-[13px] font-medium" style={{ color: 'var(--text-primary)' }}>New Milestone</p>
+                  <button type="button" onClick={() => setShowAddForm(false)} className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)]">
+                    <IconX size={16} />
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <Input type="number" value={form.day_trigger} onChange={(e) => setField('day_trigger', e.target.value)} placeholder="Day (e.g. 45)" className="input-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] text-sm" />
+                  <Input value={form.title} onChange={(e) => setField('title', e.target.value)} placeholder="Milestone Title" className="input-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] text-sm" />
+                </div>
+                <Textarea value={form.description} onChange={(e) => setField('description', e.target.value)} placeholder="What This Milestone Covers" className="textarea-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] text-sm min-h-[72px]" />
+                <Input value={form.knowledge_query} onChange={(e) => setField('knowledge_query', e.target.value)} placeholder="Knowledge Query Keywords" className="input-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] text-sm" />
+                <div className="flex gap-2">
+                  <Button type="submit" disabled={submitting} size="sm">{submitting ? 'Saving...' : 'Save Milestone'}</Button>
+                  <Button type="button" size="sm" variant="secondary" onClick={() => setShowAddForm(false)}>Cancel</Button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
       <Dialog open={!!editingMilestone} onOpenChange={(open) => { if (!open) setEditingMilestone(null); }}>
-        <DialogContent className="max-w-md bg-zinc-900 border-white/10 text-white">
+        <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
           <DialogHeader>
-            <DialogTitle className="text-white">Edit milestone</DialogTitle>
+            <DialogTitle className="text-[var(--text-primary)]">Edit Milestone</DialogTitle>
           </DialogHeader>
           {editingMilestone && (
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <p className="text-white/40 text-xs mb-1">Day trigger</p>
-                  <p className="text-white font-medium">Day {editingMilestone.day_trigger}</p>
+                  <p className="text-[11px] mb-1" style={{ color: 'var(--text-tertiary)' }}>Day Trigger</p>
+                  <p className="text-[13px] font-medium" style={{ color: 'var(--text-primary)' }}>Day {editingMilestone.day_trigger}</p>
                 </div>
                 <div>
-                  <p className="text-white/40 text-xs mb-1">Role</p>
-                  <p className="text-white font-medium text-sm">{editingMilestone.role}</p>
+                  <p className="text-[11px] mb-1" style={{ color: 'var(--text-tertiary)' }}>Role</p>
+                  <p className="text-[13px] font-medium" style={{ color: 'var(--text-primary)' }}>{editingMilestone.role}</p>
                 </div>
               </div>
               <div>
-                <p className="text-white/40 text-xs mb-1">Title</p>
-                <p className="text-white">{editingMilestone.title}</p>
+                <p className="text-[11px] mb-1" style={{ color: 'var(--text-tertiary)' }}>Title</p>
+                <p className="text-[13px]" style={{ color: 'var(--text-primary)' }}>{editingMilestone.title}</p>
               </div>
               <div>
-                <p className="text-white/40 text-xs mb-1">Description</p>
-                <p className="text-white/70 text-sm">{editingMilestone.description}</p>
+                <p className="text-[11px] mb-1" style={{ color: 'var(--text-tertiary)' }}>Description</p>
+                <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>{editingMilestone.description}</p>
               </div>
-              <div>
-                <p className="text-white/40 text-xs mb-1">Knowledge query</p>
-                <p className="text-white/50 text-xs font-mono">{editingMilestone.knowledge_query}</p>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setEditingMilestone(null)}
-                className="border-white/20 text-white/60 hover:bg-white/10 w-full h-8 text-xs"
-              >
-                Close
-              </Button>
+              <Button variant="secondary" size="sm" onClick={() => setEditingMilestone(null)}>Close</Button>
             </div>
           )}
         </DialogContent>

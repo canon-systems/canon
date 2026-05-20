@@ -13,7 +13,7 @@ const Progress = React.forwardRef<HTMLDivElement, ProgressProps>(
       <div
         ref={ref}
         className={cn(
-          "relative h-2 w-full overflow-hidden rounded-full bg-white/10",
+          "relative h-2 w-full overflow-hidden rounded-full bg-[var(--bg-secondary)]",
           className
         )}
         {...props}
@@ -42,10 +42,10 @@ function ProgressWithLabel({ label, value, className }: ProgressWithLabelProps) 
   return (
     <div className={cn("w-full space-y-2", className)}>
       <div className="flex items-center justify-between gap-2">
-        <span className="text-sm font-medium text-white truncate">{label}</span>
-        <span className="text-sm font-medium text-white tabular-nums shrink-0">{pct}%</span>
+        <span className="text-sm font-medium text-[var(--text-primary)] truncate">{label}</span>
+        <span className="text-sm font-medium text-[var(--text-primary)] tabular-nums shrink-0">{pct}%</span>
       </div>
-      <Progress value={pct} className="h-1.5 bg-white/15" />
+      <Progress value={pct} className="h-1.5 bg-[var(--bg-secondary)]" />
     </div>
   );
 }

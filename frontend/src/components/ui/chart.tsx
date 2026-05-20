@@ -91,11 +91,11 @@ export function ChartTooltipContent({
   return (
     <div
       className={cn(
-        'rounded-md border border-white/20 bg-zinc-950/95 px-3 py-2 text-xs text-white shadow-xl',
+        'rounded-md border border-[var(--border-tertiary)] bg-zinc-950/95 px-3 py-2 text-xs text-[var(--text-primary)] ',
         className
       )}
     >
-      {!hideLabel ? <p className="mb-2 text-white/70">{labelFormatter ? labelFormatter(label) : label}</p> : null}
+      {!hideLabel ? <p className="mb-2 text-[var(--text-secondary)]">{labelFormatter ? labelFormatter(label) : label}</p> : null}
       <div className="space-y-1.5">
         {payload.map((item, idx) => {
           const key = String(item.dataKey ?? item.name ?? idx);
@@ -105,9 +105,9 @@ export function ChartTooltipContent({
             <div key={`${key}-${idx}`} className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full" style={{ backgroundColor: dotColor }} />
-                <span className="text-white/80">{cfg?.label ?? item.name ?? key}</span>
+                <span className="text-[var(--text-secondary)]">{cfg?.label ?? item.name ?? key}</span>
               </div>
-              <span className="font-medium text-white">
+              <span className="font-medium text-[var(--text-primary)]">
                 {valueFormatter ? valueFormatter(item.value ?? 0, item) : item.value}
               </span>
             </div>

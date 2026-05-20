@@ -1,20 +1,16 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import {
-  LayoutDashboard,
-  Users,
-  Database,
-  Radar,
-  Target,
-  Settings,
-  LogOut,
-  ChevronLeft,
-  ChevronRight,
-} from 'lucide-react';
+  IconBrain,
+  IconFlag,
+  IconLayoutDashboard,
+  IconLogout,
+  IconRadar,
+  IconSettings,
+  IconUsers,
+} from '@tabler/icons-react';
 import type { Session, User } from '@supabase/supabase-js';
 import { cn } from './ui/utils';
 
@@ -25,99 +21,69 @@ interface NavigationProps {
 }
 
 const primaryNav = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, exact: true },
-  { href: '/new-hires', label: 'New Hires', icon: Users, exact: false },
-  { href: '/knowledge', label: 'Knowledge', icon: Database, exact: false },
-  { href: '/milestones', label: 'Milestones', icon: Target, exact: false },
-  { href: '/readiness', label: 'Readiness', icon: Radar, exact: false },
+  { href: '/dashboard', label: 'Dashboard', icon: IconLayoutDashboard, exact: true },
+  { href: '/new-hires', label: 'New Hires', icon: IconUsers, exact: false },
+  { href: '/knowledge', label: 'Knowledge', icon: IconBrain, exact: false },
+  { href: '/milestones', label: 'Milestones', icon: IconFlag, exact: false },
+  { href: '/readiness', label: 'Readiness', icon: IconRadar, exact: false },
 ];
 
 const secondaryNav = [
-  { href: '/settings', label: 'Settings', icon: Settings, exact: false },
+  { href: '/settings', label: 'Settings', icon: IconSettings, exact: false },
 ];
 
 export function Navigation({ user, onLogout }: NavigationProps) {
   const pathname = usePathname();
-  const [collapsed, setCollapsed] = useState(false);
-  const loadedPreference = useRef(false);
-
-  useEffect(() => {
-    const id = window.setTimeout(() => {
-      const saved = localStorage.getItem('canon-nav-collapsed');
-      if (saved === 'true') setCollapsed(true);
-      loadedPreference.current = true;
-    }, 0);
-
-    return () => window.clearTimeout(id);
-  }, []);
-
-  useEffect(() => {
-    if (loadedPreference.current) localStorage.setItem('canon-nav-collapsed', String(collapsed));
-  }, [collapsed]);
 
   const isActive = (href: string, exact = false) => {
     if (exact) return pathname === href;
     return pathname.startsWith(href);
   };
 
-  const toggle = () => setCollapsed((v) => !v);
+  const userEmail = user?.email ?? 'User';
+  const userInitials = userEmail
+    .split('@')[0]
+    .split(/[._-]/)
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase() || 'U';
 
   const navLinkClass = (active: boolean) =>
     cn(
-      'flex items-center rounded-lg py-2 text-sm transition-colors',
-      collapsed ? 'justify-center px-0' : 'gap-3 px-3',
-      active ? 'bg-white/10 text-white font-medium' : 'text-white/60 hover:bg-white/5 hover:text-white/90'
+      'flex items-center gap-[9px] px-4 py-2 text-[13px] rounded-[6px] mx-2 my-px cursor-pointer transition-colors duration-[120ms]',
+      active
+        ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] font-medium'
+        : 'text-[var(--text-secondary)] hover:bg-[var(--bg-primary)] hover:text-[var(--text-primary)]'
     );
-
-  const iconClass = (active: boolean) =>
-    cn('h-4 w-4 shrink-0', active ? 'text-white' : 'text-white/40');
 
   return (
     <aside
-      className={cn(
-        'relative flex h-screen shrink-0 flex-col border-r border-white/[0.08] bg-zinc-900 transition-all duration-200',
-        collapsed ? 'w-14' : 'w-60'
-      )}
+      className="flex h-screen w-[200px] shrink-0 flex-col border-r py-5"
+      style={{
+        backgroundColor: 'var(--bg-sidebar)',
+        borderColor: 'var(--border-tertiary)',
+      }}
     >
-      {/* Toggle button — centered vertically on the right edge */}
-      <button
-        onClick={toggle}
-        title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        className="absolute -right-3 top-1/2 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full border border-white/[0.12] bg-zinc-800 text-white/40 shadow-md transition-colors hover:bg-zinc-700 hover:text-white/80"
-      >
-        {collapsed ? (
-          <ChevronRight className="h-3 w-3" />
-        ) : (
-          <ChevronLeft className="h-3 w-3" />
-        )}
-      </button>
-
-      {/* Brand header */}
       <div
-        className={cn(
-          'flex items-center border-b border-white/[0.08]',
-          collapsed ? 'justify-center px-0 py-5' : 'gap-3 px-5 py-5'
-        )}
+        className="flex items-center gap-[9px] px-4 pb-5 border-b mb-3"
+        style={{ borderColor: 'var(--border-tertiary)' }}
       >
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-zinc-800">
-          <Image
-            src="/web-app-manifest-512x512.png"
-            alt="Canon"
-            width={20}
-            height={20}
-            className="rounded"
-          />
+        <div
+          className="w-7 h-7 rounded-[7px] flex items-center justify-center flex-shrink-0"
+          style={{ backgroundColor: 'var(--canon-purple)' }}
+        >
+          <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4" aria-hidden="true">
+            <circle cx="8" cy="8" r="5" stroke="white" strokeWidth="1.5" />
+            <circle cx="8" cy="8" r="2" fill="white" />
+          </svg>
         </div>
-        {!collapsed && (
-          <div className="flex flex-col leading-tight">
-            <span className="text-sm font-semibold text-white">Canon</span>
-          </div>
-        )}
+        <span className="text-[15px] font-medium" style={{ color: 'var(--text-primary)' }}>Canon</span>
       </div>
 
-      {/* Nav */}
-      <nav className="flex-1 overflow-y-auto px-2 py-4">
-        <div className="space-y-0.5">
+      <nav className="flex-1 overflow-y-auto">
+        <div>
           {primaryNav.map((item) => {
             const active = isActive(item.href, item.exact);
             const Icon = item.icon;
@@ -125,19 +91,16 @@ export function Navigation({ user, onLogout }: NavigationProps) {
               <Link
                 key={item.href}
                 href={item.href}
-                title={collapsed ? item.label : undefined}
                 className={navLinkClass(active)}
               >
-                <Icon className={iconClass(active)} />
-                {!collapsed && item.label}
+                <Icon size={15} />
+                {item.label}
               </Link>
             );
           })}
         </div>
 
-        <div className="my-3 border-t border-white/[0.08]" />
-
-        <div className="space-y-0.5">
+        <div className="mt-3">
           {secondaryNav.map((item) => {
             const active = isActive(item.href, item.exact);
             const Icon = item.icon;
@@ -145,56 +108,37 @@ export function Navigation({ user, onLogout }: NavigationProps) {
               <Link
                 key={item.href}
                 href={item.href}
-                title={collapsed ? item.label : undefined}
                 className={navLinkClass(active)}
               >
-                <Icon className={iconClass(active)} />
-                {!collapsed && item.label}
+                <Icon size={15} />
+                {item.label}
               </Link>
             );
           })}
         </div>
-
       </nav>
 
-      {/* User footer */}
-      <div className="border-t border-white/[0.08] px-2 py-3">
-        {collapsed ? (
-          <div className="flex flex-col items-center gap-2">
-            <div
-              title={user?.email}
-              className="flex h-7 w-7 items-center justify-center rounded-full bg-white/10 text-xs font-semibold text-white"
-            >
-              {user?.email?.[0]?.toUpperCase() ?? 'U'}
-            </div>
-            <button
-              onClick={onLogout}
-              title="Log out"
-              className="rounded p-1 text-white/30 hover:text-white/70 transition-colors"
-            >
-              <LogOut className="h-3.5 w-3.5" />
-            </button>
+      <div className="mt-auto pt-3 px-4 border-t" style={{ borderColor: 'var(--border-tertiary)' }}>
+        <div className="flex items-center gap-2">
+          <div
+            className="w-[26px] h-[26px] rounded-full flex items-center justify-center text-[10px] font-medium text-[var(--text-primary)] flex-shrink-0"
+            style={{ backgroundColor: 'var(--canon-purple)' }}
+          >
+            {userInitials}
           </div>
-        ) : (
-          <div className="flex items-center gap-3 rounded-lg px-2 py-2">
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/10 text-xs font-semibold text-white">
-              {user?.email?.[0]?.toUpperCase() ?? 'U'}
-            </div>
-            <div className="flex min-w-0 flex-1 flex-col">
-              <span className="truncate text-xs font-medium text-white">
-                {user?.user_metadata?.full_name as string | undefined ?? user?.email?.split('@')[0] ?? 'User'}
-              </span>
-              <span className="truncate text-[10px] text-white/40">{user?.email}</span>
-            </div>
-            <button
-              onClick={onLogout}
-              aria-label="Log out"
-              className="shrink-0 rounded p-1 text-white/30 hover:text-white/70 transition-colors"
-            >
-              <LogOut className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        )}
+          <span className="text-[12px] truncate flex-1" style={{ color: 'var(--text-secondary)' }}>
+            {userEmail}
+          </span>
+          <button
+            type="button"
+            onClick={onLogout}
+            aria-label="Log Out"
+            title="Log Out"
+            className="w-7 h-7 rounded-md border border-[var(--border-tertiary)] bg-transparent flex items-center justify-center cursor-pointer text-[var(--text-tertiary)] hover:bg-[var(--bg-primary)] hover:text-[var(--text-primary)] transition-colors duration-[120ms]"
+          >
+            <IconLogout size={14} />
+          </button>
+        </div>
       </div>
     </aside>
   );

@@ -68,7 +68,7 @@ export const Sidebar = React.forwardRef<HTMLDivElement, SidebarProps>(function S
       <div
         className={cn(
           'group/sidebar relative',
-          'rounded-2xl border border-white/10 bg-white/5 p-4 shadow-[0_30px_80px_rgba(0,0,0,0.45)] backdrop-blur-2xl',
+          'rounded-2xl border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] p-4  backdrop-blur-2xl',
           'transition-all duration-300 ease-in-out',
           open ? 'translate-y-0 opacity-100 pointer-events-auto' : '-translate-y-2 opacity-0 pointer-events-none',
           'lg:sticky lg:top-24'
@@ -115,14 +115,14 @@ export const SidebarFooter = React.forwardRef<HTMLDivElement, SidebarSectionProp
   { className, ...props },
   ref
 ) {
-  return <div ref={ref} className={cn('mt-6 border-t border-white/10 pt-4', className)} {...props} />;
+  return <div ref={ref} className={cn('mt-6 border-t border-[var(--border-tertiary)] pt-4', className)} {...props} />;
 });
 
 export const SidebarGroup = React.forwardRef<HTMLDivElement, SidebarSectionProps>(function SidebarGroup(
   { className, ...props },
   ref
 ) {
-  return <div ref={ref} className={cn('space-y-2 rounded-xl border border-white/10 bg-white/5 p-3', className)} {...props} />;
+  return <div ref={ref} className={cn('space-y-2 rounded-xl border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] p-3', className)} {...props} />;
 });
 
 export const SidebarGroupLabel = React.forwardRef<HTMLParagraphElement, React.HTMLAttributes<HTMLParagraphElement>>(
@@ -130,7 +130,7 @@ export const SidebarGroupLabel = React.forwardRef<HTMLParagraphElement, React.HT
     return (
       <p
         ref={ref}
-        className={cn('text-xs text-white/60 block mb-1', className)}
+        className={cn('text-xs text-[var(--text-secondary)] block mb-1', className)}
         {...props}
       />
     );
@@ -169,8 +169,8 @@ export const SidebarMenuButton = React.forwardRef<
       className={cn(
         'w-full rounded-lg border border-transparent px-3 py-2 text-left text-sm transition',
         active
-          ? 'border-white/20 bg-white/15 text-white shadow-[0_10px_40px_rgba(0,0,0,0.35)]'
-          : 'bg-white/5 text-white/80 hover:border-white/15 hover:bg-white/10',
+          ? 'border-[var(--border-tertiary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] '
+          : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:border-[var(--border-tertiary)] hover:bg-[var(--bg-secondary)]',
         className
       )}
       {...props}
@@ -195,13 +195,13 @@ export const SidebarTrigger = React.forwardRef<HTMLButtonElement, SidebarTrigger
       variant="ghost"
       size="icon"
       aria-pressed={open}
-      aria-label={open ? 'Collapse sidebar' : 'Expand sidebar'}
+      aria-label={open ? 'Collapse Sidebar' : 'Expand Sidebar'}
       onClick={(event) => {
         toggle();
         onClick?.(event);
       }}
       className={cn(
-        'h-10 w-10 rounded-full border border-white/10 bg-white/5 text-white hover:bg-white/10',
+        'h-10 w-10 rounded-full border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] hover:bg-[var(--bg-secondary)]',
         className
       )}
       {...props}

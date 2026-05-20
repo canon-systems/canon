@@ -31,7 +31,7 @@ export default async function RootLayout({
 
   return (
     <html lang="en" className="dark">
-      <body className={`min-h-screen bg-zinc-950 text-white antialiased ${inter.variable} ${interDisplay.variable}`}>
+      <body className={`min-h-screen antialiased ${inter.variable} ${interDisplay.variable}`}>
         <RootLayoutClient user={user} session={session}>
           {children}
         </RootLayoutClient>

@@ -2,11 +2,18 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { Users, MessageSquare, Key, Plus, ArrowRight } from 'lucide-react';
+import {
+  IconAlertTriangle,
+  IconArrowRight,
+  IconLockOpen,
+  IconPlus,
+  IconSend,
+  IconUsers,
+} from '@tabler/icons-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Avatar } from '@/components/ui/avatar';
+import { StatusBadge } from '@/components/ui/status-badge';
 
 type HireRow = {
   id: string;
@@ -34,16 +41,6 @@ type DashboardData = {
   pending_access_count: number;
   stalled_requests: AccessRow[];
 };
-
-function initials(name: string) {
-  return name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
-}
-
-function statusColor(status: string) {
-  if (status === 'active') return 'bg-emerald-500';
-  if (status === 'paused') return 'bg-amber-500';
-  return 'bg-zinc-500';
-}
 
 export function DashboardClient() {
   const [data, setData] = useState<DashboardData | null>(null);
@@ -101,137 +98,198 @@ export function DashboardClient() {
 
   useEffect(() => { void load(); }, [load]);
 
+  const formattedDate = new Date().toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  });
+
   const stats = [
-    { label: 'Active hires', value: data?.active_hires.length ?? 0, icon: Users, href: '/new-hires' },
-    { label: 'Deliveries sent', value: data?.total_deliveries ?? 0, icon: MessageSquare, href: null },
-    { label: 'Pending access', value: data?.pending_access_count ?? 0, icon: Key, href: null },
+    {
+      label: 'Active Hires',
+      value: data?.active_hires.length ?? 0,
+      icon: IconUsers,
+      iconBg: 'rgba(107,92,231,0.12)',
+      iconColor: 'var(--canon-purple)',
+      delta: `+${data?.active_hires.length ?? 0}`,
+      deltaLabel: 'Currently Active',
+      deltaColor: 'var(--green-text)',
+      href: '/new-hires',
+    },
+    {
+      label: 'Deliveries Sent',
+      value: data?.total_deliveries ?? 0,
+      icon: IconSend,
+      iconBg: 'rgba(22,163,74,0.12)',
+      iconColor: 'var(--green)',
+      delta: '100%',
+      deltaLabel: 'Delivery Tracking',
+      deltaColor: 'var(--green-text)',
+      href: null,
+    },
+    {
+      label: 'Pending Access',
+      value: data?.pending_access_count ?? 0,
+      icon: IconLockOpen,
+      iconBg: 'rgba(217,119,6,0.12)',
+      iconColor: 'var(--amber)',
+      delta: `${data?.stalled_requests.length ?? 0} Stalled`,
+      deltaLabel: 'Needs Action',
+      deltaColor: 'var(--amber-text)',
+      href: null,
+    },
   ];
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-6xl space-y-8">
-        <Skeleton className="h-9 w-40 bg-white/10" />
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-28 bg-white/10 rounded-xl" />)}
+      <div className="flex h-full flex-col">
+        <div className="flex items-start justify-between px-6 pt-5 pb-4 border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
+          <div className="space-y-2">
+            <Skeleton className="h-6 w-32 bg-[var(--bg-primary)]" />
+            <Skeleton className="h-4 w-28 bg-[var(--bg-primary)]" />
+          </div>
+          <Skeleton className="h-8 w-24 bg-[var(--bg-primary)]" />
         </div>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <Skeleton className="h-64 bg-white/10 rounded-xl" />
-          <Skeleton className="h-64 bg-white/10 rounded-xl" />
+        <div className="grid grid-cols-3 gap-3 p-6 pb-0">
+          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-28 rounded-[10px] bg-[var(--bg-primary)]" />)}
+        </div>
+        <div className="grid gap-4 p-6 pt-5 flex-1" style={{ gridTemplateColumns: 'minmax(520px, 1fr) 340px' }}>
+          <Skeleton className="rounded-[10px] bg-[var(--bg-primary)]" />
+          <Skeleton className="rounded-[10px] bg-[var(--bg-primary)]" />
         </div>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-8">
-      <div className="flex items-center justify-between">
+    <div className="flex h-full flex-col overflow-hidden">
+      <div className="flex items-start justify-between px-6 pt-5 pb-4 border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
         <div>
-          <h1 className="text-2xl font-semibold text-white">Dashboard</h1>
-          <p className="text-white/50 text-sm mt-0.5">
-            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-          </p>
+          <h1 className="text-[20px] font-medium" style={{ color: 'var(--text-primary)' }}>Dashboard</h1>
+          <p className="text-[13px] mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>{formattedDate}</p>
         </div>
-        <div className="flex items-center gap-2">
-          <Link href="/new-hires/new">
-            <Button size="sm" className="bg-white text-black hover:bg-white/90 flex items-center gap-1.5">
-              <Plus className="h-4 w-4" />
-              Add hire
-            </Button>
-          </Link>
-        </div>
+        <Link href="/new-hires/new">
+          <Button size="sm"><IconPlus size={14} /> Add Hire</Button>
+        </Link>
       </div>
 
-      {/* Stat cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {stats.map((s) => {
-          const Icon = s.icon;
-          const inner = (
-            <div className="rounded-xl border border-white/10 bg-zinc-900 p-6 hover:border-white/20 transition-colors">
-              <div className="flex items-start justify-between">
-                <p className="text-sm text-white/50">{s.label}</p>
-                <Icon className="h-4 w-4 text-white/30" />
+      <div className="grid grid-cols-3 gap-3 p-6 pb-0">
+        {stats.map((stat) => {
+          const Icon = stat.icon;
+          const card = (
+            <div className="rounded-[10px] p-4 border" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}>
+              <div className="flex items-center justify-between mb-[10px]">
+                <span className="text-[11px] font-medium uppercase tracking-[0.06em]" style={{ color: 'var(--text-secondary)' }}>
+                  {stat.label}
+                </span>
+                <div className="w-[30px] h-[30px] rounded-[7px] flex items-center justify-center" style={{ backgroundColor: stat.iconBg }}>
+                  <Icon size={15} style={{ color: stat.iconColor }} />
+                </div>
               </div>
-              <p className="text-3xl font-bold text-white mt-2">{s.value}</p>
+              <div className="text-[28px] font-medium leading-none mb-[6px]" style={{ color: 'var(--text-primary)' }}>{stat.value}</div>
+              <div className="text-[12px] flex items-center gap-1" style={{ color: 'var(--text-tertiary)' }}>
+                <span style={{ color: stat.deltaColor, fontWeight: 500 }}>{stat.delta}</span> {stat.deltaLabel}
+              </div>
             </div>
           );
-          return s.href ? (
-            <Link key={s.label} href={s.href}>{inner}</Link>
-          ) : (
-            <div key={s.label}>{inner}</div>
-          );
+          return stat.href ? <Link key={stat.label} href={stat.href}>{card}</Link> : <div key={stat.label}>{card}</div>;
         })}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Active hires */}
-        <div className="rounded-xl border border-white/10 bg-zinc-900 p-6">
-          <div className="flex items-center justify-between mb-5">
-            <h2 className="text-sm font-medium text-white/70 uppercase tracking-wide">Active hires</h2>
-            <Link href="/new-hires" className="flex items-center gap-1 text-xs text-white/40 hover:text-white/70 transition-colors">
-              View all <ArrowRight className="h-3 w-3" />
+      <div className="grid gap-4 p-6 pt-5 flex-1 overflow-hidden" style={{ gridTemplateColumns: 'minmax(520px, 1fr) 340px' }}>
+        <div
+          className="overflow-hidden rounded-[10px] border"
+          style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}
+        >
+          <div className="flex items-center justify-between px-4 py-[14px] border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
+            <span className="text-[13px] font-medium" style={{ color: 'var(--text-primary)' }}>Active Hires</span>
+            <Link href="/new-hires" className="text-[12px] flex items-center gap-1" style={{ color: 'var(--canon-purple)' }}>
+              View All <IconArrowRight size={12} />
             </Link>
           </div>
 
           {data?.active_hires.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-10 text-center">
-              <Users className="h-8 w-8 text-white/20 mb-3" />
-              <p className="text-white/40 text-sm">No active hires</p>
-              <div className="mt-2">
-                <Link href="/new-hires/new">
-                  <Button variant="ghost" size="sm" className="text-white/40 hover:text-white text-xs">
-                    Add your first hire →
-                  </Button>
-                </Link>
+            <div className="flex flex-col items-center justify-center flex-1 gap-3 py-12">
+              <IconUsers size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
+              <div className="text-[14px] font-medium" style={{ color: 'var(--text-secondary)' }}>No Active Hires</div>
+              <div className="text-[12px] text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
+                Add a new hire to begin tracking their ramp.
               </div>
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="overflow-y-auto">
               {data?.active_hires.map((hire) => (
-                <Link key={hire.id} href={`/new-hires/${hire.id}`} className="block group">
-                  <div className="flex items-center gap-3 rounded-lg p-2.5 hover:bg-white/5 transition-colors">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white text-xs font-semibold shrink-0">
-                      {initials(hire.name)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-white text-sm font-medium truncate">{hire.name}</span>
-                        <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${statusColor(hire.status)}`} />
-                      </div>
-                      <p className="text-white/40 text-xs truncate">{hire.role}</p>
-                      <div className="flex items-center gap-2 mt-1.5">
-                        <Progress value={Math.min(100, (hire.ramp_day / 90) * 100)} className="h-1 flex-1 bg-white/10" />
-                        <span className="text-white/30 text-xs shrink-0">D{hire.ramp_day}</span>
-                      </div>
-                    </div>
+                <Link
+                  key={hire.id}
+                  href={`/new-hires/${hire.id}`}
+                  className="flex items-center gap-3 px-4 py-[11px] border-b cursor-pointer transition-colors duration-[120ms] hover:bg-[var(--bg-secondary)]"
+                  style={{ borderColor: 'var(--border-tertiary)' }}
+                >
+                  <Avatar name={hire.name} size="sm" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[13px] font-medium truncate" style={{ color: 'var(--text-primary)' }}>{hire.name}</div>
+                    <div className="text-[11px] mt-[1px] truncate" style={{ color: 'var(--text-tertiary)' }}>{hire.role}</div>
                   </div>
+                  <div className="w-[120px] flex-shrink-0">
+                    <div className="h-1 rounded-sm" style={{ backgroundColor: 'var(--border-tertiary)' }}>
+                      <div
+                        className="h-full rounded-sm"
+                        style={{
+                          width: `${Math.min(100, (hire.ramp_day / 90) * 100)}%`,
+                          background: 'linear-gradient(90deg, #6B5CE7, #9B8DF5)',
+                        }}
+                      />
+                    </div>
+                    <div className="text-[11px] mt-[3px]" style={{ color: 'var(--text-tertiary)' }}>D{hire.ramp_day}</div>
+                  </div>
+                  <div
+                    className="w-[6px] h-[6px] rounded-full flex-shrink-0"
+                    style={{ backgroundColor: hire.status === 'active' ? 'var(--green)' : 'var(--amber)' }}
+                  />
                 </Link>
               ))}
             </div>
           )}
         </div>
 
-        {/* Stalled access requests */}
-        <div className="rounded-xl border border-white/10 bg-zinc-900 p-6">
-          <div className="flex items-center justify-between mb-5">
-            <h2 className="text-sm font-medium text-white/70 uppercase tracking-wide">Needs attention</h2>
+        <div
+          className="w-[340px] flex-shrink-0 overflow-hidden rounded-[10px] border"
+          style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}
+        >
+          <div className="flex items-center justify-between px-4 py-[14px] border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
+            <span className="text-[13px] font-medium" style={{ color: 'var(--text-primary)' }}>Needs Attention</span>
+            <span className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>{data?.stalled_requests.length ?? 0} Items</span>
           </div>
 
           {data?.stalled_requests.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-10 text-center">
-              <Key className="h-8 w-8 text-white/20 mb-3" />
-              <p className="text-white/40 text-sm">All access requests are current</p>
+            <div className="flex flex-col items-center justify-center flex-1 gap-3 py-12 px-6">
+              <IconLockOpen size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
+              <div className="text-[14px] font-medium" style={{ color: 'var(--text-secondary)' }}>All Current</div>
+              <div className="text-[12px] text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
+                No stalled access requests need action.
+              </div>
             </div>
           ) : (
-            <div className="space-y-2">
+            <div className="overflow-y-auto">
               {data?.stalled_requests.map((req) => (
-                <div key={req.id} className="flex items-center justify-between rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3">
-                  <div>
-                    <p className="text-white text-sm font-medium">{req.tool_name}</p>
-                    <p className="text-white/40 text-xs">
-                      {req.new_hire_name} · via {req.requested_from_name}
-                    </p>
+                <div
+                  key={req.id}
+                  className="flex items-start gap-[10px] px-4 py-[11px] border-b cursor-pointer hover:bg-[var(--bg-secondary)] transition-colors duration-[120ms]"
+                  style={{ borderColor: 'var(--border-tertiary)' }}
+                >
+                  <div
+                    className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 mt-[1px]"
+                    style={{ backgroundColor: 'var(--amber-bg)', color: 'var(--amber)' }}
+                  >
+                    <IconAlertTriangle size={13} />
                   </div>
-                  <Badge className="bg-amber-500/20 text-amber-300 border-0 text-xs shrink-0">Stalled</Badge>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[13px] font-medium truncate" style={{ color: 'var(--text-primary)' }}>{req.tool_name}</div>
+                    <div className="text-[11px] mt-[1px] truncate" style={{ color: 'var(--text-tertiary)' }}>
+                      {req.new_hire_name} · via {req.requested_from_name}
+                    </div>
+                  </div>
+                  <StatusBadge variant="stalled" />
                 </div>
               ))}
             </div>

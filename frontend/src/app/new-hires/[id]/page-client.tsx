@@ -3,16 +3,25 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Plus, CalendarDays, Briefcase } from 'lucide-react';
+import {
+  IconArrowLeft,
+  IconBriefcase,
+  IconCalendar,
+  IconChevronDown,
+  IconPlayerPause,
+  IconPlayerPlay,
+  IconPlus,
+  IconUsers,
+} from '@tabler/icons-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Avatar } from '@/components/ui/avatar';
+import { StatusBadge } from '@/components/ui/status-badge';
+import { MilestoneProgress } from '@/components/ui/milestone-progress';
 import type { RampDelivery, AccessRequest } from '@/types/onboarding';
 
-const MILESTONE_DAYS = [1, 7, 14, 30, 60, 90];
+const MILESTONE_DAYS = [1, 7, 14, 30, 45, 60, 90];
 
 type HireDetail = {
   hire: {
@@ -29,33 +38,32 @@ type HireDetail = {
   access_requests: AccessRequest[];
 };
 
-function initials(name: string) {
-  return name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
+function deliveryVariant(status: string) {
+  if (status === 'delivered') return 'delivered';
+  if (status === 'failed') return 'error';
+  return 'upcoming';
 }
 
-function deliveryBadge(status: string) {
-  if (status === 'delivered') return <Badge className="bg-emerald-500/20 text-emerald-300 border-0 text-xs">Delivered</Badge>;
-  if (status === 'failed') return <Badge className="bg-red-500/20 text-red-300 border-0 text-xs">Failed</Badge>;
-  return <Badge className="bg-zinc-500/20 text-zinc-300 border-0 text-xs">Pending</Badge>;
-}
-
-function accessBadge(status: string) {
-  if (status === 'granted') return <Badge className="bg-emerald-500/20 text-emerald-300 border-0 text-xs">Granted</Badge>;
-  if (status === 'sent') return <Badge className="bg-amber-500/20 text-amber-300 border-0 text-xs">Sent</Badge>;
-  if (status === 'acknowledged') return <Badge className="bg-blue-500/20 text-blue-300 border-0 text-xs">Acknowledged</Badge>;
-  return <Badge className="bg-zinc-500/20 text-zinc-300 border-0 text-xs">Pending</Badge>;
+function accessVariant(status: string) {
+  if (status === 'granted') return 'delivered';
+  if (status === 'sent' || status === 'acknowledged') return 'stalled';
+  return 'pending';
 }
 
 function fmtDate(d: string | null) {
-  if (!d) return '—';
+  if (!d) return '-';
   return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+function fmtStartDate(d: string) {
+  return new Date(d).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 }
 
 export function NewHireDetailClient() {
   const params = useParams();
   const id = typeof params.id === 'string' ? params.id : '';
 
-  const [activeTab, setActiveTab] = useState<'deliveries' | 'access'>('deliveries');
+  const [activeTab, setActiveTab] = useState<'Deliveries' | 'Access'>('Deliveries');
   const [data, setData] = useState<HireDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -116,216 +124,203 @@ export function NewHireDetailClient() {
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 space-y-6">
-        <Skeleton className="h-5 w-36 bg-white/10" />
-        <Skeleton className="h-40 bg-white/10 rounded-xl" />
-        <Skeleton className="h-64 bg-white/10 rounded-xl" />
+      <div className="flex h-full flex-col">
+        <div className="px-5 pt-5 pb-4 border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
+          <Skeleton className="h-24 rounded-[10px] bg-[var(--bg-primary)]" />
+        </div>
+        <div className="px-5 py-5">
+          <Skeleton className="h-80 rounded-[10px] bg-[var(--bg-primary)]" />
+        </div>
       </div>
     );
   }
 
   if (error || !data) {
     return (
-      <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
-        <p className="text-red-300 mb-3">{error || 'Not found'}</p>
-        <Link href="/new-hires" className="text-white/50 hover:text-white text-sm">← Back to new hires</Link>
+      <div className="flex h-full flex-col items-center justify-center gap-3">
+        <div className="text-[14px] font-medium" style={{ color: 'var(--red-text)' }}>{error || 'Not Found'}</div>
+        <Link href="/new-hires" className="text-[12px] flex items-center gap-1" style={{ color: 'var(--canon-purple)' }}>
+          <IconArrowLeft size={12} /> Back to New Hires
+        </Link>
       </div>
     );
   }
 
   const { hire, deliveries, access_requests } = data;
   const progress = Math.min(100, (hire.ramp_day / 90) * 100);
+  const derivedMilestones = MILESTONE_DAYS.map((day) => ({
+    label: `D${day}`,
+    status: day < hire.ramp_day ? 'done' as const : day === hire.ramp_day ? 'current' as const : 'pending' as const,
+  }));
+  const counts = {
+    Deliveries: deliveries.length,
+    Access: access_requests.length,
+  };
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 space-y-6">
-      <Link href="/new-hires" className="flex items-center gap-1.5 text-white/40 hover:text-white/80 text-sm transition-colors">
-        <ArrowLeft className="h-4 w-4" />
-        New Hires
-      </Link>
-
-      {/* Hero card */}
-      <div className="rounded-xl border border-white/10 bg-zinc-900 p-6">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/10 text-white text-base font-bold shrink-0">
-              {initials(hire.name)}
+    <div className="flex h-full flex-col overflow-hidden">
+      <div className="px-5 pt-5 pb-4 border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
+        <Link href="/new-hires" className="inline-flex items-center gap-1 text-[12px] mb-4" style={{ color: 'var(--text-tertiary)' }}>
+          <IconArrowLeft size={13} /> New Hires
+        </Link>
+        <div className="flex items-start gap-[14px] mb-4">
+          <Avatar name={hire.name} size="lg" />
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              <span className="text-[18px] font-medium" style={{ color: 'var(--text-primary)' }}>{hire.name}</span>
+              <span
+                className="text-[11px] font-medium px-2 py-[2px] rounded-[4px] text-[var(--text-primary)]"
+                style={{ backgroundColor: 'var(--canon-purple)' }}
+              >
+                Day {hire.ramp_day}
+              </span>
+              {hire.status !== 'active' && <StatusBadge variant={hire.status === 'paused' ? 'paused' : 'completed'} />}
             </div>
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="text-xl font-semibold text-white">{hire.name}</h1>
-                <Badge className="bg-blue-500/20 text-blue-300 border-0 text-xs">Day {hire.ramp_day}</Badge>
-                {hire.status !== 'active' && (
-                  <Badge className={hire.status === 'paused' ? 'bg-amber-500/20 text-amber-300 border-0 text-xs' : 'bg-zinc-500/20 text-zinc-300 border-0 text-xs'}>
-                    {hire.status}
-                  </Badge>
-                )}
-              </div>
-              <div className="flex items-center gap-4 mt-1 flex-wrap">
-                <span className="flex items-center gap-1.5 text-white/50 text-xs">
-                  <Briefcase className="h-3.5 w-3.5" />
-                  {hire.role}
-                </span>
-                <span className="flex items-center gap-1.5 text-white/50 text-xs">
-                  <CalendarDays className="h-3.5 w-3.5" />
-                  Started {new Date(hire.start_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
-                </span>
-              </div>
+            <div className="flex items-center gap-2 mt-[3px] text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+              <IconBriefcase size={13} />
+              {hire.role}
+              <span style={{ color: 'var(--border-secondary)' }}>·</span>
+              <IconCalendar size={13} />
+              Started {fmtStartDate(hire.start_date)}
             </div>
           </div>
-
-          <div className="flex items-center gap-2">
-            {hire.status === 'active' && (
-              <Button size="sm" variant="outline" onClick={() => updateStatus('paused')} className="border-white/20 text-white/60 hover:bg-white/10 text-xs h-8">
-                Pause
-              </Button>
-            )}
-            {hire.status === 'paused' && (
-              <Button size="sm" variant="outline" onClick={() => updateStatus('active')} className="border-white/20 text-white/60 hover:bg-white/10 text-xs h-8">
-                Resume
-              </Button>
-            )}
-          </div>
-        </div>
-
-        {/* Ramp progress */}
-        <div className="mt-6">
-          <div className="relative">
-            <Progress value={progress} className="h-1.5 bg-white/10" />
-            <div className="flex justify-between mt-2">
-              {MILESTONE_DAYS.map((day) => (
-                <div key={day} className="flex flex-col items-center gap-0.5">
-                  <div
-                    className={`h-2 w-2 rounded-full -mt-3.5 border-2 border-zinc-900 ${
-                      hire.ramp_day >= day ? 'bg-blue-400' : 'bg-white/20'
-                    }`}
-                  />
-                  <span className="text-white/30 text-xs">D{day}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'deliveries' | 'access')}>
-        <TabsList className="bg-zinc-900 border border-white/10 h-auto">
-          <TabsTrigger value="deliveries" className="data-[state=active]:bg-white/10 data-[state=active]:text-white text-white/50 text-sm">
-            Deliveries ({deliveries.length})
-          </TabsTrigger>
-          <TabsTrigger value="access" className="data-[state=active]:bg-white/10 data-[state=active]:text-white text-white/50 text-sm">
-            Access ({access_requests.length})
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="deliveries" className="mt-4">
-          {deliveries.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-white/10 py-12 text-center">
-              <p className="text-white/40 text-sm">No deliveries yet — they appear when milestones are reached.</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {deliveries.map((d) => (
-                <div key={d.id} className="rounded-xl border border-white/10 bg-zinc-900 p-5">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1.5">
-                        {deliveryBadge(d.delivery_status)}
-                        {d.milestone && (
-                          <span className="text-white text-sm font-medium">
-                            Day {d.milestone.day_trigger} — {d.milestone.title}
-                          </span>
-                        )}
-                      </div>
-                      {d.content_delivered && (
-                        <p className="text-white/50 text-sm line-clamp-2">{d.content_delivered.slice(0, 200)}</p>
-                      )}
-                      {d.error_message && <p className="text-red-300 text-xs mt-1">{d.error_message}</p>}
-                    </div>
-                    <span className="text-white/30 text-xs shrink-0">{fmtDate(d.delivered_at ?? d.created_at)}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </TabsContent>
-
-        <TabsContent value="access" className="mt-4 space-y-3">
-          {access_requests.length > 0 && (
-            <div className="rounded-xl border border-white/10 bg-zinc-900 overflow-hidden">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-white/10">
-                    <th className="text-left px-4 py-3 text-white/40 font-medium text-xs uppercase tracking-wide">Tool</th>
-                    <th className="text-left px-4 py-3 text-white/40 font-medium text-xs uppercase tracking-wide hidden sm:table-cell">From</th>
-                    <th className="text-left px-4 py-3 text-white/40 font-medium text-xs uppercase tracking-wide">Status</th>
-                    <th className="text-left px-4 py-3 text-white/40 font-medium text-xs uppercase tracking-wide hidden md:table-cell">Sent</th>
-                    <th className="px-4 py-3" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {access_requests.map((ar) => (
-                    <tr key={ar.id} className="border-b border-white/5 last:border-0">
-                      <td className="px-4 py-3 text-white font-medium">{ar.tool_name}</td>
-                      <td className="px-4 py-3 text-white/60 hidden sm:table-cell">{ar.requested_from_name}</td>
-                      <td className="px-4 py-3">{accessBadge(ar.status)}</td>
-                      <td className="px-4 py-3 text-white/40 hidden md:table-cell">{fmtDate(ar.sent_at)}</td>
-                      <td className="px-4 py-3">
-                        {ar.status !== 'granted' && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => markGranted(ar.id)}
-                            className="border-white/20 text-white/60 hover:bg-white/10 text-xs h-7"
-                          >
-                            Mark granted
-                          </Button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {access_requests.length === 0 && !showArForm && (
-            <div className="rounded-xl border border-dashed border-white/10 py-10 text-center">
-              <p className="text-white/40 text-sm">No access requests yet.</p>
-            </div>
-          )}
-
-          {!showArForm ? (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowArForm(true)}
-              className="border-white/20 text-white/60 hover:bg-white/10 flex items-center gap-1.5 h-8"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Add access request
+          {hire.status === 'active' ? (
+            <Button variant="secondary" onClick={() => updateStatus('paused')}>
+              <IconPlayerPause size={13} /> Pause
             </Button>
           ) : (
-            <form onSubmit={addAccessRequest} className="rounded-xl border border-white/10 bg-zinc-900 p-5 space-y-3">
-              <p className="text-white text-sm font-medium">New access request</p>
-              <div className="grid grid-cols-2 gap-3">
-                <Input value={arForm.tool_name} onChange={(e) => setArForm((p) => ({ ...p, tool_name: e.target.value }))} placeholder="Tool name" className="border-white/10 bg-white/5 text-white placeholder:text-white/30 text-sm" />
-                <Input value={arForm.requested_from_name} onChange={(e) => setArForm((p) => ({ ...p, requested_from_name: e.target.value }))} placeholder="Who to ask" className="border-white/10 bg-white/5 text-white placeholder:text-white/30 text-sm" />
-                <Input value={arForm.requested_from_email} onChange={(e) => setArForm((p) => ({ ...p, requested_from_email: e.target.value }))} placeholder="Email" type="email" className="border-white/10 bg-white/5 text-white placeholder:text-white/30 text-sm" />
-                <Input value={arForm.requested_from_slack_id} onChange={(e) => setArForm((p) => ({ ...p, requested_from_slack_id: e.target.value }))} placeholder="Slack ID (optional)" className="border-white/10 bg-white/5 text-white placeholder:text-white/30 text-sm" />
-              </div>
-              <div className="flex gap-2">
-                <Button type="submit" disabled={arSubmitting} size="sm" className="bg-white text-black hover:bg-white/90 h-8 text-xs">
-                  {arSubmitting ? 'Adding...' : 'Add'}
-                </Button>
-                <Button type="button" size="sm" variant="outline" onClick={() => setShowArForm(false)} className="border-white/20 text-white/60 hover:bg-white/10 h-8 text-xs">
-                  Cancel
-                </Button>
-              </div>
-            </form>
+            <Button variant="secondary" onClick={() => updateStatus('active')}>
+              <IconPlayerPlay size={13} /> Resume
+            </Button>
           )}
-        </TabsContent>
-      </Tabs>
+        </div>
+        <MilestoneProgress milestones={derivedMilestones} progress={progress} />
+      </div>
+
+      <div className="flex border-b px-5" style={{ borderColor: 'var(--border-tertiary)' }}>
+        {(['Deliveries', 'Access'] as const).map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setActiveTab(tab)}
+            className="text-[13px] px-[14px] py-[10px] border-b-2 -mb-px transition-colors duration-[120ms]"
+            style={{
+              color: activeTab === tab ? 'var(--canon-purple)' : 'var(--text-secondary)',
+              borderBottomColor: activeTab === tab ? 'var(--canon-purple)' : 'transparent',
+              fontWeight: activeTab === tab ? 500 : 400,
+            }}
+          >
+            {tab} <span className="text-[11px] opacity-70">{counts[tab]}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-5 py-4">
+        {activeTab === 'Deliveries' && (
+          deliveries.length === 0 ? (
+            <div className="flex flex-col items-center justify-center flex-1 gap-3 py-12">
+              <IconUsers size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
+              <div className="text-[14px] font-medium" style={{ color: 'var(--text-secondary)' }}>No Deliveries Yet</div>
+              <div className="text-[12px] text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
+                Deliveries appear when ramp milestones are reached.
+              </div>
+            </div>
+          ) : (
+            deliveries.map((delivery) => {
+              const delivered = delivery.delivery_status === 'delivered';
+              return (
+                <div
+                  key={delivery.id}
+                  className="border rounded-[10px] mb-[10px] overflow-hidden cursor-pointer transition-colors duration-[120ms]"
+                  style={{ borderColor: 'var(--border-tertiary)', backgroundColor: 'var(--bg-primary)' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--border-secondary)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-tertiary)'; }}
+                >
+                  <div className="flex items-center gap-[10px] px-[14px] py-3">
+                    <StatusBadge variant={deliveryVariant(delivery.delivery_status)} label={delivered ? 'Delivered' : delivery.delivery_status === 'failed' ? 'Failed' : 'Upcoming'} />
+                    <span className="text-[13px] font-medium flex-1" style={{ color: 'var(--text-primary)' }}>
+                      {delivery.milestone ? `Day ${delivery.milestone.day_trigger} · ${delivery.milestone.title}` : 'Ramp Delivery'}
+                    </span>
+                    <span className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>{fmtDate(delivery.delivered_at ?? delivery.created_at)}</span>
+                  </div>
+                  <div className="px-[14px] pb-3 pt-[10px] border-t" style={{ borderColor: 'var(--border-tertiary)' }}>
+                    <p
+                      className="text-[12px] leading-[1.55] line-clamp-3"
+                      style={{ color: delivered ? 'var(--text-secondary)' : 'var(--text-tertiary)' }}
+                    >
+                      {delivery.content_delivered ?? delivery.error_message ?? 'This delivery has not been generated yet.'}
+                    </p>
+                    {delivered && (
+                      <button className="text-[11px] flex items-center gap-[3px] mt-[6px]" style={{ color: 'var(--canon-purple)' }}>
+                        <IconChevronDown size={11} /> Read Full Message
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )
+        )}
+
+        {activeTab === 'Access' && (
+          <div className="space-y-3">
+            {access_requests.length === 0 && !showArForm ? (
+              <div className="flex flex-col items-center justify-center flex-1 gap-3 py-12">
+                <IconUsers size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
+                <div className="text-[14px] font-medium" style={{ color: 'var(--text-secondary)' }}>No Access Requests</div>
+                <div className="text-[12px] text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
+                  Add requested tools and owners for this hire.
+                </div>
+              </div>
+            ) : (
+              access_requests.map((ar) => (
+                <div
+                  key={ar.id}
+                  className="rounded-[10px] border px-[14px] py-3 flex items-center gap-3"
+                  style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[13px] font-medium" style={{ color: 'var(--text-primary)' }}>{ar.tool_name}</div>
+                    <div className="text-[11px] mt-[1px]" style={{ color: 'var(--text-tertiary)' }}>
+                      {ar.requested_from_name} · sent {fmtDate(ar.sent_at)}
+                    </div>
+                  </div>
+                  <StatusBadge variant={accessVariant(ar.status)} label={ar.status} />
+                  {ar.status !== 'granted' && (
+                    <Button size="sm" variant="secondary" onClick={() => markGranted(ar.id)}>
+                      Mark Granted
+                    </Button>
+                  )}
+                </div>
+              ))
+            )}
+
+            {!showArForm ? (
+              <Button variant="secondary" size="sm" onClick={() => setShowArForm(true)}>
+                <IconPlus size={13} /> Add Access Request
+              </Button>
+            ) : (
+              <form onSubmit={addAccessRequest} className="rounded-[10px] border p-4 space-y-3" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}>
+                <p className="text-[13px] font-medium" style={{ color: 'var(--text-primary)' }}>New Access Request</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <Input value={arForm.tool_name} onChange={(e) => setArForm((p) => ({ ...p, tool_name: e.target.value }))} placeholder="Tool Name" className="input-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] text-sm" />
+                  <Input value={arForm.requested_from_name} onChange={(e) => setArForm((p) => ({ ...p, requested_from_name: e.target.value }))} placeholder="Who to Ask" className="input-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] text-sm" />
+                  <Input value={arForm.requested_from_email} onChange={(e) => setArForm((p) => ({ ...p, requested_from_email: e.target.value }))} placeholder="Email" type="email" className="input-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] text-sm" />
+                  <Input value={arForm.requested_from_slack_id} onChange={(e) => setArForm((p) => ({ ...p, requested_from_slack_id: e.target.value }))} placeholder="Slack ID (optional)" className="input-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] text-sm" />
+                </div>
+                <div className="flex gap-2">
+                  <Button type="submit" disabled={arSubmitting} size="sm">
+                    {arSubmitting ? 'Adding...' : 'Add'}
+                  </Button>
+                  <Button type="button" size="sm" variant="secondary" onClick={() => setShowArForm(false)}>
+                    Cancel
+                  </Button>
+                </div>
+              </form>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

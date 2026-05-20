@@ -1,24 +1,40 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Database, Plus, RefreshCw, Search } from 'lucide-react';
+import {
+  IconAlertCircle,
+  IconArrowRight,
+  IconChecks,
+  IconClock,
+  IconDatabase,
+  IconHash,
+  IconPlus,
+  IconRefresh,
+  IconSearch,
+} from '@tabler/icons-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { StatusBadge } from '@/components/ui/status-badge';
 import type { KnowledgeSource, SlackChannel } from '@/types/onboarding';
 
-function statusBadge(status: string) {
-  if (status === 'active') return <Badge className="bg-emerald-500/20 text-emerald-300 border-0 text-xs">Active</Badge>;
-  if (status === 'syncing') return <Badge className="bg-blue-500/20 text-blue-300 border-0 text-xs animate-pulse">Syncing</Badge>;
-  if (status === 'error') return <Badge className="bg-red-500/20 text-red-300 border-0 text-xs">Error</Badge>;
-  return <Badge className="bg-zinc-500/20 text-zinc-300 border-0 text-xs">Pending</Badge>;
+function statusVariant(status: string) {
+  if (status === 'active') return 'active';
+  if (status === 'error') return 'error';
+  if (status === 'syncing') return 'pending';
+  return 'pending';
 }
 
 function fmtDate(d: string | null) {
   if (!d) return 'Never';
   return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+function channelIconStyle(status: string) {
+  if (status === 'active') return { backgroundColor: 'var(--green-bg)', color: 'var(--green-text)' };
+  if (status === 'error') return { backgroundColor: 'var(--red-bg)', color: 'var(--red-text)' };
+  return { backgroundColor: 'var(--bg-secondary)', color: 'var(--text-tertiary)' };
 }
 
 export function KnowledgeClient() {
@@ -36,7 +52,9 @@ export function KnowledgeClient() {
     try {
       const res = await fetch('/api/onboarding/knowledge');
       const data = (await res.json()) as { sources?: KnowledgeSource[] };
-      setSources(data.sources ?? []);
+      const nextSources = data.sources ?? [];
+      setSources(nextSources);
+      setSelected((current) => current ?? nextSources[0] ?? null);
     } catch {
       // silent
     } finally {
@@ -97,144 +115,184 @@ export function KnowledgeClient() {
     (c) => c.name.toLowerCase().includes(channelSearch.toLowerCase())
   );
   const connectedIds = new Set(sources.map((s) => s.slack_channel_id).filter(Boolean));
+  const totalChunks = sources.reduce((sum, source) => sum + (source.chunk_count ?? 0), 0);
+  const activeCount = sources.filter((source) => source.status === 'active').length;
+  const errorCount = sources.filter((source) => source.status === 'error').length;
+  const pendingCount = sources.filter((source) => source.status === 'pending' || source.status === 'syncing').length;
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8 space-y-6">
-        <div className="flex items-center justify-between">
-          <Skeleton className="h-8 w-48 bg-white/10" />
-          <Skeleton className="h-9 w-32 bg-white/10" />
+      <div className="flex h-full flex-col">
+        <div className="px-6 py-5 border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
+          <Skeleton className="h-8 w-48 bg-[var(--bg-primary)]" />
         </div>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-1 space-y-2">
-            {[1, 2, 3].map((i) => <Skeleton key={i} className="h-16 bg-white/10 rounded-xl" />)}
-          </div>
-          <Skeleton className="lg:col-span-2 h-48 bg-white/10 rounded-xl" />
+        <div className="flex gap-3 px-6 py-[14px] border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
+          {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-16 flex-1 rounded-[8px] bg-[var(--bg-primary)]" />)}
         </div>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8 space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="flex h-full flex-col overflow-hidden">
+      <div className="flex items-start justify-between px-6 pt-5 pb-4 border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
         <div>
-          <h1 className="text-2xl font-semibold text-white">Knowledge</h1>
-          <p className="text-white/50 text-sm mt-0.5">Slack channels Canon learns from</p>
+          <h1 className="text-[20px] font-medium" style={{ color: 'var(--text-primary)' }}>Knowledge</h1>
+          <p className="text-[13px] mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>Slack Channels Canon Learns From</p>
         </div>
-        <Button onClick={openAddModal} size="sm" className="bg-white text-black hover:bg-white/90 flex items-center gap-1.5">
-          <Plus className="h-4 w-4" />
-          Add channel
-        </Button>
+        <Button onClick={openAddModal} size="sm"><IconPlus size={14} /> Add Channel</Button>
+      </div>
+
+      <div className="flex gap-3 px-6 py-[14px] border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
+        {[
+          { icon: IconDatabase, iconColor: 'var(--canon-purple)', iconBg: 'var(--canon-purple-light)', value: totalChunks, label: 'Total Chunks' },
+          { icon: IconChecks, iconColor: 'var(--green)', iconBg: 'var(--green-bg)', value: activeCount, label: 'Active Channels' },
+          { icon: IconAlertCircle, iconColor: 'var(--red)', iconBg: 'var(--red-bg)', value: errorCount, label: 'Needs Attention' },
+          { icon: IconClock, iconColor: 'var(--amber)', iconBg: 'var(--amber-bg)', value: pendingCount, label: 'Pending Sync' },
+        ].map(({ icon: Icon, iconColor, iconBg, value, label }) => (
+          <div key={label} className="rounded-[8px] px-4 py-[10px] flex items-center gap-[10px] flex-1" style={{ backgroundColor: 'var(--bg-secondary)' }}>
+            <div className="w-8 h-8 rounded-[7px] flex items-center justify-center" style={{ backgroundColor: iconBg, color: iconColor }}>
+              <Icon size={16} />
+            </div>
+            <div>
+              <div className="text-[18px] font-medium" style={{ color: 'var(--text-primary)' }}>{value}</div>
+              <div className="text-[11px] mt-[1px]" style={{ color: 'var(--text-tertiary)' }}>{label}</div>
+            </div>
+          </div>
+        ))}
       </div>
 
       {sources.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-white/10 py-16 text-center">
-          <Database className="h-10 w-10 text-white/20 mb-3" />
-          <h3 className="text-white font-medium mb-1">No knowledge sources yet</h3>
-          <p className="text-white/40 text-sm mb-5 max-w-sm">Connect Slack channels so Canon can learn from their history and power personalized onboarding messages.</p>
-          <Button onClick={openAddModal} size="sm" className="bg-white text-black hover:bg-white/90">Add a channel</Button>
+        <div className="flex flex-col items-center justify-center flex-1 gap-3 py-12">
+          <IconDatabase size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
+          <div className="text-[14px] font-medium" style={{ color: 'var(--text-secondary)' }}>No Knowledge Sources Yet</div>
+          <div className="text-[12px] text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
+            Connect Slack channels so Canon can learn from their history.
+          </div>
+          <Button onClick={openAddModal} size="sm"><IconPlus size={13} /> Add a Channel</Button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Channel list */}
-          <div className="lg:col-span-1 space-y-2">
+        <div className="flex flex-1 overflow-hidden">
+          <div className="w-[300px] flex-shrink-0 overflow-y-auto border-r" style={{ borderColor: 'var(--border-tertiary)' }}>
             {sources.map((source) => (
               <button
                 key={source.id}
-                onClick={() => setSelected(selected?.id === source.id ? null : source)}
-                className={`w-full text-left rounded-xl border p-4 transition-colors ${
-                  selected?.id === source.id
-                    ? 'border-white/30 bg-white/10'
-                    : 'border-white/10 bg-zinc-900 hover:border-white/20'
-                }`}
+                onClick={() => setSelected(source)}
+                className="w-full flex items-center gap-[10px] py-[11px] border-b cursor-pointer text-left transition-colors duration-[120ms]"
+                style={{
+                  padding: '11px 14px',
+                  borderColor: 'var(--border-tertiary)',
+                  backgroundColor: selected?.id === source.id ? 'rgba(107,92,231,0.10)' : 'transparent',
+                  borderLeft: selected?.id === source.id ? '3px solid var(--canon-purple)' : undefined,
+                }}
+                onMouseEnter={(e) => { if (selected?.id !== source.id) e.currentTarget.style.backgroundColor = 'var(--bg-secondary)'; }}
+                onMouseLeave={(e) => { if (selected?.id !== source.id) e.currentTarget.style.backgroundColor = 'transparent'; }}
               >
-                <div className="flex items-center gap-3">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-white text-xs font-bold shrink-0">#</div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-white text-sm font-medium truncate">{source.name}</p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      {statusBadge(source.status)}
-                      {source.chunk_count > 0 && (
-                        <span className="text-white/30 text-xs">{source.chunk_count} chunks</span>
-                      )}
-                    </div>
-                  </div>
+                <div className="w-8 h-8 rounded-[7px] flex items-center justify-center flex-shrink-0" style={channelIconStyle(source.status)}>
+                  <IconHash size={15} />
                 </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13px] font-medium truncate" style={{ color: 'var(--text-primary)' }}>{source.name}</div>
+                  <div className="text-[11px] mt-[1px]" style={{ color: 'var(--text-tertiary)' }}>{source.chunk_count} chunks</div>
+                </div>
+                <StatusBadge variant={statusVariant(source.status)} label={source.status} />
               </button>
             ))}
           </div>
 
-          {/* Preview panel */}
-          <div className="lg:col-span-2 rounded-xl border border-white/10 bg-zinc-900 p-6">
+          <div className="flex-1 overflow-y-auto px-6 py-5">
             {selected ? (
-              <div className="space-y-5">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h2 className="text-lg font-semibold text-white">{selected.name}</h2>
-                    <p className="text-white/40 text-sm mt-0.5">Last synced: {fmtDate(selected.last_synced_at)}</p>
+              <div className="max-w-4xl">
+                <div className="flex items-center justify-between gap-4 mb-5">
+                  <div className="flex items-center gap-3">
+                    <h2 className="text-[18px] font-medium" style={{ color: 'var(--text-primary)' }}>{selected.name}</h2>
+                    <StatusBadge variant={statusVariant(selected.status)} label={selected.status} />
                   </div>
                   <Button
                     size="sm"
-                    variant="outline"
+                    variant="secondary"
                     onClick={() => triggerSync(selected.id)}
                     disabled={syncing === selected.id || selected.status === 'syncing'}
-                    className="border-white/20 text-white/60 hover:bg-white/10 shrink-0 h-8 text-xs"
                   >
-                    <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${syncing === selected.id ? 'animate-spin' : ''}`} />
-                    {syncing === selected.id ? 'Syncing...' : 'Sync now'}
+                    <IconRefresh size={13} className={syncing === selected.id ? 'animate-spin' : ''} />
+                    {syncing === selected.id ? 'Syncing...' : 'Sync Now'}
                   </Button>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="rounded-lg border border-white/10 bg-white/5 p-4">
-                    <p className="text-white/40 text-xs uppercase tracking-wide mb-1">Status</p>
-                    <div>{statusBadge(selected.status)}</div>
-                  </div>
-                  <div className="rounded-lg border border-white/10 bg-white/5 p-4">
-                    <p className="text-white/40 text-xs uppercase tracking-wide mb-1">Knowledge chunks</p>
-                    <p className="text-white font-semibold">{selected.chunk_count ?? 0}</p>
-                  </div>
+                <div className="grid grid-cols-3 gap-3 mb-5">
+                  {[
+                    { label: 'Chunks', value: selected.chunk_count ?? 0 },
+                    { label: 'Last Synced', value: fmtDate(selected.last_synced_at) },
+                    { label: 'Provider', value: selected.provider.replace('_', ' ') },
+                  ].map((item) => (
+                    <div key={item.label} className="rounded-[8px] p-[12px]" style={{ backgroundColor: 'var(--bg-secondary)' }}>
+                      <div className="text-[11px] mb-1" style={{ color: 'var(--text-tertiary)' }}>{item.label}</div>
+                      <div className="text-[20px] font-medium capitalize" style={{ color: 'var(--text-primary)' }}>{item.value}</div>
+                    </div>
+                  ))}
                 </div>
 
                 {selected.error_message && (
-                  <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-4">
-                    <p className="text-red-300 text-sm">{selected.error_message}</p>
+                  <div className="flex items-start gap-[10px] rounded-[8px] px-[14px] py-3 mb-5 border" style={{ backgroundColor: 'var(--red-bg)', borderColor: 'var(--red-border)' }}>
+                    <IconAlertCircle size={16} style={{ color: 'var(--red)', marginTop: 1, flexShrink: 0 }} />
+                    <div>
+                      <div className="text-[13px] font-medium mb-[2px]" style={{ color: 'var(--red-text)' }}>Sync Failed</div>
+                      <div className="text-[12px] leading-[1.5]" style={{ color: 'var(--text-secondary)' }}>{selected.error_message}</div>
+                      <button className="text-[12px] flex items-center gap-[3px] mt-[6px]" style={{ color: 'var(--canon-purple)' }}>
+                        <IconArrowRight size={12} /> Fix This Issue
+                      </button>
+                    </div>
                   </div>
                 )}
+
+                <div>
+                  <div className="text-[13px] font-medium mb-2" style={{ color: 'var(--text-primary)' }}>Sync History</div>
+                  {[
+                    { success: selected.status !== 'error', label: selected.status === 'error' ? 'Sync Failed' : 'Latest Sync Complete', time: fmtDate(selected.last_synced_at), chunks: `${selected.chunk_count ?? 0} Chunks` },
+                    { success: true, label: 'Source Connected', time: fmtDate(selected.created_at), chunks: 'Ready' },
+                  ].map((event) => (
+                    <div key={`${event.label}-${event.time}`} className="flex items-center gap-[10px] py-[10px] border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
+                      <div className="w-[7px] h-[7px] rounded-full flex-shrink-0" style={{ backgroundColor: event.success ? 'var(--green)' : 'var(--red)' }} />
+                      <div className="flex-1">
+                        <div className="text-[13px]" style={{ color: 'var(--text-primary)' }}>{event.label}</div>
+                        <div className="text-[11px] mt-[1px]" style={{ color: 'var(--text-tertiary)' }}>{event.time}</div>
+                      </div>
+                      <div className="text-[12px] font-medium" style={{ color: 'var(--text-secondary)' }}>{event.chunks}</div>
+                    </div>
+                  ))}
+                </div>
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center h-full min-h-48 text-center">
-                <Database className="h-8 w-8 text-white/20 mb-3" />
-                <p className="text-white/40 text-sm">Select a channel to see details</p>
+              <div className="flex flex-col items-center justify-center h-full gap-3">
+                <IconDatabase size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
+                <div className="text-[14px] font-medium" style={{ color: 'var(--text-secondary)' }}>Select a Channel</div>
               </div>
             )}
           </div>
         </div>
       )}
 
-      {/* Add channel modal */}
       <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
-        <DialogContent className="max-w-md bg-zinc-900 border-white/10 text-white">
+        <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
           <DialogHeader>
-            <DialogTitle className="text-white">Add Slack channel</DialogTitle>
+            <DialogTitle className="text-[var(--text-primary)]">Add Slack Channel</DialogTitle>
           </DialogHeader>
           <div className="relative">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-white/30" />
+            <IconSearch size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }} />
             <Input
               value={channelSearch}
               onChange={(e) => setChannelSearch(e.target.value)}
-              placeholder="Search channels..."
-              className="pl-9 border-white/10 bg-white/5 text-white placeholder:text-white/30 text-sm"
+              placeholder="Search Channels..."
+              className="input-ui pl-9 border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] text-sm"
             />
           </div>
           <div className="max-h-64 overflow-y-auto space-y-1">
             {channelsLoading ? (
               <div className="space-y-1.5 py-1">
-                {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-10 bg-white/10 rounded-lg" />)}
+                {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-10 bg-[var(--bg-secondary)] rounded-lg" />)}
               </div>
             ) : filteredChannels.length === 0 ? (
-              <p className="text-white/40 text-sm py-6 text-center">No channels found</p>
+              <p className="text-[13px] py-6 text-center" style={{ color: 'var(--text-tertiary)' }}>No Channels Found</p>
             ) : (
               filteredChannels.map((channel) => {
                 const connected = connectedIds.has(channel.id);
@@ -243,15 +301,15 @@ export function KnowledgeClient() {
                     key={channel.id}
                     onClick={() => !connected && addChannel(channel)}
                     disabled={connected || adding}
-                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-left"
+                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-[var(--bg-secondary)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-left cursor-pointer"
                   >
                     <div>
-                      <span className="text-white text-sm font-medium">#{channel.name}</span>
+                      <span className="text-[13px] font-medium" style={{ color: 'var(--text-primary)' }}>#{channel.name}</span>
                       {channel.member_count > 0 && (
-                        <span className="text-white/40 text-xs ml-2">{channel.member_count} members</span>
+                        <span className="text-[11px] ml-2" style={{ color: 'var(--text-tertiary)' }}>{channel.member_count} members</span>
                       )}
                     </div>
-                    {connected && <Badge className="bg-emerald-500/20 text-emerald-300 border-0 text-xs shrink-0">Connected</Badge>}
+                    {connected && <StatusBadge variant="delivered" label="Connected" />}
                   </button>
                 );
               })
