@@ -123,3 +123,38 @@ export async function PATCH(
     return NextResponse.json({ error: 'Failed to update new hire', detail: message }, { status: 500 });
   }
 }
+
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { user } = await getSession();
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const { id } = await params;
+    const supabase = await createClient();
+
+    const { data: org } = await supabase
+      .from('organizations')
+      .select('id')
+      .eq('owner_id', user.id)
+      .single();
+
+    if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+
+    const { error } = await supabase
+      .from('new_hires')
+      .delete()
+      .eq('id', id)
+      .eq('organization_id', org.id);
+
+    if (error) return NextResponse.json({ error: 'New hire not found or delete failed' }, { status: 404 });
+
+    return NextResponse.json({ ok: true });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('[api/onboarding/new-hires/:id] DELETE failed', error);
+    return NextResponse.json({ error: 'Failed to delete new hire', detail: message }, { status: 500 });
+  }
+}

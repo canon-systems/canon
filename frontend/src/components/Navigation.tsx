@@ -1,9 +1,12 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   IconBrain,
+  IconChevronLeft,
+  IconChevronRight,
   IconFlag,
   IconLayoutDashboard,
   IconLogout,
@@ -34,6 +37,17 @@ const secondaryNav = [
 
 export function Navigation({ user, onLogout }: NavigationProps) {
   const pathname = usePathname();
+  const [collapsed, setCollapsed] = useState(() => (
+    typeof window !== 'undefined' && window.localStorage.getItem('canon-nav-collapsed') === 'true'
+  ));
+
+  function toggleCollapsed() {
+    setCollapsed((current) => {
+      const next = !current;
+      window.localStorage.setItem('canon-nav-collapsed', String(next));
+      return next;
+    });
+  }
 
   const isActive = (href: string, exact = false) => {
     if (exact) return pathname === href;
@@ -53,6 +67,7 @@ export function Navigation({ user, onLogout }: NavigationProps) {
   const navLinkClass = (active: boolean) =>
     cn(
       'flex items-center gap-[9px] px-4 py-2 text-[13px] rounded-[6px] mx-2 my-px cursor-pointer transition-colors duration-[120ms]',
+      collapsed && 'justify-center px-0',
       active
         ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] font-medium'
         : 'text-[var(--text-secondary)] hover:bg-[var(--bg-primary)] hover:text-[var(--text-primary)]'
@@ -60,14 +75,31 @@ export function Navigation({ user, onLogout }: NavigationProps) {
 
   return (
     <aside
-      className="flex h-screen w-[200px] shrink-0 flex-col border-r py-5"
+      className={cn(
+        'relative flex h-screen shrink-0 flex-col border-r py-5 transition-[width] duration-200 ease-out',
+        collapsed ? 'w-[40px]' : 'w-[200px]'
+      )}
       style={{
         backgroundColor: 'var(--bg-sidebar)',
         borderColor: 'var(--border-tertiary)',
       }}
     >
+      <button
+        type="button"
+        onClick={toggleCollapsed}
+        aria-label={collapsed ? 'Expand Navigation' : 'Collapse Navigation'}
+        title={collapsed ? 'Expand Navigation' : 'Collapse Navigation'}
+        className="absolute right-[-14px] top-1/2 z-20 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border bg-[var(--bg-primary)] text-[var(--text-secondary)] transition-colors duration-[120ms] hover:text-[var(--text-primary)]"
+        style={{ borderColor: 'var(--border-tertiary)' }}
+      >
+        {collapsed ? <IconChevronRight size={15} /> : <IconChevronLeft size={15} />}
+      </button>
+
       <div
-        className="flex items-center gap-[9px] px-4 pb-5 border-b mb-3"
+        className={cn(
+          'flex items-center gap-[9px] px-4 pb-5 border-b mb-3',
+          collapsed && 'justify-center px-0'
+        )}
         style={{ borderColor: 'var(--border-tertiary)' }}
       >
         <div
@@ -79,7 +111,9 @@ export function Navigation({ user, onLogout }: NavigationProps) {
             <circle cx="8" cy="8" r="2" fill="white" />
           </svg>
         </div>
-        <span className="text-[15px] font-medium" style={{ color: 'var(--text-primary)' }}>Canon</span>
+        {!collapsed && (
+          <span className="text-[15px] font-medium" style={{ color: 'var(--text-primary)' }}>Canon</span>
+        )}
       </div>
 
       <nav className="flex-1 overflow-y-auto">
@@ -92,9 +126,10 @@ export function Navigation({ user, onLogout }: NavigationProps) {
                 key={item.href}
                 href={item.href}
                 className={navLinkClass(active)}
+                title={collapsed ? item.label : undefined}
               >
                 <Icon size={15} />
-                {item.label}
+                {!collapsed && item.label}
               </Link>
             );
           })}
@@ -109,26 +144,29 @@ export function Navigation({ user, onLogout }: NavigationProps) {
                 key={item.href}
                 href={item.href}
                 className={navLinkClass(active)}
+                title={collapsed ? item.label : undefined}
               >
                 <Icon size={15} />
-                {item.label}
+                {!collapsed && item.label}
               </Link>
             );
           })}
         </div>
       </nav>
 
-      <div className="mt-auto pt-3 px-4 border-t" style={{ borderColor: 'var(--border-tertiary)' }}>
-        <div className="flex items-center gap-2">
+      <div className={cn('mt-auto pt-3 px-4 border-t', collapsed && 'px-0')} style={{ borderColor: 'var(--border-tertiary)' }}>
+        <div className={cn('flex items-center gap-2', collapsed && 'flex-col')}>
           <div
             className="w-[26px] h-[26px] rounded-full flex items-center justify-center text-[10px] font-medium text-[var(--text-primary)] flex-shrink-0"
             style={{ backgroundColor: 'var(--canon-purple)' }}
           >
             {userInitials}
           </div>
-          <span className="text-[12px] truncate flex-1" style={{ color: 'var(--text-secondary)' }}>
-            {userEmail}
-          </span>
+          {!collapsed && (
+            <span className="text-[12px] truncate flex-1" style={{ color: 'var(--text-secondary)' }}>
+              {userEmail}
+            </span>
+          )}
           <button
             type="button"
             onClick={onLogout}

@@ -36,7 +36,7 @@ const DropdownMenuSubContent = React.forwardRef<
   <DropdownMenuPrimitive.SubContent
     ref={ref}
     className={cn(
-      "z-50 min-w-[8rem] overflow-hidden rounded-lg border border-[var(--border-tertiary)] bg-black/90 p-1 text-[var(--text-primary)]  backdrop-blur",
+      "z-50 min-w-[8rem] overflow-hidden rounded-[10px] border border-[var(--border-tertiary)] bg-[var(--bg-primary)] p-1 text-[var(--text-primary)]",
       className
     )}
     {...props}
@@ -53,7 +53,7 @@ const DropdownMenuContent = React.forwardRef<
       ref={ref}
       sideOffset={sideOffset}
       className={cn(
-        "z-50 min-w-[10rem] overflow-hidden rounded-xl border border-[var(--border-tertiary)] bg-black/90 p-1 text-[var(--text-primary)]  backdrop-blur",
+        "z-50 min-w-[10rem] overflow-hidden rounded-[10px] border border-[var(--border-tertiary)] bg-[var(--bg-primary)] p-1 text-[var(--text-primary)]",
         className
       )}
       {...props}
@@ -71,7 +71,7 @@ const DropdownMenuItem = React.forwardRef<
   <DropdownMenuPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex cursor-pointer select-none items-center rounded-md px-2 py-1.5 text-sm outline-none transition focus:bg-[var(--bg-secondary)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "relative flex cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--text-secondary)] outline-none transition-colors duration-[120ms] focus:bg-[var(--bg-secondary)] focus:text-[var(--text-primary)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       inset && "pl-8",
       className
     )}

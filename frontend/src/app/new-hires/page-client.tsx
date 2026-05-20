@@ -5,12 +5,23 @@ import {
   IconBriefcase,
   IconCalendar,
   IconChevronDown,
+  IconDots,
+  IconPlayerPause,
+  IconPlayerPlay,
   IconPlus,
   IconSearch,
+  IconTrash,
   IconUsers,
 } from '@tabler/icons-react';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar } from '@/components/ui/avatar';
@@ -63,6 +74,48 @@ function accessVariant(status: string) {
   return 'pending';
 }
 
+function HireActionsMenu({
+  hire,
+  disabled,
+  onStatusChange,
+  onDelete,
+}: {
+  hire: Pick<HireRow, 'id' | 'name' | 'status'>;
+  disabled?: boolean;
+  onStatusChange: (hire: Pick<HireRow, 'id' | 'name' | 'status'>, status: HireStatus) => void;
+  onDelete: (hire: Pick<HireRow, 'id' | 'name' | 'status'>) => void;
+}) {
+  const nextStatus = hire.status === 'active' ? 'paused' : 'active';
+  const statusLabel = hire.status === 'active' ? 'Pause Hire' : 'Activate Hire';
+  const StatusIcon = hire.status === 'active' ? IconPlayerPause : IconPlayerPlay;
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          disabled={disabled}
+          aria-label={`Open settings for ${hire.name}`}
+          className="w-7 h-7 rounded-md border border-[var(--border-tertiary)] bg-transparent flex items-center justify-center cursor-pointer text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] transition-colors duration-[120ms] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <IconDots size={15} />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={() => onStatusChange(hire, nextStatus)}>
+          <StatusIcon size={14} />
+          {statusLabel}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem className="text-[var(--red-text)] focus:text-[var(--red-text)]" onClick={() => onDelete(hire)}>
+          <IconTrash size={14} />
+          Delete Hire
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function NewHiresClient() {
   const [hires, setHires] = useState<HireRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -73,6 +126,9 @@ export function NewHiresClient() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'Deliveries' | 'Access'>('Deliveries');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<Pick<HireRow, 'id' | 'name' | 'status'> | null>(null);
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -133,6 +189,51 @@ export function NewHiresClient() {
     { label: 'Paused', value: 'paused' },
     { label: 'Done', value: 'completed' },
   ];
+
+  async function updateHireStatus(hire: Pick<HireRow, 'id' | 'name' | 'status'>, status: HireStatus) {
+    setActionLoadingId(hire.id);
+    setActionError('');
+    try {
+      const res = await fetch(`/api/onboarding/new-hires/${hire.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      const json = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        setActionError(json.error ?? 'Failed to update hire.');
+        return;
+      }
+      setSelectedDetail((current) => (
+        current?.hire.id === hire.id
+          ? { ...current, hire: { ...current.hire, status } }
+          : current
+      ));
+      await load();
+    } finally {
+      setActionLoadingId(null);
+    }
+  }
+
+  async function deleteHire() {
+    if (!pendingDelete) return;
+    setActionLoadingId(pendingDelete.id);
+    setActionError('');
+    try {
+      const res = await fetch(`/api/onboarding/new-hires/${pendingDelete.id}`, { method: 'DELETE' });
+      const json = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        setActionError(json.error ?? 'Failed to delete hire.');
+        return;
+      }
+      setPendingDelete(null);
+      setSelectedDetail(null);
+      setSelectedId((current) => (current === pendingDelete.id ? null : current));
+      await load();
+    } finally {
+      setActionLoadingId(null);
+    }
+  }
 
   if (loading) {
     return (
@@ -199,6 +300,11 @@ export function NewHiresClient() {
         </div>
 
         <div className="flex-1 overflow-y-auto">
+          {actionError && (
+            <div className="mx-3 mt-3 rounded-[8px] border px-3 py-2 text-[12px]" style={{ backgroundColor: 'var(--red-bg)', borderColor: 'var(--red-border)', color: 'var(--red-text)' }}>
+              {actionError}
+            </div>
+          )}
           {filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center flex-1 gap-3 py-12 px-6">
               <IconUsers size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
@@ -234,6 +340,14 @@ export function NewHiresClient() {
                 <div className="flex flex-col items-end gap-1">
                   <span className="text-[11px] font-medium" style={{ color: 'var(--text-secondary)' }}>D{hire.ramp_day}</span>
                   <StatusBadge variant={hire.status} />
+                </div>
+                <div onClick={(event) => event.stopPropagation()}>
+                  <HireActionsMenu
+                    hire={hire}
+                    disabled={actionLoadingId === hire.id}
+                    onStatusChange={updateHireStatus}
+                    onDelete={setPendingDelete}
+                  />
                 </div>
               </div>
             ))
@@ -280,6 +394,12 @@ export function NewHiresClient() {
                       </span>
                     </div>
                   </div>
+                  <HireActionsMenu
+                    hire={selectedDetail.hire}
+                    disabled={actionLoadingId === selectedDetail.hire.id}
+                    onStatusChange={updateHireStatus}
+                    onDelete={setPendingDelete}
+                  />
                 </div>
 
                 <MilestoneProgress
@@ -422,6 +542,24 @@ export function NewHiresClient() {
             }}
             onCancel={() => setShowAddModal(false)}
           />
+        </DialogContent>
+      </Dialog>
+      <Dialog open={pendingDelete !== null} onOpenChange={(open) => !open && setPendingDelete(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete Hire</DialogTitle>
+            <DialogDescription>
+              Delete {pendingDelete?.name}? This removes the hire, deliveries, and access requests from Canon.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="secondary" onClick={() => setPendingDelete(null)} disabled={actionLoadingId === pendingDelete?.id}>
+              Cancel
+            </Button>
+            <Button type="button" variant="destructive" onClick={deleteHire} disabled={actionLoadingId === pendingDelete?.id}>
+              {actionLoadingId === pendingDelete?.id ? 'Deleting...' : 'Delete Hire'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
