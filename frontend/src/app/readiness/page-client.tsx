@@ -137,7 +137,7 @@ export function ReadinessClient() {
                 <div className="text-[12px] mt-[2px] leading-[1.5]" style={{ color: 'var(--text-secondary)' }}>{brief.subtitle}</div>
               </div>
 
-              <div className="flex items-start gap-2 mx-4 my-3 px-3 py-[10px] rounded-[8px] border" style={{ backgroundColor: 'rgba(217,119,6,0.07)', borderColor: 'var(--amber-border)' }}>
+              <div className="flex items-start gap-2 mx-4 my-3 px-3 py-[10px] rounded-[8px] border" style={{ backgroundColor: 'var(--amber-bg-subtle)', borderColor: 'var(--amber-border)' }}>
                 <IconAlertTriangle size={14} style={{ color: 'var(--amber)', marginTop: 1, flexShrink: 0 }} />
                 <div>
                   <div className="text-[10px] font-medium uppercase tracking-[0.06em] mb-[3px]" style={{ color: 'var(--amber-text)' }}>
@@ -178,7 +178,7 @@ export function ReadinessClient() {
                 </div>
               </div>
               <div className="h-[6px] rounded-[3px]" style={{ backgroundColor: 'var(--bg-secondary)' }}>
-                <div className="h-full rounded-[3px]" style={{ width: `${coverage}%`, background: 'linear-gradient(90deg, #16a34a, #4ade80)' }} />
+                <div className="h-full rounded-[3px]" style={{ width: `${coverage}%`, background: 'var(--green-gradient)' }} />
               </div>
               <div className="mt-4 grid gap-2">
                 {brief.health_stats.map((stat) => (

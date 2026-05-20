@@ -1,11 +1,11 @@
 const AVATAR_COLORS = [
-  '#6B5CE7',
-  '#0D9488',
-  '#2563EB',
-  '#E05D44',
-  '#16A34A',
-  '#9333EA',
-  '#D97706',
+  'var(--avatar-1)',
+  'var(--avatar-2)',
+  'var(--avatar-3)',
+  'var(--avatar-4)',
+  'var(--avatar-5)',
+  'var(--avatar-6)',
+  'var(--avatar-7)',
 ];
 
 function getColor(name: string): string {

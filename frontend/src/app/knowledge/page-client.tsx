@@ -182,7 +182,7 @@ export function KnowledgeClient() {
                 style={{
                   padding: '11px 14px',
                   borderColor: 'var(--border-tertiary)',
-                  backgroundColor: selected?.id === source.id ? 'rgba(107,92,231,0.10)' : 'transparent',
+                  backgroundColor: selected?.id === source.id ? 'var(--canon-purple-selected)' : 'transparent',
                   borderLeft: selected?.id === source.id ? '3px solid var(--canon-purple)' : undefined,
                 }}
                 onMouseEnter={(e) => { if (selected?.id !== source.id) e.currentTarget.style.backgroundColor = 'var(--bg-secondary)'; }}

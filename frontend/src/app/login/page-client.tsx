@@ -115,7 +115,7 @@ export function LoginPageClient() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-950 px-4 py-10">
+    <div className="flex min-h-screen items-center justify-center bg-[var(--bg-page)] px-4 py-10">
       <div className="mx-auto flex w-full max-w-md flex-col items-center gap-8">
         <div className="w-full space-y-6">
           <div className="space-y-3">

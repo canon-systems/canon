@@ -91,7 +91,7 @@ export function ChartTooltipContent({
   return (
     <div
       className={cn(
-        'rounded-md border border-[var(--border-tertiary)] bg-zinc-950/95 px-3 py-2 text-xs text-[var(--text-primary)] ',
+        'rounded-md border border-[var(--border-tertiary)] bg-[var(--chart-tooltip-bg)] px-3 py-2 text-xs text-[var(--text-primary)]',
         className
       )}
     >
@@ -100,7 +100,7 @@ export function ChartTooltipContent({
         {payload.map((item, idx) => {
           const key = String(item.dataKey ?? item.name ?? idx);
           const cfg = config[key];
-          const dotColor = item.color || cfg?.color || '#e5e7eb';
+          const dotColor = item.color || cfg?.color || 'var(--chart-fallback)';
           return (
             <div key={`${key}-${idx}`} className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">

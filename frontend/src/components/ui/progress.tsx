@@ -20,10 +20,10 @@ const Progress = React.forwardRef<HTMLDivElement, ProgressProps>(
       >
         <div
           className={cn(
-            "h-full rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-[transform] duration-300 ease-out",
+            "h-full rounded-full transition-[width] duration-300 ease-out",
             indicatorClassName
           )}
-          style={{ width: `${pct}%` }}
+          style={{ width: `${pct}%`, background: "var(--canon-purple-gradient)" }}
         />
       </div>
     );

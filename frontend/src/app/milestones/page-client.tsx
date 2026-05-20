@@ -13,9 +13,9 @@ import type { HireRole, RampMilestone } from '@/types/onboarding';
 const ROLES: HireRole[] = ['AI Solutions Architect', 'Solutions Engineer', 'Implementation Engineer'];
 
 const ROLE_META: Record<HireRole, { id: string; color: string; abbr: string; label: string }> = {
-  'AI Solutions Architect': { id: 'ai-sa', color: '#0D9488', abbr: 'AI', label: 'AI Solutions Architect' },
-  'Solutions Engineer': { id: 'se', color: '#6B5CE7', abbr: 'SE', label: 'Solutions Engineer' },
-  'Implementation Engineer': { id: 'ie', color: '#2563EB', abbr: 'IE', label: 'Implementation Engineer' },
+  'AI Solutions Architect': { id: 'ai-sa', color: 'var(--role-ai)', abbr: 'AI', label: 'AI Solutions Architect' },
+  'Solutions Engineer': { id: 'se', color: 'var(--role-se)', abbr: 'SE', label: 'Solutions Engineer' },
+  'Implementation Engineer': { id: 'ie', color: 'var(--role-ie)', abbr: 'IE', label: 'Implementation Engineer' },
 };
 
 type MilestoneForm = {

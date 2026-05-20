@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import Link from 'next/link';
 import {
   IconBriefcase,
   IconCalendar,
@@ -11,11 +10,13 @@ import {
   IconUsers,
 } from '@tabler/icons-react';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar } from '@/components/ui/avatar';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { MilestoneProgress } from '@/components/ui/milestone-progress';
+import { NewHireForm } from '@/components/new-hire-form';
 import { cn } from '@/components/ui/utils';
 import type { AccessRequest, HireStatus, RampDelivery } from '@/types/onboarding';
 
@@ -71,6 +72,7 @@ export function NewHiresClient() {
   const [selectedDetail, setSelectedDetail] = useState<HireDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'Deliveries' | 'Access'>('Deliveries');
+  const [showAddModal, setShowAddModal] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -158,9 +160,7 @@ export function NewHiresClient() {
               New Hires{' '}
               <span className="text-[13px] font-normal" style={{ color: 'var(--text-tertiary)' }}>{hires.length}</span>
             </span>
-            <Link href="/new-hires/new">
-              <Button size="sm"><IconPlus size={13} /> Add</Button>
-            </Link>
+            <Button size="sm" onClick={() => setShowAddModal(true)}><IconPlus size={13} /> Add</Button>
           </div>
           <div className="flex gap-1">
             {filters.map((tab) => (
@@ -218,7 +218,7 @@ export function NewHiresClient() {
                 style={{
                   padding: '11px 14px',
                   borderColor: 'var(--border-tertiary)',
-                  backgroundColor: selectedId === hire.id ? 'rgba(107,92,231,0.10)' : undefined,
+                  backgroundColor: selectedId === hire.id ? 'var(--canon-purple-selected)' : undefined,
                   borderLeft: selectedId === hire.id ? '3px solid var(--canon-purple)' : undefined,
                 }}
                 onMouseEnter={(e) => { if (selectedId !== hire.id) e.currentTarget.style.backgroundColor = 'var(--bg-secondary)'; }}
@@ -409,6 +409,21 @@ export function NewHiresClient() {
           </div>
         )}
       </div>
+      <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
+        <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Add New Hire</DialogTitle>
+          </DialogHeader>
+          <NewHireForm
+            onCreated={(hireId) => {
+              setShowAddModal(false);
+              setSelectedId(hireId);
+              void load();
+            }}
+            onCancel={() => setShowAddModal(false)}
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

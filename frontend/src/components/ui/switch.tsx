@@ -19,9 +19,9 @@ const Switch = React.forwardRef<HTMLInputElement, SwitchProps>(
       />
       <span
         aria-hidden="true"
-        className="relative inline-flex h-6 w-11 items-center justify-start rounded-full border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] transition peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-white/40 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-black peer-checked:justify-end peer-checked:border-emerald-400/60 peer-checked:bg-emerald-500/40"
+        className="relative inline-flex h-6 w-11 items-center justify-start rounded-full border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] transition-colors duration-[120ms] peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-[var(--canon-purple)]/30 peer-checked:justify-end peer-checked:border-[var(--canon-purple-border)] peer-checked:bg-[var(--canon-purple-light)]"
       >
-        <span className="inline-block h-5 w-5 rounded-full bg-[var(--bg-secondary)] shadow transition peer-checked:bg-[var(--text-primary)]" />
+        <span className="inline-block h-5 w-5 rounded-full bg-[var(--text-primary)] transition-colors duration-[120ms]" />
       </span>
     </label>
   )

@@ -109,7 +109,7 @@ export function DashboardClient() {
       label: 'Active Hires',
       value: data?.active_hires.length ?? 0,
       icon: IconUsers,
-      iconBg: 'rgba(107,92,231,0.12)',
+      iconBg: 'var(--canon-purple-light)',
       iconColor: 'var(--canon-purple)',
       delta: `+${data?.active_hires.length ?? 0}`,
       deltaLabel: 'Currently Active',
@@ -120,7 +120,7 @@ export function DashboardClient() {
       label: 'Deliveries Sent',
       value: data?.total_deliveries ?? 0,
       icon: IconSend,
-      iconBg: 'rgba(22,163,74,0.12)',
+      iconBg: 'var(--green-bg)',
       iconColor: 'var(--green)',
       delta: '100%',
       deltaLabel: 'Delivery Tracking',
@@ -131,7 +131,7 @@ export function DashboardClient() {
       label: 'Pending Access',
       value: data?.pending_access_count ?? 0,
       icon: IconLockOpen,
-      iconBg: 'rgba(217,119,6,0.12)',
+      iconBg: 'var(--amber-bg)',
       iconColor: 'var(--amber)',
       delta: `${data?.stalled_requests.length ?? 0} Stalled`,
       deltaLabel: 'Needs Action',
@@ -236,7 +236,7 @@ export function DashboardClient() {
                         className="h-full rounded-sm"
                         style={{
                           width: `${Math.min(100, (hire.ramp_day / 90) * 100)}%`,
-                          background: 'linear-gradient(90deg, #6B5CE7, #9B8DF5)',
+                          background: 'var(--canon-purple-gradient)',
                         }}
                       />
                     </div>

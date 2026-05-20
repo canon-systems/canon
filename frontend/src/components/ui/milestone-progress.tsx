@@ -16,7 +16,7 @@ export function MilestoneProgress({ milestones, progress }: { milestones: Milest
       >
         <div
           className="h-full rounded-sm absolute left-0 top-0"
-          style={{ width: `${progress}%`, background: 'linear-gradient(90deg, #6B5CE7, #9B8DF5)' }}
+          style={{ width: `${progress}%`, background: 'var(--canon-purple-gradient)' }}
         />
         <div className="absolute inset-0 flex justify-between items-center">
           {milestones.map((m, i) => (
@@ -25,7 +25,7 @@ export function MilestoneProgress({ milestones, progress }: { milestones: Milest
               className={cn(
                 'w-[10px] h-[10px] rounded-full border-2 relative z-10',
                 m.status === 'done' && 'bg-[var(--canon-purple)] border-[var(--bg-primary)]',
-                m.status === 'current' && 'bg-[var(--text-primary)] border-[var(--canon-purple)] shadow-[0_0_0_2px_#6B5CE7]',
+                m.status === 'current' && 'bg-[var(--text-primary)] border-[var(--canon-purple)] ring-2 ring-[var(--canon-purple)]',
                 m.status === 'pending' && 'bg-[var(--border-tertiary)] border-[var(--bg-primary)]'
               )}
             />

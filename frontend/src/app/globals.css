@@ -7,8 +7,12 @@
   /* Brand */
   --canon-purple: #6B5CE7;
   --canon-purple-light: rgba(107, 92, 231, 0.14);
+  --canon-purple-selected: rgba(107, 92, 231, 0.10);
   --canon-purple-border: rgba(107, 92, 231, 0.55);
   --canon-purple-dark: #6B5CE7;
+  --canon-purple-gradient: linear-gradient(90deg, #6B5CE7, #9B8DF5);
+  --text-on-accent: #FFFFFF;
+  --focus-ring: rgba(107, 92, 231, 0.25);
 
   /* Surfaces */
   --bg-page: #10100F;
@@ -16,6 +20,8 @@
   --bg-primary: #30302D;
   --bg-secondary: #242522;
   --bg-tertiary: #171716;
+  --bg-overlay: rgba(0, 0, 0, 0.70);
+  --chart-tooltip-bg: rgba(16, 16, 15, 0.96);
 
   /* Borders */
   --border-tertiary: #3A3A35;
@@ -31,10 +37,12 @@
   --green-bg: rgba(22, 163, 74, 0.18);
   --green-border: rgba(22, 163, 74, 0.25);
   --green-text: #16A34A;
+  --green-gradient: linear-gradient(90deg, #16A34A, #4ADE80);
 
   /* Semantic: Amber */
   --amber: #D97706;
   --amber-bg: rgba(217, 119, 6, 0.18);
+  --amber-bg-subtle: rgba(217, 119, 6, 0.07);
   --amber-border: rgba(217, 119, 6, 0.25);
   --amber-text: #C45500;
 
@@ -51,6 +59,23 @@
   /* Semantic: Blue */
   --blue: #2563EB;
   --blue-bg: rgba(37, 99, 235, 0.12);
+
+  /* Domain */
+  --role-ai: #0D9488;
+  --role-se: #6B5CE7;
+  --role-ie: #2563EB;
+  --slack-bg: #4A154B;
+  --slack-text: #FFFFFF;
+  --chart-fallback: #C9C5BD;
+
+  /* Avatar Palette */
+  --avatar-1: #6B5CE7;
+  --avatar-2: #0D9488;
+  --avatar-3: #2563EB;
+  --avatar-4: #E05D44;
+  --avatar-5: #16A34A;
+  --avatar-6: #9333EA;
+  --avatar-7: #D97706;
 
   --bg-base: #000;
   --bg-elevated: rgba(12, 12, 12, 0.9);

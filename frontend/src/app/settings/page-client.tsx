@@ -194,8 +194,8 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
       provider: 'slack' as const,
       name: 'Slack',
       description: 'Send onboarding DMs and sync channel knowledge.',
-      iconBg: '#4A154B',
-      iconColor: '#fff',
+      iconBg: 'var(--slack-bg)',
+      iconColor: 'var(--slack-text)',
       connected: !!slackConnection,
       workspace: slackConnection ? `Connected ${formatDate(slackConnection.created_at)}` : '',
       action: slackConnection ? () => openDisconnectModal(slackConnection.connection_id, 'slack') : connectSlack,
@@ -233,7 +233,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
               }}
               onFocus={(e) => {
                 e.target.style.borderColor = 'var(--canon-purple)';
-                e.target.style.boxShadow = '0 0 0 3px rgba(107,92,231,0.12)';
+                e.target.style.boxShadow = '0 0 0 3px var(--focus-ring)';
               }}
               onBlur={(e) => {
                 e.target.style.borderColor = 'var(--border-secondary)';

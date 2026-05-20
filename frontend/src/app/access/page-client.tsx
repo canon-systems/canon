@@ -3,9 +3,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { Key } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { StatusBadge } from '@/components/ui/status-badge';
 import type { AccessRequest } from '@/types/onboarding';
 
 type AccessRequestWithHire = AccessRequest & {
@@ -15,10 +15,10 @@ type AccessRequestWithHire = AccessRequest & {
 const STATUS_ORDER = ['pending', 'sent', 'acknowledged', 'granted'];
 
 function statusBadge(status: string) {
-  if (status === 'granted') return <Badge className="bg-emerald-500/20 text-emerald-300 border-0 text-xs">Granted</Badge>;
-  if (status === 'acknowledged') return <Badge className="bg-blue-500/20 text-blue-300 border-0 text-xs">Acknowledged</Badge>;
-  if (status === 'sent') return <Badge className="bg-amber-500/20 text-amber-300 border-0 text-xs">Sent</Badge>;
-  return <Badge className="bg-zinc-500/20 text-zinc-300 border-0 text-xs">Pending</Badge>;
+  if (status === 'granted') return <StatusBadge variant="delivered" label="Granted" />;
+  if (status === 'acknowledged') return <StatusBadge variant="custom" label="Acknowledged" />;
+  if (status === 'sent') return <StatusBadge variant="stalled" label="Sent" />;
+  return <StatusBadge variant="pending" label="Pending" />;
 }
 
 function formatDate(d: string | null) {
@@ -107,7 +107,7 @@ export function AccessClient() {
       ) : (
         <>
           {/* Filter tabs */}
-          <div className="flex items-center gap-1 rounded-lg border border-[var(--border-tertiary)] bg-zinc-900 p-1 w-fit">
+          <div className="flex items-center gap-1 rounded-lg border border-[var(--border-tertiary)] bg-[var(--bg-primary)] p-1 w-fit">
             {(['all', ...STATUS_ORDER] as const).map((s) => (
               <button
                 key={s}
@@ -123,7 +123,7 @@ export function AccessClient() {
             ))}
           </div>
 
-          <div className="rounded-xl border border-[var(--border-tertiary)] bg-zinc-900 overflow-hidden">
+          <div className="rounded-xl border border-[var(--border-tertiary)] bg-[var(--bg-primary)] overflow-hidden">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[var(--border-tertiary)]">
