@@ -119,7 +119,7 @@ export function LoginPageClient() {
       <div className="mx-auto flex w-full max-w-md flex-col items-center gap-8">
         <div className="w-full space-y-6">
           <div className="space-y-3">
-            <h1 className="text-3xl font-medium sm:text-4xl">
+            <h1 className="type-auth-title">
               {mode === 'forgot' ? 'Reset Your Password' : mode === 'login' ? 'Welcome Back' : 'Create Your Workspace'}
             </h1>
             <p className="text-[var(--text-secondary)]">
@@ -157,8 +157,8 @@ export function LoginPageClient() {
               {mode === 'forgot' ? (
                 <>
                   <div className="space-y-2">
-                    <h2 className="text-lg font-medium">Reset Your Password</h2>
-                    <p className="text-sm text-[var(--text-secondary)]">
+                    <h2 className="type-metric-sm">Reset Your Password</h2>
+                    <p className="type-body text-[var(--text-secondary)]">
                       Enter your email and we&apos;ll send you a link to set a new password.
                     </p>
                   </div>
@@ -254,7 +254,7 @@ export function LoginPageClient() {
                   </div>
 
                   {mode === 'login' && (
-                    <div className="flex items-center justify-end text-sm text-[var(--text-secondary)]">
+                    <div className="flex items-center justify-end type-body text-[var(--text-secondary)]">
                       <Button
                         type="button"
                         variant="ghost"
@@ -285,7 +285,7 @@ export function LoginPageClient() {
               )}
 
               {mode === 'login' && (
-                <p className="text-center text-sm text-[var(--text-secondary)]">
+                <p className="text-center type-body text-[var(--text-secondary)]">
                   New to Canon?{' '}
                   <Button
                     type="button"

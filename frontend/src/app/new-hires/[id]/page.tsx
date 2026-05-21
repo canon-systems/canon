@@ -1,9 +1,9 @@
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/auth';
-import { NewHireDetailClient } from './page-client';
 
-export default async function NewHireDetailPage() {
+export default async function NewHireDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { session } = await getSession();
   if (!session) redirect('/login');
-  return <NewHireDetailClient />;
+  const { id } = await params;
+  redirect(`/new-hires?hire=${id}`);
 }

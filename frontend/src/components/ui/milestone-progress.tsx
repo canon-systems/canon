@@ -37,7 +37,7 @@ export function MilestoneProgress({ milestones, progress }: { milestones: Milest
           <span
             key={i}
             className={cn(
-              'text-[10px]',
+              'type-control-sm',
               m.status === 'current' ? 'text-[var(--canon-purple)] font-medium' : 'text-[var(--text-tertiary)]'
             )}
           >

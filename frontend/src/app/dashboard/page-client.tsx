@@ -165,8 +165,8 @@ export function DashboardClient() {
     <div className="flex h-full flex-col overflow-hidden">
       <div className="flex items-start justify-between px-6 pt-5 pb-4 border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
         <div>
-          <h1 className="text-[20px] font-medium" style={{ color: 'var(--text-primary)' }}>Dashboard</h1>
-          <p className="text-[13px] mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>{formattedDate}</p>
+          <h1 className="type-page-title" style={{ color: 'var(--text-primary)' }}>Dashboard</h1>
+          <p className="type-page-subtitle mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>{formattedDate}</p>
         </div>
         <Link href="/new-hires/new">
           <Button size="sm"><IconPlus size={14} /> Add Hire</Button>
@@ -179,15 +179,15 @@ export function DashboardClient() {
           const card = (
             <div className="rounded-[10px] p-4 border" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}>
               <div className="flex items-center justify-between mb-[10px]">
-                <span className="text-[11px] font-medium uppercase tracking-[0.06em]" style={{ color: 'var(--text-secondary)' }}>
+                <span className="type-caption font-medium uppercase tracking-[0.06em]" style={{ color: 'var(--text-secondary)' }}>
                   {stat.label}
                 </span>
                 <div className="w-[30px] h-[30px] rounded-[7px] flex items-center justify-center" style={{ backgroundColor: stat.iconBg }}>
                   <Icon size={15} style={{ color: stat.iconColor }} />
                 </div>
               </div>
-              <div className="text-[28px] font-medium leading-none mb-[6px]" style={{ color: 'var(--text-primary)' }}>{stat.value}</div>
-              <div className="text-[12px] flex items-center gap-1" style={{ color: 'var(--text-tertiary)' }}>
+              <div className="type-metric mb-[6px]" style={{ color: 'var(--text-primary)' }}>{stat.value}</div>
+              <div className="type-body flex items-center gap-1" style={{ color: 'var(--text-tertiary)' }}>
                 <span style={{ color: stat.deltaColor, fontWeight: 500 }}>{stat.delta}</span> {stat.deltaLabel}
               </div>
             </div>
@@ -202,8 +202,8 @@ export function DashboardClient() {
           style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}
         >
           <div className="flex items-center justify-between px-4 py-[14px] border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
-            <span className="text-[13px] font-medium" style={{ color: 'var(--text-primary)' }}>Active Hires</span>
-            <Link href="/new-hires" className="text-[12px] flex items-center gap-1" style={{ color: 'var(--canon-purple)' }}>
+            <span className="type-panel-title" style={{ color: 'var(--text-primary)' }}>Active Hires</span>
+            <Link href="/new-hires" className="type-body flex items-center gap-1" style={{ color: 'var(--canon-purple)' }}>
               View All <IconArrowRight size={12} />
             </Link>
           </div>
@@ -211,8 +211,8 @@ export function DashboardClient() {
           {data?.active_hires.length === 0 ? (
             <div className="flex flex-col items-center justify-center flex-1 gap-3 py-12">
               <IconUsers size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
-              <div className="text-[14px] font-medium" style={{ color: 'var(--text-secondary)' }}>No Active Hires</div>
-              <div className="text-[12px] text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
+              <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Active Hires</div>
+              <div className="type-body text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
                 Add a new hire to begin tracking their ramp.
               </div>
             </div>
@@ -221,14 +221,14 @@ export function DashboardClient() {
               {data?.active_hires.map((hire) => (
                 <Link
                   key={hire.id}
-                  href={`/new-hires/${hire.id}`}
+                  href={`/new-hires?hire=${hire.id}`}
                   className="flex items-center gap-3 px-4 py-[11px] border-b cursor-pointer transition-colors duration-[120ms] hover:bg-[var(--bg-secondary)]"
                   style={{ borderColor: 'var(--border-tertiary)' }}
                 >
                   <Avatar name={hire.name} size="sm" />
                   <div className="flex-1 min-w-0">
-                    <div className="text-[13px] font-medium truncate" style={{ color: 'var(--text-primary)' }}>{hire.name}</div>
-                    <div className="text-[11px] mt-[1px] truncate" style={{ color: 'var(--text-tertiary)' }}>{hire.role}</div>
+                    <div className="type-panel-title truncate" style={{ color: 'var(--text-primary)' }}>{hire.name}</div>
+                    <div className="type-caption mt-[1px] truncate" style={{ color: 'var(--text-tertiary)' }}>{hire.role}</div>
                   </div>
                   <div className="w-[120px] flex-shrink-0">
                     <div className="h-1 rounded-sm" style={{ backgroundColor: 'var(--border-tertiary)' }}>
@@ -240,7 +240,7 @@ export function DashboardClient() {
                         }}
                       />
                     </div>
-                    <div className="text-[11px] mt-[3px]" style={{ color: 'var(--text-tertiary)' }}>D{hire.ramp_day}</div>
+                    <div className="type-caption mt-[3px]" style={{ color: 'var(--text-tertiary)' }}>D{hire.ramp_day}</div>
                   </div>
                   <div
                     className="w-[6px] h-[6px] rounded-full flex-shrink-0"
@@ -257,23 +257,24 @@ export function DashboardClient() {
           style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}
         >
           <div className="flex items-center justify-between px-4 py-[14px] border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
-            <span className="text-[13px] font-medium" style={{ color: 'var(--text-primary)' }}>Needs Attention</span>
-            <span className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>{data?.stalled_requests.length ?? 0} Items</span>
+            <span className="type-panel-title" style={{ color: 'var(--text-primary)' }}>Needs Attention</span>
+            <span className="type-caption" style={{ color: 'var(--text-tertiary)' }}>{data?.stalled_requests.length ?? 0} Items</span>
           </div>
 
           {data?.stalled_requests.length === 0 ? (
             <div className="flex flex-col items-center justify-center flex-1 gap-3 py-12 px-6">
               <IconLockOpen size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
-              <div className="text-[14px] font-medium" style={{ color: 'var(--text-secondary)' }}>All Current</div>
-              <div className="text-[12px] text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
+              <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>All Current</div>
+              <div className="type-body text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
                 No stalled access requests need action.
               </div>
             </div>
           ) : (
             <div className="overflow-y-auto">
               {data?.stalled_requests.map((req) => (
-                <div
+                <Link
                   key={req.id}
+                  href="/access"
                   className="flex items-start gap-[10px] px-4 py-[11px] border-b cursor-pointer hover:bg-[var(--bg-secondary)] transition-colors duration-[120ms]"
                   style={{ borderColor: 'var(--border-tertiary)' }}
                 >
@@ -284,13 +285,13 @@ export function DashboardClient() {
                     <IconAlertTriangle size={13} />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-[13px] font-medium truncate" style={{ color: 'var(--text-primary)' }}>{req.tool_name}</div>
-                    <div className="text-[11px] mt-[1px] truncate" style={{ color: 'var(--text-tertiary)' }}>
+                    <div className="type-panel-title truncate" style={{ color: 'var(--text-primary)' }}>{req.tool_name}</div>
+                    <div className="type-caption mt-[1px] truncate" style={{ color: 'var(--text-tertiary)' }}>
                       {req.new_hire_name} · via {req.requested_from_name}
                     </div>
                   </div>
                   <StatusBadge variant="stalled" />
-                </div>
+                </Link>
               ))}
             </div>
           )}

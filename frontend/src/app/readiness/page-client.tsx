@@ -75,16 +75,16 @@ export function ReadinessClient() {
       <div className="flex items-center justify-between px-6 pt-[18px] pb-[14px] border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
         <div>
           <div className="flex items-center gap-[10px]">
-            <h1 className="text-[20px] font-medium" style={{ color: 'var(--text-primary)' }}>Readiness</h1>
+            <h1 className="type-page-title" style={{ color: 'var(--text-primary)' }}>Readiness</h1>
             <div
-              className="flex items-center gap-[5px] text-[11px] font-medium px-[9px] py-[3px] rounded-full border"
+              className="flex items-center gap-[5px] type-caption font-medium px-[9px] py-[3px] rounded-full border"
               style={{ backgroundColor: 'var(--green-bg)', color: 'var(--green-text)', borderColor: 'var(--green-border)' }}
             >
               <div className="w-[6px] h-[6px] rounded-full" style={{ backgroundColor: 'var(--green)' }} />
-              Always-on
+              Always-On
             </div>
           </div>
-          <p className="text-[12px] mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>
+          <p className="type-body mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>
             Keep Technical GTM Teams Current as Product and Customer Patterns Change
           </p>
         </div>
@@ -95,10 +95,11 @@ export function ReadinessClient() {
         {signalCounts.map((signal) => {
           const Icon = signal.icon;
           return (
-            <div
+            <button
               key={signal.id}
+              type="button"
               onClick={() => setActiveSignal(signal.id)}
-              className="rounded-[10px] px-[14px] py-3 cursor-pointer transition-all duration-[120ms] border"
+              className="rounded-[10px] px-[14px] py-3 cursor-pointer text-left transition-all duration-[120ms] border"
               style={{
                 backgroundColor: activeSignal === signal.id ? 'var(--canon-purple-light)' : 'var(--bg-primary)',
                 borderColor: activeSignal === signal.id ? 'var(--canon-purple)' : 'var(--border-tertiary)',
@@ -108,11 +109,11 @@ export function ReadinessClient() {
                 <div className="w-7 h-7 rounded-[7px] flex items-center justify-center" style={{ backgroundColor: signal.iconBg, color: signal.iconColor }}>
                   <Icon size={14} />
                 </div>
-                <span className="text-[18px] font-medium" style={{ color: 'var(--text-primary)' }}>{signal.count}</span>
+                <span className="type-metric-sm" style={{ color: 'var(--text-primary)' }}>{signal.count}</span>
               </div>
-              <div className="text-[12px] font-medium mb-[2px]" style={{ color: 'var(--text-primary)' }}>{signal.label}</div>
-              <div className="text-[11px] leading-[1.4]" style={{ color: 'var(--text-tertiary)' }}>{signal.description}</div>
-            </div>
+              <div className="type-body font-medium mb-[2px]" style={{ color: 'var(--text-primary)' }}>{signal.label}</div>
+              <div className="type-caption leading-[1.4]" style={{ color: 'var(--text-tertiary)' }}>{signal.description}</div>
+            </button>
           );
         })}
       </div>
@@ -120,8 +121,8 @@ export function ReadinessClient() {
       {!brief ? (
         <div className="flex flex-col items-center justify-center flex-1 gap-3 py-12">
           <IconRadar size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
-          <div className="text-[14px] font-medium" style={{ color: 'var(--text-secondary)' }}>No Readiness Brief Loaded</div>
-          <div className="text-[12px] text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
+          <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Readiness Brief Loaded</div>
+          <div className="type-body text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
             Load Demo Data from Settings to Populate Readiness Cards and Health Metrics.
           </div>
         </div>
@@ -133,17 +134,17 @@ export function ReadinessClient() {
           <div className="min-w-0 overflow-y-auto">
             <div className="rounded-[10px] border overflow-hidden" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}>
               <div className="px-4 py-[14px] border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
-                <div className="text-[16px] font-medium" style={{ color: 'var(--text-primary)' }}>{brief.title}</div>
-                <div className="text-[12px] mt-[2px] leading-[1.5]" style={{ color: 'var(--text-secondary)' }}>{brief.subtitle}</div>
+                <div className="type-card-title" style={{ color: 'var(--text-primary)' }}>{brief.title}</div>
+                <div className="type-body mt-[2px] leading-[1.5]" style={{ color: 'var(--text-secondary)' }}>{brief.subtitle}</div>
               </div>
 
               <div className="flex items-start gap-2 mx-4 my-3 px-3 py-[10px] rounded-[8px] border" style={{ backgroundColor: 'var(--amber-bg-subtle)', borderColor: 'var(--amber-border)' }}>
                 <IconAlertTriangle size={14} style={{ color: 'var(--amber)', marginTop: 1, flexShrink: 0 }} />
                 <div>
-                  <div className="text-[10px] font-medium uppercase tracking-[0.06em] mb-[3px]" style={{ color: 'var(--amber-text)' }}>
+                  <div className="type-kicker mb-[3px]" style={{ color: 'var(--amber-text)' }}>
                     Detected Shift
                   </div>
-                  <div className="text-[12px] leading-[1.5]" style={{ color: 'var(--text-secondary)' }}>{brief.detected_shift}</div>
+                  <div className="type-body" style={{ color: 'var(--text-secondary)' }}>{brief.detected_shift}</div>
                 </div>
               </div>
 
@@ -152,9 +153,9 @@ export function ReadinessClient() {
                   <div key={item} className="flex items-start gap-2 px-[10px] py-2 rounded-[8px]" style={{ backgroundColor: 'var(--bg-secondary)' }}>
                     <div className="w-[6px] h-[6px] rounded-full mt-[5px] flex-shrink-0" style={{ backgroundColor: 'var(--canon-purple)' }} />
                     <div>
-                      <div className="text-[12px] leading-[1.5]" style={{ color: 'var(--text-secondary)' }}>{item}</div>
+                      <div className="type-body" style={{ color: 'var(--text-secondary)' }}>{item}</div>
                       {index === 0 && (
-                        <button className="text-[11px] flex items-center gap-[3px] mt-[3px]" style={{ color: 'var(--canon-purple)' }}>
+                        <button type="button" className="type-caption flex items-center gap-[3px] mt-[3px]" style={{ color: 'var(--canon-purple)' }}>
                           <IconArrowRight size={11} /> Take Action
                         </button>
                       )}
@@ -169,12 +170,12 @@ export function ReadinessClient() {
             <div className="rounded-[10px] border p-5" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}>
               <div className="flex items-start justify-between gap-4 mb-4">
                 <div>
-                  <div className="text-[15px] font-medium" style={{ color: 'var(--text-primary)' }}>Readiness Health</div>
-                  <div className="text-[12px] mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>Signal Coverage Across Active Milestones</div>
+                  <div className="type-section-title" style={{ color: 'var(--text-primary)' }}>Readiness Health</div>
+                  <div className="type-body mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>Signal Coverage Across Active Milestones</div>
                 </div>
                 <div className="text-right">
-                  <div className="text-[30px] font-medium leading-none" style={{ color: 'var(--text-primary)' }}>{coverage}%</div>
-                  <div className="text-[11px] mt-1" style={{ color: 'var(--text-tertiary)' }}>coverage</div>
+                  <div className="type-metric" style={{ color: 'var(--text-primary)' }}>{coverage}%</div>
+                  <div className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>coverage</div>
                 </div>
               </div>
               <div className="h-[6px] rounded-[3px]" style={{ backgroundColor: 'var(--bg-secondary)' }}>
@@ -182,7 +183,7 @@ export function ReadinessClient() {
               </div>
               <div className="mt-4 grid gap-2">
                 {brief.health_stats.map((stat) => (
-                  <div key={stat.label} className="flex items-center justify-between gap-4 rounded-[7px] px-3 py-2 text-[12px]" style={{ backgroundColor: 'var(--bg-secondary)' }}>
+                  <div key={stat.label} className="flex items-center justify-between gap-4 rounded-[7px] px-3 py-2 type-body" style={{ backgroundColor: 'var(--bg-secondary)' }}>
                     <span className="leading-[1.4]" style={{ color: 'var(--text-secondary)' }}>{stat.label}</span>
                     <span className="font-medium tabular-nums" style={{ color: 'var(--text-primary)' }}>{stat.value}</span>
                   </div>
@@ -192,21 +193,21 @@ export function ReadinessClient() {
 
             <div className="rounded-[10px] border overflow-hidden" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}>
               <div className="px-5 py-4 border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
-                <div className="text-[15px] font-medium" style={{ color: 'var(--text-primary)' }}>Who Needs This</div>
-                <div className="text-[12px] mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>Teams with the Largest Readiness Gap</div>
+                <div className="type-section-title" style={{ color: 'var(--text-primary)' }}>Who Needs This</div>
+                <div className="type-body mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>Teams with the Largest Readiness Gap</div>
               </div>
               {brief.affected_roles.map((role) => (
                 <div key={role.role} className="px-5 py-4 border-b last:border-0" style={{ borderColor: 'var(--border-tertiary)' }}>
                   <div className="flex items-start justify-between gap-3 mb-3">
-                    <span className="min-w-0 text-[13px] font-medium leading-[1.35]" style={{ color: 'var(--text-primary)' }}>{role.role}</span>
-                    <span className="text-[10px] font-medium px-[7px] py-[3px] rounded-[4px] whitespace-nowrap" style={{ backgroundColor: 'var(--red-bg)', color: 'var(--red-text)' }}>
+                    <span className="min-w-0 type-panel-title leading-[1.35]" style={{ color: 'var(--text-primary)' }}>{role.role}</span>
+                    <span className="type-control-sm px-[7px] py-[3px] rounded-[4px] whitespace-nowrap" style={{ backgroundColor: 'var(--red-bg)', color: 'var(--red-text)' }}>
                       {role.impact}
                     </span>
                   </div>
                   <div className="h-[5px] rounded-[3px] mb-2" style={{ backgroundColor: 'var(--bg-secondary)' }}>
                     <div className="h-full rounded-[2px]" style={{ width: `${role.progress}%`, backgroundColor: 'var(--canon-purple)' }} />
                   </div>
-                  <div className="flex items-center justify-between text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
+                  <div className="flex items-center justify-between type-caption" style={{ color: 'var(--text-tertiary)' }}>
                     <span>Coverage Gap</span>
                     <span className="font-medium tabular-nums">{role.progress}%</span>
                   </div>

@@ -54,7 +54,7 @@ export function Combobox({
           type="button"
           disabled={disabled}
           className={cn(
-            'flex h-10 w-full items-center justify-between gap-2 rounded-md border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] px-3 py-2 text-sm text-[var(--text-primary)] transition hover:bg-[var(--bg-secondary)] focus:border-[var(--border-tertiary)] focus:outline-none focus:ring-1 focus:ring-white/20 disabled:cursor-not-allowed disabled:opacity-50',
+            'flex h-9 w-full items-center justify-between gap-2 rounded-[7px] border border-[var(--border-secondary)] bg-[var(--bg-secondary)] px-[10px] py-[6px] type-field text-[var(--text-primary)] transition-colors duration-[120ms] hover:border-[var(--border-secondary)] focus:border-[var(--canon-purple)] focus:outline-none focus:ring-2 focus:ring-[var(--canon-purple)]/25 disabled:cursor-not-allowed disabled:opacity-50',
             className
           )}
         >

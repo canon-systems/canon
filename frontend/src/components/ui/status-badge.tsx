@@ -48,7 +48,7 @@ export function StatusBadge({ variant, label }: { variant: BadgeVariant; label?:
   return (
     <span
       className={cn(
-        'text-[10px] font-medium px-[7px] py-[2px] rounded-[4px] whitespace-nowrap',
+        'type-control-sm px-[7px] py-[2px] rounded-[4px] whitespace-nowrap',
         variants[variant]
       )}
     >

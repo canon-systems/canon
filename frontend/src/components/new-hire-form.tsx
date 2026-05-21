@@ -87,7 +87,7 @@ export function NewHireForm({
     <form onSubmit={handleSubmit} className="space-y-5">
       <Card className="space-y-4 p-4">
         <div className="space-y-2">
-          <Label className="text-[var(--text-secondary)] text-sm">Full Name <span className="text-[var(--red-text)]">*</span></Label>
+          <Label className="text-[var(--text-secondary)]">Full Name <span className="text-[var(--red-text)]">*</span></Label>
           <Input
             value={form.name}
             onChange={(e) => set('name', e.target.value)}
@@ -97,7 +97,7 @@ export function NewHireForm({
         </div>
 
         <div className="space-y-2">
-          <Label className="text-[var(--text-secondary)] text-sm">Email <span className="text-[var(--red-text)]">*</span></Label>
+          <Label className="text-[var(--text-secondary)]">Email <span className="text-[var(--red-text)]">*</span></Label>
           <Input
             type="email"
             value={form.email}
@@ -108,7 +108,7 @@ export function NewHireForm({
         </div>
 
         <div className="space-y-2">
-          <Label className="text-[var(--text-secondary)] text-sm">Role <span className="text-[var(--red-text)]">*</span></Label>
+          <Label className="text-[var(--text-secondary)]">Role <span className="text-[var(--red-text)]">*</span></Label>
           <Select value={form.role} onValueChange={(v) => set('role', v)}>
             <SelectTrigger>
               <SelectValue placeholder="Select a Role" />
@@ -122,12 +122,12 @@ export function NewHireForm({
         </div>
 
         <div className="space-y-2">
-          <Label className="text-[var(--text-secondary)] text-sm">Start Date <span className="text-[var(--red-text)]">*</span></Label>
+          <Label className="text-[var(--text-secondary)]">Start Date <span className="text-[var(--red-text)]">*</span></Label>
           <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
             <PopoverTrigger asChild>
               <button
                 type="button"
-                className="flex h-10 w-full items-center justify-between rounded-[7px] border border-[var(--border-secondary)] bg-[var(--bg-secondary)] px-3 py-2 text-left text-sm transition-colors duration-[120ms] hover:border-[var(--border-secondary)] focus-visible:outline-none focus-visible:border-[var(--canon-purple)] focus-visible:ring-2 focus-visible:ring-[var(--canon-purple)]/25"
+                className="flex h-9 w-full items-center justify-between rounded-[7px] border border-[var(--border-secondary)] bg-[var(--bg-secondary)] px-[10px] py-[6px] text-left type-body transition-colors duration-[120ms] hover:border-[var(--border-secondary)] focus-visible:outline-none focus-visible:border-[var(--canon-purple)] focus-visible:ring-2 focus-visible:ring-[var(--canon-purple)]/25"
                 style={{ color: startDate ? 'var(--text-primary)' : 'var(--text-tertiary)' }}
               >
                 <span>{formatSelectedDate(startDate)}</span>
@@ -150,18 +150,18 @@ export function NewHireForm({
         </div>
 
         <div className="space-y-2">
-          <Label className="text-[var(--text-secondary)] text-sm">Slack Member ID <span className="text-[var(--text-secondary)]">(Optional)</span></Label>
+          <Label className="text-[var(--text-secondary)]">Slack Member ID <span className="text-[var(--text-secondary)]">(Optional)</span></Label>
           <Input
             value={form.slack_user_id}
             onChange={(e) => set('slack_user_id', e.target.value)}
             placeholder="U01234ABCDE"
           />
-          <p className="text-[var(--text-secondary)] text-xs">Find in Slack &gt; Member Profile &gt; More &gt; Copy Member ID</p>
+          <p className="text-[var(--text-secondary)] type-caption">Find in Slack &gt; Member Profile &gt; More &gt; Copy Member ID</p>
         </div>
       </Card>
 
       {error && (
-        <div className="rounded-[8px] border px-3 py-2 text-sm" style={{ backgroundColor: 'var(--red-bg)', borderColor: 'var(--red-border)', color: 'var(--red-text)' }}>
+        <div className="rounded-[8px] border px-3 py-2 type-body" style={{ backgroundColor: 'var(--red-bg)', borderColor: 'var(--red-border)', color: 'var(--red-text)' }}>
           {error}
         </div>
       )}

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   IconBriefcase,
   IconCalendar,
@@ -117,6 +118,9 @@ function HireActionsMenu({
 }
 
 export function NewHiresClient() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const requestedHireId = searchParams.get('hire');
   const [hires, setHires] = useState<HireRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>('all');
@@ -145,6 +149,18 @@ export function NewHiresClient() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    if (!requestedHireId) return;
+    if (hires.some((hire) => hire.id === requestedHireId)) {
+      setSelectedId(requestedHireId);
+    }
+  }, [hires, requestedHireId]);
+
+  const selectHire = useCallback((hireId: string) => {
+    setSelectedId(hireId);
+    router.replace(`/new-hires?hire=${hireId}`, { scroll: false });
+  }, [router]);
 
   const filtered = hires.filter((h) => {
     const matchesFilter = filter === 'all' || h.status === filter;
@@ -257,9 +273,9 @@ export function NewHiresClient() {
       >
         <div className="p-4 border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
           <div className="flex items-center justify-between mb-3">
-            <span className="text-[18px] font-medium" style={{ color: 'var(--text-primary)' }}>
+            <span className="type-metric-sm" style={{ color: 'var(--text-primary)' }}>
               New Hires{' '}
-              <span className="text-[13px] font-normal" style={{ color: 'var(--text-tertiary)' }}>{hires.length}</span>
+              <span className="type-page-subtitle font-normal" style={{ color: 'var(--text-tertiary)' }}>{hires.length}</span>
             </span>
             <Button size="sm" onClick={() => setShowAddModal(true)}><IconPlus size={13} /> Add</Button>
           </div>
@@ -270,7 +286,7 @@ export function NewHiresClient() {
                 type="button"
                 onClick={() => setFilter(tab.value)}
                 className={cn(
-                  'text-[12px] px-[10px] py-1 rounded-[5px] border transition-colors duration-[120ms]',
+                  'type-body px-[10px] py-1 rounded-[5px] border transition-colors duration-[120ms]',
                   filter === tab.value ? 'font-medium' : ''
                 )}
                 style={{
@@ -289,7 +305,7 @@ export function NewHiresClient() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search Hires..."
-              className="input-ui h-8 rounded-[7px] border pl-8 text-[12px]"
+              className="input-ui h-8 rounded-[7px] border pl-8 type-body"
               style={{
                 backgroundColor: 'var(--bg-primary)',
                 color: 'var(--text-primary)',
@@ -301,17 +317,17 @@ export function NewHiresClient() {
 
         <div className="flex-1 overflow-y-auto">
           {actionError && (
-            <div className="mx-3 mt-3 rounded-[8px] border px-3 py-2 text-[12px]" style={{ backgroundColor: 'var(--red-bg)', borderColor: 'var(--red-border)', color: 'var(--red-text)' }}>
+            <div className="mx-3 mt-3 rounded-[8px] border px-3 py-2 type-body" style={{ backgroundColor: 'var(--red-bg)', borderColor: 'var(--red-border)', color: 'var(--red-text)' }}>
               {actionError}
             </div>
           )}
           {filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center flex-1 gap-3 py-12 px-6">
               <IconUsers size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
-              <div className="text-[14px] font-medium" style={{ color: 'var(--text-secondary)' }}>
+              <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>
                 {hires.length === 0 ? 'No Hires Yet' : 'No Results'}
               </div>
-              <div className="text-[12px] text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
+              <div className="type-body text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
                 {hires.length === 0 ? 'Add your first new hire to start onboarding.' : 'Try adjusting your search or filter.'}
               </div>
             </div>
@@ -319,7 +335,15 @@ export function NewHiresClient() {
             filtered.map((hire) => (
               <div
                 key={hire.id}
-                onClick={() => setSelectedId(hire.id)}
+                role="button"
+                tabIndex={0}
+                onClick={() => selectHire(hire.id)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    selectHire(hire.id);
+                  }
+                }}
                 className="flex items-center gap-[10px] py-[11px] border-b cursor-pointer transition-colors duration-[120ms]"
                 style={{
                   padding: '11px 14px',
@@ -332,13 +356,13 @@ export function NewHiresClient() {
               >
                 <Avatar name={hire.name} size="md" />
                 <div className="flex-1 min-w-0">
-                  <div className="text-[13px] font-medium truncate" style={{ color: 'var(--text-primary)' }}>{hire.name}</div>
-                  <div className="text-[11px] mt-[1px] truncate" style={{ color: 'var(--text-tertiary)' }}>
+                  <div className="type-panel-title truncate" style={{ color: 'var(--text-primary)' }}>{hire.name}</div>
+                  <div className="type-caption mt-[1px] truncate" style={{ color: 'var(--text-tertiary)' }}>
                     {hire.role} · {fmtDate(hire.start_date)}
                   </div>
                 </div>
                 <div className="flex flex-col items-end gap-1">
-                  <span className="text-[11px] font-medium" style={{ color: 'var(--text-secondary)' }}>D{hire.ramp_day}</span>
+                  <span className="type-caption font-medium" style={{ color: 'var(--text-secondary)' }}>D{hire.ramp_day}</span>
                   <StatusBadge variant={hire.status} />
                 </div>
                 <div onClick={(event) => event.stopPropagation()}>
@@ -359,37 +383,37 @@ export function NewHiresClient() {
         {selectedHire ? (
           detailLoading || !selectedDetail ? (
             <div className="flex h-full flex-col">
-              <div className="px-10 pt-8 pb-6 border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
+              <div className="px-8 pt-6 pb-5 border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
                 <Skeleton className="h-24 rounded-[10px] bg-[var(--bg-primary)]" />
               </div>
-              <div className="px-10 py-8">
+              <div className="px-8 py-6">
                 <Skeleton className="h-96 rounded-[10px] bg-[var(--bg-primary)]" />
               </div>
             </div>
           ) : (
             <div className="flex h-full flex-col overflow-hidden">
-              <div className="px-10 pt-8 pb-6 border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
-                <div className="flex items-start gap-6 mb-6">
+              <div className="px-8 pt-6 pb-5 border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
+                <div className="flex items-start gap-5 mb-5">
                   <Avatar name={selectedDetail.hire.name} size="lg" />
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-[24px] font-medium leading-none" style={{ color: 'var(--text-primary)' }}>{selectedDetail.hire.name}</span>
+                      <span className="type-detail-title" style={{ color: 'var(--text-primary)' }}>{selectedDetail.hire.name}</span>
                       <span
-                        className="text-[12px] font-medium px-[10px] py-[4px] rounded-[6px] text-[var(--text-primary)]"
+                        className="type-control px-[10px] py-[4px] rounded-[6px] text-[var(--text-primary)]"
                         style={{ backgroundColor: 'var(--canon-purple)' }}
                       >
                         Day {selectedDetail.hire.ramp_day}
                       </span>
                       <StatusBadge variant={selectedDetail.hire.status} />
                     </div>
-                    <div className="flex flex-wrap items-center gap-3 mt-4 text-[14px]" style={{ color: 'var(--text-secondary)' }}>
+                    <div className="flex flex-wrap items-center gap-3 mt-3 type-body-strong" style={{ color: 'var(--text-secondary)' }}>
                       <span className="inline-flex items-center gap-2">
-                        <IconBriefcase size={16} />
+                        <IconBriefcase size={14} />
                         {selectedDetail.hire.role}
                       </span>
                       <span style={{ color: 'var(--border-secondary)' }}>·</span>
                       <span className="inline-flex items-center gap-2">
-                        <IconCalendar size={16} />
+                        <IconCalendar size={14} />
                         Started {fmtDate(selectedDetail.hire.start_date)}
                       </span>
                     </div>
@@ -411,7 +435,7 @@ export function NewHiresClient() {
                 />
               </div>
 
-              <div className="flex border-b px-10" style={{ borderColor: 'var(--border-tertiary)' }}>
+              <div className="flex border-b px-8" style={{ borderColor: 'var(--border-tertiary)' }}>
                 {(['Deliveries', 'Access'] as const).map((tab) => {
                   const count = tab === 'Deliveries' ? selectedDetail.deliveries.length : selectedDetail.access_requests.length;
                   return (
@@ -419,7 +443,7 @@ export function NewHiresClient() {
                       key={tab}
                       type="button"
                       onClick={() => setActiveTab(tab)}
-                      className="text-[16px] px-7 py-4 border-b-2 -mb-px transition-colors duration-[120ms]"
+                      className="type-panel-title px-5 py-3 border-b-2 -mb-px transition-colors duration-[120ms]"
                       style={{
                         color: activeTab === tab ? 'var(--canon-purple)' : 'var(--text-secondary)',
                         borderBottomColor: activeTab === tab ? 'var(--canon-purple)' : 'transparent',
@@ -427,24 +451,24 @@ export function NewHiresClient() {
                       }}
                     >
                       {tab}
-                      <span className="block text-[12px] mt-[2px] opacity-80">{count}</span>
+                      <span className="block type-body mt-[2px] opacity-80">{count}</span>
                     </button>
                   );
                 })}
               </div>
 
-              <div className="flex-1 overflow-y-auto px-10 py-8">
+              <div className="flex-1 overflow-y-auto px-8 py-6">
                 {activeTab === 'Deliveries' && (
                   selectedDetail.deliveries.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full gap-3 py-12">
                       <IconUsers size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
-                      <div className="text-[14px] font-medium" style={{ color: 'var(--text-secondary)' }}>No Deliveries Yet</div>
-                      <div className="text-[12px] text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
+                      <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Deliveries Yet</div>
+                      <div className="type-body text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
                         Deliveries appear when ramp milestones are reached.
                       </div>
                     </div>
                   ) : (
-                    <div className="space-y-5">
+                    <div className="space-y-4">
                       {selectedDetail.deliveries.map((delivery) => {
                         const delivered = delivery.delivery_status === 'delivered';
                         return (
@@ -455,27 +479,27 @@ export function NewHiresClient() {
                             onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--border-secondary)'; }}
                             onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-tertiary)'; }}
                           >
-                            <div className="flex items-start gap-5 px-7 py-6">
+                            <div className="flex items-start gap-4 px-5 py-4">
                               <div className="pt-1">
                                 <StatusBadge variant={deliveryVariant(delivery.delivery_status)} label={delivered ? 'Delivered' : delivery.delivery_status === 'failed' ? 'Failed' : 'Upcoming'} />
                               </div>
                               <div className="min-w-0 flex-1">
                                 <div className="flex items-start justify-between gap-4">
-                                  <div className="text-[20px] font-medium leading-[1.25]" style={{ color: 'var(--text-primary)' }}>
+                                  <div className="type-metric-sm leading-[1.3]" style={{ color: 'var(--text-primary)' }}>
                                     {delivery.milestone ? `Day ${delivery.milestone.day_trigger} - ${delivery.milestone.title}` : 'Ramp Delivery'}
                                   </div>
-                                  <div className="text-[13px] whitespace-nowrap pt-1" style={{ color: 'var(--text-tertiary)' }}>
+                                  <div className="type-body whitespace-nowrap pt-1" style={{ color: 'var(--text-tertiary)' }}>
                                     {fmtDetailDate(delivery.delivered_at ?? delivery.created_at)}
                                   </div>
                                 </div>
                               </div>
                             </div>
-                            <div className="px-7 pb-6 pt-5 border-t" style={{ borderColor: 'var(--border-tertiary)' }}>
-                              <p className="text-[15px] leading-[1.65]" style={{ color: delivered ? 'var(--text-secondary)' : 'var(--text-tertiary)' }}>
+                            <div className="px-5 pb-5 pt-4 border-t" style={{ borderColor: 'var(--border-tertiary)' }}>
+                              <p className="type-body-strong leading-[1.65]" style={{ color: delivered ? 'var(--text-secondary)' : 'var(--text-tertiary)' }}>
                                 {delivery.content_delivered ?? delivery.error_message ?? 'This delivery has not been generated yet.'}
                               </p>
                               {delivered && (
-                                <button className="text-[13px] flex items-center gap-[4px] mt-5 cursor-pointer" style={{ color: 'var(--canon-purple)' }}>
+                                <button type="button" className="type-body flex items-center gap-[4px] mt-4 cursor-pointer" style={{ color: 'var(--canon-purple)' }}>
                                   <IconChevronDown size={13} /> Read Full Message
                                 </button>
                               )}
@@ -491,8 +515,8 @@ export function NewHiresClient() {
                   selectedDetail.access_requests.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full gap-3 py-12">
                       <IconUsers size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
-                      <div className="text-[14px] font-medium" style={{ color: 'var(--text-secondary)' }}>No Access Requests</div>
-                      <div className="text-[12px] text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
+                      <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Access Requests</div>
+                      <div className="type-body text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
                         Access requests for this hire will appear here.
                       </div>
                     </div>
@@ -505,8 +529,8 @@ export function NewHiresClient() {
                           style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}
                         >
                           <div className="min-w-0 flex-1">
-                            <div className="text-[15px] font-medium" style={{ color: 'var(--text-primary)' }}>{request.tool_name}</div>
-                            <div className="text-[12px] mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>
+                            <div className="type-card-title" style={{ color: 'var(--text-primary)' }}>{request.tool_name}</div>
+                            <div className="type-body mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>
                               {request.requested_from_name} · Sent {fmtDetailDate(request.sent_at)}
                             </div>
                           </div>
@@ -522,8 +546,8 @@ export function NewHiresClient() {
         ) : (
           <div className="flex flex-col items-center justify-center h-full gap-3 py-12">
             <IconUsers size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
-            <div className="text-[14px] font-medium" style={{ color: 'var(--text-secondary)' }}>Select a Hire</div>
-            <div className="text-[12px] text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
+            <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>Select a Hire</div>
+            <div className="type-body text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
               Choose a new hire from the list to preview their ramp.
             </div>
           </div>
@@ -537,7 +561,7 @@ export function NewHiresClient() {
           <NewHireForm
             onCreated={(hireId) => {
               setShowAddModal(false);
-              setSelectedId(hireId);
+              selectHire(hireId);
               void load();
             }}
             onCancel={() => setShowAddModal(false)}

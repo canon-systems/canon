@@ -36,7 +36,7 @@ const TabsList = ({ children, className }: TabsListProps) => {
   return (
     <div
       className={cn(
-        "inline-flex h-10 items-center justify-center gap-1 rounded-2xl border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] p-1 text-[var(--text-secondary)]",
+        "inline-flex h-9 items-center justify-center gap-1 rounded-2xl border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] p-1 text-[var(--text-secondary)]",
         className
       )}
     >
@@ -63,10 +63,11 @@ const TabsTrigger = ({ value, children, className, disabled = false }: TabsTrigg
 
   return (
     <button
+      type="button"
       onClick={() => !disabled && onValueChange(value)}
       disabled={disabled}
       className={cn(
-        "inline-flex items-center justify-center whitespace-nowrap rounded-xl px-3.5 py-1.5 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:ring-offset-2 focus-visible:ring-offset-black disabled:pointer-events-none disabled:opacity-50",
+        "inline-flex items-center justify-center whitespace-nowrap rounded-xl px-3 py-[5px] type-body font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--canon-purple)]/30 disabled:pointer-events-none disabled:opacity-50",
         isActive
           ? "border border-[var(--border-tertiary)] !bg-[var(--text-primary)] !text-[var(--bg-page)] "
           : "border border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] hover:border-[var(--border-tertiary)]",
@@ -100,7 +101,7 @@ const TabsContent = ({ value, children, className }: TabsContentProps) => {
   return (
     <div
       className={cn(
-        "mt-4 ring-offset-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:ring-offset-2",
+        "mt-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--canon-purple)]/30",
         className
       )}
     >

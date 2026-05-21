@@ -28,12 +28,12 @@ export function MilestoneCard({
       <div className="flex items-start gap-3 px-5 pt-4 pb-3">
         <div className="flex min-w-0 flex-1 items-start gap-3">
           <span
-            className="text-[11px] font-medium px-[9px] py-[3px] rounded-[5px] flex-shrink-0 whitespace-nowrap mt-[1px]"
+            className="type-caption font-medium px-[9px] py-[3px] rounded-[5px] flex-shrink-0 whitespace-nowrap mt-[1px]"
             style={{ backgroundColor: 'var(--canon-purple-light)', color: 'var(--canon-purple-dark)' }}
           >
             Day {milestone.day_trigger}
           </span>
-          <span className="min-w-0 text-[15px] font-medium leading-[1.35]" style={{ color: 'var(--text-primary)' }}>{milestone.title}</span>
+          <span className="min-w-0 type-card-title" style={{ color: 'var(--text-primary)' }}>{milestone.title}</span>
         </div>
         <div className="flex flex-shrink-0 items-center gap-[6px]">
           <StatusBadge variant={isCustom ? 'custom' : 'global'} />
@@ -44,18 +44,7 @@ export function MilestoneCard({
       </div>
 
       <div className="px-5 pb-5 pt-4 border-t" style={{ borderColor: 'var(--border-tertiary)' }}>
-        <p className="text-[14px] leading-[1.65]" style={{ color: 'var(--text-secondary)' }}>{milestone.description}</p>
-        <details className="group mt-3">
-          <summary className="inline-flex cursor-pointer list-none items-center text-[11px] font-medium uppercase tracking-[0.06em]" style={{ color: 'var(--text-tertiary)' }}>
-            Knowledge Query
-          </summary>
-          <span
-            className="mt-2 block rounded-[6px] px-[9px] py-[6px] text-[11px] font-mono leading-[1.55] break-words"
-            style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}
-          >
-            {milestone.knowledge_query}
-          </span>
-        </details>
+        <p className="type-card-body" style={{ color: 'var(--text-secondary)' }}>{milestone.description}</p>
       </div>
     </div>
   );
@@ -63,12 +52,10 @@ export function MilestoneCard({
 
 export function AddMilestoneCard({ roleName, onAdd }: { roleName: string; onAdd: () => void }) {
   return (
-    <div
-      role="button"
-      tabIndex={0}
+    <button
+      type="button"
       onClick={onAdd}
-      onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') onAdd(); }}
-      className="rounded-[10px] px-4 py-4 flex items-center justify-center gap-2 text-[13px] cursor-pointer border border-dashed transition-all duration-[120ms]"
+      className="rounded-[10px] px-4 py-4 flex items-center justify-center gap-2 type-panel-title cursor-pointer border border-dashed transition-all duration-[120ms]"
       style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-tertiary)' }}
       onMouseEnter={(e) => {
         e.currentTarget.style.borderColor = 'var(--canon-purple)';
@@ -82,6 +69,6 @@ export function AddMilestoneCard({ roleName, onAdd }: { roleName: string; onAdd:
       }}
     >
       <IconPlus size={14} /> Add Milestone for {roleName}
-    </div>
+    </button>
   );
 }

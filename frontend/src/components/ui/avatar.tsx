@@ -21,10 +21,10 @@ function getInitials(name: string): string {
 }
 
 const sizes = {
-  lg: 'w-11 h-11 text-[15px]',
-  md: 'w-[34px] h-[34px] text-[12px]',
-  sm: 'w-8 h-8 text-[11px]',
-  xs: 'w-[26px] h-[26px] text-[10px]',
+  lg: 'w-11 h-11 type-card-title',
+  md: 'w-[34px] h-[34px] type-body',
+  sm: 'w-8 h-8 type-caption',
+  xs: 'w-[26px] h-[26px] type-control-sm',
 };
 
 export function Avatar({ name, size = 'md' }: { name: string; size?: keyof typeof sizes }) {

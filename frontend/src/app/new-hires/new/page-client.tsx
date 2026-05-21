@@ -10,18 +10,18 @@ export function NewHireFormClient() {
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
-      <Link href="/new-hires" className="mb-6 inline-flex items-center gap-1.5 text-sm transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
+      <Link href="/new-hires" className="mb-6 inline-flex items-center gap-1.5 type-body transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
         <IconArrowLeft size={16} />
         New Hires
       </Link>
 
       <div className="mb-6">
-        <h1 className="text-2xl font-medium text-[var(--text-primary)]">Add New Hire</h1>
-        <p className="text-[var(--text-secondary)] text-sm mt-0.5">Canon will set up their onboarding and default access requests.</p>
+        <h1 className="type-page-title text-[var(--text-primary)]">Add New Hire</h1>
+        <p className="text-[var(--text-secondary)] type-body mt-0.5">Canon will set up their onboarding and default access requests.</p>
       </div>
 
       <NewHireForm
-        onCreated={(hireId) => router.push(`/new-hires/${hireId}`)}
+        onCreated={(hireId) => router.push(`/new-hires?hire=${hireId}`)}
         onCancel={() => router.push('/new-hires')}
       />
     </div>

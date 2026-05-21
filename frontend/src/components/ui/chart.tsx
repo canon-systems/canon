@@ -48,7 +48,7 @@ export const ChartContainer = React.forwardRef<
     <ChartContext.Provider value={{ config }}>
       <div
         ref={ref}
-        className={cn('h-[260px] w-full text-xs', className)}
+        className={cn('h-[260px] w-full type-caption', className)}
         style={mergedStyle}
         {...props}
       >
@@ -91,7 +91,7 @@ export function ChartTooltipContent({
   return (
     <div
       className={cn(
-        'rounded-md border border-[var(--border-tertiary)] bg-[var(--chart-tooltip-bg)] px-3 py-2 text-xs text-[var(--text-primary)]',
+        'rounded-md border border-[var(--border-tertiary)] bg-[var(--chart-tooltip-bg)] px-3 py-2 type-caption text-[var(--text-primary)]',
         className
       )}
     >

@@ -14,7 +14,7 @@ const SelectTrigger = React.forwardRef<
     ref={ref}
     suppressHydrationWarning
     className={cn(
-      "flex h-10 w-full items-center justify-between gap-2 rounded-[7px] border border-[var(--border-secondary)] bg-[var(--bg-secondary)] px-3 py-2 text-sm text-[var(--text-primary)] transition-colors duration-[120ms] hover:border-[var(--border-secondary)] focus:outline-none focus:border-[var(--canon-purple)] focus:ring-2 focus:ring-[var(--canon-purple)]/25 disabled:cursor-not-allowed disabled:opacity-60",
+      "flex h-9 w-full items-center justify-between gap-2 rounded-[7px] border border-[var(--border-secondary)] bg-[var(--bg-secondary)] px-[10px] py-[6px] type-field text-[var(--text-primary)] transition-colors duration-[120ms] hover:border-[var(--border-secondary)] focus:outline-none focus:border-[var(--canon-purple)] focus:ring-2 focus:ring-[var(--canon-purple)]/25 disabled:cursor-not-allowed disabled:opacity-60",
       className
     )}
     {...props}
@@ -62,7 +62,7 @@ const SelectItem = React.forwardRef<
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex cursor-pointer select-none items-center gap-2 rounded-md py-2 pl-3 pr-8 text-sm text-[var(--text-secondary)] outline-none transition-colors duration-[120ms] focus:bg-[var(--bg-secondary)] focus:text-[var(--text-primary)] data-[state=checked]:text-[var(--text-primary)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "relative flex cursor-pointer select-none items-center gap-2 rounded-md py-[7px] pl-3 pr-8 type-field text-[var(--text-secondary)] outline-none transition-colors duration-[120ms] focus:bg-[var(--bg-secondary)] focus:text-[var(--text-primary)] data-[state=checked]:text-[var(--text-primary)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       className
     )}
     {...props}

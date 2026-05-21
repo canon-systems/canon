@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -37,14 +37,21 @@ const secondaryNav = [
 
 export function Navigation({ user, onLogout }: NavigationProps) {
   const pathname = usePathname();
-  const [collapsed, setCollapsed] = useState(() => (
-    typeof window !== 'undefined' && window.localStorage.getItem('canon-nav-collapsed') === 'true'
-  ));
+  const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      setCollapsed(window.localStorage.getItem('canon-nav-collapsed') === 'true');
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
 
   function toggleCollapsed() {
     setCollapsed((current) => {
       const next = !current;
-      window.localStorage.setItem('canon-nav-collapsed', String(next));
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem('canon-nav-collapsed', String(next));
+      }
       return next;
     });
   }
@@ -66,7 +73,7 @@ export function Navigation({ user, onLogout }: NavigationProps) {
 
   const navLinkClass = (active: boolean) =>
     cn(
-      'flex items-center gap-[9px] px-4 py-2 text-[13px] rounded-[6px] mx-2 my-px cursor-pointer transition-colors duration-[120ms]',
+      'flex items-center gap-[9px] px-4 py-2 type-nav rounded-[6px] mx-2 my-px cursor-pointer transition-colors duration-[120ms]',
       collapsed && 'justify-center px-0',
       active
         ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] font-medium'
@@ -77,7 +84,7 @@ export function Navigation({ user, onLogout }: NavigationProps) {
     <aside
       className={cn(
         'relative flex h-screen shrink-0 flex-col border-r py-5 transition-[width] duration-200 ease-out',
-        collapsed ? 'w-[40px]' : 'w-[200px]'
+        collapsed ? 'w-[72px]' : 'w-[200px]'
       )}
       style={{
         backgroundColor: 'var(--bg-sidebar)',
@@ -112,7 +119,7 @@ export function Navigation({ user, onLogout }: NavigationProps) {
           </svg>
         </div>
         {!collapsed && (
-          <span className="text-[15px] font-medium" style={{ color: 'var(--text-primary)' }}>Canon</span>
+          <span className="type-card-title" style={{ color: 'var(--text-primary)' }}>Canon</span>
         )}
       </div>
 
@@ -157,13 +164,13 @@ export function Navigation({ user, onLogout }: NavigationProps) {
       <div className={cn('mt-auto pt-3 px-4 border-t', collapsed && 'px-0')} style={{ borderColor: 'var(--border-tertiary)' }}>
         <div className={cn('flex items-center gap-2', collapsed && 'flex-col')}>
           <div
-            className="w-[26px] h-[26px] rounded-full flex items-center justify-center text-[10px] font-medium text-[var(--text-primary)] flex-shrink-0"
+            className="w-[26px] h-[26px] rounded-full flex items-center justify-center type-control-sm text-[var(--text-primary)] flex-shrink-0"
             style={{ backgroundColor: 'var(--canon-purple)' }}
           >
             {userInitials}
           </div>
           {!collapsed && (
-            <span className="text-[12px] truncate flex-1" style={{ color: 'var(--text-secondary)' }}>
+            <span className="type-body truncate flex-1" style={{ color: 'var(--text-secondary)' }}>
               {userEmail}
             </span>
           )}

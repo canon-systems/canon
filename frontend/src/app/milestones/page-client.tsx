@@ -94,8 +94,8 @@ export function MilestonesClient() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <div className="px-6 pt-5 pb-4 border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
-        <h1 className="text-[20px] font-medium" style={{ color: 'var(--text-primary)' }}>Milestones</h1>
-        <p className="text-[13px] mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>What Canon Delivers and When</p>
+        <h1 className="type-page-title" style={{ color: 'var(--text-primary)' }}>Milestones</h1>
+        <p className="type-page-subtitle mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>What Canon Delivers and When</p>
       </div>
 
       <div className="flex gap-[10px] px-6 py-[14px] border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
@@ -105,8 +105,9 @@ export function MilestonesClient() {
           return (
             <button
               key={meta.id}
+              type="button"
               onClick={() => { setActiveRole(role); setShowAddForm(false); setForm(emptyForm(role)); }}
-              className="flex items-center gap-[7px] px-[14px] py-2 rounded-[8px] border text-[13px] transition-all duration-[120ms] cursor-pointer"
+              className="flex items-center gap-[7px] px-[14px] py-2 rounded-[8px] border type-nav transition-all duration-[120ms] cursor-pointer"
               style={{
                 backgroundColor: active ? 'var(--canon-purple-light)' : 'transparent',
                 borderColor: active ? 'var(--canon-purple-border)' : 'var(--border-tertiary)',
@@ -114,12 +115,12 @@ export function MilestonesClient() {
                 fontWeight: active ? 500 : 400,
               }}
             >
-              <div className="w-[22px] h-[22px] rounded-[5px] flex items-center justify-center text-[11px] font-medium text-[var(--text-primary)] flex-shrink-0" style={{ backgroundColor: meta.color }}>
+              <div className="w-[22px] h-[22px] rounded-[5px] flex items-center justify-center type-caption font-medium text-[var(--text-primary)] flex-shrink-0" style={{ backgroundColor: meta.color }}>
                 {meta.abbr}
               </div>
               {meta.label}
               <span
-                className="text-[11px] px-[6px] py-[1px] rounded-[4px]"
+                className="type-caption px-[6px] py-[1px] rounded-[4px]"
                 style={{
                   backgroundColor: active ? 'var(--canon-purple-light)' : 'var(--bg-secondary)',
                   color: active ? 'var(--canon-purple-dark)' : 'var(--text-tertiary)',
@@ -133,7 +134,7 @@ export function MilestonesClient() {
       </div>
 
       <div
-        className="mx-6 mt-[14px] px-[14px] py-[10px] rounded-[8px] flex items-center gap-2 text-[12px] leading-[1.5] border"
+        className="mx-6 mt-[14px] px-[14px] py-[10px] rounded-[8px] flex items-center gap-2 type-body border"
         style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-tertiary)', color: 'var(--text-secondary)' }}
       >
         <IconInfoCircle size={14} style={{ color: 'var(--canon-purple)', flexShrink: 0 }} />
@@ -143,8 +144,8 @@ export function MilestonesClient() {
       {activeMilestones.length === 0 && !showAddForm ? (
         <div className="flex flex-col items-center justify-center flex-1 gap-3 py-12">
           <IconTarget size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
-          <div className="text-[14px] font-medium" style={{ color: 'var(--text-secondary)' }}>No Milestones for This Role</div>
-          <div className="text-[12px] text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
+          <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Milestones for This Role</div>
+          <div className="type-body text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
             Add a milestone to define what Canon should send for this role.
           </div>
           <Button size="sm" onClick={() => { setShowAddForm(true); setForm(emptyForm(activeRole)); }}>Add Milestone</Button>
@@ -170,17 +171,17 @@ export function MilestonesClient() {
             ) : (
               <form onSubmit={handleAdd} className="rounded-[10px] border p-4 space-y-4" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}>
                 <div className="flex items-center justify-between">
-                  <p className="text-[13px] font-medium" style={{ color: 'var(--text-primary)' }}>New Milestone</p>
+                  <p className="type-panel-title" style={{ color: 'var(--text-primary)' }}>New Milestone</p>
                   <button type="button" onClick={() => setShowAddForm(false)} className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)]">
                     <IconX size={16} />
                   </button>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <Input type="number" value={form.day_trigger} onChange={(e) => setField('day_trigger', e.target.value)} placeholder="Day (e.g. 45)" className="input-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] text-sm" />
-                  <Input value={form.title} onChange={(e) => setField('title', e.target.value)} placeholder="Milestone Title" className="input-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] text-sm" />
+                  <Input type="number" value={form.day_trigger} onChange={(e) => setField('day_trigger', e.target.value)} placeholder="Day (e.g. 45)" className="input-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body" />
+                  <Input value={form.title} onChange={(e) => setField('title', e.target.value)} placeholder="Milestone Title" className="input-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body" />
                 </div>
-                <Textarea value={form.description} onChange={(e) => setField('description', e.target.value)} placeholder="What This Milestone Covers" className="textarea-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] text-sm min-h-[72px]" />
-                <Input value={form.knowledge_query} onChange={(e) => setField('knowledge_query', e.target.value)} placeholder="Knowledge Query Keywords" className="input-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] text-sm" />
+                <Textarea value={form.description} onChange={(e) => setField('description', e.target.value)} placeholder="What This Milestone Covers" className="textarea-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body min-h-[72px]" />
+                <Input value={form.knowledge_query} onChange={(e) => setField('knowledge_query', e.target.value)} placeholder="Knowledge Query Keywords" className="input-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body" />
                 <div className="flex gap-2">
                   <Button type="submit" disabled={submitting} size="sm">{submitting ? 'Saving...' : 'Save Milestone'}</Button>
                   <Button type="button" size="sm" variant="secondary" onClick={() => setShowAddForm(false)}>Cancel</Button>
@@ -200,21 +201,21 @@ export function MilestonesClient() {
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <p className="text-[11px] mb-1" style={{ color: 'var(--text-tertiary)' }}>Day Trigger</p>
-                  <p className="text-[13px] font-medium" style={{ color: 'var(--text-primary)' }}>Day {editingMilestone.day_trigger}</p>
+                  <p className="type-caption mb-1" style={{ color: 'var(--text-tertiary)' }}>Day Trigger</p>
+                  <p className="type-panel-title" style={{ color: 'var(--text-primary)' }}>Day {editingMilestone.day_trigger}</p>
                 </div>
                 <div>
-                  <p className="text-[11px] mb-1" style={{ color: 'var(--text-tertiary)' }}>Role</p>
-                  <p className="text-[13px] font-medium" style={{ color: 'var(--text-primary)' }}>{editingMilestone.role}</p>
+                  <p className="type-caption mb-1" style={{ color: 'var(--text-tertiary)' }}>Role</p>
+                  <p className="type-panel-title" style={{ color: 'var(--text-primary)' }}>{editingMilestone.role}</p>
                 </div>
               </div>
               <div>
-                <p className="text-[11px] mb-1" style={{ color: 'var(--text-tertiary)' }}>Title</p>
-                <p className="text-[13px]" style={{ color: 'var(--text-primary)' }}>{editingMilestone.title}</p>
+                <p className="type-caption mb-1" style={{ color: 'var(--text-tertiary)' }}>Title</p>
+                <p className="type-body-strong" style={{ color: 'var(--text-primary)' }}>{editingMilestone.title}</p>
               </div>
               <div>
-                <p className="text-[11px] mb-1" style={{ color: 'var(--text-tertiary)' }}>Description</p>
-                <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>{editingMilestone.description}</p>
+                <p className="type-caption mb-1" style={{ color: 'var(--text-tertiary)' }}>Description</p>
+                <p className="type-body-strong" style={{ color: 'var(--text-secondary)' }}>{editingMilestone.description}</p>
               </div>
               <Button variant="secondary" size="sm" onClick={() => setEditingMilestone(null)}>Close</Button>
             </div>

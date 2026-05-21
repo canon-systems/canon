@@ -18,7 +18,7 @@ const DropdownMenuSubTrigger = React.forwardRef<
   <DropdownMenuPrimitive.SubTrigger
     ref={ref}
     className={cn(
-      "flex cursor-pointer select-none items-center rounded-md px-2 py-1.5 text-sm text-[var(--text-primary)] outline-none focus:bg-[var(--bg-secondary)] data-[state=open]:bg-[var(--bg-secondary)]",
+      "flex cursor-pointer select-none items-center rounded-md px-2 py-1.5 type-field text-[var(--text-primary)] outline-none focus:bg-[var(--bg-secondary)] data-[state=open]:bg-[var(--bg-secondary)]",
       inset && "pl-8",
       className
     )}
@@ -71,7 +71,7 @@ const DropdownMenuItem = React.forwardRef<
   <DropdownMenuPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--text-secondary)] outline-none transition-colors duration-[120ms] focus:bg-[var(--bg-secondary)] focus:text-[var(--text-primary)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "relative flex cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1.5 type-field text-[var(--text-secondary)] outline-none transition-colors duration-[120ms] focus:bg-[var(--bg-secondary)] focus:text-[var(--text-primary)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       inset && "pl-8",
       className
     )}
@@ -100,7 +100,7 @@ const DropdownMenuLabel = React.forwardRef<
 >(({ className, inset, ...props }, ref) => (
   <DropdownMenuPrimitive.Label
     ref={ref}
-    className={cn("px-2 py-1.5 text-sm font-medium", inset && "pl-8", className)}
+    className={cn("px-2 py-1.5 type-control", inset && "pl-8", className)}
     {...props}
   />
 ));

@@ -130,7 +130,7 @@ export const SidebarGroupLabel = React.forwardRef<HTMLParagraphElement, React.HT
     return (
       <p
         ref={ref}
-        className={cn('text-xs text-[var(--text-secondary)] block mb-1', className)}
+        className={cn('type-caption text-[var(--text-secondary)] block mb-1', className)}
         {...props}
       />
     );
@@ -165,9 +165,10 @@ export const SidebarMenuButton = React.forwardRef<
   return (
     <button
       ref={ref}
+      type={props.type ?? 'button'}
       data-active={active}
       className={cn(
-        'w-full rounded-lg border border-transparent px-3 py-2 text-left text-sm transition',
+        'w-full rounded-lg border border-transparent px-3 py-2 text-left type-body transition',
         active
           ? 'border-[var(--border-tertiary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] '
           : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:border-[var(--border-tertiary)] hover:bg-[var(--bg-secondary)]',
@@ -201,7 +202,7 @@ export const SidebarTrigger = React.forwardRef<HTMLButtonElement, SidebarTrigger
         onClick?.(event);
       }}
       className={cn(
-        'h-10 w-10 rounded-full border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] hover:bg-[var(--bg-secondary)]',
+        'h-8 w-8 rounded-full border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] hover:bg-[var(--bg-secondary)]',
         className
       )}
       {...props}

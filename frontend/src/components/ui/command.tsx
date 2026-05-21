@@ -27,7 +27,7 @@ const CommandInput = React.forwardRef<
     <CommandPrimitive.Input
       ref={ref}
       className={cn(
-        "flex h-11 w-full rounded-md bg-transparent py-3 text-sm text-[var(--text-primary)] outline-none placeholder:text-[var(--text-secondary)] disabled:cursor-not-allowed disabled:opacity-50",
+        "flex h-9 w-full rounded-md bg-transparent py-[7px] type-field text-[var(--text-primary)] outline-none placeholder:text-[var(--text-secondary)] disabled:cursor-not-allowed disabled:opacity-50",
         className
       )}
       {...props}
@@ -56,7 +56,7 @@ const CommandEmpty = React.forwardRef<
 >((props, ref) => (
   <CommandPrimitive.Empty
     ref={ref}
-    className="py-6 text-center text-sm text-[var(--text-secondary)]"
+    className="py-5 text-center type-body text-[var(--text-secondary)]"
     {...props}
   />
 ));
@@ -70,7 +70,7 @@ const CommandGroup = React.forwardRef<
   <CommandPrimitive.Group
     ref={ref}
     className={cn(
-      "overflow-hidden p-1 text-[var(--text-primary)] [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-[var(--text-secondary)]",
+      "command-group overflow-hidden p-1 text-[var(--text-primary)]",
       className
     )}
     {...props}
@@ -98,7 +98,7 @@ const CommandItem = React.forwardRef<
   <CommandPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none aria-selected:bg-[var(--bg-secondary)] aria-selected:text-[var(--text-primary)]",
+      "relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 type-field outline-none aria-selected:bg-[var(--bg-secondary)] aria-selected:text-[var(--text-primary)]",
       className
     )}
     {...props}
@@ -114,7 +114,7 @@ const CommandShortcut = ({
   return (
     <span
       className={cn(
-        "ml-auto text-xs tracking-widest text-[var(--text-secondary)]",
+        "ml-auto type-caption tracking-widest text-[var(--text-secondary)]",
         className
       )}
       {...props}

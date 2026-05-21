@@ -208,9 +208,9 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
         <div className="rounded-[10px] px-[18px] py-4 flex items-center gap-[14px] mb-4 border" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}>
           <Avatar name={user?.email ?? 'User'} size="lg" />
           <div>
-            <div className="text-[15px] font-medium" style={{ color: 'var(--text-primary)' }}>{displayName}</div>
-            <div className="text-[13px] mt-[2px]" style={{ color: 'var(--text-secondary)' }}>{user?.email || 'Not Available'}</div>
-            <div className="text-[11px] mt-[2px] font-mono" style={{ color: 'var(--text-tertiary)' }}>{user?.id || 'N/A'}</div>
+            <div className="type-card-title" style={{ color: 'var(--text-primary)' }}>{displayName}</div>
+            <div className="type-page-subtitle mt-[2px]" style={{ color: 'var(--text-secondary)' }}>{user?.email || 'Not Available'}</div>
+            <div className="type-caption mt-[2px] font-mono" style={{ color: 'var(--text-tertiary)' }}>{user?.id || 'N/A'}</div>
           </div>
         </div>
 
@@ -219,13 +219,13 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
           { label: 'Email', value: user?.email || '', hint: 'Email is managed by your authentication provider.' },
         ].map((field) => (
           <div key={field.label} className="mb-[14px]">
-            <label className="block text-[12px] font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
+            <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
               {field.label}
             </label>
             <input
               value={field.value}
               readOnly
-              className="w-full px-3 py-2 rounded-[7px] text-[13px] border outline-none transition-all duration-[120ms]"
+              className="w-full px-3 py-2 rounded-[7px] type-field border outline-none transition-all duration-[120ms]"
               style={{
                 backgroundColor: 'var(--bg-primary)',
                 color: 'var(--text-primary)',
@@ -240,7 +240,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                 e.target.style.boxShadow = 'none';
               }}
             />
-            <p className="text-[11px] mt-1" style={{ color: 'var(--text-tertiary)' }}>{field.hint}</p>
+            <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>{field.hint}</p>
           </div>
         ))}
         <div className="flex justify-end mt-1"><Button>Save Changes</Button></div>
@@ -252,12 +252,12 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     return (
       <div className="max-w-3xl">
         {success && (
-          <div className="mb-4 rounded-[8px] border px-[14px] py-3 text-[13px]" style={{ backgroundColor: 'var(--green-bg)', borderColor: 'var(--green-border)', color: 'var(--green-text)' }}>
+          <div className="mb-4 rounded-[8px] border px-[14px] py-3 type-body-strong" style={{ backgroundColor: 'var(--green-bg)', borderColor: 'var(--green-border)', color: 'var(--green-text)' }}>
             {success}
           </div>
         )}
         {error && (
-          <div className="mb-4 rounded-[8px] border px-[14px] py-3 text-[13px]" style={{ backgroundColor: 'var(--red-bg)', borderColor: 'var(--red-border)', color: 'var(--red-text)' }}>
+          <div className="mb-4 rounded-[8px] border px-[14px] py-3 type-body-strong" style={{ backgroundColor: 'var(--red-bg)', borderColor: 'var(--red-border)', color: 'var(--red-text)' }}>
             {error}
           </div>
         )}
@@ -268,11 +268,11 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
               <IntegrationLogos provider={int.provider} size={22} />
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-[14px] font-medium" style={{ color: 'var(--text-primary)' }}>{int.name}</div>
-              <div className="text-[12px] mt-[2px]" style={{ color: 'var(--text-secondary)' }}>{int.description}</div>
+              <div className="type-section-title" style={{ color: 'var(--text-primary)' }}>{int.name}</div>
+              <div className="type-body mt-[2px]" style={{ color: 'var(--text-secondary)' }}>{int.description}</div>
               <div className="flex items-center gap-[5px] mt-1">
                 <div className="w-[6px] h-[6px] rounded-full" style={{ backgroundColor: int.connected ? 'var(--green)' : 'var(--border-secondary)' }} />
-                <span className="text-[11px]" style={{ color: int.connected ? 'var(--green-text)' : 'var(--text-tertiary)' }}>
+                <span className="type-caption" style={{ color: int.connected ? 'var(--green-text)' : 'var(--text-tertiary)' }}>
                   {int.connected ? `Connected · ${int.workspace}` : 'Not Connected'}
                 </span>
               </div>
@@ -289,7 +289,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
         ))}
 
         {loading && (
-          <div className="flex items-center gap-2 text-[12px]" style={{ color: 'var(--text-tertiary)' }}>
+          <div className="flex items-center gap-2 type-body" style={{ color: 'var(--text-tertiary)' }}>
             <IconLoader2 size={14} className="animate-spin" /> Loading Integration Status...
           </div>
         )}
@@ -301,8 +301,8 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     return (
       <div className="max-w-3xl">
         <div className="mb-4">
-          <h2 className="text-[18px] font-medium" style={{ color: 'var(--text-primary)' }}>Placeholder Values</h2>
-          <p className="text-[13px] mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>
+          <h2 className="type-page-title" style={{ color: 'var(--text-primary)' }}>Placeholder Values</h2>
+          <p className="type-page-subtitle mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>
             Toggle sample onboarding data for UI review and local testing.
           </p>
         </div>
@@ -316,8 +316,8 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
             )}
           </div>
           <div className="flex-1">
-            <div className="text-[13px] font-medium" style={{ color: 'var(--text-primary)' }}>{demoSeeded ? 'Clear Placeholder Values' : 'Load Placeholder Values'}</div>
-            <div className="text-[12px] mt-[2px]" style={{ color: 'var(--text-secondary)' }}>
+            <div className="type-panel-title" style={{ color: 'var(--text-primary)' }}>{demoSeeded ? 'Clear Placeholder Values' : 'Load Placeholder Values'}</div>
+            <div className="type-body mt-[2px]" style={{ color: 'var(--text-secondary)' }}>
               {demoSeeded
                 ? 'Remove sample hires, deliveries, access requests, milestones, and readiness notes loaded for testing.'
                 : 'Load sample hires, deliveries, access requests, milestones, and readiness notes for testing.'}
@@ -335,8 +335,8 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   function renderPlaceholder(label: string) {
     return (
       <div className="max-w-2xl rounded-[10px] border px-5 py-8 text-center" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}>
-        <div className="text-[14px] font-medium" style={{ color: 'var(--text-secondary)' }}>{label}</div>
-        <div className="text-[12px] mt-2" style={{ color: 'var(--text-tertiary)' }}>This settings section is ready for configuration content.</div>
+        <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>{label}</div>
+        <div className="type-body mt-2" style={{ color: 'var(--text-tertiary)' }}>This settings section is ready for configuration content.</div>
       </div>
     );
   }
@@ -345,25 +345,26 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     <>
       <div className="flex h-full flex-col overflow-hidden">
         <div className="px-6 pt-5 pb-4 border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
-          <h1 className="text-[20px] font-medium" style={{ color: 'var(--text-primary)' }}>Settings</h1>
-          <p className="text-[13px] mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>Manage Your Account and Workspace Connections</p>
+          <h1 className="type-page-title" style={{ color: 'var(--text-primary)' }}>Settings</h1>
+          <p className="type-page-subtitle mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>Manage Your Account and Workspace Connections</p>
         </div>
 
         <div className="flex flex-1 overflow-hidden">
           <div className="flex-shrink-0 py-5 overflow-y-auto border-r" style={{ width: 180, borderColor: 'var(--border-tertiary)' }}>
             {settingSections.map(({ section, items }) => (
               <div key={section}>
-                <div className="text-[10px] font-medium uppercase tracking-[0.08em] px-4 pt-[10px] pb-1" style={{ color: 'var(--text-tertiary)' }}>
+                <div className="type-kicker px-4 pt-[10px] pb-1" style={{ color: 'var(--text-tertiary)' }}>
                   {section}
                 </div>
                 {items.map((item) => {
                   const Icon = item.icon;
                   const danger = 'danger' in item && item.danger;
                   return (
-                    <div
+                    <button
                       key={item.id}
+                      type="button"
                       onClick={() => setActiveSettingAndUpdateUrl(item.id)}
-                      className="flex items-center gap-2 px-4 py-[7px] text-[13px] mx-2 rounded-[5px] cursor-pointer transition-colors duration-[120ms]"
+                      className="flex w-[calc(100%-16px)] items-center gap-2 px-4 py-[7px] text-left type-nav mx-2 rounded-[5px] cursor-pointer transition-colors duration-[120ms]"
                       style={{
                         backgroundColor: activeSetting === item.id ? 'var(--canon-purple-light)' : 'transparent',
                         color: danger ? 'var(--red-text)' : activeSetting === item.id ? 'var(--canon-purple-dark)' : 'var(--text-secondary)',
@@ -372,7 +373,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                     >
                       <Icon size={14} />
                       {item.label}
-                    </div>
+                    </button>
                   );
                 })}
               </div>

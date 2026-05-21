@@ -137,8 +137,8 @@ export function KnowledgeClient() {
     <div className="flex h-full flex-col overflow-hidden">
       <div className="flex items-start justify-between px-6 pt-5 pb-4 border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
         <div>
-          <h1 className="text-[20px] font-medium" style={{ color: 'var(--text-primary)' }}>Knowledge</h1>
-          <p className="text-[13px] mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>Slack Channels Canon Learns From</p>
+          <h1 className="type-page-title" style={{ color: 'var(--text-primary)' }}>Knowledge</h1>
+          <p className="type-page-subtitle mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>Slack Channels Canon Learns From</p>
         </div>
         <Button onClick={openAddModal} size="sm"><IconPlus size={14} /> Add Channel</Button>
       </div>
@@ -155,8 +155,8 @@ export function KnowledgeClient() {
               <Icon size={16} />
             </div>
             <div>
-              <div className="text-[18px] font-medium" style={{ color: 'var(--text-primary)' }}>{value}</div>
-              <div className="text-[11px] mt-[1px]" style={{ color: 'var(--text-tertiary)' }}>{label}</div>
+              <div className="type-metric-sm" style={{ color: 'var(--text-primary)' }}>{value}</div>
+              <div className="type-caption mt-[1px]" style={{ color: 'var(--text-tertiary)' }}>{label}</div>
             </div>
           </div>
         ))}
@@ -165,8 +165,8 @@ export function KnowledgeClient() {
       {sources.length === 0 ? (
         <div className="flex flex-col items-center justify-center flex-1 gap-3 py-12">
           <IconDatabase size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
-          <div className="text-[14px] font-medium" style={{ color: 'var(--text-secondary)' }}>No Knowledge Sources Yet</div>
-          <div className="text-[12px] text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
+          <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Knowledge Sources Yet</div>
+          <div className="type-body text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
             Connect Slack channels so Canon can learn from their history.
           </div>
           <Button onClick={openAddModal} size="sm"><IconPlus size={13} /> Add a Channel</Button>
@@ -177,6 +177,7 @@ export function KnowledgeClient() {
             {sources.map((source) => (
               <button
                 key={source.id}
+                type="button"
                 onClick={() => setSelected(source)}
                 className="w-full flex items-center gap-[10px] py-[11px] border-b cursor-pointer text-left transition-colors duration-[120ms]"
                 style={{
@@ -192,8 +193,8 @@ export function KnowledgeClient() {
                   <IconHash size={15} />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="text-[13px] font-medium truncate" style={{ color: 'var(--text-primary)' }}>{source.name}</div>
-                  <div className="text-[11px] mt-[1px]" style={{ color: 'var(--text-tertiary)' }}>{source.chunk_count} chunks</div>
+                  <div className="type-panel-title truncate" style={{ color: 'var(--text-primary)' }}>{source.name}</div>
+                  <div className="type-caption mt-[1px]" style={{ color: 'var(--text-tertiary)' }}>{source.chunk_count} chunks</div>
                 </div>
                 <StatusBadge variant={statusVariant(source.status)} label={source.status} />
               </button>
@@ -205,7 +206,7 @@ export function KnowledgeClient() {
               <div className="max-w-4xl">
                 <div className="flex items-center justify-between gap-4 mb-5">
                   <div className="flex items-center gap-3">
-                    <h2 className="text-[18px] font-medium" style={{ color: 'var(--text-primary)' }}>{selected.name}</h2>
+                    <h2 className="type-metric-sm" style={{ color: 'var(--text-primary)' }}>{selected.name}</h2>
                     <StatusBadge variant={statusVariant(selected.status)} label={selected.status} />
                   </div>
                   <Button
@@ -226,8 +227,8 @@ export function KnowledgeClient() {
                     { label: 'Provider', value: selected.provider.replace('_', ' ') },
                   ].map((item) => (
                     <div key={item.label} className="rounded-[8px] p-[12px]" style={{ backgroundColor: 'var(--bg-secondary)' }}>
-                      <div className="text-[11px] mb-1" style={{ color: 'var(--text-tertiary)' }}>{item.label}</div>
-                      <div className="text-[20px] font-medium capitalize" style={{ color: 'var(--text-primary)' }}>{item.value}</div>
+                      <div className="type-caption mb-1" style={{ color: 'var(--text-tertiary)' }}>{item.label}</div>
+                      <div className="type-metric-sm capitalize" style={{ color: 'var(--text-primary)' }}>{item.value}</div>
                     </div>
                   ))}
                 </div>
@@ -236,9 +237,9 @@ export function KnowledgeClient() {
                   <div className="flex items-start gap-[10px] rounded-[8px] px-[14px] py-3 mb-5 border" style={{ backgroundColor: 'var(--red-bg)', borderColor: 'var(--red-border)' }}>
                     <IconAlertCircle size={16} style={{ color: 'var(--red)', marginTop: 1, flexShrink: 0 }} />
                     <div>
-                      <div className="text-[13px] font-medium mb-[2px]" style={{ color: 'var(--red-text)' }}>Sync Failed</div>
-                      <div className="text-[12px] leading-[1.5]" style={{ color: 'var(--text-secondary)' }}>{selected.error_message}</div>
-                      <button className="text-[12px] flex items-center gap-[3px] mt-[6px]" style={{ color: 'var(--canon-purple)' }}>
+                      <div className="type-panel-title mb-[2px]" style={{ color: 'var(--red-text)' }}>Sync Failed</div>
+                      <div className="type-body" style={{ color: 'var(--text-secondary)' }}>{selected.error_message}</div>
+                      <button type="button" className="type-body flex items-center gap-[3px] mt-[6px]" style={{ color: 'var(--canon-purple)' }}>
                         <IconArrowRight size={12} /> Fix This Issue
                       </button>
                     </div>
@@ -246,7 +247,7 @@ export function KnowledgeClient() {
                 )}
 
                 <div>
-                  <div className="text-[13px] font-medium mb-2" style={{ color: 'var(--text-primary)' }}>Sync History</div>
+                  <div className="type-panel-title mb-2" style={{ color: 'var(--text-primary)' }}>Sync History</div>
                   {[
                     { success: selected.status !== 'error', label: selected.status === 'error' ? 'Sync Failed' : 'Latest Sync Complete', time: fmtDate(selected.last_synced_at), chunks: `${selected.chunk_count ?? 0} Chunks` },
                     { success: true, label: 'Source Connected', time: fmtDate(selected.created_at), chunks: 'Ready' },
@@ -254,10 +255,10 @@ export function KnowledgeClient() {
                     <div key={`${event.label}-${event.time}`} className="flex items-center gap-[10px] py-[10px] border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
                       <div className="w-[7px] h-[7px] rounded-full flex-shrink-0" style={{ backgroundColor: event.success ? 'var(--green)' : 'var(--red)' }} />
                       <div className="flex-1">
-                        <div className="text-[13px]" style={{ color: 'var(--text-primary)' }}>{event.label}</div>
-                        <div className="text-[11px] mt-[1px]" style={{ color: 'var(--text-tertiary)' }}>{event.time}</div>
+                        <div className="type-panel-title" style={{ color: 'var(--text-primary)' }}>{event.label}</div>
+                        <div className="type-caption mt-[1px]" style={{ color: 'var(--text-tertiary)' }}>{event.time}</div>
                       </div>
-                      <div className="text-[12px] font-medium" style={{ color: 'var(--text-secondary)' }}>{event.chunks}</div>
+                      <div className="type-body font-medium" style={{ color: 'var(--text-secondary)' }}>{event.chunks}</div>
                     </div>
                   ))}
                 </div>
@@ -265,7 +266,7 @@ export function KnowledgeClient() {
             ) : (
               <div className="flex flex-col items-center justify-center h-full gap-3">
                 <IconDatabase size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
-                <div className="text-[14px] font-medium" style={{ color: 'var(--text-secondary)' }}>Select a Channel</div>
+                <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>Select a Channel</div>
               </div>
             )}
           </div>
@@ -283,7 +284,7 @@ export function KnowledgeClient() {
               value={channelSearch}
               onChange={(e) => setChannelSearch(e.target.value)}
               placeholder="Search Channels..."
-              className="input-ui pl-9 border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] text-sm"
+              className="input-ui pl-9 border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body"
             />
           </div>
           <div className="max-h-64 overflow-y-auto space-y-1">
@@ -292,21 +293,22 @@ export function KnowledgeClient() {
                 {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-10 bg-[var(--bg-secondary)] rounded-lg" />)}
               </div>
             ) : filteredChannels.length === 0 ? (
-              <p className="text-[13px] py-6 text-center" style={{ color: 'var(--text-tertiary)' }}>No Channels Found</p>
+              <p className="type-body py-6 text-center" style={{ color: 'var(--text-tertiary)' }}>No Channels Found</p>
             ) : (
               filteredChannels.map((channel) => {
                 const connected = connectedIds.has(channel.id);
                 return (
                   <button
                     key={channel.id}
+                    type="button"
                     onClick={() => !connected && addChannel(channel)}
                     disabled={connected || adding}
                     className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-[var(--bg-secondary)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-left cursor-pointer"
                   >
                     <div>
-                      <span className="text-[13px] font-medium" style={{ color: 'var(--text-primary)' }}>#{channel.name}</span>
+                      <span className="type-panel-title" style={{ color: 'var(--text-primary)' }}>#{channel.name}</span>
                       {channel.member_count > 0 && (
-                        <span className="text-[11px] ml-2" style={{ color: 'var(--text-tertiary)' }}>{channel.member_count} members</span>
+                        <span className="type-caption ml-2" style={{ color: 'var(--text-tertiary)' }}>{channel.member_count} members</span>
                       )}
                     </div>
                     {connected && <StatusBadge variant="delivered" label="Connected" />}
