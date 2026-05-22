@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
+import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,20 +12,44 @@ type SlackChannelRaw = {
   topic?: { value?: string };
 };
 
+type SlackConversationsListResponse = {
+  ok: boolean;
+  error?: string;
+  needed?: string;
+  provided?: string;
+  channels?: SlackChannelRaw[];
+  response_metadata?: { next_cursor?: string };
+};
+
+function badRequest(payload: Record<string, unknown>) {
+  console.warn('[api/onboarding/slack/channels] GET blocked', payload);
+  return NextResponse.json(payload, { status: 400 });
+}
+
 export async function GET() {
   try {
     const { user } = await getSession();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const supabase = await createClient();
-    const { data: org } = await supabase
-      .from('organizations')
-      .select('id, slack_bot_token')
-      .eq('owner_id', user.id)
-      .single();
+    const { data: connection } = await supabase
+      .from('oauth_connections')
+      .select('connection_id')
+      .eq('user_id', user.id)
+      .eq('provider', 'slack')
+      .eq('status', 'active')
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-    if (!org?.slack_bot_token) {
-      return NextResponse.json({ error: 'No Slack bot token configured' }, { status: 400 });
+    const connectionId = connection?.connection_id;
+    if (!connectionId) {
+      return badRequest({ error: 'No active Slack connection' });
+    }
+
+    const accessToken = await getProviderAccessToken({ provider: 'slack', connectionId });
+    if (!accessToken) {
+      return badRequest({ error: 'No Slack access token available', connectionId });
     }
 
     const channels: { id: string; name: string; member_count: number; topic: string }[] = [];
@@ -35,15 +60,18 @@ export async function GET() {
       if (cursor) params.set('cursor', cursor);
 
       const res = await fetch(`https://slack.com/api/conversations.list?${params}`, {
-        headers: { Authorization: `Bearer ${org.slack_bot_token}` },
+        headers: { Authorization: `Bearer ${accessToken}` },
       });
-      const data = (await res.json()) as {
-        ok: boolean;
-        channels?: SlackChannelRaw[];
-        response_metadata?: { next_cursor?: string };
-      };
+      const data = (await res.json()) as SlackConversationsListResponse;
 
-      if (!data.ok || !data.channels) break;
+      if (!data.ok || !data.channels) {
+        return badRequest({
+          error: 'Slack API failed to list channels',
+          detail: data.error ?? 'unknown_error',
+          needed: data.needed,
+          provided: data.provided,
+        });
+      }
 
       channels.push(
         ...data.channels.map((c) => ({

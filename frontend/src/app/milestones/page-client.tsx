@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AddMilestoneCard, MilestoneCard } from '@/components/milestone-card';
 import type { HireRole, RampMilestone } from '@/types/onboarding';
 
@@ -196,6 +196,9 @@ export function MilestonesClient() {
         <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
           <DialogHeader>
             <DialogTitle className="text-[var(--text-primary)]">Edit Milestone</DialogTitle>
+            <DialogDescription>
+              Update the ramp milestone timing and guidance.
+            </DialogDescription>
           </DialogHeader>
           {editingMilestone && (
             <div className="space-y-3">

@@ -15,7 +15,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { StatusBadge } from '@/components/ui/status-badge';
 import type { KnowledgeSource, SlackChannel } from '@/types/onboarding';
 
@@ -44,6 +44,7 @@ export function KnowledgeClient() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [channels, setChannels] = useState<SlackChannel[]>([]);
   const [channelsLoading, setChannelsLoading] = useState(false);
+  const [channelsError, setChannelsError] = useState('');
   const [channelSearch, setChannelSearch] = useState('');
   const [adding, setAdding] = useState(false);
   const [selected, setSelected] = useState<KnowledgeSource | null>(null);
@@ -76,12 +77,24 @@ export function KnowledgeClient() {
 
   async function loadChannels() {
     setChannelsLoading(true);
+    setChannelsError('');
     try {
       const res = await fetch('/api/onboarding/slack/channels');
-      const data = (await res.json()) as { channels?: SlackChannel[] };
+      const data = (await res.json()) as {
+        channels?: SlackChannel[];
+        error?: string;
+        detail?: string;
+        needed?: string;
+        provided?: string;
+      };
+      if (!res.ok) {
+        const scopeHint = data.needed ? ` Needed: ${data.needed}. Provided: ${data.provided ?? 'none'}.` : '';
+        throw new Error(`${data.detail || data.error || 'Failed to load Slack channels.'}${scopeHint}`);
+      }
       setChannels(data.channels ?? []);
-    } catch {
+    } catch (error: unknown) {
       setChannels([]);
+      setChannelsError(error instanceof Error ? error.message : 'Failed to load Slack channels.');
     } finally {
       setChannelsLoading(false);
     }
@@ -277,6 +290,9 @@ export function KnowledgeClient() {
         <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
           <DialogHeader>
             <DialogTitle className="text-[var(--text-primary)]">Add Slack Channel</DialogTitle>
+            <DialogDescription>
+              Select a Slack channel for Canon to learn from.
+            </DialogDescription>
           </DialogHeader>
           <div className="relative">
             <IconSearch size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }} />
@@ -291,6 +307,10 @@ export function KnowledgeClient() {
             {channelsLoading ? (
               <div className="space-y-1.5 py-1">
                 {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-10 bg-[var(--bg-secondary)] rounded-lg" />)}
+              </div>
+            ) : channelsError ? (
+              <div className="rounded-[8px] border border-[var(--red-border)] bg-[var(--red-bg)] px-3 py-2">
+                <p className="type-body" style={{ color: 'var(--red-text)' }}>{channelsError}</p>
               </div>
             ) : filteredChannels.length === 0 ? (
               <p className="type-body py-6 text-center" style={{ color: 'var(--text-tertiary)' }}>No Channels Found</p>
