@@ -211,7 +211,7 @@ export default function LandingPage() {
                     Engineering visibility that comes to you.
                   </h1>
                   <p className="max-w-2xl text-base leading-8 text-white/74 sm:text-lg">
-                    Canon turns your engineering tools into a daily briefing, so you always know what shipped, what's stuck, and what needs your attention. Only when there's something worth saying.
+                    Canon turns your engineering tools into a daily briefing, so you always know what shipped, what&apos;s stuck, and what needs your attention. Only when there&apos;s something worth saying.
                   </p>
                 </div>
               </div>

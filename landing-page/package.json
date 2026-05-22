@@ -6,12 +6,10 @@
         "dev": "next dev",
         "build": "next build",
         "start": "next start",
-        "lint": "next lint"
+        "lint": "eslint"
     },
     "dependencies": {
-        "@radix-ui/react-navigation-menu": "^1.2.14",
         "autoprefixer": "^10.4.0",
-        "class-variance-authority": "^0.7.1",
         "lucide-react": "^0.469.0",
         "next": "16.0.7",
         "postcss": "^8.4.0",

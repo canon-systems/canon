@@ -60,7 +60,7 @@ export function UpdatePasswordPageClient() {
       }
 
       await new Promise(resolve => setTimeout(resolve, 100));
-      window.location.href = '/signals';
+      window.location.href = '/dashboard';
     } catch (e: unknown) {
       setErrorMsg(e instanceof Error ? e.message : 'Something went wrong. Please try again.');
       setLoading(false);

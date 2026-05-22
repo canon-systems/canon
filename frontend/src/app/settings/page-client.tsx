@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
-  IconActivity,
   IconBell,
   IconBuilding,
   IconKey,
@@ -41,7 +40,6 @@ const settingSections = [
     section: 'Developer',
     items: [
       { id: 'apikeys', label: 'API Keys', icon: IconKey },
-      { id: 'logs', label: 'Usage Logs', icon: IconActivity },
       { id: 'placeholders', label: 'Placeholder Values', icon: IconSparkles },
     ],
   },
@@ -388,7 +386,6 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
             {activeSetting === 'org' && renderPlaceholder('Organization')}
             {activeSetting === 'notifications' && renderPlaceholder('Notifications')}
             {activeSetting === 'apikeys' && renderPlaceholder('API Keys')}
-            {activeSetting === 'logs' && renderPlaceholder('Usage Logs')}
           </div>
         </div>
       </div>
