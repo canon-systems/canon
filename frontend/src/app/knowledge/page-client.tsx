@@ -28,7 +28,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { StatusBadge } from '@/components/ui/status-badge';
-import type { KnowledgeSource, SlackChannel } from '@/types/onboarding';
+import type { KnowledgeSource, SourceOption } from '@/types/onboarding';
 
 function statusVariant(status: string) {
   if (status === 'active') return 'active';
@@ -43,7 +43,7 @@ function fmtDate(d: string | null) {
   return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
-function channelIconStyle(status: string) {
+function sourceIconStyle(status: string) {
   if (status === 'active') return { backgroundColor: 'var(--green-bg)', color: 'var(--green-text)' };
   if (status === 'error') return { backgroundColor: 'var(--red-bg)', color: 'var(--red-text)' };
   return { backgroundColor: 'var(--bg-secondary)', color: 'var(--text-tertiary)' };
@@ -53,36 +53,36 @@ function sourceStatusNotice(status: string) {
   if (status === 'error') {
     return {
       title: 'Sync Needs Attention',
-      body: 'Canon could not finish syncing this channel. Try syncing again, or reconnect Slack if the issue continues.',
+      body: 'Canon could not finish syncing this source. Try syncing again, or reconnect the source if the issue continues.',
       tone: 'error' as const,
     };
   }
   if (status === 'stopped') {
     return {
       title: 'Sync Stopped',
-      body: 'Syncing was stopped before this channel finished updating. Start a new sync when you are ready.',
+      body: 'Syncing was stopped before this source finished updating. Start a new sync when you are ready.',
       tone: 'neutral' as const,
     };
   }
   return null;
 }
 
-function slackChannelLoadMessage(data: { error?: string; detail?: string; needed?: string }) {
+function sourceLoadMessage(data: { error?: string; detail?: string; needed?: string }) {
   if (data.detail === 'missing_scope' || data.needed) {
-    return 'Slack needs additional permissions before Canon can load channels. Reconnect Slack from Settings and try again.';
+    return 'This source needs additional permissions before Canon can load items. Reconnect it from Settings and try again.';
   }
   if (data.error === 'No active Slack connection') {
-    return 'Connect Slack from Settings before adding channels.';
+    return 'Connect a source from Settings before adding it to knowledge.';
   }
-  return 'Could not load Slack channels. Try again in a moment.';
+  return 'Could not load sources. Try again in a moment.';
 }
 
 function actionFailureMessage(action: 'sync' | 'stop' | 'rename' | 'delete' | 'add') {
   if (action === 'sync') return 'Could not start sync. Try again in a moment.';
   if (action === 'stop') return 'Could not stop sync. Try again in a moment.';
-  if (action === 'rename') return 'Could not rename this channel. Try again in a moment.';
-  if (action === 'delete') return 'Could not delete the selected channel. Try again in a moment.';
-  return 'Could not add the selected channels. Try again in a moment.';
+  if (action === 'rename') return 'Could not rename this source. Try again in a moment.';
+  if (action === 'delete') return 'Could not delete the selected source. Try again in a moment.';
+  return 'Could not add the selected sources. Try again in a moment.';
 }
 
 function isSyncInProgress(status: string) {
@@ -94,11 +94,11 @@ export function KnowledgeClient() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [channels, setChannels] = useState<SlackChannel[]>([]);
-  const [channelsLoading, setChannelsLoading] = useState(false);
-  const [channelsError, setChannelsError] = useState('');
-  const [selectedChannelIds, setSelectedChannelIds] = useState<Set<string>>(new Set());
-  const [channelSearch, setChannelSearch] = useState('');
+  const [sourceOptions, setSourceOptions] = useState<SourceOption[]>([]);
+  const [sourceOptionsLoading, setSourceOptionsLoading] = useState(false);
+  const [sourceOptionsError, setSourceOptionsError] = useState('');
+  const [selectedSourceOptionIds, setSelectedSourceOptionIds] = useState<Set<string>>(new Set());
+  const [sourceSearch, setSourceSearch] = useState('');
   const [adding, setAdding] = useState(false);
   const [selected, setSelected] = useState<KnowledgeSource | null>(null);
   const [selectedSourceIds, setSelectedSourceIds] = useState<Set<string>>(new Set());
@@ -193,58 +193,58 @@ export function KnowledgeClient() {
     }
   }
 
-  async function loadChannels() {
-    setChannelsLoading(true);
-    setChannelsError('');
+  async function loadSourceOptions() {
+    setSourceOptionsLoading(true);
+    setSourceOptionsError('');
     try {
       const res = await fetch('/api/onboarding/slack/channels');
       const data = (await res.json()) as {
-        channels?: SlackChannel[];
+        channels?: SourceOption[];
         error?: string;
         detail?: string;
         needed?: string;
         provided?: string;
       };
       if (!res.ok) {
-        throw new Error(slackChannelLoadMessage(data));
+        throw new Error(sourceLoadMessage(data));
       }
-      setChannels(data.channels ?? []);
-      setSelectedChannelIds((current) => {
-        const availableIds = new Set((data.channels ?? []).map((channel) => channel.id));
+      setSourceOptions(data.channels ?? []);
+      setSelectedSourceOptionIds((current) => {
+        const availableIds = new Set((data.channels ?? []).map((sourceOption) => sourceOption.id));
         return new Set([...current].filter((id) => availableIds.has(id)));
       });
     } catch (error: unknown) {
-      setChannels([]);
-      setSelectedChannelIds(new Set());
-      setChannelsError(error instanceof Error ? error.message : slackChannelLoadMessage({}));
+      setSourceOptions([]);
+      setSelectedSourceOptionIds(new Set());
+      setSourceOptionsError(error instanceof Error ? error.message : sourceLoadMessage({}));
     } finally {
-      setChannelsLoading(false);
+      setSourceOptionsLoading(false);
     }
   }
 
   function openAddModal() {
     setShowAddModal(true);
-    setSelectedChannelIds(new Set());
-    setChannelSearch('');
-    void loadChannels();
+    setSelectedSourceOptionIds(new Set());
+    setSourceSearch('');
+    void loadSourceOptions();
   }
 
   function handleAddModalOpenChange(open: boolean) {
     setShowAddModal(open);
     if (!open) {
-      setSelectedChannelIds(new Set());
-      setChannelSearch('');
-      setChannelsError('');
+      setSelectedSourceOptionIds(new Set());
+      setSourceSearch('');
+      setSourceOptionsError('');
     }
   }
 
-  function toggleChannelSelection(channelId: string) {
-    setSelectedChannelIds((current) => {
+  function toggleSourceOptionSelection(sourceOptionId: string) {
+    setSelectedSourceOptionIds((current) => {
       const next = new Set(current);
-      if (next.has(channelId)) {
-        next.delete(channelId);
+      if (next.has(sourceOptionId)) {
+        next.delete(sourceOptionId);
       } else {
-        next.add(channelId);
+        next.add(sourceOptionId);
       }
       return next;
     });
@@ -291,10 +291,10 @@ export function KnowledgeClient() {
 
     setDeleteRequest({
       ids: targetSources.map((source) => source.id),
-      title: targetSources.length === 1 ? `Delete ${targetSources[0].name}?` : `Delete ${targetSources.length} channels?`,
+      title: targetSources.length === 1 ? `Delete ${targetSources[0].name}?` : `Delete ${targetSources.length} sources?`,
       description: targetSources.length === 1
-        ? 'This removes the channel from Canon knowledge and deletes its synced chunks.'
-        : 'This removes the selected channels from Canon knowledge and deletes their synced chunks.',
+        ? 'This removes the source from Canon knowledge and deletes its synced chunks.'
+        : 'This removes the selected sources from Canon knowledge and deletes their synced chunks.',
     });
     setActionError('');
   }
@@ -356,23 +356,23 @@ export function KnowledgeClient() {
     }
   }
 
-  async function addSelectedChannels() {
-    const selectedChannels = channels.filter(
-      (channel) => selectedChannelIds.has(channel.id) && !connectedIds.has(channel.id)
+  async function addSelectedSources() {
+    const selectedSourceOptions = sourceOptions.filter(
+      (sourceOption) => selectedSourceOptionIds.has(sourceOption.id) && !connectedSourceOptionIds.has(sourceOption.id)
     );
-    if (selectedChannels.length === 0) return;
+    if (selectedSourceOptions.length === 0) return;
 
     setAdding(true);
-    setChannelsError('');
+    setSourceOptionsError('');
     try {
-      for (const channel of selectedChannels) {
+      for (const sourceOption of selectedSourceOptions) {
         const res = await fetch('/api/onboarding/knowledge', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            slack_channel_id: channel.id,
-            slack_channel_name: channel.name,
-            name: `#${channel.name}`,
+            slack_channel_id: sourceOption.id,
+            slack_channel_name: sourceOption.name,
+            name: `#${sourceOption.name}`,
           }),
         });
 
@@ -382,31 +382,31 @@ export function KnowledgeClient() {
       }
 
       setShowAddModal(false);
-      setSelectedChannelIds(new Set());
-      setChannelSearch('');
+      setSelectedSourceOptionIds(new Set());
+      setSourceSearch('');
       await loadSources();
     } catch (error: unknown) {
-      setChannelsError(error instanceof Error ? error.message : actionFailureMessage('add'));
+      setSourceOptionsError(error instanceof Error ? error.message : actionFailureMessage('add'));
     } finally {
       setAdding(false);
     }
   }
 
-  const filteredChannels = channels.filter(
-    (c) => c.name.toLowerCase().includes(channelSearch.toLowerCase())
+  const filteredSourceOptions = sourceOptions.filter(
+    (c) => c.name.toLowerCase().includes(sourceSearch.toLowerCase())
   );
-  const connectedIds = new Set(sources.map((s) => s.slack_channel_id).filter(Boolean));
+  const connectedSourceOptionIds = new Set(sources.map((s) => s.slack_channel_id).filter(Boolean));
   const selectedSourceCount = selectedSourceIds.size;
   const selectedStoppableSourceIds = sources
     .filter((source) => selectedSourceIds.has(source.id) && canStopSync(source.status))
     .map((source) => source.id);
   const allSourcesSelected = sources.length > 0 && selectedSourceCount === sources.length;
   const hasSourceSelection = selectedSourceCount > 0;
-  const selectableCount = filteredChannels.filter((channel) => !connectedIds.has(channel.id)).length;
-  const selectedCount = [...selectedChannelIds].filter((id) => !connectedIds.has(id)).length;
+  const selectableCount = filteredSourceOptions.filter((sourceOption) => !connectedSourceOptionIds.has(sourceOption.id)).length;
+  const selectedCount = [...selectedSourceOptionIds].filter((id) => !connectedSourceOptionIds.has(id)).length;
   const addButtonLabel = selectedCount === 0
-    ? 'Add Channels'
-    : `Add ${selectedCount} Channel${selectedCount === 1 ? '' : 's'}`;
+    ? 'Add Sources'
+    : `Add ${selectedCount} Source${selectedCount === 1 ? '' : 's'}`;
   const totalChunks = sources.reduce((sum, source) => sum + (source.chunk_count ?? 0), 0);
   const activeCount = sources.filter((source) => source.status === 'active').length;
   const errorCount = sources.filter((source) => source.status === 'error').length;
@@ -430,10 +430,10 @@ export function KnowledgeClient() {
       <div className="flex items-start justify-between px-6 pt-5 pb-4 border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
         <div>
           <h1 className="type-page-title" style={{ color: 'var(--text-primary)' }}>Knowledge</h1>
-          <p className="type-page-subtitle mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>Slack Channels Canon Learns From</p>
+          <p className="type-page-subtitle mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>Sources Canon Learns From</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button onClick={openAddModal} size="sm"><IconPlus size={14} /> Add Channel</Button>
+          <Button onClick={openAddModal} size="sm"><IconPlus size={14} /> Add Source</Button>
         </div>
       </div>
 
@@ -446,7 +446,7 @@ export function KnowledgeClient() {
       <div className="flex gap-3 px-6 py-[14px] border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
         {[
           { icon: IconDatabase, iconColor: 'var(--canon-purple)', iconBg: 'var(--canon-purple-light)', value: totalChunks, label: 'Total Chunks' },
-          { icon: IconChecks, iconColor: 'var(--green)', iconBg: 'var(--green-bg)', value: activeCount, label: 'Active Channels' },
+          { icon: IconChecks, iconColor: 'var(--green)', iconBg: 'var(--green-bg)', value: activeCount, label: 'Active Sources' },
           { icon: IconAlertCircle, iconColor: 'var(--red)', iconBg: 'var(--red-bg)', value: errorCount, label: 'Needs Attention' },
           { icon: IconClock, iconColor: 'var(--amber)', iconBg: 'var(--amber-bg)', value: pendingCount, label: 'Pending Sync' },
         ].map(({ icon: Icon, iconColor, iconBg, value, label }) => (
@@ -467,9 +467,9 @@ export function KnowledgeClient() {
           <IconDatabase size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
           <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Knowledge Sources Yet</div>
           <div className="type-body text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
-            Connect Slack channels so Canon can learn from their history.
+            Connect sources so Canon can learn from their history.
           </div>
-          <Button onClick={openAddModal} size="sm"><IconPlus size={13} /> Add a Channel</Button>
+          <Button onClick={openAddModal} size="sm"><IconPlus size={13} /> Add a Source</Button>
         </div>
       ) : (
         <div className="flex flex-1 overflow-hidden">
@@ -484,7 +484,7 @@ export function KnowledgeClient() {
                   }}
                   onChange={toggleAllSources}
                   className="h-4 w-4 flex-shrink-0 accent-[var(--canon-purple)]"
-                  aria-label={allSourcesSelected ? 'Clear channel selection' : 'Select all channels'}
+                  aria-label={allSourcesSelected ? 'Clear source selection' : 'Select all sources'}
                   aria-checked={hasSourceSelection && !allSourcesSelected ? 'mixed' : allSourcesSelected}
                 />
                 {hasSourceSelection ? (
@@ -500,12 +500,12 @@ export function KnowledgeClient() {
                             variant="ghost"
                             onClick={() => syncSources([...selectedSourceIds])}
                             disabled={actionLoading}
-                            aria-label="Sync selected channels"
+                            aria-label="Sync selected sources"
                           >
                             <IconRefresh size={14} />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent side="bottom">Sync selected channels</TooltipContent>
+                        <TooltipContent side="bottom">Sync selected sources</TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
                     <TooltipProvider delayDuration={120}>
@@ -516,12 +516,12 @@ export function KnowledgeClient() {
                             variant="ghost"
                             onClick={() => stopSyncSources(selectedStoppableSourceIds)}
                             disabled={selectedStoppableSourceIds.length === 0 || actionLoading}
-                            aria-label="Stop sync for selected channels"
+                            aria-label="Stop sync for selected sources"
                           >
                             <IconPlayerStop size={14} />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent side="bottom">Stop sync for selected channels</TooltipContent>
+                        <TooltipContent side="bottom">Stop sync for selected sources</TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
                     <TooltipProvider delayDuration={120}>
@@ -533,12 +533,12 @@ export function KnowledgeClient() {
                             onClick={() => openDeleteDialog([...selectedSourceIds])}
                             disabled={actionLoading}
                             className="text-[var(--red-text)] hover:text-[var(--red-text)] hover:bg-[var(--red-bg)]"
-                            aria-label="Delete selected channels"
+                            aria-label="Delete selected sources"
                           >
                             <IconTrash size={14} />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent side="bottom">Delete selected channels</TooltipContent>
+                        <TooltipContent side="bottom">Delete selected sources</TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
                     <Button
@@ -553,7 +553,7 @@ export function KnowledgeClient() {
                   </>
                 ) : (
                   <div className="min-w-0 flex-1 type-caption font-medium" style={{ color: 'var(--text-secondary)' }}>
-                    Channels
+                    Sources
                   </div>
                 )}
               </div>
@@ -578,7 +578,7 @@ export function KnowledgeClient() {
                   className="h-4 w-4 flex-shrink-0 accent-[var(--canon-purple)]"
                   aria-label={`Select ${source.name}`}
                 />
-                <div className="w-8 h-8 rounded-[7px] flex items-center justify-center flex-shrink-0" style={channelIconStyle(source.status)}>
+                <div className="w-8 h-8 rounded-[7px] flex items-center justify-center flex-shrink-0" style={sourceIconStyle(source.status)}>
                   <IconHash size={15} />
                 </div>
                 <button
@@ -681,7 +681,7 @@ export function KnowledgeClient() {
                   {[
                     { label: 'Chunks', value: selected.chunk_count ?? 0 },
                     { label: 'Last Synced', value: fmtDate(selected.last_synced_at) },
-                    { label: 'Provider', value: selected.provider.replace('_', ' ') },
+                    { label: 'Type', value: 'Source' },
                   ].map((item) => (
                     <div key={item.label} className="rounded-[8px] p-[12px]" style={{ backgroundColor: 'var(--bg-secondary)' }}>
                       <div className="type-caption mb-1" style={{ color: 'var(--text-tertiary)' }}>{item.label}</div>
@@ -719,7 +719,7 @@ export function KnowledgeClient() {
             ) : (
               <div className="flex flex-col items-center justify-center h-full gap-3">
                 <IconDatabase size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
-                <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>Select a Channel</div>
+                <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>Select a Source</div>
               </div>
             )}
           </div>
@@ -729,38 +729,38 @@ export function KnowledgeClient() {
       <Dialog open={showAddModal} onOpenChange={handleAddModalOpenChange}>
         <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
           <DialogHeader>
-            <DialogTitle className="text-[var(--text-primary)]">Add Slack Channel</DialogTitle>
+            <DialogTitle className="text-[var(--text-primary)]">Add Source</DialogTitle>
             <DialogDescription>
-              Select a Slack channel for Canon to learn from.
+              Select sources for Canon to learn from.
             </DialogDescription>
           </DialogHeader>
           <div className="relative">
             <IconSearch size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }} />
             <Input
-              value={channelSearch}
-              onChange={(e) => setChannelSearch(e.target.value)}
-              placeholder="Search Channels..."
+              value={sourceSearch}
+              onChange={(e) => setSourceSearch(e.target.value)}
+              placeholder="Search Sources..."
               className="input-ui pl-9 border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body"
             />
           </div>
           <div className="max-h-64 overflow-y-auto space-y-1">
-            {channelsLoading ? (
+            {sourceOptionsLoading ? (
               <div className="space-y-1.5 py-1">
                 {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-10 bg-[var(--bg-secondary)] rounded-lg" />)}
               </div>
-            ) : channelsError ? (
+            ) : sourceOptionsError ? (
               <div className="rounded-[8px] border border-[var(--red-border)] bg-[var(--red-bg)] px-3 py-2">
-                <p className="type-body" style={{ color: 'var(--red-text)' }}>{channelsError}</p>
+                <p className="type-body" style={{ color: 'var(--red-text)' }}>{sourceOptionsError}</p>
               </div>
-            ) : filteredChannels.length === 0 ? (
-              <p className="type-body py-6 text-center" style={{ color: 'var(--text-tertiary)' }}>No Channels Found</p>
+            ) : filteredSourceOptions.length === 0 ? (
+              <p className="type-body py-6 text-center" style={{ color: 'var(--text-tertiary)' }}>No Sources Found</p>
             ) : (
-              filteredChannels.map((channel) => {
-                const connected = connectedIds.has(channel.id);
-                const checked = selectedChannelIds.has(channel.id);
+              filteredSourceOptions.map((sourceOption) => {
+                const connected = connectedSourceOptionIds.has(sourceOption.id);
+                const checked = selectedSourceOptionIds.has(sourceOption.id);
                 return (
                   <label
-                    key={channel.id}
+                    key={sourceOption.id}
                     className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors text-left cursor-pointer has-[:disabled]:opacity-50 has-[:disabled]:cursor-not-allowed"
                   >
                     <div className="flex min-w-0 items-center gap-3">
@@ -768,14 +768,14 @@ export function KnowledgeClient() {
                         type="checkbox"
                         checked={checked}
                         disabled={connected || adding}
-                        onChange={() => toggleChannelSelection(channel.id)}
+                        onChange={() => toggleSourceOptionSelection(sourceOption.id)}
                         className="h-4 w-4 flex-shrink-0 accent-[var(--canon-purple)]"
-                        aria-label={`Select #${channel.name}`}
+                        aria-label={`Select #${sourceOption.name}`}
                       />
                       <div className="min-w-0">
-                        <span className="type-panel-title truncate" style={{ color: 'var(--text-primary)' }}>#{channel.name}</span>
-                        {channel.member_count > 0 && (
-                          <span className="type-caption ml-2" style={{ color: 'var(--text-tertiary)' }}>{channel.member_count} members</span>
+                        <span className="type-panel-title truncate" style={{ color: 'var(--text-primary)' }}>#{sourceOption.name}</span>
+                        {sourceOption.member_count > 0 && (
+                          <span className="type-caption ml-2" style={{ color: 'var(--text-tertiary)' }}>{sourceOption.member_count} members</span>
                         )}
                       </div>
                     </div>
@@ -785,12 +785,12 @@ export function KnowledgeClient() {
               })
             )}
           </div>
-          {!channelsLoading && !channelsError && filteredChannels.length > 0 && (
+          {!sourceOptionsLoading && !sourceOptionsError && filteredSourceOptions.length > 0 && (
             <div className="flex items-center justify-between gap-3 border-t pt-3" style={{ borderColor: 'var(--border-tertiary)' }}>
               <p className="type-caption" style={{ color: 'var(--text-tertiary)' }}>
                 {selectedCount} selected{selectableCount > 0 ? ` of ${selectableCount}` : ''}
               </p>
-              <Button size="sm" onClick={addSelectedChannels} disabled={selectedCount === 0 || adding}>
+              <Button size="sm" onClick={addSelectedSources} disabled={selectedCount === 0 || adding}>
                 {adding ? 'Adding...' : addButtonLabel}
               </Button>
             </div>
@@ -810,16 +810,16 @@ export function KnowledgeClient() {
       >
         <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
           <DialogHeader>
-            <DialogTitle>Rename Channel</DialogTitle>
+            <DialogTitle>Rename Source</DialogTitle>
             <DialogDescription>
-              Update the display name for this Slack knowledge source.
+              Update the display name for this knowledge source.
             </DialogDescription>
           </DialogHeader>
           <Input
             value={renameValue}
             onChange={(event) => setRenameValue(event.target.value)}
             className="input-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] type-body"
-            placeholder="Channel name"
+            placeholder="Source name"
           />
           {actionError && (
             <div className="rounded-[8px] border px-3 py-2 type-body" style={{ backgroundColor: 'var(--red-bg)', borderColor: 'var(--red-border)', color: 'var(--red-text)' }}>
@@ -848,9 +848,9 @@ export function KnowledgeClient() {
       >
         <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
           <DialogHeader>
-            <DialogTitle>{deleteRequest?.title ?? 'Delete channels?'}</DialogTitle>
+            <DialogTitle>{deleteRequest?.title ?? 'Delete sources?'}</DialogTitle>
             <DialogDescription>
-              {deleteRequest?.description ?? 'This removes the selected channels from Canon knowledge.'}
+              {deleteRequest?.description ?? 'This removes the selected sources from Canon knowledge.'}
             </DialogDescription>
           </DialogHeader>
           {actionError && (

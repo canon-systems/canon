@@ -5,7 +5,7 @@ import { embeddingModel } from '@/lib/ai';
 import { createLogger, errorMessage } from '@/lib/server/logging';
 import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
 
-type SlackKnowledgeSyncEvent = {
+type KnowledgeSourceSyncEvent = {
   sourceId?: string;
   organizationId?: string;
 };
@@ -53,10 +53,10 @@ type KnowledgeChunkInsert = {
   embedding: string;
 };
 
-type SyncableSourceStatus = 'pending' | 'syncing';
+type SyncableSourceStatus = 'pending' | 'syncing' | 'active';
 
-const log = createLogger('inngest.slack_knowledge_sync', {
-  label: 'Slack Knowledge Sync',
+const log = createLogger('inngest.knowledge_source_sync', {
+  label: 'Knowledge Source Sync',
   eventLabels: {
     sync_start: 'Sync Started',
     sync_history_fetched: 'History Fetched',
@@ -65,8 +65,8 @@ const log = createLogger('inngest.slack_knowledge_sync', {
     sync_failed: 'Sync Failed',
     sync_skipped: 'Sync Skipped',
     sync_stopped: 'Sync Stopped',
-    sync_token_resolved: 'Slack Token Resolved',
-    slack_api_failed: 'Slack API Failed',
+    sync_token_resolved: 'Source Token Resolved',
+    source_api_failed: 'Source API Failed',
     sync_no_content: 'No Syncable Content',
     sync_db_write_failed: 'DB Write Failed',
   },
@@ -77,7 +77,7 @@ const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
 const MAX_MESSAGES = 1000;
 const WORDS_PER_CHUNK = 400;
 const MIN_MESSAGE_LENGTH = 20;
-const SYNCABLE_STATUSES = new Set<SyncableSourceStatus>(['pending', 'syncing']);
+const SYNCABLE_STATUSES = new Set<SyncableSourceStatus>(['pending', 'syncing', 'active']);
 const REQUIRED_SLACK_HISTORY_SCOPES = ['channels:history', 'groups:history', 'mpim:history', 'im:history'];
 
 function elapsedMs(startedAt: number): number {
@@ -117,7 +117,7 @@ class NoSyncableContentError extends Error {
   chunks: number;
 
   constructor(params: { rawMessages: number; filteredMessages: number; enrichedMessages: number; chunks: number }) {
-    super('No syncable Slack messages found for this channel');
+    super('No syncable messages found for this source');
     this.name = 'NoSyncableContentError';
     this.rawMessages = params.rawMessages;
     this.filteredMessages = params.filteredMessages;
@@ -234,7 +234,7 @@ async function fetchSlackHistory(botToken: string, channelId: string): Promise<S
   return { messages: messages.slice(0, MAX_MESSAGES), pagesFetched };
 }
 
-async function fetchThreadReplies(botToken: string, channelId: string, ts: string): Promise<SlackReply[]> {
+async function fetchSlackThreadReplies(botToken: string, channelId: string, ts: string): Promise<SlackReply[]> {
   const res = await fetch(
     `https://slack.com/api/conversations.replies?channel=${channelId}&ts=${ts}&limit=4`,
     { headers: { Authorization: `Bearer ${botToken}` } }
@@ -300,10 +300,10 @@ function chunkMessages(messages: SlackMessage[], channelId: string, channelName:
   return chunks;
 }
 
-export const slackKnowledgeSync = inngest.createFunction(
+export const knowledgeSourceSync = inngest.createFunction(
   {
-    id: 'slack-knowledge-sync',
-    name: 'Canon: Slack Knowledge Sync',
+    id: 'knowledge-source-sync',
+    name: 'Canon: Knowledge Source Sync',
     retries: 2,
     concurrency: {
       limit: 1,
@@ -312,7 +312,7 @@ export const slackKnowledgeSync = inngest.createFunction(
   },
   { event: 'onboarding/knowledge.sync.requested' },
   async ({ event, step }) => {
-    const data = (event.data ?? {}) as SlackKnowledgeSyncEvent;
+    const data = (event.data ?? {}) as KnowledgeSourceSyncEvent;
     const sourceId = typeof data.sourceId === 'string' ? data.sourceId : '';
     const organizationId = typeof data.organizationId === 'string' ? data.organizationId : '';
 
@@ -323,20 +323,20 @@ export const slackKnowledgeSync = inngest.createFunction(
     const syncStartedAt = Date.now();
     const supabase = createServiceRoleClient();
 
-    const { data: source, error: sourceError } = await supabase
+    const { data: source, error: slackError } = await supabase
       .from('knowledge_sources')
       .select('id, organization_id, provider, name, slack_channel_id, slack_channel_name, status')
       .eq('id', sourceId)
       .single();
 
-    if (sourceError || !source) {
+    if (slackError || !source) {
       log.info('sync_skipped', { sourceId, reason: 'source_not_found' });
       return { skipped: true, reason: 'source_not_found' };
     }
 
     if (source.provider !== 'slack' || !source.slack_channel_id) {
-      log.info('sync_skipped', { sourceId, reason: 'not_slack_source' });
-      return { skipped: true, reason: 'not_slack_source' };
+      log.info('sync_skipped', { sourceId, reason: 'not_supported_source' });
+      return { skipped: true, reason: 'not_supported_source' };
     }
 
     if (!SYNCABLE_STATUSES.has(source.status as SyncableSourceStatus)) {
@@ -355,7 +355,7 @@ export const slackKnowledgeSync = inngest.createFunction(
       log.error('sync_failed', {
         sourceId,
         channel: source.slack_channel_name || source.name,
-        error: 'No active Slack OAuth token configured for organization owner',
+        error: 'No active source OAuth token configured for organization owner',
         ownerId,
         connectionId,
         ms: elapsedMs(syncStartedAt),
@@ -364,7 +364,7 @@ export const slackKnowledgeSync = inngest.createFunction(
         .from('knowledge_sources')
         .update({ status: 'error', error_message: null })
         .eq('id', sourceId);
-      return { ok: false, sourceId, reason: 'missing_slack_oauth_token' };
+      return { ok: false, sourceId, reason: 'missing_source_oauth_token' };
     }
 
     log.info('sync_token_resolved', {
@@ -376,7 +376,7 @@ export const slackKnowledgeSync = inngest.createFunction(
 
     const missingScopes = missingSlackHistoryScopes(scope);
     if (missingScopes.length > 0) {
-      log.error('slack_api_failed', {
+      log.error('source_api_failed', {
         sourceId,
         channel: source.slack_channel_name || source.name,
         method: 'scope_preflight',
@@ -389,7 +389,7 @@ export const slackKnowledgeSync = inngest.createFunction(
         .from('knowledge_sources')
         .update({ status: 'error', error_message: null })
         .eq('id', sourceId);
-      return { ok: false, sourceId, reason: 'missing_slack_history_scopes', needed: missingScopes, provided: scope || null };
+      return { ok: false, sourceId, reason: 'missing_source_history_scopes', needed: missingScopes, provided: scope || null };
     }
 
     await supabase.from('knowledge_sources').update({ status: 'syncing', error_message: null }).eq('id', sourceId);
@@ -416,7 +416,7 @@ export const slackKnowledgeSync = inngest.createFunction(
         for (const msg of filtered) {
           enriched.push(msg);
           if (msg.reply_count && msg.reply_count > 0) {
-            const replies = await fetchThreadReplies(accessToken, source.slack_channel_id!, msg.ts);
+            const replies = await fetchSlackThreadReplies(accessToken, source.slack_channel_id!, msg.ts);
             const validReplies = replies.filter((r) => !r.subtype && r.text && r.text.length >= MIN_MESSAGE_LENGTH);
             enriched.push(...validReplies.map((r) => ({ ts: r.ts, text: r.text, user: r.user })));
           }
@@ -530,7 +530,7 @@ export const slackKnowledgeSync = inngest.createFunction(
         });
       }
       if (error instanceof SlackApiError) {
-        log.error('slack_api_failed', {
+        log.error('source_api_failed', {
           sourceId,
           channel: source.slack_channel_name || source.name,
           method: error.method,

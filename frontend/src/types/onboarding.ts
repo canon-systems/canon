@@ -145,7 +145,7 @@ export interface ReadinessBrief {
   items: ReadinessItem[];
 }
 
-export interface SlackChannel {
+export interface SourceOption {
   id: string;
   name: string;
   member_count: number;
