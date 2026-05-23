@@ -26,6 +26,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { StatusBadge } from '@/components/ui/status-badge';
 import type { KnowledgeSource, SlackChannel } from '@/types/onboarding';
 
@@ -84,6 +85,10 @@ function actionFailureMessage(action: 'sync' | 'stop' | 'rename' | 'delete' | 'a
   return 'Could not add the selected channels. Try again in a moment.';
 }
 
+function isSyncInProgress(status: string) {
+  return status === 'pending' || status === 'syncing';
+}
+
 export function KnowledgeClient() {
   const [sources, setSources] = useState<KnowledgeSource[]>([]);
   const [loading, setLoading] = useState(true);
@@ -104,7 +109,7 @@ export function KnowledgeClient() {
   const [actionLoading, setActionLoading] = useState(false);
 
   function canStopSync(status: string) {
-    return status === 'pending' || status === 'syncing';
+    return isSyncInProgress(status);
   }
 
   const loadSources = useCallback(async () => {
@@ -129,6 +134,16 @@ export function KnowledgeClient() {
   }, []);
 
   useEffect(() => { void loadSources(); }, [loadSources]);
+
+  useEffect(() => {
+    if (!sources.some((source) => isSyncInProgress(source.status))) return;
+
+    const interval = window.setInterval(() => {
+      void loadSources();
+    }, 3000);
+
+    return () => window.clearInterval(interval);
+  }, [loadSources, sources]);
 
   async function triggerSync(sourceId: string) {
     setSyncing(sourceId);
@@ -249,6 +264,15 @@ export function KnowledgeClient() {
 
   function selectAllSources() {
     setSelectedSourceIds(new Set(sources.map((source) => source.id)));
+  }
+
+  function toggleAllSources() {
+    if (selectedSourceIds.size === sources.length) {
+      clearSourceSelection();
+      return;
+    }
+
+    selectAllSources();
   }
 
   function clearSourceSelection() {
@@ -376,6 +400,8 @@ export function KnowledgeClient() {
   const selectedStoppableSourceIds = sources
     .filter((source) => selectedSourceIds.has(source.id) && canStopSync(source.status))
     .map((source) => source.id);
+  const allSourcesSelected = sources.length > 0 && selectedSourceCount === sources.length;
+  const hasSourceSelection = selectedSourceCount > 0;
   const selectableCount = filteredChannels.filter((channel) => !connectedIds.has(channel.id)).length;
   const selectedCount = [...selectedChannelIds].filter((id) => !connectedIds.has(id)).length;
   const addButtonLabel = selectedCount === 0
@@ -384,7 +410,7 @@ export function KnowledgeClient() {
   const totalChunks = sources.reduce((sum, source) => sum + (source.chunk_count ?? 0), 0);
   const activeCount = sources.filter((source) => source.status === 'active').length;
   const errorCount = sources.filter((source) => source.status === 'error').length;
-  const pendingCount = sources.filter((source) => source.status === 'pending' || source.status === 'syncing').length;
+  const pendingCount = sources.filter((source) => isSyncInProgress(source.status)).length;
 
   if (loading) {
     return (
@@ -408,46 +434,6 @@ export function KnowledgeClient() {
         </div>
         <div className="flex items-center gap-2">
           <Button onClick={openAddModal} size="sm"><IconPlus size={14} /> Add Channel</Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                aria-label="Open bulk channel actions"
-                disabled={sources.length === 0 || actionLoading}
-                className="w-8 h-8 rounded-md border border-[var(--border-tertiary)] bg-transparent flex items-center justify-center cursor-pointer text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] transition-colors duration-[120ms] disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <IconDotsVertical size={15} />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={selectAllSources}>
-                <IconChecks size={14} />
-                Select All
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={clearSourceSelection} disabled={selectedSourceCount === 0}>
-                <IconHash size={14} />
-                Clear Selection
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => syncSources([...selectedSourceIds])} disabled={selectedSourceCount === 0 || actionLoading}>
-                <IconRefresh size={14} />
-                Sync Selected
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => stopSyncSources(selectedStoppableSourceIds)} disabled={selectedStoppableSourceIds.length === 0 || actionLoading}>
-                <IconPlayerStop size={14} />
-                Stop Sync
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                className="text-[var(--red-text)] focus:text-[var(--red-text)]"
-                onClick={() => openDeleteDialog([...selectedSourceIds])}
-                disabled={selectedSourceCount === 0 || actionLoading}
-              >
-                <IconTrash size={14} />
-                Delete Selected
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
         </div>
       </div>
 
@@ -488,6 +474,90 @@ export function KnowledgeClient() {
       ) : (
         <div className="flex flex-1 overflow-hidden">
           <div className="w-[300px] flex-shrink-0 overflow-y-auto border-r" style={{ borderColor: 'var(--border-tertiary)' }}>
+            <div className="sticky top-0 z-10 border-b px-[14px] py-[10px]" style={{ backgroundColor: 'var(--bg-page)', borderColor: 'var(--border-tertiary)' }}>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={allSourcesSelected}
+                  ref={(input) => {
+                    if (input) input.indeterminate = hasSourceSelection && !allSourcesSelected;
+                  }}
+                  onChange={toggleAllSources}
+                  className="h-4 w-4 flex-shrink-0 accent-[var(--canon-purple)]"
+                  aria-label={allSourcesSelected ? 'Clear channel selection' : 'Select all channels'}
+                  aria-checked={hasSourceSelection && !allSourcesSelected ? 'mixed' : allSourcesSelected}
+                />
+                {hasSourceSelection ? (
+                  <>
+                    <div className="min-w-0 flex-1 type-caption font-medium" style={{ color: 'var(--text-secondary)' }}>
+                      {selectedSourceCount} selected
+                    </div>
+                    <TooltipProvider delayDuration={120}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => syncSources([...selectedSourceIds])}
+                            disabled={actionLoading}
+                            aria-label="Sync selected channels"
+                          >
+                            <IconRefresh size={14} />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">Sync selected channels</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                    <TooltipProvider delayDuration={120}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => stopSyncSources(selectedStoppableSourceIds)}
+                            disabled={selectedStoppableSourceIds.length === 0 || actionLoading}
+                            aria-label="Stop sync for selected channels"
+                          >
+                            <IconPlayerStop size={14} />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">Stop sync for selected channels</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                    <TooltipProvider delayDuration={120}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => openDeleteDialog([...selectedSourceIds])}
+                            disabled={actionLoading}
+                            className="text-[var(--red-text)] hover:text-[var(--red-text)] hover:bg-[var(--red-bg)]"
+                            aria-label="Delete selected channels"
+                          >
+                            <IconTrash size={14} />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">Delete selected channels</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={clearSourceSelection}
+                      disabled={actionLoading}
+                      className="px-2"
+                    >
+                      Clear
+                    </Button>
+                  </>
+                ) : (
+                  <div className="min-w-0 flex-1 type-caption font-medium" style={{ color: 'var(--text-secondary)' }}>
+                    Channels
+                  </div>
+                )}
+              </div>
+            </div>
             {sources.map((source) => (
               <div
                 key={source.id}
@@ -536,7 +606,7 @@ export function KnowledgeClient() {
                       <IconEdit size={14} />
                       Rename
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => syncSources([source.id])} disabled={actionLoading || source.status === 'syncing'}>
+                    <DropdownMenuItem onClick={() => syncSources([source.id])} disabled={actionLoading || isSyncInProgress(source.status)}>
                       <IconRefresh size={14} />
                       Sync Now
                     </DropdownMenuItem>
@@ -600,10 +670,10 @@ export function KnowledgeClient() {
                     size="sm"
                     variant="secondary"
                     onClick={() => triggerSync(selected.id)}
-                    disabled={syncing === selected.id || selected.status === 'syncing'}
+                    disabled={syncing === selected.id || isSyncInProgress(selected.status)}
                   >
-                    <IconRefresh size={13} className={syncing === selected.id ? 'animate-spin' : ''} />
-                    {syncing === selected.id ? 'Syncing...' : 'Sync Now'}
+                    <IconRefresh size={13} className={(syncing === selected.id || isSyncInProgress(selected.status)) ? 'animate-spin' : ''} />
+                    {(syncing === selected.id || isSyncInProgress(selected.status)) ? 'Syncing...' : 'Sync Now'}
                   </Button>
                 </div>
 

@@ -305,7 +305,10 @@ export const slackKnowledgeSync = inngest.createFunction(
     id: 'slack-knowledge-sync',
     name: 'Canon: Slack Knowledge Sync',
     retries: 2,
-    idempotency: 'event.data.sourceId',
+    concurrency: {
+      limit: 1,
+      key: 'event.data.sourceId',
+    },
   },
   { event: 'onboarding/knowledge.sync.requested' },
   async ({ event, step }) => {
