@@ -1,36 +1,168 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
-  IconAlertTriangle,
   IconArrowRight,
-  IconCode,
-  IconMessageCircle,
-  IconPresentation,
+  IconArchive,
+  IconCheck,
+  IconChevronDown,
+  IconDotsVertical,
+  IconPencil,
   IconRadar,
   IconSend,
-  IconSettings2,
+  IconShieldCheck,
+  IconUsers,
 } from '@tabler/icons-react';
 import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Skeleton } from '@/components/ui/skeleton';
-import type { ReadinessBrief } from '@/types/onboarding';
+import { StatusBadge, type BadgeVariant } from '@/components/ui/status-badge';
+import type { HireRole, ReadinessBrief, ReadinessCategory, ReadinessImpactLevel, ReadinessItem, ReadinessStatus } from '@/types/onboarding';
 
-const signalDefinitions = [
-  { id: 'product', icon: IconSettings2, iconBg: 'var(--canon-purple-light)', iconColor: 'var(--canon-purple)', label: 'Product Changes', description: 'New Capabilities and Launch Changes' },
-  { id: 'objections', icon: IconMessageCircle, iconBg: 'var(--blue-bg)', iconColor: 'var(--blue)', label: 'Customer Objections', description: 'Patterns from Calls and Field Feedback' },
-  { id: 'demo', icon: IconPresentation, iconBg: 'var(--amber-bg)', iconColor: 'var(--amber)', label: 'Demo Guidance', description: 'Updated Narratives and Talk Tracks' },
-  { id: 'impl', icon: IconCode, iconBg: 'var(--teal-bg)', iconColor: 'var(--teal)', label: 'Implementation Patterns', description: 'Technical Setup and Delivery Shifts' },
+const categories = [
+  { id: 'product_change' as const, label: 'Product' },
+  { id: 'customer_objection' as const, label: 'Objections' },
+  { id: 'demo_guidance' as const, label: 'Demo' },
+  { id: 'implementation_pattern' as const, label: 'Implementation' },
 ];
+
+const impactRank: Record<ReadinessImpactLevel, number> = { high: 3, medium: 2, low: 1 };
+const statusBadge: Record<ReadinessStatus, BadgeVariant> = {
+  draft: 'pending',
+  reviewed: 'custom',
+  sent: 'delivered',
+  archived: 'completed',
+};
+
+const statusLabels: Record<ReadinessStatus, string> = {
+  draft: 'Draft',
+  reviewed: 'Unsent',
+  sent: 'Sent',
+  archived: 'Archived',
+};
+
+function metadataStringArray(item: ReadinessItem, key: string) {
+  const value = item.source_metadata?.[key];
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0) : [];
+}
+
+function metadataNumber(item: ReadinessItem, key: string) {
+  const value = item.source_metadata?.[key];
+  return typeof value === 'number' ? value : 0;
+}
+
+function formatDate(value: string | null) {
+  if (!value) return 'Not sent';
+  return new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric' }).format(new Date(value));
+}
+
+function affectedAudience(items: ReadinessItem[]) {
+  const roles = new Map<HireRole, { role: HireRole; count: number; impact: ReadinessImpactLevel }>();
+
+  for (const item of items) {
+    for (const role of item.affected_roles) {
+      const current = roles.get(role) ?? { role, count: 0, impact: 'low' as ReadinessImpactLevel };
+      current.count += 1;
+      if (impactRank[item.impact_level] > impactRank[current.impact]) current.impact = item.impact_level;
+      roles.set(role, current);
+    }
+  }
+
+  return Array.from(roles.values()).sort((a, b) => {
+    const impactDiff = impactRank[b.impact] - impactRank[a.impact];
+    return impactDiff !== 0 ? impactDiff : b.count - a.count;
+  });
+}
+
+function preventionText(item: ReadinessItem | null) {
+  if (!item) return 'Select a signal to see the risk Canon should prevent.';
+  if (item.category === 'customer_objection') return 'Inconsistent customer answers and late-stage deal hesitation.';
+  if (item.category === 'demo_guidance') return 'Stale demos and missed proof points in live calls.';
+  if (item.category === 'implementation_pattern') return 'Repeated delivery delays and unclear kickoff ownership.';
+  return 'Outdated product context in demos, POCs, and launch conversations.';
+}
+
+function nextAction(item: ReadinessItem | null) {
+  if (!item) return 'Select a readiness signal.';
+  if (item.recommended_action) return item.recommended_action;
+  if (item.category === 'customer_objection') return 'Send the approved response and assign a technical owner.';
+  if (item.category === 'demo_guidance') return 'Send the updated demo note and refresh the talk track.';
+  if (item.category === 'implementation_pattern') return 'Send implementation guidance and update the kickoff checklist.';
+  return 'Send a role-specific product update and review affected ramp milestones.';
+}
+
+function selectedCategoryLabel(selectedCategories: ReadinessCategory[]) {
+  if (selectedCategories.length === 0) return 'No categories';
+  if (selectedCategories.length === categories.length) return 'All categories';
+  if (selectedCategories.length === 1) {
+    return categories.find((category) => category.id === selectedCategories[0])?.label ?? 'Category';
+  }
+  return `${selectedCategories.length} categories`;
+}
+
+function StepRow({
+  icon: Icon,
+  label,
+  children,
+  tone = 'default',
+  divider = true,
+}: {
+  icon: typeof IconRadar;
+  label: string;
+  children: React.ReactNode;
+  tone?: 'default' | 'warning' | 'action';
+  divider?: boolean;
+}) {
+  const color = tone === 'warning' ? 'var(--amber)' : tone === 'action' ? 'var(--canon-purple)' : 'var(--text-tertiary)';
+  const bg = tone === 'warning' ? 'var(--amber-bg-subtle)' : tone === 'action' ? 'var(--canon-purple-light)' : 'var(--bg-secondary)';
+
+  return (
+    <div className="grid gap-3 sm:grid-cols-[30px_minmax(0,1fr)]">
+      <div className="size-7 rounded-[7px] flex items-center justify-center" style={{ backgroundColor: bg, color }}>
+        <Icon size={15} />
+      </div>
+      <div className={divider ? 'min-w-0 border-b pb-5' : 'min-w-0'} style={{ borderColor: 'var(--border-tertiary)' }}>
+        <div className="type-kicker mb-2" style={{ color: 'var(--text-tertiary)' }}>{label}</div>
+        {children}
+      </div>
+    </div>
+  );
+}
 
 export function ReadinessClient() {
   const [brief, setBrief] = useState<ReadinessBrief | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeSignal, setActiveSignal] = useState('product');
+  const [activeCategories, setActiveCategories] = useState<ReadinessCategory[]>(categories.map((category) => category.id));
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const [rowActionId, setRowActionId] = useState<string | null>(null);
+  const [sendError, setSendError] = useState<string | null>(null);
+
+  async function loadReadiness() {
+    try {
+      const res = await fetch('/api/onboarding/readiness');
+      const data = (await res.json()) as { brief?: ReadinessBrief | null };
+      setBrief(data.brief ?? null);
+    } catch {
+      setBrief(null);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
 
-    async function loadReadiness() {
+    async function load() {
       try {
         const res = await fetch('/api/onboarding/readiness');
         const data = (await res.json()) as { brief?: ReadinessBrief | null };
@@ -42,12 +174,111 @@ export function ReadinessClient() {
       }
     }
 
-    void loadReadiness();
+    void load();
 
     return () => {
       cancelled = true;
     };
   }, []);
+
+  const items = useMemo(() => brief?.items ?? [], [brief]);
+  const categoryItems = useMemo(() => items.filter((item) => activeCategories.includes(item.category)), [activeCategories, items]);
+  const selectedItem = useMemo(
+    () => categoryItems.find((item) => item.id === selectedItemId) ?? categoryItems[0] ?? null,
+    [categoryItems, selectedItemId]
+  );
+  const audience = affectedAudience(categoryItems);
+  const unsentCategoryItems = categoryItems.filter((item) => item.status === 'draft' || item.status === 'reviewed');
+  const readyCount = items.filter((item) => item.status === 'draft' || item.status === 'reviewed').length;
+  const categoryCounts = useMemo(
+    () => new Map(categories.map((category) => [category.id, items.filter((item) => item.category === category.id).length])),
+    [items]
+  );
+  const allCategoriesSelected = activeCategories.length === categories.length;
+  const filterLabel = selectedCategoryLabel(activeCategories);
+
+  useEffect(() => {
+    if (!selectedItem || selectedItem.id === selectedItemId) return;
+    setSelectedItemId(selectedItem.id);
+  }, [selectedItem, selectedItemId]);
+
+  async function sendReadinessNote() {
+    if (!brief || unsentCategoryItems.length === 0) return;
+    setSending(true);
+    setSendError(null);
+
+    try {
+      const body = allCategoriesSelected
+        ? {}
+        : activeCategories.length === 1
+          ? { category: activeCategories[0] }
+          : { categories: activeCategories };
+      const res = await fetch('/api/onboarding/readiness', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = (await res.json()) as { error?: string; detail?: string };
+      if (!res.ok) throw new Error(data.detail || data.error || 'Failed to send readiness note');
+      await loadReadiness();
+      setSelectedItemId(null);
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : 'Failed to send readiness note');
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function sendSignal(item: ReadinessItem) {
+    setRowActionId(item.id);
+    setSendError(null);
+
+    try {
+      const res = await fetch('/api/onboarding/readiness', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemIds: [item.id] }),
+      });
+      const data = (await res.json()) as { error?: string; detail?: string };
+      if (!res.ok) throw new Error(data.detail || data.error || 'Failed to send readiness signal');
+      await loadReadiness();
+      setSelectedItemId(item.id);
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : 'Failed to send readiness signal');
+    } finally {
+      setRowActionId(null);
+    }
+  }
+
+  async function updateSignalStatus(item: ReadinessItem, status: ReadinessStatus) {
+    setRowActionId(item.id);
+    setSendError(null);
+
+    try {
+      const res = await fetch('/api/onboarding/readiness', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: item.id, status }),
+      });
+      const data = (await res.json()) as { error?: string; detail?: string };
+      if (!res.ok) throw new Error(data.detail || data.error || 'Failed to update readiness signal');
+      await loadReadiness();
+      setSelectedItemId(status === 'archived' ? null : item.id);
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : 'Failed to update readiness signal');
+    } finally {
+      setRowActionId(null);
+    }
+  }
+
+  function toggleCategory(category: ReadinessCategory) {
+    setActiveCategories((current) => {
+      const next = current.includes(category)
+        ? current.filter((selectedCategory) => selectedCategory !== category)
+        : [...current, category];
+      return next;
+    });
+  }
 
   if (loading) {
     return (
@@ -55,166 +286,253 @@ export function ReadinessClient() {
         <div className="px-6 py-5 border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
           <Skeleton className="h-8 w-44 bg-[var(--bg-primary)]" />
         </div>
-        <div className="grid grid-cols-4 gap-[10px] px-6 py-[14px]">
-          {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-28 rounded-[10px] bg-[var(--bg-primary)]" />)}
+        <div className="grid grid-cols-2 gap-5 px-6 py-6">
+          <Skeleton className="h-[420px] rounded-[8px] bg-[var(--bg-primary)]" />
+          <Skeleton className="h-[420px] rounded-[8px] bg-[var(--bg-primary)]" />
         </div>
       </div>
     );
   }
 
-  const signalCounts = signalDefinitions.map((signal, index) => ({
-    ...signal,
-    count: brief?.cards[index] ? 1 : 0,
-  }));
-  const coverage = brief?.affected_roles.length
-    ? Math.round(brief.affected_roles.reduce((sum, role) => sum + role.progress, 0) / brief.affected_roles.length)
-    : 0;
+  const channelNames = selectedItem ? metadataStringArray(selectedItem, 'channel_names') : [];
+  const signalsReviewed = selectedItem ? metadataNumber(selectedItem, 'signals_reviewed') : 0;
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="flex items-center justify-between px-6 pt-[18px] pb-[14px] border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
-        <div>
-          <div className="flex items-center gap-[10px]">
+      <div className="px-6 pt-[18px] pb-[10px]">
+        <div className="flex items-center justify-between gap-4">
+          <div className="min-w-0">
             <h1 className="type-page-title" style={{ color: 'var(--text-primary)' }}>Readiness</h1>
-            <div
-              className="flex items-center gap-[5px] type-caption font-medium px-[9px] py-[3px] rounded-full border"
-              style={{ backgroundColor: 'var(--green-bg)', color: 'var(--green-text)', borderColor: 'var(--green-border)' }}
-            >
-              <div className="w-[6px] h-[6px] rounded-full" style={{ backgroundColor: 'var(--green)' }} />
-              Always-On
-            </div>
+            <p className="type-body mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>
+              Detect change, explain impact, identify audience, recommend action, then send or prevent.
+            </p>
           </div>
-          <p className="type-body mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>
-            Keep Technical GTM Teams Current as Product and Customer Patterns Change
-          </p>
+          <div className="hidden sm:block type-caption" style={{ color: 'var(--text-tertiary)' }}>
+            <strong style={{ color: 'var(--text-primary)' }}>{readyCount}</strong> ready to send
+          </div>
         </div>
-        <Button><IconSend size={14} /> Send Readiness Note</Button>
-      </div>
-
-      <div className="grid grid-cols-4 gap-[10px] px-6 py-[14px] border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
-        {signalCounts.map((signal) => {
-          const Icon = signal.icon;
-          return (
-            <button
-              key={signal.id}
-              type="button"
-              onClick={() => setActiveSignal(signal.id)}
-              className="rounded-[10px] px-[14px] py-3 cursor-pointer text-left transition-all duration-[120ms] border"
-              style={{
-                backgroundColor: activeSignal === signal.id ? 'var(--canon-purple-light)' : 'var(--bg-primary)',
-                borderColor: activeSignal === signal.id ? 'var(--canon-purple)' : 'var(--border-tertiary)',
-              }}
-            >
-              <div className="flex items-center justify-between mb-2">
-                <div className="w-7 h-7 rounded-[7px] flex items-center justify-center" style={{ backgroundColor: signal.iconBg, color: signal.iconColor }}>
-                  <Icon size={14} />
-                </div>
-                <span className="type-metric-sm" style={{ color: 'var(--text-primary)' }}>{signal.count}</span>
-              </div>
-              <div className="type-body font-medium mb-[2px]" style={{ color: 'var(--text-primary)' }}>{signal.label}</div>
-              <div className="type-caption leading-[1.4]" style={{ color: 'var(--text-tertiary)' }}>{signal.description}</div>
-            </button>
-          );
-        })}
       </div>
 
       {!brief ? (
         <div className="flex flex-col items-center justify-center flex-1 gap-3 py-12">
           <IconRadar size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
-          <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Readiness Brief Loaded</div>
-          <div className="type-body text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
-            Load Demo Data from Settings to Populate Readiness Cards and Health Metrics.
+          <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Readiness Signals</div>
+          <div className="type-body text-center max-w-[280px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
+            Sync Slack knowledge and run readiness analysis to find role-specific updates.
           </div>
         </div>
       ) : (
-        <div
-          className="grid flex-1 gap-5 overflow-hidden px-6 py-6"
-          style={{ gridTemplateColumns: 'minmax(0, 1fr) minmax(320px, 380px)' }}
-        >
-          <div className="min-w-0 overflow-y-auto">
-            <div className="rounded-[10px] border overflow-hidden" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}>
-              <div className="px-4 py-[14px] border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
-                <div className="type-card-title" style={{ color: 'var(--text-primary)' }}>{brief.title}</div>
-                <div className="type-body mt-[2px] leading-[1.5]" style={{ color: 'var(--text-secondary)' }}>{brief.subtitle}</div>
-              </div>
-
-              <div className="flex items-start gap-2 mx-4 my-3 px-3 py-[10px] rounded-[8px] border" style={{ backgroundColor: 'var(--amber-bg-subtle)', borderColor: 'var(--amber-border)' }}>
-                <IconAlertTriangle size={14} style={{ color: 'var(--amber)', marginTop: 1, flexShrink: 0 }} />
-                <div>
-                  <div className="type-kicker mb-[3px]" style={{ color: 'var(--amber-text)' }}>
-                    Detected Shift
-                  </div>
-                  <div className="type-body" style={{ color: 'var(--text-secondary)' }}>{brief.detected_shift}</div>
+        <div className="grid flex-1 min-h-0 gap-5 overflow-y-auto px-6 py-6 lg:grid-cols-[minmax(300px,380px)_minmax(0,1fr)] lg:overflow-hidden">
+          <Card className="min-w-0 overflow-hidden flex flex-col rounded-[8px]">
+            <CardHeader className="border-b px-4 py-3" style={{ borderColor: 'var(--border-tertiary)' }}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <CardTitle>Signals</CardTitle>
                 </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-8 w-[176px] shrink-0 justify-between">
+                      <span className="truncate">{filterLabel}</span>
+                      <IconChevronDown size={14} />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-[210px]">
+                    <DropdownMenuGroup>
+                      <DropdownMenuItem
+                        role="menuitemcheckbox"
+                        aria-checked={allCategoriesSelected}
+                        onSelect={(event) => {
+                          event.preventDefault();
+                          setActiveCategories(allCategoriesSelected ? [] : categories.map((category) => category.id));
+                        }}
+                      >
+                        <span className="flex h-4 w-4 items-center justify-center">
+                          {allCategoriesSelected && <IconCheck size={13} />}
+                        </span>
+                        <span className="flex-1">All</span>
+                        <span className="type-caption tabular-nums" style={{ color: 'var(--text-tertiary)' }}>{items.length}</span>
+                      </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuGroup>
+                      {categories.map((category) => (
+                        <DropdownMenuItem
+                          key={category.id}
+                          role="menuitemcheckbox"
+                          aria-checked={activeCategories.includes(category.id)}
+                          onSelect={(event) => {
+                            event.preventDefault();
+                            toggleCategory(category.id);
+                          }}
+                        >
+                          <span className="flex h-4 w-4 items-center justify-center">
+                            {activeCategories.includes(category.id) && <IconCheck size={13} />}
+                          </span>
+                          <span className="flex-1">{category.label}</span>
+                          <span className="type-caption tabular-nums" style={{ color: 'var(--text-tertiary)' }}>{categoryCounts.get(category.id) ?? 0}</span>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuGroup>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
+            </CardHeader>
 
-              <div className="px-4 pb-4 space-y-2">
-                {brief.bullets.map((item, index) => (
-                  <div key={item} className="flex items-start gap-2 px-[10px] py-2 rounded-[8px]" style={{ backgroundColor: 'var(--bg-secondary)' }}>
-                    <div className="w-[6px] h-[6px] rounded-full mt-[5px] flex-shrink-0" style={{ backgroundColor: 'var(--canon-purple)' }} />
-                    <div>
-                      <div className="type-body" style={{ color: 'var(--text-secondary)' }}>{item}</div>
-                      {index === 0 && (
-                        <button type="button" className="type-caption flex items-center gap-[3px] mt-[3px]" style={{ color: 'var(--canon-purple)' }}>
-                          <IconArrowRight size={11} /> Take Action
-                        </button>
-                      )}
-                    </div>
+            <CardContent className="min-h-0 overflow-y-auto p-2">
+              {categoryItems.length === 0 ? (
+                <Alert>
+                  <IconRadar size={15} />
+                  <AlertTitle>{activeCategories.length === 0 ? 'No categories selected' : 'No active signals'}</AlertTitle>
+                  <AlertDescription>
+                    {activeCategories.length === 0 ? 'Select at least one category to view readiness signals.' : 'This filter is clear for now.'}
+                  </AlertDescription>
+                </Alert>
+              ) : categoryItems.map((item, index) => {
+                const selected = selectedItem?.id === item.id;
+                const isLast = index === categoryItems.length - 1;
+                return (
+                  <div
+                    key={item.id}
+                    className="flex w-full items-start gap-2 rounded-[7px] transition-colors duration-[120ms]"
+                    style={{
+                      backgroundColor: selected ? 'var(--bg-secondary)' : 'transparent',
+                      borderBottom: isLast ? '0' : '1px solid var(--border-tertiary)',
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setSelectedItemId(item.id)}
+                      className="min-w-0 flex-1 px-3 py-[10px] text-left"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="type-panel-title leading-[1.35]" style={{ color: 'var(--text-primary)' }}>{item.title}</div>
+                          <div className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>
+                            {item.affected_roles.length} role{item.affected_roles.length === 1 ? '' : 's'} · {formatDate(item.sent_at)}
+                          </div>
+                        </div>
+                        <StatusBadge variant={statusBadge[item.status]} label={statusLabels[item.status]} />
+                      </div>
+                    </button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="mr-1 mt-[8px] shrink-0"
+                          aria-label={`Actions for ${item.title}`}
+                          disabled={rowActionId === item.id}
+                        >
+                          <IconDotsVertical size={14} />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-[190px]">
+                        <DropdownMenuGroup>
+                          <DropdownMenuItem onSelect={() => void sendSignal(item)} disabled={item.status === 'sent' || rowActionId === item.id}>
+                            <IconSend size={14} />
+                            Send this signal
+                          </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuGroup>
+                          <DropdownMenuItem onSelect={() => void updateSignalStatus(item, 'draft')} disabled={item.status === 'draft' || rowActionId === item.id}>
+                            <IconPencil size={14} />
+                            Mark draft
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => void updateSignalStatus(item, 'reviewed')} disabled={item.status === 'reviewed' || rowActionId === item.id}>
+                            <IconCheck size={14} />
+                            Mark unsent
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => void updateSignalStatus(item, 'sent')} disabled={item.status === 'sent' || rowActionId === item.id}>
+                            <IconCheck size={14} />
+                            Mark sent
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => void updateSignalStatus(item, 'archived')} disabled={item.status === 'archived' || rowActionId === item.id}>
+                            <IconArchive size={14} />
+                            Archive
+                          </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
-                ))}
-              </div>
-            </div>
-          </div>
+                );
+              })}
+            </CardContent>
+          </Card>
 
-          <div className="min-w-0 overflow-y-auto flex flex-col gap-5">
-            <div className="rounded-[10px] border p-5" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}>
-              <div className="flex items-start justify-between gap-4 mb-4">
-                <div>
-                  <div className="type-section-title" style={{ color: 'var(--text-primary)' }}>Readiness Health</div>
-                  <div className="type-body mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>Signal Coverage Across Active Milestones</div>
-                </div>
-                <div className="text-right">
-                  <div className="type-metric" style={{ color: 'var(--text-primary)' }}>{coverage}%</div>
-                  <div className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>coverage</div>
-                </div>
-              </div>
-              <div className="h-[6px] rounded-[3px]" style={{ backgroundColor: 'var(--bg-secondary)' }}>
-                <div className="h-full rounded-[3px]" style={{ width: `${coverage}%`, background: 'var(--green-gradient)' }} />
-              </div>
-              <div className="mt-4 grid gap-2">
-                {brief.health_stats.map((stat) => (
-                  <div key={stat.label} className="flex items-center justify-between gap-4 rounded-[7px] px-3 py-2 type-body" style={{ backgroundColor: 'var(--bg-secondary)' }}>
-                    <span className="leading-[1.4]" style={{ color: 'var(--text-secondary)' }}>{stat.label}</span>
-                    <span className="font-medium tabular-nums" style={{ color: 'var(--text-primary)' }}>{stat.value}</span>
+          <Card className="min-w-0 overflow-y-auto rounded-[8px]">
+            <CardHeader className="border-b px-5 py-4" style={{ borderColor: 'var(--border-tertiary)' }}>
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 mb-2">
+                    <StatusBadge
+                      variant={selectedItem ? statusBadge[selectedItem.status] : 'pending'}
+                      label={selectedItem ? statusLabels[selectedItem.status] : 'No signal'}
+                    />
                   </div>
-                ))}
+                  <h2 className="type-detail-title" style={{ color: 'var(--text-primary)' }}>
+                    {selectedItem?.title ?? 'No signal selected'}
+                  </h2>
+                </div>
+                <Button
+                  onClick={sendReadinessNote}
+                  disabled={!brief || unsentCategoryItems.length === 0 || sending}
+                  className="shrink-0"
+                >
+                  <IconSend size={14} /> {sending ? 'Sending...' : 'Send Note'}
+                </Button>
               </div>
-            </div>
+              {sendError && (
+                <Alert variant="destructive" className="mt-3">
+                  <AlertTitle>Could not send note</AlertTitle>
+                  <AlertDescription>{sendError}</AlertDescription>
+                </Alert>
+              )}
+            </CardHeader>
 
-            <div className="rounded-[10px] border overflow-hidden" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}>
-              <div className="px-5 py-4 border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
-                <div className="type-section-title" style={{ color: 'var(--text-primary)' }}>Who Needs This</div>
-                <div className="type-body mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>Teams with the Largest Readiness Gap</div>
-              </div>
-              {brief.affected_roles.map((role) => (
-                <div key={role.role} className="px-5 py-4 border-b last:border-0" style={{ borderColor: 'var(--border-tertiary)' }}>
-                  <div className="flex items-start justify-between gap-3 mb-3">
-                    <span className="min-w-0 type-panel-title leading-[1.35]" style={{ color: 'var(--text-primary)' }}>{role.role}</span>
-                    <span className="type-control-sm px-[7px] py-[3px] rounded-[4px] whitespace-nowrap" style={{ backgroundColor: 'var(--red-bg)', color: 'var(--red-text)' }}>
-                      {role.impact}
+            <CardContent className="p-5 grid gap-5">
+              <StepRow icon={IconRadar} label="1. Detect change">
+                <p className="type-card-body" style={{ color: 'var(--text-secondary)' }}>
+                  {selectedItem?.summary ?? 'Select a readiness signal to review the change.'}
+                </p>
+                <div className="type-caption mt-3" style={{ color: 'var(--text-tertiary)' }}>
+                  {channelNames[0] ? `Source: #${channelNames[0]}` : 'Source unavailable'} · {signalsReviewed} signal{signalsReviewed === 1 ? '' : 's'} reviewed
+                </div>
+              </StepRow>
+
+              <StepRow icon={IconShieldCheck} label="2. Explain impact" tone="warning">
+                <p className="type-card-body" style={{ color: 'var(--text-secondary)' }}>{preventionText(selectedItem)}</p>
+              </StepRow>
+
+              <StepRow icon={IconUsers} label="3. Identify audience">
+                <div className="flex flex-wrap gap-2">
+                  {audience.length === 0 ? (
+                    <span className="type-body" style={{ color: 'var(--text-tertiary)' }}>No affected roles.</span>
+                  ) : audience.map((role) => (
+                    <span
+                      key={role.role}
+                      className="type-control-sm rounded-[4px] px-[7px] py-[3px]"
+                      style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--text-secondary)', border: '1px solid var(--border-tertiary)' }}
+                    >
+                      {role.role}
                     </span>
-                  </div>
-                  <div className="h-[5px] rounded-[3px] mb-2" style={{ backgroundColor: 'var(--bg-secondary)' }}>
-                    <div className="h-full rounded-[2px]" style={{ width: `${role.progress}%`, backgroundColor: 'var(--canon-purple)' }} />
-                  </div>
-                  <div className="flex items-center justify-between type-caption" style={{ color: 'var(--text-tertiary)' }}>
-                    <span>Coverage Gap</span>
-                    <span className="font-medium tabular-nums">{role.progress}%</span>
-                  </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </div>
+              </StepRow>
+
+              <StepRow icon={IconArrowRight} label="4. Recommend action" tone="action">
+                <p className="type-card-body" style={{ color: 'var(--text-secondary)' }}>{nextAction(selectedItem)}</p>
+              </StepRow>
+
+              <StepRow icon={selectedItem?.status === 'sent' ? IconCheck : IconSend} label="5. Send or prevent" divider={false}>
+                <p className="type-card-body" style={{ color: 'var(--text-secondary)' }}>
+                  {selectedItem?.status === 'sent'
+                    ? `Sent ${formatDate(selectedItem.sent_at)}.`
+                    : `${unsentCategoryItems.length} update${unsentCategoryItems.length === 1 ? '' : 's'} ready in this filter.`}
+                </p>
+              </StepRow>
+            </CardContent>
+          </Card>
         </div>
       )}
     </div>
