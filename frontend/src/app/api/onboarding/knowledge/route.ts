@@ -2,8 +2,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
 import { inngest } from '@/inngest/client';
+import { createLogger } from '@/lib/server/logging';
 
 export const dynamic = 'force-dynamic';
+
+const log = createLogger('api.onboarding.knowledge', {
+  label: 'Knowledge API',
+  eventLabels: {
+    sources_loaded: 'Sources Loaded',
+    source_created: 'Source Created',
+    sync_queued: 'Sync Queued',
+    source_create_failed: 'Source Create Failed',
+  },
+});
 
 export async function GET() {
   try {
@@ -17,7 +28,10 @@ export async function GET() {
       .eq('owner_id', user.id)
       .single();
 
-    if (!org) return NextResponse.json({ sources: [] });
+    if (!org) {
+      log.info('sources_loaded', { userId: user.id, sourceCount: 0, reason: 'organization_not_found' });
+      return NextResponse.json({ sources: [] });
+    }
 
     const { data: sources, error } = await supabase
       .from('knowledge_sources')
@@ -26,6 +40,11 @@ export async function GET() {
       .order('created_at', { ascending: false });
 
     if (error) throw error;
+    log.info('sources_loaded', {
+      userId: user.id,
+      organizationId: org.id,
+      sourceCount: sources?.length ?? 0,
+    });
     return NextResponse.json({ sources: sources ?? [] });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
@@ -72,11 +91,37 @@ export async function POST(request: NextRequest) {
       .select()
       .single();
 
-    if (error || !source) throw error ?? new Error('Insert failed');
+    if (error || !source) {
+      log.error('source_create_failed', {
+        userId: user.id,
+        organizationId: org.id,
+        channel: slack_channel_name || name || slack_channel_id,
+        channelId: slack_channel_id,
+        error: error?.message || 'insert_failed',
+      });
+      throw error ?? new Error('Insert failed');
+    }
+
+    log.info('source_created', {
+      userId: user.id,
+      organizationId: org.id,
+      sourceId: source.id,
+      channel: source.slack_channel_name || source.name,
+      channelId: source.slack_channel_id,
+      status: source.status,
+    });
 
     await inngest.send({
       name: 'onboarding/knowledge.sync.requested',
       data: { sourceId: source.id, organizationId: org.id },
+    });
+
+    log.info('sync_queued', {
+      sourceId: source.id,
+      channel: source.slack_channel_name || source.name,
+      channelId: source.slack_channel_id,
+      organizationId: org.id,
+      reason: 'source_created',
     });
 
     return NextResponse.json({ source }, { status: 201 });

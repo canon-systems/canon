@@ -74,7 +74,17 @@ async function parseSlackOAuthResponse(response: Response, fallback: string): Pr
 }
 
 export function getSlackOAuthScopes(): string[] {
-  return ['chat:write', 'channels:read', 'groups:read', 'mpim:read', 'im:read'];
+  return [
+    'chat:write',
+    'channels:read',
+    'channels:history',
+    'groups:read',
+    'groups:history',
+    'mpim:read',
+    'mpim:history',
+    'im:read',
+    'im:history',
+  ];
 }
 
 export function buildSlackAuthorizeUrl(params: {

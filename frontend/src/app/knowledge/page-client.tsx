@@ -3,25 +3,36 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   IconAlertCircle,
-  IconArrowRight,
   IconChecks,
   IconClock,
   IconDatabase,
+  IconDotsVertical,
+  IconEdit,
   IconHash,
+  IconPlayerStop,
   IconPlus,
   IconRefresh,
   IconSearch,
+  IconTrash,
 } from '@tabler/icons-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { StatusBadge } from '@/components/ui/status-badge';
 import type { KnowledgeSource, SlackChannel } from '@/types/onboarding';
 
 function statusVariant(status: string) {
   if (status === 'active') return 'active';
   if (status === 'error') return 'error';
+  if (status === 'stopped') return 'stalled';
   if (status === 'syncing') return 'pending';
   return 'pending';
 }
@@ -37,6 +48,42 @@ function channelIconStyle(status: string) {
   return { backgroundColor: 'var(--bg-secondary)', color: 'var(--text-tertiary)' };
 }
 
+function sourceStatusNotice(status: string) {
+  if (status === 'error') {
+    return {
+      title: 'Sync Needs Attention',
+      body: 'Canon could not finish syncing this channel. Try syncing again, or reconnect Slack if the issue continues.',
+      tone: 'error' as const,
+    };
+  }
+  if (status === 'stopped') {
+    return {
+      title: 'Sync Stopped',
+      body: 'Syncing was stopped before this channel finished updating. Start a new sync when you are ready.',
+      tone: 'neutral' as const,
+    };
+  }
+  return null;
+}
+
+function slackChannelLoadMessage(data: { error?: string; detail?: string; needed?: string }) {
+  if (data.detail === 'missing_scope' || data.needed) {
+    return 'Slack needs additional permissions before Canon can load channels. Reconnect Slack from Settings and try again.';
+  }
+  if (data.error === 'No active Slack connection') {
+    return 'Connect Slack from Settings before adding channels.';
+  }
+  return 'Could not load Slack channels. Try again in a moment.';
+}
+
+function actionFailureMessage(action: 'sync' | 'stop' | 'rename' | 'delete' | 'add') {
+  if (action === 'sync') return 'Could not start sync. Try again in a moment.';
+  if (action === 'stop') return 'Could not stop sync. Try again in a moment.';
+  if (action === 'rename') return 'Could not rename this channel. Try again in a moment.';
+  if (action === 'delete') return 'Could not delete the selected channel. Try again in a moment.';
+  return 'Could not add the selected channels. Try again in a moment.';
+}
+
 export function KnowledgeClient() {
   const [sources, setSources] = useState<KnowledgeSource[]>([]);
   const [loading, setLoading] = useState(true);
@@ -45,9 +92,20 @@ export function KnowledgeClient() {
   const [channels, setChannels] = useState<SlackChannel[]>([]);
   const [channelsLoading, setChannelsLoading] = useState(false);
   const [channelsError, setChannelsError] = useState('');
+  const [selectedChannelIds, setSelectedChannelIds] = useState<Set<string>>(new Set());
   const [channelSearch, setChannelSearch] = useState('');
   const [adding, setAdding] = useState(false);
   const [selected, setSelected] = useState<KnowledgeSource | null>(null);
+  const [selectedSourceIds, setSelectedSourceIds] = useState<Set<string>>(new Set());
+  const [renameSource, setRenameSource] = useState<KnowledgeSource | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [deleteRequest, setDeleteRequest] = useState<{ ids: string[]; title: string; description: string } | null>(null);
+  const [actionError, setActionError] = useState('');
+  const [actionLoading, setActionLoading] = useState(false);
+
+  function canStopSync(status: string) {
+    return status === 'pending' || status === 'syncing';
+  }
 
   const loadSources = useCallback(async () => {
     try {
@@ -55,7 +113,14 @@ export function KnowledgeClient() {
       const data = (await res.json()) as { sources?: KnowledgeSource[] };
       const nextSources = data.sources ?? [];
       setSources(nextSources);
-      setSelected((current) => current ?? nextSources[0] ?? null);
+      setSelected((current) => {
+        if (!current) return nextSources[0] ?? null;
+        return nextSources.find((source) => source.id === current.id) ?? nextSources[0] ?? null;
+      });
+      setSelectedSourceIds((current) => {
+        const nextIds = new Set(nextSources.map((source) => source.id));
+        return new Set([...current].filter((id) => nextIds.has(id)));
+      });
     } catch {
       // silent
     } finally {
@@ -75,6 +140,44 @@ export function KnowledgeClient() {
     }
   }
 
+  async function syncSources(sourceIds: string[]) {
+    if (sourceIds.length === 0) return;
+    setActionLoading(true);
+    setActionError('');
+    try {
+      for (const sourceId of sourceIds) {
+        const res = await fetch(`/api/onboarding/knowledge/${sourceId}/sync`, { method: 'POST' });
+        if (!res.ok) {
+          throw new Error(actionFailureMessage('sync'));
+        }
+      }
+      await loadSources();
+    } catch (error: unknown) {
+      setActionError(error instanceof Error ? error.message : actionFailureMessage('sync'));
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function stopSyncSources(sourceIds: string[]) {
+    if (sourceIds.length === 0) return;
+    setActionLoading(true);
+    setActionError('');
+    try {
+      for (const sourceId of sourceIds) {
+        const res = await fetch(`/api/onboarding/knowledge/${sourceId}/sync`, { method: 'DELETE' });
+        if (!res.ok) {
+          throw new Error(actionFailureMessage('stop'));
+        }
+      }
+      await loadSources();
+    } catch (error: unknown) {
+      setActionError(error instanceof Error ? error.message : actionFailureMessage('stop'));
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
   async function loadChannels() {
     setChannelsLoading(true);
     setChannelsError('');
@@ -88,13 +191,17 @@ export function KnowledgeClient() {
         provided?: string;
       };
       if (!res.ok) {
-        const scopeHint = data.needed ? ` Needed: ${data.needed}. Provided: ${data.provided ?? 'none'}.` : '';
-        throw new Error(`${data.detail || data.error || 'Failed to load Slack channels.'}${scopeHint}`);
+        throw new Error(slackChannelLoadMessage(data));
       }
       setChannels(data.channels ?? []);
+      setSelectedChannelIds((current) => {
+        const availableIds = new Set((data.channels ?? []).map((channel) => channel.id));
+        return new Set([...current].filter((id) => availableIds.has(id)));
+      });
     } catch (error: unknown) {
       setChannels([]);
-      setChannelsError(error instanceof Error ? error.message : 'Failed to load Slack channels.');
+      setSelectedChannelIds(new Set());
+      setChannelsError(error instanceof Error ? error.message : slackChannelLoadMessage({}));
     } finally {
       setChannelsLoading(false);
     }
@@ -102,23 +209,160 @@ export function KnowledgeClient() {
 
   function openAddModal() {
     setShowAddModal(true);
+    setSelectedChannelIds(new Set());
+    setChannelSearch('');
     void loadChannels();
   }
 
-  async function addChannel(channel: SlackChannel) {
-    setAdding(true);
+  function handleAddModalOpenChange(open: boolean) {
+    setShowAddModal(open);
+    if (!open) {
+      setSelectedChannelIds(new Set());
+      setChannelSearch('');
+      setChannelsError('');
+    }
+  }
+
+  function toggleChannelSelection(channelId: string) {
+    setSelectedChannelIds((current) => {
+      const next = new Set(current);
+      if (next.has(channelId)) {
+        next.delete(channelId);
+      } else {
+        next.add(channelId);
+      }
+      return next;
+    });
+  }
+
+  function toggleSourceSelection(sourceId: string) {
+    setSelectedSourceIds((current) => {
+      const next = new Set(current);
+      if (next.has(sourceId)) {
+        next.delete(sourceId);
+      } else {
+        next.add(sourceId);
+      }
+      return next;
+    });
+  }
+
+  function selectAllSources() {
+    setSelectedSourceIds(new Set(sources.map((source) => source.id)));
+  }
+
+  function clearSourceSelection() {
+    setSelectedSourceIds(new Set());
+  }
+
+  function openRenameDialog(source: KnowledgeSource) {
+    setRenameSource(source);
+    setRenameValue(source.name);
+    setActionError('');
+  }
+
+  function openDeleteDialog(sourceIds: string[]) {
+    const targetSources = sources.filter((source) => sourceIds.includes(source.id));
+    if (targetSources.length === 0) return;
+
+    setDeleteRequest({
+      ids: targetSources.map((source) => source.id),
+      title: targetSources.length === 1 ? `Delete ${targetSources[0].name}?` : `Delete ${targetSources.length} channels?`,
+      description: targetSources.length === 1
+        ? 'This removes the channel from Canon knowledge and deletes its synced chunks.'
+        : 'This removes the selected channels from Canon knowledge and deletes their synced chunks.',
+    });
+    setActionError('');
+  }
+
+  async function saveRename() {
+    if (!renameSource) return;
+    const nextName = renameValue.trim();
+    if (!nextName) {
+      setActionError('Name is required.');
+      return;
+    }
+
+    setActionLoading(true);
+    setActionError('');
     try {
-      await fetch('/api/onboarding/knowledge', {
-        method: 'POST',
+      const res = await fetch(`/api/onboarding/knowledge/${renameSource.id}`, {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          slack_channel_id: channel.id,
-          slack_channel_name: channel.name,
-          name: `#${channel.name}`,
-        }),
+        body: JSON.stringify({ name: nextName }),
       });
-      setShowAddModal(false);
+
+      if (!res.ok) {
+        throw new Error(actionFailureMessage('rename'));
+      }
+
+      setRenameSource(null);
+      setRenameValue('');
       await loadSources();
+    } catch (error: unknown) {
+      setActionError(error instanceof Error ? error.message : actionFailureMessage('rename'));
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function confirmDelete() {
+    if (!deleteRequest) return;
+
+    setActionLoading(true);
+    setActionError('');
+    try {
+      for (const sourceId of deleteRequest.ids) {
+        const res = await fetch(`/api/onboarding/knowledge/${sourceId}`, { method: 'DELETE' });
+        if (!res.ok) {
+          throw new Error(actionFailureMessage('delete'));
+        }
+      }
+
+      setSelectedSourceIds((current) => {
+        const deleted = new Set(deleteRequest.ids);
+        return new Set([...current].filter((id) => !deleted.has(id)));
+      });
+      setDeleteRequest(null);
+      await loadSources();
+    } catch (error: unknown) {
+      setActionError(error instanceof Error ? error.message : actionFailureMessage('delete'));
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function addSelectedChannels() {
+    const selectedChannels = channels.filter(
+      (channel) => selectedChannelIds.has(channel.id) && !connectedIds.has(channel.id)
+    );
+    if (selectedChannels.length === 0) return;
+
+    setAdding(true);
+    setChannelsError('');
+    try {
+      for (const channel of selectedChannels) {
+        const res = await fetch('/api/onboarding/knowledge', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            slack_channel_id: channel.id,
+            slack_channel_name: channel.name,
+            name: `#${channel.name}`,
+          }),
+        });
+
+        if (!res.ok) {
+          throw new Error(actionFailureMessage('add'));
+        }
+      }
+
+      setShowAddModal(false);
+      setSelectedChannelIds(new Set());
+      setChannelSearch('');
+      await loadSources();
+    } catch (error: unknown) {
+      setChannelsError(error instanceof Error ? error.message : actionFailureMessage('add'));
     } finally {
       setAdding(false);
     }
@@ -128,6 +372,15 @@ export function KnowledgeClient() {
     (c) => c.name.toLowerCase().includes(channelSearch.toLowerCase())
   );
   const connectedIds = new Set(sources.map((s) => s.slack_channel_id).filter(Boolean));
+  const selectedSourceCount = selectedSourceIds.size;
+  const selectedStoppableSourceIds = sources
+    .filter((source) => selectedSourceIds.has(source.id) && canStopSync(source.status))
+    .map((source) => source.id);
+  const selectableCount = filteredChannels.filter((channel) => !connectedIds.has(channel.id)).length;
+  const selectedCount = [...selectedChannelIds].filter((id) => !connectedIds.has(id)).length;
+  const addButtonLabel = selectedCount === 0
+    ? 'Add Channels'
+    : `Add ${selectedCount} Channel${selectedCount === 1 ? '' : 's'}`;
   const totalChunks = sources.reduce((sum, source) => sum + (source.chunk_count ?? 0), 0);
   const activeCount = sources.filter((source) => source.status === 'active').length;
   const errorCount = sources.filter((source) => source.status === 'error').length;
@@ -153,8 +406,56 @@ export function KnowledgeClient() {
           <h1 className="type-page-title" style={{ color: 'var(--text-primary)' }}>Knowledge</h1>
           <p className="type-page-subtitle mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>Slack Channels Canon Learns From</p>
         </div>
-        <Button onClick={openAddModal} size="sm"><IconPlus size={14} /> Add Channel</Button>
+        <div className="flex items-center gap-2">
+          <Button onClick={openAddModal} size="sm"><IconPlus size={14} /> Add Channel</Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label="Open bulk channel actions"
+                disabled={sources.length === 0 || actionLoading}
+                className="w-8 h-8 rounded-md border border-[var(--border-tertiary)] bg-transparent flex items-center justify-center cursor-pointer text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] transition-colors duration-[120ms] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <IconDotsVertical size={15} />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={selectAllSources}>
+                <IconChecks size={14} />
+                Select All
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={clearSourceSelection} disabled={selectedSourceCount === 0}>
+                <IconHash size={14} />
+                Clear Selection
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => syncSources([...selectedSourceIds])} disabled={selectedSourceCount === 0 || actionLoading}>
+                <IconRefresh size={14} />
+                Sync Selected
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => stopSyncSources(selectedStoppableSourceIds)} disabled={selectedStoppableSourceIds.length === 0 || actionLoading}>
+                <IconPlayerStop size={14} />
+                Stop Sync
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="text-[var(--red-text)] focus:text-[var(--red-text)]"
+                onClick={() => openDeleteDialog([...selectedSourceIds])}
+                disabled={selectedSourceCount === 0 || actionLoading}
+              >
+                <IconTrash size={14} />
+                Delete Selected
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
+
+      {actionError && (
+        <div className="mx-6 mt-4 rounded-[8px] border px-3 py-2 type-body" style={{ backgroundColor: 'var(--red-bg)', borderColor: 'var(--red-border)', color: 'var(--red-text)' }}>
+          {actionError}
+        </div>
+      )}
 
       <div className="flex gap-3 px-6 py-[14px] border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
         {[
@@ -188,11 +489,9 @@ export function KnowledgeClient() {
         <div className="flex flex-1 overflow-hidden">
           <div className="w-[300px] flex-shrink-0 overflow-y-auto border-r" style={{ borderColor: 'var(--border-tertiary)' }}>
             {sources.map((source) => (
-              <button
+              <div
                 key={source.id}
-                type="button"
-                onClick={() => setSelected(source)}
-                className="w-full flex items-center gap-[10px] py-[11px] border-b cursor-pointer text-left transition-colors duration-[120ms]"
+                className="w-full flex items-center gap-[10px] py-[11px] border-b text-left transition-colors duration-[120ms]"
                 style={{
                   padding: '11px 14px',
                   borderColor: 'var(--border-tertiary)',
@@ -202,21 +501,96 @@ export function KnowledgeClient() {
                 onMouseEnter={(e) => { if (selected?.id !== source.id) e.currentTarget.style.backgroundColor = 'var(--bg-secondary)'; }}
                 onMouseLeave={(e) => { if (selected?.id !== source.id) e.currentTarget.style.backgroundColor = 'transparent'; }}
               >
+                <input
+                  type="checkbox"
+                  checked={selectedSourceIds.has(source.id)}
+                  onChange={() => toggleSourceSelection(source.id)}
+                  className="h-4 w-4 flex-shrink-0 accent-[var(--canon-purple)]"
+                  aria-label={`Select ${source.name}`}
+                />
                 <div className="w-8 h-8 rounded-[7px] flex items-center justify-center flex-shrink-0" style={channelIconStyle(source.status)}>
                   <IconHash size={15} />
                 </div>
-                <div className="min-w-0 flex-1">
+                <button
+                  type="button"
+                  onClick={() => setSelected(source)}
+                  className="min-w-0 flex-1 cursor-pointer text-left"
+                >
                   <div className="type-panel-title truncate" style={{ color: 'var(--text-primary)' }}>{source.name}</div>
                   <div className="type-caption mt-[1px]" style={{ color: 'var(--text-tertiary)' }}>{source.chunk_count} chunks</div>
-                </div>
+                </button>
                 <StatusBadge variant={statusVariant(source.status)} label={source.status} />
-              </button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={`Open actions for ${source.name}`}
+                      disabled={actionLoading}
+                      className="w-7 h-7 rounded-md border border-[var(--border-tertiary)] bg-transparent flex items-center justify-center cursor-pointer text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] transition-colors duration-[120ms] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <IconDotsVertical size={15} />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => openRenameDialog(source)}>
+                      <IconEdit size={14} />
+                      Rename
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => syncSources([source.id])} disabled={actionLoading || source.status === 'syncing'}>
+                      <IconRefresh size={14} />
+                      Sync Now
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => stopSyncSources([source.id])} disabled={actionLoading || !canStopSync(source.status)}>
+                      <IconPlayerStop size={14} />
+                      Stop Sync
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem className="text-[var(--red-text)] focus:text-[var(--red-text)]" onClick={() => openDeleteDialog([source.id])}>
+                      <IconTrash size={14} />
+                      Delete
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             ))}
           </div>
 
           <div className="flex-1 overflow-y-auto px-6 py-5">
             {selected ? (
               <div className="max-w-4xl">
+                {(() => {
+                  const notice = sourceStatusNotice(selected.status);
+                  if (!notice) return null;
+
+                  return (
+                    <div
+                      className="flex items-start gap-[10px] rounded-[8px] px-[14px] py-3 mb-5 border"
+                      style={{
+                        backgroundColor: notice.tone === 'error' ? 'var(--red-bg)' : 'var(--bg-secondary)',
+                        borderColor: notice.tone === 'error' ? 'var(--red-border)' : 'var(--border-tertiary)',
+                      }}
+                    >
+                      <IconAlertCircle
+                        size={16}
+                        style={{
+                          color: notice.tone === 'error' ? 'var(--red)' : 'var(--text-tertiary)',
+                          marginTop: 1,
+                          flexShrink: 0,
+                        }}
+                      />
+                      <div>
+                        <div
+                          className="type-panel-title mb-[2px]"
+                          style={{ color: notice.tone === 'error' ? 'var(--red-text)' : 'var(--text-primary)' }}
+                        >
+                          {notice.title}
+                        </div>
+                        <div className="type-body" style={{ color: 'var(--text-secondary)' }}>{notice.body}</div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 <div className="flex items-center justify-between gap-4 mb-5">
                   <div className="flex items-center gap-3">
                     <h2 className="type-metric-sm" style={{ color: 'var(--text-primary)' }}>{selected.name}</h2>
@@ -246,23 +620,19 @@ export function KnowledgeClient() {
                   ))}
                 </div>
 
-                {selected.error_message && (
-                  <div className="flex items-start gap-[10px] rounded-[8px] px-[14px] py-3 mb-5 border" style={{ backgroundColor: 'var(--red-bg)', borderColor: 'var(--red-border)' }}>
-                    <IconAlertCircle size={16} style={{ color: 'var(--red)', marginTop: 1, flexShrink: 0 }} />
-                    <div>
-                      <div className="type-panel-title mb-[2px]" style={{ color: 'var(--red-text)' }}>Sync Failed</div>
-                      <div className="type-body" style={{ color: 'var(--text-secondary)' }}>{selected.error_message}</div>
-                      <button type="button" className="type-body flex items-center gap-[3px] mt-[6px]" style={{ color: 'var(--canon-purple)' }}>
-                        <IconArrowRight size={12} /> Fix This Issue
-                      </button>
-                    </div>
-                  </div>
-                )}
-
                 <div>
                   <div className="type-panel-title mb-2" style={{ color: 'var(--text-primary)' }}>Sync History</div>
                   {[
-                    { success: selected.status !== 'error', label: selected.status === 'error' ? 'Sync Failed' : 'Latest Sync Complete', time: fmtDate(selected.last_synced_at), chunks: `${selected.chunk_count ?? 0} Chunks` },
+                    {
+                      success: selected.status !== 'error',
+                      label: selected.status === 'error'
+                        ? 'Sync Needs Attention'
+                        : selected.status === 'stopped'
+                          ? 'Sync Stopped'
+                          : 'Latest Sync Complete',
+                      time: fmtDate(selected.last_synced_at),
+                      chunks: `${selected.chunk_count ?? 0} Chunks`,
+                    },
                     { success: true, label: 'Source Connected', time: fmtDate(selected.created_at), chunks: 'Ready' },
                   ].map((event) => (
                     <div key={`${event.label}-${event.time}`} className="flex items-center gap-[10px] py-[10px] border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
@@ -286,7 +656,7 @@ export function KnowledgeClient() {
         </div>
       )}
 
-      <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
+      <Dialog open={showAddModal} onOpenChange={handleAddModalOpenChange}>
         <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
           <DialogHeader>
             <DialogTitle className="text-[var(--text-primary)]">Add Slack Channel</DialogTitle>
@@ -317,26 +687,115 @@ export function KnowledgeClient() {
             ) : (
               filteredChannels.map((channel) => {
                 const connected = connectedIds.has(channel.id);
+                const checked = selectedChannelIds.has(channel.id);
                 return (
-                  <button
+                  <label
                     key={channel.id}
-                    type="button"
-                    onClick={() => !connected && addChannel(channel)}
-                    disabled={connected || adding}
-                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-[var(--bg-secondary)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-left cursor-pointer"
+                    className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors text-left cursor-pointer has-[:disabled]:opacity-50 has-[:disabled]:cursor-not-allowed"
                   >
-                    <div>
-                      <span className="type-panel-title" style={{ color: 'var(--text-primary)' }}>#{channel.name}</span>
-                      {channel.member_count > 0 && (
-                        <span className="type-caption ml-2" style={{ color: 'var(--text-tertiary)' }}>{channel.member_count} members</span>
-                      )}
+                    <div className="flex min-w-0 items-center gap-3">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={connected || adding}
+                        onChange={() => toggleChannelSelection(channel.id)}
+                        className="h-4 w-4 flex-shrink-0 accent-[var(--canon-purple)]"
+                        aria-label={`Select #${channel.name}`}
+                      />
+                      <div className="min-w-0">
+                        <span className="type-panel-title truncate" style={{ color: 'var(--text-primary)' }}>#{channel.name}</span>
+                        {channel.member_count > 0 && (
+                          <span className="type-caption ml-2" style={{ color: 'var(--text-tertiary)' }}>{channel.member_count} members</span>
+                        )}
+                      </div>
                     </div>
                     {connected && <StatusBadge variant="delivered" label="Connected" />}
-                  </button>
+                  </label>
                 );
               })
             )}
           </div>
+          {!channelsLoading && !channelsError && filteredChannels.length > 0 && (
+            <div className="flex items-center justify-between gap-3 border-t pt-3" style={{ borderColor: 'var(--border-tertiary)' }}>
+              <p className="type-caption" style={{ color: 'var(--text-tertiary)' }}>
+                {selectedCount} selected{selectableCount > 0 ? ` of ${selectableCount}` : ''}
+              </p>
+              <Button size="sm" onClick={addSelectedChannels} disabled={selectedCount === 0 || adding}>
+                {adding ? 'Adding...' : addButtonLabel}
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!renameSource}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRenameSource(null);
+            setRenameValue('');
+            setActionError('');
+          }
+        }}
+      >
+        <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
+          <DialogHeader>
+            <DialogTitle>Rename Channel</DialogTitle>
+            <DialogDescription>
+              Update the display name for this Slack knowledge source.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            value={renameValue}
+            onChange={(event) => setRenameValue(event.target.value)}
+            className="input-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] type-body"
+            placeholder="Channel name"
+          />
+          {actionError && (
+            <div className="rounded-[8px] border px-3 py-2 type-body" style={{ backgroundColor: 'var(--red-bg)', borderColor: 'var(--red-border)', color: 'var(--red-text)' }}>
+              {actionError}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setRenameSource(null)} disabled={actionLoading}>
+              Cancel
+            </Button>
+            <Button onClick={saveRename} disabled={actionLoading || !renameValue.trim()}>
+              {actionLoading ? 'Saving...' : 'Save'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!deleteRequest}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteRequest(null);
+            setActionError('');
+          }
+        }}
+      >
+        <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
+          <DialogHeader>
+            <DialogTitle>{deleteRequest?.title ?? 'Delete channels?'}</DialogTitle>
+            <DialogDescription>
+              {deleteRequest?.description ?? 'This removes the selected channels from Canon knowledge.'}
+            </DialogDescription>
+          </DialogHeader>
+          {actionError && (
+            <div className="rounded-[8px] border px-3 py-2 type-body" style={{ backgroundColor: 'var(--red-bg)', borderColor: 'var(--red-border)', color: 'var(--red-text)' }}>
+              {actionError}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setDeleteRequest(null)} disabled={actionLoading}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDelete} disabled={actionLoading}>
+              {actionLoading ? 'Deleting...' : 'Delete'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

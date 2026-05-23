@@ -2,13 +2,22 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { getSession } from '@/lib/auth';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { createLogger, errorMessage } from '@/lib/server/logging';
 import { encryptSecret } from '@/lib/server/oauth/tokenCrypto';
-import { exchangeSlackCode } from '@/lib/server/oauth/slackClient';
+import { exchangeSlackCode, getSlackOAuthScopes } from '@/lib/server/oauth/slackClient';
 import { trackIntegrationStateChanged } from '@/lib/server/services/usageTracking';
 
 export const runtime = 'nodejs';
 
 const STATE_COOKIE = 'slack_oauth_state';
+const log = createLogger('api.oauth.slack', {
+  label: 'Slack OAuth',
+  eventLabels: {
+    oauth_callback_error: 'OAuth Callback Error',
+    oauth_token_granted: 'OAuth Token Granted',
+    oauth_token_stored: 'OAuth Token Stored',
+  },
+});
 
 function redirectToSettings(origin: string, params: Record<string, string>) {
   const url = new URL('/settings', origin);
@@ -42,6 +51,11 @@ export async function GET(request: NextRequest) {
   const error = request.nextUrl.searchParams.get('error');
   if (error) {
     const description = request.nextUrl.searchParams.get('error_description') || error;
+    log.warn('oauth_callback_error', {
+      userId: user.id,
+      error,
+      description,
+    });
     return redirectToSettings(request.nextUrl.origin, { error: description });
   }
 
@@ -53,10 +67,21 @@ export async function GET(request: NextRequest) {
   cookieStore.delete(STATE_COOKIE);
 
   if (!code || !returnedState || !expectedState) {
+    log.warn('oauth_callback_error', {
+      userId: user.id,
+      error: 'missing_callback_parameters',
+      hasCode: Boolean(code),
+      hasReturnedState: Boolean(returnedState),
+      hasExpectedState: Boolean(expectedState),
+    });
     return redirectToSettings(request.nextUrl.origin, { error: 'Missing OAuth callback parameters.' });
   }
 
   if (returnedState !== expectedState) {
+    log.warn('oauth_callback_error', {
+      userId: user.id,
+      error: 'invalid_state',
+    });
     return redirectToSettings(request.nextUrl.origin, { error: 'Invalid OAuth state. Please try again.' });
   }
 
@@ -66,6 +91,10 @@ export async function GET(request: NextRequest) {
     const accessToken = tokenSet.access_token;
 
     if (!accessToken) {
+      log.warn('oauth_callback_error', {
+        userId: user.id,
+        error: 'missing_access_token',
+      });
       return redirectToSettings(request.nextUrl.origin, { error: 'Slack token exchange did not return an access token.' });
     }
 
@@ -82,10 +111,28 @@ export async function GET(request: NextRequest) {
     const team = isRecord(tokenSet.team) ? tokenSet.team : {};
     const enterprise = isRecord(tokenSet.enterprise) ? tokenSet.enterprise : {};
     const authedUser = isRecord(tokenSet.authed_user) ? tokenSet.authed_user : {};
+    const requestedScopes = getSlackOAuthScopes();
+    const grantedScopes = tokenSet.scope || (typeof authedUser.scope === 'string' ? authedUser.scope : '');
+    const grantedScopeSet = new Set(
+      grantedScopes
+        .split(',')
+        .map((scope) => scope.trim())
+        .filter(Boolean)
+    );
+    const missingScopes = requestedScopes.filter((scope) => !grantedScopeSet.has(scope));
     const providerAccountId =
       (typeof tokenSet.bot_user_id === 'string' ? tokenSet.bot_user_id : null) ||
       (typeof authedUser.id === 'string' ? authedUser.id : null) ||
       (typeof team.id === 'string' ? team.id : null);
+
+    log.info('oauth_token_granted', {
+      userId: user.id,
+      teamId: typeof team.id === 'string' ? team.id : undefined,
+      teamName: typeof team.name === 'string' ? team.name : undefined,
+      requestedScopes: requestedScopes.join(','),
+      grantedScopes: grantedScopes || 'none',
+      missingScopes: missingScopes.length > 0 ? missingScopes.join(',') : undefined,
+    });
 
     const { error: connectionError } = await supabase
       .from('oauth_connections')
@@ -113,7 +160,11 @@ export async function GET(request: NextRequest) {
       );
 
     if (connectionError) {
-      console.error('Failed to store Slack connection:', connectionError);
+      log.error('oauth_callback_error', {
+        userId: user.id,
+        error: 'connection_store_failed',
+        detail: errorMessage(connectionError),
+      });
       return redirectToSettings(request.nextUrl.origin, { error: 'Failed to store Slack connection.' });
     }
 
@@ -129,7 +180,7 @@ export async function GET(request: NextRequest) {
           access_token: encryptSecret(accessToken),
           refresh_token: tokenSet.refresh_token ? encryptSecret(tokenSet.refresh_token) : null,
           token_type: tokenSet.token_type || null,
-          scope: tokenSet.scope || (typeof authedUser.scope === 'string' ? authedUser.scope : null),
+          scope: grantedScopes || null,
           expires_at: computeExpiresAt(tokenSet),
           updated_at: new Date().toISOString(),
         },
@@ -137,15 +188,31 @@ export async function GET(request: NextRequest) {
       );
 
     if (tokenError) {
-      console.error('Failed to store Slack tokens:', tokenError);
+      log.error('oauth_callback_error', {
+        userId: user.id,
+        connectionId,
+        error: 'token_store_failed',
+        detail: errorMessage(tokenError),
+      });
       return redirectToSettings(request.nextUrl.origin, { error: 'Failed to store Slack tokens.' });
     }
+
+    log.info('oauth_token_stored', {
+      userId: user.id,
+      connectionId,
+      providerAccountId,
+      grantedScopes: grantedScopes || 'none',
+      missingScopes: missingScopes.length > 0 ? missingScopes.join(',') : undefined,
+    });
 
     await trackIntegrationStateChanged(supabase, user.id, 'connected', 'slack', connectionId);
     return redirectToSettings(request.nextUrl.origin, { success: 'true', provider: 'slack' });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    console.error('Slack OAuth callback error:', err);
+    log.error('oauth_callback_error', {
+      userId: user.id,
+      error: message,
+    });
     return redirectToSettings(request.nextUrl.origin, { error: message });
   }
 }

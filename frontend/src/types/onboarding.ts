@@ -1,7 +1,7 @@
 export type HireRole = 'AI Solutions Architect' | 'Solutions Engineer' | 'Implementation Engineer';
 export type HireStatus = 'active' | 'paused' | 'completed';
 export type KnowledgeProvider = 'slack' | 'notion' | 'google_drive' | 'confluence';
-export type KnowledgeSourceStatus = 'pending' | 'syncing' | 'active' | 'error';
+export type KnowledgeSourceStatus = 'pending' | 'syncing' | 'active' | 'error' | 'stopped';
 export type DeliveryStatus = 'pending' | 'delivered' | 'failed';
 export type AccessRequestStatus = 'pending' | 'sent' | 'acknowledged' | 'granted';
 export type ReadinessCategory = 'product_change' | 'customer_objection' | 'demo_guidance' | 'implementation_pattern';
