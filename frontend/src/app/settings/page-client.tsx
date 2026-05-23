@@ -263,7 +263,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
         {integrations.map((int) => (
           <div key={int.id} className="rounded-[10px] px-4 py-[14px] flex items-center gap-[14px] mb-[10px] border" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}>
             <div className="w-9 h-9 rounded-[9px] flex items-center justify-center flex-shrink-0" style={{ backgroundColor: int.iconBg, color: int.iconColor }}>
-              <IntegrationLogos provider={int.provider} size={22} />
+              <IntegrationLogos provider={int.provider} size={22} color={int.iconColor} />
             </div>
             <div className="flex-1 min-w-0">
               <div className="type-section-title" style={{ color: 'var(--text-primary)' }}>{int.name}</div>

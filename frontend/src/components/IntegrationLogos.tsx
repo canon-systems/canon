@@ -1,6 +1,14 @@
 'use client';
 
-import * as simpleIcons from 'simple-icons';
+import {
+  siAtlassian,
+  siCoda,
+  siConfluence,
+  siGithub,
+  siJira,
+  siSlack,
+  type SimpleIcon,
+} from 'simple-icons/icons';
 
 interface IntegrationLogosProps {
   size?: number;
@@ -8,20 +16,18 @@ interface IntegrationLogosProps {
   color?: string;
 }
 
-// Map provider names to simple-icons export names
-const iconMap: Record<string, keyof typeof simpleIcons> = {
-  'slack': 'siSlack',
-  'confluence': 'siConfluence',
-  'atlassian': 'siAtlassian',
-  'jira': 'siJira',
-  'github': 'siGithub',
-  'coda': 'siCoda'
+const iconMap: Record<IntegrationLogosProps['provider'], SimpleIcon> = {
+  slack: siSlack,
+  confluence: siConfluence,
+  atlassian: siAtlassian,
+  jira: siJira,
+  github: siGithub,
+  coda: siCoda,
 };
 
 export function IntegrationLogos({ size = 24, provider, color }: IntegrationLogosProps) {
-  const iconKey = iconMap[provider] || 'siSlack';
-  const icon = simpleIcons[iconKey] as { title: string; hex: string; path: string };
-  const fill = color || `#${icon.hex}`;
+  const icon = iconMap[provider] ?? siSlack;
+  const fill = color ?? `#${icon.hex}`;
 
   return (
     <svg

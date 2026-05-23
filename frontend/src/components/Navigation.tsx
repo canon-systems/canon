@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -102,26 +103,27 @@ export function Navigation({ user, onLogout }: NavigationProps) {
         {collapsed ? <IconChevronRight size={15} /> : <IconChevronLeft size={15} />}
       </button>
 
-      <div
+      <Link
+        href="/dashboard"
         className={cn(
           'flex items-center gap-[9px] px-4 pb-5 border-b mb-3',
           collapsed && 'justify-center px-0'
         )}
         style={{ borderColor: 'var(--border-tertiary)' }}
+        title={collapsed ? 'Canon' : undefined}
       >
-        <div
-          className="w-7 h-7 rounded-[7px] flex items-center justify-center flex-shrink-0"
-          style={{ backgroundColor: 'var(--canon-purple)' }}
-        >
-          <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4" aria-hidden="true">
-            <circle cx="8" cy="8" r="5" stroke="white" strokeWidth="1.5" />
-            <circle cx="8" cy="8" r="2" fill="white" />
-          </svg>
-        </div>
+        <Image
+          src="/web-app-manifest-512x512.png"
+          alt="Canon"
+          width={28}
+          height={28}
+          className="h-7 w-7 flex-shrink-0 rounded-[7px]"
+          priority
+        />
         {!collapsed && (
           <span className="type-card-title" style={{ color: 'var(--text-primary)' }}>Canon</span>
         )}
-      </div>
+      </Link>
 
       <nav className="flex-1 overflow-y-auto">
         <div>
