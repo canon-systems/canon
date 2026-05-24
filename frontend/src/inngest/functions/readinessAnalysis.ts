@@ -205,6 +205,63 @@ function uniqueChunkMetadataStrings(chunks: KnowledgeChunkResult[], key: string)
   );
 }
 
+function slackMessageUrl(channelId: string, messageTs: string | null) {
+  const params = new URLSearchParams({ channel: channelId });
+  if (messageTs) params.set('message_ts', messageTs);
+  return `https://slack.com/app_redirect?${params.toString()}`;
+}
+
+function evidenceFromChunks(chunks: KnowledgeChunkResult[]) {
+  const seen = new Set<string>();
+  return chunks.flatMap((chunk) => {
+    const channelId = typeof chunk.metadata.channel_id === 'string' ? chunk.metadata.channel_id : null;
+    const channelName = typeof chunk.metadata.channel_name === 'string' ? chunk.metadata.channel_name : null;
+    const messageTs = typeof chunk.metadata.latest_ts === 'string'
+      ? chunk.metadata.latest_ts
+      : typeof chunk.metadata.earliest_ts === 'string'
+        ? chunk.metadata.earliest_ts
+        : null;
+
+    if (!channelId && !channelName) return [];
+
+    const key = `${channelId ?? ''}:${messageTs ?? channelName ?? ''}`;
+    if (seen.has(key)) return [];
+    seen.add(key);
+
+    return [{
+      provider: 'slack',
+      channel_id: channelId,
+      channel_name: channelName,
+      message_ts: messageTs,
+      url: channelId ? slackMessageUrl(channelId, messageTs) : null,
+    }];
+  });
+}
+
+async function fallbackSlackSourceMetadata(params: {
+  supabase: ReturnType<typeof createServiceRoleClient>;
+  organizationId: string;
+}) {
+  const { supabase, organizationId } = params;
+  const { data: source } = await supabase
+    .from('knowledge_sources')
+    .select('name, slack_channel_id, slack_channel_name')
+    .eq('organization_id', organizationId)
+    .eq('provider', 'slack')
+    .order('last_synced_at', { ascending: false, nullsFirst: false })
+    .limit(1)
+    .maybeSingle();
+
+  return {
+    channelId: typeof source?.slack_channel_id === 'string' ? source.slack_channel_id : null,
+    channelName: typeof source?.slack_channel_name === 'string'
+      ? source.slack_channel_name
+      : typeof source?.name === 'string'
+        ? source.name.replace(/^#/, '')
+        : null,
+  };
+}
+
 async function retrieveCandidateChunks(params: {
   supabase: ReturnType<typeof createServiceRoleClient>;
   organizationId: string;
@@ -327,6 +384,24 @@ export const readinessAnalysis = inngest.createFunction(
               continue;
             }
 
+            const channelIds = uniqueChunkMetadataStrings(typedChunks, 'channel_id');
+            const channelNames = uniqueChunkMetadataStrings(typedChunks, 'channel_name');
+            const sourceEvidence = evidenceFromChunks(typedChunks);
+            if (channelIds.length === 0 || channelNames.length === 0) {
+              const fallbackSource = await fallbackSlackSourceMetadata({ supabase, organizationId: org.id });
+              if (channelIds.length === 0 && fallbackSource.channelId) channelIds.push(fallbackSource.channelId);
+              if (channelNames.length === 0 && fallbackSource.channelName) channelNames.push(fallbackSource.channelName);
+              if (sourceEvidence.length === 0 && (fallbackSource.channelId || fallbackSource.channelName)) {
+                sourceEvidence.push({
+                  provider: 'slack',
+                  channel_id: fallbackSource.channelId,
+                  channel_name: fallbackSource.channelName,
+                  message_ts: null,
+                  url: fallbackSource.channelId ? slackMessageUrl(fallbackSource.channelId, null) : null,
+                });
+              }
+            }
+
             itemsToInsert.push({
               organization_id: org.id,
               category,
@@ -343,8 +418,9 @@ export const readinessAnalysis = inngest.createFunction(
                 retrieval_strategy: retrieval.strategy,
                 vector_matches: retrieval.vectorMatches,
                 fallback_candidates: retrieval.fallbackCandidates,
-                channel_ids: uniqueChunkMetadataStrings(typedChunks, 'channel_id'),
-                channel_names: uniqueChunkMetadataStrings(typedChunks, 'channel_name'),
+                channel_ids: channelIds,
+                channel_names: channelNames,
+                source_evidence: sourceEvidence,
               },
               status: 'draft',
               updated_at: new Date().toISOString(),

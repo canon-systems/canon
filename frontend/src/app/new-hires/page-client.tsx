@@ -6,7 +6,8 @@ import {
   IconBriefcase,
   IconCalendar,
   IconChevronDown,
-  IconDots,
+  IconDotsVertical,
+  IconPencil,
   IconPlayerPause,
   IconPlayerPlay,
   IconPlus,
@@ -28,16 +29,16 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar } from '@/components/ui/avatar';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { MilestoneProgress } from '@/components/ui/milestone-progress';
-import { NewHireForm } from '@/components/new-hire-form';
+import { NewHireForm, type EditableNewHire } from '@/components/new-hire-form';
 import { cn } from '@/components/ui/utils';
-import type { AccessRequest, HireStatus, RampDelivery } from '@/types/onboarding';
+import type { AccessRequest, HireRole, HireStatus, RampDelivery } from '@/types/onboarding';
 
 const MILESTONE_DAYS = [1, 7, 14, 30, 45, 60, 90];
 
 type HireRow = {
   id: string;
   name: string;
-  role: string;
+  role: HireRole;
   start_date: string;
   ramp_day: number;
   status: HireStatus;
@@ -78,11 +79,13 @@ function accessVariant(status: string) {
 function HireActionsMenu({
   hire,
   disabled,
+  onEdit,
   onStatusChange,
   onDelete,
 }: {
   hire: Pick<HireRow, 'id' | 'name' | 'status'>;
   disabled?: boolean;
+  onEdit: (hire: Pick<HireRow, 'id' | 'name' | 'status'>) => void;
   onStatusChange: (hire: Pick<HireRow, 'id' | 'name' | 'status'>, status: HireStatus) => void;
   onDelete: (hire: Pick<HireRow, 'id' | 'name' | 'status'>) => void;
 }) {
@@ -99,10 +102,15 @@ function HireActionsMenu({
           aria-label={`Open settings for ${hire.name}`}
           className="w-7 h-7 rounded-md border border-[var(--border-tertiary)] bg-transparent flex items-center justify-center cursor-pointer text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] transition-colors duration-[120ms] disabled:cursor-not-allowed disabled:opacity-50"
         >
-          <IconDots size={15} />
+          <IconDotsVertical size={15} />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={() => onEdit(hire)}>
+          <IconPencil size={14} />
+          Edit Hire
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
         <DropdownMenuItem onClick={() => onStatusChange(hire, nextStatus)}>
           <StatusIcon size={14} />
           {statusLabel}
@@ -130,6 +138,7 @@ export function NewHiresClient() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'Deliveries' | 'Access'>('Deliveries');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingHire, setEditingHire] = useState<EditableNewHire | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Pick<HireRow, 'id' | 'name' | 'status'> | null>(null);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
@@ -229,6 +238,37 @@ export function NewHiresClient() {
     } finally {
       setActionLoadingId(null);
     }
+  }
+
+  async function openEditModal(hire: Pick<HireRow, 'id' | 'name' | 'status'>) {
+    setActionLoadingId(hire.id);
+    setActionError('');
+    try {
+      if (selectedDetail?.hire.id === hire.id) {
+        setEditingHire(selectedDetail.hire);
+        return;
+      }
+
+      const res = await fetch(`/api/onboarding/new-hires/${hire.id}`);
+      const json = (await res.json()) as HireDetail & { error?: string };
+      if (!res.ok) {
+        setActionError(json.error ?? 'Failed to load hire.');
+        return;
+      }
+      setEditingHire(json.hire);
+    } finally {
+      setActionLoadingId(null);
+    }
+  }
+
+  async function handleHireUpdated(hire: EditableNewHire) {
+    setEditingHire(null);
+    setSelectedDetail((current) => (
+      current?.hire.id === hire.id
+        ? { ...current, hire: { ...current.hire, ...hire } }
+        : current
+    ));
+    await load();
   }
 
   async function deleteHire() {
@@ -369,6 +409,7 @@ export function NewHiresClient() {
                   <HireActionsMenu
                     hire={hire}
                     disabled={actionLoadingId === hire.id}
+                    onEdit={openEditModal}
                     onStatusChange={updateHireStatus}
                     onDelete={setPendingDelete}
                   />
@@ -421,6 +462,7 @@ export function NewHiresClient() {
                   <HireActionsMenu
                     hire={selectedDetail.hire}
                     disabled={actionLoadingId === selectedDetail.hire.id}
+                    onEdit={openEditModal}
                     onStatusChange={updateHireStatus}
                     onDelete={setPendingDelete}
                   />
@@ -566,6 +608,24 @@ export function NewHiresClient() {
             }}
             onCancel={() => setShowAddModal(false)}
           />
+        </DialogContent>
+      </Dialog>
+      <Dialog open={editingHire !== null} onOpenChange={(open) => !open && setEditingHire(null)}>
+        <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Hire</DialogTitle>
+            <DialogDescription>
+              Update this hire&apos;s profile and ramp start details.
+            </DialogDescription>
+          </DialogHeader>
+          {editingHire && (
+            <NewHireForm
+              key={editingHire.id}
+              initialHire={editingHire}
+              onUpdated={(hire) => { void handleHireUpdated(hire); }}
+              onCancel={() => setEditingHire(null)}
+            />
+          )}
         </DialogContent>
       </Dialog>
       <Dialog open={pendingDelete !== null} onOpenChange={(open) => !open && setPendingDelete(null)}>

@@ -80,6 +80,70 @@ function metadataStringArray(item: ReadinessItem, key: string) {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0) : [];
 }
 
+type ReadinessSourceEvidence = {
+  provider: string;
+  channel_id: string | null;
+  channel_name: string | null;
+  message_ts: string | null;
+  url: string | null;
+};
+
+function slackMessageUrl(channelId: string, messageTs: string | null) {
+  const params = new URLSearchParams({ channel: channelId });
+  if (messageTs) params.set('message_ts', messageTs);
+  return `https://slack.com/app_redirect?${params.toString()}`;
+}
+
+function metadataEvidenceArray(item: ReadinessItem): ReadinessSourceEvidence[] {
+  const value = item.source_metadata?.source_evidence;
+  if (!Array.isArray(value)) return [];
+
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return [];
+    const evidence = entry as Record<string, unknown>;
+    const provider = typeof evidence.provider === 'string' ? evidence.provider : item.source ?? 'source';
+    const channelId = typeof evidence.channel_id === 'string' ? evidence.channel_id : null;
+    const channelName = typeof evidence.channel_name === 'string' ? evidence.channel_name : null;
+    const messageTs = typeof evidence.message_ts === 'string' ? evidence.message_ts : null;
+    const url = typeof evidence.url === 'string' ? evidence.url : channelId ? slackMessageUrl(channelId, messageTs) : null;
+    if (!channelId && !channelName && !url) return [];
+    return [{ provider, channel_id: channelId, channel_name: channelName, message_ts: messageTs, url }];
+  });
+}
+
+function withFallbackSourceMetadata(items: ReadinessItem[], fallback: { channelId: string | null; channelName: string | null }) {
+  if (!fallback.channelId && !fallback.channelName) return items;
+
+  return items.map((item) => {
+    if (item.source !== 'slack') return item;
+
+    const sourceMetadata = item.source_metadata ?? {};
+    const channelIds = metadataStringArray(item, 'channel_ids');
+    const channelNames = metadataStringArray(item, 'channel_names');
+    const sourceEvidence = metadataEvidenceArray(item);
+
+    if (channelIds.length > 0 && channelNames.length > 0 && sourceEvidence.length > 0) return item;
+
+    return {
+      ...item,
+      source_metadata: {
+        ...sourceMetadata,
+        channel_ids: channelIds.length > 0 ? channelIds : fallback.channelId ? [fallback.channelId] : [],
+        channel_names: channelNames.length > 0 ? channelNames : fallback.channelName ? [fallback.channelName] : [],
+        source_evidence: sourceEvidence.length > 0
+          ? sourceEvidence
+          : [{
+              provider: 'slack',
+              channel_id: fallback.channelId,
+              channel_name: fallback.channelName,
+              message_ts: null,
+              url: fallback.channelId ? slackMessageUrl(fallback.channelId, null) : null,
+            }],
+      },
+    };
+  });
+}
+
 function readinessNoteTitle(categories: ReadinessCategory[] | null) {
   if (!categories || categories.length === 0 || categories.length === categoryOrder.length) return 'Readiness';
   if (categories.length === 1) return categoryTitles[categories[0]];
@@ -114,6 +178,26 @@ async function fallbackReadinessChannel(supabase: Awaited<ReturnType<typeof crea
     .maybeSingle();
 
   return typeof source?.slack_channel_id === 'string' ? source.slack_channel_id : null;
+}
+
+async function fallbackReadinessSource(supabase: Awaited<ReturnType<typeof createClient>>, organizationId: string) {
+  const { data: source } = await supabase
+    .from('knowledge_sources')
+    .select('name, slack_channel_id, slack_channel_name')
+    .eq('organization_id', organizationId)
+    .eq('provider', 'slack')
+    .order('last_synced_at', { ascending: false, nullsFirst: false })
+    .limit(1)
+    .maybeSingle();
+
+  return {
+    channelId: typeof source?.slack_channel_id === 'string' ? source.slack_channel_id : null,
+    channelName: typeof source?.slack_channel_name === 'string'
+      ? source.slack_channel_name
+      : typeof source?.name === 'string'
+        ? source.name.replace(/^#/, '')
+        : null,
+  };
 }
 
 function buildReadinessBrief(items: ReadinessItem[]): ReadinessBrief | null {
@@ -210,7 +294,9 @@ export async function GET() {
       .order('detected_at', { ascending: false });
 
     if (error) throw error;
-    return NextResponse.json({ brief: buildReadinessBrief((items ?? []) as ReadinessItem[]) });
+    const fallbackSource = await fallbackReadinessSource(supabase, org.id);
+    const readinessItems = withFallbackSourceMetadata((items ?? []) as ReadinessItem[], fallbackSource);
+    return NextResponse.json({ brief: buildReadinessBrief(readinessItems) });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('[api/onboarding/readiness] GET failed', error);

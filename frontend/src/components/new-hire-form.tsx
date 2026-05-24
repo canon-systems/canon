@@ -14,11 +14,26 @@ import type { HireRole } from '@/types/onboarding';
 
 const ROLES: HireRole[] = ['AI Solutions Architect', 'Solutions Engineer', 'Implementation Engineer'];
 
+export type EditableNewHire = {
+  id: string;
+  name: string;
+  email: string;
+  role: HireRole;
+  start_date: string;
+  slack_user_id: string | null;
+};
+
 function toDateInputValue(date: Date) {
   const year = date.getFullYear();
   const month = `${date.getMonth() + 1}`.padStart(2, '0');
   const day = `${date.getDate()}`.padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+function fromDateInputValue(value: string) {
+  const [year, month, day] = value.split('-').map(Number);
+  if (!year || !month || !day) return undefined;
+  return new Date(year, month - 1, day);
 }
 
 function formatSelectedDate(date: Date | undefined) {
@@ -27,22 +42,29 @@ function formatSelectedDate(date: Date | undefined) {
 }
 
 export function NewHireForm({
+  initialHire,
   onCreated,
+  onUpdated,
   onCancel,
 }: {
-  onCreated: (hireId: string) => void;
+  initialHire?: EditableNewHire;
+  onCreated?: (hireId: string) => void;
+  onUpdated?: (hire: EditableNewHire) => void;
   onCancel?: () => void;
 }) {
+  const editing = Boolean(initialHire);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-  const [startDate, setStartDate] = useState<Date | undefined>();
+  const [startDate, setStartDate] = useState<Date | undefined>(
+    initialHire ? fromDateInputValue(initialHire.start_date) : undefined
+  );
   const [calendarOpen, setCalendarOpen] = useState(false);
 
   const [form, setForm] = useState({
-    name: '',
-    email: '',
-    role: '' as HireRole | '',
-    slack_user_id: '',
+    name: initialHire?.name ?? '',
+    email: initialHire?.email ?? '',
+    role: initialHire?.role ?? '' as HireRole | '',
+    slack_user_id: initialHire?.slack_user_id ?? '',
   });
 
   function set(field: keyof typeof form, value: string) {
@@ -59,23 +81,30 @@ export function NewHireForm({
     setSubmitting(true);
     setError('');
     try {
-      const res = await fetch('/api/onboarding/new-hires', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: form.name,
-          email: form.email,
-          role: form.role,
-          start_date: toDateInputValue(startDate),
-          slack_user_id: form.slack_user_id || undefined,
-        }),
-      });
-      const data = (await res.json()) as { hire?: { id: string }; error?: string };
+      const res = await fetch(
+        editing ? `/api/onboarding/new-hires/${initialHire?.id}` : '/api/onboarding/new-hires',
+        {
+          method: editing ? 'PATCH' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: form.name,
+            email: form.email,
+            role: form.role,
+            start_date: toDateInputValue(startDate),
+            slack_user_id: form.slack_user_id || null,
+          }),
+        }
+      );
+      const data = (await res.json()) as { hire?: EditableNewHire; error?: string };
       if (!res.ok) {
-        setError(data.error ?? 'Failed to Create New Hire');
+        setError(data.error ?? (editing ? 'Failed to Update New Hire' : 'Failed to Create New Hire'));
         return;
       }
-      if (data.hire?.id) onCreated(data.hire.id);
+      if (editing && data.hire) {
+        onUpdated?.(data.hire);
+        return;
+      }
+      if (data.hire?.id) onCreated?.(data.hire.id);
     } catch {
       setError('An Unexpected Error Occurred');
     } finally {
@@ -168,7 +197,7 @@ export function NewHireForm({
 
       <div className="flex gap-3">
         <Button type="submit" disabled={submitting} className="flex-1">
-          {submitting ? 'Creating...' : 'Add New Hire'}
+          {submitting ? (editing ? 'Saving...' : 'Creating...') : (editing ? 'Save Changes' : 'Add New Hire')}
         </Button>
         {onCancel && (
           <Button type="button" variant="secondary" onClick={onCancel}>

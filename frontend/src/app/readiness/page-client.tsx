@@ -7,6 +7,7 @@ import {
   IconCheck,
   IconChevronDown,
   IconDotsVertical,
+  IconExternalLink,
   IconPencil,
   IconRadar,
   IconSend,
@@ -58,6 +59,54 @@ function metadataStringArray(item: ReadinessItem, key: string) {
 function metadataNumber(item: ReadinessItem, key: string) {
   const value = item.source_metadata?.[key];
   return typeof value === 'number' ? value : 0;
+}
+
+type SourceEvidence = {
+  label: string;
+  url: string | null;
+};
+
+function slackMessageUrl(channelId: string, messageTs: string | null) {
+  const params = new URLSearchParams({ channel: channelId });
+  if (messageTs) params.set('message_ts', messageTs);
+  return `https://slack.com/app_redirect?${params.toString()}`;
+}
+
+function sourceEvidence(item: ReadinessItem | null): SourceEvidence[] {
+  if (!item) return [];
+
+  const metadataEvidence = item.source_metadata?.source_evidence;
+  if (Array.isArray(metadataEvidence)) {
+    const evidence = metadataEvidence.flatMap((entry): SourceEvidence[] => {
+      if (!entry || typeof entry !== 'object') return [];
+      const source = entry as Record<string, unknown>;
+      const channelName = typeof source.channel_name === 'string' ? source.channel_name.replace(/^#/, '') : null;
+      const channelId = typeof source.channel_id === 'string' ? source.channel_id : null;
+      const messageTs = typeof source.message_ts === 'string' ? source.message_ts : null;
+      const url = typeof source.url === 'string' ? source.url : channelId ? slackMessageUrl(channelId, messageTs) : null;
+      const label = channelName ? `#${channelName}` : item.source === 'slack' ? 'Slack evidence' : item.source ?? 'Source';
+      return [{ label, url }];
+    });
+    if (evidence.length > 0) return evidence;
+  }
+
+  const channelNames = metadataStringArray(item, 'channel_names');
+  const channelIds = metadataStringArray(item, 'channel_ids');
+  if (channelNames.length > 0) {
+    return channelNames.map((channelName, index) => {
+      const channelId = channelIds[index] ?? channelIds[0] ?? null;
+      return {
+        label: `#${channelName.replace(/^#/, '')}`,
+        url: channelId ? slackMessageUrl(channelId, null) : null,
+      };
+    });
+  }
+
+  const sourceNames = metadataStringArray(item, 'source_names');
+  if (sourceNames.length > 0) return sourceNames.map((sourceName) => ({ label: sourceName, url: null }));
+
+  if (item.source === 'slack') return [{ label: 'Slack knowledge', url: null }];
+  return [{ label: item.source ?? 'Source', url: null }];
 }
 
 function formatDate(value: string | null) {
@@ -189,7 +238,6 @@ export function ReadinessClient() {
   );
   const audience = affectedAudience(categoryItems);
   const unsentCategoryItems = categoryItems.filter((item) => item.status === 'draft' || item.status === 'reviewed');
-  const readyCount = items.filter((item) => item.status === 'draft' || item.status === 'reviewed').length;
   const categoryCounts = useMemo(
     () => new Map(categories.map((category) => [category.id, items.filter((item) => item.category === category.id).length])),
     [items]
@@ -294,8 +342,8 @@ export function ReadinessClient() {
     );
   }
 
-  const channelNames = selectedItem ? metadataStringArray(selectedItem, 'channel_names') : [];
   const signalsReviewed = selectedItem ? metadataNumber(selectedItem, 'signals_reviewed') : 0;
+  const evidenceSources = sourceEvidence(selectedItem);
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -306,9 +354,6 @@ export function ReadinessClient() {
             <p className="type-body mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>
               Detect change, explain impact, identify audience, recommend action, then send or prevent.
             </p>
-          </div>
-          <div className="hidden sm:block type-caption" style={{ color: 'var(--text-tertiary)' }}>
-            <strong style={{ color: 'var(--text-primary)' }}>{readyCount}</strong> ready to send
           </div>
         </div>
       </div>
@@ -495,8 +540,25 @@ export function ReadinessClient() {
                 <p className="type-card-body" style={{ color: 'var(--text-secondary)' }}>
                   {selectedItem?.summary ?? 'Select a readiness signal to review the change.'}
                 </p>
-                <div className="type-caption mt-3" style={{ color: 'var(--text-tertiary)' }}>
-                  {channelNames[0] ? `Source: #${channelNames[0]}` : 'Source unavailable'} · {signalsReviewed} signal{signalsReviewed === 1 ? '' : 's'} reviewed
+                <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 type-caption" style={{ color: 'var(--text-tertiary)' }}>
+                  <span>Sources:</span>
+                  {evidenceSources.map((source, index) => (
+                    source.url ? (
+                      <a
+                        key={`${source.label}-${index}`}
+                        href={source.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-[var(--text-secondary)] transition-colors duration-[120ms] hover:text-[var(--text-primary)]"
+                      >
+                        {source.label}
+                        <IconExternalLink size={11} />
+                      </a>
+                    ) : (
+                      <span key={`${source.label}-${index}`} className="text-[var(--text-secondary)]">{source.label}</span>
+                    )
+                  ))}
+                  <span>· {signalsReviewed} signal{signalsReviewed === 1 ? '' : 's'} reviewed</span>
                 </div>
               </StepRow>
 

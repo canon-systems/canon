@@ -112,14 +112,16 @@ export function Navigation({ user, onLogout }: NavigationProps) {
         style={{ borderColor: 'var(--border-tertiary)' }}
         title={collapsed ? 'Canon' : undefined}
       >
-        <Image
-          src="/web-app-manifest-512x512.png"
-          alt="Canon"
-          width={28}
-          height={28}
-          className="h-7 w-7 flex-shrink-0 rounded-[7px]"
-          priority
-        />
+        <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-[7px] bg-black overflow-hidden">
+          <Image
+            src="/web-app-manifest-512x512.png"
+            alt="Canon"
+            width={24}
+            height={24}
+            className="h-6 w-6"
+            priority
+          />
+        </span>
         {!collapsed && (
           <span className="type-card-title" style={{ color: 'var(--text-primary)' }}>Canon</span>
         )}
