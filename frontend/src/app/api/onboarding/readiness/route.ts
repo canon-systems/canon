@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
 import { sendSlackDirectMessage, sendSlackMessage } from '@/lib/server/signals/delivery';
+import { createLogger } from '@/lib/server/logging';
 import type {
   HireRole,
   ReadinessAffectedRole,
@@ -13,6 +14,21 @@ import type {
 } from '@/types/onboarding';
 
 export const dynamic = 'force-dynamic';
+
+const log = createLogger('api.onboarding.readiness', {
+  label: 'Readiness API',
+  eventLabels: {
+    send_requested: 'Send Requested',
+    send_target_resolved: 'Send Target Resolved',
+    send_target_missing: 'Send Target Missing',
+    send_items_selected: 'Send Items Selected',
+    send_delivery_result: 'Send Delivery Result',
+    send_failed: 'Send Failed',
+    send_status_updated: 'Send Status Updated',
+    status_update_requested: 'Status Update Requested',
+    status_update_completed: 'Status Update Completed',
+  },
+});
 
 const categoryOrder: ReadinessCategory[] = [
   'product_change',
@@ -341,6 +357,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid Slack user' }, { status: 400 });
     }
 
+    log.info('send_requested', {
+      userId: user.id,
+      categoryCount: categories?.length ?? 0,
+      itemIdCount: itemIds.length,
+      requestedChannel: requestedChannel ?? 'auto',
+      requestedDmTargets: userIds.length,
+    });
+
     const supabase = await createClient();
     const { data: org } = await supabase
       .from('organizations')
@@ -365,16 +389,47 @@ export async function POST(request: NextRequest) {
 
     const readinessItems = (items ?? []) as ReadinessItem[];
     if (readinessItems.length === 0) {
+      log.warn('send_failed', {
+        userId: user.id,
+        orgId: org.id,
+        reason: 'no_unsent_readiness_items',
+        categoryCount: categories?.length ?? 0,
+        itemIdCount: itemIds.length,
+      });
       return NextResponse.json({ error: 'No unsent readiness items found' }, { status: 400 });
     }
+
+    log.info('send_items_selected', {
+      userId: user.id,
+      orgId: org.id,
+      itemCount: readinessItems.length,
+      itemIds: readinessItems.map((item) => item.id),
+      categories: Array.from(new Set(readinessItems.map((item) => item.category))),
+    });
 
     const channel = requestedChannel ??
       readinessItems.flatMap((item) => metadataStringArray(item, 'channel_ids'))[0] ??
       (await fallbackReadinessChannel(supabase, org.id));
 
     if (!channel && userIds.length === 0) {
+      log.warn('send_target_missing', {
+        userId: user.id,
+        orgId: org.id,
+        itemCount: readinessItems.length,
+        requestedChannel: requestedChannel ?? 'auto',
+        dmTargets: userIds.length,
+        reason: 'no_channel_or_dm_targets',
+      });
       return NextResponse.json({ error: 'No Slack channel found for readiness note' }, { status: 400 });
     }
+
+    log.info('send_target_resolved', {
+      userId: user.id,
+      orgId: org.id,
+      channel: channel ?? 'none',
+      dmTargets: Array.from(new Set(userIds)),
+      targetCount: (channel ? 1 : 0) + Array.from(new Set(userIds)).length,
+    });
 
     const text = buildReadinessNote(readinessItems, categories);
     const deliveries: { target: string; type: 'channel' | 'dm'; sent: boolean; reason?: string }[] = [];
@@ -390,7 +445,27 @@ export async function POST(request: NextRequest) {
     }
 
     const failedDelivery = deliveries.find((delivery) => !delivery.sent);
+    for (const delivery of deliveries) {
+      log.info('send_delivery_result', {
+        userId: user.id,
+        orgId: org.id,
+        type: delivery.type,
+        target: delivery.target,
+        sent: delivery.sent,
+        reason: delivery.reason,
+      });
+    }
+
     if (failedDelivery) {
+      log.warn('send_failed', {
+        userId: user.id,
+        orgId: org.id,
+        itemCount: readinessItems.length,
+        failedType: failedDelivery.type,
+        failedTarget: failedDelivery.target,
+        reason: failedDelivery.reason,
+        deliveries,
+      });
       return NextResponse.json({
         error: 'Failed to send readiness note',
         detail: failedDelivery.reason,
@@ -406,6 +481,13 @@ export async function POST(request: NextRequest) {
       .select('*');
 
     if (updateError) throw updateError;
+
+    log.info('send_status_updated', {
+      userId: user.id,
+      orgId: org.id,
+      itemCount: readinessItems.length,
+      sentAt,
+    });
 
     return NextResponse.json({
       sent: true,
@@ -434,6 +516,12 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid readiness status' }, { status: 400 });
     }
 
+    log.info('status_update_requested', {
+      userId: user.id,
+      itemId: body.id,
+      status: body.status,
+    });
+
     const supabase = await createClient();
     const { data: org } = await supabase
       .from('organizations')
@@ -460,6 +548,13 @@ export async function PATCH(request: NextRequest) {
 
     if (error) throw error;
     if (!item) return NextResponse.json({ error: 'Readiness item not found' }, { status: 404 });
+
+    log.info('status_update_completed', {
+      userId: user.id,
+      orgId: org.id,
+      itemId: item.id,
+      status: item.status,
+    });
 
     return NextResponse.json({ item });
   } catch (error: unknown) {

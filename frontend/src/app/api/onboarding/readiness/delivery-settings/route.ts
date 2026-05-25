@@ -1,8 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
+import { createLogger } from '@/lib/server/logging';
 
 export const dynamic = 'force-dynamic';
+
+const log = createLogger('api.onboarding.readiness.delivery_settings', {
+  label: 'Readiness Delivery Settings',
+  eventLabels: {
+    settings_loaded: 'Settings Loaded',
+    settings_save_requested: 'Settings Save Requested',
+    settings_saved: 'Settings Saved',
+  },
+});
 
 function validSlackUserIds(values: unknown) {
   return Array.isArray(values) ? values.filter((value): value is string => typeof value === 'string' && value.trim().length > 0) : [];
@@ -29,6 +39,13 @@ export async function GET() {
       .maybeSingle();
 
     if (error) throw error;
+
+    log.info('settings_loaded', {
+      userId: user.id,
+      orgId: org.id,
+      channelId: settings?.channel_id ?? 'auto',
+      dmTargets: Array.isArray(settings?.slack_user_ids) ? settings.slack_user_ids.length : 0,
+    });
 
     return NextResponse.json({
       settings: settings
@@ -66,6 +83,13 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid Slack user' }, { status: 400 });
     }
 
+    log.info('settings_save_requested', {
+      userId: user.id,
+      channelId: channelId ?? 'auto',
+      channelName: channelName ?? null,
+      dmTargets: Array.from(new Set(userIds)),
+    });
+
     const supabase = await createClient();
     const { data: org } = await supabase
       .from('organizations')
@@ -89,6 +113,14 @@ export async function PATCH(request: NextRequest) {
       .single();
 
     if (error) throw error;
+
+    log.info('settings_saved', {
+      userId: user.id,
+      orgId: org.id,
+      channelId: settings.channel_id ?? 'auto',
+      channelName: settings.channel_name ?? null,
+      dmTargets: Array.isArray(settings.slack_user_ids) ? settings.slack_user_ids : [],
+    });
 
     return NextResponse.json({
       settings: {

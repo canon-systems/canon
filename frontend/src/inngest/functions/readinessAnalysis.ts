@@ -19,6 +19,8 @@ const log = createLogger('inngest.readiness_analysis', {
     signal_failed: 'Signal Failed',
     delivery_sent: 'Delivery Sent',
     delivery_failed: 'Delivery Failed',
+    delivery_plan: 'Delivery Plan',
+    delivery_target_result: 'Delivery Target Result',
   },
 });
 
@@ -368,6 +370,17 @@ async function deliverReadinessItems(params: {
   const text = buildReadinessNote(items);
   const deliveries: { target: string; type: 'channel' | 'dm'; sent: boolean; reason?: string }[] = [];
 
+  log.info('delivery_plan', {
+    orgId: organizationId,
+    ownerId,
+    itemCount: items.length,
+    itemIds: items.map((item) => item.id),
+    source: settings ? 'saved_settings' : 'fallback_targets',
+    channel: channel ?? 'none',
+    dmTargets: userIds,
+    roles,
+  });
+
   if (channel) {
     const sent = await sendSlackMessage({ supabase, userId: ownerId, channel, text });
     deliveries.push({ target: channel, type: 'channel', ...sent });
@@ -378,6 +391,16 @@ async function deliverReadinessItems(params: {
     deliveries.push({ target: slackUserId, type: 'dm', ...sent });
   }
 
+  for (const delivery of deliveries) {
+    log.info('delivery_target_result', {
+      orgId: organizationId,
+      type: delivery.type,
+      target: delivery.target,
+      sent: delivery.sent,
+      reason: delivery.reason,
+    });
+  }
+
   const failed = deliveries.filter((delivery) => !delivery.sent);
   if (failed.length > 0 || deliveries.length === 0) {
     log.warn('delivery_failed', {
@@ -385,6 +408,7 @@ async function deliverReadinessItems(params: {
       itemCount: items.length,
       failedTargets: failed.length,
       reason: failed[0]?.reason ?? 'no_channel_or_dm_targets',
+      deliveries,
     });
     return;
   }
