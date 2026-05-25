@@ -9,122 +9,124 @@ import { Button } from '@/components/ui/button';
 const appHref = 'https://app.usecanon.com';
 
 const navLinks = [
-  { title: 'Features', href: '#features' },
-  { title: 'How It Works', href: '#workflow' },
+  { title: 'How It Works', href: '#how-it-works' },
   { title: 'Integrations', href: '#integrations' },
   { title: 'Security', href: '#security' },
 ];
 
 export function Navigation() {
-    const [mobileOpen, setMobileOpen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
-    // Handle smooth scrolling with offset for anchor links in navigation
-    const handleNavLinkClick = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
-        if (href.startsWith('#')) {
-            e.preventDefault();
-            const targetId = href.substring(1);
-            const targetElement = document.getElementById(targetId);
+  const handleNavLinkClick = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
+    if (href.startsWith('#')) {
+      e.preventDefault();
+      const targetId = href.substring(1);
+      const targetElement = document.getElementById(targetId);
+      if (targetElement) {
+        const headerHeight = 73;
+        const targetPosition = targetElement.getBoundingClientRect().top + window.pageYOffset - headerHeight;
+        window.scrollTo({ top: targetPosition, behavior: 'smooth' });
+        setMobileOpen(false);
+      }
+    }
+  };
 
-            if (targetElement) {
-                const headerHeight = 77; // Navigation bar height + 5px spacing
-                const targetPosition = targetElement.getBoundingClientRect().top + window.pageYOffset - headerHeight;
+  return (
+    <header
+      className="sticky top-0 z-50 w-full border-b"
+      style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-tertiary)' }}
+    >
+      <nav className="relative mx-auto flex max-w-[88rem] items-center justify-between px-4 py-3 md:px-6 lg:px-8">
+        {/* Brand */}
+        <Link href="/" className="flex items-center gap-2.5 transition-opacity hover:opacity-80">
+          <Image
+            src="/web-app-manifest-512x512.png"
+            alt="Canon"
+            width={26}
+            height={26}
+            className="rounded-[6px]"
+          />
+          <div className="flex flex-col leading-none">
+            <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Canon</span>
+          </div>
+        </Link>
 
-                window.scrollTo({
-                    top: targetPosition,
-                    behavior: 'smooth',
-                });
+        {/* Desktop links */}
+        <div className="hidden items-center gap-6 lg:flex">
+          {navLinks.map((link) => (
+            <a
+              key={link.title}
+              href={link.href}
+              className="text-sm transition-colors duration-[120ms]"
+              style={{ color: 'var(--text-secondary)' }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text-primary)')}
+              onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-secondary)')}
+              onClick={(e) => handleNavLinkClick(e, link.href)}
+            >
+              {link.title}
+            </a>
+          ))}
+        </div>
 
-                // Close mobile menu if open
-                setMobileOpen(false);
-            }
-        }
-    };
+        {/* Desktop CTAs */}
+        <div className="hidden items-center gap-2 lg:flex">
+          <Button variant="secondary" size="sm" asChild>
+            <a href={appHref} target="_blank" rel="noopener noreferrer">Sign In</a>
+          </Button>
+          <Button size="sm" asChild>
+            <a href={appHref} target="_blank" rel="noopener noreferrer">
+              Get Access
+              <ArrowRight className="h-3.5 w-3.5" />
+            </a>
+          </Button>
+        </div>
 
-    return (
-        <header className="sticky top-0 z-50 w-full border-b border-white/10 bg-black/45 backdrop-blur-2xl">
-            <nav className="relative mx-auto flex max-w-[94rem] items-center justify-between px-4 py-4 md:px-6 lg:px-8">
-                <Link href="/" className="flex items-center gap-3 rounded-full border border-white/10 bg-white/[0.06] px-3 py-2 transition hover:border-white/20 hover:bg-white/[0.1]">
-                    <Image
-                        src="/web-app-manifest-512x512.png"
-                        alt="Canon"
-                        width={40}
-                        height={40}
-                        className="h-10 w-10 rounded-full border border-white/20"
-                    />
-                    <div className="flex flex-col leading-tight">
-                        <span className="font-semibold text-white">Canon</span>
-                        <span className="text-[11px] uppercase tracking-[0.24em] text-white/55">Engineering Signals</span>
-                    </div>
-                </Link>
+        {/* Mobile toggle */}
+        <div className="flex items-center lg:hidden">
+          <Button
+            variant="secondary"
+            size="icon"
+            onClick={() => setMobileOpen(!mobileOpen)}
+            aria-label="Toggle menu"
+          >
+            {mobileOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+          </Button>
+        </div>
+      </nav>
 
-                <div className="hidden items-center gap-8 lg:flex">
-                    {navLinks.map((link) => (
-                        <a
-                            key={link.title}
-                            href={link.href}
-                            className="relative pb-3 pt-1 text-sm font-medium uppercase tracking-[0.18em] text-white/68 transition-colors hover:text-white"
-                            onClick={(e) => handleNavLinkClick(e, link.href)}
-                        >
-                            {link.title}
-                        </a>
-                    ))}
-                </div>
-
-                <div className="hidden items-center gap-3 lg:flex">
-                    <Button variant="secondary" className="rounded-full border-white/12 bg-white/[0.06] text-white hover:border-white/18 hover:bg-white/[0.1]" asChild>
-                        <a href={appHref} target="_blank" rel="noopener noreferrer">
-                            Sign In
-                        </a>
-                    </Button>
-                    <Button className="rounded-full border-white/15 bg-white text-black hover:bg-white/90" asChild>
-                        <a href={appHref} target="_blank" rel="noopener noreferrer">
-                            Request Access
-                            <ArrowRight className="h-4 w-4" />
-                        </a>
-                    </Button>
-                </div>
-
-                <div className="flex items-center gap-2 lg:hidden">
-                    <Button
-                        variant="secondary"
-                        className="h-11 w-11 rounded-full border-white/12 bg-white/[0.06] p-0"
-                        onClick={() => setMobileOpen(!mobileOpen)}
-                        aria-label="Toggle menu"
-                    >
-                        {mobileOpen ? <X className="h-5 w-5 text-white" /> : <Menu className="h-5 w-5 text-white" />}
-                    </Button>
-                </div>
-            </nav>
-
-            {mobileOpen && (
-                <div className="relative border-t border-white/10 bg-black/55 px-4 py-4 backdrop-blur-2xl lg:hidden">
-                    <nav className="grid gap-2">
-                        {navLinks.map((link) => (
-                            <a
-                                key={link.title}
-                                href={link.href}
-                                className="flex items-center gap-3 rounded-2xl border border-white/10 px-3 py-3 text-white/90 transition hover:bg-white/[0.08]"
-                                onClick={(e) => handleNavLinkClick(e, link.href)}
-                            >
-                                {link.title}
-                            </a>
-                        ))}
-                    </nav>
-                    <div className="mt-3 grid gap-2">
-                        <Button variant="ghost" className="w-full justify-start text-white/80 hover:text-white" asChild>
-                            <a href={appHref} target="_blank" rel="noopener noreferrer" onClick={() => setMobileOpen(false)}>
-                                Sign In
-                            </a>
-                        </Button>
-                        <Button className="w-full rounded-full border-white/15 bg-white text-black hover:bg-white/90" asChild>
-                            <a href={appHref} target="_blank" rel="noopener noreferrer" onClick={() => setMobileOpen(false)}>
-                                Request Access
-                                <ArrowRight className="h-4 w-4" />
-                            </a>
-                        </Button>
-                    </div>
-                </div>
-            )}
-        </header>
-    );
+      {mobileOpen && (
+        <div
+          className="border-t px-4 py-3 lg:hidden"
+          style={{ backgroundColor: 'var(--bg-tertiary)', borderColor: 'var(--border-tertiary)' }}
+        >
+          <nav className="flex flex-col gap-1">
+            {navLinks.map((link) => (
+              <a
+                key={link.title}
+                href={link.href}
+                className="rounded-[8px] px-3 py-2 text-sm transition-colors duration-[120ms] hover:bg-[var(--bg-secondary)]"
+                style={{ color: 'var(--text-secondary)' }}
+                onClick={(e) => handleNavLinkClick(e, link.href)}
+              >
+                {link.title}
+              </a>
+            ))}
+          </nav>
+          <div className="mt-3 flex flex-col gap-2">
+            <Button variant="secondary" className="w-full justify-start" asChild>
+              <a href={appHref} target="_blank" rel="noopener noreferrer" onClick={() => setMobileOpen(false)}>
+                Sign In
+              </a>
+            </Button>
+            <Button className="w-full" asChild>
+              <a href={appHref} target="_blank" rel="noopener noreferrer" onClick={() => setMobileOpen(false)}>
+                Get Access
+                <ArrowRight className="h-3.5 w-3.5" />
+              </a>
+            </Button>
+          </div>
+        </div>
+      )}
+    </header>
+  );
 }

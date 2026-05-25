@@ -1,17 +1,11 @@
 import type { Metadata } from 'next';
-import { Fraunces, Space_Grotesk } from 'next/font/google';
+import { Inter } from 'next/font/google';
 
 import './globals.css';
 
-const fraunces = Fraunces({
+const inter = Inter({
   subsets: ['latin'],
-  variable: '--font-fraunces',
-  display: 'swap',
-});
-
-const spaceGrotesk = Space_Grotesk({
-  subsets: ['latin'],
-  variable: '--font-space-grotesk',
+  variable: '--font-inter',
   display: 'swap',
 });
 
@@ -26,15 +20,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`dark ${spaceGrotesk.variable} ${fraunces.variable}`}>
-      <body className="min-h-screen bg-black text-base text-white antialiased overflow-x-hidden">
-        <div className="app-shell">
-          <div className="app-shell__backdrop" aria-hidden="true">
-            <div className="app-shell__grid" />
-          </div>
-          <div className="relative z-10">{children}</div>
-        </div>
-      </body>
+    <html lang="en" className={inter.variable}>
+      <body>{children}</body>
     </html>
   );
 }
