@@ -9,7 +9,7 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconFlag,
-  IconLayoutDashboard,
+  IconHome2,
   IconLogout,
   IconRadar,
   IconSettings,
@@ -25,7 +25,7 @@ interface NavigationProps {
 }
 
 const primaryNav = [
-  { href: '/dashboard', label: 'Dashboard', icon: IconLayoutDashboard, exact: true },
+  { href: '/', label: 'Home', icon: IconHome2, exact: true },
   { href: '/new-hires', label: 'New Hires', icon: IconUsers, exact: false },
   { href: '/knowledge', label: 'Knowledge', icon: IconBrain, exact: false },
   { href: '/milestones', label: 'Milestones', icon: IconFlag, exact: false },
@@ -104,7 +104,7 @@ export function Navigation({ user, onLogout }: NavigationProps) {
       </button>
 
       <Link
-        href="/dashboard"
+        href="/"
         className={cn(
           'flex items-center gap-[9px] px-4 pb-5 border-b mb-3',
           collapsed && 'justify-center px-0'
