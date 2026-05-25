@@ -60,8 +60,8 @@ export async function POST(request: NextRequest) {
     };
 
     const { new_hire_id, tool_name, requested_from_name, requested_from_email, requested_from_slack_id } = body;
-    if (!new_hire_id || !tool_name || !requested_from_name || !requested_from_email) {
-      return NextResponse.json({ error: 'new_hire_id, tool_name, requested_from_name, and requested_from_email are required' }, { status: 400 });
+    if (!new_hire_id || !tool_name) {
+      return NextResponse.json({ error: 'new_hire_id and tool_name are required' }, { status: 400 });
     }
 
     const supabase = await createClient();
@@ -87,8 +87,8 @@ export async function POST(request: NextRequest) {
       .insert({
         new_hire_id,
         tool_name,
-        requested_from_name,
-        requested_from_email,
+        requested_from_name: requested_from_name || null,
+        requested_from_email: requested_from_email || null,
         requested_from_slack_id: requested_from_slack_id || null,
         status: 'pending',
       })

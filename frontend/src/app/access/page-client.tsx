@@ -149,8 +149,14 @@ export function AccessClient() {
                       )}
                     </td>
                     <td className="px-4 py-3 hidden sm:table-cell">
-                      <p className="text-[var(--text-secondary)]">{req.requested_from_name}</p>
-                      <p className="text-[var(--text-secondary)] type-caption">{req.requested_from_email}</p>
+                      {req.requested_from_name || req.requested_from_email ? (
+                        <>
+                          {req.requested_from_name && <p className="text-[var(--text-secondary)]">{req.requested_from_name}</p>}
+                          {req.requested_from_email && <p className="text-[var(--text-secondary)] type-caption">{req.requested_from_email}</p>}
+                        </>
+                      ) : (
+                        <p className="text-[var(--text-tertiary)]">No owner assigned</p>
+                      )}
                     </td>
                     <td className="px-4 py-3">{statusBadge(req.status)}</td>
                     <td className="px-4 py-3 text-[var(--text-secondary)] hidden md:table-cell">{formatDate(req.sent_at)}</td>

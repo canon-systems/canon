@@ -22,9 +22,10 @@ async function sendAccessRequestDM(params: {
   slackUserId: string;
   newHireName: string;
   newHireRole: string;
-  requestedFromName: string;
+  requestedFromName: string | null;
   toolName: string;
 }): Promise<{ ok: boolean; ts?: string; error?: string }> {
+  const greeting = params.requestedFromName ? `Hi ${params.requestedFromName}` : 'Hi';
   const blocks = [
     {
       type: 'header',
@@ -34,7 +35,7 @@ async function sendAccessRequestDM(params: {
       type: 'section',
       text: {
         type: 'mrkdwn',
-        text: `Hi ${params.requestedFromName} 👋 ${params.newHireName} just joined as ${params.newHireRole} and needs access to *${params.toolName}*. Could you grant them access when you get a chance?`,
+        text: `${greeting} 👋 ${params.newHireName} just joined as ${params.newHireRole} and needs access to *${params.toolName}*. Could you grant them access when you get a chance?`,
       },
     },
     {

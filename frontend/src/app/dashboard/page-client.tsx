@@ -28,7 +28,7 @@ type HireRow = {
 type AccessRow = {
   id: string;
   tool_name: string;
-  requested_from_name: string;
+  requested_from_name: string | null;
   sent_at: string | null;
   status: string;
   new_hire_name: string;
@@ -57,7 +57,7 @@ export function DashboardClient() {
         access_requests?: Array<{
           id: string;
           tool_name: string;
-          requested_from_name: string;
+          requested_from_name: string | null;
           sent_at: string | null;
           status: string;
           new_hire_id: string;
@@ -287,7 +287,7 @@ export function DashboardClient() {
                   <div className="flex-1 min-w-0">
                     <div className="type-panel-title truncate" style={{ color: 'var(--text-primary)' }}>{req.tool_name}</div>
                     <div className="type-caption mt-[1px] truncate" style={{ color: 'var(--text-tertiary)' }}>
-                      {req.new_hire_name} · via {req.requested_from_name}
+                      {req.requested_from_name ? `${req.new_hire_name} · via ${req.requested_from_name}` : req.new_hire_name}
                     </div>
                   </div>
                   <StatusBadge variant="stalled" />

@@ -101,8 +101,8 @@ export async function POST(request: NextRequest) {
     const accessRequestInserts = tools.map((tool) => ({
       new_hire_id: hire.id,
       tool_name: tool,
-      requested_from_name: 'TBD',
-      requested_from_email: 'tbd@company.com',
+      requested_from_name: null,
+      requested_from_email: null,
       requested_from_slack_id: null,
       status: 'pending',
     }));
@@ -112,7 +112,7 @@ export async function POST(request: NextRequest) {
       .insert(accessRequestInserts)
       .select();
 
-    // Fire events for any access requests that have a Slack ID (none for now, all TBD)
+    // Fire events for any access requests that have a Slack ID.
     for (const ar of accessRequests ?? []) {
       if (ar.requested_from_slack_id) {
         await inngest.send({

@@ -8,7 +8,6 @@ import {
   IconKey,
   IconLoader2,
   IconPlug,
-  IconSparkles,
   IconTrash,
   IconUser,
 } from '@tabler/icons-react';
@@ -40,7 +39,6 @@ const settingSections = [
     section: 'Developer',
     items: [
       { id: 'apikeys', label: 'API Keys', icon: IconKey },
-      { id: 'placeholders', label: 'Placeholder Values', icon: IconSparkles },
     ],
   },
   { section: 'Danger', items: [{ id: 'delete', label: 'Delete Account', icon: IconTrash, danger: true }] },
@@ -59,8 +57,6 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   const [success, setSuccess] = useState('');
   const [disconnectModalOpen, setDisconnectModalOpen] = useState(false);
   const [connectionToDisconnect, setConnectionToDisconnect] = useState<{ connectionId: string; provider: string } | null>(null);
-  const [demoSeeded, setDemoSeeded] = useState(false);
-  const [demoToggling, setDemoToggling] = useState(false);
 
   const loadConnections = useCallback(async (force = false) => {
     setLoading(true);
@@ -107,23 +103,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
 
   useEffect(() => {
     loadConnections();
-    fetch('/api/seed-demo')
-      .then((r) => r.json())
-      .then((d: { seeded?: boolean }) => setDemoSeeded(d.seeded ?? false))
-      .catch(() => null);
   }, [loadConnections]);
-
-  async function toggleDemo() {
-    setDemoToggling(true);
-    try {
-      await fetch('/api/seed-demo', { method: demoSeeded ? 'DELETE' : 'POST' });
-      const res = await fetch('/api/seed-demo');
-      const d = (await res.json()) as { seeded?: boolean };
-      setDemoSeeded(d.seeded ?? false);
-    } finally {
-      setDemoToggling(false);
-    }
-  }
 
   async function connectSlack() {
     setConnecting(true);
@@ -295,41 +275,6 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     );
   }
 
-  function renderPlaceholderValues() {
-    return (
-      <div className="max-w-3xl">
-        <div className="mb-4">
-          <h2 className="type-page-title" style={{ color: 'var(--text-primary)' }}>Placeholder Values</h2>
-          <p className="type-page-subtitle mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>
-            Toggle sample onboarding data for UI review and local testing.
-          </p>
-        </div>
-
-        <div className="rounded-[10px] px-4 py-[14px] flex items-center gap-[14px] border" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}>
-          <div className="w-8 h-8 rounded-[8px] flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'var(--canon-purple-light)' }}>
-            {demoToggling ? (
-              <IconLoader2 size={15} className="animate-spin" style={{ color: 'var(--canon-purple)' }} />
-            ) : (
-              <IconSparkles size={15} style={{ color: 'var(--canon-purple)' }} />
-            )}
-          </div>
-          <div className="flex-1">
-            <div className="type-panel-title" style={{ color: 'var(--text-primary)' }}>{demoSeeded ? 'Clear Placeholder Values' : 'Load Placeholder Values'}</div>
-            <div className="type-body mt-[2px]" style={{ color: 'var(--text-secondary)' }}>
-              {demoSeeded
-                ? 'Remove sample hires, deliveries, access requests, milestones, and readiness notes loaded for testing.'
-                : 'Load sample hires, deliveries, access requests, milestones, and readiness notes for testing.'}
-            </div>
-          </div>
-          <Button variant={demoSeeded ? 'destructive' : 'secondary'} onClick={toggleDemo} disabled={demoToggling}>
-            {demoToggling ? <IconLoader2 size={13} className="animate-spin" /> : <IconSparkles size={13} />}
-            {demoToggling ? 'Working...' : demoSeeded ? 'Clear Values' : 'Load Values'}
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
   function renderPlaceholder(label: string) {
     return (
       <div className="max-w-2xl rounded-[10px] border px-5 py-8 text-center" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}>
@@ -381,7 +326,6 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
           <div className="flex-1 overflow-y-auto px-7 py-6">
             {activeSetting === 'profile' && renderProfile()}
             {activeSetting === 'integrations' && renderIntegrations()}
-            {activeSetting === 'placeholders' && renderPlaceholderValues()}
             {activeSetting === 'delete' && renderPlaceholder('Delete Account')}
             {activeSetting === 'org' && renderPlaceholder('Organization')}
             {activeSetting === 'notifications' && renderPlaceholder('Notifications')}

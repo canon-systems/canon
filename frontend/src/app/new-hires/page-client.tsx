@@ -680,7 +680,7 @@ export function NewHiresClient() {
                           <div className="min-w-0 flex-1">
                             <div className="type-card-title" style={{ color: 'var(--text-primary)' }}>{request.tool_name}</div>
                             <div className="type-body mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>
-                              {request.requested_from_name} · Sent {fmtDetailDate(request.sent_at)}
+                              {request.requested_from_name ? `${request.requested_from_name} · ` : ''}Sent {fmtDetailDate(request.sent_at)}
                             </div>
                           </div>
                           <StatusBadge variant={accessVariant(request.status)} label={request.status} />

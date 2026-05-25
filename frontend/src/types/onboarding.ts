@@ -239,8 +239,8 @@ export interface AccessRequest {
   id: string;
   new_hire_id: string;
   tool_name: string;
-  requested_from_name: string;
-  requested_from_email: string;
+  requested_from_name: string | null;
+  requested_from_email: string | null;
   requested_from_slack_id: string | null;
   status: AccessRequestStatus;
   sent_at: string | null;
