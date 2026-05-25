@@ -74,3 +74,51 @@ export async function sendSlackMessage(params: {
 
   return { sent: true };
 }
+
+export async function sendSlackDirectMessage(params: {
+  supabase: SupabaseClient;
+  userId: string;
+  slackUserId: string | null;
+  text: string;
+}): Promise<{ sent: boolean; reason?: string }> {
+  const { supabase, userId, slackUserId, text } = params;
+
+  const normalizedUserId = typeof slackUserId === 'string' ? slackUserId.trim() : '';
+  if (!normalizedUserId) return { sent: false, reason: 'No Slack user configured.' };
+
+  const connectionId = await resolveSlackConnectionId({ supabase, userId });
+  if (!connectionId) return { sent: false, reason: 'No active Slack connection.' };
+
+  const accessToken = await getProviderAccessToken({ provider: 'slack', connectionId });
+  if (!accessToken) return { sent: false, reason: 'No Slack access token available.' };
+
+  const openResponse = await fetch('https://slack.com/api/conversations.open', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json; charset=utf-8',
+    },
+    body: JSON.stringify({ users: normalizedUserId }),
+  });
+
+  if (!openResponse.ok) {
+    const payload = await openResponse.text().catch(() => 'Slack API request failed');
+    return { sent: false, reason: payload };
+  }
+
+  const openPayload = (await openResponse.json().catch(() => ({}))) as {
+    ok?: boolean;
+    error?: string;
+    channel?: { id?: string };
+  };
+  if (!openPayload.ok || !openPayload.channel?.id) {
+    return { sent: false, reason: openPayload.error || 'Slack failed to open DM.' };
+  }
+
+  return sendSlackMessage({
+    supabase,
+    userId,
+    channel: openPayload.channel.id,
+    text,
+  });
+}

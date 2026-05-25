@@ -83,7 +83,9 @@ export function getSlackOAuthScopes(): string[] {
     'mpim:read',
     'mpim:history',
     'im:read',
+    'im:write',
     'im:history',
+    'users:read',
   ];
 }
 

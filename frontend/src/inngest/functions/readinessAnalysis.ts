@@ -4,6 +4,7 @@ import { embed, generateObject } from 'ai';
 import { z } from 'zod';
 import { llm, embeddingModel } from '@/lib/ai';
 import { createLogger, errorMessage } from '@/lib/server/logging';
+import { sendSlackDirectMessage, sendSlackMessage } from '@/lib/server/signals/delivery';
 import type { ReadinessCategory, HireRole } from '@/types/onboarding';
 
 const log = createLogger('inngest.readiness_analysis', {
@@ -16,6 +17,8 @@ const log = createLogger('inngest.readiness_analysis', {
     signal_detected: 'Signal Detected',
     signal_none: 'No Signal',
     signal_failed: 'Signal Failed',
+    delivery_sent: 'Delivery Sent',
+    delivery_failed: 'Delivery Failed',
   },
 });
 
@@ -31,6 +34,17 @@ type ChunkRetrievalResult = {
   strategy: 'vector' | 'recent_keyword_fallback' | 'none';
   vectorMatches: number;
   fallbackCandidates: number;
+};
+
+type ReadinessDeliveryItem = {
+  id: string;
+  organization_id: string;
+  category: ReadinessCategory;
+  title: string;
+  summary: string;
+  recommended_action: string | null;
+  affected_roles: HireRole[];
+  source_metadata: Record<string, unknown>;
 };
 
 const ALL_ROLES: HireRole[] = ['AI Solutions Architect', 'Solutions Engineer', 'Implementation Engineer'];
@@ -115,6 +129,13 @@ const CATEGORIES: ReadinessCategory[] = [
   'demo_guidance',
   'implementation_pattern',
 ];
+
+const CATEGORY_TITLES: Record<ReadinessCategory, string> = {
+  product_change: 'Product Changes',
+  customer_objection: 'Customer Objections',
+  demo_guidance: 'Demo Guidance',
+  implementation_pattern: 'Implementation Patterns',
+};
 
 const SignalSchema = z.object({
   detected: z
@@ -205,6 +226,11 @@ function uniqueChunkMetadataStrings(chunks: KnowledgeChunkResult[], key: string)
   );
 }
 
+function metadataStringArray(item: Pick<ReadinessDeliveryItem, 'source_metadata'>, key: string) {
+  const value = item.source_metadata?.[key];
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0) : [];
+}
+
 function slackMessageUrl(channelId: string, messageTs: string | null) {
   const params = new URLSearchParams({ channel: channelId });
   if (messageTs) params.set('message_ts', messageTs);
@@ -235,6 +261,147 @@ function evidenceFromChunks(chunks: KnowledgeChunkResult[]) {
       message_ts: messageTs,
       url: channelId ? slackMessageUrl(channelId, messageTs) : null,
     }];
+  });
+}
+
+function buildReadinessNote(items: ReadinessDeliveryItem[]) {
+  const categories = Array.from(new Set(items.map((item) => item.category)));
+  const title = categories.length === 1 ? CATEGORY_TITLES[categories[0]] : 'Readiness';
+  const lines = [
+    `*${title} update*`,
+    '',
+    ...items.flatMap((item) => [
+      `*${item.title}*`,
+      item.summary,
+      item.recommended_action ? `_Recommended action:_ ${item.recommended_action}` : '',
+      '',
+    ]),
+  ];
+
+  return lines.filter((line, index, all) => line || all[index - 1]).join('\n').trim();
+}
+
+async function fallbackReadinessChannel(params: {
+  supabase: ReturnType<typeof createServiceRoleClient>;
+  organizationId: string;
+}) {
+  const { supabase, organizationId } = params;
+  const { data: source } = await supabase
+    .from('knowledge_sources')
+    .select('slack_channel_id')
+    .eq('organization_id', organizationId)
+    .eq('provider', 'slack')
+    .not('slack_channel_id', 'is', null)
+    .order('last_synced_at', { ascending: false, nullsFirst: false })
+    .limit(1)
+    .maybeSingle();
+
+  return typeof source?.slack_channel_id === 'string' ? source.slack_channel_id : null;
+}
+
+async function activeRoleSlackUsers(params: {
+  supabase: ReturnType<typeof createServiceRoleClient>;
+  organizationId: string;
+  roles: HireRole[];
+}) {
+  const { supabase, organizationId, roles } = params;
+  if (roles.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from('new_hires')
+    .select('slack_user_id')
+    .eq('organization_id', organizationId)
+    .eq('status', 'active')
+    .in('role', roles)
+    .not('slack_user_id', 'is', null);
+
+  if (error) throw error;
+
+  return Array.from(
+    new Set(
+      (data ?? [])
+        .map((row) => row.slack_user_id)
+        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    )
+  );
+}
+
+async function readinessDeliverySettings(params: {
+  supabase: ReturnType<typeof createServiceRoleClient>;
+  organizationId: string;
+}) {
+  const { supabase, organizationId } = params;
+  const { data, error } = await supabase
+    .from('readiness_delivery_settings')
+    .select('channel_id, slack_user_ids')
+    .eq('organization_id', organizationId)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+
+  return {
+    channelId: typeof data.channel_id === 'string' && data.channel_id.trim().length > 0 ? data.channel_id : null,
+    userIds: Array.isArray(data.slack_user_ids)
+      ? data.slack_user_ids.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      : [],
+  };
+}
+
+async function deliverReadinessItems(params: {
+  supabase: ReturnType<typeof createServiceRoleClient>;
+  ownerId: string;
+  organizationId: string;
+  items: ReadinessDeliveryItem[];
+}) {
+  const { supabase, ownerId, organizationId, items } = params;
+  if (items.length === 0) return;
+
+  const settings = await readinessDeliverySettings({ supabase, organizationId });
+  const channel = settings?.channelId ??
+    items.flatMap((item) => metadataStringArray(item, 'channel_ids'))[0] ??
+    (await fallbackReadinessChannel({ supabase, organizationId }));
+  const roles = Array.from(new Set(items.flatMap((item) => item.affected_roles)));
+  const userIds = settings
+    ? settings.userIds
+    : await activeRoleSlackUsers({ supabase, organizationId, roles });
+  const text = buildReadinessNote(items);
+  const deliveries: { target: string; type: 'channel' | 'dm'; sent: boolean; reason?: string }[] = [];
+
+  if (channel) {
+    const sent = await sendSlackMessage({ supabase, userId: ownerId, channel, text });
+    deliveries.push({ target: channel, type: 'channel', ...sent });
+  }
+
+  for (const slackUserId of userIds) {
+    const sent = await sendSlackDirectMessage({ supabase, userId: ownerId, slackUserId, text });
+    deliveries.push({ target: slackUserId, type: 'dm', ...sent });
+  }
+
+  const failed = deliveries.filter((delivery) => !delivery.sent);
+  if (failed.length > 0 || deliveries.length === 0) {
+    log.warn('delivery_failed', {
+      orgId: organizationId,
+      itemCount: items.length,
+      failedTargets: failed.length,
+      reason: failed[0]?.reason ?? 'no_channel_or_dm_targets',
+    });
+    return;
+  }
+
+  const sentAt = new Date().toISOString();
+  const { error } = await supabase
+    .from('readiness_items')
+    .update({ status: 'sent', sent_at: sentAt, updated_at: sentAt })
+    .in('id', items.map((item) => item.id));
+
+  if (error) throw error;
+
+  log.info('delivery_sent', {
+    orgId: organizationId,
+    itemCount: items.length,
+    channelTargets: deliveries.filter((delivery) => delivery.type === 'channel').length,
+    dmTargets: deliveries.filter((delivery) => delivery.type === 'dm').length,
   });
 }
 
@@ -336,7 +503,7 @@ export const readinessAnalysis = inngest.createFunction(
 
     log.info('analysis_start', {});
 
-    const { data: orgs } = await supabase.from('organizations').select('id');
+    const { data: orgs } = await supabase.from('organizations').select('id, owner_id');
 
     if (!orgs || orgs.length === 0) {
       log.info('analysis_complete', { orgsProcessed: 0 });
@@ -468,7 +635,19 @@ export const readinessAnalysis = inngest.createFunction(
 
           const toInsert = itemsToInsert.filter((item) => !existingCategories.has(item.category));
           if (toInsert.length > 0) {
-            await supabase.from('readiness_items').insert(toInsert);
+            const { data: insertedItems, error: insertError } = await supabase
+              .from('readiness_items')
+              .insert(toInsert)
+              .select('id, organization_id, category, title, summary, recommended_action, affected_roles, source_metadata');
+
+            if (insertError) throw insertError;
+
+            await deliverReadinessItems({
+              supabase,
+              ownerId: org.owner_id,
+              organizationId: org.id,
+              items: (insertedItems ?? []) as ReadinessDeliveryItem[],
+            });
           }
         }
 

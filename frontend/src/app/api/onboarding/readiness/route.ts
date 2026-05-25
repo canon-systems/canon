@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
-import { sendSlackMessage } from '@/lib/server/signals/delivery';
+import { sendSlackDirectMessage, sendSlackMessage } from '@/lib/server/signals/delivery';
 import type {
   HireRole,
   ReadinessAffectedRole,
@@ -68,6 +68,10 @@ function validReadinessCategories(values: unknown) {
 }
 
 function validReadinessItemIds(values: unknown) {
+  return Array.isArray(values) ? values.filter((value): value is string => typeof value === 'string' && value.trim().length > 0) : [];
+}
+
+function validSlackUserIds(values: unknown) {
   return Array.isArray(values) ? values.filter((value): value is string => typeof value === 'string' && value.trim().length > 0) : [];
 }
 
@@ -309,7 +313,13 @@ export async function POST(request: NextRequest) {
     const { user } = await getSession();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const body = (await request.json().catch(() => ({}))) as { category?: string; categories?: unknown; itemIds?: unknown };
+    const body = (await request.json().catch(() => ({}))) as {
+      category?: string;
+      categories?: unknown;
+      itemIds?: unknown;
+      channelId?: unknown;
+      userIds?: unknown;
+    };
     const requestedCategory = body.category ? body.category : request.nextUrl.searchParams.get('category');
     if (requestedCategory && !isReadinessCategory(requestedCategory)) {
       return NextResponse.json({ error: 'Invalid readiness category' }, { status: 400 });
@@ -324,6 +334,11 @@ export async function POST(request: NextRequest) {
     const itemIds = validReadinessItemIds(body.itemIds);
     if (Array.isArray(body.itemIds) && itemIds.length !== body.itemIds.length) {
       return NextResponse.json({ error: 'Invalid readiness item' }, { status: 400 });
+    }
+    const requestedChannel = typeof body.channelId === 'string' && body.channelId.trim().length > 0 ? body.channelId.trim() : null;
+    const userIds = validSlackUserIds(body.userIds);
+    if (Array.isArray(body.userIds) && userIds.length !== body.userIds.length) {
+      return NextResponse.json({ error: 'Invalid Slack user' }, { status: 400 });
     }
 
     const supabase = await createClient();
@@ -353,24 +368,34 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No unsent readiness items found' }, { status: 400 });
     }
 
-    const channel =
+    const channel = requestedChannel ??
       readinessItems.flatMap((item) => metadataStringArray(item, 'channel_ids'))[0] ??
       (await fallbackReadinessChannel(supabase, org.id));
 
-    if (!channel) {
+    if (!channel && userIds.length === 0) {
       return NextResponse.json({ error: 'No Slack channel found for readiness note' }, { status: 400 });
     }
 
     const text = buildReadinessNote(readinessItems, categories);
-    const sent = await sendSlackMessage({
-      supabase,
-      userId: user.id,
-      channel,
-      text,
-    });
+    const deliveries: { target: string; type: 'channel' | 'dm'; sent: boolean; reason?: string }[] = [];
 
-    if (!sent.sent) {
-      return NextResponse.json({ error: 'Failed to send readiness note', detail: sent.reason }, { status: 502 });
+    if (channel) {
+      const sent = await sendSlackMessage({ supabase, userId: user.id, channel, text });
+      deliveries.push({ target: channel, type: 'channel', ...sent });
+    }
+
+    for (const slackUserId of Array.from(new Set(userIds))) {
+      const sent = await sendSlackDirectMessage({ supabase, userId: user.id, slackUserId, text });
+      deliveries.push({ target: slackUserId, type: 'dm', ...sent });
+    }
+
+    const failedDelivery = deliveries.find((delivery) => !delivery.sent);
+    if (failedDelivery) {
+      return NextResponse.json({
+        error: 'Failed to send readiness note',
+        detail: failedDelivery.reason,
+        deliveries,
+      }, { status: 502 });
     }
 
     const sentAt = new Date().toISOString();
@@ -385,6 +410,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       sent: true,
       channel,
+      deliveries,
       count: readinessItems.length,
       items: updated ?? [],
     });
