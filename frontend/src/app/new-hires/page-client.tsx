@@ -29,6 +29,9 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar } from '@/components/ui/avatar';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { MilestoneProgress } from '@/components/ui/milestone-progress';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Alert } from '@/components/ui/alert';
 import { NewHireForm, type EditableNewHire } from '@/components/new-hire-form';
 import { cn } from '@/components/ui/utils';
 import type { AccessRequest, HireRole, HireStatus, NewHireMilestonePathItem, RampDelivery } from '@/types/onboarding';
@@ -334,7 +337,7 @@ export function NewHiresClient() {
   if (loading) {
     return (
       <div className="flex flex-1 overflow-hidden">
-        <div className="w-[300px] flex-shrink-0 border-r p-4 space-y-3" style={{ borderColor: 'var(--border-tertiary)' }}>
+        <div className="split-sidebar flex w-[300px] flex-shrink-0 flex-col gap-3 border-r p-4">
           <Skeleton className="h-8 bg-[var(--bg-primary)]" />
           {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-16 rounded-[10px] bg-[var(--bg-primary)]" />)}
         </div>
@@ -347,11 +350,8 @@ export function NewHiresClient() {
 
   return (
     <div className="flex flex-1 overflow-hidden">
-      <div
-        className="w-[300px] flex-shrink-0 border-r flex flex-col overflow-hidden"
-        style={{ borderColor: 'var(--border-tertiary)' }}
-      >
-        <div className="p-4 border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
+      <div className="split-sidebar w-[300px] flex-shrink-0 border-r flex flex-col overflow-hidden">
+        <div className="split-header p-4 border-b">
           <div className="flex items-center justify-between mb-3">
             <span className="type-metric-sm" style={{ color: 'var(--text-primary)' }}>
               New Hires{' '}
@@ -366,14 +366,9 @@ export function NewHiresClient() {
                 type="button"
                 onClick={() => setFilter(tab.value)}
                 className={cn(
-                  'type-body px-[10px] py-1 rounded-[5px] border transition-colors duration-[120ms]',
-                  filter === tab.value ? 'font-medium' : ''
+                  'filter-chip type-body px-[10px] py-1 rounded-[5px] border',
+                  filter === tab.value && 'filter-chip-selected font-medium'
                 )}
-                style={{
-                  backgroundColor: filter === tab.value ? 'var(--bg-primary)' : 'transparent',
-                  color: filter === tab.value ? 'var(--text-primary)' : 'var(--text-secondary)',
-                  borderColor: filter === tab.value ? 'var(--border-secondary)' : 'var(--border-tertiary)',
-                }}
               >
                 {tab.label}
               </button>
@@ -385,21 +380,16 @@ export function NewHiresClient() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search Hires..."
-              className="input-ui h-8 rounded-[7px] border pl-8 type-body"
-              style={{
-                backgroundColor: 'var(--bg-primary)',
-                color: 'var(--text-primary)',
-                borderColor: 'var(--border-tertiary)',
-              }}
+              className="h-8 border-[var(--border-tertiary)] bg-[var(--bg-primary)] pl-8 type-body"
             />
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto">
           {actionError && (
-            <div className="mx-3 mt-3 rounded-[8px] border px-3 py-2 type-body" style={{ backgroundColor: 'var(--red-bg)', borderColor: 'var(--red-border)', color: 'var(--red-text)' }}>
+            <Alert variant="destructive" className="mx-3 mt-3 px-3 py-2">
               {actionError}
-            </div>
+            </Alert>
           )}
           {filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center flex-1 gap-3 py-12 px-6">
@@ -424,15 +414,13 @@ export function NewHiresClient() {
                     selectHire(hire.id);
                   }
                 }}
-                className="flex items-center gap-[10px] py-[11px] border-b cursor-pointer transition-colors duration-[120ms]"
+                className={cn(
+                  'list-row flex items-center gap-[10px] py-[11px] border-b cursor-pointer',
+                  selectedId === hire.id && 'list-row-selected'
+                )}
                 style={{
                   padding: '11px 14px',
-                  borderColor: 'var(--border-tertiary)',
-                  backgroundColor: selectedId === hire.id ? 'var(--canon-purple-selected)' : undefined,
-                  borderLeft: selectedId === hire.id ? '3px solid var(--canon-purple)' : undefined,
                 }}
-                onMouseEnter={(e) => { if (selectedId !== hire.id) e.currentTarget.style.backgroundColor = 'var(--bg-secondary)'; }}
-                onMouseLeave={(e) => { if (selectedId !== hire.id) e.currentTarget.style.backgroundColor = ''; }}
               >
                 <Avatar name={hire.name} size="md" />
                 <div className="flex-1 min-w-0">
@@ -460,11 +448,11 @@ export function NewHiresClient() {
         </div>
       </div>
 
-      <div className="flex-1 min-w-0 overflow-hidden">
+      <div className="surface-page flex-1 min-w-0 overflow-hidden">
         {selectedHire ? (
           detailLoading || !selectedDetail ? (
             <div className="flex h-full flex-col">
-              <div className="px-8 pt-6 pb-5 border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
+              <div className="split-header px-8 pt-6 pb-5 border-b">
                 <Skeleton className="h-24 rounded-[10px] bg-[var(--bg-primary)]" />
               </div>
               <div className="px-8 py-6">
@@ -473,7 +461,7 @@ export function NewHiresClient() {
             </div>
           ) : (
             <div className="flex h-full flex-col overflow-hidden">
-              <div className="px-8 pt-6 pb-5 border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
+              <div className="split-header px-8 pt-6 pb-5 border-b">
                 <div className="flex items-start gap-5 mb-5">
                   <Avatar name={selectedDetail.hire.name} size="lg" />
                   <div className="min-w-0 flex-1">
@@ -531,165 +519,154 @@ export function NewHiresClient() {
                 )}
               </div>
 
-              <div className="flex border-b px-8" style={{ borderColor: 'var(--border-tertiary)' }}>
-                {(['Ramp Evidence', 'Access'] as const).map((tab) => {
-                  const count = tab === 'Ramp Evidence' ? selectedDetail.milestone_path.length : selectedDetail.access_requests.length;
-                  return (
-                    <button
-                      key={tab}
-                      type="button"
-                      onClick={() => setActiveTab(tab)}
-                      className="type-panel-title px-5 py-3 border-b-2 -mb-px transition-colors duration-[120ms]"
-                      style={{
-                        color: activeTab === tab ? 'var(--canon-purple)' : 'var(--text-secondary)',
-                        borderBottomColor: activeTab === tab ? 'var(--canon-purple)' : 'transparent',
-                        fontWeight: activeTab === tab ? 500 : 400,
-                      }}
-                    >
-                      {tab}
-                      <span className="block type-body mt-[2px] opacity-80">{count}</span>
-                    </button>
-                  );
-                })}
-              </div>
+              <Tabs
+                value={activeTab}
+                onValueChange={(value) => setActiveTab(value as 'Ramp Evidence' | 'Access')}
+                className="flex min-h-0 flex-1 flex-col"
+              >
+                <TabsList className="split-tabbar border-b px-8">
+                  {(['Ramp Evidence', 'Access'] as const).map((tab) => {
+                    const count = tab === 'Ramp Evidence' ? selectedDetail.milestone_path.length : selectedDetail.access_requests.length;
+                    return (
+                      <TabsTrigger key={tab} value={tab} className="px-5">
+                        {tab}
+                        <span className="block type-body mt-[2px] opacity-80">{count}</span>
+                      </TabsTrigger>
+                    );
+                  })}
+                </TabsList>
 
-              <div className="flex-1 overflow-y-auto px-8 py-6">
-                {activeTab === 'Ramp Evidence' && (
-                  selectedDetail.milestone_path.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-full gap-3 py-12">
-                      <IconUsers size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
-                      <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Ramp Path Yet</div>
-                      <div className="type-body text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
-                        Approved company milestones for this role will appear here.
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      {selectedDetail.milestone_path.map((item) => {
-                        const relatedDelivery = selectedDetail.deliveries.find((delivery) => delivery.milestone_id === item.milestone.id);
-                        const evidence = item.evidence;
-                        const status = item.progress?.status ?? 'not_started';
-                        return (
-                          <div
-                            key={item.milestone.id}
-                            className="overflow-hidden rounded-[10px] border transition-colors duration-[120ms]"
-                            style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}
-                            onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--border-secondary)'; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-tertiary)'; }}
-                          >
-                            <div className="flex items-start gap-4 px-5 py-4">
-                              <div className="pt-1">
-                                <StatusBadge variant={progressVariant(status)} label={progressLabel(status)} />
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-start justify-between gap-4">
-                                  <div className="type-metric-sm leading-[1.3]" style={{ color: 'var(--text-primary)' }}>
-                                    Day {item.milestone.day_trigger} - {item.milestone.title}
-                                  </div>
-                                  <div className="type-body whitespace-nowrap pt-1" style={{ color: 'var(--text-tertiary)' }}>
-                                    {item.progress?.verified_at
-                                      ? `Verified ${fmtDetailDate(item.progress.verified_at)}`
-                                      : item.progress?.first_briefed_at
-                                        ? `Briefed ${fmtDetailDate(item.progress.first_briefed_at)}`
-                                        : 'Upcoming'}
-                                  </div>
-                                </div>
-                                <p className="type-body mt-2 leading-[1.6]" style={{ color: 'var(--text-secondary)' }}>
-                                  {item.milestone.capability_outcome ?? item.milestone.description}
-                                </p>
-                              </div>
-                            </div>
-                            <div className="px-5 pb-5 pt-4 border-t" style={{ borderColor: 'var(--border-tertiary)' }}>
-                              {item.milestone.real_work_trigger && (
-                                <div className="mb-4 rounded-[8px] bg-[var(--bg-secondary)] px-3 py-2">
-                                  <div className="type-kicker mb-1" style={{ color: 'var(--text-tertiary)' }}>Real Work Trigger</div>
-                                  <p className="type-body" style={{ color: 'var(--text-secondary)' }}>{item.milestone.real_work_trigger}</p>
-                                </div>
-                              )}
-                              {item.required_tools.length > 0 && (
-                                <div className="mb-4 type-body" style={{ color: item.access_ready ? 'var(--green-text)' : 'var(--text-tertiary)' }}>
-                                  Access readiness: {item.required_tools.join(', ')} {item.access_ready ? 'granted' : 'pending'}
-                                </div>
-                              )}
-                              {evidence.length > 0 ? (
-                                <div className="space-y-2">
-                                  {evidence.slice(0, 3).map((entry) => (
-                                    <div key={entry.id} className="rounded-[8px] border border-[var(--border-tertiary)] px-3 py-2">
-                                      <div className="type-body-strong" style={{ color: 'var(--text-primary)' }}>
-                                        {entry.evidence_type.replace(/_/g, ' ')} · {entry.trust_level} trust
-                                      </div>
-                                      <div className="type-caption mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>
-                                        {Math.round(entry.confidence * 100)}% confidence · {fmtDetailDate(entry.created_at)}
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              ) : (
-                                <p className="type-body leading-[1.65]" style={{ color: 'var(--text-tertiary)' }}>
-                                  Evidence will appear when Canon detects real work activity or a manager verifies this milestone.
-                                </p>
-                              )}
-                              {relatedDelivery?.content_delivered && (
-                                <details className="mt-4">
-                                  <summary className="type-body cursor-pointer text-[var(--canon-purple)]">
-                                    <IconChevronDown size={13} className="inline" /> Read Briefing
-                                  </summary>
-                                  <p className="type-body-strong mt-3 leading-[1.65]" style={{ color: 'var(--text-secondary)' }}>
-                                    {relatedDelivery.content_delivered}
-                                  </p>
-                                </details>
-                              )}
-                              {status !== 'verified' && (
-                                <div className="mt-4">
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="secondary"
-                                    onClick={() => verifyMilestone(item)}
-                                    disabled={milestoneActionId === item.milestone.id}
-                                  >
-                                    {milestoneActionId === item.milestone.id ? 'Verifying...' : 'Manager Verify'}
-                                  </Button>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )
-                )}
-
-                {activeTab === 'Access' && (
-                  selectedDetail.access_requests.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-full gap-3 py-12">
-                      <IconUsers size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
-                      <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Access Requests</div>
-                      <div className="type-body text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
-                        Access requests for this hire will appear here.
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {selectedDetail.access_requests.map((request) => (
-                        <div
-                          key={request.id}
-                          className="rounded-[10px] border px-5 py-4 flex items-center gap-4"
-                          style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}
-                        >
-                          <div className="min-w-0 flex-1">
-                            <div className="type-card-title" style={{ color: 'var(--text-primary)' }}>{request.tool_name}</div>
-                            <div className="type-body mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>
-                              {request.requested_from_name ? `${request.requested_from_name} · ` : ''}Sent {fmtDetailDate(request.sent_at)}
-                            </div>
-                          </div>
-                          <StatusBadge variant={accessVariant(request.status)} label={request.status} />
+                <div className="flex-1 overflow-y-auto px-8 py-6">
+                  <TabsContent value="Ramp Evidence">
+                    {selectedDetail.milestone_path.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center h-full gap-3 py-12">
+                        <IconUsers size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
+                        <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Ramp Path Yet</div>
+                        <div className="type-body text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
+                          Approved company milestones for this role will appear here.
                         </div>
-                      ))}
-                    </div>
-                  )
-                )}
-              </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-4">
+                        {selectedDetail.milestone_path.map((item) => {
+                          const relatedDelivery = selectedDetail.deliveries.find((delivery) => delivery.milestone_id === item.milestone.id);
+                          const evidence = item.evidence;
+                          const status = item.progress?.status ?? 'not_started';
+                          return (
+                            <Card
+                              key={item.milestone.id}
+                              className="overflow-hidden transition-colors duration-[120ms] hover:border-[var(--border-secondary)]"
+                            >
+                              <CardHeader className="flex-row items-start gap-4 px-5 py-4">
+                                <div className="pt-1">
+                                  <StatusBadge variant={progressVariant(status)} label={progressLabel(status)} />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-start justify-between gap-4">
+                                    <div className="type-metric-sm leading-[1.3]" style={{ color: 'var(--text-primary)' }}>
+                                      Day {item.milestone.day_trigger} - {item.milestone.title}
+                                    </div>
+                                    <div className="type-body whitespace-nowrap pt-1" style={{ color: 'var(--text-tertiary)' }}>
+                                      {item.progress?.verified_at
+                                        ? `Verified ${fmtDetailDate(item.progress.verified_at)}`
+                                        : item.progress?.first_briefed_at
+                                          ? `Briefed ${fmtDetailDate(item.progress.first_briefed_at)}`
+                                          : 'Upcoming'}
+                                    </div>
+                                  </div>
+                                  <p className="type-body mt-2 leading-[1.6]" style={{ color: 'var(--text-secondary)' }}>
+                                    {item.milestone.capability_outcome ?? item.milestone.description}
+                                  </p>
+                                </div>
+                              </CardHeader>
+                              <CardContent className="surface-divider border-t px-5 pb-5 pt-4">
+                                {item.milestone.real_work_trigger && (
+                                  <div className="surface-panel-muted mb-4 rounded-[8px] px-3 py-2">
+                                    <div className="type-kicker mb-1" style={{ color: 'var(--text-tertiary)' }}>Real Work Trigger</div>
+                                    <p className="type-body" style={{ color: 'var(--text-secondary)' }}>{item.milestone.real_work_trigger}</p>
+                                  </div>
+                                )}
+                                {item.required_tools.length > 0 && (
+                                  <div className="mb-4 type-body" style={{ color: item.access_ready ? 'var(--green-text)' : 'var(--text-tertiary)' }}>
+                                    Access readiness: {item.required_tools.join(', ')} {item.access_ready ? 'granted' : 'pending'}
+                                  </div>
+                                )}
+                                {evidence.length > 0 ? (
+                                  <div className="flex flex-col gap-2">
+                                    {evidence.slice(0, 3).map((entry) => (
+                                      <div key={entry.id} className="surface-panel-subtle rounded-[8px] border px-3 py-2">
+                                        <div className="type-body-strong" style={{ color: 'var(--text-primary)' }}>
+                                          {entry.evidence_type.replace(/_/g, ' ')} · {entry.trust_level} trust
+                                        </div>
+                                        <div className="type-caption mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>
+                                          {Math.round(entry.confidence * 100)}% confidence · {fmtDetailDate(entry.created_at)}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <p className="type-body leading-[1.65]" style={{ color: 'var(--text-tertiary)' }}>
+                                    Evidence will appear when Canon detects real work activity or a manager verifies this milestone.
+                                  </p>
+                                )}
+                                {relatedDelivery?.content_delivered && (
+                                  <details className="mt-4">
+                                    <summary className="type-body cursor-pointer text-[var(--canon-purple)]">
+                                      <IconChevronDown size={13} className="inline" /> Read Briefing
+                                    </summary>
+                                    <p className="type-body-strong mt-3 leading-[1.65]" style={{ color: 'var(--text-secondary)' }}>
+                                      {relatedDelivery.content_delivered}
+                                    </p>
+                                  </details>
+                                )}
+                                {status !== 'verified' && (
+                                  <div className="mt-4">
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="secondary"
+                                      onClick={() => verifyMilestone(item)}
+                                      disabled={milestoneActionId === item.milestone.id}
+                                    >
+                                      {milestoneActionId === item.milestone.id ? 'Verifying...' : 'Manager Verify'}
+                                    </Button>
+                                  </div>
+                                )}
+                              </CardContent>
+                            </Card>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </TabsContent>
+
+                  <TabsContent value="Access">
+                    {selectedDetail.access_requests.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center h-full gap-3 py-12">
+                        <IconUsers size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
+                        <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Access Requests</div>
+                        <div className="type-body text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
+                          Access requests for this hire will appear here.
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-3">
+                        {selectedDetail.access_requests.map((request) => (
+                          <Card key={request.id} className="flex items-center gap-4 px-5 py-4">
+                            <div className="min-w-0 flex-1">
+                              <div className="type-card-title" style={{ color: 'var(--text-primary)' }}>{request.tool_name}</div>
+                              <div className="type-body mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>
+                                {request.requested_from_name ? `${request.requested_from_name} · ` : ''}Sent {fmtDetailDate(request.sent_at)}
+                              </div>
+                            </div>
+                            <StatusBadge variant={accessVariant(request.status)} label={request.status} />
+                          </Card>
+                        ))}
+                      </div>
+                    )}
+                  </TabsContent>
+                </div>
+              </Tabs>
             </div>
           )
         ) : (

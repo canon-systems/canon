@@ -17,6 +17,10 @@ import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Avatar } from '@/components/ui/avatar';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Alert } from '@/components/ui/alert';
+import { cn } from '@/components/ui/utils';
 
 interface Connection {
   id: string;
@@ -183,14 +187,14 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   function renderProfile() {
     return (
       <div className="max-w-2xl">
-        <div className="rounded-[10px] px-[18px] py-4 flex items-center gap-[14px] mb-4 border" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}>
+        <Card className="mb-4 flex items-center gap-[14px] px-[18px] py-4">
           <Avatar name={user?.email ?? 'User'} size="lg" />
           <div>
             <div className="type-card-title" style={{ color: 'var(--text-primary)' }}>{displayName}</div>
             <div className="type-page-subtitle mt-[2px]" style={{ color: 'var(--text-secondary)' }}>{user?.email || 'Not Available'}</div>
             <div className="type-caption mt-[2px] font-mono" style={{ color: 'var(--text-tertiary)' }}>{user?.id || 'N/A'}</div>
           </div>
-        </div>
+        </Card>
 
         {[
           { label: 'Display Name', value: displayName, hint: 'This is shown inside Canon.' },
@@ -200,23 +204,9 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
             <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
               {field.label}
             </label>
-            <input
+            <Input
               value={field.value}
               readOnly
-              className="w-full px-3 py-2 rounded-[7px] type-field border outline-none transition-all duration-[120ms]"
-              style={{
-                backgroundColor: 'var(--bg-primary)',
-                color: 'var(--text-primary)',
-                borderColor: 'var(--border-secondary)',
-              }}
-              onFocus={(e) => {
-                e.target.style.borderColor = 'var(--canon-purple)';
-                e.target.style.boxShadow = '0 0 0 3px var(--focus-ring)';
-              }}
-              onBlur={(e) => {
-                e.target.style.borderColor = 'var(--border-secondary)';
-                e.target.style.boxShadow = 'none';
-              }}
             />
             <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>{field.hint}</p>
           </div>
@@ -230,18 +220,18 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     return (
       <div className="max-w-3xl">
         {success && (
-          <div className="mb-4 rounded-[8px] border px-[14px] py-3 type-body-strong" style={{ backgroundColor: 'var(--green-bg)', borderColor: 'var(--green-border)', color: 'var(--green-text)' }}>
+          <Alert variant="success" className="mb-4 type-body-strong">
             {success}
-          </div>
+          </Alert>
         )}
         {error && (
-          <div className="mb-4 rounded-[8px] border px-[14px] py-3 type-body-strong" style={{ backgroundColor: 'var(--red-bg)', borderColor: 'var(--red-border)', color: 'var(--red-text)' }}>
+          <Alert variant="destructive" className="mb-4 type-body-strong">
             {error}
-          </div>
+          </Alert>
         )}
 
         {integrations.map((int) => (
-          <div key={int.id} className="rounded-[10px] px-4 py-[14px] flex items-center gap-[14px] mb-[10px] border" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}>
+          <Card key={int.id} className="mb-[10px] flex items-center gap-[14px] px-4 py-[14px]">
             <div className="w-9 h-9 rounded-[9px] flex items-center justify-center flex-shrink-0" style={{ backgroundColor: int.iconBg, color: int.iconColor }}>
               <IntegrationLogos provider={int.provider} size={22} color={int.iconColor} />
             </div>
@@ -263,7 +253,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                 Connect
               </Button>
             )}
-          </div>
+          </Card>
         ))}
 
         {loading && (
@@ -277,23 +267,23 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
 
   function renderPlaceholder(label: string) {
     return (
-      <div className="max-w-2xl rounded-[10px] border px-5 py-8 text-center" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}>
+      <Card className="max-w-2xl px-5 py-8 text-center">
         <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>{label}</div>
         <div className="type-body mt-2" style={{ color: 'var(--text-tertiary)' }}>This settings section is ready for configuration content.</div>
-      </div>
+      </Card>
     );
   }
 
   return (
     <>
       <div className="flex h-full flex-col overflow-hidden">
-        <div className="px-6 pt-5 pb-4 border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
+        <div className="surface-divider px-6 pt-5 pb-4 border-b">
           <h1 className="type-page-title" style={{ color: 'var(--text-primary)' }}>Settings</h1>
           <p className="type-page-subtitle mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>Manage Your Account and Workspace Connections</p>
         </div>
 
         <div className="flex flex-1 overflow-hidden">
-          <div className="flex-shrink-0 py-5 overflow-y-auto border-r" style={{ width: 180, borderColor: 'var(--border-tertiary)' }}>
+          <div className="split-sidebar w-[180px] flex-shrink-0 py-5 overflow-y-auto border-r">
             {settingSections.map(({ section, items }) => (
               <div key={section}>
                 <div className="type-kicker px-4 pt-[10px] pb-1" style={{ color: 'var(--text-tertiary)' }}>
@@ -307,10 +297,12 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                       key={item.id}
                       type="button"
                       onClick={() => setActiveSettingAndUpdateUrl(item.id)}
-                      className="flex w-[calc(100%-16px)] items-center gap-2 px-4 py-[7px] text-left type-nav mx-2 rounded-[5px] cursor-pointer transition-colors duration-[120ms]"
+                      className={cn(
+                        'flex w-[calc(100%-16px)] items-center gap-2 px-4 py-[7px] text-left type-nav mx-2 rounded-[5px] cursor-pointer border border-transparent transition-colors duration-[120ms]',
+                        activeSetting === item.id && 'nav-item-selected'
+                      )}
                       style={{
-                        backgroundColor: activeSetting === item.id ? 'var(--canon-purple-light)' : 'transparent',
-                        color: danger ? 'var(--red-text)' : activeSetting === item.id ? 'var(--canon-purple-dark)' : 'var(--text-secondary)',
+                        color: danger ? 'var(--red-text)' : activeSetting === item.id ? 'var(--text-primary)' : 'var(--text-secondary)',
                         fontWeight: activeSetting === item.id ? 500 : 400,
                       }}
                     >
@@ -323,7 +315,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
             ))}
           </div>
 
-          <div className="flex-1 overflow-y-auto px-7 py-6">
+          <div className="surface-page flex-1 overflow-y-auto px-7 py-6">
             {activeSetting === 'profile' && renderProfile()}
             {activeSetting === 'integrations' && renderIntegrations()}
             {activeSetting === 'delete' && renderPlaceholder('Delete Account')}

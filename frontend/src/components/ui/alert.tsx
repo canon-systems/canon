@@ -9,11 +9,11 @@ const alertVariants = cva(
       variant: {
         default: "bg-[var(--bg-secondary)] text-[var(--text-primary)] border-[var(--border-tertiary)]",
         destructive:
-          "border-[var(--border-tertiary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] [&>svg]:text-[var(--text-secondary)]",
+          "border-[var(--red-border)] bg-[var(--red-bg)] text-[var(--red-text)] [&>svg]:text-[var(--red-text)]",
         warning:
-          "border-[var(--border-tertiary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] [&>svg]:text-[var(--text-secondary)]",
+          "border-[var(--amber-border)] bg-[var(--amber-bg)] text-[var(--amber-text)] [&>svg]:text-[var(--amber-text)]",
         success:
-          "border-[var(--border-tertiary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] [&>svg]:text-[var(--text-secondary)]",
+          "border-[var(--green-border)] bg-[var(--green-bg)] text-[var(--green-text)] [&>svg]:text-[var(--green-text)]",
       },
     },
     defaultVariants: {

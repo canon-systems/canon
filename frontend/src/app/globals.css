@@ -6,51 +6,51 @@
   --font-display-fallback: "Space Grotesk", "Inter", "SF Pro Display", sans-serif;
   /* Brand */
   --canon-purple: #6B5CE7;
-  --canon-purple-light: rgba(107, 92, 231, 0.14);
-  --canon-purple-selected: rgba(107, 92, 231, 0.10);
-  --canon-purple-border: rgba(107, 92, 231, 0.55);
+  --canon-purple-light: rgba(124, 108, 255, 0.20);
+  --canon-purple-selected: rgba(124, 108, 255, 0.16);
+  --canon-purple-border: rgba(155, 141, 245, 0.70);
   --canon-purple-dark: #6B5CE7;
   --canon-purple-gradient: linear-gradient(90deg, #6B5CE7, #9B8DF5);
   --text-on-accent: #FFFFFF;
   --focus-ring: rgba(107, 92, 231, 0.25);
 
   /* Surfaces */
-  --bg-page: #10100F;
-  --bg-sidebar: #242522;
-  --bg-primary: #30302D;
-  --bg-secondary: #242522;
-  --bg-tertiary: #171716;
+  --bg-page: #0C0D10;
+  --bg-sidebar: #17191F;
+  --bg-primary: #252833;
+  --bg-secondary: #181B22;
+  --bg-tertiary: #101218;
   --bg-overlay: rgba(0, 0, 0, 0.70);
   --chart-tooltip-bg: rgba(16, 16, 15, 0.96);
 
   /* Borders */
-  --border-tertiary: #3A3A35;
-  --border-secondary: #4A4A43;
+  --border-tertiary: #323744;
+  --border-secondary: #515A6C;
 
   /* Text */
-  --text-primary: #F5F3EF;
-  --text-secondary: #C9C5BD;
-  --text-tertiary: #9B968E;
+  --text-primary: #F7F8FB;
+  --text-secondary: #D3D8E3;
+  --text-tertiary: #A4ADBC;
 
   /* Semantic: Green */
   --green: #16A34A;
   --green-bg: rgba(22, 163, 74, 0.18);
-  --green-border: rgba(22, 163, 74, 0.25);
-  --green-text: #16A34A;
+  --green-border: rgba(74, 222, 128, 0.45);
+  --green-text: #4ADE80;
   --green-gradient: linear-gradient(90deg, #16A34A, #4ADE80);
 
   /* Semantic: Amber */
   --amber: #D97706;
   --amber-bg: rgba(217, 119, 6, 0.18);
   --amber-bg-subtle: rgba(217, 119, 6, 0.07);
-  --amber-border: rgba(217, 119, 6, 0.25);
-  --amber-text: #C45500;
+  --amber-border: rgba(251, 191, 36, 0.45);
+  --amber-text: #FBBF24;
 
   /* Semantic: Red */
   --red: #DC2626;
   --red-bg: rgba(220, 38, 38, 0.18);
-  --red-border: rgba(220, 38, 38, 0.25);
-  --red-text: #EF4444;
+  --red-border: rgba(248, 113, 113, 0.45);
+  --red-text: #F87171;
 
   /* Semantic: Teal */
   --teal: #0D9488;
@@ -256,6 +256,88 @@ body {
   line-height: 1.2;
   font-weight: 500;
   letter-spacing: 0;
+}
+
+.surface-page {
+  background-color: var(--bg-page);
+}
+
+.surface-sidebar {
+  background-color: var(--bg-sidebar);
+  border-color: var(--border-tertiary);
+}
+
+.surface-panel {
+  background-color: var(--bg-primary);
+  border-color: var(--border-tertiary);
+}
+
+.surface-panel-muted {
+  background-color: var(--bg-secondary);
+  border-color: var(--border-tertiary);
+}
+
+.surface-panel-subtle {
+  background-color: var(--bg-tertiary);
+  border-color: var(--border-tertiary);
+}
+
+.surface-divider {
+  border-color: var(--border-tertiary);
+}
+
+.surface-divider-strong {
+  border-color: var(--border-secondary);
+}
+
+.split-sidebar {
+  background-color: var(--bg-tertiary);
+  border-color: var(--border-tertiary);
+}
+
+.split-header {
+  background-color: var(--bg-secondary);
+  border-color: var(--border-tertiary);
+}
+
+.split-tabbar {
+  background-color: var(--bg-tertiary);
+  border-color: var(--border-tertiary);
+}
+
+.list-row {
+  border-color: var(--border-tertiary);
+  border-left: 3px solid transparent;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.list-row:hover {
+  background-color: var(--bg-secondary);
+}
+
+.list-row-selected {
+  background-color: var(--canon-purple-selected);
+  border-left-color: var(--canon-purple);
+}
+
+.nav-item-selected {
+  background-color: var(--canon-purple-light);
+  color: var(--text-primary);
+  border-color: var(--canon-purple-border);
+  box-shadow: inset 3px 0 0 var(--canon-purple);
+}
+
+.filter-chip {
+  background-color: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border-color: var(--border-tertiary);
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.filter-chip-selected {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  border-color: var(--border-secondary);
 }
 
 .type-control-sm {

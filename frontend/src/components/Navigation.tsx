@@ -77,28 +77,23 @@ export function Navigation({ user, onLogout }: NavigationProps) {
       'flex items-center gap-[9px] px-4 py-2 type-nav rounded-[6px] mx-2 my-px cursor-pointer transition-colors duration-[120ms]',
       collapsed && 'justify-center px-0',
       active
-        ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] font-medium'
-        : 'text-[var(--text-secondary)] hover:bg-[var(--bg-primary)] hover:text-[var(--text-primary)]'
+        ? 'nav-item-selected font-medium border'
+        : 'border border-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-primary)] hover:text-[var(--text-primary)] hover:border-[var(--border-tertiary)]'
     );
 
   return (
     <aside
       className={cn(
-        'relative flex h-screen shrink-0 flex-col border-r py-5 transition-[width] duration-200 ease-out',
+        'surface-sidebar relative flex h-screen shrink-0 flex-col border-r py-5 transition-[width] duration-200 ease-out',
         collapsed ? 'w-[72px]' : 'w-[200px]'
       )}
-      style={{
-        backgroundColor: 'var(--bg-sidebar)',
-        borderColor: 'var(--border-tertiary)',
-      }}
     >
       <button
         type="button"
         onClick={toggleCollapsed}
         aria-label={collapsed ? 'Expand Navigation' : 'Collapse Navigation'}
         title={collapsed ? 'Expand Navigation' : 'Collapse Navigation'}
-        className="absolute right-[-14px] top-1/2 z-20 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border bg-[var(--bg-primary)] text-[var(--text-secondary)] transition-colors duration-[120ms] hover:text-[var(--text-primary)]"
-        style={{ borderColor: 'var(--border-tertiary)' }}
+        className="surface-panel absolute right-[-14px] top-1/2 z-20 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border text-[var(--text-secondary)] transition-colors duration-[120ms] hover:text-[var(--text-primary)]"
       >
         {collapsed ? <IconChevronRight size={15} /> : <IconChevronLeft size={15} />}
       </button>
@@ -106,10 +101,9 @@ export function Navigation({ user, onLogout }: NavigationProps) {
       <Link
         href="/"
         className={cn(
-          'flex items-center gap-[9px] px-4 pb-5 border-b mb-3',
+          'surface-divider flex items-center gap-[9px] px-4 pb-5 border-b mb-3',
           collapsed && 'justify-center px-0'
         )}
-        style={{ borderColor: 'var(--border-tertiary)' }}
         title={collapsed ? 'Canon' : undefined}
       >
         <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-[7px] bg-black overflow-hidden">
@@ -165,7 +159,7 @@ export function Navigation({ user, onLogout }: NavigationProps) {
         </div>
       </nav>
 
-      <div className={cn('mt-auto pt-3 px-4 border-t', collapsed && 'px-0')} style={{ borderColor: 'var(--border-tertiary)' }}>
+      <div className={cn('surface-divider mt-auto pt-3 px-4 border-t', collapsed && 'px-0')}>
         <div className={cn('flex items-center gap-2', collapsed && 'flex-col')}>
           <div
             className="w-[26px] h-[26px] rounded-full flex items-center justify-center type-control-sm text-[var(--text-primary)] flex-shrink-0"
