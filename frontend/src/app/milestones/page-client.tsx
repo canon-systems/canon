@@ -1,14 +1,31 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { IconBrain, IconCheck, IconEdit, IconInfoCircle, IconSparkles, IconTarget, IconTrash, IconX } from '@tabler/icons-react';
+import {
+  IconBrain,
+  IconCheck,
+  IconEdit,
+  IconInfoCircle,
+  IconPlus,
+  IconSparkles,
+  IconTarget,
+  IconTrash,
+} from '@tabler/icons-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { AddMilestoneCard, MilestoneCard } from '@/components/milestone-card';
+import { MilestoneCard } from '@/components/milestone-card';
+import { cn } from '@/components/ui/utils';
 import type { HireRole, MilestoneProposal, RampMilestone } from '@/types/onboarding';
 
 const ROLES: HireRole[] = ['AI Solutions Architect', 'Solutions Engineer', 'Implementation Engineer'];
@@ -169,7 +186,6 @@ export function MilestonesClient() {
   }
 
   function openEdit(milestone: RampMilestone) {
-    setShowAddForm(false);
     setEditError('');
     setEditingMilestone(milestone);
     setEditForm(milestoneForm(milestone));
@@ -412,11 +428,13 @@ export function MilestonesClient() {
 
   if (loading) {
     return (
-      <div className="flex h-full flex-col">
-        <div className="px-6 py-5 border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
-          <Skeleton className="h-8 w-40 bg-[var(--bg-primary)]" />
+      <div className="flex h-full overflow-hidden">
+        <div className="split-sidebar w-[260px] flex-shrink-0 border-r flex flex-col gap-3 p-4">
+          <Skeleton className="h-8 bg-[var(--bg-primary)]" />
+          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-14 rounded-[8px] bg-[var(--bg-primary)]" />)}
         </div>
-        <div className="px-6 py-4 space-y-3">
+        <div className="flex-1 px-8 py-6 space-y-4">
+          <Skeleton className="h-28 rounded-[10px] bg-[var(--bg-primary)]" />
           {[1, 2, 3].map((i) => <Skeleton key={i} className="h-24 rounded-[10px] bg-[var(--bg-primary)]" />)}
         </div>
       </div>
@@ -424,149 +442,281 @@ export function MilestonesClient() {
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
-      <div className="px-6 pt-5 pb-4 border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="type-page-title" style={{ color: 'var(--text-primary)' }}>Milestones</h1>
-            <p className="type-page-subtitle mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>Company-derived capability briefings tied to real work</p>
-          </div>
-          <Button size="sm" onClick={generateMilestones} disabled={generating}>
-            <IconBrain size={14} /> {generating ? 'Generating...' : 'Generate from Knowledge'}
-          </Button>
-        </div>
-      </div>
+    <div className="flex h-full overflow-hidden">
 
-      <div className="flex gap-[10px] px-6 py-[14px] border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
-        {ROLES.map((role) => {
-          const meta = ROLE_META[role];
-          const active = activeRole === role;
-          return (
-            <button
-              key={meta.id}
-              type="button"
-              onClick={() => { setActiveRole(role); setShowAddForm(false); setForm(emptyForm(role)); }}
-              className="flex items-center gap-[7px] px-[14px] py-2 rounded-[8px] border type-nav transition-all duration-[120ms] cursor-pointer"
-              style={{
-                backgroundColor: active ? 'var(--canon-purple-light)' : 'transparent',
-                borderColor: active ? 'var(--canon-purple-border)' : 'var(--border-tertiary)',
-                color: active ? 'var(--canon-purple-dark)' : 'var(--text-secondary)',
-                fontWeight: active ? 500 : 400,
-              }}
-            >
-              <div className="w-[22px] h-[22px] rounded-[5px] flex items-center justify-center type-caption font-medium text-[var(--text-primary)] flex-shrink-0" style={{ backgroundColor: meta.color }}>
-                {meta.abbr}
-              </div>
-              {meta.label}
-              <span
-                className="type-caption px-[6px] py-[1px] rounded-[4px]"
-                style={{
-                  backgroundColor: active ? 'var(--canon-purple-light)' : 'var(--bg-secondary)',
-                  color: active ? 'var(--canon-purple-dark)' : 'var(--text-tertiary)',
-                }}
-              >
-                {byRole(role).length}
-                {proposalsByRole(role).length > 0 ? `/${proposalsByRole(role).length}` : ''}
+      {/* Left sidebar — role navigation */}
+      <div className="split-sidebar w-[260px] flex-shrink-0 border-r flex flex-col overflow-hidden">
+        <div className="split-header p-4 border-b">
+          <div className="flex items-center justify-between">
+            <span className="type-metric-sm" style={{ color: 'var(--text-primary)' }}>
+              Milestones{' '}
+              <span className="type-page-subtitle font-normal" style={{ color: 'var(--text-tertiary)' }}>
+                {milestones.length}
               </span>
-            </button>
-          );
-        })}
-      </div>
-
-      <div
-        className="mx-6 mt-[14px] px-[14px] py-[10px] rounded-[8px] flex items-center gap-2 type-body border"
-        style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-tertiary)', color: 'var(--text-secondary)' }}
-      >
-        <IconInfoCircle size={14} style={{ color: 'var(--canon-purple)', flexShrink: 0 }} />
-        Canon only uses approved company milestones. Drafts are generated from indexed company knowledge and stay inactive until approved.
-      </div>
-
-      {activeMilestones.length === 0 && activeProposals.length === 0 && !showAddForm ? (
-        <div className="flex flex-col items-center justify-center flex-1 gap-3 py-12">
-          <IconTarget size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
-          <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Approved Company Milestones</div>
-          <div className="type-body text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
-            Generate drafts from company knowledge or add a milestone manually.
-          </div>
-          <div className="flex gap-2">
+            </span>
             <Button size="sm" onClick={generateMilestones} disabled={generating}>
-              <IconBrain size={13} /> Generate
+              <IconBrain size={13} /> {generating ? 'Generating...' : 'Generate'}
             </Button>
-            <Button size="sm" variant="secondary" onClick={() => { setShowAddForm(true); setForm(emptyForm(activeRole)); }}>Add Manually</Button>
           </div>
         </div>
-      ) : (
-        <div className="flex gap-5 px-6 py-4 overflow-y-auto flex-1">
-          <div className="flex-1 flex flex-col gap-3 pb-4">
-            {activeProposals.length > 0 && (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="type-kicker text-[var(--text-tertiary)]">Draft Proposals</div>
-                  <div className="flex gap-2">
-                    <Button size="sm" variant="secondary" onClick={rejectAllProposals} disabled={!!bulkAction || !!actionId}>
-                      {bulkAction === 'reject_all' ? 'Rejecting...' : 'Reject All'}
-                    </Button>
-                    <Button size="sm" onClick={acceptAllProposals} disabled={!!bulkAction || !!actionId}>
-                      {bulkAction === 'accept_all' ? 'Accepting...' : 'Accept All'}
-                    </Button>
+
+        <div className="flex-1 overflow-y-auto">
+          {ROLES.map((role) => {
+            const meta = ROLE_META[role];
+            const active = activeRole === role;
+            const count = byRole(role).length;
+            const pCount = proposalsByRole(role).length;
+            return (
+              <div
+                key={meta.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => { setActiveRole(role); setForm(emptyForm(role)); }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setActiveRole(role);
+                    setForm(emptyForm(role));
+                  }
+                }}
+                className={cn(
+                  'list-row flex items-center gap-3 border-b cursor-pointer',
+                  active && 'list-row-selected'
+                )}
+                style={{ padding: '12px 16px' }}
+              >
+                <div
+                  className="w-[30px] h-[30px] rounded-[7px] flex items-center justify-center type-caption font-medium text-[var(--text-primary)] flex-shrink-0"
+                  style={{ backgroundColor: meta.color }}
+                >
+                  {meta.abbr}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="type-panel-title truncate" style={{ color: 'var(--text-primary)' }}>{meta.label}</div>
+                  <div className="type-caption mt-[1px]" style={{ color: 'var(--text-tertiary)' }}>
+                    {count} milestone{count !== 1 ? 's' : ''}
+                    {pCount > 0 && ` · ${pCount} draft${pCount !== 1 ? 's' : ''}`}
                   </div>
                 </div>
-                {activeProposals.map((proposal) => (
-                  <ProposalCard
-                    key={proposal.id}
-                    proposal={proposal}
-                    disabled={actionId === proposal.id || !!bulkAction}
-                    onApprove={approveProposal}
-                    onEdit={openEditProposal}
-                    onReject={rejectProposal}
-                  />
-                ))}
+                {pCount > 0 && (
+                  <span
+                    className="type-caption px-[7px] py-[2px] rounded-[5px] flex-shrink-0"
+                    style={{ backgroundColor: 'var(--canon-purple-light)', color: 'var(--canon-purple-dark)' }}
+                  >
+                    {pCount}
+                  </span>
+                )}
               </div>
-            )}
-            {activeMilestones.length > 0 && activeProposals.length > 0 && (
-              <div className="type-kicker pt-2 text-[var(--text-tertiary)]">Approved Ramp Plan</div>
-            )}
-            {activeMilestones.map((m) => (
-              <MilestoneCard
-                key={m.id}
-                milestone={m}
-                onEdit={openEdit}
-                onDelete={(milestone) => {
-                  setDeleteError('');
-                  setPendingDelete(milestone);
-                }}
-                deleting={actionId === m.id}
-              />
-            ))}
-            {!showAddForm ? (
-              <AddMilestoneCard roleName={ROLE_META[activeRole].label} onAdd={() => { setShowAddForm(true); setForm(emptyForm(activeRole)); }} />
-            ) : (
-              <form onSubmit={handleAdd} className="rounded-[10px] border p-4 space-y-4" style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}>
-                <div className="flex items-center justify-between">
-                  <p className="type-panel-title" style={{ color: 'var(--text-primary)' }}>New Milestone</p>
-                  <button type="button" onClick={() => setShowAddForm(false)} className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)]">
-                    <IconX size={16} />
-                  </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Right panel — role detail */}
+      <div className="surface-page flex-1 min-w-0 flex flex-col overflow-hidden">
+        <div className="split-header px-8 pt-6 pb-5 border-b">
+          <div className="flex items-start justify-between gap-4 mb-4">
+            <div>
+              <div className="flex items-center gap-3">
+                <div
+                  className="w-8 h-8 rounded-[7px] flex items-center justify-center type-caption font-medium text-[var(--text-primary)] flex-shrink-0"
+                  style={{ backgroundColor: ROLE_META[activeRole].color }}
+                >
+                  {ROLE_META[activeRole].abbr}
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <Input type="number" value={form.day_trigger} onChange={(e) => setField('day_trigger', e.target.value)} placeholder="Day (e.g. 45)" className="input-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body" />
-                  <Input value={form.title} onChange={(e) => setField('title', e.target.value)} placeholder="Milestone Title" className="input-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body" />
-                </div>
-                <Textarea value={form.capability_outcome} onChange={(e) => setField('capability_outcome', e.target.value)} placeholder="Capability outcome" className="textarea-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body min-h-[72px]" />
-                <Textarea value={form.briefing_goal} onChange={(e) => setField('briefing_goal', e.target.value)} placeholder="What Canon should brief before the real work" className="textarea-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body min-h-[72px]" />
-                <Input value={form.real_work_trigger} onChange={(e) => setField('real_work_trigger', e.target.value)} placeholder="Real-work trigger (e.g. joins first discovery call)" className="input-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body" />
-                <Input value={form.retrieval_brief} onChange={(e) => setField('retrieval_brief', e.target.value)} placeholder="Retrieval brief" className="input-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body" />
-                <Textarea value={form.success_signals} onChange={(e) => setField('success_signals', e.target.value)} placeholder="Success signals, one per line" className="textarea-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body min-h-[72px]" />
-                <div className="flex gap-2">
-                  <Button type="submit" disabled={submitting} size="sm">{submitting ? 'Saving...' : 'Save Milestone'}</Button>
-                  <Button type="button" size="sm" variant="secondary" onClick={() => setShowAddForm(false)}>Cancel</Button>
-                </div>
-              </form>
-            )}
+                <h1 className="type-detail-title" style={{ color: 'var(--text-primary)' }}>{activeRole}</h1>
+              </div>
+              <div className="flex items-center gap-2 mt-2 type-body" style={{ color: 'var(--text-tertiary)' }}>
+                <span>{activeMilestones.length} approved</span>
+                {activeProposals.length > 0 && (
+                  <>
+                    <span>·</span>
+                    <span style={{ color: 'var(--canon-purple-dark)' }}>
+                      {activeProposals.length} draft{activeProposals.length !== 1 ? 's' : ''}
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => { setShowAddForm(true); setForm(emptyForm(activeRole)); }}
+            >
+              <IconPlus size={13} /> Add Milestone
+            </Button>
+          </div>
+          <div
+            className="px-[14px] py-[10px] rounded-[8px] flex items-center gap-2 type-body border"
+            style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)', color: 'var(--text-secondary)' }}
+          >
+            <IconInfoCircle size={14} style={{ color: 'var(--canon-purple)', flexShrink: 0 }} />
+            Canon only uses approved milestones. Drafts are generated from indexed company knowledge and stay inactive until approved.
           </div>
         </div>
-      )}
 
+        <div className="flex-1 overflow-y-auto px-8 py-6">
+          {activeMilestones.length === 0 && activeProposals.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full gap-3 py-12">
+              <IconTarget size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
+              <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Approved Milestones</div>
+              <div className="type-body text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
+                Generate drafts from company knowledge or add a milestone manually.
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" onClick={generateMilestones} disabled={generating}>
+                  <IconBrain size={13} /> Generate
+                </Button>
+                <Button size="sm" variant="secondary" onClick={() => { setShowAddForm(true); setForm(emptyForm(activeRole)); }}>
+                  Add Manually
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-5">
+              {activeProposals.length > 0 && (
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="type-kicker" style={{ color: 'var(--text-tertiary)' }}>Draft Proposals</span>
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="secondary" onClick={rejectAllProposals} disabled={!!bulkAction || !!actionId}>
+                        {bulkAction === 'reject_all' ? 'Rejecting...' : 'Reject All'}
+                      </Button>
+                      <Button size="sm" onClick={acceptAllProposals} disabled={!!bulkAction || !!actionId}>
+                        {bulkAction === 'accept_all' ? 'Accepting...' : 'Accept All'}
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-3">
+                    {activeProposals.map((proposal) => (
+                      <ProposalCard
+                        key={proposal.id}
+                        proposal={proposal}
+                        disabled={actionId === proposal.id || !!bulkAction}
+                        onApprove={approveProposal}
+                        onEdit={openEditProposal}
+                        onReject={rejectProposal}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {activeMilestones.length > 0 && (
+                <div>
+                  {activeProposals.length > 0 && (
+                    <div className="type-kicker mb-3" style={{ color: 'var(--text-tertiary)' }}>Approved Plan</div>
+                  )}
+                  <div className="flex flex-col gap-3">
+                    {activeMilestones.map((m) => (
+                      <MilestoneCard
+                        key={m.id}
+                        milestone={m}
+                        onEdit={openEdit}
+                        onDelete={(milestone) => {
+                          setDeleteError('');
+                          setPendingDelete(milestone);
+                        }}
+                        deleting={actionId === m.id}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Add Milestone Dialog */}
+      <Dialog open={showAddForm} onOpenChange={(open) => { if (!open) setShowAddForm(false); }}>
+        <DialogContent className="max-w-2xl border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
+          <DialogHeader>
+            <DialogTitle className="text-[var(--text-primary)]">Add Milestone</DialogTitle>
+            <DialogDescription>
+              Add a new capability milestone for the {activeRole} ramp plan.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleAdd} className="min-h-0 space-y-4 overflow-y-auto pr-1">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <p className="type-caption mb-1 text-[var(--text-tertiary)]">Day</p>
+                <Input
+                  type="number"
+                  value={form.day_trigger}
+                  onChange={(e) => setField('day_trigger', e.target.value)}
+                  placeholder="e.g. 45"
+                  className="input-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body"
+                />
+              </div>
+              <div>
+                <p className="type-caption mb-1 text-[var(--text-tertiary)]">Title</p>
+                <Input
+                  value={form.title}
+                  onChange={(e) => setField('title', e.target.value)}
+                  placeholder="Milestone title"
+                  className="input-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body"
+                />
+              </div>
+            </div>
+            <div>
+              <p className="type-caption mb-1 text-[var(--text-tertiary)]">Capability Outcome</p>
+              <Textarea
+                value={form.capability_outcome}
+                onChange={(e) => setField('capability_outcome', e.target.value)}
+                placeholder="What the hire should be able to do"
+                className="textarea-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body min-h-[72px]"
+              />
+            </div>
+            <div>
+              <p className="type-caption mb-1 text-[var(--text-tertiary)]">Briefing Goal</p>
+              <Textarea
+                value={form.briefing_goal}
+                onChange={(e) => setField('briefing_goal', e.target.value)}
+                placeholder="What Canon should brief before the real work"
+                className="textarea-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body min-h-[72px]"
+              />
+            </div>
+            <div>
+              <p className="type-caption mb-1 text-[var(--text-tertiary)]">Real-Work Trigger</p>
+              <Input
+                value={form.real_work_trigger}
+                onChange={(e) => setField('real_work_trigger', e.target.value)}
+                placeholder="e.g. joins first discovery call"
+                className="input-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body"
+              />
+            </div>
+            <div>
+              <p className="type-caption mb-1 text-[var(--text-tertiary)]">Retrieval Brief</p>
+              <Input
+                value={form.retrieval_brief}
+                onChange={(e) => setField('retrieval_brief', e.target.value)}
+                placeholder="Knowledge query for Canon to retrieve"
+                className="input-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body"
+              />
+            </div>
+            <div>
+              <p className="type-caption mb-1 text-[var(--text-tertiary)]">Success Signals</p>
+              <Textarea
+                value={form.success_signals}
+                onChange={(e) => setField('success_signals', e.target.value)}
+                placeholder="One signal per line"
+                className="textarea-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body min-h-[72px]"
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="secondary" onClick={() => setShowAddForm(false)} disabled={submitting}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={submitting}>
+                {submitting ? 'Saving...' : 'Save Milestone'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Milestone Dialog */}
       <Dialog open={!!editingMilestone} onOpenChange={(open) => { if (!open) setEditingMilestone(null); }}>
         <DialogContent className="max-w-2xl border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
           <DialogHeader>
@@ -663,6 +813,7 @@ export function MilestonesClient() {
         </DialogContent>
       </Dialog>
 
+      {/* Edit Draft Proposal Dialog */}
       <Dialog open={!!editingProposal} onOpenChange={(open) => { if (!open) { setEditingProposal(null); setEditProposalError(''); } }}>
         <DialogContent className="max-w-2xl border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
           <DialogHeader>
@@ -749,6 +900,7 @@ export function MilestonesClient() {
         </DialogContent>
       </Dialog>
 
+      {/* Delete Confirm Dialog */}
       <Dialog open={!!pendingDelete} onOpenChange={(open) => { if (!open) setPendingDelete(null); }}>
         <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
           <DialogHeader>
