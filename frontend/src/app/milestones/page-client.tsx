@@ -1,7 +1,7 @@
 'use client';
 
-import { Fragment, useState, useEffect, useCallback } from 'react';
-import { IconBrain, IconCheck, IconInfoCircle, IconSparkles, IconTarget, IconTrash, IconX } from '@tabler/icons-react';
+import { useState, useEffect, useCallback } from 'react';
+import { IconBrain, IconCheck, IconEdit, IconInfoCircle, IconSparkles, IconTarget, IconTrash, IconX } from '@tabler/icons-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -21,6 +21,16 @@ const ROLE_META: Record<HireRole, { id: string; color: string; abbr: string; lab
 
 type MilestoneForm = {
   role: HireRole;
+  day_trigger: string;
+  title: string;
+  capability_outcome: string;
+  briefing_goal: string;
+  real_work_trigger: string;
+  retrieval_brief: string;
+  success_signals: string;
+};
+
+type ProposalEditForm = {
   day_trigger: string;
   title: string;
   capability_outcome: string;
@@ -52,6 +62,16 @@ const milestoneForm = (milestone: RampMilestone): MilestoneForm => ({
   success_signals: (milestone.success_signals ?? []).join('\n'),
 });
 
+const proposalToEditForm = (proposal: MilestoneProposal): ProposalEditForm => ({
+  day_trigger: String(proposal.suggested_day_trigger),
+  title: proposal.title,
+  capability_outcome: proposal.capability_outcome,
+  briefing_goal: proposal.briefing_goal,
+  real_work_trigger: proposal.real_work_trigger,
+  retrieval_brief: proposal.retrieval_brief,
+  success_signals: proposal.success_signals.join('\n'),
+});
+
 function successSignals(value: string) {
   return value.split('\n').map((line) => line.trim()).filter(Boolean);
 }
@@ -60,11 +80,13 @@ function ProposalCard({
   proposal,
   disabled,
   onApprove,
+  onEdit,
   onReject,
 }: {
   proposal: MilestoneProposal;
   disabled?: boolean;
   onApprove: (proposal: MilestoneProposal) => void;
+  onEdit: (proposal: MilestoneProposal) => void;
   onReject: (proposal: MilestoneProposal) => void;
 }) {
   return (
@@ -87,6 +109,9 @@ function ProposalCard({
           <div className="mt-3 flex gap-2">
             <Button size="sm" onClick={() => onApprove(proposal)} disabled={disabled}>
               <IconCheck size={13} /> Approve
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => onEdit(proposal)} disabled={disabled}>
+              <IconEdit size={13} /> Edit
             </Button>
             <Button size="sm" variant="secondary" onClick={() => onReject(proposal)} disabled={disabled}>
               <IconTrash size={13} /> Reject
@@ -114,6 +139,11 @@ export function MilestonesClient() {
   const [actionId, setActionId] = useState<string | null>(null);
   const [editError, setEditError] = useState('');
   const [deleteError, setDeleteError] = useState('');
+  const [editingProposal, setEditingProposal] = useState<MilestoneProposal | null>(null);
+  const [editProposalForm, setEditProposalForm] = useState<ProposalEditForm>({ day_trigger: '', title: '', capability_outcome: '', briefing_goal: '', real_work_trigger: '', retrieval_brief: '', success_signals: '' });
+  const [editProposalSubmitting, setEditProposalSubmitting] = useState(false);
+  const [editProposalError, setEditProposalError] = useState('');
+  const [bulkAction, setBulkAction] = useState<'accept_all' | 'reject_all' | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -251,6 +281,114 @@ export function MilestonesClient() {
     }
   }
 
+  function openEditProposal(proposal: MilestoneProposal) {
+    setEditingProposal(proposal);
+    setEditProposalForm(proposalToEditForm(proposal));
+    setEditProposalError('');
+  }
+
+  function setEditProposalField(field: keyof ProposalEditForm, value: string) {
+    setEditProposalForm((p) => ({ ...p, [field]: value }));
+  }
+
+  async function saveProposalDraft() {
+    if (!editingProposal) return;
+    setEditProposalSubmitting(true);
+    setEditProposalError('');
+    try {
+      const res = await fetch('/api/onboarding/milestones', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'update_proposal',
+          proposal_id: editingProposal.id,
+          day_trigger: Number(editProposalForm.day_trigger),
+          title: editProposalForm.title,
+          capability_outcome: editProposalForm.capability_outcome,
+          briefing_goal: editProposalForm.briefing_goal,
+          real_work_trigger: editProposalForm.real_work_trigger,
+          retrieval_brief: editProposalForm.retrieval_brief,
+          success_signals: successSignals(editProposalForm.success_signals),
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'Failed to save draft.');
+      setEditingProposal(null);
+      await load();
+    } catch (error) {
+      setEditProposalError(error instanceof Error ? error.message : 'Failed to save draft.');
+    } finally {
+      setEditProposalSubmitting(false);
+    }
+  }
+
+  async function approveEditedProposal() {
+    if (!editingProposal) return;
+    setEditProposalSubmitting(true);
+    setEditProposalError('');
+    try {
+      const res = await fetch('/api/onboarding/milestones', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'approve_proposal',
+          proposal_id: editingProposal.id,
+          day_trigger: Number(editProposalForm.day_trigger),
+          title: editProposalForm.title,
+          capability_outcome: editProposalForm.capability_outcome,
+          briefing_goal: editProposalForm.briefing_goal,
+          real_work_trigger: editProposalForm.real_work_trigger,
+          retrieval_brief: editProposalForm.retrieval_brief,
+          success_signals: successSignals(editProposalForm.success_signals),
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'Failed to approve proposal.');
+      setEditingProposal(null);
+      await load();
+    } catch (error) {
+      setEditProposalError(error instanceof Error ? error.message : 'Failed to approve proposal.');
+    } finally {
+      setEditProposalSubmitting(false);
+    }
+  }
+
+  async function acceptAllProposals() {
+    const targets = proposals.filter((p) => p.role === activeRole);
+    if (targets.length === 0) return;
+    setBulkAction('accept_all');
+    try {
+      await Promise.all(targets.map((proposal) =>
+        fetch('/api/onboarding/milestones', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'approve_proposal', proposal_id: proposal.id }),
+        })
+      ));
+      await load();
+    } finally {
+      setBulkAction(null);
+    }
+  }
+
+  async function rejectAllProposals() {
+    const targets = proposals.filter((p) => p.role === activeRole);
+    if (targets.length === 0) return;
+    setBulkAction('reject_all');
+    try {
+      await Promise.all(targets.map((proposal) =>
+        fetch('/api/onboarding/milestones', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'reject_proposal', proposal_id: proposal.id }),
+        })
+      ));
+      await load();
+    } finally {
+      setBulkAction(null);
+    }
+  }
+
   async function deleteMilestone() {
     if (!pendingDelete) return;
     setActionId(pendingDelete.id);
@@ -362,13 +500,24 @@ export function MilestonesClient() {
           <div className="flex-1 flex flex-col gap-3 pb-4">
             {activeProposals.length > 0 && (
               <div className="space-y-3">
-                <div className="type-kicker text-[var(--text-tertiary)]">Draft Proposals</div>
+                <div className="flex items-center justify-between">
+                  <div className="type-kicker text-[var(--text-tertiary)]">Draft Proposals</div>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="secondary" onClick={rejectAllProposals} disabled={!!bulkAction || !!actionId}>
+                      {bulkAction === 'reject_all' ? 'Rejecting...' : 'Reject All'}
+                    </Button>
+                    <Button size="sm" onClick={acceptAllProposals} disabled={!!bulkAction || !!actionId}>
+                      {bulkAction === 'accept_all' ? 'Accepting...' : 'Accept All'}
+                    </Button>
+                  </div>
+                </div>
                 {activeProposals.map((proposal) => (
                   <ProposalCard
                     key={proposal.id}
                     proposal={proposal}
-                    disabled={actionId === proposal.id}
+                    disabled={actionId === proposal.id || !!bulkAction}
                     onApprove={approveProposal}
+                    onEdit={openEditProposal}
                     onReject={rejectProposal}
                   />
                 ))}
@@ -511,6 +660,92 @@ export function MilestonesClient() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!editingProposal} onOpenChange={(open) => { if (!open) { setEditingProposal(null); setEditProposalError(''); } }}>
+        <DialogContent className="max-w-2xl border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
+          <DialogHeader>
+            <DialogTitle className="text-[var(--text-primary)]">Edit Draft</DialogTitle>
+            <DialogDescription>
+              Refine this draft before saving or approving it.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="min-h-0 space-y-4 overflow-y-auto pr-1">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-[140px_1fr]">
+              <div>
+                <p className="type-caption mb-1 text-[var(--text-tertiary)]">Day</p>
+                <Input
+                  type="number"
+                  min={0}
+                  value={editProposalForm.day_trigger}
+                  onChange={(e) => setEditProposalField('day_trigger', e.target.value)}
+                  className="input-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] type-body"
+                />
+              </div>
+              <div>
+                <p className="type-caption mb-1 text-[var(--text-tertiary)]">Title</p>
+                <Input
+                  value={editProposalForm.title}
+                  onChange={(e) => setEditProposalField('title', e.target.value)}
+                  className="input-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] type-body"
+                />
+              </div>
+            </div>
+            <div>
+              <p className="type-caption mb-1 text-[var(--text-tertiary)]">Capability Outcome</p>
+              <Textarea
+                value={editProposalForm.capability_outcome}
+                onChange={(e) => setEditProposalField('capability_outcome', e.target.value)}
+                className="textarea-ui min-h-[76px] border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] type-body"
+              />
+            </div>
+            <div>
+              <p className="type-caption mb-1 text-[var(--text-tertiary)]">Briefing Goal</p>
+              <Textarea
+                value={editProposalForm.briefing_goal}
+                onChange={(e) => setEditProposalField('briefing_goal', e.target.value)}
+                className="textarea-ui min-h-[76px] border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] type-body"
+              />
+            </div>
+            <div>
+              <p className="type-caption mb-1 text-[var(--text-tertiary)]">Real-Work Trigger</p>
+              <Input
+                value={editProposalForm.real_work_trigger}
+                onChange={(e) => setEditProposalField('real_work_trigger', e.target.value)}
+                className="input-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] type-body"
+              />
+            </div>
+            <div>
+              <p className="type-caption mb-1 text-[var(--text-tertiary)]">Retrieval Brief</p>
+              <Input
+                value={editProposalForm.retrieval_brief}
+                onChange={(e) => setEditProposalField('retrieval_brief', e.target.value)}
+                className="input-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] type-body"
+              />
+            </div>
+            <div>
+              <p className="type-caption mb-1 text-[var(--text-tertiary)]">Success Signals</p>
+              <Textarea
+                value={editProposalForm.success_signals}
+                onChange={(e) => setEditProposalField('success_signals', e.target.value)}
+                placeholder="One signal per line"
+                className="textarea-ui min-h-[90px] border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body"
+              />
+            </div>
+            {editProposalError && <p className="type-body text-[var(--red-text)]">{editProposalError}</p>}
+            <DialogFooter>
+              <Button type="button" variant="secondary" onClick={() => setEditingProposal(null)} disabled={editProposalSubmitting}>
+                Cancel
+              </Button>
+              <Button type="button" variant="secondary" onClick={saveProposalDraft} disabled={editProposalSubmitting || !editProposalForm.title || !editProposalForm.day_trigger}>
+                {editProposalSubmitting ? 'Saving...' : 'Save Draft'}
+              </Button>
+              <Button type="button" onClick={approveEditedProposal} disabled={editProposalSubmitting || !editProposalForm.title || !editProposalForm.day_trigger}>
+                {editProposalSubmitting ? 'Approving...' : 'Approve'}
+              </Button>
+            </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 

@@ -15,6 +15,7 @@ const log = createLogger('api.onboarding.milestones', {
     generation_requested: 'Generation Requested',
     proposal_approved: 'Proposal Approved',
     proposal_rejected: 'Proposal Rejected',
+    proposal_updated: 'Proposal Updated',
     milestone_created: 'Milestone Created',
     milestone_updated: 'Milestone Updated',
     milestone_archived: 'Milestone Archived',
@@ -164,6 +165,35 @@ export async function POST(request: NextRequest) {
         eventIds: eventIds(result),
       });
       return NextResponse.json({ ok: true, requested: true });
+    }
+
+    if (body.action === 'update_proposal') {
+      if (!body.proposal_id) return NextResponse.json({ error: 'proposal_id is required' }, { status: 400 });
+      const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      if (typeof body.day_trigger === 'number') updates.suggested_day_trigger = body.day_trigger;
+      const updTitle = stringField(body.title);
+      if (updTitle) updates.title = updTitle;
+      const updCapability = stringField(body.capability_outcome);
+      if (updCapability) updates.capability_outcome = updCapability;
+      const updBriefing = stringField(body.briefing_goal);
+      if (updBriefing) updates.briefing_goal = updBriefing;
+      const updRealWork = stringField(body.real_work_trigger);
+      if (updRealWork) updates.real_work_trigger = updRealWork;
+      const updRetrieval = stringField(body.retrieval_brief);
+      if (updRetrieval) updates.retrieval_brief = updRetrieval;
+      if (Array.isArray(body.success_signals)) updates.success_signals = stringArray(body.success_signals);
+
+      const { data: proposal, error } = await supabase
+        .from('milestone_proposals')
+        .update(updates)
+        .eq('id', body.proposal_id)
+        .eq('organization_id', org.id)
+        .eq('status', 'draft')
+        .select()
+        .single();
+      if (error || !proposal) return NextResponse.json({ error: 'Proposal not found or already resolved' }, { status: 404 });
+      log.debug('proposal_updated', { userId: user.id, organizationId: org.id, proposalId: proposal.id });
+      return NextResponse.json({ proposal });
     }
 
     if (body.action === 'reject_proposal') {

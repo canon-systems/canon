@@ -316,40 +316,6 @@ ${chunkText}`,
   };
 }
 
-async function proposalExists(params: {
-  supabase: ReturnType<typeof createServiceRoleClient>;
-  organizationId: string;
-  role: HireRole;
-  normalizedKey: string;
-}) {
-  const { supabase, organizationId, role, normalizedKey } = params;
-
-  const { data: active } = await supabase
-    .from('ramp_milestones')
-    .select('title, real_work_trigger')
-    .eq('organization_id', organizationId)
-    .eq('role', role)
-    .eq('status', 'active')
-    .limit(100);
-
-  if ((active ?? []).some((milestone) => (
-    normalizeKey(`${milestone.title}-${milestone.real_work_trigger ?? ''}`) === normalizedKey
-  ))) {
-    return true;
-  }
-
-  const { data: draft } = await supabase
-    .from('milestone_proposals')
-    .select('id')
-    .eq('organization_id', organizationId)
-    .eq('role', role)
-    .eq('normalized_key', normalizedKey)
-    .eq('status', 'draft')
-    .limit(1);
-
-  return Boolean(draft && draft.length > 0);
-}
-
 async function generateForOrg(organizationId: string) {
   const supabase = createServiceRoleClient();
 
@@ -363,20 +329,32 @@ async function generateForOrg(organizationId: string) {
     return { proposalsCreated: 0, rolesProcessed: 0 };
   }
 
-  const { data: chunks, error } = await supabase
-    .from('knowledge_chunks')
-    .select('id, content, metadata, created_at')
-    .eq('organization_id', organizationId)
-    .order('created_at', { ascending: false })
-    .limit(40);
+  const [{ data: chunks, error }, { data: activeMilestones }, { data: draftProposals }] = await Promise.all([
+    supabase
+      .from('knowledge_chunks')
+      .select('id, content, metadata, created_at')
+      .eq('organization_id', organizationId)
+      .order('created_at', { ascending: false })
+      .limit(40),
+    supabase
+      .from('ramp_milestones')
+      .select('role, title, real_work_trigger')
+      .eq('organization_id', organizationId)
+      .eq('status', 'active')
+      .limit(500),
+    supabase
+      .from('milestone_proposals')
+      .select('role, normalized_key')
+      .eq('organization_id', organizationId)
+      .eq('status', 'draft')
+      .limit(500),
+  ]);
 
   if (error) throw error;
 
   const typedChunks = (chunks ?? []) as KnowledgeChunkResult[];
   if (typedChunks.length === 0) return { proposalsCreated: 0, rolesProcessed: 0 };
 
-  let proposalsCreated = 0;
-  let rolesProcessed = 0;
   const sourceEvidence = chunkEvidence(typedChunks);
   log.info('knowledge_loaded', {
     orgId: organizationId,
@@ -384,76 +362,83 @@ async function generateForOrg(organizationId: string) {
     sourceCount: sourceEvidence.length,
   });
 
-  for (const role of ROLES) {
-    try {
-      const {
-        proposals,
-        rawCount,
-        invalidCount,
-        promptChunkCount,
-      } = await generateRoleProposals({ role, chunks: typedChunks });
-      const inserts: object[] = [];
-      let duplicateCount = 0;
-
-      for (const proposal of proposals) {
-        const normalizedKey = normalizeKey(`${proposal.title}-${proposal.real_work_trigger}`);
-        if (!normalizedKey) continue;
-        const exists = await proposalExists({ supabase, organizationId, role, normalizedKey });
-        if (exists) {
-          duplicateCount++;
-          continue;
-        }
-
-        inserts.push({
-          organization_id: organizationId,
-          role,
-          suggested_day_trigger: proposal.suggested_day_trigger,
-          title: proposal.title,
-          capability_outcome: proposal.capability_outcome,
-          briefing_goal: proposal.briefing_goal,
-          real_work_trigger: proposal.real_work_trigger,
-          success_signals: proposal.success_signals,
-          retrieval_brief: proposal.retrieval_brief,
-          evidence_requirements: proposal.evidence_requirements,
-          source_evidence: sourceEvidence,
-          rationale: proposal.rationale,
-          confidence: proposal.confidence,
-          normalized_key: normalizedKey,
-          status: 'draft',
-          updated_at: new Date().toISOString(),
-        });
+  // Build per-role dedup sets from the two prefetched queries
+  const existingKeysByRole = new Map<HireRole, Set<string>>(
+    ROLES.map((role) => {
+      const keys = new Set<string>();
+      for (const m of (activeMilestones ?? []).filter((m) => m.role === role)) {
+        keys.add(normalizeKey(`${m.title}-${m.real_work_trigger ?? ''}`));
       }
+      for (const p of (draftProposals ?? []).filter((p) => p.role === role)) {
+        keys.add(p.normalized_key);
+      }
+      return [role, keys];
+    })
+  );
 
-      if (inserts.length > 0) {
-        const { error: insertError } = await supabase.from('milestone_proposals').insert(inserts);
-        if (insertError) {
-          log.error('proposals_insert_failed', {
-            orgId: organizationId,
+  const roleResults = await Promise.all(
+    ROLES.map(async (role) => {
+      try {
+        const { proposals, rawCount, invalidCount, promptChunkCount } = await generateRoleProposals({ role, chunks: typedChunks });
+        const existingKeys = existingKeysByRole.get(role) ?? new Set<string>();
+        const inserts: object[] = [];
+        let duplicateCount = 0;
+
+        for (const proposal of proposals) {
+          const normalizedKey = normalizeKey(`${proposal.title}-${proposal.real_work_trigger}`);
+          if (!normalizedKey || existingKeys.has(normalizedKey)) {
+            duplicateCount++;
+            continue;
+          }
+          inserts.push({
+            organization_id: organizationId,
             role,
-            insertCount: inserts.length,
-            error: insertError.message,
+            suggested_day_trigger: proposal.suggested_day_trigger,
+            title: proposal.title,
+            capability_outcome: proposal.capability_outcome,
+            briefing_goal: proposal.briefing_goal,
+            real_work_trigger: proposal.real_work_trigger,
+            success_signals: proposal.success_signals,
+            retrieval_brief: proposal.retrieval_brief,
+            evidence_requirements: proposal.evidence_requirements,
+            source_evidence: sourceEvidence,
+            rationale: proposal.rationale,
+            confidence: proposal.confidence,
+            normalized_key: normalizedKey,
+            status: 'draft',
+            updated_at: new Date().toISOString(),
           });
-          throw insertError;
         }
-        proposalsCreated += inserts.length;
+
+        if (inserts.length > 0) {
+          const { error: insertError } = await supabase.from('milestone_proposals').insert(inserts);
+          if (insertError) {
+            log.error('proposals_insert_failed', { orgId: organizationId, role, insertCount: inserts.length, error: insertError.message });
+            throw insertError;
+          }
+        }
+
+        log.info('role_complete', {
+          orgId: organizationId,
+          role,
+          promptChunks: promptChunkCount,
+          rawProposals: rawCount,
+          proposed: proposals.length,
+          created: inserts.length,
+          duplicatesSkipped: duplicateCount,
+          invalidSkipped: invalidCount,
+        });
+
+        return { created: inserts.length, success: true };
+      } catch (error) {
+        log.error('role_failed', { orgId: organizationId, role, error: errorMessage(error) });
+        return { created: 0, success: false };
       }
+    })
+  );
 
-      rolesProcessed++;
-      log.info('role_complete', {
-        orgId: organizationId,
-        role,
-        promptChunks: promptChunkCount,
-        rawProposals: rawCount,
-        proposed: proposals.length,
-        created: inserts.length,
-        duplicatesSkipped: duplicateCount,
-        invalidSkipped: invalidCount,
-      });
-    } catch (error) {
-      log.error('role_failed', { orgId: organizationId, role, error: errorMessage(error) });
-    }
-  }
-
+  const proposalsCreated = roleResults.reduce((sum, r) => sum + r.created, 0);
+  const rolesProcessed = roleResults.filter((r) => r.success).length;
   log.info('org_complete', { orgId: organizationId, proposalsCreated, rolesProcessed });
   return { proposalsCreated, rolesProcessed };
 }

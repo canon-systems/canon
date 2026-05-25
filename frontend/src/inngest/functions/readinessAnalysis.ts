@@ -330,7 +330,7 @@ export const readinessAnalysis = inngest.createFunction(
     name: 'Canon: Readiness Analysis',
     retries: 1,
   },
-  { cron: '0 6 * * *' },
+  { cron: '0 0 * * *' },
   async ({ step }) => {
     const supabase = createServiceRoleClient();
 
@@ -357,7 +357,22 @@ export const readinessAnalysis = inngest.createFunction(
           return;
         }
 
-        const itemsToInsert: object[] = [];
+        type ReadinessItemPayload = {
+          organization_id: string;
+          category: ReadinessCategory;
+          title: string;
+          summary: string;
+          recommended_action: string | null;
+          impact_level: string;
+          affected_roles: HireRole[];
+          source: string;
+          source_url: null;
+          source_metadata: object;
+          status: string;
+          updated_at: string;
+        };
+
+        const itemsToInsert: ReadinessItemPayload[] = [];
         let signalsReviewedTotal = 0;
 
         for (const category of CATEGORIES) {
@@ -441,7 +456,20 @@ export const readinessAnalysis = inngest.createFunction(
         }
 
         if (itemsToInsert.length > 0) {
-          await supabase.from('readiness_items').insert(itemsToInsert);
+          const { data: existingItems } = await supabase
+            .from('readiness_items')
+            .select('category')
+            .eq('organization_id', org.id)
+            .neq('status', 'archived');
+
+          const existingCategories = new Set(
+            (existingItems ?? []).map((row) => row.category as ReadinessCategory)
+          );
+
+          const toInsert = itemsToInsert.filter((item) => !existingCategories.has(item.category));
+          if (toInsert.length > 0) {
+            await supabase.from('readiness_items').insert(toInsert);
+          }
         }
 
         log.info('org_complete', {
