@@ -5,7 +5,6 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import {
   IconBell,
   IconBuilding,
-  IconDatabase,
   IconKey,
   IconLoader2,
   IconPlug,
@@ -237,19 +236,17 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
       connected: !!slackConnection,
       workspace: slackConnection ? `Connected ${formatDate(slackConnection.created_at)}` : '',
       action: slackConnection ? () => openDisconnectModal(slackConnection.connection_id, 'slack') : connectSlack,
-      icon: null,
     },
     {
       id: 'gong',
       provider: 'gong' as const,
       name: 'Gong',
       description: 'Sync customer call transcripts as onboarding knowledge.',
-      iconBg: 'var(--bg-secondary)',
-      iconColor: 'var(--text-secondary)',
+      iconBg: 'var(--gong-bg)',
+      iconColor: 'var(--gong-text)',
       connected: !!gongConnection,
       workspace: gongConnection ? `Connected ${formatDate(gongConnection.created_at)}` : '',
       action: gongConnection ? () => openDisconnectModal(gongConnection.connection_id, 'gong') : () => setGongModalOpen(true),
-      icon: IconDatabase,
     },
   ];
 
@@ -300,11 +297,10 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
         )}
 
         {integrations.map((int) => {
-          const ProviderIcon = int.icon;
           return (
           <Card key={int.id} className="mb-[10px] flex items-center gap-[14px] px-4 py-[14px]">
             <div className="w-9 h-9 rounded-[9px] flex items-center justify-center flex-shrink-0" style={{ backgroundColor: int.iconBg, color: int.iconColor }}>
-              {ProviderIcon ? <ProviderIcon size={20} /> : <IntegrationLogos provider="slack" size={22} color={int.iconColor} />}
+              <IntegrationLogos provider={int.provider} size={22} color={int.iconColor} />
             </div>
             <div className="flex-1 min-w-0">
               <div className="type-section-title" style={{ color: 'var(--text-primary)' }}>{int.name}</div>
