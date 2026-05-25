@@ -59,14 +59,20 @@ export async function POST(request: NextRequest) {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = (await request.json()) as {
+      provider?: string;
       slack_channel_id?: string;
       slack_channel_name?: string;
       name?: string;
     };
 
+    const provider = typeof body.provider === 'string' ? body.provider : 'slack';
     const { slack_channel_id, slack_channel_name, name } = body;
-    if (!slack_channel_id) {
+    if (provider === 'slack' && !slack_channel_id) {
       return NextResponse.json({ error: 'slack_channel_id is required' }, { status: 400 });
+    }
+
+    if (provider !== 'slack' && provider !== 'gong') {
+      return NextResponse.json({ error: 'Unsupported knowledge provider' }, { status: 400 });
     }
 
     const supabase = await createClient();
@@ -78,14 +84,40 @@ export async function POST(request: NextRequest) {
 
     if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
 
+    if (provider === 'gong') {
+      const { data: connection } = await supabase
+        .from('oauth_connections')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('provider', 'gong')
+        .eq('status', 'active')
+        .maybeSingle();
+
+      if (!connection) {
+        return NextResponse.json({ error: 'Connect Gong before adding it as a knowledge source' }, { status: 400 });
+      }
+
+      const { data: existingGongSource } = await supabase
+        .from('knowledge_sources')
+        .select('id')
+        .eq('organization_id', org.id)
+        .eq('provider', 'gong')
+        .limit(1)
+        .maybeSingle();
+
+      if (existingGongSource) {
+        return NextResponse.json({ error: 'Gong is already added as a knowledge source' }, { status: 409 });
+      }
+    }
+
     const { data: source, error } = await supabase
       .from('knowledge_sources')
       .insert({
         organization_id: org.id,
-        provider: 'slack',
-        name: name || slack_channel_name || slack_channel_id,
-        slack_channel_id,
-        slack_channel_name: slack_channel_name || null,
+        provider,
+        name: name || slack_channel_name || slack_channel_id || 'Gong Calls',
+        slack_channel_id: provider === 'slack' ? slack_channel_id : null,
+        slack_channel_name: provider === 'slack' ? slack_channel_name || null : null,
         status: 'pending',
       })
       .select()
@@ -106,6 +138,7 @@ export async function POST(request: NextRequest) {
       userId: user.id,
       organizationId: org.id,
       sourceId: source.id,
+      provider: source.provider,
       channel: source.slack_channel_name || source.name,
       channelId: source.slack_channel_id,
       status: source.status,
@@ -120,6 +153,7 @@ export async function POST(request: NextRequest) {
       sourceId: source.id,
       channel: source.slack_channel_name || source.name,
       channelId: source.slack_channel_id,
+      provider: source.provider,
       organizationId: org.id,
       reason: 'source_created',
     });

@@ -28,7 +28,12 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { StatusBadge } from '@/components/ui/status-badge';
-import type { KnowledgeSource, SourceOption } from '@/types/onboarding';
+import type { KnowledgeProvider, KnowledgeSource, SourceOption } from '@/types/onboarding';
+
+type IntegrationConnection = {
+  provider?: string;
+  status?: string;
+};
 
 function statusVariant(status: string) {
   if (status === 'active') return 'active';
@@ -47,6 +52,29 @@ function sourceIconStyle(status: string) {
   if (status === 'active') return { backgroundColor: 'var(--green-bg)', color: 'var(--green-text)' };
   if (status === 'error') return { backgroundColor: 'var(--red-bg)', color: 'var(--red-text)' };
   return { backgroundColor: 'var(--bg-secondary)', color: 'var(--text-tertiary)' };
+}
+
+function sourceOptionKey(sourceOption: SourceOption) {
+  const provider = sourceOption.provider ?? 'slack';
+  if (provider === 'gong') return 'gong:calls';
+  return sourceOption.id;
+}
+
+function sourceKey(source: KnowledgeSource) {
+  if (source.provider === 'gong') return 'gong:calls';
+  return source.slack_channel_id;
+}
+
+function sourceDisplayName(source: KnowledgeSource | SourceOption) {
+  const provider = ('provider' in source ? source.provider : undefined) ?? 'slack';
+  if (provider === 'slack') return `#${source.name}`;
+  return source.name;
+}
+
+function sourceProviderLabel(provider: KnowledgeProvider) {
+  if (provider === 'gong') return 'Gong';
+  if (provider === 'slack') return 'Slack';
+  return 'Source';
 }
 
 function sourceStatusNotice(status: string) {
@@ -197,20 +225,51 @@ export function KnowledgeClient() {
     setSourceOptionsLoading(true);
     setSourceOptionsError('');
     try {
-      const res = await fetch('/api/onboarding/slack/channels');
-      const data = (await res.json()) as {
-        channels?: SourceOption[];
-        error?: string;
-        detail?: string;
-        needed?: string;
-        provided?: string;
-      };
-      if (!res.ok) {
-        throw new Error(sourceLoadMessage(data));
+      const [slackResult, integrationsResult] = await Promise.allSettled([
+        fetch('/api/onboarding/slack/channels'),
+        fetch('/api/integrations/list', { credentials: 'include' }),
+      ]);
+
+      let slackError = '';
+      let options: SourceOption[] = [];
+
+      if (slackResult.status === 'fulfilled') {
+        const data = (await slackResult.value.json()) as {
+          channels?: SourceOption[];
+          error?: string;
+          detail?: string;
+          needed?: string;
+          provided?: string;
+        };
+        if (slackResult.value.ok) {
+          options = (data.channels ?? []).map((channel) => ({ ...channel, provider: 'slack' }));
+        } else {
+          slackError = sourceLoadMessage(data);
+        }
+      } else {
+        slackError = sourceLoadMessage({});
       }
-      setSourceOptions(data.channels ?? []);
+
+      if (integrationsResult.status === 'fulfilled' && integrationsResult.value.ok) {
+        const data = (await integrationsResult.value.json()) as { connections?: IntegrationConnection[] };
+        const hasGongConnection = (data.connections ?? []).some((connection) => connection.provider === 'gong' && connection.status === 'active');
+        if (hasGongConnection) {
+          options.push({
+            id: 'gong:calls',
+            name: 'Gong Calls',
+            provider: 'gong',
+            member_count: 0,
+            topic: 'Call transcripts from Gong',
+          });
+        }
+      }
+
+      if (options.length === 0 && slackError) {
+        throw new Error(slackError);
+      }
+      setSourceOptions(options);
       setSelectedSourceOptionIds((current) => {
-        const availableIds = new Set((data.channels ?? []).map((sourceOption) => sourceOption.id));
+        const availableIds = new Set(options.map(sourceOptionKey));
         return new Set([...current].filter((id) => availableIds.has(id)));
       });
     } catch (error: unknown) {
@@ -358,7 +417,7 @@ export function KnowledgeClient() {
 
   async function addSelectedSources() {
     const selectedSourceOptions = sourceOptions.filter(
-      (sourceOption) => selectedSourceOptionIds.has(sourceOption.id) && !connectedSourceOptionIds.has(sourceOption.id)
+      (sourceOption) => selectedSourceOptionIds.has(sourceOptionKey(sourceOption)) && !connectedSourceOptionIds.has(sourceOptionKey(sourceOption))
     );
     if (selectedSourceOptions.length === 0) return;
 
@@ -366,14 +425,21 @@ export function KnowledgeClient() {
     setSourceOptionsError('');
     try {
       for (const sourceOption of selectedSourceOptions) {
+        const provider = sourceOption.provider ?? 'slack';
         const res = await fetch('/api/onboarding/knowledge', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            slack_channel_id: sourceOption.id,
-            slack_channel_name: sourceOption.name,
-            name: `#${sourceOption.name}`,
-          }),
+          body: JSON.stringify(provider === 'gong'
+            ? {
+                provider,
+                name: sourceOption.name,
+              }
+            : {
+                provider,
+                slack_channel_id: sourceOption.id,
+                slack_channel_name: sourceOption.name,
+                name: `#${sourceOption.name}`,
+              }),
         });
 
         if (!res.ok) {
@@ -393,16 +459,16 @@ export function KnowledgeClient() {
   }
 
   const filteredSourceOptions = sourceOptions.filter(
-    (c) => c.name.toLowerCase().includes(sourceSearch.toLowerCase())
+    (c) => `${c.name} ${c.topic ?? ''}`.toLowerCase().includes(sourceSearch.toLowerCase())
   );
-  const connectedSourceOptionIds = new Set(sources.map((s) => s.slack_channel_id).filter(Boolean));
+  const connectedSourceOptionIds = new Set(sources.map(sourceKey).filter(Boolean));
   const selectedSourceCount = selectedSourceIds.size;
   const selectedStoppableSourceIds = sources
     .filter((source) => selectedSourceIds.has(source.id) && canStopSync(source.status))
     .map((source) => source.id);
   const allSourcesSelected = sources.length > 0 && selectedSourceCount === sources.length;
   const hasSourceSelection = selectedSourceCount > 0;
-  const selectableCount = filteredSourceOptions.filter((sourceOption) => !connectedSourceOptionIds.has(sourceOption.id)).length;
+  const selectableCount = filteredSourceOptions.filter((sourceOption) => !connectedSourceOptionIds.has(sourceOptionKey(sourceOption))).length;
   const selectedCount = [...selectedSourceOptionIds].filter((id) => !connectedSourceOptionIds.has(id)).length;
   const addButtonLabel = selectedCount === 0
     ? 'Add Sources'
@@ -579,7 +645,7 @@ export function KnowledgeClient() {
                   aria-label={`Select ${source.name}`}
                 />
                 <div className="w-8 h-8 rounded-[7px] flex items-center justify-center flex-shrink-0" style={sourceIconStyle(source.status)}>
-                  <IconHash size={15} />
+                  {source.provider === 'gong' ? <IconDatabase size={15} /> : <IconHash size={15} />}
                 </div>
                 <button
                   type="button"
@@ -681,7 +747,7 @@ export function KnowledgeClient() {
                   {[
                     { label: 'Items Indexed', value: selected.chunk_count ?? 0 },
                     { label: 'Last Synced', value: fmtDate(selected.last_synced_at) },
-                    { label: 'Type', value: 'Source' },
+                    { label: 'Type', value: sourceProviderLabel(selected.provider) },
                   ].map((item) => (
                     <div key={item.label} className="rounded-[8px] p-[12px]" style={{ backgroundColor: 'var(--bg-secondary)' }}>
                       <div className="type-caption mb-1" style={{ color: 'var(--text-tertiary)' }}>{item.label}</div>
@@ -756,11 +822,13 @@ export function KnowledgeClient() {
               <p className="type-body py-6 text-center" style={{ color: 'var(--text-tertiary)' }}>No Sources Found</p>
             ) : (
               filteredSourceOptions.map((sourceOption) => {
-                const connected = connectedSourceOptionIds.has(sourceOption.id);
-                const checked = selectedSourceOptionIds.has(sourceOption.id);
+                const optionKey = sourceOptionKey(sourceOption);
+                const connected = connectedSourceOptionIds.has(optionKey);
+                const checked = selectedSourceOptionIds.has(optionKey);
+                const provider = sourceOption.provider ?? 'slack';
                 return (
                   <label
-                    key={sourceOption.id}
+                    key={optionKey}
                     className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors text-left cursor-pointer has-[:disabled]:opacity-50 has-[:disabled]:cursor-not-allowed"
                   >
                     <div className="flex min-w-0 items-center gap-3">
@@ -768,14 +836,20 @@ export function KnowledgeClient() {
                         type="checkbox"
                         checked={checked}
                         disabled={connected || adding}
-                        onChange={() => toggleSourceOptionSelection(sourceOption.id)}
+                        onChange={() => toggleSourceOptionSelection(optionKey)}
                         className="h-4 w-4 flex-shrink-0 accent-[var(--canon-purple)]"
-                        aria-label={`Select #${sourceOption.name}`}
+                        aria-label={`Select ${sourceDisplayName(sourceOption)}`}
                       />
+                      <div className="size-7 rounded-[7px] flex flex-shrink-0 items-center justify-center" style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--text-tertiary)' }}>
+                        {provider === 'gong' ? <IconDatabase size={14} /> : <IconHash size={14} />}
+                      </div>
                       <div className="min-w-0">
-                        <span className="type-panel-title truncate" style={{ color: 'var(--text-primary)' }}>#{sourceOption.name}</span>
+                        <span className="type-panel-title truncate" style={{ color: 'var(--text-primary)' }}>{sourceDisplayName(sourceOption)}</span>
                         {sourceOption.member_count > 0 && (
                           <span className="type-caption ml-2" style={{ color: 'var(--text-tertiary)' }}>{sourceOption.member_count} members</span>
+                        )}
+                        {provider === 'gong' && (
+                          <span className="type-caption ml-2" style={{ color: 'var(--text-tertiary)' }}>Call transcripts</span>
                         )}
                       </div>
                     </div>

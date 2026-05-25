@@ -5,6 +5,7 @@ import { createLogger } from '@/lib/server/logging';
 type ScheduledKnowledgeSource = {
   id: string;
   organization_id: string;
+  provider: string;
   name: string | null;
   slack_channel_id: string | null;
   slack_channel_name: string | null;
@@ -38,13 +39,15 @@ export const knowledgeSourceScheduledSync = inngest.createFunction(
     const sources = await step.run('load-active-sources', async () => {
       const { data, error } = await supabase
         .from('knowledge_sources')
-        .select('id, organization_id, name, slack_channel_id, slack_channel_name, status')
-        .eq('provider', 'slack')
-        .eq('status', 'active')
-        .not('slack_channel_id', 'is', null);
+        .select('id, organization_id, provider, name, slack_channel_id, slack_channel_name, status')
+        .in('provider', ['slack', 'gong'])
+        .eq('status', 'active');
 
       if (error) throw error;
-      return (data ?? []) as ScheduledKnowledgeSource[];
+      return ((data ?? []) as ScheduledKnowledgeSource[]).filter((source) => {
+        if (source.provider === 'gong') return true;
+        return source.provider === 'slack' && !!source.slack_channel_id;
+      });
     });
 
     if (sources.length === 0) {

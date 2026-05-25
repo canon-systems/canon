@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import {
   IconBell,
   IconBuilding,
+  IconDatabase,
   IconKey,
   IconLoader2,
   IconPlug,
@@ -61,6 +62,10 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   const [success, setSuccess] = useState('');
   const [disconnectModalOpen, setDisconnectModalOpen] = useState(false);
   const [connectionToDisconnect, setConnectionToDisconnect] = useState<{ connectionId: string; provider: string } | null>(null);
+  const [gongModalOpen, setGongModalOpen] = useState(false);
+  const [gongAccessKey, setGongAccessKey] = useState('');
+  const [gongAccessKeySecret, setGongAccessKeySecret] = useState('');
+  const [gongApiBaseUrl, setGongApiBaseUrl] = useState('https://api.gong.io');
 
   const loadConnections = useCallback(async (force = false) => {
     setLoading(true);
@@ -121,6 +126,40 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     }
   }
 
+  async function connectGong() {
+    setConnecting(true);
+    setError('');
+    setSuccess('');
+    try {
+      const response = await fetch('/api/integrations/gong/connect', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          accessKey: gongAccessKey,
+          accessKeySecret: gongAccessKeySecret,
+          apiBaseUrl: gongApiBaseUrl,
+        }),
+      });
+
+      const data = (await response.json()) as { error?: string; detail?: string };
+      if (!response.ok) {
+        throw new Error(data.error || data.detail || 'Failed to connect Gong');
+      }
+
+      setSuccess('Successfully connected to Gong');
+      setGongModalOpen(false);
+      setGongAccessKey('');
+      setGongAccessKeySecret('');
+      setGongApiBaseUrl('https://api.gong.io');
+      clearIntegrationsCache();
+      await loadConnections(true);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to connect Gong');
+    } finally {
+      setConnecting(false);
+    }
+  }
+
   function openDisconnectModal(connectionId: string, provider: string) {
     setConnectionToDisconnect({ connectionId, provider });
     setDisconnectModalOpen(true);
@@ -144,7 +183,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
         throw new Error(data.error || 'Failed to Disconnect');
       }
 
-      setSuccess(`Disconnected from Slack`);
+      setSuccess(`Disconnected from ${providerLabel(provider)}`);
       clearIntegrationsCache();
       await loadConnections(true);
     } catch (err: unknown) {
@@ -168,7 +207,24 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   }
 
   const slackConnection = connections.find(c => c.provider === 'slack' && c.status === 'active');
+  const gongConnection = connections.find(c => c.provider === 'gong' && c.status === 'active');
   const displayName = (user?.user_metadata?.full_name as string | undefined) ?? user?.email?.split('@')[0] ?? 'User';
+
+  function providerLabel(provider: string) {
+    if (provider === 'gong') return 'Gong';
+    if (provider === 'slack') return 'Slack';
+    return provider.charAt(0).toUpperCase() + provider.slice(1);
+  }
+
+  function disconnectDescription(provider: string) {
+    if (provider === 'gong') {
+      return 'Canon will stop syncing Gong calls and remove Gong knowledge sources.';
+    }
+    if (provider === 'slack') {
+      return 'Canon will no longer be able to send DMs or sync Slack channel knowledge.';
+    }
+    return 'Canon will remove connected knowledge sources for this integration.';
+  }
 
   const integrations = [
     {
@@ -181,6 +237,19 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
       connected: !!slackConnection,
       workspace: slackConnection ? `Connected ${formatDate(slackConnection.created_at)}` : '',
       action: slackConnection ? () => openDisconnectModal(slackConnection.connection_id, 'slack') : connectSlack,
+      icon: null,
+    },
+    {
+      id: 'gong',
+      provider: 'gong' as const,
+      name: 'Gong',
+      description: 'Sync customer call transcripts as onboarding knowledge.',
+      iconBg: 'var(--bg-secondary)',
+      iconColor: 'var(--text-secondary)',
+      connected: !!gongConnection,
+      workspace: gongConnection ? `Connected ${formatDate(gongConnection.created_at)}` : '',
+      action: gongConnection ? () => openDisconnectModal(gongConnection.connection_id, 'gong') : () => setGongModalOpen(true),
+      icon: IconDatabase,
     },
   ];
 
@@ -230,10 +299,12 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
           </Alert>
         )}
 
-        {integrations.map((int) => (
+        {integrations.map((int) => {
+          const ProviderIcon = int.icon;
+          return (
           <Card key={int.id} className="mb-[10px] flex items-center gap-[14px] px-4 py-[14px]">
             <div className="w-9 h-9 rounded-[9px] flex items-center justify-center flex-shrink-0" style={{ backgroundColor: int.iconBg, color: int.iconColor }}>
-              <IntegrationLogos provider={int.provider} size={22} color={int.iconColor} />
+              {ProviderIcon ? <ProviderIcon size={20} /> : <IntegrationLogos provider="slack" size={22} color={int.iconColor} />}
             </div>
             <div className="flex-1 min-w-0">
               <div className="type-section-title" style={{ color: 'var(--text-primary)' }}>{int.name}</div>
@@ -241,7 +312,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
               <div className="flex items-center gap-[5px] mt-1">
                 <div className="w-[6px] h-[6px] rounded-full" style={{ backgroundColor: int.connected ? 'var(--green)' : 'var(--border-secondary)' }} />
                 <span className="type-caption" style={{ color: int.connected ? 'var(--green-text)' : 'var(--text-tertiary)' }}>
-                  {int.connected ? `Connected · ${int.workspace}` : 'Not Connected'}
+                  {int.connected ? `Active · ${int.workspace}` : 'Not Connected'}
                 </span>
               </div>
             </div>
@@ -254,7 +325,8 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
               </Button>
             )}
           </Card>
-        ))}
+          );
+        })}
 
         {loading && (
           <div className="flex items-center gap-2 type-body" style={{ color: 'var(--text-tertiary)' }}>
@@ -329,9 +401,9 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
       <Dialog open={disconnectModalOpen && connectionToDisconnect !== null} onOpenChange={(open) => !open && closeDisconnectModal()}>
         <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
           <DialogHeader>
-            <DialogTitle>Disconnect Slack</DialogTitle>
+            <DialogTitle>Disconnect {connectionToDisconnect ? providerLabel(connectionToDisconnect.provider) : 'Integration'}</DialogTitle>
             <DialogDescription>
-              Are you sure you want to disconnect Slack? Canon will no longer be able to send DMs to new hires.
+              {connectionToDisconnect ? disconnectDescription(connectionToDisconnect.provider) : 'Canon will remove this integration.'}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -348,6 +420,63 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
               }}
             >
               Disconnect
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={gongModalOpen} onOpenChange={setGongModalOpen}>
+        <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
+          <DialogHeader>
+            <DialogTitle>Connect Gong</DialogTitle>
+            <DialogDescription>
+              Add a Gong access key and secret so Canon can sync recent call transcripts.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-3">
+            <div>
+              <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }} htmlFor="gong-access-key">
+                Access Key
+              </label>
+              <Input
+                id="gong-access-key"
+                value={gongAccessKey}
+                onChange={(event) => setGongAccessKey(event.target.value)}
+                autoComplete="off"
+              />
+            </div>
+            <div>
+              <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }} htmlFor="gong-access-key-secret">
+                Access Key Secret
+              </label>
+              <Input
+                id="gong-access-key-secret"
+                type="password"
+                value={gongAccessKeySecret}
+                onChange={(event) => setGongAccessKeySecret(event.target.value)}
+                autoComplete="off"
+              />
+            </div>
+            <div>
+              <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }} htmlFor="gong-api-base-url">
+                API Base URL
+              </label>
+              <Input
+                id="gong-api-base-url"
+                value={gongApiBaseUrl}
+                onChange={(event) => setGongApiBaseUrl(event.target.value)}
+                autoComplete="off"
+              />
+              <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>Use the default unless your Gong workspace has a regional API host.</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setGongModalOpen(false)} disabled={connecting}>
+              Cancel
+            </Button>
+            <Button onClick={connectGong} disabled={connecting || !gongAccessKey.trim() || !gongAccessKeySecret.trim()}>
+              {connecting ? <IconLoader2 size={13} className="animate-spin" /> : <IconPlug size={13} />}
+              Connect
             </Button>
           </DialogFooter>
         </DialogContent>

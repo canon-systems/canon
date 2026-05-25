@@ -4,6 +4,7 @@ import { embed } from 'ai';
 import { embeddingModel } from '@/lib/ai';
 import { createLogger, errorMessage } from '@/lib/server/logging';
 import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
+import { getGongCredentialsForOrganization, type GongCredentials } from '@/lib/server/oauth/gongCredentials';
 
 type KnowledgeSourceSyncEvent = {
   sourceId?: string;
@@ -30,6 +31,46 @@ type SlackHistoryResult = {
   pagesFetched: number;
 };
 
+type GongCall = {
+  id: string;
+  url?: string;
+  title?: string;
+  scheduled?: string;
+  started?: string;
+  duration?: number;
+};
+
+type GongCallsResponse = {
+  records?: {
+    cursor?: string;
+  };
+  calls?: GongCall[];
+};
+
+type GongTranscriptSentence = {
+  text?: string;
+  start?: number;
+  end?: number;
+  _end?: number;
+};
+
+type GongTranscriptMonologue = {
+  speakerId?: string;
+  speaker_id?: string;
+  sentences?: GongTranscriptSentence[];
+};
+
+type GongCallTranscript = {
+  callId?: string;
+  call_id?: string;
+  transcript?: GongTranscriptMonologue[];
+};
+
+type GongTranscriptsResponse = {
+  callTranscripts?: GongCallTranscript[];
+  cursor?: string;
+};
+
 type SlackApiListResponse<T> = {
   ok: boolean;
   error?: string;
@@ -43,13 +84,7 @@ type KnowledgeChunkInsert = {
   organization_id: string;
   source_id: string;
   content: string;
-  metadata: {
-    channel_id: string;
-    channel_name: string;
-    earliest_ts: string;
-    latest_ts: string;
-    message_count: number;
-  };
+  metadata: Record<string, unknown>;
   embedding: string;
 };
 
@@ -76,6 +111,8 @@ const log = createLogger('inngest.knowledge_source_sync', {
 const NINETY_DAYS_AGO = () => Math.floor((Date.now() - 90 * 24 * 60 * 60 * 1000) / 1000).toString();
 const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
 const MAX_MESSAGES = 1000;
+const MAX_GONG_CALLS = 50;
+const GONG_LOOKBACK_DAYS = 30;
 const WORDS_PER_CHUNK = 400;
 const MIN_MESSAGE_LENGTH = 20;
 const SYNCABLE_STATUSES = new Set<SyncableSourceStatus>(['pending', 'syncing', 'active']);
@@ -111,6 +148,20 @@ class SlackApiError extends Error {
   }
 }
 
+class GongApiError extends Error {
+  method: string;
+  status: number;
+  detail: string;
+
+  constructor(params: { method: string; status: number; detail: string }) {
+    super(`Gong ${params.method} failed: ${params.detail || params.status}`);
+    this.name = 'GongApiError';
+    this.method = params.method;
+    this.status = params.status;
+    this.detail = params.detail;
+  }
+}
+
 class NoSyncableContentError extends Error {
   rawMessages: number;
   filteredMessages: number;
@@ -125,6 +176,10 @@ class NoSyncableContentError extends Error {
     this.enrichedMessages = params.enrichedMessages;
     this.chunks = params.chunks;
   }
+}
+
+function gongLookbackStart(): string {
+  return new Date(Date.now() - GONG_LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString();
 }
 
 async function assertSyncStillActive(
@@ -301,6 +356,130 @@ function chunkMessages(messages: SlackMessage[], channelId: string, channelName:
   return chunks;
 }
 
+async function gongRequest<T>(credentials: GongCredentials, method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
+  const response = await fetch(new URL(path, credentials.apiBaseUrl), {
+    method,
+    headers: {
+      Accept: 'application/json',
+      Authorization: credentials.authorization,
+      ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
+    },
+    body: method === 'POST' ? JSON.stringify(body ?? {}) : undefined,
+  });
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    throw new GongApiError({ method: path, status: response.status, detail });
+  }
+
+  return response.json() as Promise<T>;
+}
+
+async function fetchGongCalls(credentials: GongCredentials): Promise<{ calls: GongCall[]; pagesFetched: number }> {
+  const calls: GongCall[] = [];
+  let cursor: string | undefined;
+  let pagesFetched = 0;
+  const fromDateTime = gongLookbackStart();
+  const toDateTime = new Date().toISOString();
+
+  while (calls.length < MAX_GONG_CALLS) {
+    const params = new URLSearchParams({ fromDateTime, toDateTime });
+    if (cursor) params.set('cursor', cursor);
+    const data = await gongRequest<GongCallsResponse>(credentials, 'GET', `/v2/calls?${params.toString()}`);
+    pagesFetched++;
+    calls.push(...(data.calls ?? []));
+    cursor = data.records?.cursor || undefined;
+    if (!cursor) break;
+  }
+
+  return { calls: calls.slice(0, MAX_GONG_CALLS), pagesFetched };
+}
+
+async function fetchGongTranscripts(credentials: GongCredentials, callIds: string[]): Promise<GongCallTranscript[]> {
+  if (callIds.length === 0) return [];
+  const data = await gongRequest<GongTranscriptsResponse>(credentials, 'POST', '/v2/calls/transcript', { callIds });
+  return data.callTranscripts ?? [];
+}
+
+function sentenceEnd(sentence: GongTranscriptSentence): number | undefined {
+  return typeof sentence.end === 'number'
+    ? sentence.end
+    : typeof sentence._end === 'number'
+      ? sentence._end
+      : undefined;
+}
+
+function transcriptText(transcript: GongCallTranscript): string {
+  return (transcript.transcript ?? [])
+    .flatMap((monologue) => {
+      const speaker = monologue.speakerId || monologue.speaker_id || 'speaker';
+      return (monologue.sentences ?? [])
+        .map((sentence) => {
+          const text = typeof sentence.text === 'string' ? sentence.text.trim() : '';
+          if (!text) return '';
+          const start = typeof sentence.start === 'number' ? sentence.start : null;
+          const end = sentenceEnd(sentence);
+          const timeLabel = start !== null && typeof end === 'number' ? ` (${start}-${end}ms)` : '';
+          return `${speaker}${timeLabel}: ${text}`;
+        })
+        .filter(Boolean);
+    })
+    .join('\n');
+}
+
+function chunkTextByWords(text: string, wordsPerChunk: number): string[] {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [];
+  const chunks: string[] = [];
+  for (let index = 0; index < words.length; index += wordsPerChunk) {
+    chunks.push(words.slice(index, index + wordsPerChunk).join(' '));
+  }
+  return chunks;
+}
+
+function chunkGongTranscripts(
+  calls: GongCall[],
+  transcripts: GongCallTranscript[]
+): Array<{ content: string; metadata: Record<string, unknown> }> {
+  const callsById = new Map(calls.map((call) => [call.id, call]));
+  const chunks: Array<{ content: string; metadata: Record<string, unknown> }> = [];
+
+  for (const transcript of transcripts) {
+    const callId = transcript.callId || transcript.call_id || '';
+    if (!callId) continue;
+
+    const call = callsById.get(callId);
+    const body = transcriptText(transcript);
+    if (wordCount(body) < MIN_MESSAGE_LENGTH) continue;
+
+    const title = call?.title || 'Gong call';
+    const header = [
+      `Gong call: ${title}`,
+      call?.started || call?.scheduled ? `Date: ${call.started || call.scheduled}` : '',
+      call?.url ? `URL: ${call.url}` : '',
+    ].filter(Boolean).join('\n');
+
+    const parts = chunkTextByWords(body, WORDS_PER_CHUNK);
+    parts.forEach((part, index) => {
+      chunks.push({
+        content: `${header}\n\n${part}`,
+        metadata: {
+          provider: 'gong',
+          call_id: callId,
+          call_title: title,
+          call_url: call?.url ?? null,
+          started_at: call?.started ?? call?.scheduled ?? null,
+          duration_seconds: call?.duration ?? null,
+          chunk_index: index,
+          chunk_count: parts.length,
+        },
+      });
+    });
+  }
+
+  return chunks;
+}
+
 export const knowledgeSourceSync = inngest.createFunction(
   {
     id: 'knowledge-source-sync',
@@ -324,20 +503,25 @@ export const knowledgeSourceSync = inngest.createFunction(
     const syncStartedAt = Date.now();
     const supabase = createServiceRoleClient();
 
-    const { data: source, error: slackError } = await supabase
+    const { data: source, error: sourceError } = await supabase
       .from('knowledge_sources')
       .select('id, organization_id, provider, name, slack_channel_id, slack_channel_name, status')
       .eq('id', sourceId)
       .single();
 
-    if (slackError || !source) {
+    if (sourceError || !source) {
       log.info('sync_skipped', { sourceId, reason: 'source_not_found' });
       return { skipped: true, reason: 'source_not_found' };
     }
 
-    if (source.provider !== 'slack' || !source.slack_channel_id) {
+    if (source.provider !== 'slack' && source.provider !== 'gong') {
       log.info('sync_skipped', { sourceId, reason: 'not_supported_source' });
       return { skipped: true, reason: 'not_supported_source' };
+    }
+
+    if (source.provider === 'slack' && !source.slack_channel_id) {
+      log.info('sync_skipped', { sourceId, reason: 'missing_slack_channel_id' });
+      return { skipped: true, reason: 'missing_slack_channel_id' };
     }
 
     if (!SYNCABLE_STATUSES.has(source.status as SyncableSourceStatus)) {
@@ -348,6 +532,159 @@ export const knowledgeSourceSync = inngest.createFunction(
         status: source.status,
       });
       return { skipped: true, reason: 'status_not_syncable', status: source.status };
+    }
+
+    if (source.provider === 'gong') {
+      const credentials = await getGongCredentialsForOrganization(organizationId);
+
+      if (!credentials) {
+        log.error('sync_failed', {
+          sourceId,
+          channel: source.name,
+          provider: source.provider,
+          error: 'No active Gong credentials configured for organization owner',
+          ms: elapsedMs(syncStartedAt),
+        });
+        await supabase
+          .from('knowledge_sources')
+          .update({ status: 'error', error_message: null })
+          .eq('id', sourceId);
+        return { ok: false, sourceId, reason: 'missing_gong_credentials' };
+      }
+
+      await supabase.from('knowledge_sources').update({ status: 'syncing', error_message: null }).eq('id', sourceId);
+
+      log.info('sync_start', {
+        sourceId,
+        channel: source.name,
+        provider: source.provider,
+        organizationId,
+      });
+
+      try {
+        const { embeddedCount } = await step.run('fetch-gong-embed-insert', async () => {
+          const fetchStartedAt = Date.now();
+          await assertSyncStillActive(supabase, sourceId, 'gong call fetch');
+          const { calls, pagesFetched } = await fetchGongCalls(credentials);
+          const callIds = calls.map((call) => call.id).filter(Boolean);
+          const transcripts = await fetchGongTranscripts(credentials, callIds);
+
+          log.info('sync_history_fetched', {
+            sourceId,
+            channel: source.name,
+            provider: source.provider,
+            rawMessages: calls.length,
+            filteredMessages: callIds.length,
+            enrichedMessages: transcripts.length,
+            pages: pagesFetched,
+            ms: elapsedMs(fetchStartedAt),
+          });
+
+          await assertSyncStillActive(supabase, sourceId, 'gong chunking');
+          const chunks = chunkGongTranscripts(calls, transcripts);
+
+          log.info('sync_chunks_ready', {
+            sourceId,
+            channel: source.name,
+            provider: source.provider,
+            chunks: chunks.length,
+            messages: transcripts.length,
+          });
+
+          if (chunks.length === 0) {
+            throw new NoSyncableContentError({
+              rawMessages: calls.length,
+              filteredMessages: callIds.length,
+              enrichedMessages: transcripts.length,
+              chunks: chunks.length,
+            });
+          }
+
+          const rows: KnowledgeChunkInsert[] = [];
+          for (const chunk of chunks) {
+            await assertSyncStillActive(supabase, sourceId, 'embedding');
+            const { embedding } = await embed({ model: embeddingModel, value: chunk.content });
+            rows.push({
+              organization_id: organizationId,
+              source_id: sourceId,
+              content: chunk.content,
+              metadata: chunk.metadata,
+              embedding: JSON.stringify(embedding),
+            });
+          }
+
+          await assertSyncStillActive(supabase, sourceId, 'replace chunks');
+          const { error: deleteError } = await supabase.from('knowledge_chunks').delete().eq('source_id', sourceId);
+          if (deleteError) throw deleteError;
+
+          const { error: insertError } = await supabase.from('knowledge_chunks').insert(rows);
+          if (insertError) throw insertError;
+
+          return { embeddedCount: rows.length };
+        });
+
+        await assertSyncStillActive(supabase, sourceId, 'finalize');
+        await supabase.from('knowledge_sources').update({
+          status: 'active',
+          last_synced_at: new Date().toISOString(),
+          chunk_count: embeddedCount,
+          error_message: null,
+        }).eq('id', sourceId);
+
+        log.info('sync_complete', {
+          sourceId,
+          channel: source.name,
+          provider: source.provider,
+          chunksEmbedded: embeddedCount,
+          ms: elapsedMs(syncStartedAt),
+        });
+        return { ok: true, sourceId, chunksEmbedded: embeddedCount };
+      } catch (error) {
+        if (error instanceof SyncStoppedError) {
+          log.info('sync_stopped', {
+            sourceId,
+            channel: source.name,
+            provider: source.provider,
+            phase: error.phase,
+            ms: elapsedMs(syncStartedAt),
+          });
+          return { ok: true, sourceId, stopped: true, phase: error.phase };
+        }
+
+        const msg = errorMessage(error);
+        if (error instanceof NoSyncableContentError) {
+          log.warn('sync_no_content', {
+            sourceId,
+            channel: source.name,
+            provider: source.provider,
+            rawMessages: error.rawMessages,
+            filteredMessages: error.filteredMessages,
+            enrichedMessages: error.enrichedMessages,
+            chunks: error.chunks,
+            ms: elapsedMs(syncStartedAt),
+          });
+        }
+        if (error instanceof GongApiError) {
+          log.error('source_api_failed', {
+            sourceId,
+            channel: source.name,
+            provider: source.provider,
+            method: error.method,
+            status: error.status,
+            error: error.detail,
+            ms: elapsedMs(syncStartedAt),
+          });
+        }
+        log.error('sync_failed', {
+          sourceId,
+          channel: source.name,
+          provider: source.provider,
+          error: msg,
+          ms: elapsedMs(syncStartedAt),
+        });
+        await supabase.from('knowledge_sources').update({ status: 'error', error_message: null }).eq('id', sourceId);
+        throw error;
+      }
     }
 
     const { accessToken, ownerId, connectionId, scope } = await getSlackAccessTokenForOrganization(supabase, organizationId);

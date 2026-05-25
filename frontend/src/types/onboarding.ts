@@ -1,6 +1,6 @@
 export type HireRole = 'AI Solutions Architect' | 'Solutions Engineer' | 'Implementation Engineer';
 export type HireStatus = 'active' | 'paused' | 'completed';
-export type KnowledgeProvider = 'slack' | 'notion' | 'google_drive' | 'confluence';
+export type KnowledgeProvider = 'slack' | 'notion' | 'google_drive' | 'confluence' | 'gong';
 export type KnowledgeSourceStatus = 'pending' | 'syncing' | 'active' | 'error' | 'stopped';
 export type DeliveryStatus = 'pending' | 'delivered' | 'failed';
 export type AccessRequestStatus = 'pending' | 'sent' | 'acknowledged' | 'granted';
@@ -261,6 +261,7 @@ export interface ReadinessBrief {
 export interface SourceOption {
   id: string;
   name: string;
+  provider?: KnowledgeProvider;
   member_count: number;
   topic: string;
 }
