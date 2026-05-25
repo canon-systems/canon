@@ -18,7 +18,10 @@ type ConnectionRow = {
 type SourceRow = {
   id: string;
   provider: string | null;
-  scope: Record<string, unknown> | null;
+  scope?: Record<string, unknown> | null;
+  name?: string | null;
+  slack_channel_id?: string | null;
+  slack_channel_name?: string | null;
 };
 
 function normalizeProvider(value: string | undefined): string | null {
@@ -47,6 +50,12 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = createServiceRoleClient();
+
+    const { data: org } = await supabase
+      .from('organizations')
+      .select('id')
+      .eq('owner_id', user.id)
+      .maybeSingle();
 
     let connectionLookup = supabase
       .from('oauth_connections')
@@ -97,28 +106,12 @@ export async function POST(request: NextRequest) {
 
     const sourcesById = new Map<string, SourceRow>();
 
-    if (internalConnectionIds.length > 0) {
-      const { data: sourceRowsByConnection, error: sourceByConnectionError } = (await supabase
-        .from('workspace_sources')
-        .select('id, provider, scope')
-        .eq('user_id', user.id)
-        .in('connection_id', internalConnectionIds)) as { data: SourceRow[] | null; error: { message?: string } | null };
-
-      if (sourceByConnectionError) {
-        throw sourceByConnectionError;
-      }
-
-      for (const source of sourceRowsByConnection || []) {
-        sourcesById.set(source.id, source);
-      }
-    }
-
     const sourceProviders = Array.from(sourceProviderSet);
-    if (sourceProviders.length > 0) {
+    if (org && sourceProviders.length > 0) {
       const { data: sourceRowsByProvider, error: sourceByProviderError } = (await supabase
-        .from('workspace_sources')
-        .select('id, provider, scope')
-        .eq('user_id', user.id)
+        .from('knowledge_sources')
+        .select('id, provider, name, slack_channel_id, slack_channel_name')
+        .eq('organization_id', org.id)
         .in('provider', sourceProviders)) as { data: SourceRow[] | null; error: { message?: string } | null };
 
       if (sourceByProviderError) {
@@ -138,10 +131,10 @@ export async function POST(request: NextRequest) {
       });
 
       const { error: sourceDeleteError } = await supabase
-        .from('workspace_sources')
+        .from('knowledge_sources')
         .delete()
         .eq('id', source.id)
-        .eq('user_id', user.id);
+        .eq('organization_id', org?.id ?? '');
 
       if (sourceDeleteError) {
         throw sourceDeleteError;
@@ -149,7 +142,14 @@ export async function POST(request: NextRequest) {
 
       try {
         const providerForLog = typeof source.provider === 'string' ? source.provider : 'unknown';
-        const sourceScope = source.scope && typeof source.scope === 'object' ? source.scope : null;
+        const sourceScope = source.scope && typeof source.scope === 'object'
+          ? source.scope
+          : providerForLog === 'slack'
+            ? {
+                channelId: source.slack_channel_id,
+                channelName: source.slack_channel_name || source.name,
+              }
+            : null;
         const sourceUrl = sourceUrlFromSourceScope(providerForLog, sourceScope);
         await trackSourceDisconnected(supabase, user.id, source.id, sourceUrl, null, providerForLog);
       } catch (logError) {
