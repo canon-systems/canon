@@ -293,8 +293,8 @@ export function KnowledgeClient() {
       ids: targetSources.map((source) => source.id),
       title: targetSources.length === 1 ? `Delete ${targetSources[0].name}?` : `Delete ${targetSources.length} sources?`,
       description: targetSources.length === 1
-        ? 'This removes the source from Canon knowledge and deletes its synced chunks.'
-        : 'This removes the selected sources from Canon knowledge and deletes their synced chunks.',
+        ? 'This removes the source from Canon knowledge and deletes its indexed history.'
+        : 'This removes the selected sources from Canon knowledge and deletes their indexed history.',
     });
     setActionError('');
   }
@@ -407,7 +407,7 @@ export function KnowledgeClient() {
   const addButtonLabel = selectedCount === 0
     ? 'Add Sources'
     : `Add ${selectedCount} Source${selectedCount === 1 ? '' : 's'}`;
-  const totalChunks = sources.reduce((sum, source) => sum + (source.chunk_count ?? 0), 0);
+  const totalKnowledgeItems = sources.reduce((sum, source) => sum + (source.chunk_count ?? 0), 0);
   const activeCount = sources.filter((source) => source.status === 'active').length;
   const errorCount = sources.filter((source) => source.status === 'error').length;
   const pendingCount = sources.filter((source) => isSyncInProgress(source.status)).length;
@@ -445,7 +445,7 @@ export function KnowledgeClient() {
 
       <div className="flex gap-3 px-6 py-[14px] border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
         {[
-          { icon: IconDatabase, iconColor: 'var(--canon-purple)', iconBg: 'var(--canon-purple-light)', value: totalChunks, label: 'Total Chunks' },
+          { icon: IconDatabase, iconColor: 'var(--canon-purple)', iconBg: 'var(--canon-purple-light)', value: totalKnowledgeItems, label: 'Knowledge Items' },
           { icon: IconChecks, iconColor: 'var(--green)', iconBg: 'var(--green-bg)', value: activeCount, label: 'Active Sources' },
           { icon: IconAlertCircle, iconColor: 'var(--red)', iconBg: 'var(--red-bg)', value: errorCount, label: 'Needs Attention' },
           { icon: IconClock, iconColor: 'var(--amber)', iconBg: 'var(--amber-bg)', value: pendingCount, label: 'Pending Sync' },
@@ -472,8 +472,8 @@ export function KnowledgeClient() {
           <Button onClick={openAddModal} size="sm"><IconPlus size={13} /> Add a Source</Button>
         </div>
       ) : (
-        <div className="flex flex-1 overflow-hidden">
-          <div className="w-[300px] flex-shrink-0 overflow-y-auto border-r" style={{ borderColor: 'var(--border-tertiary)' }}>
+        <div className="grid flex-1 grid-cols-1 overflow-hidden lg:grid-cols-3">
+          <div className="min-w-0 overflow-y-auto border-r lg:col-span-1" style={{ borderColor: 'var(--border-tertiary)' }}>
             <div className="sticky top-0 z-10 border-b px-[14px] py-[10px]" style={{ backgroundColor: 'var(--bg-page)', borderColor: 'var(--border-tertiary)' }}>
               <div className="flex items-center gap-2">
                 <input
@@ -587,7 +587,7 @@ export function KnowledgeClient() {
                   className="min-w-0 flex-1 cursor-pointer text-left"
                 >
                   <div className="type-panel-title truncate" style={{ color: 'var(--text-primary)' }}>{source.name}</div>
-                  <div className="type-caption mt-[1px]" style={{ color: 'var(--text-tertiary)' }}>{source.chunk_count} chunks</div>
+                  <div className="type-caption mt-[1px]" style={{ color: 'var(--text-tertiary)' }}>{source.chunk_count} item{source.chunk_count === 1 ? '' : 's'} indexed</div>
                 </button>
                 <StatusBadge variant={statusVariant(source.status)} label={source.status} />
                 <DropdownMenu>
@@ -625,9 +625,9 @@ export function KnowledgeClient() {
             ))}
           </div>
 
-          <div className="flex-1 overflow-y-auto px-6 py-5">
+          <div className="min-w-0 overflow-y-auto px-6 py-5 lg:col-span-2">
             {selected ? (
-              <div className="max-w-4xl">
+              <div className="w-full">
                 {(() => {
                   const notice = sourceStatusNotice(selected.status);
                   if (!notice) return null;
@@ -679,7 +679,7 @@ export function KnowledgeClient() {
 
                 <div className="grid grid-cols-3 gap-3 mb-5">
                   {[
-                    { label: 'Chunks', value: selected.chunk_count ?? 0 },
+                    { label: 'Items Indexed', value: selected.chunk_count ?? 0 },
                     { label: 'Last Synced', value: fmtDate(selected.last_synced_at) },
                     { label: 'Type', value: 'Source' },
                   ].map((item) => (
@@ -701,7 +701,7 @@ export function KnowledgeClient() {
                           ? 'Sync Stopped'
                           : 'Latest Sync Complete',
                       time: fmtDate(selected.last_synced_at),
-                      chunks: `${selected.chunk_count ?? 0} Chunks`,
+                      chunks: `${selected.chunk_count ?? 0} item${selected.chunk_count === 1 ? '' : 's'} indexed`,
                     },
                     { success: true, label: 'Source Connected', time: fmtDate(selected.created_at), chunks: 'Ready' },
                   ].map((event) => (
