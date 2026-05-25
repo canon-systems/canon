@@ -566,7 +566,7 @@ export function ReadinessClient() {
                             <IconChevronDown size={14} />
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-[210px]">
+                        <DropdownMenuContent align="end">
                           <DropdownMenuGroup>
                             <DropdownMenuItem
                               role="menuitemcheckbox"
@@ -794,7 +794,7 @@ export function ReadinessClient() {
                         <IconChevronDown size={14} />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-[240px]">
+                    <DropdownMenuContent align="end">
                       {channels.length === 0 ? (
                         <DropdownMenuItem disabled>No channels found</DropdownMenuItem>
                       ) : (
@@ -826,7 +826,7 @@ export function ReadinessClient() {
                         <IconChevronDown size={14} />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-[240px]">
+                    <DropdownMenuContent align="end">
                       {slackUsersReconnectRequired ? (
                         <DropdownMenuItem disabled>Reconnect Slack to enable DMs</DropdownMenuItem>
                       ) : slackUsers.length === 0 ? (
