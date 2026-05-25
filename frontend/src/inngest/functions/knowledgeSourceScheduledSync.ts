@@ -19,6 +19,7 @@ const log = createLogger('inngest.knowledge_source_scheduled_sync', {
     scheduled_sync_skipped: 'Scheduled Sync Skipped',
     scheduled_sync_queue_failed: 'Scheduled Sync Queue Failed',
   },
+  componentColor: 'orange',
 });
 
 export const knowledgeSourceScheduledSync = inngest.createFunction(

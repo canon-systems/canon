@@ -18,6 +18,7 @@ const log = createLogger('inngest.milestone_proposal_generation', {
     role_failed: 'Role Failed',
     proposals_insert_failed: 'Proposals Insert Failed',
   },
+  componentColor: 'orange',
 });
 
 const ROLES: HireRole[] = ['AI Solutions Architect', 'Solutions Engineer', 'Implementation Engineer'];
@@ -215,9 +216,9 @@ function chunkEvidence(chunks: KnowledgeChunkResult[]): MilestoneSourceEvidence[
     const label = channelName ? `#${channelName.replace(/^#/, '')}` : sourceName ?? provider;
     const url = channelId
       ? `https://slack.com/app_redirect?${new URLSearchParams({
-          channel: channelId,
-          ...(latestTs ? { message_ts: latestTs } : {}),
-        }).toString()}`
+        channel: channelId,
+        ...(latestTs ? { message_ts: latestTs } : {}),
+      }).toString()}`
       : null;
     const key = `${provider}:${label}:${url ?? chunk.id}`;
     if (seen.has(key)) return [];

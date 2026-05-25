@@ -70,6 +70,7 @@ const log = createLogger('inngest.knowledge_source_sync', {
     sync_no_content: 'No Syncable Content',
     sync_db_write_failed: 'DB Write Failed',
   },
+  componentColor: 'orange',
 });
 
 const NINETY_DAYS_AGO = () => Math.floor((Date.now() - 90 * 24 * 60 * 60 * 1000) / 1000).toString();

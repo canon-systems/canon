@@ -4,7 +4,7 @@ import { embed, generateObject } from 'ai';
 import { z } from 'zod';
 import { llm, embeddingModel } from '@/lib/ai';
 import { createLogger, errorMessage } from '@/lib/server/logging';
-import { sendSlackDirectMessage, sendSlackMessage } from '@/lib/server/signals/delivery';
+import { sendSlackDirectMessage, sendSlackMessage, type SlackDeliveryResult } from '@/lib/server/signals/delivery';
 import type { ReadinessCategory, HireRole } from '@/types/onboarding';
 
 const log = createLogger('inngest.readiness_analysis', {
@@ -22,6 +22,7 @@ const log = createLogger('inngest.readiness_analysis', {
     delivery_plan: 'Delivery Plan',
     delivery_target_result: 'Delivery Target Result',
   },
+  componentColor: 'orange',
 });
 
 type KnowledgeChunkResult = {
@@ -368,7 +369,7 @@ async function deliverReadinessItems(params: {
     ? settings.userIds
     : await activeRoleSlackUsers({ supabase, organizationId, roles });
   const text = buildReadinessNote(items);
-  const deliveries: { target: string; type: 'channel' | 'dm'; sent: boolean; reason?: string }[] = [];
+  const deliveries: Array<{ target: string; type: 'channel' | 'dm' } & SlackDeliveryResult> = [];
 
   log.info('delivery_plan', {
     orgId: organizationId,
@@ -398,6 +399,9 @@ async function deliverReadinessItems(params: {
       target: delivery.target,
       sent: delivery.sent,
       reason: delivery.reason,
+      slackChannel: delivery.channel,
+      slackTs: delivery.ts,
+      permalink: delivery.permalink,
     });
   }
 

@@ -17,6 +17,7 @@ const log = createLogger('inngest.daily_ramp_check', {
     delivery_failed: 'Delivery Failed',
     delivery_skipped: 'Delivery Skipped',
   },
+  componentColor: 'orange',
 });
 
 type KnowledgeChunkResult = { id: string; content: string; metadata: Record<string, unknown>; similarity: number };

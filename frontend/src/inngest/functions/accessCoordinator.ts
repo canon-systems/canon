@@ -14,6 +14,7 @@ const log = createLogger('inngest.access_coordinator', {
     coordinator_failed: 'Coordinator Failed',
     coordinator_skipped: 'Coordinator Skipped',
   },
+  componentColor: 'orange',
 });
 
 async function sendAccessRequestDM(params: {
