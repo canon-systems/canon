@@ -31,9 +31,7 @@ import { StatusBadge } from '@/components/ui/status-badge';
 import { MilestoneProgress } from '@/components/ui/milestone-progress';
 import { NewHireForm, type EditableNewHire } from '@/components/new-hire-form';
 import { cn } from '@/components/ui/utils';
-import type { AccessRequest, HireRole, HireStatus, RampDelivery } from '@/types/onboarding';
-
-const MILESTONE_DAYS = [1, 7, 14, 30, 45, 60, 90];
+import type { AccessRequest, HireRole, HireStatus, NewHireMilestonePathItem, RampDelivery } from '@/types/onboarding';
 
 type HireRow = {
   id: string;
@@ -53,6 +51,7 @@ type HireDetail = {
   };
   deliveries: RampDelivery[];
   access_requests: AccessRequest[];
+  milestone_path: NewHireMilestonePathItem[];
 };
 
 function fmtDate(d: string) {
@@ -64,16 +63,24 @@ function fmtDetailDate(d: string | null) {
   return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-function deliveryVariant(status: string) {
-  if (status === 'delivered') return 'delivered';
-  if (status === 'failed') return 'error';
-  return 'upcoming';
-}
-
 function accessVariant(status: string) {
   if (status === 'granted') return 'delivered';
   if (status === 'sent' || status === 'acknowledged') return 'stalled';
   return 'pending';
+}
+
+function progressVariant(status: string | null | undefined) {
+  if (status === 'verified') return 'delivered';
+  if (status === 'evidence_detected') return 'stalled';
+  if (status === 'briefed') return 'upcoming';
+  return 'pending';
+}
+
+function progressLabel(status: string | null | undefined) {
+  if (status === 'verified') return 'Verified';
+  if (status === 'evidence_detected') return 'Evidence Detected';
+  if (status === 'briefed') return 'Briefed';
+  return 'Not Started';
 }
 
 function HireActionsMenu({
@@ -136,11 +143,12 @@ export function NewHiresClient() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedDetail, setSelectedDetail] = useState<HireDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'Deliveries' | 'Access'>('Deliveries');
+  const [activeTab, setActiveTab] = useState<'Ramp Evidence' | 'Access'>('Ramp Evidence');
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingHire, setEditingHire] = useState<EditableNewHire | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Pick<HireRow, 'id' | 'name' | 'status'> | null>(null);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+  const [milestoneActionId, setMilestoneActionId] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
 
   const load = useCallback(async () => {
@@ -187,7 +195,7 @@ export function NewHiresClient() {
 
     let cancelled = false;
     setDetailLoading(true);
-    setActiveTab('Deliveries');
+    setActiveTab('Ramp Evidence');
 
     async function loadSelectedHire() {
       try {
@@ -288,6 +296,38 @@ export function NewHiresClient() {
       await load();
     } finally {
       setActionLoadingId(null);
+    }
+  }
+
+  async function verifyMilestone(item: NewHireMilestonePathItem) {
+    if (!selectedDetail) return;
+    setMilestoneActionId(item.milestone.id);
+    setActionError('');
+    try {
+      const res = await fetch('/api/onboarding/milestone-evidence', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          new_hire_id: selectedDetail.hire.id,
+          milestone_id: item.milestone.id,
+          evidence_type: 'manager_verification',
+          trust_level: 'high',
+          confidence: 0.95,
+          source: 'manager_review',
+          source_event_id: `manager-review:${selectedDetail.hire.id}:${item.milestone.id}`,
+          metadata: { reviewed_from: 'new_hires_detail' },
+        }),
+      });
+      const json = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        setActionError(json.error ?? 'Failed to verify milestone.');
+        return;
+      }
+      const detailRes = await fetch(`/api/onboarding/new-hires/${selectedDetail.hire.id}`);
+      const detailJson = (await detailRes.json()) as HireDetail;
+      setSelectedDetail(detailJson);
+    } finally {
+      setMilestoneActionId(null);
     }
   }
 
@@ -468,18 +508,32 @@ export function NewHiresClient() {
                   />
                 </div>
 
-                <MilestoneProgress
-                  milestones={MILESTONE_DAYS.map((day) => ({
-                    label: `D${day}`,
-                    status: day < selectedDetail.hire.ramp_day ? 'done' as const : day === selectedDetail.hire.ramp_day ? 'current' as const : 'pending' as const,
-                  }))}
-                  progress={Math.min(100, (selectedDetail.hire.ramp_day / 90) * 100)}
-                />
+                {selectedDetail.milestone_path.length > 0 ? (
+                  <MilestoneProgress
+                    milestones={selectedDetail.milestone_path.map((item, index) => {
+                      const status = item.progress?.status;
+                      const firstOpenIndex = selectedDetail.milestone_path.findIndex((candidate) => candidate.progress?.status !== 'verified');
+                      return {
+                        label: `D${item.milestone.day_trigger}`,
+                        status: status === 'verified'
+                          ? 'done' as const
+                          : index === (firstOpenIndex === -1 ? selectedDetail.milestone_path.length - 1 : firstOpenIndex)
+                            ? 'current' as const
+                            : 'pending' as const,
+                      };
+                    })}
+                    progress={Math.round((selectedDetail.milestone_path.filter((item) => item.progress?.status === 'verified').length / selectedDetail.milestone_path.length) * 100)}
+                  />
+                ) : (
+                  <div className="rounded-[8px] border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] px-3 py-2 type-body text-[var(--text-tertiary)]">
+                    No approved company milestones for this role yet.
+                  </div>
+                )}
               </div>
 
               <div className="flex border-b px-8" style={{ borderColor: 'var(--border-tertiary)' }}>
-                {(['Deliveries', 'Access'] as const).map((tab) => {
-                  const count = tab === 'Deliveries' ? selectedDetail.deliveries.length : selectedDetail.access_requests.length;
+                {(['Ramp Evidence', 'Access'] as const).map((tab) => {
+                  const count = tab === 'Ramp Evidence' ? selectedDetail.milestone_path.length : selectedDetail.access_requests.length;
                   return (
                     <button
                       key={tab}
@@ -500,22 +554,24 @@ export function NewHiresClient() {
               </div>
 
               <div className="flex-1 overflow-y-auto px-8 py-6">
-                {activeTab === 'Deliveries' && (
-                  selectedDetail.deliveries.length === 0 ? (
+                {activeTab === 'Ramp Evidence' && (
+                  selectedDetail.milestone_path.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full gap-3 py-12">
                       <IconUsers size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
-                      <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Deliveries Yet</div>
+                      <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Ramp Path Yet</div>
                       <div className="type-body text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
-                        Deliveries appear when ramp milestones are reached.
+                        Approved company milestones for this role will appear here.
                       </div>
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {selectedDetail.deliveries.map((delivery) => {
-                        const delivered = delivery.delivery_status === 'delivered';
+                      {selectedDetail.milestone_path.map((item) => {
+                        const relatedDelivery = selectedDetail.deliveries.find((delivery) => delivery.milestone_id === item.milestone.id);
+                        const evidence = item.evidence;
+                        const status = item.progress?.status ?? 'not_started';
                         return (
                           <div
-                            key={delivery.id}
+                            key={item.milestone.id}
                             className="overflow-hidden rounded-[10px] border transition-colors duration-[120ms]"
                             style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}
                             onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--border-secondary)'; }}
@@ -523,27 +579,78 @@ export function NewHiresClient() {
                           >
                             <div className="flex items-start gap-4 px-5 py-4">
                               <div className="pt-1">
-                                <StatusBadge variant={deliveryVariant(delivery.delivery_status)} label={delivered ? 'Delivered' : delivery.delivery_status === 'failed' ? 'Failed' : 'Upcoming'} />
+                                <StatusBadge variant={progressVariant(status)} label={progressLabel(status)} />
                               </div>
                               <div className="min-w-0 flex-1">
                                 <div className="flex items-start justify-between gap-4">
                                   <div className="type-metric-sm leading-[1.3]" style={{ color: 'var(--text-primary)' }}>
-                                    {delivery.milestone ? `Day ${delivery.milestone.day_trigger} - ${delivery.milestone.title}` : 'Ramp Delivery'}
+                                    Day {item.milestone.day_trigger} - {item.milestone.title}
                                   </div>
                                   <div className="type-body whitespace-nowrap pt-1" style={{ color: 'var(--text-tertiary)' }}>
-                                    {fmtDetailDate(delivery.delivered_at ?? delivery.created_at)}
+                                    {item.progress?.verified_at
+                                      ? `Verified ${fmtDetailDate(item.progress.verified_at)}`
+                                      : item.progress?.first_briefed_at
+                                        ? `Briefed ${fmtDetailDate(item.progress.first_briefed_at)}`
+                                        : 'Upcoming'}
                                   </div>
                                 </div>
+                                <p className="type-body mt-2 leading-[1.6]" style={{ color: 'var(--text-secondary)' }}>
+                                  {item.milestone.capability_outcome ?? item.milestone.description}
+                                </p>
                               </div>
                             </div>
                             <div className="px-5 pb-5 pt-4 border-t" style={{ borderColor: 'var(--border-tertiary)' }}>
-                              <p className="type-body-strong leading-[1.65]" style={{ color: delivered ? 'var(--text-secondary)' : 'var(--text-tertiary)' }}>
-                                {delivery.content_delivered ?? delivery.error_message ?? 'This delivery has not been generated yet.'}
-                              </p>
-                              {delivered && (
-                                <button type="button" className="type-body flex items-center gap-[4px] mt-4 cursor-pointer" style={{ color: 'var(--canon-purple)' }}>
-                                  <IconChevronDown size={13} /> Read Full Message
-                                </button>
+                              {item.milestone.real_work_trigger && (
+                                <div className="mb-4 rounded-[8px] bg-[var(--bg-secondary)] px-3 py-2">
+                                  <div className="type-kicker mb-1" style={{ color: 'var(--text-tertiary)' }}>Real Work Trigger</div>
+                                  <p className="type-body" style={{ color: 'var(--text-secondary)' }}>{item.milestone.real_work_trigger}</p>
+                                </div>
+                              )}
+                              {item.required_tools.length > 0 && (
+                                <div className="mb-4 type-body" style={{ color: item.access_ready ? 'var(--green-text)' : 'var(--text-tertiary)' }}>
+                                  Access readiness: {item.required_tools.join(', ')} {item.access_ready ? 'granted' : 'pending'}
+                                </div>
+                              )}
+                              {evidence.length > 0 ? (
+                                <div className="space-y-2">
+                                  {evidence.slice(0, 3).map((entry) => (
+                                    <div key={entry.id} className="rounded-[8px] border border-[var(--border-tertiary)] px-3 py-2">
+                                      <div className="type-body-strong" style={{ color: 'var(--text-primary)' }}>
+                                        {entry.evidence_type.replace(/_/g, ' ')} · {entry.trust_level} trust
+                                      </div>
+                                      <div className="type-caption mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>
+                                        {Math.round(entry.confidence * 100)}% confidence · {fmtDetailDate(entry.created_at)}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="type-body leading-[1.65]" style={{ color: 'var(--text-tertiary)' }}>
+                                  Evidence will appear when Canon detects real work activity or a manager verifies this milestone.
+                                </p>
+                              )}
+                              {relatedDelivery?.content_delivered && (
+                                <details className="mt-4">
+                                  <summary className="type-body cursor-pointer text-[var(--canon-purple)]">
+                                    <IconChevronDown size={13} className="inline" /> Read Briefing
+                                  </summary>
+                                  <p className="type-body-strong mt-3 leading-[1.65]" style={{ color: 'var(--text-secondary)' }}>
+                                    {relatedDelivery.content_delivered}
+                                  </p>
+                                </details>
+                              )}
+                              {status !== 'verified' && (
+                                <div className="mt-4">
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="secondary"
+                                    onClick={() => verifyMilestone(item)}
+                                    disabled={milestoneActionId === item.milestone.id}
+                                  >
+                                    {milestoneActionId === item.milestone.id ? 'Verifying...' : 'Manager Verify'}
+                                  </Button>
+                                </div>
                               )}
                             </div>
                           </div>

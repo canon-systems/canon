@@ -3,4 +3,8 @@ export { knowledgeSourceScheduledSync } from "./functions/knowledgeSourceSchedul
 export { dailyRampCheck } from "./functions/dailyRampCheck";
 export { accessCoordinator } from "./functions/accessCoordinator";
 export { readinessAnalysis } from "./functions/readinessAnalysis";
+export {
+  milestoneProposalGeneration,
+  milestoneProposalScheduledGeneration,
+} from "./functions/milestoneProposalGeneration";
 export { inngest } from "./client";

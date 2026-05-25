@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
-import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/supabase/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -254,63 +254,6 @@ function accessStatus(rampDay: number, toolIndex: number, totalTools: number): {
   return { status: 'granted', sent_at: daysAgoIso(rampDay - 10) };
 }
 
-// ---------------------------------------------------------------------------
-// Global milestone definitions — mirrors seed.sql so the seed route is
-// self-contained and works even if `supabase db reset` was never run.
-// ---------------------------------------------------------------------------
-
-const GLOBAL_MILESTONES = [
-  // AI Solutions Architect
-  { organization_id: null, role: 'AI Solutions Architect', day_trigger: 1, title: 'Welcome + tools and access overview', description: 'Everything you need to know on day one: who to talk to, what tools you need, and what your first week looks like.', knowledge_query: 'onboarding welcome tools access permissions getting started first day' },
-  { organization_id: null, role: 'AI Solutions Architect', day_trigger: 7, title: 'Product deep dive', description: 'How the product works, how customers use it, and what makes it different from competitors.', knowledge_query: 'product features use cases customer stories differentiation technical architecture' },
-  { organization_id: null, role: 'AI Solutions Architect', day_trigger: 14, title: 'First customer call prep', description: 'Discovery frameworks, common objections, demo scripts, and how to run a great first call.', knowledge_query: 'discovery questions objection handling demo scripts customer call preparation' },
-  { organization_id: null, role: 'AI Solutions Architect', day_trigger: 30, title: '30-day check-in brief', description: 'Process, team dynamics, internal tools, and how to be a great cross-functional partner.', knowledge_query: 'team processes internal workflows cross-functional collaboration feedback loops' },
-  { organization_id: null, role: 'AI Solutions Architect', day_trigger: 60, title: 'Ramping to full contribution', description: 'Pipeline management, forecasting, and what separates good from great in this role.', knowledge_query: 'pipeline management quota attainment forecasting deal strategy advanced selling' },
-  { organization_id: null, role: 'AI Solutions Architect', day_trigger: 90, title: 'Full productivity benchmark', description: 'Competitive landscape, strategic account patterns, and how to build long-term customer relationships.', knowledge_query: 'competitive landscape strategic accounts customer success expansion advanced product knowledge' },
-  // Solutions Engineer
-  { organization_id: null, role: 'Solutions Engineer', day_trigger: 1, title: 'Welcome + tools and access overview', description: 'Day one essentials: tools, access, team structure, and what your first week looks like.', knowledge_query: 'onboarding welcome tools access permissions getting started first day' },
-  { organization_id: null, role: 'Solutions Engineer', day_trigger: 7, title: 'Technical product deep dive', description: 'Architecture, integrations, APIs, and how customers plug the product into their stack.', knowledge_query: 'technical architecture API integrations implementation patterns customer stack' },
-  { organization_id: null, role: 'Solutions Engineer', day_trigger: 14, title: 'Demo and POC prep', description: 'How to run a great demo, how to scope and run a proof of concept, common technical objections.', knowledge_query: 'demo preparation proof of concept technical objections scoping evaluation criteria' },
-  { organization_id: null, role: 'Solutions Engineer', day_trigger: 30, title: 'Technical discovery mastery', description: 'How to run great technical discovery, map customer requirements, and build winning proposals.', knowledge_query: 'technical discovery requirements mapping solution design proposal writing' },
-  { organization_id: null, role: 'Solutions Engineer', day_trigger: 60, title: 'Advanced implementation patterns', description: 'Complex integrations, edge cases, escalation paths, and how to engage engineering effectively.', knowledge_query: 'complex integrations escalation engineering collaboration implementation edge cases' },
-  { organization_id: null, role: 'Solutions Engineer', day_trigger: 90, title: 'Full technical authority', description: 'Strategic technical advisory, RFP responses, and how to be the technical authority in a deal.', knowledge_query: 'technical advisory RFP response strategic deals competitive technical win' },
-  // Implementation Engineer
-  { organization_id: null, role: 'Implementation Engineer', day_trigger: 1, title: 'Welcome + tools and access overview', description: 'Day one essentials: tools, access, team structure, and what your first week looks like.', knowledge_query: 'onboarding welcome tools access permissions getting started first day' },
-  { organization_id: null, role: 'Implementation Engineer', day_trigger: 7, title: 'Implementation methodology', description: 'How implementations are structured, what good looks like, and common failure modes to avoid.', knowledge_query: 'implementation methodology project structure success criteria failure modes best practices' },
-  { organization_id: null, role: 'Implementation Engineer', day_trigger: 14, title: 'First customer project prep', description: 'Kickoff frameworks, stakeholder management, timeline planning, and how to handle scope creep.', knowledge_query: 'project kickoff stakeholder management timeline planning scope creep change management' },
-  { organization_id: null, role: 'Implementation Engineer', day_trigger: 30, title: 'Technical delivery excellence', description: 'Data migration, integration patterns, and how to get customers to production fast.', knowledge_query: 'data migration integration delivery production deployment customer go-live' },
-  { organization_id: null, role: 'Implementation Engineer', day_trigger: 60, title: 'Complex project management', description: 'Multi-workstream projects, executive stakeholders, and how to manage at-risk implementations.', knowledge_query: 'complex projects executive stakeholders at-risk recovery escalation multi-workstream' },
-  { organization_id: null, role: 'Implementation Engineer', day_trigger: 90, title: 'Strategic implementation advisory', description: 'How to run strategic accounts, build playbooks, and contribute to the implementation methodology.', knowledge_query: 'strategic accounts playbook development methodology contribution implementation leadership' },
-];
-
-// ---------------------------------------------------------------------------
-// Custom org-specific milestones (shows the customization feature)
-// ---------------------------------------------------------------------------
-
-const CUSTOM_MILESTONES = [
-  {
-    role: 'AI Solutions Architect' as const,
-    day_trigger: 45,
-    title: 'First Independent Deal Cycle',
-    description: 'You should now be running a full deal cycle — discovery, demo, POC, and close — without needing to shadow. Review your pipeline in Salesforce and confirm you have at least one deal in each stage.',
-    knowledge_query: 'deal cycle close independent discovery demo POC',
-  },
-  {
-    role: 'Solutions Engineer' as const,
-    day_trigger: 45,
-    title: 'POC Framework Mastery',
-    description: 'By Day 45 you should have your POC playbook locked down. Review the success criteria template with your manager and make sure your last 3 POCs all had signed scope docs before kickoff.',
-    knowledge_query: 'POC playbook success criteria scope technical win',
-  },
-  {
-    role: 'Implementation Engineer' as const,
-    day_trigger: 45,
-    title: 'First Solo Go-Live',
-    description: 'Milestone: your first go-live where you are the sole IE without senior shadow. Your manager has signed off on your readiness. Document any gaps in the shared playbook for the next IE.',
-    knowledge_query: 'go-live implementation solo milestone CSAT customer success',
-  },
-];
-
 const DEMO_READINESS_ITEMS = [
   {
     category: 'product_change' as const,
@@ -449,35 +392,18 @@ export async function POST() {
     return NextResponse.json({ error: `Knowledge sources failed: ${ksError.message}` }, { status: 500 });
   }
 
-  // Org-specific milestones (shows the customization feature)
-  await supabase.from('ramp_milestones').insert(
-    CUSTOM_MILESTONES.map((m) => ({ ...m, organization_id: orgId }))
-  );
-
   await seedDemoReadinessItems(supabase, orgId);
 
-  // Fetch global milestones (organization_id IS NULL) — if seed.sql was never run,
-  // create them now via service role (RLS blocks null-org inserts from regular users).
-  let { data: globalMilestones } = await supabase
-    .from('ramp_milestones')
-    .select('id, role, day_trigger')
-    .is('organization_id', null);
-
-  if (!globalMilestones || globalMilestones.length === 0) {
-    const serviceSupabase = createServiceRoleClient();
-    const { data: inserted } = await serviceSupabase.from('ramp_milestones').insert(GLOBAL_MILESTONES).select('id, role, day_trigger');
-    globalMilestones = inserted ?? [];
-  }
-
-  // Also include the org-specific milestones we just inserted (e.g., the Day 45 custom ones)
+  // Demo data uses only approved org-specific milestones that already exist.
+  // If none exist yet, hires will show the empty Ramp Evidence state.
   const { data: orgMilestones } = await supabase
     .from('ramp_milestones')
     .select('id, role, day_trigger')
-    .eq('organization_id', orgId);
+    .eq('organization_id', orgId)
+    .eq('status', 'active');
 
-  // Build map from both sets; org-specific overwrites global at same role+day
   const milestoneMap: Record<string, Record<number, string>> = {};
-  for (const m of [...(globalMilestones ?? []), ...(orgMilestones ?? [])]) {
+  for (const m of orgMilestones ?? []) {
     if (!milestoneMap[m.role]) milestoneMap[m.role] = {};
     milestoneMap[m.role][m.day_trigger] = m.id as string;
   }
@@ -565,14 +491,14 @@ export async function POST() {
     message: 'Demo data seeded successfully',
     hires: DEMO_HIRES.length,
     knowledge_sources: DEMO_KNOWLEDGE_SOURCES.length,
-    custom_milestones: CUSTOM_MILESTONES.length,
+    active_milestones_used: orgMilestones?.length ?? 0,
     readiness_items: DEMO_READINESS_ITEMS.length,
     deliveries: totalDeliveries,
     access_requests: totalAccessRequests,
   });
 }
 
-// Clear demo data (keeps org and global milestones intact)
+// Clear demo data. Approved company milestones are left intact.
 export async function DELETE() {
   const { session } = await getSession();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -592,11 +518,6 @@ export async function DELETE() {
     .delete()
     .eq('organization_id', org.id)
     .like('slack_channel_id', 'C0DEMO%');
-
-  await supabase
-    .from('ramp_milestones')
-    .delete()
-    .eq('organization_id', org.id);
 
   await supabase
     .from('readiness_items')

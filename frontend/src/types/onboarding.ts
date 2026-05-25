@@ -7,6 +7,32 @@ export type AccessRequestStatus = 'pending' | 'sent' | 'acknowledged' | 'granted
 export type ReadinessCategory = 'product_change' | 'customer_objection' | 'demo_guidance' | 'implementation_pattern';
 export type ReadinessImpactLevel = 'low' | 'medium' | 'high';
 export type ReadinessStatus = 'draft' | 'reviewed' | 'sent' | 'archived';
+export type MilestoneProposalStatus = 'draft' | 'approved' | 'rejected';
+export type MilestoneProgressStatus = 'not_started' | 'briefed' | 'evidence_detected' | 'verified';
+export type MilestoneEvidenceType =
+  | 'access_readiness'
+  | 'tool_activity'
+  | 'communication_activity'
+  | 'customer_exposure'
+  | 'manager_verification'
+  | 'new_hire_blocker';
+export type MilestoneEvidenceTrustLevel = 'low' | 'medium' | 'high';
+export type OnboardingNotificationType = 'milestone_auto_verified' | 'milestone_needs_review' | 'milestone_blocked';
+
+export interface MilestoneSourceEvidence {
+  provider: string;
+  label: string | null;
+  url: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface MilestoneEvidenceRequirement {
+  type: MilestoneEvidenceType;
+  label: string;
+  required?: boolean;
+  trust_level?: MilestoneEvidenceTrustLevel;
+  metadata?: Record<string, unknown>;
+}
 
 export interface ReadinessCard {
   title: string;
@@ -105,6 +131,93 @@ export interface RampMilestone {
   title: string;
   description: string;
   knowledge_query: string;
+  capability_outcome: string | null;
+  briefing_goal: string | null;
+  real_work_trigger: string | null;
+  success_signals: string[];
+  retrieval_brief: string | null;
+  evidence_requirements: MilestoneEvidenceRequirement[];
+  source_evidence: MilestoneSourceEvidence[];
+  confidence: number;
+  status: 'active' | 'archived';
+  approved_from_proposal_id: string | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+export interface MilestoneProposal {
+  id: string;
+  organization_id: string;
+  role: HireRole;
+  suggested_day_trigger: number;
+  title: string;
+  capability_outcome: string;
+  briefing_goal: string;
+  real_work_trigger: string;
+  success_signals: string[];
+  retrieval_brief: string;
+  evidence_requirements: MilestoneEvidenceRequirement[];
+  source_evidence: MilestoneSourceEvidence[];
+  rationale: string | null;
+  confidence: number;
+  normalized_key: string;
+  status: MilestoneProposalStatus;
+  approved_milestone_id: string | null;
+  approved_at: string | null;
+  rejected_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MilestoneEvidence {
+  id: string;
+  progress_id: string | null;
+  new_hire_id: string;
+  milestone_id: string;
+  evidence_type: MilestoneEvidenceType;
+  trust_level: MilestoneEvidenceTrustLevel;
+  confidence: number;
+  source: string;
+  source_event_id: string | null;
+  source_url: string | null;
+  metadata: Record<string, unknown>;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface NewHireMilestoneProgress {
+  id: string;
+  new_hire_id: string;
+  milestone_id: string;
+  status: MilestoneProgressStatus;
+  current_confidence: number;
+  first_briefed_at: string | null;
+  last_evidence_at: string | null;
+  verified_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NewHireMilestonePathItem {
+  milestone: RampMilestone;
+  progress: NewHireMilestoneProgress | null;
+  evidence: MilestoneEvidence[];
+  access_ready: boolean;
+  required_tools: string[];
+}
+
+export interface OnboardingNotification {
+  id: string;
+  organization_id: string;
+  new_hire_id: string | null;
+  milestone_id: string | null;
+  type: OnboardingNotificationType;
+  title: string;
+  body: string;
+  delivery_channel: 'app' | 'slack';
+  slack_target: string | null;
+  slack_sent_at: string | null;
+  read_at: string | null;
   created_at: string;
 }
 
@@ -156,4 +269,5 @@ export interface NewHireDetail extends NewHire {
   deliveries: RampDelivery[];
   access_requests: AccessRequest[];
   next_milestone: RampMilestone | null;
+  milestone_path: NewHireMilestonePathItem[];
 }

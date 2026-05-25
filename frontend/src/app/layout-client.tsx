@@ -21,6 +21,7 @@ export function RootLayoutClient({
   const supabase = createClient();
 
   const isLoginPage = pathname === '/login' || pathname.startsWith('/login/');
+  const isPublicResponsePage = pathname.startsWith('/milestone-response/');
 
   useEffect(() => {
     const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
@@ -99,7 +100,7 @@ export function RootLayoutClient({
     }
   }
 
-  if (isLoginPage) {
+  if (isLoginPage || isPublicResponsePage) {
     return <>{children}</>;
   }
 

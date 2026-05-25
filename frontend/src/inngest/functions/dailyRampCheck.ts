@@ -3,7 +3,9 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 import { embed, generateText } from 'ai';
 import { llm, embeddingModel } from '@/lib/ai';
 import { createLogger, errorMessage } from '@/lib/server/logging';
-import type { HireRole, RampMilestone } from '@/types/onboarding';
+import { syncAccessReadinessEvidence } from '@/lib/server/milestoneEvidence';
+import { randomBytes } from 'crypto';
+import type { HireRole, RampMilestone, MilestoneEvidenceRequirement } from '@/types/onboarding';
 
 const log = createLogger('inngest.daily_ramp_check', {
   label: 'Daily Ramp Check',
@@ -49,6 +51,7 @@ function buildBlockKitMessage(params: {
   body: string;
   nextMilestoneDay: number | null;
   nextMilestoneTitle: string | null;
+  responseUrl: string | null;
 }): { blocks: unknown[]; text: string } {
   const blocks: unknown[] = [
     {
@@ -71,7 +74,53 @@ function buildBlockKitMessage(params: {
     });
   }
 
+  if (params.responseUrl) {
+    blocks.push({
+      type: 'actions',
+      elements: [
+        {
+          type: 'button',
+          text: { type: 'plain_text', text: 'Need more context?', emoji: true },
+          url: params.responseUrl,
+          action_id: 'milestone_context_request',
+        },
+      ],
+    });
+  }
+
   return { blocks, text: `Day ${params.rampDay} — ${params.milestoneTitle}` };
+}
+
+function appBaseUrl() {
+  if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '');
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  return 'http://localhost:3000';
+}
+
+function metadataStringArray(value: unknown) {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0) : [];
+}
+
+function evidenceSummary(requirements: MilestoneEvidenceRequirement[]) {
+  if (!Array.isArray(requirements) || requirements.length === 0) return 'Real work activity or manager-confirmed evidence.';
+  return requirements.map((requirement) => requirement.label).join('; ');
+}
+
+async function createResponseLink(params: {
+  supabase: ReturnType<typeof createServiceRoleClient>;
+  newHireId: string;
+  milestoneId: string;
+}) {
+  const token = randomBytes(24).toString('hex');
+  const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString();
+  const { error } = await params.supabase.from('milestone_response_tokens').insert({
+    token,
+    new_hire_id: params.newHireId,
+    milestone_id: params.milestoneId,
+    expires_at: expiresAt,
+  });
+  if (error) return null;
+  return `${appBaseUrl()}/milestone-response/${token}`;
 }
 
 async function generateSummary(params: {
@@ -83,27 +132,38 @@ async function generateSummary(params: {
   nextMilestone: RampMilestone | null;
 }): Promise<string> {
   const { firstName, role, rampDay, milestone, chunks, nextMilestone } = params;
+  const requirements = milestone.evidence_requirements ?? [];
+  const realWorkTrigger = milestone.real_work_trigger ?? 'the relevant real work for this capability';
+  const capabilityOutcome = milestone.capability_outcome ?? milestone.description;
+  const briefingGoal = milestone.briefing_goal ?? milestone.description;
+  const successSignals = metadataStringArray(milestone.success_signals);
 
   if (chunks.length === 0) {
-    return `Hey ${firstName}! 👋\n\nWelcome to Day ${rampDay}. Today's focus: *${milestone.title}*.\n\n${milestone.description}\n\n_Our knowledge base is still being indexed — more context will flow your way as it syncs._`;
+    return `Hey ${firstName}!\n\nDay ${rampDay} briefing: *${milestone.title}*.\n\n*Why this matters:* ${capabilityOutcome}\n\n*Real work to watch for:* ${realWorkTrigger}\n\n*What Canon will look for:* ${evidenceSummary(requirements)}\n\n_Company knowledge is still being indexed, so this briefing may get sharper as more context syncs._`;
   }
 
   const chunkText = chunks.map((c) => c.content).join('\n\n---\n\n');
 
-  const prompt = `You are Canon, an onboarding agent for technical GTM teams. You have retrieved the following knowledge chunks from the company's Slack history. Your job is to write a warm, helpful Day ${rampDay} message to ${firstName}, who just joined as a ${role}.
+  const prompt = `You are Canon, an onboarding agent for technical GTM teams. You have retrieved company knowledge for a real-work milestone. Write a concise Day ${rampDay} pre-brief for ${firstName}, who joined as a ${role}.
 
 Milestone: ${milestone.title}
-Goal: ${milestone.description}
+Capability outcome: ${capabilityOutcome}
+Briefing goal: ${briefingGoal}
+Real-work trigger: ${realWorkTrigger}
+Success signals: ${successSignals.length > 0 ? successSignals.join('; ') : evidenceSummary(requirements)}
+Evidence Canon will look for: ${evidenceSummary(requirements)}
 
 Retrieved knowledge:
 ${chunkText}
 
 Write a Slack message that:
 - Opens with a friendly greeting using their first name
-- Summarizes the most useful 2-3 insights from the knowledge in plain, conversational language
-- Feels like a smart teammate sharing context, not a bot dumping data
+- Briefs them before the real work, without assigning homework or a practice task
+- Summarizes the most useful 2-3 company-specific insights in plain language
+- Calls out what to watch for in the real experience
+- States what evidence will prove readiness
 - Ends with what to expect next (${nextMilestone ? `the next milestone: Day ${nextMilestone.day_trigger} — ${nextMilestone.title}` : 'that they are making great progress'})
-- Is under 300 words total
+- Is under 260 words total
 - Never mentions "chunks", "embeddings", "RAG", or any technical implementation detail`;
 
   const { text } = await generateText({ model: llm, prompt });
@@ -154,36 +214,46 @@ export const dailyRampCheck = inngest.createFunction(
             .update({ ramp_day: newRampDay, updated_at: new Date().toISOString() })
             .eq('id', hire.id);
 
-          // Find matching milestone — org-specific first, then global
-          const { data: orgMilestones } = await supabase
+          await syncAccessReadinessEvidence({
+            supabase,
+            newHireId: hire.id,
+          });
+
+          // Find one due approved company milestone. No global fallback.
+          const { data: dueMilestones } = await supabase
             .from('ramp_milestones')
             .select('*')
             .eq('organization_id', hire.organization_id)
             .eq('role', hire.role)
-            .eq('day_trigger', newRampDay);
+            .eq('status', 'active')
+            .lte('day_trigger', newRampDay)
+            .order('day_trigger', { ascending: true })
+            .limit(10);
 
-          const { data: globalMilestones } = await supabase
-            .from('ramp_milestones')
-            .select('*')
-            .is('organization_id', null)
-            .eq('role', hire.role)
-            .eq('day_trigger', newRampDay);
+          const dueIds = (dueMilestones ?? []).map((m) => m.id);
+          if (dueIds.length === 0) return;
 
-          const milestone = orgMilestones?.[0] ?? globalMilestones?.[0] ?? null;
+          const [{ data: existingDeliveries }, { data: progressRows }] = await Promise.all([
+            supabase
+              .from('ramp_deliveries')
+              .select('milestone_id')
+              .eq('new_hire_id', hire.id)
+              .in('milestone_id', dueIds),
+            supabase
+              .from('new_hire_milestone_progress')
+              .select('milestone_id, status')
+              .eq('new_hire_id', hire.id)
+              .in('milestone_id', dueIds),
+          ]);
+
+          const deliveredIds = new Set((existingDeliveries ?? []).map((row) => row.milestone_id));
+          const progressByMilestone = new Map((progressRows ?? []).map((row) => [row.milestone_id, row.status]));
+          const milestone = (dueMilestones ?? []).find((candidate) => {
+            if (deliveredIds.has(candidate.id)) return false;
+            const status = progressByMilestone.get(candidate.id);
+            return !status || status === 'not_started';
+          }) ?? null;
           if (!milestone) return;
-
-          // Check if already delivered
-          const { data: existing } = await supabase
-            .from('ramp_deliveries')
-            .select('id')
-            .eq('new_hire_id', hire.id)
-            .eq('milestone_id', milestone.id)
-            .maybeSingle();
-
-          if (existing) {
-            log.info('delivery_skipped', { hireId: hire.id, milestoneId: milestone.id, reason: 'already_delivered' });
-            return;
-          }
 
           if (!hire.slack_user_id) {
             await supabase.from('ramp_deliveries').insert({
@@ -211,7 +281,8 @@ export const dailyRampCheck = inngest.createFunction(
             .from('ramp_milestones')
             .select('day_trigger, title')
             .eq('role', hire.role)
-            .is('organization_id', null)
+            .eq('organization_id', hire.organization_id)
+            .eq('status', 'active')
             .gt('day_trigger', newRampDay)
             .order('day_trigger', { ascending: true })
             .limit(1);
@@ -221,7 +292,7 @@ export const dailyRampCheck = inngest.createFunction(
           // Embed the knowledge query and retrieve relevant chunks
           const { embedding: queryEmbedding } = await embed({
             model: embeddingModel,
-            value: milestone.knowledge_query,
+            value: milestone.retrieval_brief ?? milestone.knowledge_query,
           });
 
           const { data: chunks } = await supabase.rpc('match_knowledge_chunks', {
@@ -232,6 +303,11 @@ export const dailyRampCheck = inngest.createFunction(
           });
 
           const firstName = hire.name.split(' ')[0];
+          const responseUrl = await createResponseLink({
+            supabase,
+            newHireId: hire.id,
+            milestoneId: milestone.id,
+          });
 
           const summaryText = await generateSummary({
             firstName,
@@ -250,6 +326,7 @@ export const dailyRampCheck = inngest.createFunction(
             body: summaryText,
             nextMilestoneDay: nextMilestone?.day_trigger ?? null,
             nextMilestoneTitle: nextMilestone?.title ?? null,
+            responseUrl,
           });
 
           const slackResult = await sendSlackDM({
@@ -260,6 +337,17 @@ export const dailyRampCheck = inngest.createFunction(
           });
 
           if (slackResult.ok) {
+            await supabase
+              .from('new_hire_milestone_progress')
+              .upsert({
+                new_hire_id: hire.id,
+                milestone_id: milestone.id,
+                status: 'briefed',
+                current_confidence: 0,
+                first_briefed_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              }, { onConflict: 'new_hire_id,milestone_id' });
+
             await supabase.from('ramp_deliveries').insert({
               new_hire_id: hire.id,
               milestone_id: milestone.id,

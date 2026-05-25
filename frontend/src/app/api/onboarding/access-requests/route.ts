@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
 import { inngest } from '@/inngest/client';
+import { syncAccessReadinessEvidence } from '@/lib/server/milestoneEvidence';
 
 export const dynamic = 'force-dynamic';
 
@@ -140,6 +141,14 @@ export async function PATCH(request: NextRequest) {
       .single();
 
     if (error || !updated) return NextResponse.json({ error: 'Access request not found or update failed' }, { status: 404 });
+
+    if (status === 'granted') {
+      await syncAccessReadinessEvidence({
+        supabase,
+        newHireId: updated.new_hire_id,
+        createdBy: user.id,
+      });
+    }
 
     return NextResponse.json({ access_request: updated });
   } catch (error: unknown) {

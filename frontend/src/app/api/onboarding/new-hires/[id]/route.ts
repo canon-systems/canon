@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
-import type { HireRole, HireStatus } from '@/types/onboarding';
+import type { HireRole, HireStatus, MilestoneEvidenceRequirement } from '@/types/onboarding';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,6 +13,21 @@ function isDateInputValue(value: string) {
   const [year, month, day] = value.split('-').map(Number);
   const date = new Date(year, month - 1, day);
   return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+}
+
+function metadataStringArray(value: unknown) {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0) : [];
+}
+
+function requiredTools(requirements: MilestoneEvidenceRequirement[]) {
+  const tools = new Set<string>();
+  for (const requirement of requirements) {
+    if (requirement.type !== 'access_readiness') continue;
+    const metadata = requirement.metadata ?? {};
+    for (const tool of metadataStringArray(metadata.tools)) tools.add(tool);
+    if (typeof metadata.tool === 'string' && metadata.tool.trim()) tools.add(metadata.tool.trim());
+  }
+  return Array.from(tools);
 }
 
 export async function GET(
@@ -55,32 +70,65 @@ export async function GET(
       .eq('new_hire_id', id)
       .order('created_at', { ascending: true });
 
-    // Find next upcoming milestone
-    const { data: orgMilestones } = await supabase
+    const { data: milestones } = await supabase
       .from('ramp_milestones')
       .select('*')
       .eq('organization_id', org.id)
       .eq('role', hire.role)
-      .gt('day_trigger', hire.ramp_day)
+      .eq('status', 'active')
       .order('day_trigger', { ascending: true })
-      .limit(1);
+      .order('created_at', { ascending: true });
 
-    const { data: globalMilestones } = await supabase
-      .from('ramp_milestones')
-      .select('*')
-      .is('organization_id', null)
-      .eq('role', hire.role)
-      .gt('day_trigger', hire.ramp_day)
-      .order('day_trigger', { ascending: true })
-      .limit(1);
+    const milestoneIds = (milestones ?? []).map((milestone) => milestone.id);
 
-    const nextMilestone = orgMilestones?.[0] ?? globalMilestones?.[0] ?? null;
+    const [{ data: progressRows }, { data: evidenceRows }] = milestoneIds.length > 0
+      ? await Promise.all([
+          supabase
+            .from('new_hire_milestone_progress')
+            .select('*')
+            .eq('new_hire_id', id)
+            .in('milestone_id', milestoneIds),
+          supabase
+            .from('milestone_evidence')
+            .select('*')
+            .eq('new_hire_id', id)
+            .in('milestone_id', milestoneIds)
+            .order('created_at', { ascending: false }),
+        ])
+      : [{ data: [] }, { data: [] }];
+
+    const progressByMilestone = new Map((progressRows ?? []).map((row) => [row.milestone_id, row]));
+    const evidenceByMilestone = new Map<string, typeof evidenceRows>();
+    for (const evidence of evidenceRows ?? []) {
+      const existing = evidenceByMilestone.get(evidence.milestone_id) ?? [];
+      evidenceByMilestone.set(evidence.milestone_id, [...existing, evidence]);
+    }
+
+    const grantedTools = new Set(
+      (accessRequests ?? [])
+        .filter((request) => request.status === 'granted')
+        .map((request) => String(request.tool_name).toLowerCase())
+    );
+
+    const milestonePath = (milestones ?? []).map((milestone) => {
+      const tools = requiredTools((milestone.evidence_requirements ?? []) as MilestoneEvidenceRequirement[]);
+      return {
+        milestone,
+        progress: progressByMilestone.get(milestone.id) ?? null,
+        evidence: evidenceByMilestone.get(milestone.id) ?? [],
+        access_ready: tools.length > 0 && tools.every((tool) => grantedTools.has(tool.toLowerCase())),
+        required_tools: tools,
+      };
+    });
+
+    const nextMilestone = (milestones ?? []).find((milestone) => milestone.day_trigger > hire.ramp_day) ?? null;
 
     return NextResponse.json({
       hire,
       deliveries: deliveries ?? [],
       access_requests: accessRequests ?? [],
       next_milestone: nextMilestone,
+      milestone_path: milestonePath,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
