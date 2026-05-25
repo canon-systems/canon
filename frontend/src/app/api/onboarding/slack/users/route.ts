@@ -87,6 +87,7 @@ export async function GET() {
 
       users.push(
         ...data.members.flatMap((member) => {
+          if (member.id === 'USLACKBOT') return [];
           if (member.deleted || member.is_bot || member.is_app_user) return [];
           const name = member.profile?.display_name || member.real_name || member.profile?.real_name || member.name || member.id;
           return [{ id: member.id, name, email: member.profile?.email ?? null }];

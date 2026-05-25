@@ -8,6 +8,18 @@ import {
   trackSourceDisconnected,
 } from '@/lib/server/services/usageTracking';
 import { ATLASSIAN_PROVIDER, canonicalProvider } from '@/lib/providers';
+import { createLogger } from '@/lib/server/logging';
+
+const log = createLogger('api.integrations.disconnect', {
+  label: 'Integration Disconnect',
+  eventLabels: {
+    disconnect_requested: 'Disconnect Requested',
+    source_cleanup_completed: 'Source Cleanup Completed',
+    delivery_settings_cleared: 'Delivery Settings Cleared',
+    token_cleanup_completed: 'Token Cleanup Completed',
+    connection_cleanup_completed: 'Connection Cleanup Completed',
+  },
+});
 
 type ConnectionRow = {
   id: string;
@@ -57,6 +69,13 @@ export async function POST(request: NextRequest) {
       .eq('owner_id', user.id)
       .maybeSingle();
 
+    log.info('disconnect_requested', {
+      userId: user.id,
+      provider: normalizedProvider ?? provider ?? 'unknown',
+      connectionId: connectionId ?? 'by_provider',
+      orgId: org?.id,
+    });
+
     let connectionLookup = supabase
       .from('oauth_connections')
       .select('id, connection_id, provider')
@@ -89,6 +108,23 @@ export async function POST(request: NextRequest) {
     for (const integrationProvider of integrationProviderSet) {
       for (const sourceProvider of sourceProvidersForIntegrationProvider(integrationProvider)) {
         sourceProviderSet.add(sourceProvider);
+      }
+    }
+
+    if (org && integrationProviderSet.has('slack')) {
+      const { error: deliverySettingsDeleteError } = await supabase
+        .from('readiness_delivery_settings')
+        .delete()
+        .eq('organization_id', org.id);
+
+      if (deliverySettingsDeleteError) {
+        console.warn('Failed to clear readiness delivery settings during Slack disconnect:', deliverySettingsDeleteError);
+      } else {
+        log.info('delivery_settings_cleared', {
+          userId: user.id,
+          orgId: org.id,
+          provider: 'slack',
+        });
       }
     }
 
@@ -157,6 +193,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    log.info('source_cleanup_completed', {
+      userId: user.id,
+      orgId: org?.id,
+      provider: normalizedProvider ?? provider ?? 'unknown',
+      sourceCount: sourcesById.size,
+    });
+
     let tokenDelete = supabase
       .from('oauth_provider_tokens')
       .delete()
@@ -175,6 +218,12 @@ export async function POST(request: NextRequest) {
     if (tokenDeleteError) {
       console.warn('Failed to delete oauth_provider_tokens rows:', tokenDeleteError);
     }
+    log.info('token_cleanup_completed', {
+      userId: user.id,
+      provider: normalizedProvider ?? provider ?? 'unknown',
+      connectionIds: externalConnectionIds,
+      error: tokenDeleteError?.message,
+    });
 
     let connectionDelete = supabase
       .from('oauth_connections')
@@ -195,6 +244,12 @@ export async function POST(request: NextRequest) {
       console.error('Failed to disconnect integration:', connectionDeleteError);
       return NextResponse.json({ error: 'Failed to disconnect' }, { status: 500 });
     }
+
+    log.info('connection_cleanup_completed', {
+      userId: user.id,
+      provider: normalizedProvider ?? provider ?? 'unknown',
+      connectionIds: internalConnectionIds,
+    });
 
     const providerForLog = connectionRows[0]?.provider || normalizedProvider || provider || 'unknown';
     const connectionIdForLog = connectionId || connectionRows[0]?.connection_id;

@@ -14,8 +14,14 @@ const log = createLogger('api.onboarding.readiness.delivery_settings', {
   },
 });
 
-function validSlackUserIds(values: unknown) {
-  return Array.isArray(values) ? values.filter((value): value is string => typeof value === 'string' && value.trim().length > 0) : [];
+function validSlackDmTargets(values: unknown) {
+  return Array.isArray(values)
+    ? values
+        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        .map((value) => value.trim())
+        .filter((value) => value !== 'USLACKBOT')
+        .filter((value) => /^[DU][A-Z0-9]+$/.test(value))
+    : [];
 }
 
 export async function GET() {
@@ -52,7 +58,7 @@ export async function GET() {
         ? {
             channelId: settings.channel_id ?? 'auto',
             channelName: settings.channel_name ?? null,
-            userIds: Array.isArray(settings.slack_user_ids) ? settings.slack_user_ids : [],
+            userIds: validSlackDmTargets(settings.slack_user_ids),
           }
         : null,
     });
@@ -78,10 +84,7 @@ export async function PATCH(request: NextRequest) {
       ? body.channelId.trim()
       : null;
     const channelName = typeof body.channelName === 'string' && channelId ? body.channelName.replace(/^#/, '').trim() : null;
-    const userIds = validSlackUserIds(body.userIds);
-    if (Array.isArray(body.userIds) && userIds.length !== body.userIds.length) {
-      return NextResponse.json({ error: 'Invalid Slack user' }, { status: 400 });
-    }
+    const userIds = validSlackDmTargets(body.userIds);
 
     log.info('settings_save_requested', {
       userId: user.id,
@@ -126,7 +129,7 @@ export async function PATCH(request: NextRequest) {
       settings: {
         channelId: settings.channel_id ?? 'auto',
         channelName: settings.channel_name ?? null,
-        userIds: Array.isArray(settings.slack_user_ids) ? settings.slack_user_ids : [],
+        userIds: validSlackDmTargets(settings.slack_user_ids),
       },
     });
   } catch (error: unknown) {

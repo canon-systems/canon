@@ -19,6 +19,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -177,9 +178,17 @@ function selectedCategoryLabel(selectedCategories: ReadinessCategory[]) {
 function selectedUserLabel(selectedUserIds: string[], users: SlackUserOption[]) {
   if (selectedUserIds.length === 0) return 'No DMs';
   if (selectedUserIds.length === 1) {
-    return users.find((user) => user.id === selectedUserIds[0])?.name ?? '1 DM';
+    const selectedId = selectedUserIds[0];
+    if (selectedId.startsWith('D')) return 'DM channel';
+    return users.find((user) => user.id === selectedId)?.name ?? '1 DM';
   }
   return `${selectedUserIds.length} DMs`;
+}
+
+function normalizeDmTarget(value: string) {
+  const normalized = value.trim().toUpperCase();
+  if (normalized === 'USLACKBOT') return null;
+  return /^[DU][A-Z0-9]+$/.test(normalized) ? normalized : null;
 }
 
 function StepRow({
@@ -225,6 +234,7 @@ export function ReadinessClient() {
   const [slackUsersReconnectRequired, setSlackUsersReconnectRequired] = useState(false);
   const [deliveryChannelId, setDeliveryChannelId] = useState('auto');
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const [dmTargetInput, setDmTargetInput] = useState('');
   const [savingDeliverySettings, setSavingDeliverySettings] = useState(false);
   const [deliverySettingsMessage, setDeliverySettingsMessage] = useState<string | null>(null);
 
@@ -286,7 +296,10 @@ export function ReadinessClient() {
       }
       if (settingsResult.status === 'fulfilled' && settingsResult.value.settings) {
         setDeliveryChannelId(settingsResult.value.settings.channelId ?? 'auto');
-        setSelectedUserIds(settingsResult.value.settings.userIds ?? []);
+        setSelectedUserIds((settingsResult.value.settings.userIds ?? []).flatMap((target) => {
+          const normalized = normalizeDmTarget(target);
+          return normalized ? [normalized] : [];
+        }));
       }
     }
 
@@ -458,6 +471,13 @@ export function ReadinessClient() {
         ? current.filter((selectedUserId) => selectedUserId !== userId)
         : [...current, userId]
     ));
+  }
+
+  function addDmTarget() {
+    const normalized = normalizeDmTarget(dmTargetInput);
+    if (!normalized) return;
+    setSelectedUserIds((current) => current.includes(normalized) ? current : [...current, normalized]);
+    setDmTargetInput('');
   }
 
   function toggleSignalSelection(signalId: string) {
@@ -632,6 +652,29 @@ export function ReadinessClient() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-[240px]">
+                      {selectedUserIds.some((target) => target.startsWith('D')) && (
+                        <>
+                          <DropdownMenuGroup>
+                            {selectedUserIds.filter((target) => target.startsWith('D')).map((target) => (
+                              <DropdownMenuItem
+                                key={target}
+                                role="menuitemcheckbox"
+                                aria-checked
+                                onSelect={(event) => {
+                                  event.preventDefault();
+                                  toggleUser(target);
+                                }}
+                              >
+                                <span className="flex h-4 w-4 items-center justify-center">
+                                  <IconCheck size={13} />
+                                </span>
+                                <span className="min-w-0 flex-1 truncate">{target}</span>
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuGroup>
+                          <DropdownMenuSeparator />
+                        </>
+                      )}
                       {slackUsersReconnectRequired ? (
                         <DropdownMenuItem disabled>Reconnect Slack to enable DMs</DropdownMenuItem>
                       ) : slackUsers.length === 0 ? (
@@ -658,6 +701,31 @@ export function ReadinessClient() {
                       )}
                     </DropdownMenuContent>
                   </DropdownMenu>
+
+                  <div className="flex min-w-0 gap-2">
+                    <Input
+                      value={dmTargetInput}
+                      onChange={(event) => setDmTargetInput(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault();
+                          addDmTarget();
+                        }
+                      }}
+                      placeholder="DM ID"
+                      aria-label="Slack DM channel or user ID"
+                      className="h-8 w-full lg:w-[120px]"
+                    />
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={addDmTarget}
+                      disabled={!normalizeDmTarget(dmTargetInput)}
+                      className="h-8 shrink-0"
+                    >
+                      Add
+                    </Button>
+                  </div>
 
                   <div className="flex flex-wrap gap-2">
                     <Button

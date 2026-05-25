@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
-import { sendSlackDirectMessage, sendSlackMessage } from '@/lib/server/signals/delivery';
+import { sendSlackDirectMessage, sendSlackMessage, type SlackDeliveryResult } from '@/lib/server/signals/delivery';
 import { createLogger } from '@/lib/server/logging';
 import type {
   HireRole,
@@ -87,8 +87,14 @@ function validReadinessItemIds(values: unknown) {
   return Array.isArray(values) ? values.filter((value): value is string => typeof value === 'string' && value.trim().length > 0) : [];
 }
 
-function validSlackUserIds(values: unknown) {
-  return Array.isArray(values) ? values.filter((value): value is string => typeof value === 'string' && value.trim().length > 0) : [];
+function validSlackDmTargets(values: unknown) {
+  return Array.isArray(values)
+    ? values
+        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        .map((value) => value.trim())
+        .filter((value) => value !== 'USLACKBOT')
+        .filter((value) => /^[DU][A-Z0-9]+$/.test(value))
+    : [];
 }
 
 function isReadinessStatus(value: unknown): value is ReadinessStatus {
@@ -352,10 +358,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid readiness item' }, { status: 400 });
     }
     const requestedChannel = typeof body.channelId === 'string' && body.channelId.trim().length > 0 ? body.channelId.trim() : null;
-    const userIds = validSlackUserIds(body.userIds);
-    if (Array.isArray(body.userIds) && userIds.length !== body.userIds.length) {
-      return NextResponse.json({ error: 'Invalid Slack user' }, { status: 400 });
-    }
+    const userIds = validSlackDmTargets(body.userIds);
 
     log.info('send_requested', {
       userId: user.id,
@@ -432,7 +435,7 @@ export async function POST(request: NextRequest) {
     });
 
     const text = buildReadinessNote(readinessItems, categories);
-    const deliveries: { target: string; type: 'channel' | 'dm'; sent: boolean; reason?: string }[] = [];
+    const deliveries: Array<{ target: string; type: 'channel' | 'dm' } & SlackDeliveryResult> = [];
 
     if (channel) {
       const sent = await sendSlackMessage({ supabase, userId: user.id, channel, text });
@@ -453,10 +456,16 @@ export async function POST(request: NextRequest) {
         target: delivery.target,
         sent: delivery.sent,
         reason: delivery.reason,
+        slackChannel: delivery.channel,
+        slackTs: delivery.ts,
+        permalink: delivery.permalink,
       });
     }
 
     if (failedDelivery) {
+      const reconnectRequired = deliveries.length > 0 && deliveries.every((delivery) => (
+        !delivery.sent && delivery.reason?.toLowerCase().includes('no active slack connection')
+      ));
       log.warn('send_failed', {
         userId: user.id,
         orgId: org.id,
@@ -470,7 +479,8 @@ export async function POST(request: NextRequest) {
         error: 'Failed to send readiness note',
         detail: failedDelivery.reason,
         deliveries,
-      }, { status: 502 });
+        reconnect_required: reconnectRequired,
+      }, { status: reconnectRequired ? 409 : 502 });
     }
 
     const sentAt = new Date().toISOString();

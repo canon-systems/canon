@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
 import { createLogger } from '@/lib/server/logging';
+import { createServiceRoleClient } from '@/lib/supabase/server';
 
 const log = createLogger('signals.delivery', {
   label: 'Signal Delivery',
@@ -14,6 +15,7 @@ const log = createLogger('signals.delivery', {
     slack_dm_open_start: 'Slack DM Open Start',
     slack_dm_open_success: 'Slack DM Open Success',
     slack_dm_open_failed: 'Slack DM Open Failed',
+    slack_dm_channel_direct: 'Slack DM Channel Direct',
     slack_dm_target_missing: 'Slack DM Target Missing',
   },
 });
@@ -21,6 +23,27 @@ const log = createLogger('signals.delivery', {
 type SlackConnection = {
   connectionId: string;
   scope: string | null;
+};
+
+export type SlackDeliveryResult = {
+  sent: boolean;
+  reason?: string;
+  channel?: string;
+  ts?: string;
+  permalink?: string;
+};
+
+type SlackPostMessageResponse = {
+  ok?: boolean;
+  error?: string;
+  channel?: string;
+  ts?: string;
+};
+
+type SlackPermalinkResponse = {
+  ok?: boolean;
+  error?: string;
+  permalink?: string;
 };
 
 function providedScopes(scope: string | null | undefined) {
@@ -41,14 +64,32 @@ function reconnectReason(missing: string[]) {
   return `Slack connection missing required scope${missing.length === 1 ? '' : 's'} ${missing.join(', ')}. Reconnect Slack to grant the updated permissions.`;
 }
 
+const NO_ACTIVE_SLACK_CONNECTION_REASON = 'No active Slack connection. Reconnect Slack before sending readiness briefs.';
+
+async function slackPermalink(params: {
+  accessToken: string;
+  channel: string;
+  ts: string;
+}) {
+  const url = new URL('https://slack.com/api/chat.getPermalink');
+  url.searchParams.set('channel', params.channel);
+  url.searchParams.set('message_ts', params.ts);
+
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${params.accessToken}` },
+  });
+  const payload = (await response.json().catch(() => ({}))) as SlackPermalinkResponse;
+  return payload.ok && typeof payload.permalink === 'string' ? payload.permalink : undefined;
+}
+
 async function resolveSlackConnection(params: {
-  supabase: SupabaseClient;
   userId: string;
 }): Promise<SlackConnection | null> {
-  const { supabase, userId } = params;
-  const { data } = await supabase
+  const { userId } = params;
+  const supabase = createServiceRoleClient();
+  const { data, error } = await supabase
     .from('oauth_connections')
-    .select('connection_id, scope')
+    .select('connection_id')
     .eq('user_id', userId)
     .eq('provider', 'slack')
     .eq('status', 'active')
@@ -56,12 +97,37 @@ async function resolveSlackConnection(params: {
     .limit(1)
     .maybeSingle();
 
+  if (error) {
+    log.warn('slack_connection_missing', {
+      userId,
+      reason: error.message,
+      code: error.code,
+    });
+    return null;
+  }
+
   const connectionId = data?.connection_id;
   if (typeof connectionId !== 'string' || connectionId.length === 0) return null;
 
+  const { data: tokenRow, error: tokenError } = await supabase
+    .from('oauth_provider_tokens')
+    .select('scope')
+    .eq('provider', 'slack')
+    .eq('connection_id', connectionId)
+    .maybeSingle();
+
+  if (tokenError) {
+    log.warn('slack_token_missing', {
+      userId,
+      connectionId,
+      reason: tokenError.message,
+      code: tokenError.code,
+    });
+  }
+
   return {
     connectionId,
-    scope: typeof data?.scope === 'string' ? data.scope : null,
+    scope: typeof tokenRow?.scope === 'string' ? tokenRow.scope : null,
   };
 }
 
@@ -70,8 +136,8 @@ export async function sendSlackMessage(params: {
   userId: string;
   channel: string | null;
   text: string;
-}): Promise<{ sent: boolean; reason?: string }> {
-  const { supabase, userId, channel, text } = params;
+}): Promise<SlackDeliveryResult> {
+  const { userId, channel, text } = params;
 
   const normalizedChannel = typeof channel === 'string' ? channel.trim() : '';
   if (!normalizedChannel) {
@@ -84,10 +150,10 @@ export async function sendSlackMessage(params: {
     return { sent: false, reason: 'No Slack channel configured.' };
   }
 
-  const connection = await resolveSlackConnection({ supabase, userId });
+  const connection = await resolveSlackConnection({ userId });
   if (!connection) {
     log.warn('slack_connection_missing', { userId, targetType: 'channel', channel: slackChannel });
-    return { sent: false, reason: 'No active Slack connection.' };
+    return { sent: false, reason: NO_ACTIVE_SLACK_CONNECTION_REASON };
   }
 
   const requiredScopes = ['chat:write'];
@@ -145,7 +211,7 @@ export async function sendSlackMessage(params: {
     return { sent: false, reason: payload };
   }
 
-  const payload = (await response.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+  const payload = (await response.json().catch(() => ({}))) as SlackPostMessageResponse;
   if (!payload.ok) {
     log.warn('slack_channel_send_failed', {
       userId,
@@ -156,13 +222,25 @@ export async function sendSlackMessage(params: {
     return { sent: false, reason: payload.error || 'Slack API returned ok=false' };
   }
 
+  const deliveredChannel = payload.channel || slackChannel;
+  const permalink = payload.ts
+    ? await slackPermalink({ accessToken, channel: deliveredChannel, ts: payload.ts })
+    : undefined;
+
   log.info('slack_channel_send_success', {
     userId,
     connectionId: connection.connectionId,
-    channel: slackChannel,
+    channel: deliveredChannel,
+    ts: payload.ts,
+    permalink,
   });
 
-  return { sent: true };
+  return {
+    sent: true,
+    channel: deliveredChannel,
+    ts: payload.ts,
+    permalink,
+  };
 }
 
 export async function sendSlackDirectMessage(params: {
@@ -170,7 +248,7 @@ export async function sendSlackDirectMessage(params: {
   userId: string;
   slackUserId: string | null;
   text: string;
-}): Promise<{ sent: boolean; reason?: string }> {
+}): Promise<SlackDeliveryResult> {
   const { supabase, userId, slackUserId, text } = params;
 
   const normalizedUserId = typeof slackUserId === 'string' ? slackUserId.trim() : '';
@@ -179,10 +257,23 @@ export async function sendSlackDirectMessage(params: {
     return { sent: false, reason: 'No Slack user configured.' };
   }
 
-  const connection = await resolveSlackConnection({ supabase, userId });
+  if (normalizedUserId.startsWith('D')) {
+    log.info('slack_dm_channel_direct', {
+      userId,
+      dmChannel: normalizedUserId,
+    });
+    return sendSlackMessage({
+      supabase,
+      userId,
+      channel: normalizedUserId,
+      text,
+    });
+  }
+
+  const connection = await resolveSlackConnection({ userId });
   if (!connection) {
     log.warn('slack_connection_missing', { userId, targetType: 'dm', slackUserId: normalizedUserId });
-    return { sent: false, reason: 'No active Slack connection.' };
+    return { sent: false, reason: NO_ACTIVE_SLACK_CONNECTION_REASON };
   }
 
   const requiredScopes = ['im:write', 'chat:write'];
@@ -255,10 +346,15 @@ export async function sendSlackDirectMessage(params: {
     dmChannel: openPayload.channel.id,
   });
 
-  return sendSlackMessage({
+  const sent = await sendSlackMessage({
     supabase,
     userId,
     channel: openPayload.channel.id,
     text,
   });
+
+  return {
+    ...sent,
+    channel: sent.channel ?? openPayload.channel.id,
+  };
 }
