@@ -541,9 +541,9 @@ export function NewHiresClient() {
                     {selectedDetail.milestone_path.length === 0 ? (
                       <div className="flex flex-col items-center justify-center h-full gap-3 py-12">
                         <IconUsers size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
-                        <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Ramp Path Yet</div>
+                        <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Milestone Path Yet</div>
                         <div className="type-body text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
-                          Approved company milestones for this role will appear here.
+                          Approved milestones for this role will appear here.
                         </div>
                       </div>
                     ) : (

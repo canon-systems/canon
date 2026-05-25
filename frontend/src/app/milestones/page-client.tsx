@@ -634,7 +634,7 @@ export function MilestonesClient() {
           <DialogHeader>
             <DialogTitle className="text-[var(--text-primary)]">Add Milestone</DialogTitle>
             <DialogDescription>
-              Add a new capability milestone for the {activeRole} ramp plan.
+              Add a new capability milestone for the {activeRole} onboarding and readiness path.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleAdd} className="min-h-0 space-y-4 overflow-y-auto pr-1">
@@ -906,7 +906,7 @@ export function MilestonesClient() {
           <DialogHeader>
             <DialogTitle className="text-[var(--text-primary)]">Remove Milestone</DialogTitle>
             <DialogDescription>
-              Remove {pendingDelete?.title}? This archives it from future ramp plans while preserving historical delivery and evidence records.
+              Remove {pendingDelete?.title}? This archives it from future onboarding paths while preserving historical delivery and evidence records.
             </DialogDescription>
           </DialogHeader>
           {pendingDelete && (

@@ -17,7 +17,7 @@ export function NewHireFormClient() {
 
       <div className="mb-6">
         <h1 className="type-page-title text-[var(--text-primary)]">Add New Hire</h1>
-        <p className="text-[var(--text-secondary)] type-body mt-0.5">Canon will set up their onboarding and default access requests.</p>
+        <p className="text-[var(--text-secondary)] type-body mt-0.5">Canon will set up their onboarding path, access requests, and readiness updates.</p>
       </div>
 
       <NewHireForm

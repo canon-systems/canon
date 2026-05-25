@@ -21,7 +21,7 @@ const rampLoop = [
     step: '01',
     href: '/knowledge',
     title: 'Knowledge sync',
-    description: 'Keep company context fresh so every ramp brief points to the right source.',
+    description: 'Keep company context fresh so onboarding briefs and readiness signals always reflect what\'s current.',
     action: 'Connect Knowledge',
     icon: IconDatabase,
   },
@@ -29,7 +29,7 @@ const rampLoop = [
     step: '02',
     href: '/milestones',
     title: 'Milestones',
-    description: 'Define role-specific expectations and approve the path from day one to impact.',
+    description: 'Define role-specific capabilities and keep every hire current as your product and market shift.',
     action: 'Review Milestones',
     icon: IconFlag,
   },
@@ -37,7 +37,7 @@ const rampLoop = [
     step: '03',
     href: '/new-hires/new',
     title: 'New hire path',
-    description: 'Assign the right milestones, access requests, and learning moments to each hire.',
+    description: 'Assign milestones, access requests, and readiness briefings to each hire from day one.',
     action: 'Add New Hire',
     icon: IconUsers,
   },
@@ -45,17 +45,17 @@ const rampLoop = [
     step: '04',
     href: '/readiness',
     title: 'Readiness signals',
-    description: 'Track product and customer changes before they become ramp blockers.',
+    description: 'Detect product and customer changes before they create gaps in the field.',
     action: 'Check Readiness',
     icon: IconRadar,
   },
 ];
 
 const suggestedPath = [
-  { href: '/knowledge', title: 'Connect your knowledge sources', description: 'Keep onboarding context fresh and searchable.' },
-  { href: '/milestones', title: 'Review and tailor milestones', description: 'Align expectations to your GTM roles.' },
-  { href: '/new-hires/new', title: 'Add your next hire', description: 'Launch a personalized ramp.' },
-  { href: '/readiness', title: 'Check readiness signals', description: 'Spot blockers before they slow progress.' },
+  { href: '/knowledge', title: 'Connect your knowledge sources', description: 'Keep onboarding briefs and readiness signals current.' },
+  { href: '/milestones', title: 'Review and tailor milestones', description: 'Align capabilities to your GTM roles.' },
+  { href: '/new-hires/new', title: 'Add your next hire', description: 'Launch a personalized onboarding path.' },
+  { href: '/readiness', title: 'Check readiness signals', description: 'Keep your team current as product and market change.' },
 ];
 
 const integrations = [
@@ -77,7 +77,7 @@ export default async function HomePage() {
         <div>
           <h1 className="type-page-title" style={{ color: 'var(--text-primary)' }}>Welcome to Canon</h1>
           <p className="type-page-subtitle mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>
-            Guide technical GTM hires from day one to full impact.
+            Keep GTM hires productive and your whole team field-ready as your product and market evolve.
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -106,7 +106,7 @@ export default async function HomePage() {
               <div>
                 <h2 className="type-section-title" style={{ color: 'var(--text-primary)' }}>Start the ramp loop</h2>
                 <p className="type-body mt-1 max-w-lg leading-[1.5]" style={{ color: 'var(--text-secondary)' }}>
-                  Canon keeps onboarding work moving as a continuous cycle: source the context, define the path, launch the ramp, then respond to what changes.
+                  Canon keeps both onboarding and field readiness in a continuous loop: source the context, define the path, launch the ramp, then stay ahead of change as it happens.
                 </p>
               </div>
               <Button asChild variant="secondary" size="sm" className="shrink-0">
@@ -165,7 +165,7 @@ export default async function HomePage() {
             >
               <IconRoute size={15} className="shrink-0 mt-[2px]" style={{ color: 'var(--text-tertiary)' }} />
               <p className="type-body leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
-                Readiness findings feed back into knowledge and milestone updates, so every hire gets current context instead of a static checklist.
+                Readiness signals feed back into knowledge and milestones, so every hire and every role stays current — not just at day one.
               </p>
             </div>
           </div>
@@ -178,7 +178,7 @@ export default async function HomePage() {
             >
               <h2 className="type-section-title" style={{ color: 'var(--text-primary)' }}>Suggested path</h2>
               <p className="type-body mt-1 leading-[1.5]" style={{ color: 'var(--text-secondary)' }}>
-                The order that makes Canon useful fastest.
+                The steps that build onboarding strength and field readiness together.
               </p>
               <ol className="mt-4 flex flex-col gap-1">
                 {suggestedPath.map((step, index) => (

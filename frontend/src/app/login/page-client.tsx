@@ -125,7 +125,7 @@ export function LoginPageClient() {
             <p className="text-[var(--text-secondary)]">
               {mode === 'forgot'
                 ? 'Enter your email and we\'ll send you a link to set a new password.'
-                : `Sign ${mode === 'login' ? 'in' : 'up'} to keep your documentation, architecture, and runbooks moving at the same pace as your code.`}
+                : `Sign ${mode === 'login' ? 'in' : 'up'} to keep your GTM hires productive and your whole team field-ready.`}
             </p>
           </div>
 
