@@ -339,7 +339,7 @@ export async function POST(request: NextRequest) {
       category?: string;
       categories?: unknown;
       itemIds?: unknown;
-      channelId?: unknown;
+      channelIds?: unknown;
       userIds?: unknown;
     };
     const requestedCategory = body.category ? body.category : request.nextUrl.searchParams.get('category');
@@ -357,14 +357,16 @@ export async function POST(request: NextRequest) {
     if (Array.isArray(body.itemIds) && itemIds.length !== body.itemIds.length) {
       return NextResponse.json({ error: 'Invalid readiness item' }, { status: 400 });
     }
-    const requestedChannel = typeof body.channelId === 'string' && body.channelId.trim().length > 0 ? body.channelId.trim() : null;
+    const requestedChannelIds = Array.isArray(body.channelIds)
+      ? body.channelIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0).map((id) => id.trim())
+      : [];
     const userIds = validSlackDmTargets(body.userIds);
 
     log.info('send_requested', {
       userId: user.id,
       categoryCount: categories?.length ?? 0,
       itemIdCount: itemIds.length,
-      requestedChannel: requestedChannel ?? 'auto',
+      requestedChannels: requestedChannelIds,
       requestedDmTargets: userIds.length,
     });
 
@@ -410,16 +412,20 @@ export async function POST(request: NextRequest) {
       categories: Array.from(new Set(readinessItems.map((item) => item.category))),
     });
 
-    const channel = requestedChannel ??
-      readinessItems.flatMap((item) => metadataStringArray(item, 'channel_ids'))[0] ??
-      (await fallbackReadinessChannel(supabase, org.id));
+    let resolvedChannelIds = requestedChannelIds;
+    if (resolvedChannelIds.length === 0) {
+      const fallback =
+        readinessItems.flatMap((item) => metadataStringArray(item, 'channel_ids'))[0] ??
+        (await fallbackReadinessChannel(supabase, org.id));
+      if (fallback) resolvedChannelIds = [fallback];
+    }
 
-    if (!channel && userIds.length === 0) {
+    if (resolvedChannelIds.length === 0 && userIds.length === 0) {
       log.warn('send_target_missing', {
         userId: user.id,
         orgId: org.id,
         itemCount: readinessItems.length,
-        requestedChannel: requestedChannel ?? 'auto',
+        requestedChannels: requestedChannelIds,
         dmTargets: userIds.length,
         reason: 'no_channel_or_dm_targets',
       });
@@ -429,21 +435,21 @@ export async function POST(request: NextRequest) {
     log.info('send_target_resolved', {
       userId: user.id,
       orgId: org.id,
-      channel: channel ?? 'none',
+      channels: resolvedChannelIds,
       dmTargets: Array.from(new Set(userIds)),
-      targetCount: (channel ? 1 : 0) + Array.from(new Set(userIds)).length,
+      targetCount: resolvedChannelIds.length + Array.from(new Set(userIds)).length,
     });
 
     const text = buildReadinessNote(readinessItems, categories);
     const deliveries: Array<{ target: string; type: 'channel' | 'dm' } & SlackDeliveryResult> = [];
 
-    if (channel) {
-      const sent = await sendSlackMessage({ supabase, userId: user.id, channel, text });
+    for (const channel of resolvedChannelIds) {
+      const sent = await sendSlackMessage({ userId: user.id, channel, text });
       deliveries.push({ target: channel, type: 'channel', ...sent });
     }
 
     for (const slackUserId of Array.from(new Set(userIds))) {
-      const sent = await sendSlackDirectMessage({ supabase, userId: user.id, slackUserId, text });
+      const sent = await sendSlackDirectMessage({ userId: user.id, slackUserId, text });
       deliveries.push({ target: slackUserId, type: 'dm', ...sent });
     }
 
@@ -501,7 +507,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       sent: true,
-      channel,
+      channels: resolvedChannelIds,
       deliveries,
       count: readinessItems.length,
       items: updated ?? [],

@@ -14,7 +14,16 @@ const log = createLogger('api.onboarding.readiness.delivery_settings', {
   },
 });
 
-function validSlackDmTargets(values: unknown) {
+function validSlackChannelIds(values: unknown): string[] {
+  return Array.isArray(values)
+    ? values
+        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        .map((value) => value.trim())
+        .filter((value) => /^[CG][A-Z0-9]+$/.test(value))
+    : [];
+}
+
+function validSlackDmTargets(values: unknown): string[] {
   return Array.isArray(values)
     ? values
         .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
@@ -40,7 +49,7 @@ export async function GET() {
 
     const { data: settings, error } = await supabase
       .from('readiness_delivery_settings')
-      .select('channel_id, channel_name, slack_user_ids')
+      .select('channel_ids, channel_names, slack_user_ids')
       .eq('organization_id', org.id)
       .maybeSingle();
 
@@ -49,15 +58,17 @@ export async function GET() {
     log.info('settings_loaded', {
       userId: user.id,
       orgId: org.id,
-      channelId: settings?.channel_id ?? 'auto',
+      channelCount: Array.isArray(settings?.channel_ids) ? settings.channel_ids.length : 0,
       dmTargets: Array.isArray(settings?.slack_user_ids) ? settings.slack_user_ids.length : 0,
     });
 
     return NextResponse.json({
       settings: settings
         ? {
-            channelId: settings.channel_id ?? 'auto',
-            channelName: settings.channel_name ?? null,
+            channelIds: validSlackChannelIds(settings.channel_ids),
+            channelNames: Array.isArray(settings.channel_names)
+              ? settings.channel_names.filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+              : [],
             userIds: validSlackDmTargets(settings.slack_user_ids),
           }
         : null,
@@ -75,22 +86,24 @@ export async function PATCH(request: NextRequest) {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = (await request.json().catch(() => ({}))) as {
-      channelId?: unknown;
-      channelName?: unknown;
+      channelIds?: unknown;
+      channelNames?: unknown;
       userIds?: unknown;
     };
 
-    const channelId = typeof body.channelId === 'string' && body.channelId !== 'auto' && body.channelId.trim().length > 0
-      ? body.channelId.trim()
-      : null;
-    const channelName = typeof body.channelName === 'string' && channelId ? body.channelName.replace(/^#/, '').trim() : null;
-    const userIds = validSlackDmTargets(body.userIds);
+    const channelIds = Array.from(new Set(validSlackChannelIds(body.channelIds)));
+    const channelNames = channelIds.length > 0 && Array.isArray(body.channelNames)
+      ? body.channelNames
+          .filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+          .map((v) => v.replace(/^#/, '').trim())
+          .slice(0, channelIds.length)
+      : [];
+    const userIds = Array.from(new Set(validSlackDmTargets(body.userIds)));
 
     log.info('settings_save_requested', {
       userId: user.id,
-      channelId: channelId ?? 'auto',
-      channelName: channelName ?? null,
-      dmTargets: Array.from(new Set(userIds)),
+      channelCount: channelIds.length,
+      dmTargets: userIds.length,
     });
 
     const supabase = await createClient();
@@ -107,12 +120,12 @@ export async function PATCH(request: NextRequest) {
       .from('readiness_delivery_settings')
       .upsert({
         organization_id: org.id,
-        channel_id: channelId,
-        channel_name: channelName,
-        slack_user_ids: Array.from(new Set(userIds)),
+        channel_ids: channelIds,
+        channel_names: channelNames,
+        slack_user_ids: userIds,
         updated_at: updatedAt,
       }, { onConflict: 'organization_id' })
-      .select('channel_id, channel_name, slack_user_ids')
+      .select('channel_ids, channel_names, slack_user_ids')
       .single();
 
     if (error) throw error;
@@ -120,15 +133,16 @@ export async function PATCH(request: NextRequest) {
     log.info('settings_saved', {
       userId: user.id,
       orgId: org.id,
-      channelId: settings.channel_id ?? 'auto',
-      channelName: settings.channel_name ?? null,
-      dmTargets: Array.isArray(settings.slack_user_ids) ? settings.slack_user_ids : [],
+      channelCount: Array.isArray(settings.channel_ids) ? settings.channel_ids.length : 0,
+      dmTargets: Array.isArray(settings.slack_user_ids) ? settings.slack_user_ids.length : 0,
     });
 
     return NextResponse.json({
       settings: {
-        channelId: settings.channel_id ?? 'auto',
-        channelName: settings.channel_name ?? null,
+        channelIds: validSlackChannelIds(settings.channel_ids),
+        channelNames: Array.isArray(settings.channel_names)
+          ? settings.channel_names.filter((v): v is string => typeof v === 'string')
+          : [],
         userIds: validSlackDmTargets(settings.slack_user_ids),
       },
     });

@@ -1,4 +1,3 @@
-import type { SupabaseClient } from '@supabase/supabase-js';
 import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
 import { createLogger } from '@/lib/server/logging';
 import { createServiceRoleClient } from '@/lib/supabase/server';
@@ -12,10 +11,6 @@ const log = createLogger('signals.delivery', {
     slack_channel_send_start: 'Slack Channel Send Start',
     slack_channel_send_success: 'Slack Channel Send Success',
     slack_channel_send_failed: 'Slack Channel Send Failed',
-    slack_dm_open_start: 'Slack DM Open Start',
-    slack_dm_open_success: 'Slack DM Open Success',
-    slack_dm_open_failed: 'Slack DM Open Failed',
-    slack_dm_channel_direct: 'Slack DM Channel Direct',
     slack_dm_target_missing: 'Slack DM Target Missing',
   },
 });
@@ -132,7 +127,6 @@ async function resolveSlackConnection(params: {
 }
 
 export async function sendSlackMessage(params: {
-  supabase: SupabaseClient;
   userId: string;
   channel: string | null;
   text: string;
@@ -244,12 +238,11 @@ export async function sendSlackMessage(params: {
 }
 
 export async function sendSlackDirectMessage(params: {
-  supabase: SupabaseClient;
   userId: string;
   slackUserId: string | null;
   text: string;
 }): Promise<SlackDeliveryResult> {
-  const { supabase, userId, slackUserId, text } = params;
+  const { userId, slackUserId, text } = params;
 
   const normalizedUserId = typeof slackUserId === 'string' ? slackUserId.trim() : '';
   if (!normalizedUserId) {
@@ -257,104 +250,7 @@ export async function sendSlackDirectMessage(params: {
     return { sent: false, reason: 'No Slack user configured.' };
   }
 
-  if (normalizedUserId.startsWith('D')) {
-    log.info('slack_dm_channel_direct', {
-      userId,
-      dmChannel: normalizedUserId,
-    });
-    return sendSlackMessage({
-      supabase,
-      userId,
-      channel: normalizedUserId,
-      text,
-    });
-  }
-
-  const connection = await resolveSlackConnection({ userId });
-  if (!connection) {
-    log.warn('slack_connection_missing', { userId, targetType: 'dm', slackUserId: normalizedUserId });
-    return { sent: false, reason: NO_ACTIVE_SLACK_CONNECTION_REASON };
-  }
-
-  const requiredScopes = ['im:write', 'chat:write'];
-  const missing = missingScopes(connection.scope, requiredScopes);
-  if (missing.length > 0) {
-    const reason = reconnectReason(missing);
-    log.warn('slack_scope_missing', {
-      userId,
-      connectionId: connection.connectionId,
-      targetType: 'dm',
-      slackUserId: normalizedUserId,
-      missingScopes: missing,
-      providedScopes: connection.scope || 'none',
-    });
-    return { sent: false, reason };
-  }
-
-  const accessToken = await getProviderAccessToken({ provider: 'slack', connectionId: connection.connectionId });
-  if (!accessToken) {
-    log.warn('slack_token_missing', { userId, connectionId: connection.connectionId, targetType: 'dm', slackUserId: normalizedUserId });
-    return { sent: false, reason: 'No Slack access token available.' };
-  }
-
-  log.info('slack_dm_open_start', {
-    userId,
-    connectionId: connection.connectionId,
-    slackUserId: normalizedUserId,
-  });
-
-  const openResponse = await fetch('https://slack.com/api/conversations.open', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json; charset=utf-8',
-    },
-    body: JSON.stringify({ users: normalizedUserId }),
-  });
-
-  if (!openResponse.ok) {
-    const payload = await openResponse.text().catch(() => 'Slack API request failed');
-    log.warn('slack_dm_open_failed', {
-      userId,
-      connectionId: connection.connectionId,
-      slackUserId: normalizedUserId,
-      status: openResponse.status,
-      reason: payload,
-    });
-    return { sent: false, reason: payload };
-  }
-
-  const openPayload = (await openResponse.json().catch(() => ({}))) as {
-    ok?: boolean;
-    error?: string;
-    channel?: { id?: string };
-  };
-  if (!openPayload.ok || !openPayload.channel?.id) {
-    log.warn('slack_dm_open_failed', {
-      userId,
-      connectionId: connection.connectionId,
-      slackUserId: normalizedUserId,
-      reason: openPayload.error || 'missing_dm_channel_id',
-    });
-    return { sent: false, reason: openPayload.error || 'Slack failed to open DM.' };
-  }
-
-  log.info('slack_dm_open_success', {
-    userId,
-    connectionId: connection.connectionId,
-    slackUserId: normalizedUserId,
-    dmChannel: openPayload.channel.id,
-  });
-
-  const sent = await sendSlackMessage({
-    supabase,
-    userId,
-    channel: openPayload.channel.id,
-    text,
-  });
-
-  return {
-    ...sent,
-    channel: sent.channel ?? openPayload.channel.id,
-  };
+  // chat.postMessage accepts both user IDs (U...) and DM channel IDs (D...) as the channel.
+  // Slack opens the DM automatically — no conversations.open needed, no im:write scope required.
+  return sendSlackMessage({ userId, channel: normalizedUserId, text });
 }

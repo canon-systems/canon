@@ -336,7 +336,7 @@ async function readinessDeliverySettings(params: {
   const { supabase, organizationId } = params;
   const { data, error } = await supabase
     .from('readiness_delivery_settings')
-    .select('channel_id, slack_user_ids')
+    .select('channel_ids, slack_user_ids')
     .eq('organization_id', organizationId)
     .maybeSingle();
 
@@ -344,7 +344,9 @@ async function readinessDeliverySettings(params: {
   if (!data) return null;
 
   return {
-    channelId: typeof data.channel_id === 'string' && data.channel_id.trim().length > 0 ? data.channel_id : null,
+    channelIds: Array.isArray(data.channel_ids)
+      ? data.channel_ids.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      : [],
     userIds: Array.isArray(data.slack_user_ids)
       ? data.slack_user_ids.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
       : [],
@@ -361,13 +363,21 @@ async function deliverReadinessItems(params: {
   if (items.length === 0) return;
 
   const settings = await readinessDeliverySettings({ supabase, organizationId });
-  const channel = settings?.channelId ??
-    items.flatMap((item) => metadataStringArray(item, 'channel_ids'))[0] ??
-    (await fallbackReadinessChannel({ supabase, organizationId }));
   const roles = Array.from(new Set(items.flatMap((item) => item.affected_roles)));
-  const userIds = settings
-    ? settings.userIds
-    : await activeRoleSlackUsers({ supabase, organizationId, roles });
+
+  let channelIds: string[];
+  let userIds: string[];
+
+  if (settings) {
+    channelIds = settings.channelIds;
+    userIds = settings.userIds;
+  } else {
+    const fallbackChannel = items.flatMap((item) => metadataStringArray(item, 'channel_ids'))[0]
+      ?? (await fallbackReadinessChannel({ supabase, organizationId }));
+    channelIds = fallbackChannel ? [fallbackChannel] : [];
+    userIds = await activeRoleSlackUsers({ supabase, organizationId, roles });
+  }
+
   const text = buildReadinessNote(items);
   const deliveries: Array<{ target: string; type: 'channel' | 'dm' } & SlackDeliveryResult> = [];
 
@@ -377,18 +387,18 @@ async function deliverReadinessItems(params: {
     itemCount: items.length,
     itemIds: items.map((item) => item.id),
     source: settings ? 'saved_settings' : 'fallback_targets',
-    channel: channel ?? 'none',
+    channels: channelIds,
     dmTargets: userIds,
     roles,
   });
 
-  if (channel) {
-    const sent = await sendSlackMessage({ supabase, userId: ownerId, channel, text });
+  for (const channel of channelIds) {
+    const sent = await sendSlackMessage({ userId: ownerId, channel, text });
     deliveries.push({ target: channel, type: 'channel', ...sent });
   }
 
   for (const slackUserId of userIds) {
-    const sent = await sendSlackDirectMessage({ supabase, userId: ownerId, slackUserId, text });
+    const sent = await sendSlackDirectMessage({ userId: ownerId, slackUserId, text });
     deliveries.push({ target: slackUserId, type: 'dm', ...sent });
   }
 

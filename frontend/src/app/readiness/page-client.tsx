@@ -19,7 +19,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,11 +28,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge, type BadgeVariant } from '@/components/ui/status-badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import type { HireRole, ReadinessBrief, ReadinessCategory, ReadinessImpactLevel, ReadinessItem, ReadinessStatus } from '@/types/onboarding';
+import type { ReadinessBrief, ReadinessCategory, ReadinessItem, ReadinessStatus } from '@/types/onboarding';
 
 const categories = [
   { id: 'product_change' as const, label: 'Product' },
@@ -41,7 +40,6 @@ const categories = [
   { id: 'implementation_pattern' as const, label: 'Implementation' },
 ];
 
-const impactRank: Record<ReadinessImpactLevel, number> = { high: 3, medium: 2, low: 1 };
 const statusBadge: Record<ReadinessStatus, BadgeVariant> = {
   draft: 'pending',
   reviewed: 'custom',
@@ -131,23 +129,6 @@ function formatDate(value: string | null) {
   return new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric' }).format(new Date(value));
 }
 
-function affectedAudience(items: ReadinessItem[]) {
-  const roles = new Map<HireRole, { role: HireRole; count: number; impact: ReadinessImpactLevel }>();
-
-  for (const item of items) {
-    for (const role of item.affected_roles) {
-      const current = roles.get(role) ?? { role, count: 0, impact: 'low' as ReadinessImpactLevel };
-      current.count += 1;
-      if (impactRank[item.impact_level] > impactRank[current.impact]) current.impact = item.impact_level;
-      roles.set(role, current);
-    }
-  }
-
-  return Array.from(roles.values()).sort((a, b) => {
-    const impactDiff = impactRank[b.impact] - impactRank[a.impact];
-    return impactDiff !== 0 ? impactDiff : b.count - a.count;
-  });
-}
 
 function preventionText(item: ReadinessItem | null) {
   if (!item) return 'Select a signal to see the risk Canon should prevent.';
@@ -175,6 +156,15 @@ function selectedCategoryLabel(selectedCategories: ReadinessCategory[]) {
   return `${selectedCategories.length} categories`;
 }
 
+function selectedChannelLabel(selectedChannelIds: string[], channelOptions: SlackChannelOption[]) {
+  if (selectedChannelIds.length === 0) return 'No channels';
+  if (selectedChannelIds.length === 1) {
+    const ch = channelOptions.find((c) => c.id === selectedChannelIds[0]);
+    return ch ? `#${ch.name}` : '1 channel';
+  }
+  return `${selectedChannelIds.length} channels`;
+}
+
 function selectedUserLabel(selectedUserIds: string[], users: SlackUserOption[]) {
   if (selectedUserIds.length === 0) return 'No DMs';
   if (selectedUserIds.length === 1) {
@@ -185,11 +175,6 @@ function selectedUserLabel(selectedUserIds: string[], users: SlackUserOption[]) 
   return `${selectedUserIds.length} DMs`;
 }
 
-function normalizeDmTarget(value: string) {
-  const normalized = value.trim().toUpperCase();
-  if (normalized === 'USLACKBOT') return null;
-  return /^[DU][A-Z0-9]+$/.test(normalized) ? normalized : null;
-}
 
 function StepRow({
   icon: Icon,
@@ -226,15 +211,15 @@ export function ReadinessClient() {
   const [activeCategories, setActiveCategories] = useState<ReadinessCategory[]>(categories.map((category) => category.id));
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [selectedSignalIds, setSelectedSignalIds] = useState<Set<string>>(new Set());
+  const [activeTab, setActiveTab] = useState<'signals' | 'delivery'>('signals');
   const [sending, setSending] = useState(false);
   const [rowActionId, setRowActionId] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [channels, setChannels] = useState<SlackChannelOption[]>([]);
   const [slackUsers, setSlackUsers] = useState<SlackUserOption[]>([]);
   const [slackUsersReconnectRequired, setSlackUsersReconnectRequired] = useState(false);
-  const [deliveryChannelId, setDeliveryChannelId] = useState('auto');
+  const [selectedChannelIds, setSelectedChannelIds] = useState<string[]>([]);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
-  const [dmTargetInput, setDmTargetInput] = useState('');
   const [savingDeliverySettings, setSavingDeliverySettings] = useState(false);
   const [deliverySettingsMessage, setDeliverySettingsMessage] = useState<string | null>(null);
 
@@ -283,7 +268,7 @@ export function ReadinessClient() {
           reconnect_required?: boolean;
         }>),
         fetch('/api/onboarding/readiness/delivery-settings').then((res) => res.json() as Promise<{
-          settings?: { channelId?: string; userIds?: string[] } | null;
+          settings?: { channelIds?: string[]; userIds?: string[] } | null;
         }>),
       ]);
 
@@ -295,11 +280,8 @@ export function ReadinessClient() {
         setSlackUsersReconnectRequired(Boolean(usersResult.value.reconnect_required));
       }
       if (settingsResult.status === 'fulfilled' && settingsResult.value.settings) {
-        setDeliveryChannelId(settingsResult.value.settings.channelId ?? 'auto');
-        setSelectedUserIds((settingsResult.value.settings.userIds ?? []).flatMap((target) => {
-          const normalized = normalizeDmTarget(target);
-          return normalized ? [normalized] : [];
-        }));
+        setSelectedChannelIds(settingsResult.value.settings.channelIds ?? []);
+        setSelectedUserIds(settingsResult.value.settings.userIds ?? []);
       }
     }
 
@@ -316,7 +298,6 @@ export function ReadinessClient() {
     () => categoryItems.find((item) => item.id === selectedItemId) ?? categoryItems[0] ?? null,
     [categoryItems, selectedItemId]
   );
-  const audience = useMemo(() => affectedAudience(categoryItems), [categoryItems]);
   const unsentCategoryItems = useMemo(
     () => categoryItems.filter((item) => item.status === 'draft' || item.status === 'reviewed'),
     [categoryItems]
@@ -352,38 +333,6 @@ export function ReadinessClient() {
     });
   }, [categoryItems]);
 
-  async function sendReadinessNote() {
-    if (!brief || unsentCategoryItems.length === 0) return;
-    setSending(true);
-    setSendError(null);
-
-    try {
-      const body = allCategoriesSelected
-        ? {}
-        : activeCategories.length === 1
-          ? { category: activeCategories[0] }
-          : { categories: activeCategories };
-      const deliveryBody = {
-        ...body,
-        ...(deliveryChannelId !== 'auto' ? { channelId: deliveryChannelId } : {}),
-        ...(selectedUserIds.length > 0 ? { userIds: selectedUserIds } : {}),
-      };
-      const res = await fetch('/api/onboarding/readiness', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(deliveryBody),
-      });
-      const data = (await res.json()) as { error?: string; detail?: string };
-      if (!res.ok) throw new Error(data.detail || data.error || 'Failed to send readiness note');
-      await loadReadiness();
-      setSelectedItemId(null);
-    } catch (error) {
-      setSendError(error instanceof Error ? error.message : 'Failed to send readiness note');
-    } finally {
-      setSending(false);
-    }
-  }
-
   async function sendSignal(item: ReadinessItem) {
     setRowActionId(item.id);
     setSendError(null);
@@ -394,7 +343,7 @@ export function ReadinessClient() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           itemIds: [item.id],
-          ...(deliveryChannelId !== 'auto' ? { channelId: deliveryChannelId } : {}),
+          ...(selectedChannelIds.length > 0 ? { channelIds: selectedChannelIds } : {}),
           ...(selectedUserIds.length > 0 ? { userIds: selectedUserIds } : {}),
         }),
       });
@@ -436,13 +385,15 @@ export function ReadinessClient() {
     setSendError(null);
 
     try {
-      const selectedChannel = channels.find((channel) => channel.id === deliveryChannelId);
+      const channelNames = selectedChannelIds
+        .map((id) => channels.find((ch) => ch.id === id)?.name ?? '')
+        .filter(Boolean);
       const res = await fetch('/api/onboarding/readiness/delivery-settings', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          channelId: deliveryChannelId,
-          channelName: selectedChannel?.name ?? null,
+          channelIds: selectedChannelIds,
+          channelNames,
           userIds: selectedUserIds,
         }),
       });
@@ -465,19 +416,20 @@ export function ReadinessClient() {
     });
   }
 
+  function toggleChannel(channelId: string) {
+    setSelectedChannelIds((current) => (
+      current.includes(channelId)
+        ? current.filter((id) => id !== channelId)
+        : [...current, channelId]
+    ));
+  }
+
   function toggleUser(userId: string) {
     setSelectedUserIds((current) => (
       current.includes(userId)
         ? current.filter((selectedUserId) => selectedUserId !== userId)
         : [...current, userId]
     ));
-  }
-
-  function addDmTarget() {
-    const normalized = normalizeDmTarget(dmTargetInput);
-    if (!normalized) return;
-    setSelectedUserIds((current) => current.includes(normalized) ? current : [...current, normalized]);
-    setDmTargetInput('');
   }
 
   function toggleSignalSelection(signalId: string) {
@@ -497,10 +449,6 @@ export function ReadinessClient() {
     ));
   }
 
-  function clearSignalSelection() {
-    setSelectedSignalIds(new Set());
-  }
-
   async function sendSelectedSignals() {
     const itemIds = categoryItems
       .filter((item) => selectedSignalIds.has(item.id) && (item.status === 'draft' || item.status === 'reviewed'))
@@ -516,7 +464,7 @@ export function ReadinessClient() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           itemIds,
-          ...(deliveryChannelId !== 'auto' ? { channelId: deliveryChannelId } : {}),
+          ...(selectedChannelIds.length > 0 ? { channelIds: selectedChannelIds } : {}),
           ...(selectedUserIds.length > 0 ? { userIds: selectedUserIds } : {}),
         }),
       });
@@ -601,49 +549,276 @@ export function ReadinessClient() {
         </section>
       ) : (
         <>
-          <section
-            aria-labelledby="delivery-targets-heading"
-            className="px-6 pt-3"
-          >
-            <Card className="rounded-[8px] px-4 py-3">
-              <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-                <div className="flex min-w-0 items-center gap-3">
-                  <div
-                    className="size-8 shrink-0 rounded-[7px] flex items-center justify-center"
-                    style={{ backgroundColor: 'var(--canon-purple-light)', color: 'var(--canon-purple)' }}
-                  >
-                    <IconSend size={15} />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h2 id="delivery-targets-heading" className="type-panel-title" style={{ color: 'var(--text-primary)' }}>Delivery targets</h2>
-                      <StatusBadge variant="custom" label="All sends" />
+          <div className="grid flex-1 min-h-0 gap-5 overflow-y-auto px-6 py-5 lg:grid-cols-[minmax(300px,380px)_minmax(0,1fr)] lg:overflow-hidden">
+            <Card className="min-w-0 overflow-hidden flex flex-col rounded-[8px]">
+              <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'signals' | 'delivery')} className="flex flex-col min-h-0 flex-1">
+                <div className="flex items-center border-b px-4 shrink-0" style={{ borderColor: 'var(--border-tertiary)' }}>
+                  <TabsList>
+                    <TabsTrigger value="signals">Signals</TabsTrigger>
+                    <TabsTrigger value="delivery">Delivery</TabsTrigger>
+                  </TabsList>
+                  {activeTab === 'signals' && (
+                    <div className="ml-auto">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="outline" size="sm" className="h-8 w-[176px] shrink-0 justify-between">
+                            <span className="truncate">{filterLabel}</span>
+                            <IconChevronDown size={14} />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-[210px]">
+                          <DropdownMenuGroup>
+                            <DropdownMenuItem
+                              role="menuitemcheckbox"
+                              aria-checked={allCategoriesSelected}
+                              onSelect={(event) => {
+                                event.preventDefault();
+                                setActiveCategories(allCategoriesSelected ? [] : categories.map((category) => category.id));
+                              }}
+                            >
+                              <span className="flex h-4 w-4 items-center justify-center">
+                                {allCategoriesSelected && <IconCheck size={13} />}
+                              </span>
+                              <span className="flex-1">All</span>
+                              <span className="type-caption tabular-nums" style={{ color: 'var(--text-tertiary)' }}>{items.length}</span>
+                            </DropdownMenuItem>
+                          </DropdownMenuGroup>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuGroup>
+                            {categories.map((category) => (
+                              <DropdownMenuItem
+                                key={category.id}
+                                role="menuitemcheckbox"
+                                aria-checked={activeCategories.includes(category.id)}
+                                onSelect={(event) => {
+                                  event.preventDefault();
+                                  toggleCategory(category.id);
+                                }}
+                              >
+                                <span className="flex h-4 w-4 items-center justify-center">
+                                  {activeCategories.includes(category.id) && <IconCheck size={13} />}
+                                </span>
+                                <span className="flex-1">{category.label}</span>
+                                <span className="type-caption tabular-nums" style={{ color: 'var(--text-tertiary)' }}>{categoryCounts.get(category.id) ?? 0}</span>
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuGroup>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
-                    <div className="type-caption mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>
-                      Channel and DM destinations for ready briefs, selected signals, and row sends.
-                    </div>
-                  </div>
+                  )}
                 </div>
 
-                <div className="flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-center lg:justify-end">
-                  <Select value={deliveryChannelId} onValueChange={setDeliveryChannelId}>
-                    <SelectTrigger className="h-8 w-full lg:w-[210px]">
-                      <IconHash size={14} />
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="auto">Auto source channel</SelectItem>
-                      {channels.map((channel) => (
-                        <SelectItem key={channel.id} value={channel.id}>
-                          #{channel.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <TabsContent value="signals" className="flex-1 min-h-0 flex flex-col overflow-hidden">
+                  <CardContent className="min-h-0 overflow-y-auto p-2">
+                  <div
+                    className="sticky top-0 z-10 -mx-2 -mt-2 border-b px-[14px] py-[10px]"
+                    style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={allSignalsSelected}
+                        ref={(input) => {
+                          if (input) input.indeterminate = hasSignalSelection && !allSignalsSelected;
+                        }}
+                        onChange={toggleAllSignals}
+                        disabled={categoryItems.length === 0}
+                        className="h-4 w-4 flex-shrink-0 accent-[var(--canon-purple)] disabled:opacity-40"
+                        aria-label={allSignalsSelected ? 'Clear signal selection' : 'Select all signals'}
+                        aria-checked={hasSignalSelection && !allSignalsSelected ? 'mixed' : allSignalsSelected}
+                      />
 
+                      <div className="min-w-0 flex-1 type-caption font-medium" style={{ color: 'var(--text-secondary)' }}>
+                        {hasSignalSelection ? `${selectedSignalCount} selected` : ''}
+                      </div>
+                      <TooltipProvider delayDuration={120}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => void sendSelectedSignals()}
+                              disabled={!hasSignalSelection || selectedUnsentSignalCount === 0 || sending || rowActionId === 'bulk'}
+                              aria-label="Send selected signals"
+                            >
+                              <IconSend size={14} />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom">Send selected signals</TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => void updateSelectedSignalStatus('reviewed')}
+                              disabled={!hasSignalSelection || rowActionId === 'bulk'}
+                              aria-label="Mark selected unsent"
+                            >
+                              <IconPencil size={14} />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom">Mark selected unsent</TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => void updateSelectedSignalStatus('sent')}
+                              disabled={!hasSignalSelection || rowActionId === 'bulk'}
+                              aria-label="Mark selected sent"
+                            >
+                              <IconCheck size={14} />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom">Mark selected sent</TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => void updateSelectedSignalStatus('archived')}
+                              disabled={!hasSignalSelection || rowActionId === 'bulk'}
+                              aria-label="Archive selected signals"
+                              className="text-[var(--red)] hover:text-[var(--red)]"
+                            >
+                              <IconArchive size={14} />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom">Archive selected signals</TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                  </div>
+                  <div className="mt-2">
+                  {categoryItems.length === 0 ? (
+                    <Alert>
+                      <IconRadar size={15} />
+                      <AlertTitle>{activeCategories.length === 0 ? 'No categories selected' : 'No active signals'}</AlertTitle>
+                      <AlertDescription>
+                        {activeCategories.length === 0 ? 'Select at least one category to view readiness signals.' : 'This filter is clear for now.'}
+                      </AlertDescription>
+                    </Alert>
+                  ) : categoryItems.map((item, index) => {
+                    const selected = selectedItem?.id === item.id;
+                    const isLast = index === categoryItems.length - 1;
+                    return (
+                      <div
+                        key={item.id}
+                        className="flex w-full items-start gap-2 rounded-[7px] transition-colors duration-[120ms]"
+                        style={{
+                          backgroundColor: selected ? 'var(--bg-secondary)' : 'transparent',
+                          borderBottom: isLast ? '0' : '1px solid var(--border-tertiary)',
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedSignalIds.has(item.id)}
+                          onChange={() => toggleSignalSelection(item.id)}
+                          className="ml-[6px] mt-[14px] h-4 w-4 flex-shrink-0 accent-[var(--canon-purple)]"
+                          aria-label={`Select ${item.title}`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setSelectedItemId(item.id)}
+                          className="min-w-0 flex-1 py-[10px] pr-3 text-left"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="type-panel-title leading-[1.35]" style={{ color: 'var(--text-primary)' }}>{item.title}</div>
+                              <div className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>
+                                {item.affected_roles.length} role{item.affected_roles.length === 1 ? '' : 's'} · {formatDate(item.sent_at)}
+                              </div>
+                            </div>
+                            <StatusBadge variant={statusBadge[item.status]} label={statusLabels[item.status]} />
+                          </div>
+                        </button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="mr-1 mt-[8px] shrink-0"
+                              aria-label={`Actions for ${item.title}`}
+                              disabled={rowActionId === item.id || rowActionId === 'bulk'}
+                            >
+                              <IconDotsVertical size={14} />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-[190px]">
+                            <DropdownMenuGroup>
+                              <DropdownMenuItem onSelect={() => void sendSignal(item)} disabled={item.status === 'sent' || rowActionId === item.id || rowActionId === 'bulk'}>
+                                <IconSend size={14} />
+                                Send this signal
+                              </DropdownMenuItem>
+                            </DropdownMenuGroup>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuGroup>
+                              <DropdownMenuItem onSelect={() => void updateSignalStatus(item, 'draft')} disabled={item.status === 'draft' || rowActionId === item.id || rowActionId === 'bulk'}>
+                                <IconPencil size={14} />
+                                Mark draft
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onSelect={() => void updateSignalStatus(item, 'reviewed')} disabled={item.status === 'reviewed' || rowActionId === item.id || rowActionId === 'bulk'}>
+                                <IconCheck size={14} />
+                                Mark unsent
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onSelect={() => void updateSignalStatus(item, 'sent')} disabled={item.status === 'sent' || rowActionId === item.id || rowActionId === 'bulk'}>
+                                <IconCheck size={14} />
+                                Mark sent
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onSelect={() => void updateSignalStatus(item, 'archived')} disabled={item.status === 'archived' || rowActionId === item.id || rowActionId === 'bulk'}>
+                                <IconArchive size={14} />
+                                Archive
+                              </DropdownMenuItem>
+                            </DropdownMenuGroup>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    );
+                  })}
+                  </div>
+                  </CardContent>
+                </TabsContent>
+
+                <TabsContent value="delivery" className="overflow-y-auto px-4 py-3 flex flex-col gap-2">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="outline" size="sm" className="h-8 w-full justify-between lg:w-[170px]">
+                      <Button variant="outline" size="sm" className="h-8 w-full justify-between">
+                        <span className="flex min-w-0 items-center gap-2">
+                          <IconHash size={14} />
+                          <span className="truncate">{selectedChannelLabel(selectedChannelIds, channels)}</span>
+                        </span>
+                        <IconChevronDown size={14} />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-[240px]">
+                      {channels.length === 0 ? (
+                        <DropdownMenuItem disabled>No channels found</DropdownMenuItem>
+                      ) : (
+                        <DropdownMenuGroup>
+                          {channels.map((ch) => (
+                            <DropdownMenuItem
+                              key={ch.id}
+                              role="menuitemcheckbox"
+                              aria-checked={selectedChannelIds.includes(ch.id)}
+                              onSelect={(e) => { e.preventDefault(); toggleChannel(ch.id); }}
+                            >
+                              <span className="flex h-4 w-4 items-center justify-center">
+                                {selectedChannelIds.includes(ch.id) && <IconCheck size={13} />}
+                              </span>
+                              <span className="min-w-0 flex-1 truncate">#{ch.name}</span>
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuGroup>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="sm" className="h-8 w-full justify-between">
                         <span className="flex min-w-0 items-center gap-2">
                           <IconUser size={14} />
                           <span className="truncate">{selectedUserLabel(selectedUserIds, slackUsers)}</span>
@@ -652,29 +827,6 @@ export function ReadinessClient() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-[240px]">
-                      {selectedUserIds.some((target) => target.startsWith('D')) && (
-                        <>
-                          <DropdownMenuGroup>
-                            {selectedUserIds.filter((target) => target.startsWith('D')).map((target) => (
-                              <DropdownMenuItem
-                                key={target}
-                                role="menuitemcheckbox"
-                                aria-checked
-                                onSelect={(event) => {
-                                  event.preventDefault();
-                                  toggleUser(target);
-                                }}
-                              >
-                                <span className="flex h-4 w-4 items-center justify-center">
-                                  <IconCheck size={13} />
-                                </span>
-                                <span className="min-w-0 flex-1 truncate">{target}</span>
-                              </DropdownMenuItem>
-                            ))}
-                          </DropdownMenuGroup>
-                          <DropdownMenuSeparator />
-                        </>
-                      )}
                       {slackUsersReconnectRequired ? (
                         <DropdownMenuItem disabled>Reconnect Slack to enable DMs</DropdownMenuItem>
                       ) : slackUsers.length === 0 ? (
@@ -701,311 +853,29 @@ export function ReadinessClient() {
                       )}
                     </DropdownMenuContent>
                   </DropdownMenu>
-
-                  <div className="flex min-w-0 gap-2">
-                    <Input
-                      value={dmTargetInput}
-                      onChange={(event) => setDmTargetInput(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') {
-                          event.preventDefault();
-                          addDmTarget();
-                        }
-                      }}
-                      placeholder="DM ID"
-                      aria-label="Slack DM channel or user ID"
-                      className="h-8 w-full lg:w-[120px]"
-                    />
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={addDmTarget}
-                      disabled={!normalizeDmTarget(dmTargetInput)}
-                      className="h-8 shrink-0"
-                    >
-                      Add
-                    </Button>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      variant="secondary"
-                      onClick={saveDeliverySettings}
-                      disabled={savingDeliverySettings}
-                      className="h-8 shrink-0"
-                    >
-                      {savingDeliverySettings ? 'Saving...' : 'Save Targets'}
-                    </Button>
-                    <Button
-                      onClick={sendReadinessNote}
-                      disabled={!brief || unsentCategoryItems.length === 0 || sending}
-                      className="h-8 shrink-0"
-                    >
-                      <IconSend size={14} /> {sending ? 'Sending...' : 'Send Now'}
-                    </Button>
-                  </div>
-                </div>
-              </div>
-              {(deliverySettingsMessage || sendError) && (
-                <div className="mt-3">
-                  {deliverySettingsMessage && !sendError && (
-                    <div className="type-caption" role="status" aria-live="polite" style={{ color: 'var(--text-tertiary)' }}>{deliverySettingsMessage}</div>
-                  )}
-                  {sendError && (
-                    <Alert variant="destructive">
-                      <AlertTitle>Could not send note</AlertTitle>
-                      <AlertDescription>{sendError}</AlertDescription>
-                    </Alert>
-                  )}
-                </div>
-              )}
-            </Card>
-          </section>
-
-          <div className="grid flex-1 min-h-0 gap-5 overflow-y-auto px-6 py-5 lg:grid-cols-[minmax(300px,380px)_minmax(0,1fr)] lg:overflow-hidden">
-            <Card className="min-w-0 overflow-hidden flex flex-col rounded-[8px]" aria-labelledby="signals-heading">
-              <CardHeader className="border-b px-4 py-3" style={{ borderColor: 'var(--border-tertiary)' }}>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <h2 id="signals-heading" className="type-section-title leading-none" style={{ color: 'var(--text-primary)' }}>Signals</h2>
-                  </div>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="outline" size="sm" className="h-8 w-[176px] shrink-0 justify-between">
-                        <span className="truncate">{filterLabel}</span>
-                        <IconChevronDown size={14} />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-[210px]">
-                      <DropdownMenuGroup>
-                        <DropdownMenuItem
-                          role="menuitemcheckbox"
-                          aria-checked={allCategoriesSelected}
-                          onSelect={(event) => {
-                            event.preventDefault();
-                            setActiveCategories(allCategoriesSelected ? [] : categories.map((category) => category.id));
-                          }}
-                        >
-                          <span className="flex h-4 w-4 items-center justify-center">
-                            {allCategoriesSelected && <IconCheck size={13} />}
-                          </span>
-                          <span className="flex-1">All</span>
-                          <span className="type-caption tabular-nums" style={{ color: 'var(--text-tertiary)' }}>{items.length}</span>
-                        </DropdownMenuItem>
-                      </DropdownMenuGroup>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuGroup>
-                        {categories.map((category) => (
-                          <DropdownMenuItem
-                            key={category.id}
-                            role="menuitemcheckbox"
-                            aria-checked={activeCategories.includes(category.id)}
-                            onSelect={(event) => {
-                              event.preventDefault();
-                              toggleCategory(category.id);
-                            }}
-                          >
-                            <span className="flex h-4 w-4 items-center justify-center">
-                              {activeCategories.includes(category.id) && <IconCheck size={13} />}
-                            </span>
-                            <span className="flex-1">{category.label}</span>
-                            <span className="type-caption tabular-nums" style={{ color: 'var(--text-tertiary)' }}>{categoryCounts.get(category.id) ?? 0}</span>
-                          </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuGroup>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              </CardHeader>
-
-              <CardContent className="min-h-0 overflow-y-auto p-2">
-              <div
-                className="sticky top-0 z-10 -mx-2 -mt-2 border-b px-[14px] py-[10px]"
-                style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}
-              >
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={allSignalsSelected}
-                    ref={(input) => {
-                      if (input) input.indeterminate = hasSignalSelection && !allSignalsSelected;
-                    }}
-                    onChange={toggleAllSignals}
-                    disabled={categoryItems.length === 0}
-                    className="h-4 w-4 flex-shrink-0 accent-[var(--canon-purple)] disabled:opacity-40"
-                    aria-label={allSignalsSelected ? 'Clear signal selection' : 'Select all signals'}
-                    aria-checked={hasSignalSelection && !allSignalsSelected ? 'mixed' : allSignalsSelected}
-                  />
-
-                  {hasSignalSelection ? (
-                    <>
-                      <div className="min-w-0 flex-1 type-caption font-medium" style={{ color: 'var(--text-secondary)' }}>
-                        {selectedSignalCount} selected
-                      </div>
-                      <TooltipProvider delayDuration={120}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => void sendSelectedSignals()}
-                              disabled={selectedUnsentSignalCount === 0 || sending || rowActionId === 'bulk'}
-                              aria-label="Send selected signals"
-                            >
-                              <IconSend size={14} />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent side="bottom">Send selected signals</TooltipContent>
-                        </Tooltip>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => void updateSelectedSignalStatus('reviewed')}
-                              disabled={rowActionId === 'bulk'}
-                              aria-label="Mark selected unsent"
-                            >
-                              <IconPencil size={14} />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent side="bottom">Mark selected unsent</TooltipContent>
-                        </Tooltip>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => void updateSelectedSignalStatus('sent')}
-                              disabled={rowActionId === 'bulk'}
-                              aria-label="Mark selected sent"
-                            >
-                              <IconCheck size={14} />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent side="bottom">Mark selected sent</TooltipContent>
-                        </Tooltip>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => void updateSelectedSignalStatus('archived')}
-                              disabled={rowActionId === 'bulk'}
-                              aria-label="Archive selected signals"
-                              className="text-[var(--red)] hover:text-[var(--red)]"
-                            >
-                              <IconArchive size={14} />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent side="bottom">Archive selected signals</TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={clearSignalSelection}
-                        disabled={sending || rowActionId === 'bulk'}
-                        className="h-8 px-2"
-                      >
-                        Clear
-                      </Button>
-                    </>
-                  ) : (
-                    <div className="min-w-0 flex-1 type-caption font-medium" style={{ color: 'var(--text-secondary)' }}>
-                      Select signals for bulk actions
+                  <Button
+                    variant="secondary"
+                    onClick={saveDeliverySettings}
+                    disabled={savingDeliverySettings}
+                    className="h-8 w-full"
+                  >
+                    {savingDeliverySettings ? 'Saving...' : 'Save Targets'}
+                  </Button>
+                  {(deliverySettingsMessage || sendError) && (
+                    <div>
+                      {deliverySettingsMessage && !sendError && (
+                        <div className="type-caption" role="status" aria-live="polite" style={{ color: 'var(--text-tertiary)' }}>{deliverySettingsMessage}</div>
+                      )}
+                      {sendError && (
+                        <Alert variant="destructive">
+                          <AlertTitle>Could not send note</AlertTitle>
+                          <AlertDescription>{sendError}</AlertDescription>
+                        </Alert>
+                      )}
                     </div>
                   )}
-                </div>
-              </div>
-              <div className="mt-2">
-              {categoryItems.length === 0 ? (
-                <Alert>
-                  <IconRadar size={15} />
-                  <AlertTitle>{activeCategories.length === 0 ? 'No categories selected' : 'No active signals'}</AlertTitle>
-                  <AlertDescription>
-                    {activeCategories.length === 0 ? 'Select at least one category to view readiness signals.' : 'This filter is clear for now.'}
-                  </AlertDescription>
-                </Alert>
-              ) : categoryItems.map((item, index) => {
-                const selected = selectedItem?.id === item.id;
-                const isLast = index === categoryItems.length - 1;
-                return (
-                  <div
-                    key={item.id}
-                    className="flex w-full items-start gap-2 rounded-[7px] transition-colors duration-[120ms]"
-                    style={{
-                      backgroundColor: selected ? 'var(--bg-secondary)' : 'transparent',
-                      borderBottom: isLast ? '0' : '1px solid var(--border-tertiary)',
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedSignalIds.has(item.id)}
-                      onChange={() => toggleSignalSelection(item.id)}
-                      className="ml-3 mt-[14px] h-4 w-4 flex-shrink-0 accent-[var(--canon-purple)]"
-                      aria-label={`Select ${item.title}`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setSelectedItemId(item.id)}
-                      className="min-w-0 flex-1 py-[10px] pr-3 text-left"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="type-panel-title leading-[1.35]" style={{ color: 'var(--text-primary)' }}>{item.title}</div>
-                          <div className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>
-                            {item.affected_roles.length} role{item.affected_roles.length === 1 ? '' : 's'} · {formatDate(item.sent_at)}
-                          </div>
-                        </div>
-                        <StatusBadge variant={statusBadge[item.status]} label={statusLabels[item.status]} />
-                      </div>
-                    </button>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="mr-1 mt-[8px] shrink-0"
-                          aria-label={`Actions for ${item.title}`}
-                          disabled={rowActionId === item.id || rowActionId === 'bulk'}
-                        >
-                          <IconDotsVertical size={14} />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-[190px]">
-                        <DropdownMenuGroup>
-                          <DropdownMenuItem onSelect={() => void sendSignal(item)} disabled={item.status === 'sent' || rowActionId === item.id || rowActionId === 'bulk'}>
-                            <IconSend size={14} />
-                            Send this signal
-                          </DropdownMenuItem>
-                        </DropdownMenuGroup>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuGroup>
-                          <DropdownMenuItem onSelect={() => void updateSignalStatus(item, 'draft')} disabled={item.status === 'draft' || rowActionId === item.id || rowActionId === 'bulk'}>
-                            <IconPencil size={14} />
-                            Mark draft
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onSelect={() => void updateSignalStatus(item, 'reviewed')} disabled={item.status === 'reviewed' || rowActionId === item.id || rowActionId === 'bulk'}>
-                            <IconCheck size={14} />
-                            Mark unsent
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onSelect={() => void updateSignalStatus(item, 'sent')} disabled={item.status === 'sent' || rowActionId === item.id || rowActionId === 'bulk'}>
-                            <IconCheck size={14} />
-                            Mark sent
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onSelect={() => void updateSignalStatus(item, 'archived')} disabled={item.status === 'archived' || rowActionId === item.id || rowActionId === 'bulk'}>
-                            <IconArchive size={14} />
-                            Archive
-                          </DropdownMenuItem>
-                        </DropdownMenuGroup>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                );
-              })}
-              </div>
-            </CardContent>
+                </TabsContent>
+              </Tabs>
             </Card>
 
             <Card className="min-w-0 overflow-y-auto rounded-[8px]" aria-labelledby="selected-signal-heading">
@@ -1058,15 +928,15 @@ export function ReadinessClient() {
 
               <StepRow icon={IconUsers} label="3. Identify audience">
                 <div className="flex flex-wrap gap-2">
-                  {audience.length === 0 ? (
+                  {!selectedItem || selectedItem.affected_roles.length === 0 ? (
                     <span className="type-body" style={{ color: 'var(--text-tertiary)' }}>No affected roles.</span>
-                  ) : audience.map((role) => (
+                  ) : selectedItem.affected_roles.map((role) => (
                     <span
-                      key={role.role}
+                      key={role}
                       className="type-control-sm rounded-[4px] px-[7px] py-[3px]"
                       style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--text-secondary)', border: '1px solid var(--border-tertiary)' }}
                     >
-                      {role.role}
+                      {role}
                     </span>
                   ))}
                 </div>
