@@ -5,6 +5,7 @@ import Link from 'next/link';
 import {
   IconArchive,
   IconArrowRight,
+  IconBrain,
   IconCheck,
   IconChevronDown,
   IconDotsVertical,
@@ -212,6 +213,7 @@ export function ReadinessClient() {
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [selectedSignalIds, setSelectedSignalIds] = useState<Set<string>>(new Set());
   const [activeTab, setActiveTab] = useState<'signals' | 'delivery'>('signals');
+  const [generating, setGenerating] = useState(false);
   const [sending, setSending] = useState(false);
   const [rowActionId, setRowActionId] = useState<string | null>(null);
   const [channels, setChannels] = useState<SlackChannelOption[]>([]);
@@ -220,6 +222,45 @@ export function ReadinessClient() {
   const [selectedChannelIds, setSelectedChannelIds] = useState<string[]>([]);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [savingDeliverySettings, setSavingDeliverySettings] = useState(false);
+
+  async function generateSignals() {
+    setGenerating(true);
+    const startingCount = brief?.items?.length ?? 0;
+    try {
+      await fetch('/api/onboarding/readiness', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'generate' }),
+      });
+
+      await new Promise<void>((resolve) => {
+        let attempts = 0;
+        const interval = window.setInterval(async () => {
+          attempts++;
+          try {
+            const res = await fetch('/api/onboarding/readiness');
+            const data = (await res.json()) as { brief?: ReadinessBrief | null };
+            const next = data.brief;
+            const nextCount = next?.items?.length ?? 0;
+            if (nextCount > startingCount || attempts >= 20) {
+              clearInterval(interval);
+              setBrief(next ?? null);
+              if (nextCount > startingCount) {
+                toast.success('Readiness signals are ready for review');
+              }
+              resolve();
+            }
+          } catch {
+            if (attempts >= 20) { clearInterval(interval); resolve(); }
+          }
+        }, 3000);
+      });
+    } catch {
+      toast.error('Could not generate readiness signals. Please try again.');
+    } finally {
+      setGenerating(false);
+    }
+  }
 
   async function loadReadiness() {
     try {
@@ -535,9 +576,23 @@ export function ReadinessClient() {
             Detect change, explain impact, identify audience, recommend action, then send or prevent.
           </p>
         </div>
+        <Button size="sm" onClick={generateSignals} disabled={generating} className="mt-1">
+          <IconBrain size={13} /> {generating ? 'Generating...' : 'Generate Signals'}
+        </Button>
       </div>
 
       {!brief ? (
+        generating ? (
+          <div className="flex flex-col gap-4 px-6 py-6 flex-1 overflow-y-auto">
+            <div className="flex items-center gap-2 type-body" style={{ color: 'var(--text-tertiary)' }}>
+              <IconBrain size={14} style={{ color: 'var(--canon-purple)', flexShrink: 0 }} />
+              Analyzing your knowledge sources for readiness signals…
+            </div>
+            {[1, 2, 3, 4].map((i) => (
+              <Skeleton key={i} className="h-20 rounded-[10px] bg-[var(--bg-primary)]" />
+            ))}
+          </div>
+        ) : (
         <div className="flex flex-col items-center justify-center flex-1 gap-3 py-12">
           <IconRadar size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
           <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Readiness Signals</div>
@@ -548,6 +603,7 @@ export function ReadinessClient() {
             <Button size="sm" className="mt-1">Add Knowledge Sources</Button>
           </Link>
         </div>
+        )
       ) : (
         <div className="flex flex-1 overflow-hidden">
 
