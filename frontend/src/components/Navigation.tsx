@@ -94,9 +94,9 @@ export function Navigation({ user, onLogout }: NavigationProps) {
         onClick={toggleCollapsed}
         aria-label={collapsed ? 'Expand Navigation' : 'Collapse Navigation'}
         title={collapsed ? 'Expand Navigation' : 'Collapse Navigation'}
-        className="surface-panel absolute right-[-14px] top-1/2 z-20 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border text-[var(--text-secondary)] transition-colors duration-[120ms] hover:text-[var(--text-primary)]"
+        className="surface-panel absolute right-[-10px] top-1/2 z-20 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full border text-[var(--text-secondary)] transition-colors duration-[120ms] hover:text-[var(--text-primary)]"
       >
-        {collapsed ? <IconChevronRight size={15} /> : <IconChevronLeft size={15} />}
+        {collapsed ? <IconChevronRight size={11} /> : <IconChevronLeft size={11} />}
       </button>
 
       <Link
