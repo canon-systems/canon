@@ -24,6 +24,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { toast } from 'sonner';
 import { MilestoneCard } from '@/components/milestone-card';
 import { cn } from '@/components/ui/utils';
 import type { HireRole, MilestoneProposal, RampMilestone } from '@/types/onboarding';
@@ -258,12 +259,38 @@ export function MilestonesClient() {
 
   async function generateMilestones() {
     setGenerating(true);
+    const startingCount = proposals.length;
     try {
       await fetch('/api/onboarding/milestones', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'generate' }),
       });
+
+      await new Promise<void>((resolve) => {
+        let attempts = 0;
+        const interval = window.setInterval(async () => {
+          attempts++;
+          try {
+            const res = await fetch('/api/onboarding/milestones');
+            const data = (await res.json()) as { milestones?: RampMilestone[]; proposals?: MilestoneProposal[] };
+            const next = data.proposals ?? [];
+            if (next.length > startingCount || attempts >= 20) {
+              clearInterval(interval);
+              setMilestones(data.milestones ?? []);
+              setProposals(next);
+              if (next.length > startingCount) {
+                toast.success('Milestones are ready for review');
+              }
+              resolve();
+            }
+          } catch {
+            if (attempts >= 20) { clearInterval(interval); resolve(); }
+          }
+        }, 3000);
+      });
+    } catch {
+      toast.error('Could not generate milestones. Please try again.');
     } finally {
       setGenerating(false);
     }
@@ -557,6 +584,17 @@ export function MilestonesClient() {
 
         <div className="flex-1 overflow-y-auto px-8 py-6">
           {activeMilestones.length === 0 && activeProposals.length === 0 ? (
+            generating ? (
+              <div className="flex flex-col gap-4">
+                <div className="flex items-center gap-2 type-body" style={{ color: 'var(--text-tertiary)' }}>
+                  <IconBrain size={14} style={{ color: 'var(--canon-purple)', flexShrink: 0 }} />
+                  Generating milestones from your knowledge sources…
+                </div>
+                {[1, 2, 3, 4].map((i) => (
+                  <Skeleton key={i} className="h-24 rounded-[10px] bg-[var(--bg-primary)]" />
+                ))}
+              </div>
+            ) : (
             <div className="flex flex-col items-center justify-center h-full gap-3 py-12">
               <IconTarget size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
               <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Approved Milestones</div>
@@ -572,6 +610,7 @@ export function MilestonesClient() {
                 </Button>
               </div>
             </div>
+            )
           ) : (
             <div className="flex flex-col gap-5">
               {activeProposals.length > 0 && (
