@@ -18,7 +18,7 @@ async function loadToken(token: string) {
       used_at,
       new_hire_id,
       milestone_id,
-      new_hires ( name ),
+      new_hires ( first_name, last_name ),
       ramp_milestones ( title, capability_outcome, real_work_trigger )
     `)
     .eq('token', token)
@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       response: {
         used_at: tokenRow.used_at,
-        new_hire_name: hire?.name ?? 'New hire',
+        new_hire_name: hire ? `${hire.first_name} ${hire.last_name}` : 'New hire',
         milestone_title: milestone?.title ?? 'Milestone',
         capability_outcome: milestone?.capability_outcome ?? null,
         real_work_trigger: milestone?.real_work_trigger ?? null,

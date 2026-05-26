@@ -82,7 +82,8 @@ export interface NewHire {
   id: string;
   organization_id: string;
   created_by: string;
-  name: string;
+  first_name: string;
+  last_name: string;
   email: string;
   role: HireRole;
   slack_user_id: string | null;
@@ -242,6 +243,8 @@ export interface AccessRequest {
   requested_from_slack_id: string | null;
   status: AccessRequestStatus;
   sent_at: string | null;
+  resent_at: string | null;
+  granted_at: string | null;
   confirmed_at: string | null;
   created_at: string;
 }

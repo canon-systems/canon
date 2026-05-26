@@ -136,6 +136,7 @@ export async function PATCH(request: NextRequest) {
     const updatePayload: Record<string, unknown> = {};
     if (status) {
       updatePayload.status = status;
+      if (status === 'granted') updatePayload.granted_at = new Date().toISOString();
       if (status === 'confirmed') updatePayload.confirmed_at = new Date().toISOString();
     }
     if (tool_name !== undefined) updatePayload.tool_name = tool_name;

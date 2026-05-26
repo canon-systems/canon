@@ -130,7 +130,7 @@ export async function POST(request: NextRequest) {
 
         const { data: updated, error } = await supabase
           .from('access_requests')
-          .update({ status: 'granted' })
+          .update({ status: 'granted', granted_at: new Date().toISOString() })
           .eq('id', accessRequestId)
           .select()
           .single();
@@ -157,6 +157,59 @@ export async function POST(request: NextRequest) {
 
         if (payload.response_url) {
           void updateSlackMessage(payload.response_url, updated.tool_name);
+        }
+      }
+
+      if (action?.action_id === 'access_confirmed_by_hire') {
+        const accessRequestId = action.value;
+        if (!accessRequestId) {
+          log.warn('interaction_skipped', { reason: 'missing_access_request_id_in_confirm_button' });
+          return new NextResponse('', { status: 200 });
+        }
+
+        const supabase = createServiceRoleClient();
+
+        const { data: updated, error } = await supabase
+          .from('access_requests')
+          .update({ status: 'confirmed', confirmed_at: new Date().toISOString() })
+          .eq('id', accessRequestId)
+          .select()
+          .single();
+
+        if (error || !updated) {
+          log.error('interaction_failed', { accessRequestId, reason: 'confirm_db_update_failed', error: error?.message });
+          return new NextResponse('', { status: 200 });
+        }
+
+        log.info('access_granted', {
+          accessRequestId,
+          toolName: updated.tool_name,
+          confirmedBy: payload.user?.name ?? payload.user?.id ?? '(unknown)',
+          event: 'hire_confirmed_access',
+        });
+
+        if (payload.response_url) {
+          try {
+            await fetch(payload.response_url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                replace_original: true,
+                blocks: [
+                  {
+                    type: 'section',
+                    text: {
+                      type: 'mrkdwn',
+                      text: `✅ *Access confirmed* — you've confirmed your access to *${updated.tool_name}*. You're all set!`,
+                    },
+                  },
+                ],
+                text: `Access to ${updated.tool_name} confirmed`,
+              }),
+            });
+          } catch {
+            log.warn('interaction_skipped', { reason: 'confirm_response_url_failed', toolName: updated.tool_name });
+          }
         }
       }
     }

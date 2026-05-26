@@ -186,7 +186,7 @@ export const dailyRampCheck = inngest.createFunction(
 
     const { data: activeHires } = await supabase
       .from('new_hires')
-      .select('id, organization_id, name, role, slack_user_id, ramp_day, status')
+      .select('id, organization_id, first_name, last_name, name, role, slack_user_id, ramp_day, status')
       .eq('status', 'active');
 
     if (!activeHires || activeHires.length === 0) {
@@ -324,7 +324,7 @@ export const dailyRampCheck = inngest.createFunction(
             match_count: 5,
           });
 
-          const firstName = hire.name.split(' ')[0];
+          const firstName = hire.first_name;
           const responseUrl = await createResponseLink({
             supabase,
             newHireId: hire.id,

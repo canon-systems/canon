@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import {
   IconBriefcase,
   IconCalendar,
@@ -44,7 +45,8 @@ import type { AccessRequest, HireRole, HireStatus, NewHireMilestonePathItem, Ram
 
 type HireRow = {
   id: string;
-  name: string;
+  first_name: string;
+  last_name: string;
   role: HireRole;
   start_date: string;
   ramp_day: number;
@@ -113,11 +115,11 @@ function HireActionsMenu({
   onStatusChange,
   onDelete,
 }: {
-  hire: Pick<HireRow, 'id' | 'name' | 'status'>;
+  hire: Pick<HireRow, 'id' | 'first_name' | 'last_name' | 'status'>;
   disabled?: boolean;
-  onEdit: (hire: Pick<HireRow, 'id' | 'name' | 'status'>) => void;
-  onStatusChange: (hire: Pick<HireRow, 'id' | 'name' | 'status'>, status: HireStatus) => void;
-  onDelete: (hire: Pick<HireRow, 'id' | 'name' | 'status'>) => void;
+  onEdit: (hire: Pick<HireRow, 'id' | 'first_name' | 'last_name' | 'status'>) => void;
+  onStatusChange: (hire: Pick<HireRow, 'id' | 'first_name' | 'last_name' | 'status'>, status: HireStatus) => void;
+  onDelete: (hire: Pick<HireRow, 'id' | 'first_name' | 'last_name' | 'status'>) => void;
 }) {
   const nextStatus = hire.status === 'active' ? 'paused' : 'active';
   const statusLabel = hire.status === 'active' ? 'Pause Hire' : 'Activate Hire';
@@ -129,7 +131,7 @@ function HireActionsMenu({
         <button
           type="button"
           disabled={disabled}
-          aria-label={`Open settings for ${hire.name}`}
+          aria-label={`Open settings for ${hire.first_name} ${hire.last_name}`}
           className="w-7 h-7 rounded-md border border-[var(--border-tertiary)] bg-transparent flex items-center justify-center cursor-pointer text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] transition-colors duration-[120ms] disabled:cursor-not-allowed disabled:opacity-50"
         >
           <IconDotsVertical size={15} />
@@ -170,12 +172,11 @@ export function NewHiresClient() {
   const [activeTab, setActiveTab] = useState<'Ramp Evidence' | 'Access'>(requestedTab === 'Access' ? 'Access' : 'Ramp Evidence');
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingHire, setEditingHire] = useState<EditableNewHire | null>(null);
-  const [pendingDelete, setPendingDelete] = useState<Pick<HireRow, 'id' | 'name' | 'status'> | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<Pick<HireRow, 'id' | 'first_name' | 'last_name' | 'status'> | null>(null);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [milestoneActionId, setMilestoneActionId] = useState<string | null>(null);
 
   const [sendingRequestId, setSendingRequestId] = useState<string | null>(null);
-  const [resentAt, setResentAt] = useState<Record<string, string>>({});
   const [addAccessOpen, setAddAccessOpen] = useState(false);
   const [addAccessSaving, setAddAccessSaving] = useState(false);
   const [newAccess, setNewAccess] = useState({ tool_name: '', owner: null as SlackUser | null });
@@ -217,7 +218,7 @@ export function NewHiresClient() {
 
   const filtered = hires.filter((h) => {
     const matchesFilter = filter === 'all' || h.status === filter;
-    const matchesSearch = !search || h.name.toLowerCase().includes(search.toLowerCase()) || h.role.toLowerCase().includes(search.toLowerCase());
+    const matchesSearch = !search || `${h.first_name} ${h.last_name}`.toLowerCase().includes(search.toLowerCase()) || h.role.toLowerCase().includes(search.toLowerCase());
     return matchesFilter && matchesSearch;
   });
 
@@ -258,7 +259,7 @@ export function NewHiresClient() {
     { label: 'Done', value: 'completed' },
   ];
 
-  async function updateHireStatus(hire: Pick<HireRow, 'id' | 'name' | 'status'>, status: HireStatus) {
+  async function updateHireStatus(hire: Pick<HireRow, 'id' | 'first_name' | 'last_name' | 'status'>, status: HireStatus) {
     setActionLoadingId(hire.id);
     try {
       const res = await fetch(`/api/onboarding/new-hires/${hire.id}`, {
@@ -282,7 +283,7 @@ export function NewHiresClient() {
     }
   }
 
-  async function openEditModal(hire: Pick<HireRow, 'id' | 'name' | 'status'>) {
+  async function openEditModal(hire: Pick<HireRow, 'id' | 'first_name' | 'last_name' | 'status'>) {
     setActionLoadingId(hire.id);
     try {
       if (selectedDetail?.hire.id === hire.id) {
@@ -363,7 +364,6 @@ export function NewHiresClient() {
   }
 
   async function sendRequest(requestId: string) {
-    const wasAlreadySent = selectedDetail?.access_requests.find((r) => r.id === requestId)?.status === 'sent';
     setSendingRequestId(requestId);
     try {
       const res = await fetch('/api/onboarding/access-requests/send', {
@@ -377,9 +377,6 @@ export function NewHiresClient() {
         return;
       }
       toast.success('Request sent — the owner will receive a Slack DM shortly.');
-      if (wasAlreadySent) {
-        setResentAt((prev) => ({ ...prev, [requestId]: new Date().toISOString() }));
-      }
       if (selectedDetail) {
         const detailRes = await fetch(`/api/onboarding/new-hires/${selectedDetail.hire.id}`);
         const detailJson = (await detailRes.json()) as HireDetail;
@@ -551,9 +548,9 @@ export function NewHiresClient() {
                   padding: '11px 14px',
                 }}
               >
-                <Avatar name={hire.name} size="md" />
+                <Avatar name={`${hire.first_name} ${hire.last_name}`} size="md" />
                 <div className="flex-1 min-w-0">
-                  <div className="type-panel-title truncate" style={{ color: 'var(--text-primary)' }}>{hire.name}</div>
+                  <div className="type-panel-title truncate" style={{ color: 'var(--text-primary)' }}>{hire.first_name} {hire.last_name}</div>
                   <div className="type-caption mt-[1px] truncate" style={{ color: 'var(--text-tertiary)' }}>
                     {hire.role} · {fmtDate(hire.start_date)}
                   </div>
@@ -592,10 +589,10 @@ export function NewHiresClient() {
             <div className="flex h-full flex-col overflow-hidden">
               <div className="split-header px-8 pt-6 pb-5 border-b">
                 <div className="flex items-start gap-5 mb-5">
-                  <Avatar name={selectedDetail.hire.name} size="lg" />
+                  <Avatar name={`${selectedDetail.hire.first_name} ${selectedDetail.hire.last_name}`} size="lg" />
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="type-detail-title" style={{ color: 'var(--text-primary)' }}>{selectedDetail.hire.name}</span>
+                      <span className="type-detail-title" style={{ color: 'var(--text-primary)' }}>{selectedDetail.hire.first_name} {selectedDetail.hire.last_name}</span>
                       <span
                         className="type-control px-[10px] py-[4px] rounded-[6px] text-[var(--text-primary)]"
                         style={{ backgroundColor: 'var(--canon-purple)' }}
@@ -784,9 +781,9 @@ export function NewHiresClient() {
                       <div className="flex flex-col items-center justify-center gap-3 py-12">
                         <IconUsers size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
                         <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Access Requests</div>
-                        <div className="type-body text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
-                          Add tools above or configure defaults in Settings → Tools.
-                        </div>
+                        <Button asChild size="sm" variant="secondary">
+                          <Link href="/settings?tab=tools">Configure Tools</Link>
+                        </Button>
                       </div>
                     ) : (
                       <div className="flex flex-col gap-3">
@@ -796,7 +793,7 @@ export function NewHiresClient() {
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-2">
                                 <span className="type-card-title" style={{ color: 'var(--text-primary)' }}>{request.tool_name}</span>
-                                {resentAt[request.id]
+                                {request.resent_at
                                   ? <StatusBadge variant="upcoming" label="Re-sent" />
                                   : <StatusBadge variant={accessVariant(request.status)} label={accessLabel(request.status)} />}
                               </div>
@@ -804,11 +801,15 @@ export function NewHiresClient() {
                                 {request.requested_from_name
                                   ? `${request.requested_from_name} · `
                                   : 'No owner set · '}
-                                {resentAt[request.id]
-                                  ? `Re-sent ${fmtDetailDateTime(resentAt[request.id])}`
-                                  : request.sent_at
-                                    ? `Sent ${fmtDetailDate(request.sent_at)}`
-                                    : 'Not yet sent'}
+                                {request.confirmed_at
+                                  ? `Confirmed ${fmtDetailDateTime(request.confirmed_at)}`
+                                  : request.granted_at
+                                    ? `Granted ${fmtDetailDateTime(request.granted_at)}`
+                                    : request.resent_at
+                                      ? `Re-sent ${fmtDetailDateTime(request.resent_at)} · Sent ${fmtDetailDate(request.sent_at)}`
+                                      : request.sent_at
+                                        ? `Sent ${fmtDetailDateTime(request.sent_at)}`
+                                        : 'Not yet sent'}
                               </div>
                             </div>
                             <div className="flex items-center gap-2 flex-shrink-0">
@@ -1028,7 +1029,7 @@ export function NewHiresClient() {
           <DialogHeader>
             <DialogTitle>Delete Hire</DialogTitle>
             <DialogDescription>
-              Delete {pendingDelete?.name}? This removes the hire, deliveries, and access requests from Canon.
+              Delete {pendingDelete?.first_name} {pendingDelete?.last_name}? This removes the hire, deliveries, and access requests from Canon.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

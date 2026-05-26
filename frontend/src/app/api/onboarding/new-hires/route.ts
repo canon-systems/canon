@@ -46,16 +46,17 @@ export async function POST(request: NextRequest) {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = (await request.json()) as {
-      name?: string;
+      first_name?: string;
+      last_name?: string;
       email?: string;
       role?: string;
       start_date?: string;
       slack_user_id?: string;
     };
 
-    const { name, email, role, start_date, slack_user_id } = body;
-    if (!name || !email || !role || !start_date) {
-      return NextResponse.json({ error: 'name, email, role, and start_date are required' }, { status: 400 });
+    const { first_name, last_name, email, role, start_date, slack_user_id } = body;
+    if (!first_name || !last_name || !email || !role || !start_date || !slack_user_id) {
+      return NextResponse.json({ error: 'first_name, last_name, email, role, start_date, and slack_user_id are required' }, { status: 400 });
     }
 
     const validRoles: HireRole[] = ['AI Solutions Architect', 'Solutions Engineer', 'Implementation Engineer'];
@@ -79,11 +80,12 @@ export async function POST(request: NextRequest) {
       .insert({
         organization_id: org.id,
         created_by: user.id,
-        name,
+        first_name,
+        last_name,
         email,
         role,
         start_date,
-        slack_user_id: slack_user_id || null,
+        slack_user_id,
         ramp_day: 0,
         status: 'active',
       })

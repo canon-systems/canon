@@ -9,7 +9,7 @@ import { StatusBadge } from '@/components/ui/status-badge';
 import type { AccessRequest } from '@/types/onboarding';
 
 type AccessRequestWithHire = AccessRequest & {
-  new_hires?: { name: string; role: string } | null;
+  new_hires?: { first_name: string; last_name: string; role: string } | null;
 };
 
 const STATUS_ORDER = ['pending', 'sent', 'acknowledged', 'granted'];
@@ -142,7 +142,7 @@ export function AccessClient() {
                     <td className="px-4 py-3 text-[var(--text-primary)] font-medium">{req.tool_name}</td>
                     <td className="px-4 py-3">
                       <Link href={`/new-hires?hire=${req.new_hire_id}`} className="text-[var(--text-primary)] hover:text-[var(--text-secondary)] transition-colors">
-                        {req.new_hires?.name ?? '—'}
+                        {req.new_hires ? `${req.new_hires.first_name} ${req.new_hires.last_name}` : '—'}
                       </Link>
                       {req.new_hires?.role && (
                         <p className="text-[var(--text-secondary)] type-caption">{req.new_hires.role}</p>

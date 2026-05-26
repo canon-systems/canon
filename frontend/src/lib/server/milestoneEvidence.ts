@@ -117,7 +117,7 @@ export async function recordMilestoneEvidence(params: RecordEvidenceParams) {
 
   const { data: hire } = await params.supabase
     .from('new_hires')
-    .select('id, name, organization_id, organizations(id, owner_id)')
+    .select('id, first_name, last_name, organization_id, organizations(id, owner_id)')
     .eq('id', params.newHireId)
     .single();
 
@@ -243,7 +243,7 @@ export async function recordMilestoneEvidence(params: RecordEvidenceParams) {
   }
 
   const copy = notificationCopy({
-    hireName: hire.name,
+    hireName: `${hire.first_name} ${hire.last_name}`,
     milestoneTitle: milestone.title,
     evidenceType: params.evidenceType,
     verified: resolvedStatus === 'verified',

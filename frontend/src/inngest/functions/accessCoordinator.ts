@@ -21,19 +21,19 @@ const log = createLogger('inngest.access_coordinator', {
 // Admin/user-management URLs for known tools. These land the owner as close as
 // possible to where they can grant access — one click from the Slack message.
 const TOOL_ACCESS_URLS: Record<string, string> = {
-  salesforce:  'https://login.salesforce.com',
-  gong:        'https://app.gong.io/settings/users',
-  github:      'https://github.com/settings/organizations',
-  jira:        'https://admin.atlassian.com',
-  confluence:  'https://admin.atlassian.com',
-  zoom:        'https://zoom.us/account/user#/',
-  outreach:    'https://app.outreach.io/settings/users',
-  hubspot:     'https://app.hubspot.com/settings/users',
-  notion:      'https://www.notion.so/settings/members',
-  slack:       'https://slack.com/admin',
-  linear:      'https://linear.app/settings/members',
-  figma:       'https://www.figma.com/settings',
-  asana:       'https://app.asana.com/admin',
+  salesforce: 'https://login.salesforce.com',
+  gong: 'https://app.gong.io/settings/users',
+  github: 'https://github.com/settings/organizations',
+  jira: 'https://admin.atlassian.com',
+  confluence: 'https://admin.atlassian.com',
+  zoom: 'https://zoom.us/account/user#/',
+  outreach: 'https://app.outreach.io/settings/users',
+  hubspot: 'https://app.hubspot.com/settings/users',
+  notion: 'https://www.notion.so/settings/members',
+  slack: 'https://slack.com/admin',
+  linear: 'https://linear.app/settings/members',
+  figma: 'https://www.figma.com/settings',
+  asana: 'https://app.asana.com/admin',
 };
 
 function getToolAccessUrl(toolName: string): string | null {
@@ -77,7 +77,7 @@ async function sendAccessRequestDM(params: {
       type: 'section',
       text: {
         type: 'mrkdwn',
-        text: `${greeting} 👋 ${params.newHireName} just joined as ${params.newHireRole} and needs access to *${params.toolName}*. Could you grant them access when you get a chance?`,
+        text: `${greeting} 👋, \n\n${params.newHireName} just joined as ${params.newHireRole} and needs access to *${params.toolName}*. Could you grant them access when you get a chance?`,
       },
     },
     {
@@ -86,6 +86,19 @@ async function sendAccessRequestDM(params: {
     },
   ];
 
+  const openRes = await fetch('https://slack.com/api/conversations.open', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${params.botToken}`,
+      'Content-Type': 'application/json; charset=utf-8',
+    },
+    body: JSON.stringify({ users: params.slackUserId }),
+  });
+  const openData = (await openRes.json()) as { ok: boolean; channel?: { id: string }; error?: string };
+  if (!openData.ok || !openData.channel?.id) {
+    return { ok: false, error: openData.error ?? 'conversations_open_failed' };
+  }
+
   const res = await fetch('https://slack.com/api/chat.postMessage', {
     method: 'POST',
     headers: {
@@ -93,7 +106,7 @@ async function sendAccessRequestDM(params: {
       'Content-Type': 'application/json; charset=utf-8',
     },
     body: JSON.stringify({
-      channel: params.slackUserId,
+      channel: openData.channel.id,
       blocks,
       text: `Access request for ${params.newHireName}: needs access to ${params.toolName}`,
       unfurl_links: false,
@@ -127,7 +140,7 @@ export const accessCoordinator = inngest.createFunction(
         id, tool_name, requested_from_name, requested_from_email, requested_from_slack_id, status,
         new_hire_id,
         new_hires (
-          id, name, role, organization_id,
+          id, first_name, last_name, role, organization_id,
           organizations ( id, owner_id )
         )
       `)
@@ -139,14 +152,14 @@ export const accessCoordinator = inngest.createFunction(
       return { skipped: true, reason: 'request_not_found' };
     }
 
-    const hire = request.new_hires as unknown as { name: string; role: string; organizations: { owner_id: string } | { owner_id: string }[] };
+    const hire = request.new_hires as unknown as { first_name: string; last_name: string; role: string; organizations: { owner_id: string } | { owner_id: string }[] };
     const orgData = Array.isArray(hire.organizations) ? hire.organizations[0] : hire.organizations;
     const orgOwnerId = orgData?.owner_id;
 
     log.info('coordinator_start', {
       accessRequestId,
       tool: request.tool_name,
-      hire: hire.name,
+      hire: `${hire.first_name} ${hire.last_name}`,
       hireRole: hire.role,
       ownerName: request.requested_from_name ?? '(unknown)',
       ownerEmail: request.requested_from_email ?? '(none)',
@@ -157,7 +170,7 @@ export const accessCoordinator = inngest.createFunction(
       log.warn('coordinator_skipped', {
         accessRequestId,
         tool: request.tool_name,
-        hire: hire.name,
+        hire: `${hire.first_name} ${hire.last_name}`,
         reason: 'no_slack_id_for_owner — add one in Settings → Tools',
       });
       return { skipped: true, reason: 'no_slack_id_for_requester' };
@@ -175,7 +188,7 @@ export const accessCoordinator = inngest.createFunction(
       log.warn('coordinator_skipped', {
         accessRequestId,
         tool: request.tool_name,
-        hire: hire.name,
+        hire: `${hire.first_name} ${hire.last_name}`,
         reason: 'no_slack_connection — connect Slack in Settings → Integrations',
       });
       return { skipped: true, reason: 'no_slack_connection' };
@@ -187,7 +200,7 @@ export const accessCoordinator = inngest.createFunction(
       log.warn('coordinator_skipped', {
         accessRequestId,
         tool: request.tool_name,
-        hire: hire.name,
+        hire: `${hire.first_name} ${hire.last_name}`,
         reason: 'no_bot_token — Slack token could not be retrieved',
       });
       return { skipped: true, reason: 'no_bot_token' };
@@ -199,14 +212,14 @@ export const accessCoordinator = inngest.createFunction(
           accessRequestId,
           action: 'sending_slack_dm',
           tool: request.tool_name,
-          hire: hire.name,
+          hire: `${hire.first_name} ${hire.last_name}`,
           dmChannel: request.requested_from_slack_id,
         });
 
         const result = await sendAccessRequestDM({
           botToken,
           slackUserId: request.requested_from_slack_id!,
-          newHireName: hire.name,
+          newHireName: `${hire.first_name} ${hire.last_name}`,
           newHireRole: hire.role,
           requestedFromName: request.requested_from_name,
           toolName: request.tool_name,
@@ -219,15 +232,16 @@ export const accessCoordinator = inngest.createFunction(
         }
 
         const sentAt = new Date().toISOString();
+        const isResend = request.status === 'sent';
         await supabase
           .from('access_requests')
-          .update({ status: 'sent', sent_at: sentAt })
+          .update({ status: 'sent', sent_at: sentAt, ...(isResend ? { resent_at: sentAt } : {}) })
           .eq('id', accessRequestId);
 
         log.info('coordinator_complete', {
           accessRequestId,
           tool: request.tool_name,
-          hire: hire.name,
+          hire: `${hire.first_name} ${hire.last_name}`,
           owner: request.requested_from_name ?? request.requested_from_slack_id,
           slackMessageTs: result.ts,
           sentAt,
@@ -242,7 +256,7 @@ export const accessCoordinator = inngest.createFunction(
       log.error('coordinator_failed', {
         accessRequestId,
         tool: request.tool_name,
-        hire: hire.name,
+        hire: `${hire.first_name} ${hire.last_name}`,
         owner: request.requested_from_name ?? request.requested_from_slack_id,
         error: errorMessage(error),
       });

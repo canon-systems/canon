@@ -159,10 +159,16 @@ export async function PATCH(
 
     const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
 
-    if (typeof body.name === 'string') {
-      const name = body.name.trim();
-      if (!name) return NextResponse.json({ error: 'Name is required' }, { status: 400 });
-      patch.name = name;
+    if (typeof body.first_name === 'string') {
+      const first_name = body.first_name.trim();
+      if (!first_name) return NextResponse.json({ error: 'First name is required' }, { status: 400 });
+      patch.first_name = first_name;
+    }
+
+    if (typeof body.last_name === 'string') {
+      const last_name = body.last_name.trim();
+      if (!last_name) return NextResponse.json({ error: 'Last name is required' }, { status: 400 });
+      patch.last_name = last_name;
     }
 
     if (typeof body.email === 'string') {
@@ -186,9 +192,10 @@ export async function PATCH(
     }
 
     if (Object.prototype.hasOwnProperty.call(body, 'slack_user_id')) {
-      patch.slack_user_id = typeof body.slack_user_id === 'string' && body.slack_user_id.trim()
-        ? body.slack_user_id.trim()
-        : null;
+      if (typeof body.slack_user_id !== 'string' || !body.slack_user_id.trim()) {
+        return NextResponse.json({ error: 'slack_user_id is required' }, { status: 400 });
+      }
+      patch.slack_user_id = body.slack_user_id.trim();
     }
 
     if (typeof body.status === 'string') {

@@ -16,7 +16,8 @@ const ROLES: HireRole[] = ['AI Solutions Architect', 'Solutions Engineer', 'Impl
 
 export type EditableNewHire = {
   id: string;
-  name: string;
+  first_name: string;
+  last_name: string;
   email: string;
   role: HireRole;
   start_date: string;
@@ -61,7 +62,8 @@ export function NewHireForm({
   const [calendarOpen, setCalendarOpen] = useState(false);
 
   const [form, setForm] = useState({
-    name: initialHire?.name ?? '',
+    firstName: initialHire?.first_name ?? '',
+    lastName: initialHire?.last_name ?? '',
     email: initialHire?.email ?? '',
     role: initialHire?.role ?? '' as HireRole | '',
     slack_user_id: initialHire?.slack_user_id ?? '',
@@ -73,7 +75,7 @@ export function NewHireForm({
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!form.name || !form.email || !form.role || !startDate) {
+    if (!form.firstName || !form.lastName || !form.email || !form.role || !startDate || !form.slack_user_id) {
       setError('Please fill in all required fields.');
       return;
     }
@@ -87,11 +89,12 @@ export function NewHireForm({
           method: editing ? 'PATCH' : 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            name: form.name,
+            first_name: form.firstName.trim(),
+            last_name: form.lastName.trim(),
             email: form.email,
             role: form.role,
             start_date: toDateInputValue(startDate),
-            slack_user_id: form.slack_user_id || null,
+            slack_user_id: form.slack_user_id,
           }),
         }
       );
@@ -115,14 +118,25 @@ export function NewHireForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
       <Card className="space-y-4 p-4">
-        <div className="space-y-2">
-          <Label className="text-[var(--text-secondary)]">Full Name <span className="text-[var(--red-text)]">*</span></Label>
-          <Input
-            value={form.name}
-            onChange={(e) => set('name', e.target.value)}
-            placeholder="Alex Johnson"
-            required
-          />
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-2">
+            <Label className="text-[var(--text-secondary)]">First Name <span className="text-[var(--red-text)]">*</span></Label>
+            <Input
+              value={form.firstName}
+              onChange={(e) => set('firstName', e.target.value)}
+              placeholder="Alex"
+              required
+            />
+          </div>
+          <div className="space-y-2">
+            <Label className="text-[var(--text-secondary)]">Last Name <span className="text-[var(--red-text)]">*</span></Label>
+            <Input
+              value={form.lastName}
+              onChange={(e) => set('lastName', e.target.value)}
+              placeholder="Johnson"
+              required
+            />
+          </div>
         </div>
 
         <div className="space-y-2">
@@ -179,11 +193,12 @@ export function NewHireForm({
         </div>
 
         <div className="space-y-2">
-          <Label className="text-[var(--text-secondary)]">Slack Member ID <span className="text-[var(--text-secondary)]">(Optional)</span></Label>
+          <Label className="text-[var(--text-secondary)]">Slack Member ID <span className="text-[var(--red-text)]">*</span></Label>
           <Input
             value={form.slack_user_id}
             onChange={(e) => set('slack_user_id', e.target.value)}
             placeholder="U01234ABCDE"
+            required
           />
           <p className="text-[var(--text-secondary)] type-caption">Find in Slack &gt; Member Profile &gt; More &gt; Copy Member ID</p>
         </div>
