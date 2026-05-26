@@ -33,7 +33,7 @@ const primaryNav = [
 ];
 
 const secondaryNav = [
-  { href: '/settings', label: 'Settings', icon: IconSettings, exact: false },
+  { href: '/settings?tab=profile', label: 'Settings', icon: IconSettings, exact: false },
 ];
 
 export function Navigation({ user, onLogout }: NavigationProps) {

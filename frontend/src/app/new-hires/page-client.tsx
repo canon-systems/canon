@@ -38,8 +38,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { NewHireForm, type EditableNewHire } from '@/components/new-hire-form';
 import { ToolLogo } from '@/components/ToolLogo';
+import { ToolNameCombobox } from '@/components/tool-name-combobox';
 import { SlackUserPicker, type SlackUser } from '@/components/SlackUserPicker';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/components/ui/utils';
 import type { AccessRequest, HireRole, HireStatus, NewHireMilestonePathItem, RampDelivery } from '@/types/onboarding';
 
@@ -920,19 +920,10 @@ export function NewHiresClient() {
               <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
                 Tool Name <span style={{ color: 'var(--red-text)' }}>*</span>
               </label>
-              <Select value={editAccess.tool_name} onValueChange={(v) => setEditAccess((p) => ({ ...p, tool_name: v }))}>
-                <SelectTrigger><SelectValue placeholder="Select a tool..." /></SelectTrigger>
-                <SelectContent>
-                  {['Salesforce', 'GitHub', 'Jira', 'Confluence', 'Gong', 'Outreach', 'Zoom'].map((t) => (
-                    <SelectItem key={t} value={t}>
-                      <span className="flex items-center gap-2">
-                        <ToolLogo toolName={t} size={14} containerSize={22} borderRadius={5} />
-                        {t}
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <ToolNameCombobox
+                value={editAccess.tool_name}
+                onChange={(toolName) => setEditAccess((p) => ({ ...p, tool_name: toolName }))}
+              />
             </div>
             <div>
               <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>Owner</label>
@@ -973,24 +964,10 @@ export function NewHiresClient() {
               <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
                 Tool Name <span style={{ color: 'var(--red-text)' }}>*</span>
               </label>
-              <Select
+              <ToolNameCombobox
                 value={newAccess.tool_name}
-                onValueChange={(v) => setNewAccess((p) => ({ ...p, tool_name: v }))}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a tool..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {['Salesforce', 'GitHub', 'Jira', 'Confluence', 'Gong', 'Outreach', 'Zoom'].map((t) => (
-                    <SelectItem key={t} value={t}>
-                      <span className="flex items-center gap-2">
-                        <ToolLogo toolName={t} size={14} containerSize={22} borderRadius={5} />
-                        {t}
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                onChange={(toolName) => setNewAccess((p) => ({ ...p, tool_name: toolName }))}
+              />
             </div>
             <div>
               <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>Owner</label>

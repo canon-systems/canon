@@ -26,6 +26,7 @@ import { Alert } from '@/components/ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/components/ui/utils';
 import { ToolLogo } from '@/components/ToolLogo';
+import { ToolNameCombobox } from '@/components/tool-name-combobox';
 import { SlackUserPicker, type SlackUser } from '@/components/SlackUserPicker';
 import type { OrgTool, HireRole } from '@/types/onboarding';
 
@@ -56,11 +57,18 @@ const settingSections = [
   { section: 'Danger', items: [{ id: 'delete', label: 'Delete Account', icon: IconTrash, danger: true }] },
 ];
 
+const SETTINGS_TABS = ['profile', 'org', 'integrations', 'notifications', 'tools', 'apikeys', 'delete'] as const;
+type SettingsTab = typeof SETTINGS_TABS[number];
+
+function isSettingsTab(value: string | null): value is SettingsTab {
+  return SETTINGS_TABS.includes(value as SettingsTab);
+}
+
 export function SettingsPageClient({ user: initialUser }: SettingsPageClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [activeSetting, setActiveSetting] = useState('profile');
+  const [activeSetting, setActiveSetting] = useState<SettingsTab>('profile');
   const [user] = useState<SupabaseUser | null>(initialUser);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [loading, setLoading] = useState(true);
@@ -199,24 +207,30 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
 
   useEffect(() => {
     const tabParam = searchParams.get('tab');
-    const validTabs = ['profile', 'integrations', 'tools'];
-    if (tabParam && validTabs.includes(tabParam)) {
-      setActiveSetting(tabParam);
-    }
-
     const successParam = searchParams.get('success');
     const errorParam = searchParams.get('error');
+
     if (successParam === 'true') {
       const provider = searchParams.get('provider') || 'service';
       setSuccess(`Successfully connected to ${provider}!`);
       router.replace(`/settings?tab=integrations`);
       setActiveSetting('integrations');
+      return;
     }
+
     if (errorParam) {
       setError('Something went wrong connecting your integration. Please try again.');
       router.replace(`/settings?tab=integrations`);
       setActiveSetting('integrations');
+      return;
     }
+
+    if (isSettingsTab(tabParam)) {
+      setActiveSetting(tabParam);
+      return;
+    }
+
+    setActiveSetting('profile');
   }, [searchParams, router]);
 
   useEffect(() => {
@@ -307,10 +321,9 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   }
 
   function setActiveSettingAndUpdateUrl(value: string) {
+    if (!isSettingsTab(value)) return;
     setActiveSetting(value);
-    if (value === 'profile' || value === 'integrations') {
-      router.push(`/settings?tab=${value}`, { scroll: false });
-    }
+    router.push(`/settings?tab=${value}`, { scroll: false });
   }
 
   const slackConnection = connections.find(c => c.provider === 'slack' && c.status === 'active');
@@ -614,19 +627,10 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
               <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
                 Tool Name <span style={{ color: 'var(--red-text)' }}>*</span>
               </label>
-              <Select value={editTool.tool_name} onValueChange={(v) => setEditTool((p) => ({ ...p, tool_name: v }))}>
-                <SelectTrigger><SelectValue placeholder="Select a tool..." /></SelectTrigger>
-                <SelectContent>
-                  {['Salesforce', 'GitHub', 'Jira', 'Confluence', 'Gong', 'Outreach', 'Zoom'].map((t) => (
-                    <SelectItem key={t} value={t}>
-                      <span className="flex items-center gap-2">
-                        <ToolLogo toolName={t} size={14} containerSize={22} borderRadius={5} />
-                        {t}
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <ToolNameCombobox
+                value={editTool.tool_name}
+                onChange={(toolName) => setEditTool((p) => ({ ...p, tool_name: toolName }))}
+              />
             </div>
             <div>
               <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>Role</label>
@@ -682,24 +686,10 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
               <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
                 Tool Name <span style={{ color: 'var(--red-text)' }}>*</span>
               </label>
-              <Select
+              <ToolNameCombobox
                 value={newTool.tool_name}
-                onValueChange={(v) => setNewTool((p) => ({ ...p, tool_name: v }))}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a tool..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {['Salesforce', 'GitHub', 'Jira', 'Confluence', 'Gong', 'Outreach', 'Zoom'].map((t) => (
-                    <SelectItem key={t} value={t}>
-                      <span className="flex items-center gap-2">
-                        <ToolLogo toolName={t} size={14} containerSize={22} borderRadius={5} />
-                        {t}
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                onChange={(toolName) => setNewTool((p) => ({ ...p, tool_name: toolName }))}
+              />
             </div>
             <div>
               <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }} htmlFor="tool-role">
