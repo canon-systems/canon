@@ -15,6 +15,7 @@ import {
   IconSearch,
   IconTrash,
 } from '@tabler/icons-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -178,8 +179,11 @@ export function KnowledgeClient() {
   async function triggerSync(sourceId: string) {
     setSyncing(sourceId);
     try {
-      await fetch(`/api/onboarding/knowledge/${sourceId}/sync`, { method: 'POST' });
+      const res = await fetch(`/api/onboarding/knowledge/${sourceId}/sync`, { method: 'POST' });
+      if (!res.ok) throw new Error(actionFailureMessage('sync'));
       await loadSources();
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : actionFailureMessage('sync'));
     } finally {
       setSyncing(null);
     }
@@ -188,17 +192,15 @@ export function KnowledgeClient() {
   async function syncSources(sourceIds: string[]) {
     if (sourceIds.length === 0) return;
     setActionLoading(true);
-    setActionError('');
     try {
       for (const sourceId of sourceIds) {
         const res = await fetch(`/api/onboarding/knowledge/${sourceId}/sync`, { method: 'POST' });
-        if (!res.ok) {
-          throw new Error(actionFailureMessage('sync'));
-        }
+        if (!res.ok) throw new Error(actionFailureMessage('sync'));
       }
       await loadSources();
+      toast.success(sourceIds.length === 1 ? 'Sync started' : `${sourceIds.length} syncs started`);
     } catch (error: unknown) {
-      setActionError(error instanceof Error ? error.message : actionFailureMessage('sync'));
+      toast.error(error instanceof Error ? error.message : actionFailureMessage('sync'));
     } finally {
       setActionLoading(false);
     }
@@ -207,17 +209,15 @@ export function KnowledgeClient() {
   async function stopSyncSources(sourceIds: string[]) {
     if (sourceIds.length === 0) return;
     setActionLoading(true);
-    setActionError('');
     try {
       for (const sourceId of sourceIds) {
         const res = await fetch(`/api/onboarding/knowledge/${sourceId}/sync`, { method: 'DELETE' });
-        if (!res.ok) {
-          throw new Error(actionFailureMessage('stop'));
-        }
+        if (!res.ok) throw new Error(actionFailureMessage('stop'));
       }
       await loadSources();
+      toast.success(sourceIds.length === 1 ? 'Sync stopped' : `${sourceIds.length} syncs stopped`);
     } catch (error: unknown) {
-      setActionError(error instanceof Error ? error.message : actionFailureMessage('stop'));
+      toast.error(error instanceof Error ? error.message : actionFailureMessage('stop'));
     } finally {
       setActionLoading(false);
     }
@@ -390,15 +390,14 @@ export function KnowledgeClient() {
         body: JSON.stringify({ name: nextName }),
       });
 
-      if (!res.ok) {
-        throw new Error(actionFailureMessage('rename'));
-      }
+      if (!res.ok) throw new Error(actionFailureMessage('rename'));
 
       setRenameSource(null);
       setRenameValue('');
       await loadSources();
+      toast.success('Source renamed');
     } catch (error: unknown) {
-      setActionError(error instanceof Error ? error.message : actionFailureMessage('rename'));
+      toast.error(error instanceof Error ? error.message : actionFailureMessage('rename'));
     } finally {
       setActionLoading(false);
     }
@@ -407,14 +406,12 @@ export function KnowledgeClient() {
   async function confirmDelete() {
     if (!deleteRequest) return;
 
+    const count = deleteRequest.ids.length;
     setActionLoading(true);
-    setActionError('');
     try {
       for (const sourceId of deleteRequest.ids) {
         const res = await fetch(`/api/onboarding/knowledge/${sourceId}`, { method: 'DELETE' });
-        if (!res.ok) {
-          throw new Error(actionFailureMessage('delete'));
-        }
+        if (!res.ok) throw new Error(actionFailureMessage('delete'));
       }
 
       setSelectedSourceIds((current) => {
@@ -423,8 +420,9 @@ export function KnowledgeClient() {
       });
       setDeleteRequest(null);
       await loadSources();
+      toast.success(count === 1 ? 'Source removed' : `${count} sources removed`);
     } catch (error: unknown) {
-      setActionError(error instanceof Error ? error.message : actionFailureMessage('delete'));
+      toast.error(error instanceof Error ? error.message : actionFailureMessage('delete'));
     } finally {
       setActionLoading(false);
     }
@@ -458,6 +456,10 @@ export function KnowledgeClient() {
         });
 
         if (!res.ok) {
+          const data = (await res.json()) as { error?: string };
+          if (data.error === 'Organization not found') {
+            throw new Error('org_not_found');
+          }
           throw new Error(actionFailureMessage('add'));
         }
       }
@@ -466,8 +468,14 @@ export function KnowledgeClient() {
       setSelectedSourceOptionIds(new Set());
       setSourceSearch('');
       await loadSources();
+      toast.success(selectedSourceOptions.length === 1 ? 'Source added' : `${selectedSourceOptions.length} sources added`);
     } catch (error: unknown) {
-      setSourceOptionsError(error instanceof Error ? error.message : actionFailureMessage('add'));
+      const msg = error instanceof Error ? error.message : '';
+      if (msg === 'org_not_found') {
+        toast.error('Organization not found', { description: 'Your account setup isn\'t complete. Visit Settings to finish setting up your organization.' });
+      } else {
+        setSourceOptionsError(msg || actionFailureMessage('add'));
+      }
     } finally {
       setAdding(false);
     }
@@ -517,12 +525,6 @@ export function KnowledgeClient() {
           <Button onClick={openAddModal} size="sm"><IconPlus size={14} /> Add Source</Button>
         </div>
       </div>
-
-      {actionError && (
-        <div className="mx-6 mt-4 rounded-[8px] border px-3 py-2 type-body" style={{ backgroundColor: 'var(--red-bg)', borderColor: 'var(--red-border)', color: 'var(--red-text)' }}>
-          {actionError}
-        </div>
-      )}
 
       <div className="flex gap-3 px-6 py-[14px] border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
         {[
@@ -970,11 +972,6 @@ export function KnowledgeClient() {
               {deleteRequest?.description ?? 'This removes the selected sources from Canon knowledge.'}
             </DialogDescription>
           </DialogHeader>
-          {actionError && (
-            <div className="rounded-[8px] border px-3 py-2 type-body" style={{ backgroundColor: 'var(--red-bg)', borderColor: 'var(--red-border)', color: 'var(--red-text)' }}>
-              {actionError}
-            </div>
-          )}
           <DialogFooter>
             <Button variant="secondary" onClick={() => setDeleteRequest(null)} disabled={actionLoading}>
               Cancel

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { toast } from 'sonner';
 import {
   IconBell,
   IconBuilding,
@@ -321,12 +322,23 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
           owner_slack_id: newTool.owner?.id ?? null,
         }),
       })));
-      if (responses.some((res) => !res.ok)) throw new Error('add_tool');
+      const failingResponse = responses.find((res) => !res.ok);
+      if (failingResponse) {
+        const data = (await failingResponse.json()) as { error?: string };
+        if (data.error === 'Organization not found') throw new Error('org_not_found');
+        throw new Error('add_tool');
+      }
       setAddToolOpen(false);
       setNewTool({ tool_name: '', roles: [], owner: null });
       await loadTools();
-    } catch {
-      setError('Something went wrong adding the tool. Please try again.');
+      toast.success('Tool added');
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : '';
+      if (msg === 'org_not_found') {
+        toast.error('Organization not found', { description: 'Your account setup isn\'t complete. Finish setting up your organization to manage tools.' });
+      } else {
+        toast.error('Something went wrong adding the tool. Please try again.');
+      }
     } finally {
       setAddToolSaving(false);
     }
@@ -339,12 +351,23 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
       const responses = await Promise.all(
         deletingTool.tools.map((tool) => fetch(`/api/onboarding/org-tools?id=${tool.id}`, { method: 'DELETE' }))
       );
-      if (responses.some((res) => !res.ok)) throw new Error('delete_tool');
+      const failingDeleteResponse = responses.find((res) => !res.ok);
+      if (failingDeleteResponse) {
+        const data = (await failingDeleteResponse.json()) as { error?: string };
+        if (data.error === 'Organization not found') throw new Error('org_not_found');
+        throw new Error('delete_tool');
+      }
       const deletedIds = new Set(deletingTool.tools.map((tool) => tool.id));
       setTools((prev) => prev.filter((tool) => !deletedIds.has(tool.id)));
       setDeletingTool(null);
-    } catch {
-      setError('Something went wrong removing the tool. Please try again.');
+      toast.success('Tool removed');
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : '';
+      if (msg === 'org_not_found') {
+        toast.error('Organization not found', { description: 'Your account setup isn\'t complete. Finish setting up your organization to manage tools.' });
+      } else {
+        toast.error('Something went wrong removing the tool. Please try again.');
+      }
     } finally {
       setDeleteToolSaving(false);
     }
@@ -448,12 +471,23 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
         });
 
       responses.push(...await Promise.all(createOrPatchRequests));
-      if (responses.some((response) => !response.ok)) throw new Error('update_tool');
+      const failingUpdateResponse = responses.find((response) => !response.ok);
+      if (failingUpdateResponse) {
+        const data = (await failingUpdateResponse.json()) as { error?: string };
+        if (data.error === 'Organization not found') throw new Error('org_not_found');
+        throw new Error('update_tool');
+      }
 
       setEditingTool(null);
       await loadTools();
-    } catch {
-      setError('Something went wrong saving your changes. Please try again.');
+      toast.success('Tool saved');
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : '';
+      if (msg === 'org_not_found') {
+        toast.error('Organization not found', { description: 'Your account setup isn\'t complete. Finish setting up your organization to manage tools.' });
+      } else {
+        toast.error('Something went wrong saving your changes. Please try again.');
+      }
     } finally {
       setEditToolSaving(false);
     }
@@ -497,20 +531,16 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
 
   async function connectSlack() {
     setConnecting(true);
-    setError('');
-    setSuccess('');
     try {
       window.location.href = '/api/oauth/slack/start';
     } catch {
-      setError('Unable to connect Slack right now. Please try again.');
+      toast.error('Unable to connect Slack right now. Please try again.');
       setConnecting(false);
     }
   }
 
   async function connectGong() {
     setConnecting(true);
-    setError('');
-    setSuccess('');
     try {
       const response = await fetch('/api/integrations/gong/connect', {
         method: 'POST',
@@ -524,7 +554,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
 
       if (!response.ok) throw new Error('gong_connect');
 
-      setSuccess('Successfully connected to Gong');
+      toast.success('Gong connected successfully');
       setGongModalOpen(false);
       setGongAccessKey('');
       setGongAccessKeySecret('');
@@ -532,7 +562,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
       clearIntegrationsCache();
       await loadConnections(true);
     } catch {
-      setError('Unable to connect Gong right now. Please check your credentials and try again.');
+      toast.error('Unable to connect Gong. Please check your credentials and try again.');
     } finally {
       setConnecting(false);
     }
@@ -558,11 +588,11 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
 
       if (!response.ok) throw new Error('disconnect');
 
-      setSuccess(`Disconnected from ${providerLabel(provider)}`);
+      toast.success(`Disconnected from ${providerLabel(provider)}`);
       clearIntegrationsCache();
       await loadConnections(true);
     } catch {
-      setError('Something went wrong disconnecting. Please try again.');
+      toast.error('Something went wrong disconnecting. Please try again.');
     }
   }
 
