@@ -58,8 +58,9 @@ export function Navigation({ user, onLogout }: NavigationProps) {
   }
 
   const isActive = (href: string, exact = false) => {
-    if (exact) return pathname === href;
-    return pathname.startsWith(href);
+    const hrefPath = href.split('?')[0] || href;
+    if (exact) return pathname === hrefPath;
+    return pathname.startsWith(hrefPath);
   };
 
   const userEmail = user?.email ?? 'User';

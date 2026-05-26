@@ -4,6 +4,27 @@ import { createClient } from '@/lib/supabase/server';
 
 export const dynamic = 'force-dynamic';
 
+const validRoles = ['AI Solutions Architect', 'Solutions Engineer', 'Implementation Engineer'];
+
+function normalizeToolName(toolName: string) {
+  return toolName.trim().toLowerCase();
+}
+
+function scopeConflict(
+  existingTools: Array<{ id: string; tool_name: string; role: string | null }>,
+  nextToolName: string,
+  nextRole: string | null,
+  ignoreId?: string
+) {
+  const normalizedNextName = normalizeToolName(nextToolName);
+  return existingTools.some((tool) => {
+    if (tool.id === ignoreId) return false;
+    if (normalizeToolName(tool.tool_name) !== normalizedNextName) return false;
+    if (nextRole === null) return true;
+    return tool.role === null || tool.role === nextRole;
+  });
+}
+
 export async function GET() {
   try {
     const { user } = await getSession();
@@ -51,9 +72,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'tool_name is required' }, { status: 400 });
     }
 
-    const validRoles = ['AI Solutions Architect', 'Solutions Engineer', 'Implementation Engineer'];
     if (role && !validRoles.includes(role)) {
       return NextResponse.json({ error: 'Invalid role' }, { status: 400 });
+    }
+
+    if (!owner_name?.trim() || !owner_slack_id?.trim()) {
+      return NextResponse.json({ error: 'Slack owner is required' }, { status: 400 });
     }
 
     const supabase = await createClient();
@@ -64,6 +88,17 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+
+    const { data: existingTools, error: existingError } = await supabase
+      .from('org_tools')
+      .select('id, tool_name, role')
+      .eq('organization_id', org.id);
+
+    if (existingError) throw existingError;
+
+    if (scopeConflict(existingTools ?? [], tool_name, role || null)) {
+      return NextResponse.json({ error: 'Tool already exists for this role scope' }, { status: 409 });
+    }
 
     const { data: tool, error } = await supabase
       .from('org_tools')
@@ -106,9 +141,12 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'id and tool_name are required' }, { status: 400 });
     }
 
-    const validRoles = ['AI Solutions Architect', 'Solutions Engineer', 'Implementation Engineer'];
     if (role && !validRoles.includes(role)) {
       return NextResponse.json({ error: 'Invalid role' }, { status: 400 });
+    }
+
+    if (!owner_name?.trim() || !owner_slack_id?.trim()) {
+      return NextResponse.json({ error: 'Slack owner is required' }, { status: 400 });
     }
 
     const supabase = await createClient();
@@ -119,6 +157,17 @@ export async function PATCH(request: NextRequest) {
       .single();
 
     if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+
+    const { data: existingTools, error: existingError } = await supabase
+      .from('org_tools')
+      .select('id, tool_name, role')
+      .eq('organization_id', org.id);
+
+    if (existingError) throw existingError;
+
+    if (scopeConflict(existingTools ?? [], tool_name, role || null, id)) {
+      return NextResponse.json({ error: 'Tool already exists for this role scope' }, { status: 409 });
+    }
 
     const { data: tool, error } = await supabase
       .from('org_tools')

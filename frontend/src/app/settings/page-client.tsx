@@ -5,10 +5,13 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import {
   IconBell,
   IconBuilding,
+  IconCheck,
+  IconChevronDown,
   IconKey,
   IconLoader2,
   IconPencil,
   IconPlug,
+  IconPlus,
   IconTool,
   IconTrash,
   IconUser,
@@ -23,7 +26,7 @@ import { Avatar } from '@/components/ui/avatar';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Alert } from '@/components/ui/alert';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/components/ui/utils';
 import { ToolLogo } from '@/components/ToolLogo';
 import { ToolNameCombobox } from '@/components/tool-name-combobox';
@@ -59,9 +62,178 @@ const settingSections = [
 
 const SETTINGS_TABS = ['profile', 'org', 'integrations', 'notifications', 'tools', 'apikeys', 'delete'] as const;
 type SettingsTab = typeof SETTINGS_TABS[number];
+const HIRE_ROLES: HireRole[] = ['AI Solutions Architect', 'Solutions Engineer', 'Implementation Engineer'];
+type ToolFilter = 'all' | 'all_roles' | 'unowned' | HireRole;
+
+const ROLE_META: Record<HireRole, { short: string; color: string; background: string; border: string }> = {
+  'AI Solutions Architect': {
+    short: 'AI SA',
+    color: 'var(--role-ai)',
+    background: 'rgba(13, 148, 136, 0.14)',
+    border: 'rgba(13, 148, 136, 0.42)',
+  },
+  'Solutions Engineer': {
+    short: 'SE',
+    color: 'var(--role-se)',
+    background: 'rgba(107, 92, 231, 0.15)',
+    border: 'rgba(155, 141, 245, 0.48)',
+  },
+  'Implementation Engineer': {
+    short: 'IE',
+    color: 'var(--role-ie)',
+    background: 'rgba(37, 99, 235, 0.14)',
+    border: 'rgba(37, 99, 235, 0.42)',
+  },
+};
+
+interface ToolGroup {
+  key: string;
+  tool_name: string;
+  tools: OrgTool[];
+  roles: HireRole[];
+  allRoles: boolean;
+  owner_name: string | null;
+  owner_email: string | null;
+  owner_slack_id: string | null;
+  primaryTool: OrgTool;
+}
 
 function isSettingsTab(value: string | null): value is SettingsTab {
   return SETTINGS_TABS.includes(value as SettingsTab);
+}
+
+function isHireRole(value: ToolFilter): value is HireRole {
+  return HIRE_ROLES.includes(value as HireRole);
+}
+
+function normalizeToolName(toolName: string) {
+  return toolName.trim().toLowerCase();
+}
+
+function scopeKey(role: HireRole | null) {
+  return role ?? 'all';
+}
+
+function toolHasOwner(tool: Pick<OrgTool, 'owner_name' | 'owner_slack_id'>) {
+  return Boolean(tool.owner_name && tool.owner_slack_id);
+}
+
+function groupOrgTools(tools: OrgTool[]): ToolGroup[] {
+  const groups = new Map<string, ToolGroup>();
+
+  for (const tool of tools) {
+    const key = normalizeToolName(tool.tool_name);
+    if (!key) continue;
+
+    const existing = groups.get(key);
+    if (!existing) {
+      groups.set(key, {
+        key,
+        tool_name: tool.tool_name,
+        tools: [tool],
+        roles: tool.role ? [tool.role] : [],
+        allRoles: tool.role === null,
+        owner_name: tool.owner_name,
+        owner_email: tool.owner_email,
+        owner_slack_id: tool.owner_slack_id,
+        primaryTool: tool,
+      });
+      continue;
+    }
+
+    existing.tools.push(tool);
+    if (tool.role === null) {
+      existing.allRoles = true;
+    } else if (!existing.roles.includes(tool.role)) {
+      existing.roles.push(tool.role);
+    }
+
+    if (!toolHasOwner(existing) && toolHasOwner(tool)) {
+      existing.owner_name = tool.owner_name;
+      existing.owner_email = tool.owner_email;
+      existing.owner_slack_id = tool.owner_slack_id;
+    }
+  }
+
+  return Array.from(groups.values()).sort((a, b) => a.tool_name.localeCompare(b.tool_name));
+}
+
+function groupHasOwner(group: ToolGroup) {
+  return Boolean(group.owner_name && group.owner_slack_id);
+}
+
+function toggleRoleSelection(currentRoles: HireRole[], role: HireRole) {
+  if (currentRoles.includes(role)) return currentRoles.filter((selectedRole) => selectedRole !== role);
+  return [...currentRoles, role];
+}
+
+function selectedRolesLabel(roles: HireRole[]) {
+  if (roles.length === 0) return 'All roles';
+  if (roles.length === 1) return roles[0];
+  return roles.map((role) => ROLE_META[role].short).join(', ');
+}
+
+function RoleMultiSelect({
+  value,
+  onChange,
+}: {
+  value: HireRole[];
+  onChange: (roles: HireRole[]) => void;
+}) {
+  const allRolesSelected = value.length === 0;
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="flex h-9 w-full items-center justify-between gap-2 rounded-[7px] border border-[var(--border-secondary)] bg-[var(--bg-secondary)] px-[10px] py-[6px] type-field text-[var(--text-primary)] transition-colors duration-[120ms] hover:border-[var(--border-secondary)] focus:outline-none focus:border-[var(--canon-purple)] focus:ring-2 focus:ring-[var(--canon-purple)]/25"
+        >
+          <span className="truncate">{selectedRolesLabel(value)}</span>
+          <IconChevronDown size={14} className="flex-shrink-0 text-[var(--text-secondary)]" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] p-1">
+        <button
+          type="button"
+          onClick={() => onChange([])}
+          aria-pressed={allRolesSelected}
+          className={cn(
+            'flex w-full items-center justify-between rounded-md px-3 py-[7px] text-left type-field transition-colors duration-[120ms]',
+            allRolesSelected
+              ? 'bg-[var(--green-bg)] text-[var(--green-text)]'
+              : 'text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]'
+          )}
+        >
+          <span>All roles</span>
+          {allRolesSelected && <IconCheck size={14} />}
+        </button>
+
+        <div className="my-1 h-px bg-[var(--border-tertiary)]" />
+
+        {HIRE_ROLES.map((role) => {
+          const selected = value.includes(role);
+          return (
+            <button
+              key={role}
+              type="button"
+              onClick={() => onChange(toggleRoleSelection(value, role))}
+              aria-pressed={selected}
+              className={cn(
+                'flex w-full items-center justify-between rounded-md px-3 py-[7px] text-left type-field transition-colors duration-[120ms]',
+                selected
+                  ? 'bg-[var(--bg-secondary)] text-[var(--text-primary)]'
+                  : 'text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]'
+              )}
+            >
+              <span>{role}</span>
+              {selected && <IconCheck size={14} style={{ color: ROLE_META[role].color }} />}
+            </button>
+          );
+        })}
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 export function SettingsPageClient({ user: initialUser }: SettingsPageClientProps) {
@@ -86,11 +258,12 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   const [toolsLoading, setToolsLoading] = useState(false);
   const [addToolOpen, setAddToolOpen] = useState(false);
   const [addToolSaving, setAddToolSaving] = useState(false);
-  const [newTool, setNewTool] = useState({ tool_name: '', role: '' as HireRole | '', owner: null as SlackUser | null });
-  const [editingTool, setEditingTool] = useState<OrgTool | null>(null);
-  const [editTool, setEditTool] = useState({ tool_name: '', role: '' as HireRole | '', owner: null as SlackUser | null });
+  const [toolFilter, setToolFilter] = useState<ToolFilter>('all');
+  const [newTool, setNewTool] = useState({ tool_name: '', roles: [] as HireRole[], owner: null as SlackUser | null });
+  const [editingTool, setEditingTool] = useState<ToolGroup | null>(null);
+  const [editTool, setEditTool] = useState({ tool_name: '', roles: [] as HireRole[], owner: null as SlackUser | null });
   const [editToolSaving, setEditToolSaving] = useState(false);
-  const [deletingTool, setDeletingTool] = useState<OrgTool | null>(null);
+  const [deletingTool, setDeletingTool] = useState<ToolGroup | null>(null);
   const [deleteToolSaving, setDeleteToolSaving] = useState(false);
 
   const loadConnections = useCallback(async (force = false) => {
@@ -128,23 +301,29 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   }, []);
 
   async function addTool() {
-    if (!newTool.tool_name.trim()) return;
+    if (!newTool.tool_name.trim() || !newTool.owner) return;
+    if (tools.some((tool) => normalizeToolName(tool.tool_name) === normalizeToolName(newTool.tool_name))) {
+      setError(`${newTool.tool_name.trim()} is already configured. Edit the existing tool to change its roles.`);
+      return;
+    }
+
     setAddToolSaving(true);
     try {
-      const res = await fetch('/api/onboarding/org-tools', {
+      const rolesToCreate: Array<HireRole | null> = newTool.roles.length > 0 ? newTool.roles : [null];
+      const responses = await Promise.all(rolesToCreate.map((role) => fetch('/api/onboarding/org-tools', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           tool_name: newTool.tool_name,
-          role: newTool.role || null,
+          role,
           owner_name: newTool.owner?.name ?? null,
           owner_email: newTool.owner?.email ?? null,
           owner_slack_id: newTool.owner?.id ?? null,
         }),
-      });
-      if (!res.ok) throw new Error('add_tool');
+      })));
+      if (responses.some((res) => !res.ok)) throw new Error('add_tool');
       setAddToolOpen(false);
-      setNewTool({ tool_name: '', role: '', owner: null });
+      setNewTool({ tool_name: '', roles: [], owner: null });
       await loadTools();
     } catch {
       setError('Something went wrong adding the tool. Please try again.');
@@ -157,9 +336,12 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     if (!deletingTool) return;
     setDeleteToolSaving(true);
     try {
-      const res = await fetch(`/api/onboarding/org-tools?id=${deletingTool.id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('delete_tool');
-      setTools((prev) => prev.filter((t) => t.id !== deletingTool.id));
+      const responses = await Promise.all(
+        deletingTool.tools.map((tool) => fetch(`/api/onboarding/org-tools?id=${tool.id}`, { method: 'DELETE' }))
+      );
+      if (responses.some((res) => !res.ok)) throw new Error('delete_tool');
+      const deletedIds = new Set(deletingTool.tools.map((tool) => tool.id));
+      setTools((prev) => prev.filter((tool) => !deletedIds.has(tool.id)));
       setDeletingTool(null);
     } catch {
       setError('Something went wrong removing the tool. Please try again.');
@@ -168,34 +350,106 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     }
   }
 
-  function openEditTool(tool: OrgTool) {
+  function openEditTool(tool: ToolGroup) {
     setEditingTool(tool);
     setEditTool({
       tool_name: tool.tool_name,
-      role: tool.role ?? '',
-      owner: tool.owner_slack_id
-        ? { id: tool.owner_slack_id, name: tool.owner_name ?? '', email: tool.owner_email }
+      roles: tool.allRoles ? [] : tool.roles,
+      owner: tool.owner_slack_id && tool.owner_name
+        ? { id: tool.owner_slack_id, name: tool.owner_name, email: tool.owner_email }
         : null,
     });
   }
 
   async function updateTool() {
-    if (!editingTool || !editTool.tool_name) return;
+    if (!editingTool || !editTool.tool_name.trim() || !editTool.owner) return;
+    const normalizedNextName = normalizeToolName(editTool.tool_name);
+    if (tools.some((tool) => (
+      !editingTool.tools.some((groupTool) => groupTool.id === tool.id)
+      && normalizeToolName(tool.tool_name) === normalizedNextName
+    ))) {
+      setError(`${editTool.tool_name.trim()} is already configured. Tool names must be unique.`);
+      return;
+    }
+
     setEditToolSaving(true);
     try {
-      const res = await fetch('/api/onboarding/org-tools', {
+      const selectedRoles: Array<HireRole | null> = editTool.roles.length > 0 ? editTool.roles : [null];
+      const desiredScopeKeys = new Set(selectedRoles.map(scopeKey));
+      const existingByScope = new Map<string, OrgTool>();
+
+      for (const tool of editingTool.tools) {
+        const key = scopeKey(tool.role);
+        if (!existingByScope.has(key)) existingByScope.set(key, tool);
+      }
+
+      const primaryRole = selectedRoles[0] ?? null;
+      const primaryTool = existingByScope.get(scopeKey(primaryRole)) ?? editingTool.primaryTool;
+      const handledToolIds = new Set<string>([primaryTool.id]);
+      const responses: Response[] = [];
+      const deleteRequests = editingTool.tools
+        .filter((tool) => tool.id !== primaryTool.id && (
+          !desiredScopeKeys.has(scopeKey(tool.role)) || existingByScope.get(scopeKey(tool.role))?.id !== tool.id
+        ))
+        .map((tool) => fetch(`/api/onboarding/org-tools?id=${tool.id}`, { method: 'DELETE' }));
+
+      if (primaryRole === null) {
+        responses.push(...await Promise.all(deleteRequests));
+      }
+
+      responses.push(await fetch('/api/onboarding/org-tools', {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          id: editingTool.id,
+          id: primaryTool.id,
           tool_name: editTool.tool_name,
-          role: editTool.role || null,
+          role: primaryRole,
           owner_name: editTool.owner?.name ?? null,
           owner_email: editTool.owner?.email ?? null,
           owner_slack_id: editTool.owner?.id ?? null,
         }),
-      });
-      if (!res.ok) throw new Error('update_tool');
+      }));
+
+      if (primaryRole !== null) {
+        responses.push(...await Promise.all(deleteRequests));
+      }
+
+      const createOrPatchRequests = selectedRoles
+        .filter((role) => scopeKey(role) !== scopeKey(primaryRole))
+        .map((role) => {
+          const existingTool = existingByScope.get(scopeKey(role));
+          if (existingTool && !handledToolIds.has(existingTool.id)) {
+            handledToolIds.add(existingTool.id);
+            return fetch('/api/onboarding/org-tools', {
+              method: 'PATCH',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                id: existingTool.id,
+                tool_name: editTool.tool_name,
+                role,
+                owner_name: editTool.owner?.name ?? null,
+                owner_email: editTool.owner?.email ?? null,
+                owner_slack_id: editTool.owner?.id ?? null,
+              }),
+            });
+          }
+
+          return fetch('/api/onboarding/org-tools', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              tool_name: editTool.tool_name,
+              role,
+              owner_name: editTool.owner?.name ?? null,
+              owner_email: editTool.owner?.email ?? null,
+              owner_slack_id: editTool.owner?.id ?? null,
+            }),
+          });
+        });
+
+      responses.push(...await Promise.all(createOrPatchRequests));
+      if (responses.some((response) => !response.ok)) throw new Error('update_tool');
+
       setEditingTool(null);
       await loadTools();
     } catch {
@@ -455,19 +709,40 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   }
 
   function renderTools() {
-    const roles: HireRole[] = ['AI Solutions Architect', 'Solutions Engineer', 'Implementation Engineer'];
-    const grouped = roles.reduce<Record<string, OrgTool[]>>((acc, r) => {
-      acc[r] = tools.filter((t) => t.role === r || t.role === null);
-      return acc;
-    }, {});
+    const toolGroups = groupOrgTools(tools);
+    const roleSpecificCount = toolGroups.filter((group) => !group.allRoles).length;
+    const unownedCount = toolGroups.filter((group) => !groupHasOwner(group)).length;
+    const filterOptions: Array<{ id: ToolFilter; label: string; count: number }> = [
+      { id: 'all', label: 'All tools', count: toolGroups.length },
+      { id: 'all_roles', label: 'All roles', count: toolGroups.filter((group) => group.allRoles).length },
+      ...HIRE_ROLES.map((role) => ({
+        id: role,
+        label: ROLE_META[role].short,
+        count: toolGroups.filter((group) => group.allRoles || group.roles.includes(role)).length,
+      })),
+      { id: 'unowned', label: 'Needs owner', count: unownedCount },
+    ];
+    const filteredTools = toolGroups.filter((tool) => {
+      if (toolFilter === 'all') return true;
+      if (toolFilter === 'all_roles') return tool.allRoles;
+      if (toolFilter === 'unowned') return !groupHasOwner(tool);
+      if (isHireRole(toolFilter)) return tool.allRoles || tool.roles.includes(toolFilter);
+      return true;
+    });
 
     return (
-      <div className="max-w-3xl">
-        <div className="flex items-center justify-between mb-4">
-          <p className="type-body" style={{ color: 'var(--text-secondary)' }}>
-            Configure which tools new hires need access to for each role. Add the owner who can grant access and Canon will send them a Slack DM automatically.
-          </p>
-          <Button onClick={() => setAddToolOpen(true)} className="ml-4 flex-shrink-0">
+      <div className="max-w-5xl">
+        <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="max-w-2xl">
+            <div className="type-section-title" style={{ color: 'var(--text-primary)' }}>
+              Tool access registry
+            </div>
+            <p className="type-body mt-[3px]" style={{ color: 'var(--text-secondary)' }}>
+              Configure the tools new hires need, the role scope, and the owner who can grant access.
+            </p>
+          </div>
+          <Button onClick={() => setAddToolOpen(true)} className="flex-shrink-0">
+            <IconPlus size={13} />
             Add Tool
           </Button>
         </div>
@@ -476,7 +751,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
           <div className="flex items-center gap-2 type-body" style={{ color: 'var(--text-tertiary)' }}>
             <IconLoader2 size={14} className="animate-spin" /> Loading Tools...
           </div>
-        ) : tools.length === 0 ? (
+        ) : toolGroups.length === 0 ? (
           <Card className="px-5 py-8 text-center">
             <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No tools configured</div>
             <div className="type-body mt-2" style={{ color: 'var(--text-tertiary)' }}>
@@ -484,52 +759,156 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
             </div>
           </Card>
         ) : (
-          <div className="flex flex-col gap-6">
-            {roles.map((role) => {
-              const roleTools = grouped[role];
-              if (roleTools.length === 0) return null;
-              return (
-                <div key={role}>
-                  <div className="type-kicker mb-2" style={{ color: 'var(--text-tertiary)' }}>{role}</div>
-                  <div className="flex flex-col gap-[6px]">
-                    {roleTools.map((tool) => (
-                      <Card key={tool.id} className="flex items-center gap-4 px-4 py-3">
-                        <ToolLogo toolName={tool.tool_name} size={18} containerSize={34} borderRadius={8} />
-                        <div className="min-w-0 flex-1">
-                          <div className="type-card-title" style={{ color: 'var(--text-primary)' }}>
-                            {tool.tool_name}
-                            {tool.role === null && (
-                              <span className="ml-2 type-caption" style={{ color: 'var(--text-tertiary)' }}>All roles</span>
-                            )}
-                          </div>
-                          {tool.owner_name && (
-                            <div className="type-body mt-[2px]" style={{ color: 'var(--text-secondary)' }}>
-                              Owner: {tool.owner_name}{tool.owner_email ? ` · ${tool.owner_email}` : ''}
-                            </div>
-                          )}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => openEditTool(tool)}
-                          className="flex-shrink-0 opacity-40 hover:opacity-80 transition-opacity"
-                          style={{ color: 'var(--text-secondary)' }}
-                        >
-                          <IconPencil size={14} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setDeletingTool(tool)}
-                          className="flex-shrink-0 opacity-40 hover:opacity-80 transition-opacity"
-                          style={{ color: 'var(--text-secondary)' }}
-                        >
-                          <IconX size={14} />
-                        </button>
-                      </Card>
-                    ))}
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              {filterOptions.map((option) => {
+                const selected = toolFilter === option.id;
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => setToolFilter(option.id)}
+                    className={cn(
+                      'inline-flex h-7 items-center gap-2 rounded-full border px-3 type-control-sm transition-colors duration-[120ms]',
+                      selected ? 'filter-chip-selected' : 'filter-chip'
+                    )}
+                    aria-pressed={selected}
+                  >
+                    <span>{option.label}</span>
+                    <span
+                      className="rounded-full px-[6px] py-[1px] type-caption"
+                      style={{
+                        backgroundColor: selected ? 'var(--canon-purple-light)' : 'var(--bg-primary)',
+                        color: selected ? 'var(--text-primary)' : 'var(--text-tertiary)',
+                      }}
+                    >
+                      {option.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <Card className="overflow-hidden">
+              <div className="overflow-x-auto">
+                <div className="min-w-[760px]">
+                  <div
+                    className="grid grid-cols-[minmax(220px,1.35fr)_minmax(170px,0.75fr)_minmax(230px,1fr)_78px] items-center border-b px-4 py-[9px] type-kicker"
+                    style={{ borderColor: 'var(--border-tertiary)', color: 'var(--text-tertiary)' }}
+                  >
+                    <div>Tool</div>
+                    <div>Scope</div>
+                    <div>Owner</div>
+                    <div className="text-right">Actions</div>
                   </div>
+
+                  {filteredTools.length === 0 ? (
+                    <div className="px-5 py-8 text-center">
+                      <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>
+                        No matching tools
+                      </div>
+                      <div className="type-body mt-2" style={{ color: 'var(--text-tertiary)' }}>
+                        Try a different role filter or add another tool.
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="overflow-y-auto" style={{ maxHeight: 'min(560px, calc(100vh - 320px))' }}>
+                      {filteredTools.map((tool) => {
+                        const ownerLabel = tool.owner_name || 'Owner required';
+
+                        return (
+                          <div
+                            key={tool.key}
+                            className="grid min-h-[58px] grid-cols-[minmax(220px,1.35fr)_minmax(170px,0.75fr)_minmax(230px,1fr)_78px] items-center border-b px-4 py-[9px] transition-colors duration-[120ms] last:border-b-0 hover:bg-[var(--bg-secondary)]"
+                            style={{ borderColor: 'var(--border-tertiary)' }}
+                          >
+                            <div className="flex min-w-0 items-center gap-3">
+                              <ToolLogo toolName={tool.tool_name} size={16} containerSize={32} borderRadius={8} />
+                              <div className="min-w-0">
+                                <div className="truncate type-card-title" style={{ color: 'var(--text-primary)' }}>
+                                  {tool.tool_name}
+                                </div>
+                                <div className="type-caption" style={{ color: 'var(--text-tertiary)' }}>
+                                  {tool.allRoles ? 'Shared access requirement' : 'Role-specific access'}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex flex-wrap gap-1">
+                              {tool.allRoles ? (
+                                <span
+                                  className="inline-flex items-center rounded-full border px-2 py-[3px] type-caption font-medium"
+                                  style={{
+                                    backgroundColor: 'var(--green-bg)',
+                                    borderColor: 'var(--green-border)',
+                                    color: 'var(--green-text)',
+                                  }}
+                                >
+                                  All roles
+                                </span>
+                              ) : (
+                                tool.roles.map((role) => {
+                                  const roleMeta = ROLE_META[role];
+                                  return (
+                                    <span
+                                      key={role}
+                                      className="inline-flex items-center rounded-full border px-2 py-[3px] type-caption font-medium"
+                                      style={{
+                                        backgroundColor: roleMeta.background,
+                                        borderColor: roleMeta.border,
+                                        color: roleMeta.color,
+                                      }}
+                                    >
+                                      {roleMeta.short}
+                                    </span>
+                                  );
+                                })
+                              )}
+                            </div>
+
+                            <div className="min-w-0">
+                              <div
+                                className="truncate type-body-strong"
+                                style={{ color: groupHasOwner(tool) ? 'var(--text-primary)' : 'var(--amber-text)' }}
+                              >
+                                {ownerLabel}
+                              </div>
+                            </div>
+
+                            <div className="flex justify-end gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="border-transparent"
+                                aria-label={`Edit ${tool.tool_name}`}
+                                onClick={() => openEditTool(tool)}
+                              >
+                                <IconPencil size={14} />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="border-transparent hover:text-[var(--red-text)]"
+                                aria-label={`Remove ${tool.tool_name}`}
+                                onClick={() => setDeletingTool(tool)}
+                              >
+                                <IconX size={14} />
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
-              );
-            })}
+              </div>
+            </Card>
+
+            <div className="flex flex-wrap gap-3 type-caption" style={{ color: 'var(--text-tertiary)' }}>
+              <span>{toolGroups.length} total</span>
+              <span>{roleSpecificCount} role-specific</span>
+              <span>{unownedCount} missing owner</span>
+            </div>
           </div>
         )}
       </div>
@@ -544,6 +923,13 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
       </Card>
     );
   }
+
+  const configuredToolNames = groupOrgTools(tools).map((group) => group.tool_name);
+  const editUnavailableToolNames = configuredToolNames.filter((toolName) => normalizeToolName(toolName) !== editingTool?.key);
+  const newToolAlreadyConfigured = Boolean(newTool.tool_name.trim())
+    && configuredToolNames.some((toolName) => normalizeToolName(toolName) === normalizeToolName(newTool.tool_name));
+  const editToolNameConflict = Boolean(editTool.tool_name.trim())
+    && editUnavailableToolNames.some((toolName) => normalizeToolName(toolName) === normalizeToolName(editTool.tool_name));
 
   return (
     <>
@@ -620,7 +1006,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
         <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
           <DialogHeader>
             <DialogTitle>Edit Tool</DialogTitle>
-            <DialogDescription>Update the tool details and owner information.</DialogDescription>
+            <DialogDescription>Update the tool details and required Slack owner.</DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-3">
             <div>
@@ -630,31 +1016,33 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
               <ToolNameCombobox
                 value={editTool.tool_name}
                 onChange={(toolName) => setEditTool((p) => ({ ...p, tool_name: toolName }))}
+                unavailableToolNames={editUnavailableToolNames}
               />
+              {editToolNameConflict && (
+                <p className="type-caption mt-1" style={{ color: 'var(--amber-text)' }}>This tool is already configured.</p>
+              )}
             </div>
             <div>
-              <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>Role</label>
-              <Select
-                value={editTool.role || 'all'}
-                onValueChange={(v) => setEditTool((p) => ({ ...p, role: v === 'all' ? '' : v as HireRole }))}
-              >
-                <SelectTrigger><SelectValue placeholder="All roles" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All roles</SelectItem>
-                  <SelectItem value="AI Solutions Architect">AI Solutions Architect</SelectItem>
-                  <SelectItem value="Solutions Engineer">Solutions Engineer</SelectItem>
-                  <SelectItem value="Implementation Engineer">Implementation Engineer</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="mb-[5px] flex items-center justify-between gap-3">
+                <label className="block type-body font-medium" style={{ color: 'var(--text-secondary)' }}>Roles</label>
+                <span className="type-caption" style={{ color: 'var(--text-tertiary)' }}>{selectedRolesLabel(editTool.roles)}</span>
+              </div>
+              <RoleMultiSelect
+                value={editTool.roles}
+                onChange={(roles) => setEditTool((p) => ({ ...p, roles }))}
+              />
+              <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>Select multiple roles, or use All roles for a shared requirement.</p>
             </div>
             <div>
-              <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>Owner</label>
+              <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
+                Owner <span style={{ color: 'var(--red-text)' }}>*</span>
+              </label>
               <SlackUserPicker
                 value={editTool.owner}
                 onChange={(user) => setEditTool((p) => ({ ...p, owner: user }))}
                 placeholder="Search workspace members..."
               />
-              <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>Canon will DM this person when a new hire needs access.</p>
+              <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>Canon will DM this Slack owner when a new hire needs access.</p>
             </div>
             {editTool.owner && (
               <div>
@@ -665,7 +1053,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
           </div>
           <DialogFooter>
             <Button variant="secondary" onClick={() => setEditingTool(null)} disabled={editToolSaving}>Cancel</Button>
-            <Button onClick={() => void updateTool()} disabled={editToolSaving || !editTool.tool_name}>
+            <Button onClick={() => void updateTool()} disabled={editToolSaving || !editTool.tool_name.trim() || !editTool.owner || editToolNameConflict}>
               {editToolSaving ? <IconLoader2 size={13} className="animate-spin" /> : <IconPencil size={13} />}
               Save Changes
             </Button>
@@ -678,7 +1066,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
           <DialogHeader>
             <DialogTitle>Add Tool</DialogTitle>
             <DialogDescription>
-              Define a tool new hires need access to. Adding an owner lets Canon send them a Slack DM to request access automatically.
+              Define a tool new hires need access to and the required Slack owner for access requests.
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-3">
@@ -689,38 +1077,35 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
               <ToolNameCombobox
                 value={newTool.tool_name}
                 onChange={(toolName) => setNewTool((p) => ({ ...p, tool_name: toolName }))}
+                unavailableToolNames={configuredToolNames}
               />
+              {newToolAlreadyConfigured && (
+                <p className="type-caption mt-1" style={{ color: 'var(--amber-text)' }}>This tool is already configured.</p>
+              )}
             </div>
             <div>
-              <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }} htmlFor="tool-role">
-                Role
-              </label>
-              <Select
-                value={newTool.role || 'all'}
-                onValueChange={(v) => setNewTool((p) => ({ ...p, role: v === 'all' ? '' : v as HireRole }))}
-              >
-                <SelectTrigger id="tool-role">
-                  <SelectValue placeholder="All roles" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All roles</SelectItem>
-                  <SelectItem value="AI Solutions Architect">AI Solutions Architect</SelectItem>
-                  <SelectItem value="Solutions Engineer">Solutions Engineer</SelectItem>
-                  <SelectItem value="Implementation Engineer">Implementation Engineer</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>Leave blank to apply this tool to all roles.</p>
+              <div className="mb-[5px] flex items-center justify-between gap-3">
+                <label className="block type-body font-medium" style={{ color: 'var(--text-secondary)' }}>
+                  Roles
+                </label>
+                <span className="type-caption" style={{ color: 'var(--text-tertiary)' }}>{selectedRolesLabel(newTool.roles)}</span>
+              </div>
+              <RoleMultiSelect
+                value={newTool.roles}
+                onChange={(roles) => setNewTool((p) => ({ ...p, roles }))}
+              />
+              <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>Select multiple roles, or use All roles for a shared requirement.</p>
             </div>
             <div>
               <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
-                Owner
+                Owner <span style={{ color: 'var(--red-text)' }}>*</span>
               </label>
               <SlackUserPicker
                 value={newTool.owner}
                 onChange={(user) => setNewTool((p) => ({ ...p, owner: user }))}
                 placeholder="Search workspace members..."
               />
-              <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>Canon will DM this person when a new hire needs access.</p>
+              <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>Canon will DM this Slack owner when a new hire needs access.</p>
             </div>
             {newTool.owner && (
               <div>
@@ -735,7 +1120,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
             <Button variant="secondary" onClick={() => setAddToolOpen(false)} disabled={addToolSaving}>
               Cancel
             </Button>
-            <Button onClick={() => void addTool()} disabled={addToolSaving || !newTool.tool_name.trim()}>
+            <Button onClick={() => void addTool()} disabled={addToolSaving || !newTool.tool_name.trim() || !newTool.owner || newToolAlreadyConfigured}>
               {addToolSaving ? <IconLoader2 size={13} className="animate-spin" /> : <IconTool size={13} />}
               Add Tool
             </Button>
