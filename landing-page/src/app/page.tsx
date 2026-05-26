@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { ArrowRight, Github, Slack } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 
 import { AnimateIn } from '@/components/AnimateIn';
 import { FaqAccordion } from '@/components/landing-page/FaqAccordion';
@@ -10,17 +10,17 @@ import { Button } from '@/components/ui/button';
 const requestAccessHref = 'https://app.usecanon.com';
 
 export const metadata: Metadata = {
-  title: 'Canon — Technical GTM Onboarding & Field Readiness',
+  title: 'Canon | Technical GTM Onboarding & Readiness',
   description:
     'Canon reduces time to productivity for Technical GTM hires and keeps your whole team field-ready as your product and market evolve.',
   openGraph: {
-    title: 'Canon — Technical GTM Onboarding & Field Readiness',
+    title: 'Canon | Technical GTM Onboarding & Readiness',
     description:
       'Canon reduces time to productivity for Technical GTM hires and keeps your whole team field-ready as your product and market evolve.',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Canon — Technical GTM Onboarding & Field Readiness',
+    title: 'Canon | Technical GTM Onboarding & Readiness',
     description:
       'Canon reduces time to productivity for Technical GTM hires and keeps your whole team field-ready as your product and market evolve.',
   },
@@ -38,7 +38,7 @@ const statusCards = [
   },
   {
     eyebrow: 'Readiness Gap',
-    title: 'Pricing update — 5 reps on active deals not current',
+    title: 'Pricing update: 5 reps on active deals not current',
     detail: "Confluence changes detected across 3 docs. Five reps with open opportunities haven't reviewed the new packaging.",
     value: '5 gaps',
     tone: 'amber',
@@ -56,22 +56,26 @@ const rampLoop = [
   { step: '01', title: 'Connect knowledge', body: 'Link Confluence, Gong, Slack, GitHub, and more. Canon keeps context current as sources update so briefs never go stale.' },
   { step: '02', title: 'Define milestones', body: 'Set role-specific capability checkpoints. Every hire gets a structured path from day one, not a generic onboarding deck.' },
   { step: '03', title: 'Launch the hire path', body: 'Add a new hire and Canon generates their brief, assigns milestones, and creates their access request list automatically.' },
-  { step: '04', title: 'Monitor readiness', body: 'When product or market changes create gaps, Canon surfaces who is affected — for new hires and the broader team alike.' },
+  { step: '04', title: 'Monitor readiness', body: 'When product or market changes create gaps, Canon surfaces who is affected, for new hires and the broader team alike.' },
 ];
 
 const statsData = [
   {
-    stat: '6–9 mo',
+    stat: '9–12 mo',
     gradient: 'text-gradient-purple',
     label: 'Average ramp time',
-    body: "Industry average for a Technical GTM hire to reach full productivity. Most companies accept this as fixed cost. It isn't.",
+    body: "Industry average for an enterprise Technical GTM hire to reach full productivity. Most teams treat this as a fixed cost. It isn't.",
+    source: 'Bridge Group, GTM benchmark consensus',
+    sourceUrl: 'https://salesso.com/blog/sales-ramp-up-statistics-2025-benchmarks-best-practices/',
     accent: 'var(--canon-purple)',
   },
   {
-    stat: '3 in 5',
+    stat: '78%',
     gradient: 'text-gradient-amber',
-    label: 'Readiness gap',
-    body: 'Reps caught off-guard by a product or messaging change during a customer conversation.',
+    label: 'Missed quota in 2025',
+    body: 'Sellers who fell short last year, up from 69% in 2024. Poor ramp and stale field readiness are among the leading contributors.',
+    source: 'Ebsta x Pavilion, 2025 GTM Benchmarks',
+    sourceUrl: 'https://benchmarks.ebsta.com/2025-gtm-benchmarks',
     accent: 'var(--amber)',
   },
   {
@@ -79,6 +83,8 @@ const statsData = [
     gradient: 'text-gradient-green',
     label: 'When Canon starts',
     body: 'Briefs are live before the hire walks in. And they keep updating as your product and market change.',
+    source: null,
+    sourceUrl: null,
     accent: 'var(--green)',
   },
 ];
@@ -87,21 +93,21 @@ const features = [
   {
     kicker: 'Onboarding',
     title: 'Knowledge-grounded from day one.',
-    body: 'Every brief draws from live sources — Confluence, Gong, Slack, GitHub — so the hire is working with current context, not a snapshot from last quarter.',
+    body: 'Every brief draws from live sources (Confluence, Gong, Slack, GitHub), so the hire is working with current context, not a snapshot from last quarter.',
     accent: 'var(--canon-purple)',
     accentClass: 'bg-[var(--canon-purple)]',
   },
   {
     kicker: 'Progress',
     title: 'Milestones that mean something.',
-    body: 'Role-specific capability checkpoints give hire and manager a clear, shared view of progress — not just activity. You always know who is ready for what.',
+    body: 'Role-specific capability checkpoints give hire and manager a clear, shared view of progress, not just activity. You always know who is ready for what.',
     accent: 'var(--green)',
     accentClass: 'bg-[var(--green)]',
   },
   {
     kicker: 'Readiness',
     title: 'Current after the first week, too.',
-    body: 'Canon detects product and market changes and surfaces who is affected — for new hires still ramping and for the broader team already in the field.',
+    body: 'Canon detects product and market changes and surfaces who is affected, for new hires still ramping and for the broader team already in the field.',
     accent: 'var(--amber)',
     accentClass: 'bg-[var(--amber)]',
   },
@@ -110,14 +116,14 @@ const features = [
 const integrations = [
   { icon: <IntegrationLogos provider="confluence" size={22} />, name: 'Confluence', body: 'Sync product docs, messaging guides, and playbooks as live knowledge sources.' },
   { icon: <IntegrationLogos provider="gong" size={22} />, name: 'Gong', body: 'Pull top-performer call patterns and objection responses into onboarding briefs.' },
-  { icon: <Slack className="h-[22px] w-[22px]" style={{ color: 'var(--text-primary)' }} aria-hidden />, name: 'Slack', body: 'Deliver onboarding updates and readiness alerts where your team already works.' },
-  { icon: <Github className="h-[22px] w-[22px]" style={{ color: 'var(--text-primary)' }} aria-hidden />, name: 'GitHub', body: 'Connect technical docs and changelogs so product updates flow into field readiness.' },
+  { icon: <IntegrationLogos provider="slack" size={22} />, name: 'Slack', body: 'Deliver onboarding updates and readiness alerts where your team already works.' },
+  { icon: <IntegrationLogos provider="github" size={22} />, name: 'GitHub', body: 'Connect technical docs and changelogs so product updates flow into field readiness.' },
 ];
 
 const faqItems = [
-  { question: 'What does Canon actually do?', answer: 'Canon builds personalized onboarding paths for Technical GTM hires — drawing from your live knowledge sources — and then monitors for product and market changes that could create readiness gaps after onboarding ends. The result is shorter time to productivity and a field team that stays current without manual enablement work.' },
-  { question: 'Who is Canon built for?', answer: 'Canon is built for Technical GTM teams — Solutions Engineers, Sales Engineers, Technical Account Managers, and the managers and enablement leaders who ramp and support them.' },
-  { question: 'How does readiness work after onboarding ends?', answer: 'Canon continues to watch your connected knowledge sources. When it detects a meaningful change — a new pricing model in Confluence, a product update in GitHub, a shift in competitive positioning — it surfaces who is affected and updates the relevant briefs so leaders can act before gaps reach the field.' },
+  { question: 'What does Canon actually do?', answer: 'Canon builds personalized onboarding paths for Technical GTM hires, drawing from your live knowledge sources, and then monitors for product and market changes that could create readiness gaps after onboarding ends. The result is shorter time to productivity and a field team that stays current without manual enablement work.' },
+  { question: 'Who is Canon built for?', answer: 'Canon is built for Technical GTM teams: Solutions Engineers, Sales Engineers, Technical Account Managers, and the managers and enablement leaders who ramp and support them.' },
+  { question: 'How does readiness work after onboarding ends?', answer: 'Canon continues to watch your connected knowledge sources. When it detects a meaningful change (a new pricing model in Confluence, a product update in GitHub, a shift in competitive positioning), it surfaces who is affected and updates the relevant briefs so leaders can act before gaps reach the field.' },
   { question: 'What knowledge sources does Canon connect to?', answer: 'Canon currently connects to Confluence, Gong, Slack, and GitHub. Additional sources are in progress. If your stack is not listed, reach out at john@usecanon.com and we will let you know what is coming.' },
   { question: 'How long does setup take?', answer: 'Most teams are connected, milestones defined, and the first hire launched within a single session. No custom implementation or dedicated IT project required.' },
   { question: 'Is my data secure?', answer: 'Yes. Canon uses OAuth for all integrations, encrypts tokens at rest, and only reads from explicitly connected sources. Canon never writes to your tools.' },
@@ -128,9 +134,9 @@ const faqItems = [
 type StatusTone = (typeof statusCards)[number]['tone'];
 
 function toneStyles(tone: StatusTone) {
-  if (tone === 'amber')  return { shell: { border: '1px solid var(--amber-border)',         backgroundColor: 'var(--amber-bg)' },         eyebrow: { color: 'var(--amber-text)' },   value: { color: 'var(--amber-text)' } };
+  if (tone === 'amber') return { shell: { border: '1px solid var(--amber-border)', backgroundColor: 'var(--amber-bg)' }, eyebrow: { color: 'var(--amber-text)' }, value: { color: 'var(--amber-text)' } };
   if (tone === 'purple') return { shell: { border: '1px solid var(--canon-purple-border)', backgroundColor: 'var(--canon-purple-light)' }, eyebrow: { color: 'var(--canon-purple)' }, value: { color: 'var(--canon-purple)' } };
-  return                        { shell: { border: '1px solid var(--green-border)',         backgroundColor: 'var(--green-bg)' },         eyebrow: { color: 'var(--green-text)' },   value: { color: 'var(--green-text)' } };
+  return { shell: { border: '1px solid var(--green-border)', backgroundColor: 'var(--green-bg)' }, eyebrow: { color: 'var(--green-text)' }, value: { color: 'var(--green-text)' } };
 }
 
 const inner = 'mx-auto max-w-[88rem] px-4 sm:px-6 lg:px-8';
@@ -173,8 +179,8 @@ export default function LandingPage() {
                 animation: 'fade-up 0.6s ease 0.15s both',
               }}
             >
-              Ramp Technical GTM hires faster.<br />
-              <span className="text-gradient-purple">Keep the whole team ready.</span>
+              Ramp Technical GTM faster.<br />
+              <span className="text-gradient-purple">Stay ready.</span>
             </h1>
 
             {/* Subheadline */}
@@ -210,9 +216,9 @@ export default function LandingPage() {
               <span className="type-kicker mr-2">Works with</span>
               {[
                 { label: 'Confluence', icon: <IntegrationLogos provider="confluence" size={14} /> },
-                { label: 'Gong',       icon: <IntegrationLogos provider="gong" size={14} /> },
-                { label: 'Slack',      icon: <Slack className="h-[14px] w-[14px]" style={{ color: 'var(--text-tertiary)' }} aria-hidden /> },
-                { label: 'GitHub',     icon: <Github className="h-[14px] w-[14px]" style={{ color: 'var(--text-tertiary)' }} aria-hidden /> },
+                { label: 'Gong', icon: <IntegrationLogos provider="gong" size={14} /> },
+                { label: 'Slack', icon: <IntegrationLogos provider="slack" size={14} className="text-[var(--text-tertiary)]" /> },
+                { label: 'GitHub', icon: <IntegrationLogos provider="github" size={14} className="text-[var(--text-tertiary)]" /> },
               ].map((item) => (
                 <span
                   key={item.label}
@@ -322,6 +328,21 @@ export default function LandingPage() {
                     <div>
                       <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{item.label}</p>
                       <p className="mt-2 text-sm leading-6" style={{ color: 'var(--text-secondary)' }}>{item.body}</p>
+                      {item.source && (
+                        <p className="mt-3 text-[11px] leading-4" style={{ color: 'var(--text-tertiary)' }}>
+                          Source:{' '}
+                          {item.sourceUrl ? (
+                            <a
+                              href={item.sourceUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="underline underline-offset-2 transition-colors hover:text-[var(--text-secondary)]"
+                            >
+                              {item.source}
+                            </a>
+                          ) : item.source}
+                        </p>
+                      )}
                     </div>
                   </div>
                 </AnimateIn>
@@ -341,7 +362,7 @@ export default function LandingPage() {
             </h2>
             <p className="mt-4 type-landing-body" style={{ color: 'var(--text-secondary)' }}>
               Canon connects your knowledge, structures each hire&apos;s path, and monitors
-              for changes that affect readiness — in a single loop that runs from first hire
+              for changes that affect readiness, in a single loop that runs from first hire
               to the entire team.
             </p>
           </AnimateIn>
@@ -508,9 +529,9 @@ export default function LandingPage() {
                 <p className="type-kicker mb-4">Data flow</p>
                 <div className="space-y-3">
                   {[
-                    { step: '01', title: 'Connect',    body: 'OAuth access to knowledge sources and communication systems.' },
+                    { step: '01', title: 'Connect', body: 'OAuth access to knowledge sources and communication systems.' },
                     { step: '02', title: 'Synthesize', body: 'Canon indexes content, generates briefs, and monitors for meaningful changes.' },
-                    { step: '03', title: 'Route',      body: 'Updates and alerts go to the channels where your team already operates.' },
+                    { step: '03', title: 'Route', body: 'Updates and alerts go to the channels where your team already operates.' },
                   ].map((item, i) => (
                     <div
                       key={item.step}
