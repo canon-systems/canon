@@ -10,19 +10,19 @@ import { Button } from '@/components/ui/button';
 const requestAccessHref = 'https://app.usecanon.com';
 
 export const metadata: Metadata = {
-  title: 'Canon — GTM Onboarding & Field Readiness',
+  title: 'Canon — Technical GTM Onboarding & Field Readiness',
   description:
-    'Canon reduces time to productivity for GTM hires and keeps your whole team field-ready as your product and market evolve.',
+    'Canon reduces time to productivity for Technical GTM hires and keeps your whole team field-ready as your product and market evolve.',
   openGraph: {
-    title: 'Canon — GTM Onboarding & Field Readiness',
+    title: 'Canon — Technical GTM Onboarding & Field Readiness',
     description:
-      'Canon reduces time to productivity for GTM hires and keeps your whole team field-ready as your product and market evolve.',
+      'Canon reduces time to productivity for Technical GTM hires and keeps your whole team field-ready as your product and market evolve.',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Canon — GTM Onboarding & Field Readiness',
+    title: 'Canon — Technical GTM Onboarding & Field Readiness',
     description:
-      'Canon reduces time to productivity for GTM hires and keeps your whole team field-ready as your product and market evolve.',
+      'Canon reduces time to productivity for Technical GTM hires and keeps your whole team field-ready as your product and market evolve.',
   },
 };
 
@@ -64,7 +64,7 @@ const statsData = [
     stat: '6–9 mo',
     gradient: 'text-gradient-purple',
     label: 'Average ramp time',
-    body: "Industry average for a GTM hire to reach full productivity. Most companies accept this as fixed cost. It isn't.",
+    body: "Industry average for a Technical GTM hire to reach full productivity. Most companies accept this as fixed cost. It isn't.",
     accent: 'var(--canon-purple)',
   },
   {
@@ -115,8 +115,8 @@ const integrations = [
 ];
 
 const faqItems = [
-  { question: 'What does Canon actually do?', answer: 'Canon builds personalized onboarding paths for GTM hires — drawing from your live knowledge sources — and then monitors for product and market changes that could create readiness gaps after onboarding ends. The result is shorter time to productivity and a field team that stays current without manual enablement work.' },
-  { question: 'Who is Canon built for?', answer: 'Canon is built for GTM leaders, sales managers, revenue operations, and enablement teams who are responsible for ramping new hires and keeping the team field-ready as the product and market evolve.' },
+  { question: 'What does Canon actually do?', answer: 'Canon builds personalized onboarding paths for Technical GTM hires — drawing from your live knowledge sources — and then monitors for product and market changes that could create readiness gaps after onboarding ends. The result is shorter time to productivity and a field team that stays current without manual enablement work.' },
+  { question: 'Who is Canon built for?', answer: 'Canon is built for Technical GTM teams — Solutions Engineers, Sales Engineers, Technical Account Managers, and the managers and enablement leaders who ramp and support them.' },
   { question: 'How does readiness work after onboarding ends?', answer: 'Canon continues to watch your connected knowledge sources. When it detects a meaningful change — a new pricing model in Confluence, a product update in GitHub, a shift in competitive positioning — it surfaces who is affected and updates the relevant briefs so leaders can act before gaps reach the field.' },
   { question: 'What knowledge sources does Canon connect to?', answer: 'Canon currently connects to Confluence, Gong, Slack, and GitHub. Additional sources are in progress. If your stack is not listed, reach out at john@usecanon.com and we will let you know what is coming.' },
   { question: 'How long does setup take?', answer: 'Most teams are connected, milestones defined, and the first hire launched within a single session. No custom implementation or dedicated IT project required.' },
@@ -161,7 +161,7 @@ export default function LandingPage() {
             <div style={{ animation: 'fade-up 0.55s ease 0.05s both' }}>
               <span className="badge-hero">
                 <span className="live-dot relative inline-block h-1.5 w-1.5 rounded-full bg-[var(--canon-purple)]" />
-                GTM Onboarding &amp; Field Readiness Platform
+                Technical GTM Onboarding &amp; Field Readiness Platform
               </span>
             </div>
 
@@ -173,7 +173,7 @@ export default function LandingPage() {
                 animation: 'fade-up 0.6s ease 0.15s both',
               }}
             >
-              Ramp GTM hires faster.<br />
+              Ramp Technical GTM hires faster.<br />
               <span className="text-gradient-purple">Keep the whole team ready.</span>
             </h1>
 
@@ -182,7 +182,7 @@ export default function LandingPage() {
               className="mx-auto mt-6 max-w-xl text-base leading-7"
               style={{ color: 'var(--text-secondary)', animation: 'fade-up 0.6s ease 0.25s both' }}
             >
-              Canon is the onboarding platform that reduces time to productivity for GTM hires
+              Canon is the onboarding platform that reduces time to productivity for Technical GTM hires
               and keeps your field team current as your product and market evolve.
             </p>
 
@@ -575,7 +575,7 @@ export default function LandingPage() {
                   className="mx-auto max-w-2xl type-landing-h2"
                   style={{ color: 'var(--text-primary)' }}
                 >
-                  Give every GTM hire the shortest path to full productivity.
+                  Give every Technical GTM hire the shortest path to full productivity.
                 </h2>
                 <p
                   className="mx-auto mt-4 max-w-xl type-landing-body"

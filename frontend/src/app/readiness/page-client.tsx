@@ -345,6 +345,7 @@ export function ReadinessClient() {
     () => new Map(categories.map((category) => [category.id, items.filter((item) => item.category === category.id).length])),
     [items]
   );
+  const hasDeliveryTargets = selectedChannelIds.length > 0 || selectedUserIds.length > 0;
   const allCategoriesSelected = activeCategories.length === categories.length;
   const filterLabel = selectedCategoryLabel(activeCategories);
   const selectedSignalCount = selectedSignalIds.size;
@@ -372,7 +373,15 @@ export function ReadinessClient() {
     });
   }, [categoryItems]);
 
+  function requireDeliveryTargets() {
+    if (hasDeliveryTargets) return true;
+    toast.error('No delivery targets set', { description: 'Choose at least one channel or user in the Delivery tab before sending.' });
+    setActiveTab('delivery');
+    return false;
+  }
+
   async function sendSignal(item: ReadinessItem) {
+    if (!requireDeliveryTargets()) return;
     setRowActionId(item.id);
     try {
       const res = await fetch('/api/onboarding/readiness', {
@@ -380,8 +389,8 @@ export function ReadinessClient() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           itemIds: [item.id],
-          ...(selectedChannelIds.length > 0 ? { channelIds: selectedChannelIds } : {}),
-          ...(selectedUserIds.length > 0 ? { userIds: selectedUserIds } : {}),
+          channelIds: selectedChannelIds,
+          userIds: selectedUserIds,
         }),
       });
       const data = (await res.json()) as { error?: string; detail?: string };
@@ -485,6 +494,7 @@ export function ReadinessClient() {
   }
 
   async function sendSelectedSignals() {
+    if (!requireDeliveryTargets()) return;
     const itemIds = categoryItems
       .filter((item) => selectedSignalIds.has(item.id) && (item.status === 'draft' || item.status === 'reviewed'))
       .map((item) => item.id);
@@ -497,8 +507,8 @@ export function ReadinessClient() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           itemIds,
-          ...(selectedChannelIds.length > 0 ? { channelIds: selectedChannelIds } : {}),
-          ...(selectedUserIds.length > 0 ? { userIds: selectedUserIds } : {}),
+          channelIds: selectedChannelIds,
+          userIds: selectedUserIds,
         }),
       });
       const data = (await res.json()) as { error?: string; detail?: string };
@@ -706,7 +716,9 @@ export function ReadinessClient() {
                             <IconSend size={14} />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent side="bottom">Send selected signals</TooltipContent>
+                        <TooltipContent side="bottom">
+                          {!hasDeliveryTargets ? 'Set delivery targets in the Delivery tab first' : 'Send selected signals'}
+                        </TooltipContent>
                       </Tooltip>
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -754,6 +766,21 @@ export function ReadinessClient() {
                     </TooltipProvider>
                   </div>
                 </div>
+
+                {!hasDeliveryTargets && (
+                  <div className="px-3 pt-3">
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('delivery')}
+                      className="w-full rounded-[8px] border px-3 py-2 type-caption text-left"
+                      style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-secondary)', color: 'var(--text-secondary)' }}
+                    >
+                      No delivery targets set — configure channels or users in the{' '}
+                      <span style={{ color: 'var(--canon-purple)' }}>Delivery tab</span>{' '}
+                      before sending.
+                    </button>
+                  </div>
+                )}
 
                 {/* Signal list */}
                 <div className="flex-1 overflow-y-auto">
