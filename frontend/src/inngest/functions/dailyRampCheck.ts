@@ -4,6 +4,7 @@ import { embed, generateText } from 'ai';
 import { llm, embeddingModel } from '@/lib/ai';
 import { createLogger, errorMessage } from '@/lib/server/logging';
 import { syncAccessReadinessEvidence } from '@/lib/server/milestoneEvidence';
+import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
 import { randomBytes } from 'crypto';
 import type { HireRole, RampMilestone, MilestoneEvidenceRequirement } from '@/types/onboarding';
 
@@ -193,14 +194,23 @@ export const dailyRampCheck = inngest.createFunction(
       return { ok: true, hiresProcessed: 0 };
     }
 
-    // Fetch all organizations we need in one query
+    // Fetch all organizations and their Slack connection IDs in bulk
     const orgIds = [...new Set(activeHires.map((h) => h.organization_id))];
     const { data: orgs } = await supabase
       .from('organizations')
-      .select('id, slack_bot_token')
+      .select('id, owner_id')
       .in('id', orgIds);
 
-    const orgMap = new Map((orgs ?? []).map((o) => [o.id, o]));
+    const ownerIds = (orgs ?? []).map((o) => o.owner_id).filter(Boolean);
+    const { data: slackConnections } = await supabase
+      .from('oauth_connections')
+      .select('user_id, connection_id')
+      .in('user_id', ownerIds)
+      .eq('provider', 'slack')
+      .eq('status', 'active');
+
+    const connectionByOwner = new Map((slackConnections ?? []).map((c) => [c.user_id, c.connection_id]));
+    const orgMap = new Map((orgs ?? []).map((o) => [o.id, { id: o.id, connectionId: connectionByOwner.get(o.owner_id) ?? null }]));
 
     let processed = 0;
     let failed = 0;
@@ -267,12 +277,23 @@ export const dailyRampCheck = inngest.createFunction(
           }
 
           const org = orgMap.get(hire.organization_id);
-          if (!org?.slack_bot_token) {
+          if (!org?.connectionId) {
             await supabase.from('ramp_deliveries').insert({
               new_hire_id: hire.id,
               milestone_id: milestone.id,
               delivery_status: 'failed',
-              error_message: 'No Slack bot token for organization',
+              error_message: 'No Slack connection for organization',
+            });
+            return;
+          }
+
+          const botToken = await getProviderAccessToken({ provider: 'slack', connectionId: org.connectionId });
+          if (!botToken) {
+            await supabase.from('ramp_deliveries').insert({
+              new_hire_id: hire.id,
+              milestone_id: milestone.id,
+              delivery_status: 'failed',
+              error_message: 'Could not retrieve Slack token for organization',
             });
             return;
           }
@@ -331,7 +352,7 @@ export const dailyRampCheck = inngest.createFunction(
           });
 
           const slackResult = await sendSlackDM({
-            botToken: org.slack_bot_token,
+            botToken,
             slackUserId: hire.slack_user_id,
             blocks,
             text,

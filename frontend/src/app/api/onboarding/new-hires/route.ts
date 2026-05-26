@@ -6,11 +6,6 @@ import type { HireRole } from '@/types/onboarding';
 
 export const dynamic = 'force-dynamic';
 
-const DEFAULT_TOOLS_BY_ROLE: Record<HireRole, string[]> = {
-  'AI Solutions Architect': ['Salesforce', 'Gong', 'Outreach', 'Zoom'],
-  'Solutions Engineer': ['Salesforce', 'Gong', 'GitHub', 'Confluence', 'Zoom'],
-  'Implementation Engineer': ['Salesforce', 'Jira', 'Confluence', 'GitHub', 'Zoom'],
-};
 
 export async function GET() {
   try {
@@ -97,13 +92,19 @@ export async function POST(request: NextRequest) {
 
     if (hireError || !hire) throw hireError ?? new Error('Failed to create hire');
 
-    const tools = DEFAULT_TOOLS_BY_ROLE[role as HireRole] ?? [];
-    const accessRequestInserts = tools.map((tool) => ({
+    // Load org-configured tools for this role (null role = applies to all roles).
+    const { data: orgTools } = await supabase
+      .from('org_tools')
+      .select('*')
+      .eq('organization_id', org.id)
+      .or(`role.eq.${role},role.is.null`);
+
+    const accessRequestInserts = (orgTools ?? []).map((t) => ({
       new_hire_id: hire.id,
-      tool_name: tool,
-      requested_from_name: null,
-      requested_from_email: null,
-      requested_from_slack_id: null,
+      tool_name: t.tool_name,
+      requested_from_name: t.owner_name,
+      requested_from_email: t.owner_email,
+      requested_from_slack_id: t.owner_slack_id,
       status: 'pending',
     }));
 

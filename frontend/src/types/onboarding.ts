@@ -3,7 +3,7 @@ export type HireStatus = 'active' | 'paused' | 'completed';
 export type KnowledgeProvider = 'slack' | 'notion' | 'google_drive' | 'confluence' | 'gong';
 export type KnowledgeSourceStatus = 'pending' | 'syncing' | 'active' | 'error' | 'stopped';
 export type DeliveryStatus = 'pending' | 'delivered' | 'failed';
-export type AccessRequestStatus = 'pending' | 'sent' | 'acknowledged' | 'granted';
+export type AccessRequestStatus = 'pending' | 'sent' | 'acknowledged' | 'granted' | 'confirmed';
 export type ReadinessCategory = 'product_change' | 'customer_objection' | 'demo_guidance' | 'implementation_pattern';
 export type ReadinessImpactLevel = 'low' | 'medium' | 'high';
 export type ReadinessStatus = 'draft' | 'reviewed' | 'sent' | 'archived';
@@ -75,8 +75,6 @@ export interface Organization {
   name: string;
   slug: string;
   owner_id: string;
-  slack_team_id: string | null;
-  slack_bot_token: string | null;
   created_at: string;
 }
 
@@ -244,6 +242,18 @@ export interface AccessRequest {
   requested_from_slack_id: string | null;
   status: AccessRequestStatus;
   sent_at: string | null;
+  confirmed_at: string | null;
+  created_at: string;
+}
+
+export interface OrgTool {
+  id: string;
+  organization_id: string;
+  tool_name: string;
+  role: HireRole | null;
+  owner_name: string | null;
+  owner_email: string | null;
+  owner_slack_id: string | null;
   created_at: string;
 }
 

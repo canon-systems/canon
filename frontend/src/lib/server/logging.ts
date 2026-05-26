@@ -4,7 +4,7 @@ type LoggerOptions = {
   label?: string;
   eventLabels?: Record<string, string>;
   uppercaseEventLabels?: boolean;
-  componentColor?: 'cyan' | 'blue' | 'orange';
+  componentColor?: 'cyan' | 'blue' | 'orange' | 'green';
 };
 
 const LOG_LEVELS: Record<LogLevel, number> = {
@@ -209,7 +209,11 @@ export function createLogger(component: string, options: LoggerOptions = {}) {
     label: options.label,
     eventLabels: options.eventLabels ?? {},
     uppercaseEventLabels: options.uppercaseEventLabels !== false,
-    componentColor: options.componentColor === 'blue' ? ANSI.blue : ANSI.cyan,
+    componentColor:
+      options.componentColor === 'blue' ? ANSI.blue
+      : options.componentColor === 'orange' ? ANSI.yellow
+      : options.componentColor === 'green' ? ANSI.green
+      : ANSI.cyan,
   };
   return {
     debug: (event: string, fields?: LogFields) => emit('debug', component, event, fields, runtime),

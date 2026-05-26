@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { RootLayoutClient } from "./layout-client";
 import { getSession } from "@/lib/auth";
+import { Toaster } from "@/components/ui/sonner";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -35,6 +36,7 @@ export default async function RootLayout({
         <RootLayoutClient user={user} session={session}>
           {children}
         </RootLayoutClient>
+        <Toaster />
       </body>
     </html>
   );

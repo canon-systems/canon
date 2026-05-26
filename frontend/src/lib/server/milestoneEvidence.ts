@@ -5,6 +5,8 @@ import type {
   MilestoneEvidenceRequirement,
 } from '@/types/onboarding';
 import { createLogger } from '@/lib/server/logging';
+import { createServiceRoleClient } from '@/lib/supabase/server';
+import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
 
 type DbClient = SupabaseClient;
 
@@ -115,7 +117,7 @@ export async function recordMilestoneEvidence(params: RecordEvidenceParams) {
 
   const { data: hire } = await params.supabase
     .from('new_hires')
-    .select('id, name, organization_id, organizations(id, slack_bot_token)')
+    .select('id, name, organization_id, organizations(id, owner_id)')
     .eq('id', params.newHireId)
     .single();
 
@@ -254,8 +256,25 @@ export async function recordMilestoneEvidence(params: RecordEvidenceParams) {
       ? metadata.manager_slack_user_id
       : null;
   const orgData = Array.isArray(hire.organizations) ? hire.organizations[0] : hire.organizations;
+  const orgOwnerId = (orgData as { owner_id?: string } | null)?.owner_id ?? null;
+
+  let slackBotToken: string | null = null;
+  if (orgOwnerId) {
+    const admin = createServiceRoleClient();
+    const { data: slackConn } = await admin
+      .from('oauth_connections')
+      .select('connection_id')
+      .eq('user_id', orgOwnerId)
+      .eq('provider', 'slack')
+      .eq('status', 'active')
+      .maybeSingle();
+    if (slackConn) {
+      slackBotToken = await getProviderAccessToken({ provider: 'slack', connectionId: slackConn.connection_id });
+    }
+  }
+
   const slackSent = await maybeSendSlackNotification({
-    botToken: orgData?.slack_bot_token ?? null,
+    botToken: slackBotToken,
     target: slackTarget,
     title: copy.title,
     body: copy.body,

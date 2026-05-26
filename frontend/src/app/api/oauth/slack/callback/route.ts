@@ -205,11 +205,6 @@ export async function GET(request: NextRequest) {
       missingScopes: missingScopes.length > 0 ? missingScopes.join(',') : undefined,
     });
 
-    await admin
-      .from('organizations')
-      .update({ slack_bot_token: accessToken })
-      .eq('owner_id', user.id);
-
     await trackIntegrationStateChanged(supabase, user.id, 'connected', 'slack', connectionId);
     return redirectToSettings(request.nextUrl.origin, { success: 'true', provider: 'slack' });
   } catch (err: unknown) {

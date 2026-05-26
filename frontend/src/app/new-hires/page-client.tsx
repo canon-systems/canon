@@ -7,13 +7,16 @@ import {
   IconCalendar,
   IconChevronDown,
   IconDotsVertical,
+  IconLoader2,
   IconPencil,
   IconPlayerPause,
   IconPlayerPlay,
   IconPlus,
   IconSearch,
+  IconSend,
   IconTrash,
   IconUsers,
+  IconX,
 } from '@tabler/icons-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -31,8 +34,11 @@ import { StatusBadge } from '@/components/ui/status-badge';
 import { MilestoneProgress } from '@/components/ui/milestone-progress';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Alert } from '@/components/ui/alert';
+import { toast } from 'sonner';
 import { NewHireForm, type EditableNewHire } from '@/components/new-hire-form';
+import { ToolLogo } from '@/components/ToolLogo';
+import { SlackUserPicker, type SlackUser } from '@/components/SlackUserPicker';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/components/ui/utils';
 import type { AccessRequest, HireRole, HireStatus, NewHireMilestonePathItem, RampDelivery } from '@/types/onboarding';
 
@@ -66,10 +72,24 @@ function fmtDetailDate(d: string | null) {
   return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+function fmtDetailDateTime(d: string | null) {
+  if (!d) return '-';
+  return new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
 function accessVariant(status: string) {
+  if (status === 'confirmed') return 'delivered';
   if (status === 'granted') return 'delivered';
   if (status === 'sent' || status === 'acknowledged') return 'stalled';
   return 'pending';
+}
+
+function accessLabel(status: string) {
+  if (status === 'confirmed') return 'Confirmed';
+  if (status === 'granted') return 'Granted';
+  if (status === 'sent') return 'Sent';
+  if (status === 'acknowledged') return 'Acknowledged';
+  return 'Pending';
 }
 
 function progressVariant(status: string | null | undefined) {
@@ -139,6 +159,7 @@ export function NewHiresClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedHireId = searchParams.get('hire');
+  const requestedTab = searchParams.get('tab');
   const [hires, setHires] = useState<HireRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>('all');
@@ -146,13 +167,23 @@ export function NewHiresClient() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedDetail, setSelectedDetail] = useState<HireDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'Ramp Evidence' | 'Access'>('Ramp Evidence');
+  const [activeTab, setActiveTab] = useState<'Ramp Evidence' | 'Access'>(requestedTab === 'Access' ? 'Access' : 'Ramp Evidence');
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingHire, setEditingHire] = useState<EditableNewHire | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Pick<HireRow, 'id' | 'name' | 'status'> | null>(null);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [milestoneActionId, setMilestoneActionId] = useState<string | null>(null);
-  const [actionError, setActionError] = useState('');
+
+  const [sendingRequestId, setSendingRequestId] = useState<string | null>(null);
+  const [resentAt, setResentAt] = useState<Record<string, string>>({});
+  const [addAccessOpen, setAddAccessOpen] = useState(false);
+  const [addAccessSaving, setAddAccessSaving] = useState(false);
+  const [newAccess, setNewAccess] = useState({ tool_name: '', owner: null as SlackUser | null });
+  const [editingRequest, setEditingRequest] = useState<AccessRequest | null>(null);
+  const [editAccess, setEditAccess] = useState({ tool_name: '', owner: null as SlackUser | null });
+  const [editAccessSaving, setEditAccessSaving] = useState(false);
+  const [deletingRequest, setDeletingRequest] = useState<AccessRequest | null>(null);
+  const [deleteRequestSaving, setDeleteRequestSaving] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -179,8 +210,10 @@ export function NewHiresClient() {
 
   const selectHire = useCallback((hireId: string) => {
     setSelectedId(hireId);
-    router.replace(`/new-hires?hire=${hireId}`, { scroll: false });
-  }, [router]);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('hire', hireId);
+    router.replace(`/new-hires?${params.toString()}`, { scroll: false });
+  }, [router, searchParams]);
 
   const filtered = hires.filter((h) => {
     const matchesFilter = filter === 'all' || h.status === filter;
@@ -198,7 +231,6 @@ export function NewHiresClient() {
 
     let cancelled = false;
     setDetailLoading(true);
-    setActiveTab('Ramp Evidence');
 
     async function loadSelectedHire() {
       try {
@@ -228,7 +260,6 @@ export function NewHiresClient() {
 
   async function updateHireStatus(hire: Pick<HireRow, 'id' | 'name' | 'status'>, status: HireStatus) {
     setActionLoadingId(hire.id);
-    setActionError('');
     try {
       const res = await fetch(`/api/onboarding/new-hires/${hire.id}`, {
         method: 'PATCH',
@@ -237,7 +268,7 @@ export function NewHiresClient() {
       });
       const json = (await res.json()) as { error?: string };
       if (!res.ok) {
-        setActionError(json.error ?? 'Failed to update hire.');
+        toast.error('Something went wrong updating this hire. Please try again.');
         return;
       }
       setSelectedDetail((current) => (
@@ -253,7 +284,6 @@ export function NewHiresClient() {
 
   async function openEditModal(hire: Pick<HireRow, 'id' | 'name' | 'status'>) {
     setActionLoadingId(hire.id);
-    setActionError('');
     try {
       if (selectedDetail?.hire.id === hire.id) {
         setEditingHire(selectedDetail.hire);
@@ -263,7 +293,7 @@ export function NewHiresClient() {
       const res = await fetch(`/api/onboarding/new-hires/${hire.id}`);
       const json = (await res.json()) as HireDetail & { error?: string };
       if (!res.ok) {
-        setActionError(json.error ?? 'Failed to load hire.');
+        toast.error('Unable to load hire details. Please try again.');
         return;
       }
       setEditingHire(json.hire);
@@ -285,12 +315,11 @@ export function NewHiresClient() {
   async function deleteHire() {
     if (!pendingDelete) return;
     setActionLoadingId(pendingDelete.id);
-    setActionError('');
     try {
       const res = await fetch(`/api/onboarding/new-hires/${pendingDelete.id}`, { method: 'DELETE' });
       const json = (await res.json()) as { error?: string };
       if (!res.ok) {
-        setActionError(json.error ?? 'Failed to delete hire.');
+        toast.error('Something went wrong removing this hire. Please try again.');
         return;
       }
       setPendingDelete(null);
@@ -305,7 +334,6 @@ export function NewHiresClient() {
   async function verifyMilestone(item: NewHireMilestonePathItem) {
     if (!selectedDetail) return;
     setMilestoneActionId(item.milestone.id);
-    setActionError('');
     try {
       const res = await fetch('/api/onboarding/milestone-evidence', {
         method: 'POST',
@@ -323,7 +351,7 @@ export function NewHiresClient() {
       });
       const json = (await res.json()) as { error?: string };
       if (!res.ok) {
-        setActionError(json.error ?? 'Failed to verify milestone.');
+        toast.error('Unable to verify this milestone. Please try again.');
         return;
       }
       const detailRes = await fetch(`/api/onboarding/new-hires/${selectedDetail.hire.id}`);
@@ -331,6 +359,112 @@ export function NewHiresClient() {
       setSelectedDetail(detailJson);
     } finally {
       setMilestoneActionId(null);
+    }
+  }
+
+  async function sendRequest(requestId: string) {
+    const wasAlreadySent = selectedDetail?.access_requests.find((r) => r.id === requestId)?.status === 'sent';
+    setSendingRequestId(requestId);
+    try {
+      const res = await fetch('/api/onboarding/access-requests/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accessRequestId: requestId }),
+      });
+      const json = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        toast.error('Unable to send the access request right now. Please try again.');
+        return;
+      }
+      toast.success('Request sent — the owner will receive a Slack DM shortly.');
+      if (wasAlreadySent) {
+        setResentAt((prev) => ({ ...prev, [requestId]: new Date().toISOString() }));
+      }
+      if (selectedDetail) {
+        const detailRes = await fetch(`/api/onboarding/new-hires/${selectedDetail.hire.id}`);
+        const detailJson = (await detailRes.json()) as HireDetail;
+        setSelectedDetail(detailJson);
+      }
+    } finally {
+      setSendingRequestId(null);
+    }
+  }
+
+  async function addAccessRequest() {
+    if (!selectedDetail || !newAccess.tool_name.trim()) return;
+    setAddAccessSaving(true);
+    try {
+      const res = await fetch('/api/onboarding/access-requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          new_hire_id: selectedDetail.hire.id,
+          tool_name: newAccess.tool_name.trim(),
+          requested_from_name: newAccess.owner?.name ?? null,
+          requested_from_email: newAccess.owner?.email ?? null,
+          requested_from_slack_id: newAccess.owner?.id ?? null,
+        }),
+      });
+      if (!res.ok) return;
+      setAddAccessOpen(false);
+      setNewAccess({ tool_name: '', owner: null });
+      const detailRes = await fetch(`/api/onboarding/new-hires/${selectedDetail.hire.id}`);
+      const detailJson = (await detailRes.json()) as HireDetail;
+      setSelectedDetail(detailJson);
+    } finally {
+      setAddAccessSaving(false);
+    }
+  }
+
+  function openEditRequest(request: AccessRequest) {
+    setEditingRequest(request);
+    setEditAccess({
+      tool_name: request.tool_name,
+      owner: request.requested_from_slack_id
+        ? { id: request.requested_from_slack_id, name: request.requested_from_name ?? '', email: request.requested_from_email }
+        : null,
+    });
+  }
+
+  async function updateAccessRequest() {
+    if (!editingRequest || !editAccess.tool_name) return;
+    setEditAccessSaving(true);
+    try {
+      const res = await fetch('/api/onboarding/access-requests', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: editingRequest.id,
+          tool_name: editAccess.tool_name,
+          requested_from_name: editAccess.owner?.name ?? null,
+          requested_from_email: editAccess.owner?.email ?? null,
+          requested_from_slack_id: editAccess.owner?.id ?? null,
+        }),
+      });
+      if (!res.ok) return;
+      setEditingRequest(null);
+      if (selectedDetail) {
+        const detailRes = await fetch(`/api/onboarding/new-hires/${selectedDetail.hire.id}`);
+        const detailJson = (await detailRes.json()) as HireDetail;
+        setSelectedDetail(detailJson);
+      }
+    } finally {
+      setEditAccessSaving(false);
+    }
+  }
+
+  async function confirmDeleteRequest() {
+    if (!deletingRequest || !selectedDetail) return;
+    setDeleteRequestSaving(true);
+    try {
+      const res = await fetch(`/api/onboarding/access-requests?id=${deletingRequest.id}`, { method: 'DELETE' });
+      if (!res.ok) return;
+      setDeletingRequest(null);
+      const detailRes = await fetch(`/api/onboarding/new-hires/${selectedDetail.hire.id}`);
+      const detailJson = (await detailRes.json()) as HireDetail;
+      setSelectedDetail(detailJson);
+    } finally {
+      setDeleteRequestSaving(false);
     }
   }
 
@@ -386,11 +520,6 @@ export function NewHiresClient() {
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          {actionError && (
-            <Alert variant="destructive" className="mx-3 mt-3 px-3 py-2">
-              {actionError}
-            </Alert>
-          )}
           {filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center flex-1 gap-3 py-12 px-6">
               <IconUsers size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
@@ -496,7 +625,7 @@ export function NewHiresClient() {
                   />
                 </div>
 
-                {selectedDetail.milestone_path.length > 0 ? (
+                {selectedDetail.milestone_path.length > 0 && (
                   <MilestoneProgress
                     milestones={selectedDetail.milestone_path.map((item, index) => {
                       const status = item.progress?.status;
@@ -512,25 +641,27 @@ export function NewHiresClient() {
                     })}
                     progress={Math.round((selectedDetail.milestone_path.filter((item) => item.progress?.status === 'verified').length / selectedDetail.milestone_path.length) * 100)}
                   />
-                ) : (
-                  <div className="rounded-[8px] border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] px-3 py-2 type-body text-[var(--text-tertiary)]">
-                    No approved company milestones for this role yet.
-                  </div>
                 )}
               </div>
 
               <Tabs
                 value={activeTab}
-                onValueChange={(value) => setActiveTab(value as 'Ramp Evidence' | 'Access')}
+                onValueChange={(value) => {
+                  const tab = value as 'Ramp Evidence' | 'Access';
+                  setActiveTab(tab);
+                  const params = new URLSearchParams(searchParams.toString());
+                  params.set('tab', tab);
+                  router.replace(`/new-hires?${params.toString()}`, { scroll: false });
+                }}
                 className="flex min-h-0 flex-1 flex-col"
               >
                 <TabsList className="split-tabbar border-b px-8">
                   {(['Ramp Evidence', 'Access'] as const).map((tab) => {
                     const count = tab === 'Ramp Evidence' ? selectedDetail.milestone_path.length : selectedDetail.access_requests.length;
                     return (
-                      <TabsTrigger key={tab} value={tab} className="px-5">
+                      <TabsTrigger key={tab} value={tab} className="px-5 inline-flex items-center gap-2">
                         {tab}
-                        <span className="block type-body mt-[2px] opacity-80">{count}</span>
+                        <span className="type-body opacity-80">{count}</span>
                       </TabsTrigger>
                     );
                   })}
@@ -641,25 +772,76 @@ export function NewHiresClient() {
                   </TabsContent>
 
                   <TabsContent value="Access">
+                    <div className="flex items-center justify-between mb-4">
+                      <p className="type-body" style={{ color: 'var(--text-tertiary)' }}>
+                        {selectedDetail.access_requests.length === 0 ? 'No tools configured for this hire.' : `${selectedDetail.access_requests.length} tool${selectedDetail.access_requests.length === 1 ? '' : 's'}`}
+                      </p>
+                      <Button size="sm" variant="secondary" onClick={() => setAddAccessOpen(true)}>
+                        <IconPlus size={13} /> Add Tool
+                      </Button>
+                    </div>
                     {selectedDetail.access_requests.length === 0 ? (
-                      <div className="flex flex-col items-center justify-center h-full gap-3 py-12">
+                      <div className="flex flex-col items-center justify-center gap-3 py-12">
                         <IconUsers size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
                         <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Access Requests</div>
                         <div className="type-body text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
-                          Access requests for this hire will appear here.
+                          Add tools above or configure defaults in Settings → Tools.
                         </div>
                       </div>
                     ) : (
                       <div className="flex flex-col gap-3">
                         {selectedDetail.access_requests.map((request) => (
-                          <Card key={request.id} className="flex items-center gap-4 px-5 py-4">
+                          <Card key={request.id} className="flex items-center gap-4 px-4 py-4">
+                            <ToolLogo toolName={request.tool_name} size={18} containerSize={34} borderRadius={8} />
                             <div className="min-w-0 flex-1">
-                              <div className="type-card-title" style={{ color: 'var(--text-primary)' }}>{request.tool_name}</div>
+                              <div className="flex items-center gap-2">
+                                <span className="type-card-title" style={{ color: 'var(--text-primary)' }}>{request.tool_name}</span>
+                                {resentAt[request.id]
+                                  ? <StatusBadge variant="upcoming" label="Re-sent" />
+                                  : <StatusBadge variant={accessVariant(request.status)} label={accessLabel(request.status)} />}
+                              </div>
                               <div className="type-body mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>
-                                {request.requested_from_name ? `${request.requested_from_name} · ` : ''}Sent {fmtDetailDate(request.sent_at)}
+                                {request.requested_from_name
+                                  ? `${request.requested_from_name} · `
+                                  : 'No owner set · '}
+                                {resentAt[request.id]
+                                  ? `Re-sent ${fmtDetailDateTime(resentAt[request.id])}`
+                                  : request.sent_at
+                                    ? `Sent ${fmtDetailDate(request.sent_at)}`
+                                    : 'Not yet sent'}
                               </div>
                             </div>
-                            <StatusBadge variant={accessVariant(request.status)} label={request.status} />
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              {(request.status === 'pending' || request.status === 'sent') && request.requested_from_slack_id && (
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  onClick={() => void sendRequest(request.id)}
+                                  disabled={sendingRequestId === request.id}
+                                >
+                                  {sendingRequestId === request.id
+                                    ? <IconLoader2 size={13} className="animate-spin" />
+                                    : <IconSend size={13} />}
+                                  {request.status === 'sent' ? 'Resend' : 'Send Request'}
+                                </Button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => openEditRequest(request)}
+                                className="flex-shrink-0 opacity-40 hover:opacity-80 transition-opacity p-1"
+                                style={{ color: 'var(--text-secondary)' }}
+                              >
+                                <IconPencil size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeletingRequest(request)}
+                                className="flex-shrink-0 opacity-40 hover:opacity-80 transition-opacity p-1"
+                                style={{ color: 'var(--text-secondary)' }}
+                              >
+                                <IconX size={14} />
+                              </button>
+                            </div>
                           </Card>
                         ))}
                       </div>
@@ -712,6 +894,135 @@ export function NewHiresClient() {
           )}
         </DialogContent>
       </Dialog>
+      <Dialog open={deletingRequest !== null} onOpenChange={(open) => !open && setDeletingRequest(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Remove Tool</DialogTitle>
+            <DialogDescription>
+              Remove <strong>{deletingRequest?.tool_name}</strong> from this hire&apos;s access list? This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setDeletingRequest(null)} disabled={deleteRequestSaving}>Cancel</Button>
+            <Button variant="destructive" onClick={() => void confirmDeleteRequest()} disabled={deleteRequestSaving}>
+              {deleteRequestSaving ? <IconLoader2 size={13} className="animate-spin" /> : null}
+              Remove
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={editingRequest !== null} onOpenChange={(open) => !open && setEditingRequest(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Tool Access</DialogTitle>
+            <DialogDescription>Update the tool or owner for this access request.</DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-3">
+            <div>
+              <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
+                Tool Name <span style={{ color: 'var(--red-text)' }}>*</span>
+              </label>
+              <Select value={editAccess.tool_name} onValueChange={(v) => setEditAccess((p) => ({ ...p, tool_name: v }))}>
+                <SelectTrigger><SelectValue placeholder="Select a tool..." /></SelectTrigger>
+                <SelectContent>
+                  {['Salesforce', 'GitHub', 'Jira', 'Confluence', 'Gong', 'Outreach', 'Zoom'].map((t) => (
+                    <SelectItem key={t} value={t}>
+                      <span className="flex items-center gap-2">
+                        <ToolLogo toolName={t} size={14} containerSize={22} borderRadius={5} />
+                        {t}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>Owner</label>
+              <SlackUserPicker
+                value={editAccess.owner}
+                onChange={(user) => setEditAccess((p) => ({ ...p, owner: user }))}
+                placeholder="Search workspace members..."
+              />
+              <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>Canon will DM this person to request access.</p>
+            </div>
+            {editAccess.owner && (
+              <div>
+                <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>Owner Slack ID</label>
+                <Input value={editAccess.owner.id} readOnly />
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setEditingRequest(null)} disabled={editAccessSaving}>Cancel</Button>
+            <Button onClick={() => void updateAccessRequest()} disabled={editAccessSaving || !editAccess.tool_name}>
+              {editAccessSaving ? <IconLoader2 size={13} className="animate-spin" /> : <IconPencil size={13} />}
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={addAccessOpen} onOpenChange={setAddAccessOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Tool Access</DialogTitle>
+            <DialogDescription>
+              Add a tool this hire needs access to. If you set a Slack ID, Canon will send the owner a DM immediately.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-3">
+            <div>
+              <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
+                Tool Name <span style={{ color: 'var(--red-text)' }}>*</span>
+              </label>
+              <Select
+                value={newAccess.tool_name}
+                onValueChange={(v) => setNewAccess((p) => ({ ...p, tool_name: v }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a tool..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {['Salesforce', 'GitHub', 'Jira', 'Confluence', 'Gong', 'Outreach', 'Zoom'].map((t) => (
+                    <SelectItem key={t} value={t}>
+                      <span className="flex items-center gap-2">
+                        <ToolLogo toolName={t} size={14} containerSize={22} borderRadius={5} />
+                        {t}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>Owner</label>
+              <SlackUserPicker
+                value={newAccess.owner}
+                onChange={(user) => setNewAccess((p) => ({ ...p, owner: user }))}
+                placeholder="Search workspace members..."
+              />
+              <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>Canon will DM this person to request access.</p>
+            </div>
+            {newAccess.owner && (
+              <div>
+                <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
+                  Owner Slack ID
+                </label>
+                <Input value={newAccess.owner.id} readOnly />
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setAddAccessOpen(false)} disabled={addAccessSaving}>Cancel</Button>
+            <Button onClick={() => void addAccessRequest()} disabled={addAccessSaving || !newAccess.tool_name.trim()}>
+              {addAccessSaving ? <IconLoader2 size={13} className="animate-spin" /> : <IconPlus size={13} />}
+              Add Tool
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={pendingDelete !== null} onOpenChange={(open) => !open && setPendingDelete(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>

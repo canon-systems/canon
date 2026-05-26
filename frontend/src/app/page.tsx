@@ -10,6 +10,7 @@ import {
   IconRadar,
   IconRefresh,
   IconRoute,
+  IconTool,
   IconUsers,
 } from '@tabler/icons-react';
 import { getSession } from '@/lib/auth';
@@ -54,6 +55,7 @@ const rampLoop = [
 const suggestedPath = [
   { href: '/knowledge', title: 'Connect your knowledge sources', description: 'Keep onboarding briefs and readiness signals current.' },
   { href: '/milestones', title: 'Review and tailor milestones', description: 'Align capabilities to your GTM roles.' },
+  { href: '/settings?tab=tools', title: 'Configure tool access', description: 'Define which tools each role needs and who can grant access.' },
   { href: '/new-hires/new', title: 'Add your next hire', description: 'Launch a personalized onboarding path.' },
   { href: '/readiness', title: 'Check readiness signals', description: 'Keep your team current as product and market change.' },
 ];
@@ -247,6 +249,26 @@ export default async function HomePage() {
                 ))}
               </div>
             </div>
+
+            <Link
+              href="/settings?tab=tools"
+              className="group rounded-[8px] border px-5 py-4 flex items-start gap-3 transition-colors duration-[120ms] hover:bg-[var(--bg-secondary)]"
+              style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}
+            >
+              <span
+                className="mt-[2px] flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px]"
+                style={{ backgroundColor: 'var(--canon-purple-light)', color: 'var(--canon-purple)' }}
+              >
+                <IconTool size={16} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block type-body-strong" style={{ color: 'var(--text-primary)' }}>Configure tool access</span>
+                <span className="block type-caption mt-[3px] leading-[1.45]" style={{ color: 'var(--text-tertiary)' }}>
+                  Define which tools each role needs and assign owners who can grant access. Canon handles the rest.
+                </span>
+              </span>
+              <IconChevronRight size={14} className="mt-[6px] shrink-0 text-[var(--text-tertiary)] transition-colors duration-[120ms] group-hover:text-[var(--text-primary)]" />
+            </Link>
 
             <div
               className="rounded-[8px] border px-4 py-3"

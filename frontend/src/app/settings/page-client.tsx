@@ -7,9 +7,12 @@ import {
   IconBuilding,
   IconKey,
   IconLoader2,
+  IconPencil,
   IconPlug,
+  IconTool,
   IconTrash,
   IconUser,
+  IconX,
 } from '@tabler/icons-react';
 import { IntegrationLogos } from '@/components/IntegrationLogos';
 import { getIntegrationsCached, clearIntegrationsCache } from '@/lib/client/integrationsCache';
@@ -20,7 +23,11 @@ import { Avatar } from '@/components/ui/avatar';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Alert } from '@/components/ui/alert';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/components/ui/utils';
+import { ToolLogo } from '@/components/ToolLogo';
+import { SlackUserPicker, type SlackUser } from '@/components/SlackUserPicker';
+import type { OrgTool, HireRole } from '@/types/onboarding';
 
 interface Connection {
   id: string;
@@ -39,6 +46,7 @@ interface SettingsPageClientProps {
 const settingSections = [
   { section: 'Account', items: [{ id: 'profile', label: 'Profile', icon: IconUser }, { id: 'org', label: 'Organization', icon: IconBuilding }] },
   { section: 'Connections', items: [{ id: 'integrations', label: 'Integrations', icon: IconPlug }, { id: 'notifications', label: 'Notifications', icon: IconBell }] },
+  { section: 'Onboarding', items: [{ id: 'tools', label: 'Tools', icon: IconTool }] },
   {
     section: 'Developer',
     items: [
@@ -66,6 +74,17 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   const [gongAccessKeySecret, setGongAccessKeySecret] = useState('');
   const [gongApiBaseUrl, setGongApiBaseUrl] = useState('https://api.gong.io');
 
+  const [tools, setTools] = useState<OrgTool[]>([]);
+  const [toolsLoading, setToolsLoading] = useState(false);
+  const [addToolOpen, setAddToolOpen] = useState(false);
+  const [addToolSaving, setAddToolSaving] = useState(false);
+  const [newTool, setNewTool] = useState({ tool_name: '', role: '' as HireRole | '', owner: null as SlackUser | null });
+  const [editingTool, setEditingTool] = useState<OrgTool | null>(null);
+  const [editTool, setEditTool] = useState({ tool_name: '', role: '' as HireRole | '', owner: null as SlackUser | null });
+  const [editToolSaving, setEditToolSaving] = useState(false);
+  const [deletingTool, setDeletingTool] = useState<OrgTool | null>(null);
+  const [deleteToolSaving, setDeleteToolSaving] = useState(false);
+
   const loadConnections = useCallback(async (force = false) => {
     setLoading(true);
     try {
@@ -81,15 +100,106 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
       }));
       setConnections(mappedConnections);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to Load Connections');
+      setError('Unable to load your integrations. Please refresh the page.');
     } finally {
       setLoading(false);
     }
   }, []);
 
+  const loadTools = useCallback(async () => {
+    setToolsLoading(true);
+    try {
+      const res = await fetch('/api/onboarding/org-tools');
+      const data = (await res.json()) as { tools?: OrgTool[] };
+      setTools(data.tools ?? []);
+    } catch {
+      // non-fatal
+    } finally {
+      setToolsLoading(false);
+    }
+  }, []);
+
+  async function addTool() {
+    if (!newTool.tool_name.trim()) return;
+    setAddToolSaving(true);
+    try {
+      const res = await fetch('/api/onboarding/org-tools', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          tool_name: newTool.tool_name,
+          role: newTool.role || null,
+          owner_name: newTool.owner?.name ?? null,
+          owner_email: newTool.owner?.email ?? null,
+          owner_slack_id: newTool.owner?.id ?? null,
+        }),
+      });
+      if (!res.ok) throw new Error('add_tool');
+      setAddToolOpen(false);
+      setNewTool({ tool_name: '', role: '', owner: null });
+      await loadTools();
+    } catch {
+      setError('Something went wrong adding the tool. Please try again.');
+    } finally {
+      setAddToolSaving(false);
+    }
+  }
+
+  async function confirmDeleteTool() {
+    if (!deletingTool) return;
+    setDeleteToolSaving(true);
+    try {
+      const res = await fetch(`/api/onboarding/org-tools?id=${deletingTool.id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('delete_tool');
+      setTools((prev) => prev.filter((t) => t.id !== deletingTool.id));
+      setDeletingTool(null);
+    } catch {
+      setError('Something went wrong removing the tool. Please try again.');
+    } finally {
+      setDeleteToolSaving(false);
+    }
+  }
+
+  function openEditTool(tool: OrgTool) {
+    setEditingTool(tool);
+    setEditTool({
+      tool_name: tool.tool_name,
+      role: tool.role ?? '',
+      owner: tool.owner_slack_id
+        ? { id: tool.owner_slack_id, name: tool.owner_name ?? '', email: tool.owner_email }
+        : null,
+    });
+  }
+
+  async function updateTool() {
+    if (!editingTool || !editTool.tool_name) return;
+    setEditToolSaving(true);
+    try {
+      const res = await fetch('/api/onboarding/org-tools', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          id: editingTool.id,
+          tool_name: editTool.tool_name,
+          role: editTool.role || null,
+          owner_name: editTool.owner?.name ?? null,
+          owner_email: editTool.owner?.email ?? null,
+          owner_slack_id: editTool.owner?.id ?? null,
+        }),
+      });
+      if (!res.ok) throw new Error('update_tool');
+      setEditingTool(null);
+      await loadTools();
+    } catch {
+      setError('Something went wrong saving your changes. Please try again.');
+    } finally {
+      setEditToolSaving(false);
+    }
+  }
+
   useEffect(() => {
     const tabParam = searchParams.get('tab');
-    const validTabs = ['profile', 'integrations'];
+    const validTabs = ['profile', 'integrations', 'tools'];
     if (tabParam && validTabs.includes(tabParam)) {
       setActiveSetting(tabParam);
     }
@@ -103,7 +213,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
       setActiveSetting('integrations');
     }
     if (errorParam) {
-      setError(decodeURIComponent(errorParam));
+      setError('Something went wrong connecting your integration. Please try again.');
       router.replace(`/settings?tab=integrations`);
       setActiveSetting('integrations');
     }
@@ -113,14 +223,18 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     loadConnections();
   }, [loadConnections]);
 
+  useEffect(() => {
+    if (activeSetting === 'tools') loadTools();
+  }, [activeSetting, loadTools]);
+
   async function connectSlack() {
     setConnecting(true);
     setError('');
     setSuccess('');
     try {
       window.location.href = '/api/oauth/slack/start';
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to Connect');
+    } catch {
+      setError('Unable to connect Slack right now. Please try again.');
       setConnecting(false);
     }
   }
@@ -140,10 +254,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
         }),
       });
 
-      const data = (await response.json()) as { error?: string; detail?: string };
-      if (!response.ok) {
-        throw new Error(data.error || data.detail || 'Failed to connect Gong');
-      }
+      if (!response.ok) throw new Error('gong_connect');
 
       setSuccess('Successfully connected to Gong');
       setGongModalOpen(false);
@@ -152,8 +263,8 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
       setGongApiBaseUrl('https://api.gong.io');
       clearIntegrationsCache();
       await loadConnections(true);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to connect Gong');
+    } catch {
+      setError('Unable to connect Gong right now. Please check your credentials and try again.');
     } finally {
       setConnecting(false);
     }
@@ -177,16 +288,13 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
         body: JSON.stringify({ connectionId, provider })
       });
 
-      if (!response.ok) {
-        const data = (await response.json()) as { error?: string };
-        throw new Error(data.error || 'Failed to Disconnect');
-      }
+      if (!response.ok) throw new Error('disconnect');
 
       setSuccess(`Disconnected from ${providerLabel(provider)}`);
       clearIntegrationsCache();
       await loadConnections(true);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to Disconnect');
+    } catch {
+      setError('Something went wrong disconnecting. Please try again.');
     }
   }
 
@@ -333,6 +441,88 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     );
   }
 
+  function renderTools() {
+    const roles: HireRole[] = ['AI Solutions Architect', 'Solutions Engineer', 'Implementation Engineer'];
+    const grouped = roles.reduce<Record<string, OrgTool[]>>((acc, r) => {
+      acc[r] = tools.filter((t) => t.role === r || t.role === null);
+      return acc;
+    }, {});
+
+    return (
+      <div className="max-w-3xl">
+        <div className="flex items-center justify-between mb-4">
+          <p className="type-body" style={{ color: 'var(--text-secondary)' }}>
+            Configure which tools new hires need access to for each role. Add the owner who can grant access and Canon will send them a Slack DM automatically.
+          </p>
+          <Button onClick={() => setAddToolOpen(true)} className="ml-4 flex-shrink-0">
+            Add Tool
+          </Button>
+        </div>
+
+        {toolsLoading ? (
+          <div className="flex items-center gap-2 type-body" style={{ color: 'var(--text-tertiary)' }}>
+            <IconLoader2 size={14} className="animate-spin" /> Loading Tools...
+          </div>
+        ) : tools.length === 0 ? (
+          <Card className="px-5 py-8 text-center">
+            <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No tools configured</div>
+            <div className="type-body mt-2" style={{ color: 'var(--text-tertiary)' }}>
+              Add the tools each role needs access to and assign an owner who can grant it. Canon will prompt new hires and notify owners automatically.
+            </div>
+          </Card>
+        ) : (
+          <div className="flex flex-col gap-6">
+            {roles.map((role) => {
+              const roleTools = grouped[role];
+              if (roleTools.length === 0) return null;
+              return (
+                <div key={role}>
+                  <div className="type-kicker mb-2" style={{ color: 'var(--text-tertiary)' }}>{role}</div>
+                  <div className="flex flex-col gap-[6px]">
+                    {roleTools.map((tool) => (
+                      <Card key={tool.id} className="flex items-center gap-4 px-4 py-3">
+                        <ToolLogo toolName={tool.tool_name} size={18} containerSize={34} borderRadius={8} />
+                        <div className="min-w-0 flex-1">
+                          <div className="type-card-title" style={{ color: 'var(--text-primary)' }}>
+                            {tool.tool_name}
+                            {tool.role === null && (
+                              <span className="ml-2 type-caption" style={{ color: 'var(--text-tertiary)' }}>All roles</span>
+                            )}
+                          </div>
+                          {tool.owner_name && (
+                            <div className="type-body mt-[2px]" style={{ color: 'var(--text-secondary)' }}>
+                              Owner: {tool.owner_name}{tool.owner_email ? ` · ${tool.owner_email}` : ''}
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => openEditTool(tool)}
+                          className="flex-shrink-0 opacity-40 hover:opacity-80 transition-opacity"
+                          style={{ color: 'var(--text-secondary)' }}
+                        >
+                          <IconPencil size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeletingTool(tool)}
+                          className="flex-shrink-0 opacity-40 hover:opacity-80 transition-opacity"
+                          style={{ color: 'var(--text-secondary)' }}
+                        >
+                          <IconX size={14} />
+                        </button>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   function renderPlaceholder(label: string) {
     return (
       <Card className="max-w-2xl px-5 py-8 text-center">
@@ -386,6 +576,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
           <div className="surface-page flex-1 overflow-y-auto px-7 py-6">
             {activeSetting === 'profile' && renderProfile()}
             {activeSetting === 'integrations' && renderIntegrations()}
+            {activeSetting === 'tools' && renderTools()}
             {activeSetting === 'delete' && renderPlaceholder('Delete Account')}
             {activeSetting === 'org' && renderPlaceholder('Organization')}
             {activeSetting === 'notifications' && renderPlaceholder('Notifications')}
@@ -393,6 +584,174 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
           </div>
         </div>
       </div>
+
+      <Dialog open={deletingTool !== null} onOpenChange={(open) => !open && setDeletingTool(null)}>
+        <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
+          <DialogHeader>
+            <DialogTitle>Remove Tool</DialogTitle>
+            <DialogDescription>
+              Remove <strong>{deletingTool?.tool_name}</strong> from your tool list? This won&apos;t affect access requests already created for existing hires.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setDeletingTool(null)} disabled={deleteToolSaving}>Cancel</Button>
+            <Button variant="destructive" onClick={() => void confirmDeleteTool()} disabled={deleteToolSaving}>
+              {deleteToolSaving ? <IconLoader2 size={13} className="animate-spin" /> : null}
+              Remove Tool
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={editingTool !== null} onOpenChange={(open) => !open && setEditingTool(null)}>
+        <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
+          <DialogHeader>
+            <DialogTitle>Edit Tool</DialogTitle>
+            <DialogDescription>Update the tool details and owner information.</DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-3">
+            <div>
+              <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
+                Tool Name <span style={{ color: 'var(--red-text)' }}>*</span>
+              </label>
+              <Select value={editTool.tool_name} onValueChange={(v) => setEditTool((p) => ({ ...p, tool_name: v }))}>
+                <SelectTrigger><SelectValue placeholder="Select a tool..." /></SelectTrigger>
+                <SelectContent>
+                  {['Salesforce', 'GitHub', 'Jira', 'Confluence', 'Gong', 'Outreach', 'Zoom'].map((t) => (
+                    <SelectItem key={t} value={t}>
+                      <span className="flex items-center gap-2">
+                        <ToolLogo toolName={t} size={14} containerSize={22} borderRadius={5} />
+                        {t}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>Role</label>
+              <Select
+                value={editTool.role || 'all'}
+                onValueChange={(v) => setEditTool((p) => ({ ...p, role: v === 'all' ? '' : v as HireRole }))}
+              >
+                <SelectTrigger><SelectValue placeholder="All roles" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All roles</SelectItem>
+                  <SelectItem value="AI Solutions Architect">AI Solutions Architect</SelectItem>
+                  <SelectItem value="Solutions Engineer">Solutions Engineer</SelectItem>
+                  <SelectItem value="Implementation Engineer">Implementation Engineer</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>Owner</label>
+              <SlackUserPicker
+                value={editTool.owner}
+                onChange={(user) => setEditTool((p) => ({ ...p, owner: user }))}
+                placeholder="Search workspace members..."
+              />
+              <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>Canon will DM this person when a new hire needs access.</p>
+            </div>
+            {editTool.owner && (
+              <div>
+                <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>Owner Slack ID</label>
+                <Input value={editTool.owner.id} readOnly />
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setEditingTool(null)} disabled={editToolSaving}>Cancel</Button>
+            <Button onClick={() => void updateTool()} disabled={editToolSaving || !editTool.tool_name}>
+              {editToolSaving ? <IconLoader2 size={13} className="animate-spin" /> : <IconPencil size={13} />}
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={addToolOpen} onOpenChange={setAddToolOpen}>
+        <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
+          <DialogHeader>
+            <DialogTitle>Add Tool</DialogTitle>
+            <DialogDescription>
+              Define a tool new hires need access to. Adding an owner lets Canon send them a Slack DM to request access automatically.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-3">
+            <div>
+              <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
+                Tool Name <span style={{ color: 'var(--red-text)' }}>*</span>
+              </label>
+              <Select
+                value={newTool.tool_name}
+                onValueChange={(v) => setNewTool((p) => ({ ...p, tool_name: v }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a tool..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {['Salesforce', 'GitHub', 'Jira', 'Confluence', 'Gong', 'Outreach', 'Zoom'].map((t) => (
+                    <SelectItem key={t} value={t}>
+                      <span className="flex items-center gap-2">
+                        <ToolLogo toolName={t} size={14} containerSize={22} borderRadius={5} />
+                        {t}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }} htmlFor="tool-role">
+                Role
+              </label>
+              <Select
+                value={newTool.role || 'all'}
+                onValueChange={(v) => setNewTool((p) => ({ ...p, role: v === 'all' ? '' : v as HireRole }))}
+              >
+                <SelectTrigger id="tool-role">
+                  <SelectValue placeholder="All roles" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All roles</SelectItem>
+                  <SelectItem value="AI Solutions Architect">AI Solutions Architect</SelectItem>
+                  <SelectItem value="Solutions Engineer">Solutions Engineer</SelectItem>
+                  <SelectItem value="Implementation Engineer">Implementation Engineer</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>Leave blank to apply this tool to all roles.</p>
+            </div>
+            <div>
+              <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
+                Owner
+              </label>
+              <SlackUserPicker
+                value={newTool.owner}
+                onChange={(user) => setNewTool((p) => ({ ...p, owner: user }))}
+                placeholder="Search workspace members..."
+              />
+              <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>Canon will DM this person when a new hire needs access.</p>
+            </div>
+            {newTool.owner && (
+              <div>
+                <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
+                  Owner Slack ID
+                </label>
+                <Input value={newTool.owner.id} readOnly />
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setAddToolOpen(false)} disabled={addToolSaving}>
+              Cancel
+            </Button>
+            <Button onClick={() => void addTool()} disabled={addToolSaving || !newTool.tool_name.trim()}>
+              {addToolSaving ? <IconLoader2 size={13} className="animate-spin" /> : <IconTool size={13} />}
+              Add Tool
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={disconnectModalOpen && connectionToDisconnect !== null} onOpenChange={(open) => !open && closeDisconnectModal()}>
         <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">

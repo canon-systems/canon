@@ -97,13 +97,6 @@ export async function POST(request: NextRequest) {
 
     if (error || !ar) throw error ?? new Error('Insert failed');
 
-    if (ar.requested_from_slack_id) {
-      await inngest.send({
-        name: 'onboarding/access.request.created',
-        data: { accessRequestId: ar.id },
-      });
-    }
-
     return NextResponse.json({ access_request: ar }, { status: 201 });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
@@ -117,12 +110,19 @@ export async function PATCH(request: NextRequest) {
     const { user } = await getSession();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const body = (await request.json()) as { id?: string; status?: string };
-    const { id, status } = body;
-    if (!id || !status) return NextResponse.json({ error: 'id and status are required' }, { status: 400 });
+    const body = (await request.json()) as {
+      id?: string;
+      status?: string;
+      tool_name?: string;
+      requested_from_name?: string | null;
+      requested_from_email?: string | null;
+      requested_from_slack_id?: string | null;
+    };
+    const { id, status, tool_name, requested_from_name, requested_from_email, requested_from_slack_id } = body;
+    if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 });
 
-    const validStatuses = ['pending', 'sent', 'acknowledged', 'granted'];
-    if (!validStatuses.includes(status)) return NextResponse.json({ error: 'Invalid status' }, { status: 400 });
+    const validStatuses = ['pending', 'sent', 'acknowledged', 'granted', 'confirmed'];
+    if (status && !validStatuses.includes(status)) return NextResponse.json({ error: 'Invalid status' }, { status: 400 });
 
     const supabase = await createClient();
     const { data: org } = await supabase
@@ -133,9 +133,23 @@ export async function PATCH(request: NextRequest) {
 
     if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
 
+    const updatePayload: Record<string, unknown> = {};
+    if (status) {
+      updatePayload.status = status;
+      if (status === 'confirmed') updatePayload.confirmed_at = new Date().toISOString();
+    }
+    if (tool_name !== undefined) updatePayload.tool_name = tool_name;
+    if (requested_from_name !== undefined) updatePayload.requested_from_name = requested_from_name;
+    if (requested_from_email !== undefined) updatePayload.requested_from_email = requested_from_email;
+    if (requested_from_slack_id !== undefined) updatePayload.requested_from_slack_id = requested_from_slack_id;
+
+    if (Object.keys(updatePayload).length === 0) {
+      return NextResponse.json({ error: 'Nothing to update' }, { status: 400 });
+    }
+
     const { data: updated, error } = await supabase
       .from('access_requests')
-      .update({ status })
+      .update(updatePayload)
       .eq('id', id)
       .select()
       .single();
@@ -148,6 +162,11 @@ export async function PATCH(request: NextRequest) {
         newHireId: updated.new_hire_id,
         createdBy: user.id,
       });
+      // Ask the new hire to confirm they've logged in
+      await inngest.send({
+        name: 'onboarding/access.granted',
+        data: { accessRequestId: updated.id },
+      });
     }
 
     return NextResponse.json({ access_request: updated });
@@ -155,5 +174,46 @@ export async function PATCH(request: NextRequest) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('[api/onboarding/access-requests] PATCH failed', error);
     return NextResponse.json({ error: 'Failed to update access request', detail: message }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const { user } = await getSession();
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const id = request.nextUrl.searchParams.get('id');
+    if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 });
+
+    const supabase = await createClient();
+    const { data: org } = await supabase
+      .from('organizations')
+      .select('id')
+      .eq('owner_id', user.id)
+      .single();
+
+    if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+
+    // Verify the request belongs to this org before deleting
+    const { data: ar } = await supabase
+      .from('access_requests')
+      .select('id, new_hires!inner(organization_id)')
+      .eq('id', id)
+      .eq('new_hires.organization_id', org.id)
+      .single();
+
+    if (!ar) return NextResponse.json({ error: 'Access request not found' }, { status: 404 });
+
+    const { error } = await supabase
+      .from('access_requests')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+    return NextResponse.json({ ok: true });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('[api/onboarding/access-requests] DELETE failed', error);
+    return NextResponse.json({ error: 'Failed to delete access request', detail: message }, { status: 500 });
   }
 }
