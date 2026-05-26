@@ -193,19 +193,6 @@ function buildReadinessNote(items: ReadinessItem[], categories: ReadinessCategor
   return lines.filter((line, index, all) => line || all[index - 1]).join('\n').trim();
 }
 
-async function fallbackReadinessChannel(supabase: Awaited<ReturnType<typeof createClient>>, organizationId: string) {
-  const { data: source } = await supabase
-    .from('knowledge_sources')
-    .select('slack_channel_id')
-    .eq('organization_id', organizationId)
-    .eq('provider', 'slack')
-    .not('slack_channel_id', 'is', null)
-    .order('last_synced_at', { ascending: false, nullsFirst: false })
-    .limit(1)
-    .maybeSingle();
-
-  return typeof source?.slack_channel_id === 'string' ? source.slack_channel_id : null;
-}
 
 async function fallbackReadinessSource(supabase: Awaited<ReturnType<typeof createClient>>, organizationId: string) {
   const { data: source } = await supabase
@@ -422,13 +409,7 @@ export async function POST(request: NextRequest) {
       categories: Array.from(new Set(readinessItems.map((item) => item.category))),
     });
 
-    let resolvedChannelIds = requestedChannelIds;
-    if (resolvedChannelIds.length === 0) {
-      const fallback =
-        readinessItems.flatMap((item) => metadataStringArray(item, 'channel_ids'))[0] ??
-        (await fallbackReadinessChannel(supabase, org.id));
-      if (fallback) resolvedChannelIds = [fallback];
-    }
+    const resolvedChannelIds = requestedChannelIds;
 
     if (resolvedChannelIds.length === 0 && userIds.length === 0) {
       log.warn('send_target_missing', {
@@ -439,7 +420,7 @@ export async function POST(request: NextRequest) {
         dmTargets: userIds.length,
         reason: 'no_channel_or_dm_targets',
       });
-      return NextResponse.json({ error: 'No Slack channel found for readiness note' }, { status: 400 });
+      return NextResponse.json({ error: 'No delivery targets configured. Select at least one channel or user in the Delivery tab before sending.' }, { status: 400 });
     }
 
     log.info('send_target_resolved', {

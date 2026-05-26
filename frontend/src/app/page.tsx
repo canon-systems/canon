@@ -30,7 +30,7 @@ const rampLoop = [
     step: '02',
     href: '/milestones',
     title: 'Milestones',
-    description: 'Define role-specific capabilities and keep every hire current as your product and market shift.',
+    description: 'Define the technical and sales capabilities each Technical GTM role needs, and keep every hire current as your product and market shift.',
     action: 'Review Milestones',
     icon: IconFlag,
   },
@@ -54,7 +54,7 @@ const rampLoop = [
 
 const suggestedPath = [
   { href: '/knowledge', title: 'Connect your knowledge sources', description: 'Keep onboarding briefs and readiness signals current.' },
-  { href: '/milestones', title: 'Review and tailor milestones', description: 'Align capabilities to your GTM roles.' },
+  { href: '/milestones', title: 'Review and tailor milestones', description: 'Align technical and sales capabilities to your Technical GTM roles.' },
   { href: '/settings?tab=tools', title: 'Configure tool access', description: 'Define which tools each role needs and who can grant access.' },
   { href: '/new-hires/new', title: 'Add your next hire', description: 'Launch a personalized onboarding path.' },
   { href: '/readiness', title: 'Check readiness signals', description: 'Keep your team current as product and market change.' },
@@ -79,7 +79,7 @@ export default async function HomePage() {
         <div>
           <h1 className="type-page-title" style={{ color: 'var(--text-primary)' }}>Welcome to Canon</h1>
           <p className="type-page-subtitle mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>
-            Keep GTM hires productive and your whole team field-ready as your product and market evolve.
+            Keep Technical GTM hires productive and your whole team field-ready as your product and market evolve.
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -108,7 +108,7 @@ export default async function HomePage() {
               <div>
                 <h2 className="type-section-title" style={{ color: 'var(--text-primary)' }}>Start the ramp loop</h2>
                 <p className="type-body mt-1 max-w-lg leading-[1.5]" style={{ color: 'var(--text-secondary)' }}>
-                  Canon keeps both onboarding and field readiness in a continuous loop: source the context, define the path, launch the ramp, then stay ahead of change as it happens.
+                  Canon keeps onboarding and field readiness in a continuous loop built for Technical GTM roles: source the context, define the path, launch the ramp, then stay ahead of change as it happens.
                 </p>
               </div>
               <Button asChild variant="secondary" size="sm" className="shrink-0">
@@ -279,7 +279,7 @@ export default async function HomePage() {
                   <IconCheck size={14} />
                 </span>
                 <p className="type-body leading-[1.5]" style={{ color: 'var(--text-secondary)' }}>
-                  Canon works best when milestones are approved before the next hire starts.
+                  Canon works best when milestones reflect your actual Technical GTM role requirements before the next hire starts.
                 </p>
               </div>
             </div>
