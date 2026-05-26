@@ -267,7 +267,6 @@ export function NewHiresClient() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
       });
-      const json = (await res.json()) as { error?: string };
       if (!res.ok) {
         toast.error('Something went wrong updating this hire. Please try again.');
         return;
@@ -318,7 +317,6 @@ export function NewHiresClient() {
     setActionLoadingId(pendingDelete.id);
     try {
       const res = await fetch(`/api/onboarding/new-hires/${pendingDelete.id}`, { method: 'DELETE' });
-      const json = (await res.json()) as { error?: string };
       if (!res.ok) {
         toast.error('Something went wrong removing this hire. Please try again.');
         return;
@@ -350,7 +348,6 @@ export function NewHiresClient() {
           metadata: { reviewed_from: 'new_hires_detail' },
         }),
       });
-      const json = (await res.json()) as { error?: string };
       if (!res.ok) {
         toast.error('Unable to verify this milestone. Please try again.');
         return;
@@ -371,7 +368,6 @@ export function NewHiresClient() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ accessRequestId: requestId }),
       });
-      const json = (await res.json()) as { error?: string };
       if (!res.ok) {
         toast.error('Unable to send the access request right now. Please try again.');
         return;

@@ -121,7 +121,7 @@ export function Navigation({ user, onLogout }: NavigationProps) {
         )}
       </Link>
 
-      <nav className="flex-1 overflow-y-auto">
+      <nav className="flex flex-1 flex-col overflow-y-auto">
         <div>
           {primaryNav.map((item) => {
             const active = isActive(item.href, item.exact);
@@ -140,7 +140,7 @@ export function Navigation({ user, onLogout }: NavigationProps) {
           })}
         </div>
 
-        <div className="mt-3">
+        <div className="mt-auto pt-3">
           {secondaryNav.map((item) => {
             const active = isActive(item.href, item.exact);
             const Icon = item.icon;

@@ -99,7 +99,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
         updated_at: (conn.updated_at as string) || new Date().toISOString(),
       }));
       setConnections(mappedConnections);
-    } catch (err: unknown) {
+    } catch {
       setError('Unable to load your integrations. Please refresh the page.');
     } finally {
       setLoading(false);
