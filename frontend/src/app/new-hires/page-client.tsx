@@ -398,12 +398,15 @@ export function NewHiresClient() {
           requested_from_slack_id: newAccess.owner?.id ?? null,
         }),
       });
-      if (!res.ok) return;
+      if (!res.ok) throw new Error('add');
       setAddAccessOpen(false);
       setNewAccess({ tool_name: '', owner: null });
       const detailRes = await fetch(`/api/onboarding/new-hires/${selectedDetail.hire.id}`);
       const detailJson = (await detailRes.json()) as HireDetail;
       setSelectedDetail(detailJson);
+      toast.success('Access request added');
+    } catch {
+      toast.error('Something went wrong adding the access request. Please try again.');
     } finally {
       setAddAccessSaving(false);
     }
@@ -434,13 +437,16 @@ export function NewHiresClient() {
           requested_from_slack_id: editAccess.owner?.id ?? null,
         }),
       });
-      if (!res.ok) return;
+      if (!res.ok) throw new Error('update');
       setEditingRequest(null);
       if (selectedDetail) {
         const detailRes = await fetch(`/api/onboarding/new-hires/${selectedDetail.hire.id}`);
         const detailJson = (await detailRes.json()) as HireDetail;
         setSelectedDetail(detailJson);
       }
+      toast.success('Access request updated');
+    } catch {
+      toast.error('Something went wrong updating the access request. Please try again.');
     } finally {
       setEditAccessSaving(false);
     }
@@ -451,11 +457,14 @@ export function NewHiresClient() {
     setDeleteRequestSaving(true);
     try {
       const res = await fetch(`/api/onboarding/access-requests?id=${deletingRequest.id}`, { method: 'DELETE' });
-      if (!res.ok) return;
+      if (!res.ok) throw new Error('delete');
       setDeletingRequest(null);
       const detailRes = await fetch(`/api/onboarding/new-hires/${selectedDetail.hire.id}`);
       const detailJson = (await detailRes.json()) as HireDetail;
       setSelectedDetail(detailJson);
+      toast.success('Access request removed');
+    } catch {
+      toast.error('Something went wrong removing the access request. Please try again.');
     } finally {
       setDeleteRequestSaving(false);
     }
@@ -605,7 +614,7 @@ export function NewHiresClient() {
                       <span style={{ color: 'var(--border-secondary)' }}>·</span>
                       <span className="inline-flex items-center gap-2">
                         <IconCalendar size={14} />
-                        Started {fmtDate(selectedDetail.hire.start_date)}
+                        {new Date(selectedDetail.hire.start_date) > new Date() ? 'Starts' : 'Started'} {fmtDate(selectedDetail.hire.start_date)}
                       </span>
                     </div>
                   </div>

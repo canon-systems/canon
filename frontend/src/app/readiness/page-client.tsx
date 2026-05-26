@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import {
   IconArchive,
   IconArrowRight,
+  IconBrain,
   IconCheck,
   IconChevronDown,
   IconDotsVertical,
@@ -16,6 +18,7 @@ import {
   IconUser,
   IconUsers,
 } from '@tabler/icons-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -210,16 +213,54 @@ export function ReadinessClient() {
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [selectedSignalIds, setSelectedSignalIds] = useState<Set<string>>(new Set());
   const [activeTab, setActiveTab] = useState<'signals' | 'delivery'>('signals');
+  const [generating, setGenerating] = useState(false);
   const [sending, setSending] = useState(false);
   const [rowActionId, setRowActionId] = useState<string | null>(null);
-  const [sendError, setSendError] = useState<string | null>(null);
   const [channels, setChannels] = useState<SlackChannelOption[]>([]);
   const [slackUsers, setSlackUsers] = useState<SlackUserOption[]>([]);
   const [slackUsersReconnectRequired, setSlackUsersReconnectRequired] = useState(false);
   const [selectedChannelIds, setSelectedChannelIds] = useState<string[]>([]);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [savingDeliverySettings, setSavingDeliverySettings] = useState(false);
-  const [deliverySettingsMessage, setDeliverySettingsMessage] = useState<string | null>(null);
+
+  async function generateSignals() {
+    setGenerating(true);
+    const startingCount = brief?.items?.length ?? 0;
+    try {
+      await fetch('/api/onboarding/readiness', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'generate' }),
+      });
+
+      await new Promise<void>((resolve) => {
+        let attempts = 0;
+        const interval = window.setInterval(async () => {
+          attempts++;
+          try {
+            const res = await fetch('/api/onboarding/readiness');
+            const data = (await res.json()) as { brief?: ReadinessBrief | null };
+            const next = data.brief;
+            const nextCount = next?.items?.length ?? 0;
+            if (nextCount > startingCount || attempts >= 20) {
+              clearInterval(interval);
+              setBrief(next ?? null);
+              if (nextCount > startingCount) {
+                toast.success('Readiness signals are ready for review');
+              }
+              resolve();
+            }
+          } catch {
+            if (attempts >= 20) { clearInterval(interval); resolve(); }
+          }
+        }, 3000);
+      });
+    } catch {
+      toast.error('Could not generate readiness signals. Please try again.');
+    } finally {
+      setGenerating(false);
+    }
+  }
 
   async function loadReadiness() {
     try {
@@ -333,8 +374,6 @@ export function ReadinessClient() {
 
   async function sendSignal(item: ReadinessItem) {
     setRowActionId(item.id);
-    setSendError(null);
-
     try {
       const res = await fetch('/api/onboarding/readiness', {
         method: 'POST',
@@ -349,8 +388,9 @@ export function ReadinessClient() {
       if (!res.ok) throw new Error(data.detail || data.error || 'Failed to send readiness signal');
       await loadReadiness();
       setSelectedItemId(item.id);
+      toast.success('Signal sent');
     } catch (error) {
-      setSendError(error instanceof Error ? error.message : 'Failed to send readiness signal');
+      toast.error(error instanceof Error ? error.message : 'Failed to send readiness signal');
     } finally {
       setRowActionId(null);
     }
@@ -358,8 +398,6 @@ export function ReadinessClient() {
 
   async function updateSignalStatus(item: ReadinessItem, status: ReadinessStatus) {
     setRowActionId(item.id);
-    setSendError(null);
-
     try {
       const res = await fetch('/api/onboarding/readiness', {
         method: 'PATCH',
@@ -370,8 +408,10 @@ export function ReadinessClient() {
       if (!res.ok) throw new Error(data.detail || data.error || 'Failed to update readiness signal');
       await loadReadiness();
       setSelectedItemId(status === 'archived' ? null : item.id);
+      const label = status === 'archived' ? 'Signal archived' : status === 'reviewed' ? 'Marked as reviewed' : 'Status updated';
+      toast.success(label);
     } catch (error) {
-      setSendError(error instanceof Error ? error.message : 'Failed to update readiness signal');
+      toast.error(error instanceof Error ? error.message : 'Failed to update readiness signal');
     } finally {
       setRowActionId(null);
     }
@@ -379,9 +419,6 @@ export function ReadinessClient() {
 
   async function saveDeliverySettings() {
     setSavingDeliverySettings(true);
-    setDeliverySettingsMessage(null);
-    setSendError(null);
-
     try {
       const channelNames = selectedChannelIds
         .map((id) => channels.find((ch) => ch.id === id)?.name ?? '')
@@ -397,9 +434,9 @@ export function ReadinessClient() {
       });
       const data = (await res.json()) as { error?: string; detail?: string };
       if (!res.ok) throw new Error(data.detail || data.error || 'Failed to save delivery settings');
-      setDeliverySettingsMessage('Automatic delivery targets saved.');
+      toast.success('Delivery targets saved');
     } catch (error) {
-      setSendError(error instanceof Error ? error.message : 'Failed to save delivery settings');
+      toast.error(error instanceof Error ? error.message : 'Failed to save delivery settings');
     } finally {
       setSavingDeliverySettings(false);
     }
@@ -454,8 +491,6 @@ export function ReadinessClient() {
     if (itemIds.length === 0) return;
 
     setSending(true);
-    setSendError(null);
-
     try {
       const res = await fetch('/api/onboarding/readiness', {
         method: 'POST',
@@ -471,8 +506,9 @@ export function ReadinessClient() {
       await loadReadiness();
       setSelectedSignalIds(new Set());
       setSelectedItemId(null);
+      toast.success(itemIds.length === 1 ? 'Signal sent' : `${itemIds.length} signals sent`);
     } catch (error) {
-      setSendError(error instanceof Error ? error.message : 'Failed to send selected signals');
+      toast.error(error instanceof Error ? error.message : 'Failed to send selected signals');
     } finally {
       setSending(false);
     }
@@ -483,8 +519,6 @@ export function ReadinessClient() {
     if (selectedItems.length === 0) return;
 
     setRowActionId('bulk');
-    setSendError(null);
-
     try {
       for (const item of selectedItems) {
         const res = await fetch('/api/onboarding/readiness', {
@@ -499,8 +533,13 @@ export function ReadinessClient() {
       await loadReadiness();
       setSelectedSignalIds(new Set());
       if (status === 'archived') setSelectedItemId(null);
+      const count = selectedItems.length;
+      const label = status === 'archived'
+        ? `${count} signal${count !== 1 ? 's' : ''} archived`
+        : `${count} signal${count !== 1 ? 's' : ''} updated`;
+      toast.success(label);
     } catch (error) {
-      setSendError(error instanceof Error ? error.message : 'Failed to update selected signals');
+      toast.error(error instanceof Error ? error.message : 'Failed to update selected signals');
     } finally {
       setRowActionId(null);
     }
@@ -537,16 +576,34 @@ export function ReadinessClient() {
             Detect change, explain impact, identify audience, recommend action, then send or prevent.
           </p>
         </div>
+        <Button size="sm" onClick={generateSignals} disabled={generating} className="mt-1">
+          <IconBrain size={13} /> {generating ? 'Generating...' : 'Generate Signals'}
+        </Button>
       </div>
 
       {!brief ? (
+        generating ? (
+          <div className="flex flex-col gap-4 px-6 py-6 flex-1 overflow-y-auto">
+            <div className="flex items-center gap-2 type-body" style={{ color: 'var(--text-tertiary)' }}>
+              <IconBrain size={14} style={{ color: 'var(--canon-purple)', flexShrink: 0 }} />
+              Analyzing your knowledge sources for readiness signals…
+            </div>
+            {[1, 2, 3, 4].map((i) => (
+              <Skeleton key={i} className="h-20 rounded-[10px] bg-[var(--bg-primary)]" />
+            ))}
+          </div>
+        ) : (
         <div className="flex flex-col items-center justify-center flex-1 gap-3 py-12">
           <IconRadar size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
           <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Readiness Signals</div>
           <div className="type-body text-center max-w-[280px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
-            Sync Slack knowledge and run readiness analysis to find role-specific updates.
+            Signals are generated from your knowledge sources. Add a source to get started.
           </div>
+          <Link href="/knowledge">
+            <Button size="sm" className="mt-1">Add Knowledge Sources</Button>
+          </Link>
         </div>
+        )
       ) : (
         <div className="flex flex-1 overflow-hidden">
 
@@ -863,17 +920,6 @@ export function ReadinessClient() {
                 >
                   {savingDeliverySettings ? 'Saving...' : 'Save Targets'}
                 </Button>
-                {deliverySettingsMessage && !sendError && (
-                  <p className="type-caption" role="status" aria-live="polite" style={{ color: 'var(--text-tertiary)' }}>
-                    {deliverySettingsMessage}
-                  </p>
-                )}
-                {sendError && (
-                  <Alert variant="destructive">
-                    <AlertTitle>Could not save</AlertTitle>
-                    <AlertDescription>{sendError}</AlertDescription>
-                  </Alert>
-                )}
               </TabsContent>
             </Tabs>
           </div>
@@ -916,11 +962,6 @@ export function ReadinessClient() {
                           {role}
                         </span>
                       ))}
-                    </div>
-                  )}
-                  {sendError && activeTab !== 'delivery' && (
-                    <div className="mt-3 rounded-[8px] border px-3 py-2 type-body" style={{ backgroundColor: 'var(--red-bg)', borderColor: 'var(--red-border)', color: 'var(--red-text)' }}>
-                      {sendError}
                     </div>
                   )}
                 </div>

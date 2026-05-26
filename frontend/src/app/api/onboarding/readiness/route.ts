@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
+import { inngest } from '@/inngest/client';
 import { sendSlackDirectMessage, sendSlackMessage, type SlackDeliveryResult } from '@/lib/server/signals/delivery';
 import { createLogger } from '@/lib/server/logging';
 import type {
@@ -336,6 +337,7 @@ export async function POST(request: NextRequest) {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = (await request.json().catch(() => ({}))) as {
+      action?: string;
       category?: string;
       categories?: unknown;
       itemIds?: unknown;
@@ -378,6 +380,14 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+
+    if (body.action === 'generate') {
+      await inngest.send({
+        name: 'onboarding/readiness.generate.requested',
+        data: { organizationId: org.id, ownerId: user.id },
+      });
+      return NextResponse.json({ ok: true, requested: true });
+    }
 
     let query = supabase
       .from('readiness_items')

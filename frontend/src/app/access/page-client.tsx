@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { Key } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/ui/status-badge';
@@ -49,12 +50,16 @@ export function AccessClient() {
   async function markGranted(id: string) {
     setUpdating(id);
     try {
-      await fetch('/api/onboarding/access-requests', {
+      const res = await fetch('/api/onboarding/access-requests', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, status: 'granted' }),
       });
+      if (!res.ok) throw new Error('mark_granted');
       await load();
+      toast.success('Marked as granted');
+    } catch {
+      toast.error('Something went wrong. Please try again.');
     } finally {
       setUpdating(null);
     }

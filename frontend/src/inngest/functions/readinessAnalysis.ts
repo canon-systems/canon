@@ -529,6 +529,175 @@ async function retrieveCandidateChunks(params: {
   };
 }
 
+export const readinessAnalysisOnDemand = inngest.createFunction(
+  {
+    id: 'readiness-analysis-on-demand',
+    name: 'Canon: Readiness Analysis (On Demand)',
+    retries: 1,
+  },
+  { event: 'onboarding/readiness.generate.requested' },
+  async ({ event, step }) => {
+    const { organizationId, ownerId } = event.data as { organizationId: string; ownerId: string };
+    const supabase = createServiceRoleClient();
+
+    log.info('analysis_start', { organizationId, triggered: 'on_demand' });
+
+    const orgs = [{ id: organizationId, owner_id: ownerId }];
+
+    let totalSignals = 0;
+
+    for (const org of orgs) {
+      await step.run(`analyze-org-${org.id}`, async () => {
+        const { count } = await supabase
+          .from('knowledge_chunks')
+          .select('id', { count: 'exact', head: true })
+          .eq('organization_id', org.id);
+
+        if (!count || count === 0) {
+          log.info('org_skipped', { orgId: org.id, reason: 'no_knowledge_chunks' });
+          return;
+        }
+
+        type ReadinessItemPayload = {
+          organization_id: string;
+          category: ReadinessCategory;
+          title: string;
+          summary: string;
+          recommended_action: string | null;
+          impact_level: string;
+          affected_roles: HireRole[];
+          source: string;
+          source_url: null;
+          source_metadata: object;
+          status: string;
+          updated_at: string;
+        };
+
+        const itemsToInsert: ReadinessItemPayload[] = [];
+        let signalsReviewedTotal = 0;
+
+        for (const category of CATEGORIES) {
+          try {
+            const retrieval = await retrieveCandidateChunks({
+              supabase,
+              organizationId: org.id,
+              category,
+            });
+            const typedChunks = retrieval.chunks;
+            signalsReviewedTotal += typedChunks.length;
+
+            const signal = await detectSignal({ category, chunks: typedChunks });
+
+            if (!signal.detected || !signal.title || !signal.summary) {
+              log.info('signal_none', {
+                orgId: org.id,
+                category,
+                chunksReviewed: typedChunks.length,
+                retrievalStrategy: retrieval.strategy,
+                vectorMatches: retrieval.vectorMatches,
+                fallbackCandidates: retrieval.fallbackCandidates,
+              });
+              continue;
+            }
+
+            const channelIds = uniqueChunkMetadataStrings(typedChunks, 'channel_id');
+            const channelNames = uniqueChunkMetadataStrings(typedChunks, 'channel_name');
+            const sourceEvidence = evidenceFromChunks(typedChunks);
+            if (channelIds.length === 0 || channelNames.length === 0) {
+              const fallbackSource = await fallbackSlackSourceMetadata({ supabase, organizationId: org.id });
+              if (channelIds.length === 0 && fallbackSource.channelId) channelIds.push(fallbackSource.channelId);
+              if (channelNames.length === 0 && fallbackSource.channelName) channelNames.push(fallbackSource.channelName);
+              if (sourceEvidence.length === 0 && (fallbackSource.channelId || fallbackSource.channelName)) {
+                sourceEvidence.push({
+                  provider: 'slack',
+                  channel_id: fallbackSource.channelId,
+                  channel_name: fallbackSource.channelName,
+                  message_ts: null,
+                  url: fallbackSource.channelId ? slackMessageUrl(fallbackSource.channelId, null) : null,
+                });
+              }
+            }
+
+            itemsToInsert.push({
+              organization_id: org.id,
+              category,
+              title: signal.title,
+              summary: signal.summary,
+              recommended_action: signal.recommended_action ?? null,
+              impact_level: signal.impact_level ?? 'medium',
+              affected_roles: signal.affected_roles ?? ALL_ROLES,
+              source: 'slack',
+              source_url: null,
+              source_metadata: {
+                signals_reviewed: typedChunks.length,
+                detected_by: 'ai_pipeline',
+                retrieval_strategy: retrieval.strategy,
+                vector_matches: retrieval.vectorMatches,
+                fallback_candidates: retrieval.fallbackCandidates,
+                channel_ids: channelIds,
+                channel_names: channelNames,
+                source_evidence: sourceEvidence,
+              },
+              status: 'draft',
+              updated_at: new Date().toISOString(),
+            });
+
+            log.info('signal_detected', {
+              orgId: org.id,
+              category,
+              title: signal.title,
+              impact: signal.impact_level,
+              chunksReviewed: typedChunks.length,
+              retrievalStrategy: retrieval.strategy,
+            });
+            totalSignals++;
+          } catch (error) {
+            log.error('signal_failed', { orgId: org.id, category, error: errorMessage(error) });
+          }
+        }
+
+        if (itemsToInsert.length > 0) {
+          const { data: existingItems } = await supabase
+            .from('readiness_items')
+            .select('category')
+            .eq('organization_id', org.id)
+            .neq('status', 'archived');
+
+          const existingCategories = new Set(
+            (existingItems ?? []).map((row) => row.category as ReadinessCategory)
+          );
+
+          const toInsert = itemsToInsert.filter((item) => !existingCategories.has(item.category));
+          if (toInsert.length > 0) {
+            const { data: insertedItems, error: insertError } = await supabase
+              .from('readiness_items')
+              .insert(toInsert)
+              .select('id, organization_id, category, title, summary, recommended_action, affected_roles, source_metadata');
+
+            if (insertError) throw insertError;
+
+            await deliverReadinessItems({
+              supabase,
+              ownerId: org.owner_id,
+              organizationId: org.id,
+              items: (insertedItems ?? []) as ReadinessDeliveryItem[],
+            });
+          }
+        }
+
+        log.info('org_complete', {
+          orgId: org.id,
+          signalsDetected: itemsToInsert.length,
+          signalsReviewed: signalsReviewedTotal,
+        });
+      });
+    }
+
+    log.info('analysis_complete', { orgsProcessed: 1, totalSignals });
+    return { ok: true, orgsProcessed: 1, totalSignals };
+  }
+);
+
 export const readinessAnalysis = inngest.createFunction(
   {
     id: 'readiness-analysis',

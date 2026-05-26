@@ -15,10 +15,12 @@ import {
   IconSearch,
   IconTrash,
 } from '@tabler/icons-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { IntegrationLogos } from '@/components/IntegrationLogos';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -127,6 +129,7 @@ export function KnowledgeClient() {
   const [sourceOptionsError, setSourceOptionsError] = useState('');
   const [selectedSourceOptionIds, setSelectedSourceOptionIds] = useState<Set<string>>(new Set());
   const [sourceSearch, setSourceSearch] = useState('');
+  const [noIntegrationsConnected, setNoIntegrationsConnected] = useState(false);
   const [adding, setAdding] = useState(false);
   const [selected, setSelected] = useState<KnowledgeSource | null>(null);
   const [selectedSourceIds, setSelectedSourceIds] = useState<Set<string>>(new Set());
@@ -176,8 +179,11 @@ export function KnowledgeClient() {
   async function triggerSync(sourceId: string) {
     setSyncing(sourceId);
     try {
-      await fetch(`/api/onboarding/knowledge/${sourceId}/sync`, { method: 'POST' });
+      const res = await fetch(`/api/onboarding/knowledge/${sourceId}/sync`, { method: 'POST' });
+      if (!res.ok) throw new Error(actionFailureMessage('sync'));
       await loadSources();
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : actionFailureMessage('sync'));
     } finally {
       setSyncing(null);
     }
@@ -186,17 +192,15 @@ export function KnowledgeClient() {
   async function syncSources(sourceIds: string[]) {
     if (sourceIds.length === 0) return;
     setActionLoading(true);
-    setActionError('');
     try {
       for (const sourceId of sourceIds) {
         const res = await fetch(`/api/onboarding/knowledge/${sourceId}/sync`, { method: 'POST' });
-        if (!res.ok) {
-          throw new Error(actionFailureMessage('sync'));
-        }
+        if (!res.ok) throw new Error(actionFailureMessage('sync'));
       }
       await loadSources();
+      toast.success(sourceIds.length === 1 ? 'Sync started' : `${sourceIds.length} syncs started`);
     } catch (error: unknown) {
-      setActionError(error instanceof Error ? error.message : actionFailureMessage('sync'));
+      toast.error(error instanceof Error ? error.message : actionFailureMessage('sync'));
     } finally {
       setActionLoading(false);
     }
@@ -205,17 +209,15 @@ export function KnowledgeClient() {
   async function stopSyncSources(sourceIds: string[]) {
     if (sourceIds.length === 0) return;
     setActionLoading(true);
-    setActionError('');
     try {
       for (const sourceId of sourceIds) {
         const res = await fetch(`/api/onboarding/knowledge/${sourceId}/sync`, { method: 'DELETE' });
-        if (!res.ok) {
-          throw new Error(actionFailureMessage('stop'));
-        }
+        if (!res.ok) throw new Error(actionFailureMessage('stop'));
       }
       await loadSources();
+      toast.success(sourceIds.length === 1 ? 'Sync stopped' : `${sourceIds.length} syncs stopped`);
     } catch (error: unknown) {
-      setActionError(error instanceof Error ? error.message : actionFailureMessage('stop'));
+      toast.error(error instanceof Error ? error.message : actionFailureMessage('stop'));
     } finally {
       setActionLoading(false);
     }
@@ -224,6 +226,7 @@ export function KnowledgeClient() {
   async function loadSourceOptions() {
     setSourceOptionsLoading(true);
     setSourceOptionsError('');
+    setNoIntegrationsConnected(false);
     try {
       const [slackResult, integrationsResult] = await Promise.allSettled([
         fetch('/api/onboarding/slack/channels'),
@@ -231,6 +234,7 @@ export function KnowledgeClient() {
       ]);
 
       let slackError = '';
+      let slackNotConnected = false;
       let options: SourceOption[] = [];
 
       if (slackResult.status === 'fulfilled') {
@@ -245,15 +249,18 @@ export function KnowledgeClient() {
           options = (data.channels ?? []).map((channel) => ({ ...channel, provider: 'slack' }));
         } else {
           slackError = sourceLoadMessage(data);
+          if (data.error === 'No active Slack connection') slackNotConnected = true;
         }
       } else {
         slackError = sourceLoadMessage({});
       }
 
+      let gongNotConnected = true;
       if (integrationsResult.status === 'fulfilled' && integrationsResult.value.ok) {
         const data = (await integrationsResult.value.json()) as { connections?: IntegrationConnection[] };
         const hasGongConnection = (data.connections ?? []).some((connection) => connection.provider === 'gong' && connection.status === 'active');
         if (hasGongConnection) {
+          gongNotConnected = false;
           options.push({
             id: 'gong:calls',
             name: 'Gong Calls',
@@ -262,6 +269,13 @@ export function KnowledgeClient() {
             topic: 'Call transcripts from Gong',
           });
         }
+      }
+
+      if (slackNotConnected && gongNotConnected) {
+        setNoIntegrationsConnected(true);
+        setSourceOptions([]);
+        setSelectedSourceOptionIds(new Set());
+        return;
       }
 
       if (options.length === 0 && slackError) {
@@ -294,6 +308,7 @@ export function KnowledgeClient() {
       setSelectedSourceOptionIds(new Set());
       setSourceSearch('');
       setSourceOptionsError('');
+      setNoIntegrationsConnected(false);
     }
   }
 
@@ -375,15 +390,14 @@ export function KnowledgeClient() {
         body: JSON.stringify({ name: nextName }),
       });
 
-      if (!res.ok) {
-        throw new Error(actionFailureMessage('rename'));
-      }
+      if (!res.ok) throw new Error(actionFailureMessage('rename'));
 
       setRenameSource(null);
       setRenameValue('');
       await loadSources();
+      toast.success('Source renamed');
     } catch (error: unknown) {
-      setActionError(error instanceof Error ? error.message : actionFailureMessage('rename'));
+      toast.error(error instanceof Error ? error.message : actionFailureMessage('rename'));
     } finally {
       setActionLoading(false);
     }
@@ -392,14 +406,12 @@ export function KnowledgeClient() {
   async function confirmDelete() {
     if (!deleteRequest) return;
 
+    const count = deleteRequest.ids.length;
     setActionLoading(true);
-    setActionError('');
     try {
       for (const sourceId of deleteRequest.ids) {
         const res = await fetch(`/api/onboarding/knowledge/${sourceId}`, { method: 'DELETE' });
-        if (!res.ok) {
-          throw new Error(actionFailureMessage('delete'));
-        }
+        if (!res.ok) throw new Error(actionFailureMessage('delete'));
       }
 
       setSelectedSourceIds((current) => {
@@ -408,8 +420,9 @@ export function KnowledgeClient() {
       });
       setDeleteRequest(null);
       await loadSources();
+      toast.success(count === 1 ? 'Source removed' : `${count} sources removed`);
     } catch (error: unknown) {
-      setActionError(error instanceof Error ? error.message : actionFailureMessage('delete'));
+      toast.error(error instanceof Error ? error.message : actionFailureMessage('delete'));
     } finally {
       setActionLoading(false);
     }
@@ -431,18 +444,22 @@ export function KnowledgeClient() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(provider === 'gong'
             ? {
-                provider,
-                name: sourceOption.name,
-              }
+              provider,
+              name: sourceOption.name,
+            }
             : {
-                provider,
-                slack_channel_id: sourceOption.id,
-                slack_channel_name: sourceOption.name,
-                name: `#${sourceOption.name}`,
-              }),
+              provider,
+              slack_channel_id: sourceOption.id,
+              slack_channel_name: sourceOption.name,
+              name: `#${sourceOption.name}`,
+            }),
         });
 
         if (!res.ok) {
+          const data = (await res.json()) as { error?: string };
+          if (data.error === 'Organization not found') {
+            throw new Error('org_not_found');
+          }
           throw new Error(actionFailureMessage('add'));
         }
       }
@@ -451,8 +468,14 @@ export function KnowledgeClient() {
       setSelectedSourceOptionIds(new Set());
       setSourceSearch('');
       await loadSources();
+      toast.success(selectedSourceOptions.length === 1 ? 'Source added' : `${selectedSourceOptions.length} sources added`);
     } catch (error: unknown) {
-      setSourceOptionsError(error instanceof Error ? error.message : actionFailureMessage('add'));
+      const msg = error instanceof Error ? error.message : '';
+      if (msg === 'org_not_found') {
+        toast.error('Organization not found', { description: 'Your account setup isn\'t complete. Visit Settings to finish setting up your organization.' });
+      } else {
+        setSourceOptionsError(msg || actionFailureMessage('add'));
+      }
     } finally {
       setAdding(false);
     }
@@ -502,12 +525,6 @@ export function KnowledgeClient() {
           <Button onClick={openAddModal} size="sm"><IconPlus size={14} /> Add Source</Button>
         </div>
       </div>
-
-      {actionError && (
-        <div className="mx-6 mt-4 rounded-[8px] border px-3 py-2 type-body" style={{ backgroundColor: 'var(--red-bg)', borderColor: 'var(--red-border)', color: 'var(--red-text)' }}>
-          {actionError}
-        </div>
-      )}
 
       <div className="flex gap-3 px-6 py-[14px] border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
         {[
@@ -797,22 +814,50 @@ export function KnowledgeClient() {
           <DialogHeader>
             <DialogTitle className="text-[var(--text-primary)]">Add Source</DialogTitle>
             <DialogDescription>
-              Select sources for Canon to learn from.
+              {noIntegrationsConnected ? 'Connect an integration to start adding knowledge sources.' : 'Select sources for Canon to learn from.'}
             </DialogDescription>
           </DialogHeader>
-          <div className="relative">
-            <IconSearch size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }} />
-            <Input
-              value={sourceSearch}
-              onChange={(e) => setSourceSearch(e.target.value)}
-              placeholder="Search Sources..."
-              className="input-ui pl-9 border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body"
-            />
-          </div>
+          {!noIntegrationsConnected && (
+            <div className="relative">
+              <IconSearch size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }} />
+              <Input
+                value={sourceSearch}
+                onChange={(e) => setSourceSearch(e.target.value)}
+                placeholder="Search Sources..."
+                className="input-ui pl-9 border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body"
+              />
+            </div>
+          )}
           <div className="max-h-64 overflow-y-auto space-y-1">
             {sourceOptionsLoading ? (
               <div className="space-y-1.5 py-1">
                 {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-10 bg-[var(--bg-secondary)] rounded-lg" />)}
+              </div>
+            ) : noIntegrationsConnected ? (
+              <div className="py-2 space-y-2">
+                <p className="type-body pb-1" style={{ color: 'var(--text-secondary)' }}>
+                  No integrations are connected yet. Go to Settings to connect a source.
+                </p>
+                {[
+                  { provider: 'slack' as const, label: 'Slack', description: 'Sync channel messages and threads' },
+                  { provider: 'gong' as const, label: 'Gong', description: 'Sync customer call transcripts' },
+                ].map(({ provider, label, description }) => (
+                  <a
+                    key={provider}
+                    href="/settings?tab=integrations"
+                    className="flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-colors hover:bg-[var(--bg-secondary)]"
+                    style={{ borderColor: 'var(--border-secondary)', textDecoration: 'none' }}
+                  >
+                    <div className="size-8 rounded-[8px] flex flex-shrink-0 items-center justify-center" style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>
+                      <IntegrationLogos provider={provider} size={16} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="type-panel-title" style={{ color: 'var(--text-primary)' }}>{label}</p>
+                      <p className="type-caption" style={{ color: 'var(--text-tertiary)' }}>{description}</p>
+                    </div>
+                    <span className="type-caption flex-shrink-0" style={{ color: 'var(--canon-purple)' }}>Connect →</span>
+                  </a>
+                ))}
               </div>
             ) : sourceOptionsError ? (
               <div className="rounded-[8px] border border-[var(--red-border)] bg-[var(--red-bg)] px-3 py-2">
@@ -859,7 +904,7 @@ export function KnowledgeClient() {
               })
             )}
           </div>
-          {!sourceOptionsLoading && !sourceOptionsError && filteredSourceOptions.length > 0 && (
+          {!sourceOptionsLoading && !sourceOptionsError && !noIntegrationsConnected && filteredSourceOptions.length > 0 && (
             <div className="flex items-center justify-between gap-3 border-t pt-3" style={{ borderColor: 'var(--border-tertiary)' }}>
               <p className="type-caption" style={{ color: 'var(--text-tertiary)' }}>
                 {selectedCount} selected{selectableCount > 0 ? ` of ${selectableCount}` : ''}
@@ -927,11 +972,6 @@ export function KnowledgeClient() {
               {deleteRequest?.description ?? 'This removes the selected sources from Canon knowledge.'}
             </DialogDescription>
           </DialogHeader>
-          {actionError && (
-            <div className="rounded-[8px] border px-3 py-2 type-body" style={{ backgroundColor: 'var(--red-bg)', borderColor: 'var(--red-border)', color: 'var(--red-text)' }}>
-              {actionError}
-            </div>
-          )}
           <DialogFooter>
             <Button variant="secondary" onClick={() => setDeleteRequest(null)} disabled={actionLoading}>
               Cancel
