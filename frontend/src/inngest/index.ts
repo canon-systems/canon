@@ -1,9 +1,11 @@
-// Export all Inngest functions
-export { diffSourceBackfill } from "./functions/diffBackfill";
-export { ingestJiraWebhook } from "./functions/jiraWebhookIngest";
-export { sourceIngestRequested } from "./functions/sourceIngest";
-export { dailySignalAlerts } from "./functions/dailySignalAlerts";
-export { setupBatchFinalizeRequested } from "./functions/setupBatchFinalize";
-
-// Export client
+export { knowledgeSourceSync } from "./functions/knowledgeSourceSync";
+export { knowledgeSourceScheduledSync } from "./functions/knowledgeSourceScheduledSync";
+export { dailyRampCheck } from "./functions/dailyRampCheck";
+export { accessCoordinator } from "./functions/accessCoordinator";
+export { accessGrantedNotifier } from "./functions/accessGrantedNotifier";
+export { readinessAnalysis } from "./functions/readinessAnalysis";
+export {
+  milestoneProposalGeneration,
+  milestoneProposalScheduledGeneration,
+} from "./functions/milestoneProposalGeneration";
 export { inngest } from "./client";

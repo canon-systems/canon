@@ -1,31 +1,21 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
-import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  Activity,
-  BookOpen,
-  History,
-  Layers,
-  LogOut,
-  Menu,
-  Radio,
-  Settings,
-} from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
+  IconBrain,
+  IconChevronLeft,
+  IconChevronRight,
+  IconFlag,
+  IconHome2,
+  IconLogout,
+  IconRadar,
+  IconSettings,
+  IconUsers,
+} from '@tabler/icons-react';
 import type { Session, User } from '@supabase/supabase-js';
-import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
-import { Button } from './ui/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from './ui/dropdown-menu';
 import { cn } from './ui/utils';
 
 interface NavigationProps {
@@ -34,228 +24,166 @@ interface NavigationProps {
   onLogout: () => void;
 }
 
-type NavItem = {
-  href: string;
-  label: string;
-  icon: LucideIcon;
-  matchPrefix?: boolean;
-};
-
-const primaryNav: NavItem[] = [
-  { href: '/signals', label: 'Briefing', icon: Radio, matchPrefix: true },
-  { href: '/history', label: 'History', icon: History, matchPrefix: true },
-  { href: '/sources', label: 'Data Sources', icon: Layers },
+const primaryNav = [
+  { href: '/', label: 'Home', icon: IconHome2, exact: true },
+  { href: '/new-hires', label: 'New Hires', icon: IconUsers, exact: false },
+  { href: '/knowledge', label: 'Knowledge', icon: IconBrain, exact: false },
+  { href: '/milestones', label: 'Milestones', icon: IconFlag, exact: false },
+  { href: '/readiness', label: 'Readiness', icon: IconRadar, exact: false },
 ];
 
-const secondaryNav: NavItem[] = [
-  { href: '/logs', label: 'Activity', icon: Activity },
-  { href: '/docs', label: 'Guidance', icon: BookOpen, matchPrefix: true },
-  { href: '/settings', label: 'Settings', icon: Settings, matchPrefix: true },
+const secondaryNav = [
+  { href: '/settings?tab=profile', label: 'Settings', icon: IconSettings, exact: false },
 ];
 
-export function Navigation({ user, session, onLogout }: NavigationProps) {
+export function Navigation({ user, onLogout }: NavigationProps) {
   const pathname = usePathname();
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const [collapsed, setCollapsed] = useState(false);
 
-  const initials = useMemo(() => user?.email?.[0]?.toUpperCase() ?? 'C', [user]);
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      setCollapsed(window.localStorage.getItem('canon-nav-collapsed') === 'true');
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
 
-  const isActive = (item: NavItem) => {
-    if (item.matchPrefix) return pathname.startsWith(item.href);
-    return pathname === item.href;
+  function toggleCollapsed() {
+    setCollapsed((current) => {
+      const next = !current;
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem('canon-nav-collapsed', String(next));
+      }
+      return next;
+    });
+  }
+
+  const isActive = (href: string, exact = false) => {
+    const hrefPath = href.split('?')[0] || href;
+    if (exact) return pathname === hrefPath;
+    return pathname.startsWith(hrefPath);
   };
 
-  return (
-    <div
-      className="sticky top-0 z-40 border-b border-white/10 bg-zinc-900 backdrop-blur-xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]"
-      ref={containerRef}
-    >
-      <nav className="relative flex items-center justify-between px-4 py-4 md:px-6 lg:px-8">
-        <Link
-          href="/"
-          className="group flex items-center gap-3 rounded-xl border border-white/10 bg-zinc-800 px-3 py-2 transition hover:border-white/15 hover:bg-zinc-700 hover:shadow-[0_0_20px_rgba(255,255,255,0.03)]"
-        >
-          <div className="rounded-lg border border-white/10 bg-gradient-to-br from-white/10 to-white/5 p-0.5 transition group-hover:from-white/15 group-hover:to-white/10">
-            <Image
-              src="/web-app-manifest-512x512.png"
-              alt="Canon AI docs & automation"
-              width={40}
-              height={40}
-              className="h-10 w-10 rounded-lg border border-white/10"
-            />
-          </div>
-          <div className="flex flex-col leading-tight">
-            <span className="text-sm font-semibold text-white">Canon</span>
-            <span className="text-[11px] uppercase tracking-[0.2em] text-white/60">Executive View</span>
-          </div>
-        </Link>
+  const userEmail = user?.email ?? 'User';
+  const userInitials = userEmail
+    .split('@')[0]
+    .split(/[._-]/)
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase() || 'U';
 
-        <div className="hidden items-center gap-1 rounded-xl border border-white/10 bg-zinc-800 px-2 py-1.5 lg:flex">
+  const navLinkClass = (active: boolean) =>
+    cn(
+      'flex items-center gap-[9px] px-4 py-2 type-nav rounded-[6px] mx-2 my-px cursor-pointer transition-colors duration-[120ms]',
+      collapsed && 'justify-center px-0',
+      active
+        ? 'nav-item-selected font-medium border'
+        : 'border border-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-primary)] hover:text-[var(--text-primary)] hover:border-[var(--border-tertiary)]'
+    );
+
+  return (
+    <aside
+      className={cn(
+        'surface-sidebar relative flex h-screen shrink-0 flex-col border-r py-5 transition-[width] duration-200 ease-out',
+        collapsed ? 'w-[72px]' : 'w-[200px]'
+      )}
+    >
+      <button
+        type="button"
+        onClick={toggleCollapsed}
+        aria-label={collapsed ? 'Expand Navigation' : 'Collapse Navigation'}
+        title={collapsed ? 'Expand Navigation' : 'Collapse Navigation'}
+        className="surface-panel absolute right-[-14px] top-1/2 z-20 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border text-[var(--text-secondary)] transition-colors duration-[120ms] hover:text-[var(--text-primary)]"
+      >
+        {collapsed ? <IconChevronRight size={15} /> : <IconChevronLeft size={15} />}
+      </button>
+
+      <Link
+        href="/"
+        className={cn(
+          'surface-divider flex items-center gap-[9px] px-4 pb-5 border-b mb-3',
+          collapsed && 'justify-center px-0'
+        )}
+        title={collapsed ? 'Canon' : undefined}
+      >
+        <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-[7px] bg-black overflow-hidden">
+          <Image
+            src="/web-app-manifest-512x512.png"
+            alt="Canon"
+            width={24}
+            height={24}
+            className="h-6 w-6"
+            priority
+          />
+        </span>
+        {!collapsed && (
+          <span className="type-card-title" style={{ color: 'var(--text-primary)' }}>Canon</span>
+        )}
+      </Link>
+
+      <nav className="flex flex-1 flex-col overflow-y-auto">
+        <div>
           {primaryNav.map((item) => {
-            const active = isActive(item);
+            const active = isActive(item.href, item.exact);
             const Icon = item.icon;
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                className={cn(
-                  'relative flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all duration-200',
-                  active
-                    ? 'text-white'
-                    : 'text-white/60 hover:bg-white/5 hover:text-white/90'
-                )}
+                className={navLinkClass(active)}
+                title={collapsed ? item.label : undefined}
               >
-                <Icon className={cn('h-4 w-4 shrink-0', active ? 'text-white' : 'text-white/50')} />
-                {item.label}
-                {active && (
-                  <span
-                    className="absolute bottom-1 left-4 right-4 h-px bg-white"
-                    aria-hidden
-                  />
-                )}
+                <Icon size={15} />
+                {!collapsed && item.label}
               </Link>
             );
           })}
         </div>
 
-        <div className="hidden items-center gap-3 lg:flex">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="secondary"
-                className="flex items-center gap-3 rounded-full border border-white/10 bg-zinc-800 px-3 py-2 text-left text-sm text-white/80 transition hover:border-white/20 hover:bg-zinc-700 hover:shadow-[0_0_20px_rgba(255,255,255,0.04)]"
+        <div className="mt-auto pt-3">
+          {secondaryNav.map((item) => {
+            const active = isActive(item.href, item.exact);
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={navLinkClass(active)}
+                title={collapsed ? item.label : undefined}
               >
-                <Avatar className="h-9 w-9 rounded-full border border-white/10 shadow-[0_0_12px_rgba(255,255,255,0.1)]">
-                  <AvatarImage
-                    src={user?.user_metadata?.avatar_url as string | undefined}
-                    alt={user?.user_metadata?.full_name as string | undefined}
-                  />
-                  <AvatarFallback className="bg-gradient-to-br from-white to-white/90 text-black">
-                    {initials}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="flex min-w-0 flex-col leading-tight">
-                  <span className="truncate text-white font-semibold">
-                    {user?.user_metadata?.full_name ?? 'Workspace Member'}
-                  </span>
-                  <span className="truncate text-xs text-white/60">{user?.email}</span>
-                </div>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="min-w-[14rem] border-white/10 bg-black/90 backdrop-blur-xl">
-              <DropdownMenuLabel className="font-normal">
-                <div className="flex flex-col gap-0.5">
-                  <p className="truncate text-sm font-medium text-white">
-                    {user?.user_metadata?.full_name ?? 'Workspace Member'}
-                  </p>
-                  <p className="truncate text-xs text-white/60">{user?.email}</p>
-                </div>
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              {secondaryNav.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <DropdownMenuItem key={item.href} asChild>
-                    <Link href={item.href}>
-                      <Icon className="mr-2 h-4 w-4" />
-                      {item.label}
-                    </Link>
-                  </DropdownMenuItem>
-                );
-              })}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                className="text-red-300 focus:bg-red-500/10 focus:text-red-200"
-                onClick={onLogout}
-              >
-                <LogOut className="mr-2 h-4 w-4" />
-                Logout
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-
-        <div className="flex shrink-0 items-center gap-2 lg:hidden">
-          <Button
-            variant="secondary"
-            className="h-11 min-h-11 w-11 min-w-11 shrink-0 rounded-full border border-white/10 bg-zinc-800 p-0 transition hover:border-white/15 hover:bg-zinc-700"
-            onClick={() => setMobileOpen((v) => !v)}
-          >
-            <Menu className="h-5 w-5 shrink-0 text-white" />
-          </Button>
+                <Icon size={15} />
+                {!collapsed && item.label}
+              </Link>
+            );
+          })}
         </div>
       </nav>
 
-      {mobileOpen && (
-        <div className="relative border-t border-white/10 bg-zinc-900 px-4 py-4 backdrop-blur-xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)] lg:hidden">
-          <div className="grid gap-2">
-            {primaryNav.map((item) => {
-              const active = isActive(item);
-              const Icon = item.icon;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={cn(
-                    'flex items-center gap-3 rounded-xl border px-3 py-3 text-sm transition',
-                    active
-                      ? 'border-white/15 bg-zinc-700 text-white'
-                      : 'border-white/10 bg-zinc-800 text-white/90 hover:border-white/15 hover:bg-zinc-700'
-                  )}
-                  onClick={() => setMobileOpen(false)}
-                >
-                  <Icon className={cn('h-4 w-4', active ? 'text-white' : 'text-white/70')} />
-                  {item.label}
-                </Link>
-              );
-            })}
+      <div className={cn('surface-divider mt-auto pt-3 px-4 border-t', collapsed && 'px-0')}>
+        <div className={cn('flex items-center gap-2', collapsed && 'flex-col')}>
+          <div
+            className="w-[26px] h-[26px] rounded-full flex items-center justify-center type-control-sm text-[var(--text-primary)] flex-shrink-0"
+            style={{ backgroundColor: 'var(--canon-purple)' }}
+          >
+            {userInitials}
           </div>
-          <div className="mt-3 grid gap-2">
-            {secondaryNav.map((item) => {
-              const active = isActive(item);
-              const Icon = item.icon;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={cn(
-                    'flex items-center gap-3 rounded-xl border px-3 py-3 text-sm transition',
-                    active
-                      ? 'border-white/15 bg-zinc-700 text-white/90'
-                      : 'border-white/10 bg-zinc-800 text-white/80 hover:border-white/15 hover:bg-zinc-700'
-                  )}
-                  onClick={() => setMobileOpen(false)}
-                >
-                  <Icon className={cn('h-4 w-4', active ? 'text-white/80' : 'text-white/60')} />
-                  {item.label}
-                </Link>
-              );
-            })}
-          </div>
-          {session && user && (
-            <div className="mt-4 flex items-center justify-between rounded-xl border border-white/10 bg-zinc-800 px-3 py-3 text-sm text-white/80">
-              <div className="flex min-w-0 items-center gap-3">
-                <Avatar className="h-10 w-10 shrink-0 rounded-full border border-white/10">
-                  <AvatarImage
-                    src={user?.user_metadata?.avatar_url as string | undefined}
-                    alt={user?.user_metadata?.full_name as string | undefined}
-                  />
-                  <AvatarFallback className="bg-white text-black">{initials}</AvatarFallback>
-                </Avatar>
-                <div className="flex min-w-0 flex-1 flex-col">
-                  <span className="block truncate font-semibold text-white">
-                    {user?.user_metadata?.full_name ?? 'Workspace Member'}
-                  </span>
-                  <span className="block truncate text-xs text-white/60">{user?.email}</span>
-                </div>
-              </div>
-              <Button variant="ghost" className="shrink-0 text-red-300 hover:text-red-200" onClick={onLogout}>
-                <LogOut className="h-4 w-4" />
-              </Button>
-            </div>
+          {!collapsed && (
+            <span className="type-body truncate flex-1" style={{ color: 'var(--text-secondary)' }}>
+              {userEmail}
+            </span>
           )}
+          <button
+            type="button"
+            onClick={onLogout}
+            aria-label="Log Out"
+            title="Log Out"
+            className="w-7 h-7 rounded-md border border-[var(--border-tertiary)] bg-transparent flex items-center justify-center cursor-pointer text-[var(--text-tertiary)] hover:bg-[var(--bg-primary)] hover:text-[var(--text-primary)] transition-colors duration-[120ms]"
+          >
+            <IconLogout size={14} />
+          </button>
         </div>
-      )}
-    </div>
+      </div>
+    </aside>
   );
 }

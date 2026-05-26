@@ -1,40 +1,50 @@
 'use client';
 
-import * as simpleIcons from 'simple-icons';
+import { SiAtlassian, SiCoda, SiConfluence, SiGithub, SiJira } from '@icons-pack/react-simple-icons';
+
+const SLACK_PATH =
+  'M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zM6.313 15.165a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zM8.834 6.313a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zM18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zM17.688 8.834a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zM15.165 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zM15.165 17.688a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z';
+
+function SlackIcon({ size = 24 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" role="img" aria-label="Slack">
+      <title>Slack</title>
+      <path d={SLACK_PATH} fill="currentColor" />
+    </svg>
+  );
+}
+
+const GONG_PATH =
+  'M36.9813 18.0568H25.8482C25.2335 18.0568 24.7554 18.7393 24.9603 19.2853L27.6241 26.1786C27.7607 26.4516 27.4875 26.7928 27.1459 26.7928L23.7309 26.5881C23.5943 26.5881 23.4577 26.6563 23.3211 26.7928L20.7256 30.5466C20.589 30.7513 20.3158 30.8196 20.0426 30.6831L16.0811 28.0213C15.9445 27.8848 15.7396 27.8848 15.5347 28.0213L10.0706 31.7068C9.72913 31.9798 9.25102 31.6386 9.38762 31.2291L10.9586 25.7691C11.0269 25.5643 10.8903 25.2913 10.6853 25.2231L7.8167 24.0628C7.54349 23.9263 7.40689 23.5851 7.61179 23.3803L10.1389 20.2408C10.2755 20.1043 10.2755 19.8313 10.1389 19.6948L8.0216 16.6236C7.8167 16.3506 8.0216 15.9411 8.36311 15.9411L11.7099 15.6681C11.9831 15.6681 12.1197 15.4633 12.1197 15.1903L11.8465 10.5493C11.8465 10.2081 12.188 10.0033 12.4612 10.0716L16.5593 11.7778C16.7642 11.8461 16.9691 11.7778 17.1057 11.6413L19.9743 8.50184C20.1792 8.22884 20.589 8.29709 20.7256 8.63834L22.4332 13.0063C22.6381 13.5523 23.3211 13.7571 23.7992 13.4158L30.4927 8.43359C31.244 7.88759 30.7659 6.65909 29.8097 6.79559L25.5067 7.34159C25.3018 7.34159 25.0969 7.27334 25.0286 7.06859L22.7064 1.13084C22.4332 0.516593 21.6818 0.380093 21.2037 0.857843L16.1494 6.31784C16.0128 6.45434 15.8079 6.52259 15.603 6.45434L8.97782 3.65609C8.36311 3.38309 7.7484 3.79259 7.68009 4.47509L7.40689 11.3001C7.40689 11.5731 7.20199 11.7096 6.99708 11.7096L0.918272 12.1191C0.23526 12.1873 -0.174548 12.9381 0.23526 13.5523L4.26503 19.4901C4.40164 19.6266 4.40164 19.8996 4.26503 20.0361L0.166959 24.7453C-0.174548 25.0866 0.0303561 25.8373 0.576766 26.0421L5.28955 28.0896C5.49445 28.1578 5.63106 28.4308 5.56276 28.6356L2.5575 40.3063C2.3526 41.1253 3.30882 41.7396 3.99183 41.2618L15.2615 33.2083C15.3981 33.0718 15.603 33.0718 15.8079 33.2083L20.9305 36.8256C21.3403 37.0986 21.9551 37.0303 22.2283 36.5526L25.4384 31.6386C25.5067 31.5021 25.7116 31.4338 25.8482 31.4338L33.498 32.3893C34.1127 32.4576 34.7274 31.9798 34.5225 31.3656L31.3123 23.1073C31.244 22.9026 31.3123 22.6296 31.5855 22.4931L37.3911 19.7631C38.2107 19.3536 37.9375 18.0568 36.9813 18.0568Z';
+
+function GongIcon({ size = 24 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="-0.2 0 38.5 42" role="img" aria-label="Gong">
+      <title>Gong</title>
+      <path d={GONG_PATH} fill="currentColor" />
+    </svg>
+  );
+}
+
+type Provider = 'slack' | 'confluence' | 'atlassian' | 'jira' | 'github' | 'coda' | 'gong';
 
 interface IntegrationLogosProps {
   size?: number;
-  provider: 'slack' | 'confluence' | 'atlassian' | 'jira' | 'github' | 'coda';
+  provider: Provider;
   color?: string;
 }
 
-// Map provider names to simple-icons export names
-const iconMap: Record<string, keyof typeof simpleIcons> = {
-  'slack': 'siSlack',
-  'confluence': 'siConfluence',
-  'atlassian': 'siAtlassian',
-  'jira': 'siJira',
-  'github': 'siGithub',
-  'coda': 'siCoda'
+const iconComponents: Record<'confluence' | 'atlassian' | 'jira' | 'github' | 'coda', React.ComponentType<{ size?: number; color?: string }>> = {
+  confluence: SiConfluence,
+  atlassian: SiAtlassian,
+  jira: SiJira,
+  github: SiGithub,
+  coda: SiCoda,
 };
 
 export function IntegrationLogos({ size = 24, provider, color }: IntegrationLogosProps) {
-  const iconKey = iconMap[provider] || 'siSlack';
-  const icon = simpleIcons[iconKey] as { title: string; hex: string; path: string };
-  const fill = color || `#${icon.hex}`;
-
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      role="img"
-      aria-label={icon.title}
-    >
-      <title>{icon.title}</title>
-      <path d={icon.path} fill={fill} />
-    </svg>
-  );
+  if (provider === 'slack') return <SlackIcon size={size} />;
+  if (provider === 'gong') return <GongIcon size={size} />;
+  const Icon = iconComponents[provider as keyof typeof iconComponents];
+  return <Icon size={size} color={color} />;
 }

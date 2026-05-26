@@ -3,17 +3,17 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "./utils";
 
 const alertVariants = cva(
-  "relative w-full rounded-lg border px-4 py-3 text-sm [&>svg+div]:translate-y-[-3px] [&>svg]:absolute [&>svg]:left-4 [&>svg]:top-4 [&>svg]:text-foreground [&>svg~*]:pl-7",
+  "relative w-full rounded-lg border px-4 py-3 type-body [&>svg+div]:translate-y-[-3px] [&>svg]:absolute [&>svg]:left-4 [&>svg]:top-4 [&>svg]:text-foreground [&>svg~*]:pl-7",
   {
     variants: {
       variant: {
-        default: "bg-white/10 text-white border-white/20",
+        default: "bg-[var(--bg-secondary)] text-[var(--text-primary)] border-[var(--border-tertiary)]",
         destructive:
-          "border-white/25 bg-white/10 text-white [&>svg]:text-white/80",
+          "border-[var(--red-border)] bg-[var(--red-bg)] text-[var(--red-text)] [&>svg]:text-[var(--red-text)]",
         warning:
-          "border-white/20 bg-white/10 text-white [&>svg]:text-white/80",
+          "border-[var(--amber-border)] bg-[var(--amber-bg)] text-[var(--amber-text)] [&>svg]:text-[var(--amber-text)]",
         success:
-          "border-white/20 bg-white/10 text-white [&>svg]:text-white/80",
+          "border-[var(--green-border)] bg-[var(--green-bg)] text-[var(--green-text)] [&>svg]:text-[var(--green-text)]",
       },
     },
     defaultVariants: {
@@ -56,7 +56,7 @@ const AlertDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
-    className={cn("text-sm [&_p]:leading-relaxed", className)}
+    className={cn("type-body [&_p]:leading-relaxed", className)}
     {...props}
   />
 ));

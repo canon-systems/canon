@@ -18,7 +18,7 @@ export function MetricLabelTooltip({
           <TooltipTrigger asChild>
             <button
               type="button"
-              className="inline-flex h-4 w-4 items-center justify-center text-white/45 hover:text-white/70"
+              className="inline-flex h-4 w-4 items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-secondary)]"
               aria-label={tip}
             >
               <Info className="h-3.5 w-3.5" />

@@ -9,7 +9,6 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, AlertTriangle } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
 
 type PageState = 'loading' | 'ready' | 'invalid';
 
@@ -61,7 +60,7 @@ export function UpdatePasswordPageClient() {
       }
 
       await new Promise(resolve => setTimeout(resolve, 100));
-      window.location.href = '/signals';
+      window.location.href = '/';
     } catch (e: unknown) {
       setErrorMsg(e instanceof Error ? e.message : 'Something went wrong. Please try again.');
       setLoading(false);
@@ -71,9 +70,9 @@ export function UpdatePasswordPageClient() {
   if (pageState === 'loading') {
     return (
       <div className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-10 sm:px-6 lg:px-8">
-        <div className="relative z-10 flex items-center gap-2 text-white/70">
+        <div className="relative z-10 flex items-center gap-2 text-[var(--text-secondary)]">
           <Loader2 className="h-5 w-5 animate-spin" />
-          <span>Verifying link...</span>
+          <span>Verifying Link...</span>
         </div>
       </div>
     );
@@ -84,14 +83,13 @@ export function UpdatePasswordPageClient() {
       <div className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-10 sm:px-6 lg:px-8">
         <div className="relative z-10 mx-auto flex w-full max-w-xl flex-col items-center gap-6">
           <div className="space-y-3 text-center">
-            <Badge>Automated Knowledge Infrastructure</Badge>
-            <h1 className="text-3xl font-semibold sm:text-4xl">Link Expired or Invalid</h1>
-            <p className="text-white/70">
+            <h1 className="type-auth-title">Link Expired or Invalid</h1>
+            <p className="text-[var(--text-secondary)]">
               This password reset link may have expired or already been used. Request a new link from the login page.
             </p>
           </div>
           <Button asChild variant="default">
-            <Link href="/login">Back to sign in</Link>
+            <Link href="/login">Back to Sign In</Link>
           </Button>
         </div>
       </div>
@@ -103,9 +101,8 @@ export function UpdatePasswordPageClient() {
       <div className="relative z-10 mx-auto flex w-full max-w-xl flex-col items-center gap-8">
         <div className="w-full space-y-6">
           <div className="space-y-3">
-            <Badge>Automated Knowledge Infrastructure</Badge>
-            <h1 className="text-3xl font-semibold sm:text-4xl">Set New Password</h1>
-            <p className="text-white/70">
+            <h1 className="type-auth-title">Set New Password</h1>
+            <p className="text-[var(--text-secondary)]">
               Enter your new password below. Use at least 6 characters.
             </p>
           </div>
@@ -114,7 +111,7 @@ export function UpdatePasswordPageClient() {
             <CardContent className="space-y-4 p-6">
               <form onSubmit={handleUpdatePassword} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="password">New password</Label>
+                  <Label htmlFor="password">New Password</Label>
                   <Input
                     id="password"
                     type="password"
@@ -123,13 +120,13 @@ export function UpdatePasswordPageClient() {
                     required
                     minLength={6}
                     autoComplete="new-password"
-                    placeholder="Enter new password"
+                    placeholder="Enter New Password"
                     disabled={loading}
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="confirm-password">Confirm password</Label>
+                  <Label htmlFor="confirm-password">Confirm Password</Label>
                   <Input
                     id="confirm-password"
                     type="password"
@@ -138,7 +135,7 @@ export function UpdatePasswordPageClient() {
                     required
                     minLength={6}
                     autoComplete="new-password"
-                    placeholder="Confirm new password"
+                    placeholder="Confirm New Password"
                     disabled={loading}
                   />
                 </div>
@@ -154,12 +151,12 @@ export function UpdatePasswordPageClient() {
                       Updating...
                     </>
                   ) : (
-                    'Update password'
+                    'Update Password'
                   )}
                 </Button>
 
-                <Button asChild type="button" variant="ghost" className="w-full text-white/70 hover:text-white" disabled={loading}>
-                  <Link href="/login">Back to sign in</Link>
+                <Button asChild type="button" variant="ghost" className="w-full text-[var(--text-secondary)] hover:text-[var(--text-primary)]" disabled={loading}>
+                  <Link href="/login">Back to Sign In</Link>
                 </Button>
               </form>
             </CardContent>

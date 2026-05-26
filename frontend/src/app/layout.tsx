@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { RootLayoutClient } from "./layout-client";
 import { getSession } from "@/lib/auth";
+import { Toaster } from "@/components/ui/sonner";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -18,8 +19,8 @@ const interDisplay = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Canon - Automated Knowledge Infrastructure",
-  description: "Keep shared understanding aligned with reality across code, tools, and workflows.",
+  title: "Canon - Onboarding Agent",
+  description: "Proactive onboarding for technical GTM hires. Canon delivers AI-curated context from Slack at every ramp milestone.",
 };
 
 export default async function RootLayout({
@@ -31,10 +32,11 @@ export default async function RootLayout({
 
   return (
     <html lang="en" className="dark">
-      <body className={`min-h-screen bg-black text-white antialiased ${inter.variable} ${interDisplay.variable}`}>
+      <body className={`min-h-screen antialiased ${inter.variable} ${interDisplay.variable}`}>
         <RootLayoutClient user={user} session={session}>
           {children}
         </RootLayoutClient>
+        <Toaster />
       </body>
     </html>
   );

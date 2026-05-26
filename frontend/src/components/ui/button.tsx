@@ -4,24 +4,24 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "./utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-black disabled:pointer-events-none disabled:opacity-60 rounded-full",
+  "inline-flex items-center justify-center whitespace-nowrap font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--canon-purple)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-page)] disabled:pointer-events-none disabled:opacity-60",
   {
     variants: {
       variant: {
-        default: "bg-white !text-black hover:bg-slate-100 hover:!text-black shadow-md hover:shadow-lg",
-        secondary: "bg-slate-700 text-white hover:bg-slate-600 border border-transparent shadow-sm",
-        outline: "border border-white/40 text-white hover:bg-white/10",
-        ghost: "text-white hover:bg-white/10",
-        destructive: "bg-red-500 text-white hover:bg-red-600 shadow-md",
+        default: "bg-[var(--canon-purple)] text-[var(--text-primary)] border-0 rounded-[7px] px-[11px] py-[6px] type-control flex items-center gap-[5px] cursor-pointer hover:opacity-90 transition-opacity duration-[120ms]",
+        secondary: "bg-transparent text-[var(--text-secondary)] border border-[var(--border-secondary)] rounded-[7px] px-[11px] py-[6px] type-control flex items-center gap-[5px] cursor-pointer hover:bg-[var(--bg-secondary)] transition-colors duration-[120ms]",
+        outline: "bg-transparent text-[var(--text-secondary)] border border-[var(--border-secondary)] rounded-[7px] px-[11px] py-[6px] type-control flex items-center gap-[5px] cursor-pointer hover:bg-[var(--bg-secondary)] transition-colors duration-[120ms]",
+        ghost: "bg-transparent text-[var(--text-secondary)] rounded-[7px] px-[11px] py-[6px] type-control flex items-center gap-[5px] cursor-pointer hover:bg-[var(--bg-secondary)] transition-colors duration-[120ms]",
+        destructive: "bg-transparent text-[var(--red-text)] border border-[var(--red-border)] rounded-[7px] px-[11px] py-[6px] type-control cursor-pointer hover:bg-[var(--red-bg)] transition-colors duration-[120ms]",
       },
       size: {
-        default: "h-10 px-4 py-2",
-        sm: "h-9 px-3",
-        lg: "h-11 px-5 text-base",
-        icon: "h-10 w-10",
+        default: "",
+        sm: "px-[10px] py-[5px] type-control-sm",
+        lg: "px-[13px] py-[7px] type-control",
+        icon: "w-7 h-7 rounded-md border border-[var(--border-tertiary)] bg-transparent flex items-center justify-center cursor-pointer text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] transition-colors duration-[120ms] p-0",
       },
       radius: {
-        md: "rounded-lg",
+        md: "rounded-[7px]",
         full: "rounded-full",
       },
     },
@@ -42,11 +42,12 @@ export interface ButtonProps
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, radius, asChild = false, ...props }, ref) => {
     const Comp = asChild ? Slot : "button";
+    const buttonProps = asChild ? props : { ...props, type: props.type ?? "button" };
     return (
       <Comp
         className={cn(buttonVariants({ variant, size, radius }), className)}
         ref={ref}
-        {...props}
+        {...buttonProps}
       />
     );
   }

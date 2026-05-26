@@ -2,26 +2,36 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Settings, User, Link2, Mail, Check, Loader2, Github, Info, Copy, ClipboardCheck } from 'lucide-react';
+import {
+  IconBell,
+  IconBuilding,
+  IconCheck,
+  IconChevronDown,
+  IconKey,
+  IconLoader2,
+  IconPencil,
+  IconPlug,
+  IconPlus,
+  IconTool,
+  IconTrash,
+  IconUser,
+  IconX,
+} from '@tabler/icons-react';
 import { IntegrationLogos } from '@/components/IntegrationLogos';
 import { getIntegrationsCached, clearIntegrationsCache } from '@/lib/client/integrationsCache';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Skeleton } from '@/components/ui/skeleton';
-import { ATLASSIAN_PROVIDER, canonicalProvider } from '@/lib/providers';
-
-type JiraSetupSite = { id: string; name: string; url: string; projectKeys: string[]; jql: string };
-type JiraSetupData = {
-  webhookUrl: string;
-  webhookSecret: string;
-  scopes: string[];
-  sites: JiraSetupSite[];
-};
+import { Avatar } from '@/components/ui/avatar';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Alert } from '@/components/ui/alert';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { cn } from '@/components/ui/utils';
+import { ToolLogo } from '@/components/ToolLogo';
+import { ToolNameCombobox } from '@/components/tool-name-combobox';
+import { SlackUserPicker, type SlackUser } from '@/components/SlackUserPicker';
+import type { OrgTool, HireRole } from '@/types/onboarding';
 
 interface Connection {
   id: string;
@@ -33,118 +43,233 @@ interface Connection {
   updated_at: string;
 }
 
-type TabId = 'profile' | 'preferences' | 'integrations';
-
 interface SettingsPageClientProps {
   user: SupabaseUser | null;
 }
 
-type IntegrationCard = {
-  provider: string;
-  name: string;
-  description: string;
-  icon: React.ReactNode;
-  comingSoon?: boolean;
+const settingSections = [
+  { section: 'Account', items: [{ id: 'profile', label: 'Profile', icon: IconUser }, { id: 'org', label: 'Organization', icon: IconBuilding }] },
+  { section: 'Connections', items: [{ id: 'integrations', label: 'Integrations', icon: IconPlug }, { id: 'notifications', label: 'Notifications', icon: IconBell }] },
+  { section: 'Onboarding', items: [{ id: 'tools', label: 'Tools', icon: IconTool }] },
+  {
+    section: 'Developer',
+    items: [
+      { id: 'apikeys', label: 'API Keys', icon: IconKey },
+    ],
+  },
+  { section: 'Danger', items: [{ id: 'delete', label: 'Delete Account', icon: IconTrash, danger: true }] },
+];
+
+const SETTINGS_TABS = ['profile', 'org', 'integrations', 'notifications', 'tools', 'apikeys', 'delete'] as const;
+type SettingsTab = typeof SETTINGS_TABS[number];
+const HIRE_ROLES: HireRole[] = ['AI Solutions Architect', 'Solutions Engineer', 'Implementation Engineer'];
+type ToolFilter = 'all' | 'all_roles' | 'unowned' | HireRole;
+
+const ROLE_META: Record<HireRole, { short: string; color: string; background: string; border: string }> = {
+  'AI Solutions Architect': {
+    short: 'AI SA',
+    color: 'var(--role-ai)',
+    background: 'rgba(13, 148, 136, 0.14)',
+    border: 'rgba(13, 148, 136, 0.42)',
+  },
+  'Solutions Engineer': {
+    short: 'SE',
+    color: 'var(--role-se)',
+    background: 'rgba(107, 92, 231, 0.15)',
+    border: 'rgba(155, 141, 245, 0.48)',
+  },
+  'Implementation Engineer': {
+    short: 'IE',
+    color: 'var(--role-ie)',
+    background: 'rgba(37, 99, 235, 0.14)',
+    border: 'rgba(37, 99, 235, 0.42)',
+  },
 };
 
-const tabs: Array<{ id: TabId; name: string; icon: React.ComponentType<{ className?: string }> }> = [
-  { id: 'profile', name: 'Profile', icon: User },
-  { id: 'preferences', name: 'Preferences', icon: Settings },
-  { id: 'integrations', name: 'Integrations', icon: Link2 }
-];
+interface ToolGroup {
+  key: string;
+  tool_name: string;
+  tools: OrgTool[];
+  roles: HireRole[];
+  allRoles: boolean;
+  owner_name: string | null;
+  owner_email: string | null;
+  owner_slack_id: string | null;
+  primaryTool: OrgTool;
+}
 
-const integrationCards: IntegrationCard[] = [
-  {
-    provider: 'github',
-    name: 'GitHub',
-    description: 'Install our GitHub App to sync repos and PR context.',
-    icon: <Github className="h-7 w-7 text-white" />
-  },
-  {
-    provider: 'slack',
-    name: 'Slack',
-    description: 'Connect Slack to receive signal alerts in your channel.',
-    icon: <IntegrationLogos provider="slack" size={28} />
-  },
-  {
-    provider: 'atlassian',
-    name: 'Atlassian',
-    description: 'Connect Jira and Confluence. Keep spaces and issues in sync.',
-    icon: <IntegrationLogos provider="atlassian" size={28} />
+function isSettingsTab(value: string | null): value is SettingsTab {
+  return SETTINGS_TABS.includes(value as SettingsTab);
+}
+
+function isHireRole(value: ToolFilter): value is HireRole {
+  return HIRE_ROLES.includes(value as HireRole);
+}
+
+function normalizeToolName(toolName: string) {
+  return toolName.trim().toLowerCase();
+}
+
+function scopeKey(role: HireRole | null) {
+  return role ?? 'all';
+}
+
+function toolHasOwner(tool: Pick<OrgTool, 'owner_name' | 'owner_slack_id'>) {
+  return Boolean(tool.owner_name && tool.owner_slack_id);
+}
+
+function groupOrgTools(tools: OrgTool[]): ToolGroup[] {
+  const groups = new Map<string, ToolGroup>();
+
+  for (const tool of tools) {
+    const key = normalizeToolName(tool.tool_name);
+    if (!key) continue;
+
+    const existing = groups.get(key);
+    if (!existing) {
+      groups.set(key, {
+        key,
+        tool_name: tool.tool_name,
+        tools: [tool],
+        roles: tool.role ? [tool.role] : [],
+        allRoles: tool.role === null,
+        owner_name: tool.owner_name,
+        owner_email: tool.owner_email,
+        owner_slack_id: tool.owner_slack_id,
+        primaryTool: tool,
+      });
+      continue;
+    }
+
+    existing.tools.push(tool);
+    if (tool.role === null) {
+      existing.allRoles = true;
+    } else if (!existing.roles.includes(tool.role)) {
+      existing.roles.push(tool.role);
+    }
+
+    if (!toolHasOwner(existing) && toolHasOwner(tool)) {
+      existing.owner_name = tool.owner_name;
+      existing.owner_email = tool.owner_email;
+      existing.owner_slack_id = tool.owner_slack_id;
+    }
   }
-];
 
-const FALLBACK_TIMEZONES = [
-  'UTC',
-  'America/Los_Angeles',
-  'America/Denver',
-  'America/Chicago',
-  'America/New_York',
-  'Europe/London',
-  'Europe/Berlin',
-  'Asia/Tokyo',
-];
+  return Array.from(groups.values()).sort((a, b) => a.tool_name.localeCompare(b.tool_name));
+}
 
-function resolveBrowserTimeZone(): string {
-  const resolved = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  return typeof resolved === 'string' && resolved.trim().length > 0 ? resolved : 'UTC';
+function groupHasOwner(group: ToolGroup) {
+  return Boolean(group.owner_name && group.owner_slack_id);
+}
+
+function toggleRoleSelection(currentRoles: HireRole[], role: HireRole) {
+  if (currentRoles.includes(role)) return currentRoles.filter((selectedRole) => selectedRole !== role);
+  return [...currentRoles, role];
+}
+
+function selectedRolesLabel(roles: HireRole[]) {
+  if (roles.length === 0) return 'All roles';
+  if (roles.length === 1) return roles[0];
+  return roles.map((role) => ROLE_META[role].short).join(', ');
+}
+
+function RoleMultiSelect({
+  value,
+  onChange,
+}: {
+  value: HireRole[];
+  onChange: (roles: HireRole[]) => void;
+}) {
+  const allRolesSelected = value.length === 0;
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="flex h-9 w-full items-center justify-between gap-2 rounded-[7px] border border-[var(--border-secondary)] bg-[var(--bg-secondary)] px-[10px] py-[6px] type-field text-[var(--text-primary)] transition-colors duration-[120ms] hover:border-[var(--border-secondary)] focus:outline-none focus:border-[var(--canon-purple)] focus:ring-2 focus:ring-[var(--canon-purple)]/25"
+        >
+          <span className="truncate">{selectedRolesLabel(value)}</span>
+          <IconChevronDown size={14} className="flex-shrink-0 text-[var(--text-secondary)]" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] p-1">
+        <button
+          type="button"
+          onClick={() => onChange([])}
+          aria-pressed={allRolesSelected}
+          className={cn(
+            'flex w-full items-center justify-between rounded-md px-3 py-[7px] text-left type-field transition-colors duration-[120ms]',
+            allRolesSelected
+              ? 'bg-[var(--green-bg)] text-[var(--green-text)]'
+              : 'text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]'
+          )}
+        >
+          <span>All roles</span>
+          {allRolesSelected && <IconCheck size={14} />}
+        </button>
+
+        <div className="my-1 h-px bg-[var(--border-tertiary)]" />
+
+        {HIRE_ROLES.map((role) => {
+          const selected = value.includes(role);
+          return (
+            <button
+              key={role}
+              type="button"
+              onClick={() => onChange(toggleRoleSelection(value, role))}
+              aria-pressed={selected}
+              className={cn(
+                'flex w-full items-center justify-between rounded-md px-3 py-[7px] text-left type-field transition-colors duration-[120ms]',
+                selected
+                  ? 'bg-[var(--bg-secondary)] text-[var(--text-primary)]'
+                  : 'text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]'
+              )}
+            >
+              <span>{role}</span>
+              {selected && <IconCheck size={14} style={{ color: ROLE_META[role].color }} />}
+            </button>
+          );
+        })}
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 export function SettingsPageClient({ user: initialUser }: SettingsPageClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const deliveryPreferenceOptions: Array<{
-    value: 'slack_only';
-    label: string;
-    helper: string;
-  }> = [
-      { value: 'slack_only', label: 'Slack', helper: 'Post to your configured Slack channel' },
-    ];
-
-  const [activeTab, setActiveTab] = useState<TabId>('profile');
+  const [activeSetting, setActiveSetting] = useState<SettingsTab>('profile');
   const [user] = useState<SupabaseUser | null>(initialUser);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [debugNote, setDebugNote] = useState<string | null>(null);
   const [disconnectModalOpen, setDisconnectModalOpen] = useState(false);
   const [connectionToDisconnect, setConnectionToDisconnect] = useState<{ connectionId: string; provider: string } | null>(null);
-  const [uninstallOnDisconnect, setUninstallOnDisconnect] = useState(false);
-  const [slackChannel, setSlackChannel] = useState('');
-  const [slackLoading, setSlackLoading] = useState(true);
-  const [slackSaving, setSlackSaving] = useState(false);
-  const [slackMessage, setSlackMessage] = useState('');
-  const [slackError, setSlackError] = useState('');
-  const [deliveryPreference, setDeliveryPreference] = useState<'slack_only'>('slack_only');
-  const [windowDays, setWindowDays] = useState<number>(7);
-  const [timeZone, setTimeZone] = useState<string>(() => resolveBrowserTimeZone());
-  const [timeZoneOptions, setTimeZoneOptions] = useState<string[]>(FALLBACK_TIMEZONES);
-  const [jiraWebhookModalOpen, setJiraWebhookModalOpen] = useState(false);
-  const [jiraSetupData, setJiraSetupData] = useState<JiraSetupData | null>(null);
-  const [jiraSetupLoading, setJiraSetupLoading] = useState(false);
-  const [jiraSetupError, setJiraSetupError] = useState('');
-  const [jiraCopiedField, setJiraCopiedField] = useState<string | null>(null);
+  const [gongModalOpen, setGongModalOpen] = useState(false);
+  const [gongAccessKey, setGongAccessKey] = useState('');
+  const [gongAccessKeySecret, setGongAccessKeySecret] = useState('');
+  const [gongApiBaseUrl, setGongApiBaseUrl] = useState('https://api.gong.io');
 
-  useEffect(() => {
-    const intlWithSupportedValues = Intl as unknown as { supportedValuesOf?: (key: string) => string[] };
-    const supportedValuesOf = intlWithSupportedValues.supportedValuesOf;
-    if (typeof supportedValuesOf !== 'function') return;
-
-    const zones = supportedValuesOf('timeZone');
-    if (!Array.isArray(zones) || zones.length === 0) return;
-
-    const merged = Array.from(new Set([...FALLBACK_TIMEZONES, ...zones]));
-    setTimeZoneOptions(merged);
-  }, []);
+  const [tools, setTools] = useState<OrgTool[]>([]);
+  const [toolsLoading, setToolsLoading] = useState(false);
+  const [addToolOpen, setAddToolOpen] = useState(false);
+  const [addToolSaving, setAddToolSaving] = useState(false);
+  const [toolFilter, setToolFilter] = useState<ToolFilter>('all');
+  const [newTool, setNewTool] = useState({ tool_name: '', roles: [] as HireRole[], owner: null as SlackUser | null });
+  const [editingTool, setEditingTool] = useState<ToolGroup | null>(null);
+  const [editTool, setEditTool] = useState({ tool_name: '', roles: [] as HireRole[], owner: null as SlackUser | null });
+  const [editToolSaving, setEditToolSaving] = useState(false);
+  const [deletingTool, setDeletingTool] = useState<ToolGroup | null>(null);
+  const [deleteToolSaving, setDeleteToolSaving] = useState(false);
 
   const loadConnections = useCallback(async (force = false) => {
     setLoading(true);
     try {
       const data = await getIntegrationsCached(force);
-      // Map IntegrationConnection[] to Connection[] by adding required fields
       const mappedConnections: Connection[] = (data.connections || []).map((conn) => ({
         id: conn.id || conn.connection_id || '',
         provider: conn.provider || '',
@@ -155,177 +280,272 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
         updated_at: (conn.updated_at as string) || new Date().toISOString(),
       }));
       setConnections(mappedConnections);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load connections');
+    } catch {
+      setError('Unable to load your integrations. Please refresh the page.');
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // Get active tab from URL query param
-  useEffect(() => {
-    const tabParam = searchParams.get('tab');
-    const validTabs: TabId[] = ['profile', 'preferences', 'integrations'];
-    if (tabParam && validTabs.includes(tabParam as TabId)) {
-      setActiveTab(tabParam as TabId);
+  const loadTools = useCallback(async () => {
+    setToolsLoading(true);
+    try {
+      const res = await fetch('/api/onboarding/org-tools');
+      const data = (await res.json()) as { tools?: OrgTool[] };
+      setTools(data.tools ?? []);
+    } catch {
+      // non-fatal
+    } finally {
+      setToolsLoading(false);
+    }
+  }, []);
+
+  async function addTool() {
+    if (!newTool.tool_name.trim() || !newTool.owner) return;
+    if (tools.some((tool) => normalizeToolName(tool.tool_name) === normalizeToolName(newTool.tool_name))) {
+      setError(`${newTool.tool_name.trim()} is already configured. Edit the existing tool to change its roles.`);
+      return;
     }
 
-    // Check for URL params (for OAuth callbacks)
+    setAddToolSaving(true);
+    try {
+      const rolesToCreate: Array<HireRole | null> = newTool.roles.length > 0 ? newTool.roles : [null];
+      const responses = await Promise.all(rolesToCreate.map((role) => fetch('/api/onboarding/org-tools', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          tool_name: newTool.tool_name,
+          role,
+          owner_name: newTool.owner?.name ?? null,
+          owner_email: newTool.owner?.email ?? null,
+          owner_slack_id: newTool.owner?.id ?? null,
+        }),
+      })));
+      if (responses.some((res) => !res.ok)) throw new Error('add_tool');
+      setAddToolOpen(false);
+      setNewTool({ tool_name: '', roles: [], owner: null });
+      await loadTools();
+    } catch {
+      setError('Something went wrong adding the tool. Please try again.');
+    } finally {
+      setAddToolSaving(false);
+    }
+  }
+
+  async function confirmDeleteTool() {
+    if (!deletingTool) return;
+    setDeleteToolSaving(true);
+    try {
+      const responses = await Promise.all(
+        deletingTool.tools.map((tool) => fetch(`/api/onboarding/org-tools?id=${tool.id}`, { method: 'DELETE' }))
+      );
+      if (responses.some((res) => !res.ok)) throw new Error('delete_tool');
+      const deletedIds = new Set(deletingTool.tools.map((tool) => tool.id));
+      setTools((prev) => prev.filter((tool) => !deletedIds.has(tool.id)));
+      setDeletingTool(null);
+    } catch {
+      setError('Something went wrong removing the tool. Please try again.');
+    } finally {
+      setDeleteToolSaving(false);
+    }
+  }
+
+  function openEditTool(tool: ToolGroup) {
+    setEditingTool(tool);
+    setEditTool({
+      tool_name: tool.tool_name,
+      roles: tool.allRoles ? [] : tool.roles,
+      owner: tool.owner_slack_id && tool.owner_name
+        ? { id: tool.owner_slack_id, name: tool.owner_name, email: tool.owner_email }
+        : null,
+    });
+  }
+
+  async function updateTool() {
+    if (!editingTool || !editTool.tool_name.trim() || !editTool.owner) return;
+    const normalizedNextName = normalizeToolName(editTool.tool_name);
+    if (tools.some((tool) => (
+      !editingTool.tools.some((groupTool) => groupTool.id === tool.id)
+      && normalizeToolName(tool.tool_name) === normalizedNextName
+    ))) {
+      setError(`${editTool.tool_name.trim()} is already configured. Tool names must be unique.`);
+      return;
+    }
+
+    setEditToolSaving(true);
+    try {
+      const selectedRoles: Array<HireRole | null> = editTool.roles.length > 0 ? editTool.roles : [null];
+      const desiredScopeKeys = new Set(selectedRoles.map(scopeKey));
+      const existingByScope = new Map<string, OrgTool>();
+
+      for (const tool of editingTool.tools) {
+        const key = scopeKey(tool.role);
+        if (!existingByScope.has(key)) existingByScope.set(key, tool);
+      }
+
+      const primaryRole = selectedRoles[0] ?? null;
+      const primaryTool = existingByScope.get(scopeKey(primaryRole)) ?? editingTool.primaryTool;
+      const handledToolIds = new Set<string>([primaryTool.id]);
+      const responses: Response[] = [];
+      const deleteRequests = editingTool.tools
+        .filter((tool) => tool.id !== primaryTool.id && (
+          !desiredScopeKeys.has(scopeKey(tool.role)) || existingByScope.get(scopeKey(tool.role))?.id !== tool.id
+        ))
+        .map((tool) => fetch(`/api/onboarding/org-tools?id=${tool.id}`, { method: 'DELETE' }));
+
+      if (primaryRole === null) {
+        responses.push(...await Promise.all(deleteRequests));
+      }
+
+      responses.push(await fetch('/api/onboarding/org-tools', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          id: primaryTool.id,
+          tool_name: editTool.tool_name,
+          role: primaryRole,
+          owner_name: editTool.owner?.name ?? null,
+          owner_email: editTool.owner?.email ?? null,
+          owner_slack_id: editTool.owner?.id ?? null,
+        }),
+      }));
+
+      if (primaryRole !== null) {
+        responses.push(...await Promise.all(deleteRequests));
+      }
+
+      const createOrPatchRequests = selectedRoles
+        .filter((role) => scopeKey(role) !== scopeKey(primaryRole))
+        .map((role) => {
+          const existingTool = existingByScope.get(scopeKey(role));
+          if (existingTool && !handledToolIds.has(existingTool.id)) {
+            handledToolIds.add(existingTool.id);
+            return fetch('/api/onboarding/org-tools', {
+              method: 'PATCH',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                id: existingTool.id,
+                tool_name: editTool.tool_name,
+                role,
+                owner_name: editTool.owner?.name ?? null,
+                owner_email: editTool.owner?.email ?? null,
+                owner_slack_id: editTool.owner?.id ?? null,
+              }),
+            });
+          }
+
+          return fetch('/api/onboarding/org-tools', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              tool_name: editTool.tool_name,
+              role,
+              owner_name: editTool.owner?.name ?? null,
+              owner_email: editTool.owner?.email ?? null,
+              owner_slack_id: editTool.owner?.id ?? null,
+            }),
+          });
+        });
+
+      responses.push(...await Promise.all(createOrPatchRequests));
+      if (responses.some((response) => !response.ok)) throw new Error('update_tool');
+
+      setEditingTool(null);
+      await loadTools();
+    } catch {
+      setError('Something went wrong saving your changes. Please try again.');
+    } finally {
+      setEditToolSaving(false);
+    }
+  }
+
+  useEffect(() => {
+    const tabParam = searchParams.get('tab');
     const successParam = searchParams.get('success');
     const errorParam = searchParams.get('error');
+
     if (successParam === 'true') {
       const provider = searchParams.get('provider') || 'service';
       setSuccess(`Successfully connected to ${provider}!`);
-      const tab = searchParams.get('tab') || 'integrations';
-      router.replace(`/settings?tab=${tab}`);
-      if (tabParam !== 'integrations') {
-        setActiveTab('integrations');
-      }
-      if (provider === 'atlassian') {
-        setJiraWebhookModalOpen(true);
-      }
-    }
-    const jiraWebhookParam = searchParams.get('jira_webhook');
-    if (jiraWebhookParam === '1' && tabParam === 'integrations') {
-      setJiraWebhookModalOpen(true);
-    }
-    if (errorParam) {
-      setError(decodeURIComponent(errorParam));
-      const provider = searchParams.get('provider') || 'atlassian';
-      setDebugNote(`Last ${provider} error: ${decodeURIComponent(errorParam)}`);
-      const tab = searchParams.get('tab') || 'integrations';
-      router.replace(`/settings?tab=${tab}`);
-      if (tabParam !== 'integrations') {
-        setActiveTab('integrations');
-      }
+      router.replace(`/settings?tab=integrations`);
+      setActiveSetting('integrations');
+      return;
     }
 
-    if (tabParam === 'integrations' || (!tabParam && activeTab === 'integrations')) {
-      loadConnections();
+    if (errorParam) {
+      setError('Something went wrong connecting your integration. Please try again.');
+      router.replace(`/settings?tab=integrations`);
+      setActiveSetting('integrations');
+      return;
     }
-  }, [searchParams, router, activeTab, loadConnections]);
+
+    if (isSettingsTab(tabParam)) {
+      setActiveSetting(tabParam);
+      return;
+    }
+
+    setActiveSetting('profile');
+  }, [searchParams, router]);
 
   useEffect(() => {
     loadConnections();
   }, [loadConnections]);
 
   useEffect(() => {
-    if (!jiraWebhookModalOpen) return;
-    let cancelled = false;
-    setJiraSetupLoading(true);
-    setJiraSetupError('');
-    fetch('/api/webhooks/jira/setup')
-      .then((res) => res.json())
-      .then((data) => {
-        if (cancelled) return;
-        if (data?.error) {
-          setJiraSetupError(data.error || 'Failed to load setup');
-          setJiraSetupData(null);
-          return;
-        }
-        setJiraSetupData({
-          webhookUrl: typeof data.webhookUrl === 'string' ? data.webhookUrl : '',
-          webhookSecret: typeof data.webhookSecret === 'string' ? data.webhookSecret : '',
-          scopes: Array.isArray(data.scopes) ? data.scopes : [],
-          sites: Array.isArray(data.sites) ? data.sites : [],
-        });
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setJiraSetupError(err instanceof Error ? err.message : 'Failed to load setup');
-          setJiraSetupData(null);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setJiraSetupLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [jiraWebhookModalOpen]);
+    if (activeSetting === 'tools') loadTools();
+  }, [activeSetting, loadTools]);
 
-  const copyJiraField = useCallback(async (value: string, field: string) => {
-    if (!value?.trim()) return;
-    try {
-      await navigator.clipboard.writeText(value);
-      setJiraCopiedField(field);
-      setTimeout(() => setJiraCopiedField((c) => (c === field ? null : c)), 1800);
-    } catch { /* ignore */ }
-  }, []);
-
-  const loadDeliverySettings = useCallback(async () => {
-    setSlackLoading(true);
-    try {
-      const response = await fetch('/api/settings/delivery', { credentials: 'include' });
-      if (!response.ok) {
-        throw new Error('Failed to load delivery settings');
-      }
-      const payload = await response.json();
-      const channel = payload?.slack_channel;
-      setSlackChannel(typeof channel === 'string' ? channel : '');
-      setDeliveryPreference('slack_only');
-      if (typeof payload?.baseline_window_days === 'number') {
-        setWindowDays(Math.max(1, Math.min(30, Math.floor(payload.baseline_window_days))));
-      }
-      const resolvedZone =
-        typeof payload?.time_zone === 'string' && payload.time_zone.trim().length > 0
-          ? payload.time_zone.trim()
-          : resolveBrowserTimeZone();
-      setTimeZone(resolvedZone);
-      setTimeZoneOptions((prev) => (prev.includes(resolvedZone) ? prev : [resolvedZone, ...prev]));
-    } catch (err: unknown) {
-      setSlackError(err instanceof Error ? err.message : 'Failed to load delivery settings');
-    } finally {
-      setSlackLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadDeliverySettings();
-  }, [loadDeliverySettings]);
-
-  async function connectToProvider(providerName: string) {
-    const normalizedProvider = canonicalProvider(providerName);
+  async function connectSlack() {
     setConnecting(true);
     setError('');
     setSuccess('');
-    setDebugNote(null);
-
     try {
-      if (normalizedProvider === 'github') {
-        const installUrl = process.env.NEXT_PUBLIC_GITHUB_APP_INSTALL_URL;
-        if (!installUrl) {
-          throw new Error('GitHub App install URL is not configured.');
-        }
-        window.location.href = installUrl;
-        return;
-      }
-      if (normalizedProvider === ATLASSIAN_PROVIDER) {
-        window.location.href = '/api/oauth/confluence/start';
-        return;
-      }
-      if (normalizedProvider === 'slack') {
-        window.location.href = '/api/oauth/slack/start';
-        return;
-      }
-
-      throw new Error(`${getProviderDisplayName(normalizedProvider)} integration is not available yet.`);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to connect');
-      console.error('Connection error:', err);
+      window.location.href = '/api/oauth/slack/start';
+    } catch {
+      setError('Unable to connect Slack right now. Please try again.');
       setConnecting(false);
     }
   }
 
+  async function connectGong() {
+    setConnecting(true);
+    setError('');
+    setSuccess('');
+    try {
+      const response = await fetch('/api/integrations/gong/connect', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          accessKey: gongAccessKey,
+          accessKeySecret: gongAccessKeySecret,
+          apiBaseUrl: gongApiBaseUrl,
+        }),
+      });
+
+      if (!response.ok) throw new Error('gong_connect');
+
+      setSuccess('Successfully connected to Gong');
+      setGongModalOpen(false);
+      setGongAccessKey('');
+      setGongAccessKeySecret('');
+      setGongApiBaseUrl('https://api.gong.io');
+      clearIntegrationsCache();
+      await loadConnections(true);
+    } catch {
+      setError('Unable to connect Gong right now. Please check your credentials and try again.');
+    } finally {
+      setConnecting(false);
+    }
+  }
 
   function openDisconnectModal(connectionId: string, provider: string) {
     setConnectionToDisconnect({ connectionId, provider });
-    setUninstallOnDisconnect(provider === 'github');
     setDisconnectModalOpen(true);
   }
 
   function closeDisconnectModal() {
     setDisconnectModalOpen(false);
     setConnectionToDisconnect(null);
-    setUninstallOnDisconnect(false);
   }
 
   async function disconnect(connectionId: string, provider: string) {
@@ -336,33 +556,14 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
         body: JSON.stringify({ connectionId, provider })
       });
 
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Failed to disconnect');
-      }
+      if (!response.ok) throw new Error('disconnect');
 
-      setSuccess(`Disconnected from ${getProviderDisplayName(provider)}`);
+      setSuccess(`Disconnected from ${providerLabel(provider)}`);
       clearIntegrationsCache();
       await loadConnections(true);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to disconnect');
+    } catch {
+      setError('Something went wrong disconnecting. Please try again.');
     }
-  }
-
-  function getProviderDisplayName(provider: string) {
-    const normalized = canonicalProvider(provider);
-    if (normalized === 'github') return 'GitHub';
-    if (normalized === 'slack') return 'Slack';
-    if (normalized === ATLASSIAN_PROVIDER) return 'Atlassian';
-    return normalized.charAt(0).toUpperCase() + normalized.slice(1);
-  }
-
-  function getProviderName(provider: string) {
-    const normalized = canonicalProvider(provider);
-    if (normalized === 'github') return 'GitHub';
-    if (normalized === 'slack') return 'Slack';
-    if (normalized === ATLASSIAN_PROVIDER) return 'Atlassian';
-    return normalized.charAt(0).toUpperCase() + normalized.slice(1);
   }
 
   function formatDate(dateString: string) {
@@ -373,619 +574,578 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     });
   }
 
-  function setActiveTabAndUpdateUrl(value: string) {
-    const tabId = value as TabId;
-    setActiveTab(tabId);
-    router.push(`/settings?tab=${tabId}`, { scroll: false });
+  function setActiveSettingAndUpdateUrl(value: string) {
+    if (!isSettingsTab(value)) return;
+    setActiveSetting(value);
+    router.push(`/settings?tab=${value}`, { scroll: false });
   }
 
-  // Connection status helpers for integrations tab
-  const gitHubConnection = connections.find(c => c.provider === 'github' && c.status === 'active');
-  const githubInstallationId = (() => {
-    const meta = gitHubConnection?.metadata;
-    if (meta && typeof meta === 'object' && 'installation_id' in meta) {
-      const value = Number((meta as Record<string, unknown>).installation_id);
-      if (Number.isFinite(value) && value > 0) return value;
-    }
-    const fallback = Number(gitHubConnection?.connection_id);
-    return Number.isFinite(fallback) && fallback > 0 ? fallback : null;
-  })();
+  const slackConnection = connections.find(c => c.provider === 'slack' && c.status === 'active');
+  const gongConnection = connections.find(c => c.provider === 'gong' && c.status === 'active');
+  const displayName = (user?.user_metadata?.full_name as string | undefined) ?? user?.email?.split('@')[0] ?? 'User';
 
-  async function saveSlackChannel() {
-    setSlackSaving(true);
-    setSlackMessage('');
-    setSlackError('');
-    try {
-      const response = await fetch('/api/settings/delivery', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          slack_channel: slackChannel.trim() || null,
-          email_digest_enabled: false,
-          email_digest_to: null,
-          delivery_preference: 'slack_only',
-          baseline_window_days: windowDays,
-          time_zone: timeZone,
-        }),
-      });
-
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
-        throw new Error(payload.error || 'Failed to save delivery settings');
-      }
-
-      setSlackMessage('Delivery settings saved.');
-    } catch (err: unknown) {
-      setSlackError(err instanceof Error ? err.message : 'Failed to save delivery settings');
-    } finally {
-      setSlackSaving(false);
-    }
+  function providerLabel(provider: string) {
+    if (provider === 'gong') return 'Gong';
+    if (provider === 'slack') return 'Slack';
+    return provider.charAt(0).toUpperCase() + provider.slice(1);
   }
+
+  function disconnectDescription(provider: string) {
+    if (provider === 'gong') {
+      return 'Canon will stop syncing Gong calls and remove Gong knowledge sources.';
+    }
+    if (provider === 'slack') {
+      return 'Canon will no longer be able to send DMs or sync Slack channel knowledge.';
+    }
+    return 'Canon will remove connected knowledge sources for this integration.';
+  }
+
+  const integrations = [
+    {
+      id: 'slack',
+      provider: 'slack' as const,
+      name: 'Slack',
+      description: 'Send onboarding DMs and sync channel knowledge.',
+      iconBg: 'var(--slack-bg)',
+      iconColor: 'var(--slack-text)',
+      connected: !!slackConnection,
+      workspace: slackConnection ? `Connected ${formatDate(slackConnection.created_at)}` : '',
+      action: slackConnection ? () => openDisconnectModal(slackConnection.connection_id, 'slack') : connectSlack,
+    },
+    {
+      id: 'gong',
+      provider: 'gong' as const,
+      name: 'Gong',
+      description: 'Sync customer call transcripts as onboarding knowledge.',
+      iconBg: 'var(--gong-bg)',
+      iconColor: 'var(--gong-text)',
+      connected: !!gongConnection,
+      workspace: gongConnection ? `Connected ${formatDate(gongConnection.created_at)}` : '',
+      action: gongConnection ? () => openDisconnectModal(gongConnection.connection_id, 'gong') : () => setGongModalOpen(true),
+    },
+  ];
+
+  function renderProfile() {
+    return (
+      <div className="max-w-2xl">
+        <Card className="mb-4 flex items-center gap-[14px] px-[18px] py-4">
+          <Avatar name={user?.email ?? 'User'} size="lg" />
+          <div>
+            <div className="type-card-title" style={{ color: 'var(--text-primary)' }}>{displayName}</div>
+            <div className="type-page-subtitle mt-[2px]" style={{ color: 'var(--text-secondary)' }}>{user?.email || 'Not Available'}</div>
+            <div className="type-caption mt-[2px] font-mono" style={{ color: 'var(--text-tertiary)' }}>{user?.id || 'N/A'}</div>
+          </div>
+        </Card>
+
+        {[
+          { label: 'Display Name', value: displayName, hint: 'This is shown inside Canon.' },
+          { label: 'Email', value: user?.email || '', hint: 'Email is managed by your authentication provider.' },
+        ].map((field) => (
+          <div key={field.label} className="mb-[14px]">
+            <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
+              {field.label}
+            </label>
+            <Input
+              value={field.value}
+              readOnly
+            />
+            <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>{field.hint}</p>
+          </div>
+        ))}
+        <div className="flex justify-end mt-1"><Button>Save Changes</Button></div>
+      </div>
+    );
+  }
+
+  function renderIntegrations() {
+    return (
+      <div className="max-w-3xl">
+        {success && (
+          <Alert variant="success" className="mb-4 type-body-strong">
+            {success}
+          </Alert>
+        )}
+        {error && (
+          <Alert variant="destructive" className="mb-4 type-body-strong">
+            {error}
+          </Alert>
+        )}
+
+        {integrations.map((int) => {
+          return (
+          <Card key={int.id} className="mb-[10px] flex items-center gap-[14px] px-4 py-[14px]">
+            <div className="w-9 h-9 rounded-[9px] flex items-center justify-center flex-shrink-0" style={{ backgroundColor: int.iconBg, color: int.iconColor }}>
+              <IntegrationLogos provider={int.provider} size={22} color={int.iconColor} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="type-section-title" style={{ color: 'var(--text-primary)' }}>{int.name}</div>
+              <div className="type-body mt-[2px]" style={{ color: 'var(--text-secondary)' }}>{int.description}</div>
+              <div className="flex items-center gap-[5px] mt-1">
+                <div className="w-[6px] h-[6px] rounded-full" style={{ backgroundColor: int.connected ? 'var(--green)' : 'var(--border-secondary)' }} />
+                <span className="type-caption" style={{ color: int.connected ? 'var(--green-text)' : 'var(--text-tertiary)' }}>
+                  {int.connected ? `Active · ${int.workspace}` : 'Not Connected'}
+                </span>
+              </div>
+            </div>
+            {int.connected ? (
+              <Button variant="destructive" onClick={int.action}>Disconnect</Button>
+            ) : (
+              <Button variant="secondary" onClick={int.action} disabled={connecting}>
+                {connecting ? <IconLoader2 size={13} className="animate-spin" /> : <IconPlug size={13} />}
+                Connect
+              </Button>
+            )}
+          </Card>
+          );
+        })}
+
+        {loading && (
+          <div className="flex items-center gap-2 type-body" style={{ color: 'var(--text-tertiary)' }}>
+            <IconLoader2 size={14} className="animate-spin" /> Loading Integration Status...
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function renderTools() {
+    const toolGroups = groupOrgTools(tools);
+    const roleSpecificCount = toolGroups.filter((group) => !group.allRoles).length;
+    const unownedCount = toolGroups.filter((group) => !groupHasOwner(group)).length;
+    const filterOptions: Array<{ id: ToolFilter; label: string; count: number }> = [
+      { id: 'all', label: 'All tools', count: toolGroups.length },
+      { id: 'all_roles', label: 'All roles', count: toolGroups.filter((group) => group.allRoles).length },
+      ...HIRE_ROLES.map((role) => ({
+        id: role,
+        label: ROLE_META[role].short,
+        count: toolGroups.filter((group) => group.allRoles || group.roles.includes(role)).length,
+      })),
+      { id: 'unowned', label: 'Needs owner', count: unownedCount },
+    ];
+    const filteredTools = toolGroups.filter((tool) => {
+      if (toolFilter === 'all') return true;
+      if (toolFilter === 'all_roles') return tool.allRoles;
+      if (toolFilter === 'unowned') return !groupHasOwner(tool);
+      if (isHireRole(toolFilter)) return tool.allRoles || tool.roles.includes(toolFilter);
+      return true;
+    });
+
+    return (
+      <div className="max-w-5xl">
+        <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="max-w-2xl">
+            <div className="type-section-title" style={{ color: 'var(--text-primary)' }}>
+              Tool access registry
+            </div>
+            <p className="type-body mt-[3px]" style={{ color: 'var(--text-secondary)' }}>
+              Configure the tools new hires need, the role scope, and the owner who can grant access.
+            </p>
+          </div>
+          <Button onClick={() => setAddToolOpen(true)} className="flex-shrink-0">
+            <IconPlus size={13} />
+            Add Tool
+          </Button>
+        </div>
+
+        {toolsLoading ? (
+          <div className="flex items-center gap-2 type-body" style={{ color: 'var(--text-tertiary)' }}>
+            <IconLoader2 size={14} className="animate-spin" /> Loading Tools...
+          </div>
+        ) : toolGroups.length === 0 ? (
+          <Card className="px-5 py-8 text-center">
+            <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No tools configured</div>
+            <div className="type-body mt-2" style={{ color: 'var(--text-tertiary)' }}>
+              Add the tools each role needs access to and assign an owner who can grant it. Canon will prompt new hires and notify owners automatically.
+            </div>
+          </Card>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              {filterOptions.map((option) => {
+                const selected = toolFilter === option.id;
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => setToolFilter(option.id)}
+                    className={cn(
+                      'inline-flex h-7 items-center gap-2 rounded-full border px-3 type-control-sm transition-colors duration-[120ms]',
+                      selected ? 'filter-chip-selected' : 'filter-chip'
+                    )}
+                    aria-pressed={selected}
+                  >
+                    <span>{option.label}</span>
+                    <span
+                      className="rounded-full px-[6px] py-[1px] type-caption"
+                      style={{
+                        backgroundColor: selected ? 'var(--canon-purple-light)' : 'var(--bg-primary)',
+                        color: selected ? 'var(--text-primary)' : 'var(--text-tertiary)',
+                      }}
+                    >
+                      {option.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <Card className="overflow-hidden">
+              <div className="overflow-x-auto">
+                <div className="min-w-[760px]">
+                  <div
+                    className="grid grid-cols-[minmax(220px,1.35fr)_minmax(170px,0.75fr)_minmax(230px,1fr)_78px] items-center border-b px-4 py-[9px] type-kicker"
+                    style={{ borderColor: 'var(--border-tertiary)', color: 'var(--text-tertiary)' }}
+                  >
+                    <div>Tool</div>
+                    <div>Scope</div>
+                    <div>Owner</div>
+                    <div className="text-right">Actions</div>
+                  </div>
+
+                  {filteredTools.length === 0 ? (
+                    <div className="px-5 py-8 text-center">
+                      <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>
+                        No matching tools
+                      </div>
+                      <div className="type-body mt-2" style={{ color: 'var(--text-tertiary)' }}>
+                        Try a different role filter or add another tool.
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="overflow-y-auto" style={{ maxHeight: 'min(560px, calc(100vh - 320px))' }}>
+                      {filteredTools.map((tool) => {
+                        const ownerLabel = tool.owner_name || 'Owner required';
+
+                        return (
+                          <div
+                            key={tool.key}
+                            className="grid min-h-[58px] grid-cols-[minmax(220px,1.35fr)_minmax(170px,0.75fr)_minmax(230px,1fr)_78px] items-center border-b px-4 py-[9px] transition-colors duration-[120ms] last:border-b-0 hover:bg-[var(--bg-secondary)]"
+                            style={{ borderColor: 'var(--border-tertiary)' }}
+                          >
+                            <div className="flex min-w-0 items-center gap-3">
+                              <ToolLogo toolName={tool.tool_name} size={16} containerSize={32} borderRadius={8} />
+                              <div className="min-w-0">
+                                <div className="truncate type-card-title" style={{ color: 'var(--text-primary)' }}>
+                                  {tool.tool_name}
+                                </div>
+                                <div className="type-caption" style={{ color: 'var(--text-tertiary)' }}>
+                                  {tool.allRoles ? 'Shared access requirement' : 'Role-specific access'}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex flex-wrap gap-1">
+                              {tool.allRoles ? (
+                                <span
+                                  className="inline-flex items-center rounded-full border px-2 py-[3px] type-caption font-medium"
+                                  style={{
+                                    backgroundColor: 'var(--green-bg)',
+                                    borderColor: 'var(--green-border)',
+                                    color: 'var(--green-text)',
+                                  }}
+                                >
+                                  All roles
+                                </span>
+                              ) : (
+                                tool.roles.map((role) => {
+                                  const roleMeta = ROLE_META[role];
+                                  return (
+                                    <span
+                                      key={role}
+                                      className="inline-flex items-center rounded-full border px-2 py-[3px] type-caption font-medium"
+                                      style={{
+                                        backgroundColor: roleMeta.background,
+                                        borderColor: roleMeta.border,
+                                        color: roleMeta.color,
+                                      }}
+                                    >
+                                      {roleMeta.short}
+                                    </span>
+                                  );
+                                })
+                              )}
+                            </div>
+
+                            <div className="min-w-0">
+                              <div
+                                className="truncate type-body-strong"
+                                style={{ color: groupHasOwner(tool) ? 'var(--text-primary)' : 'var(--amber-text)' }}
+                              >
+                                {ownerLabel}
+                              </div>
+                            </div>
+
+                            <div className="flex justify-end gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="border-transparent"
+                                aria-label={`Edit ${tool.tool_name}`}
+                                onClick={() => openEditTool(tool)}
+                              >
+                                <IconPencil size={14} />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="border-transparent hover:text-[var(--red-text)]"
+                                aria-label={`Remove ${tool.tool_name}`}
+                                onClick={() => setDeletingTool(tool)}
+                              >
+                                <IconX size={14} />
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </Card>
+
+            <div className="flex flex-wrap gap-3 type-caption" style={{ color: 'var(--text-tertiary)' }}>
+              <span>{toolGroups.length} total</span>
+              <span>{roleSpecificCount} role-specific</span>
+              <span>{unownedCount} missing owner</span>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function renderPlaceholder(label: string) {
+    return (
+      <Card className="max-w-2xl px-5 py-8 text-center">
+        <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>{label}</div>
+        <div className="type-body mt-2" style={{ color: 'var(--text-tertiary)' }}>This settings section is ready for configuration content.</div>
+      </Card>
+    );
+  }
+
+  const configuredToolNames = groupOrgTools(tools).map((group) => group.tool_name);
+  const editUnavailableToolNames = configuredToolNames.filter((toolName) => normalizeToolName(toolName) !== editingTool?.key);
+  const newToolAlreadyConfigured = Boolean(newTool.tool_name.trim())
+    && configuredToolNames.some((toolName) => normalizeToolName(toolName) === normalizeToolName(newTool.tool_name));
+  const editToolNameConflict = Boolean(editTool.tool_name.trim())
+    && editUnavailableToolNames.some((toolName) => normalizeToolName(toolName) === normalizeToolName(editTool.tool_name));
 
   return (
     <>
-      <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mb-8">
-          <div className="flex items-center gap-3 mb-2">
-            <Settings className="h-8 w-8 text-white" />
-            <h1 className="text-3xl font-bold text-white">Settings</h1>
-          </div>
-          <p className="text-white/70">
-            Manage your account settings and integrations.
-          </p>
+      <div className="flex h-full flex-col overflow-hidden">
+        <div className="surface-divider px-6 pt-5 pb-4 border-b">
+          <h1 className="type-page-title" style={{ color: 'var(--text-primary)' }}>Settings</h1>
+          <p className="type-page-subtitle mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>Manage Your Account and Workspace Connections</p>
         </div>
 
-        {/* Tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTabAndUpdateUrl} className="mb-8">
-          <TabsList className="bg-zinc-800 border border-white/10">
-            {tabs.map(tab => {
-              const Icon = tab.icon;
-              return (
-                <TabsTrigger key={tab.id} value={tab.id} className="flex items-center gap-2 data-[state=active]:bg-white/10 data-[state=active]:text-white">
-                  <Icon className="h-4 w-4" />
-                  {tab.name}
-                </TabsTrigger>
-              );
-            })}
-          </TabsList>
-          <TabsContent value="profile" className="mt-6">
-            {/* Profile Tab */}
-            <div>
-              <div className="mb-6">
-                <h2 className="text-2xl font-semibold text-white mb-2">Profile</h2>
-                <p className="text-white/70">Manage your account information</p>
-              </div>
-
-              <div className="rounded-xl border border-white/10 bg-zinc-800 p-6 backdrop-blur-sm">
-                <div className="space-y-6">
-                  <div className="flex items-center gap-4">
-                    <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white/10">
-                      <User className="h-8 w-8 text-white/70" />
-                    </div>
-                    <div>
-                      <p className="text-lg font-semibold text-white">{user?.email || 'User'}</p>
-                      <p className="text-sm text-white/60">Account ID: {user?.id || 'N/A'}</p>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-white/80 mb-2">
-                        <Mail className="inline h-4 w-4 mr-2" />
-                        Email Address
-                      </label>
-                      <div className="rounded-lg border border-white/10 bg-zinc-800 px-4 py-3 text-white">
-                        {initialUser?.email || 'Not available'}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="pt-4 border-t border-white/10">
-                    <p className="text-sm text-white/60">
-                      Profile management features coming soon. For now, your account information is managed through authentication.
-                    </p>
-                  </div>
+        <div className="flex flex-1 overflow-hidden">
+          <div className="split-sidebar w-[180px] flex-shrink-0 py-5 overflow-y-auto border-r">
+            {settingSections.map(({ section, items }) => (
+              <div key={section}>
+                <div className="type-kicker px-4 pt-[10px] pb-1" style={{ color: 'var(--text-tertiary)' }}>
+                  {section}
                 </div>
-              </div>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="preferences" className="mt-6">
-            {/* Preferences Tab */}
-            <div className="space-y-6">
-              <div className="mb-6">
-                <h2 className="text-2xl font-semibold text-white mb-2">Preferences</h2>
-                <p className="text-white/70">
-                  Configure alert delivery and default signal analysis behavior.
-                </p>
-              </div>
-
-              <div className="space-y-4">
-                <div className="rounded-xl border border-white/10 bg-zinc-800 p-6 backdrop-blur-sm space-y-5">
-                  <div>
-                    <h3 className="text-lg font-semibold text-white">Alert Delivery</h3>
-                    <p className="text-sm text-white/65">
-                      Choose where daily signal alerts should go and set delivery destinations.
-                    </p>
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2 text-sm font-medium text-white/80">
-                      <span>Delivery Preference</span>
-                      <TooltipProvider delayDuration={120}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Info className="h-4 w-4 cursor-help text-white/60" />
-                          </TooltipTrigger>
-                          <TooltipContent side="top" className="max-w-xs leading-relaxed">
-                            Alerts are currently delivered through Slack.
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </div>
-                    <Select
-                      value={deliveryPreference}
-                      onValueChange={(value) =>
-                        setDeliveryPreference(value === 'slack_only' ? value : 'slack_only')
-                      }
-                      disabled={slackLoading}
-                    >
-                      <SelectTrigger className="w-full border-white/20 bg-white/5 text-white">
-                        <SelectValue placeholder="Choose how alerts are delivered" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-black/90 text-white">
-                        {deliveryPreferenceOptions.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2 text-sm font-medium text-white/80">
-                      <span>Slack Channel ID</span>
-                      <TooltipProvider delayDuration={120}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Info className="h-4 w-4 cursor-help text-white/60" />
-                          </TooltipTrigger>
-                          <TooltipContent side="top" className="max-w-xs leading-relaxed">
-                            Enter the Slack channel for alerts. Use a channel ID like C0123456789. For private channels, invite the app first.
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </div>
-                    <Input
-                      placeholder="Find your channel ID in Slack channel settings"
-                      value={slackChannel}
-                      onChange={(event) => setSlackChannel(event.target.value)}
-                      disabled={slackLoading}
-                      className="mt-1"
-                    />
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-white/10 bg-zinc-800 p-6 backdrop-blur-sm space-y-5">
-                  <div>
-                    <h3 className="text-lg font-semibold text-white">Signal Defaults</h3>
-                    <p className="text-sm text-white/65">
-                      Set workspace defaults used when rendering signal windows.
-                    </p>
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2 text-sm font-medium text-white/80">
-                      <span>Time Zone</span>
-                      <TooltipProvider delayDuration={120}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Info className="h-4 w-4 cursor-help text-white/60" />
-                          </TooltipTrigger>
-                          <TooltipContent side="top" className="max-w-xs leading-relaxed">
-                            Sets your workspace local time for daily alert timing and date-based views.
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </div>
-                    <Select
-                      value={timeZone}
-                      onValueChange={(value) => setTimeZone(value)}
-                      disabled={slackLoading}
-                    >
-                      <SelectTrigger className="w-full border-white/20 bg-white/5 text-white">
-                        <SelectValue placeholder="Choose a time zone" />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-72 bg-black/90 text-white">
-                        {timeZoneOptions.map((zone) => (
-                          <SelectItem key={zone} value={zone}>
-                            {zone}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2 text-sm font-medium text-white/80">
-                      <span>Signal Lookback Days</span>
-                      <TooltipProvider delayDuration={120}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Info className="h-4 w-4 cursor-help text-white/60" />
-                          </TooltipTrigger>
-                          <TooltipContent side="top" className="max-w-xs leading-relaxed">
-                            Number of previous full days shown in Signals. Baseline uses the same number of days immediately before. Range: 1-30.
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </div>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={30}
-                      value={windowDays}
-                      onChange={(event) =>
-                        setWindowDays(Math.max(1, Math.min(30, Number(event.target.value) || 1)))
-                      }
-                      className="w-28 border-white/20 bg-white/5 text-white"
-                    />
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-white/10 bg-zinc-800 p-6 backdrop-blur-sm space-y-4">
-                  {slackError ? <p className="text-xs text-red-300">{slackError}</p> : null}
-                  {slackMessage ? <p className="text-xs text-emerald-300">{slackMessage}</p> : null}
-
-                  <div className="flex items-center gap-3">
-                    <Button
-                      onClick={saveSlackChannel}
-                      disabled={slackSaving || slackLoading}
-                      className="bg-blue-600 text-white hover:bg-blue-700"
-                    >
-                      {slackSaving ? (
-                        <span className="flex items-center gap-2">
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          Saving...
-                        </span>
-                      ) : (
-                        'Save Preferences'
+                {items.map((item) => {
+                  const Icon = item.icon;
+                  const danger = 'danger' in item && item.danger;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setActiveSettingAndUpdateUrl(item.id)}
+                      className={cn(
+                        'flex w-[calc(100%-16px)] items-center gap-2 px-4 py-[7px] text-left type-nav mx-2 rounded-[5px] cursor-pointer border border-transparent transition-colors duration-[120ms]',
+                        activeSetting === item.id && 'nav-item-selected'
                       )}
-                    </Button>
-                  </div>
-                </div>
+                      style={{
+                        color: danger ? 'var(--red-text)' : activeSetting === item.id ? 'var(--text-primary)' : 'var(--text-secondary)',
+                        fontWeight: activeSetting === item.id ? 500 : 400,
+                      }}
+                    >
+                      <Icon size={14} />
+                      {item.label}
+                    </button>
+                  );
+                })}
               </div>
-            </div>
-          </TabsContent>
+            ))}
+          </div>
 
-          <TabsContent value="integrations" className="mt-6">
-            {/* Integrations Tab */}
-            <div>
-              {/* Success/Error Messages */}
-              {success && (
-                <div className="mb-6 rounded-lg border border-green-500/50 bg-green-500/10 p-4 text-green-200">
-                  <div className="flex items-center gap-2">
-                    <Check className="h-5 w-5" />
-                    <p>{success}</p>
-                  </div>
-                </div>
-              )}
-
-              {error && (
-                <div className="mb-6 rounded-lg border border-red-500/50 bg-red-500/10 p-4 text-red-200">
-                  <p className="font-medium">Error</p>
-                  <p className="text-sm">{error}</p>
-                </div>
-              )}
-              {debugNote && (
-                <div className="mb-6 rounded-lg border border-blue-500/50 bg-blue-500/10 p-4 text-blue-100">
-                  <p className="text-sm">{debugNote}</p>
-                </div>
-              )}
-
-              {/* Integrations */}
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="text-xl font-semibold text-white">Integrations</h2>
-                    <p className="text-sm text-white/60">Connect the tools you use; view and manage them in one list.</p>
-                  </div>
-                  {loading && (
-                    <span className="flex items-center gap-2 text-sm text-white/60">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Refreshing
-                    </span>
-                  )}
-                </div>
-
-                <div className="space-y-3">
-                  {integrationCards.map(card => {
-                    const connection = connections.find(c => c.provider === card.provider);
-                    const connected = connection?.status === 'active';
-                    const connectedOn = connection?.created_at ? formatDate(connection.created_at) : null;
-
-                    return (
-                      <div
-                        key={card.provider}
-                        className="rounded-lg border border-white/10 bg-zinc-800 p-4 backdrop-blur-sm flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
-                      >
-                        <div className="flex items-start gap-3">
-                          <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white/5">
-                            {card.icon}
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <h3 className="text-lg font-semibold text-white">{card.name}</h3>
-                              {connected && (
-                                <span className="flex items-center gap-1 rounded-full bg-green-500/20 px-2 py-0.5 text-[11px] text-green-300">
-                                  <Check className="h-3 w-3" />
-                                  Connected
-                                </span>
-                              )}
-                              {card.comingSoon && !connected && (
-                                <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-white/60">
-                                  Coming soon
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-sm text-white/60">{card.description}</p>
-                            {connectedOn && (
-                              <p className="mt-1 text-xs text-white/50">Connected {connectedOn}</p>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end sm:gap-3 w-full sm:w-auto">
-                          {connected ? (
-                            <>
-                              {card.provider === ATLASSIAN_PROVIDER && (
-                                <Button
-                                  onClick={() => setJiraWebhookModalOpen(true)}
-                                  variant="secondary"
-                                  className="w-full sm:w-auto border-white/20 bg-white/10 text-white hover:bg-white/20"
-                                >
-                                  Configure Jira webhook
-                                </Button>
-                              )}
-                              {card.provider === 'github' && (
-                                <Button
-                                  onClick={() => {
-                                    if (githubInstallationId) {
-                                      window.open(`https://github.com/settings/installations/${githubInstallationId}`, '_blank', 'noopener');
-                                      return;
-                                    }
-                                    const installUrl = process.env.NEXT_PUBLIC_GITHUB_APP_INSTALL_URL;
-                                    if (installUrl) {
-                                      window.open(installUrl, '_blank', 'noopener');
-                                    } else {
-                                      setError('GitHub App install URL is not configured.');
-                                    }
-                                  }}
-                                  variant="secondary"
-                                  className="w-full sm:w-auto border-white/20 bg-white/10 text-white hover:bg-white/20"
-                                >
-                                  Manage installation
-                                </Button>
-                              )}
-                              <Button
-                                onClick={() => {
-                                  if (connection) openDisconnectModal(connection.connection_id, card.provider);
-                                }}
-                                variant="secondary"
-                                className="w-full sm:w-auto border-red-500/50 bg-red-500/10 text-red-200 hover:bg-red-500/20"
-                              >
-                                Disconnect
-                              </Button>
-                            </>
-                          ) : !card.comingSoon ? (
-                            <Button
-                              onClick={() => connectToProvider(card.provider)}
-                              disabled={connecting}
-                              className="w-full sm:w-auto bg-blue-600 text-white hover:bg-blue-700"
-                            >
-                              {connecting ? (
-                                <span className="flex items-center justify-center gap-2">
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                  Connecting...
-                                </span>
-                              ) : (
-                                <span className="flex items-center justify-center gap-2">
-                                  <Link2 className="h-4 w-4" />
-                                  {`Connect ${card.name}`}
-                                </span>
-                              )}
-                            </Button>
-                          ) : (
-                            <div className="flex items-center gap-2 text-sm text-white/50">
-                              <Loader2 className="h-4 w-4 animate-spin text-white/40" />
-                              <span>Coming soon</span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          </TabsContent>
-        </Tabs>
+          <div className="surface-page flex-1 overflow-y-auto px-7 py-6">
+            {activeSetting === 'profile' && renderProfile()}
+            {activeSetting === 'integrations' && renderIntegrations()}
+            {activeSetting === 'tools' && renderTools()}
+            {activeSetting === 'delete' && renderPlaceholder('Delete Account')}
+            {activeSetting === 'org' && renderPlaceholder('Organization')}
+            {activeSetting === 'notifications' && renderPlaceholder('Notifications')}
+            {activeSetting === 'apikeys' && renderPlaceholder('API Keys')}
+          </div>
+        </div>
       </div>
 
-      {/* Jira Webhook Setup Modal */}
-      <Dialog open={jiraWebhookModalOpen} onOpenChange={setJiraWebhookModalOpen}>
-        <DialogContent className="max-w-lg grid grid-rows-[auto_minmax(0,1fr)]">
+      <Dialog open={deletingTool !== null} onOpenChange={(open) => !open && setDeletingTool(null)}>
+        <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
           <DialogHeader>
-            <DialogTitle>Configure Jira webhook</DialogTitle>
-            <DialogDescription className="text-white/70">
-              Add a webhook in your Jira site admin (Settings → System → WebHooks) using the values below. Then add Jira sources on the Sources page.
+            <DialogTitle>Remove Tool</DialogTitle>
+            <DialogDescription>
+              Remove <strong>{deletingTool?.tool_name}</strong> from your tool list? This won&apos;t affect access requests already created for existing hires.
             </DialogDescription>
           </DialogHeader>
-          <div className="min-h-0 overflow-y-auto space-y-4 pt-2">
-            {jiraSetupLoading && (
-              <div className="space-y-4">
-                <div>
-                  <Skeleton className="mb-1.5 h-3 w-24 rounded bg-white/15" />
-                  <div className="flex gap-2">
-                    <Skeleton className="h-9 flex-1 rounded border border-white/10 bg-white/10" />
-                    <Skeleton className="h-9 w-16 shrink-0 rounded" />
-                  </div>
-                </div>
-                <div>
-                  <Skeleton className="mb-1.5 h-3 w-28 rounded bg-white/15" />
-                  <div className="flex gap-2">
-                    <Skeleton className="h-9 flex-1 rounded border border-white/10 bg-white/10" />
-                    <Skeleton className="h-9 w-16 shrink-0 rounded" />
-                  </div>
-                </div>
-                <div>
-                  <Skeleton className="mb-1.5 h-3 w-32 rounded bg-white/15" />
-                  <ul className="mt-2 space-y-1.5">
-                    <Skeleton className="h-4 w-full max-w-xs rounded" />
-                    <Skeleton className="h-4 w-4/5 max-w-sm rounded" />
-                    <Skeleton className="h-4 w-3/4 max-w-[10rem] rounded" />
-                  </ul>
-                </div>
-                <div className="space-y-2">
-                  <Skeleton className="h-3 w-36 rounded bg-white/15" />
-                  <Skeleton className="h-4 w-full max-w-md rounded" />
-                  <div className="flex gap-2">
-                    <Skeleton className="h-9 flex-1 rounded" />
-                    <Skeleton className="h-9 w-16 shrink-0 rounded" />
-                  </div>
-                </div>
-              </div>
-            )}
-            {jiraSetupError && (
-              <p className="text-sm text-red-300">{jiraSetupError}</p>
-            )}
-            {jiraSetupData && !jiraSetupLoading && (
-              <>
-                <div>
-                  <p className="mb-1 text-xs font-medium uppercase tracking-wide text-white/60">Webhook URL</p>
-                  <div className="flex gap-2">
-                    <code className="flex-1 truncate rounded border border-white/10 bg-black/30 px-2 py-1.5 text-xs text-white">
-                      {jiraSetupData.webhookUrl}
-                    </code>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="shrink-0 border-white/20 text-white hover:bg-white/10"
-                      onClick={() => copyJiraField(jiraSetupData.webhookUrl, 'url')}
-                    >
-                      {jiraCopiedField === 'url' ? <ClipboardCheck className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                      {jiraCopiedField === 'url' ? 'Copied' : 'Copy'}
-                    </Button>
-                  </div>
-                </div>
-                <div>
-                  <p className="mb-1 text-xs font-medium uppercase tracking-wide text-white/60">Webhook secret</p>
-                  <div className="flex gap-2">
-                    <code className="flex-1 rounded border border-white/10 bg-black/30 px-2 py-1.5 text-xs text-white">
-                      •••••••••••••••••
-                    </code>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="shrink-0 border-white/20 text-white hover:bg-white/10"
-                      onClick={() => copyJiraField(jiraSetupData.webhookSecret, 'secret')}
-                    >
-                      {jiraCopiedField === 'secret' ? <ClipboardCheck className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                      {jiraCopiedField === 'secret' ? 'Copied' : 'Copy'}
-                    </Button>
-                  </div>
-                </div>
-                <div>
-                  <p className="mb-1 text-xs font-medium uppercase tracking-wide text-white/60">Scopes (enable in Jira)</p>
-                  <ul className="list-inside list-disc text-sm text-white/80">
-                    {jiraSetupData.scopes.map((scope) => (
-                      <li key={scope}>{scope}</li>
-                    ))}
-                  </ul>
-                </div>
-                {jiraSetupData.sites.length > 0 && (
-                  <div className="space-y-2">
-                    <p className="text-xs font-medium uppercase tracking-wide text-white/60">Recommended JQL</p>
-                    {jiraSetupData.sites.map((site) => (
-                      <div key={site.id}>
-                        <p className="mb-1 text-sm font-medium text-white">{site.name}</p>
-                        <div className="flex gap-2">
-                          <code className="flex-1 truncate rounded border border-white/10 bg-black/30 px-2 py-1.5 text-xs text-white">
-                            {site.jql || `project in (${site.projectKeys.join(', ') || '…'})`}
-                          </code>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="shrink-0 border-white/20 text-white hover:bg-white/10"
-                            onClick={() => copyJiraField(site.jql || '', `jql-${site.id}`)}
-                            disabled={!site.jql}
-                          >
-                            {jiraCopiedField === `jql-${site.id}` ? <ClipboardCheck className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                            {jiraCopiedField === `jql-${site.id}` ? 'Copied' : 'Copy'}
-                          </Button>
-                        </div>
-                        {site.projectKeys.length > 0 && (
-                          <p className="mt-1 text-xs text-white/50">Projects: {site.projectKeys.join(', ')}</p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setDeletingTool(null)} disabled={deleteToolSaving}>Cancel</Button>
+            <Button variant="destructive" onClick={() => void confirmDeleteTool()} disabled={deleteToolSaving}>
+              {deleteToolSaving ? <IconLoader2 size={13} className="animate-spin" /> : null}
+              Remove Tool
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Disconnect Confirmation Modal */}
-      <Dialog open={disconnectModalOpen && connectionToDisconnect !== null} onOpenChange={(open) => !open && closeDisconnectModal()}>
-        <DialogContent className="max-w-md">
+      <Dialog open={editingTool !== null} onOpenChange={(open) => !open && setEditingTool(null)}>
+        <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
           <DialogHeader>
-            <DialogTitle>Disconnect Integration</DialogTitle>
+            <DialogTitle>Edit Tool</DialogTitle>
+            <DialogDescription>Update the tool details and required Slack owner.</DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-3">
+            <div>
+              <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
+                Tool Name <span style={{ color: 'var(--red-text)' }}>*</span>
+              </label>
+              <ToolNameCombobox
+                value={editTool.tool_name}
+                onChange={(toolName) => setEditTool((p) => ({ ...p, tool_name: toolName }))}
+                unavailableToolNames={editUnavailableToolNames}
+              />
+              {editToolNameConflict && (
+                <p className="type-caption mt-1" style={{ color: 'var(--amber-text)' }}>This tool is already configured.</p>
+              )}
+            </div>
+            <div>
+              <div className="mb-[5px] flex items-center justify-between gap-3">
+                <label className="block type-body font-medium" style={{ color: 'var(--text-secondary)' }}>Roles</label>
+                <span className="type-caption" style={{ color: 'var(--text-tertiary)' }}>{selectedRolesLabel(editTool.roles)}</span>
+              </div>
+              <RoleMultiSelect
+                value={editTool.roles}
+                onChange={(roles) => setEditTool((p) => ({ ...p, roles }))}
+              />
+              <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>Select multiple roles, or use All roles for a shared requirement.</p>
+            </div>
+            <div>
+              <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
+                Owner <span style={{ color: 'var(--red-text)' }}>*</span>
+              </label>
+              <SlackUserPicker
+                value={editTool.owner}
+                onChange={(user) => setEditTool((p) => ({ ...p, owner: user }))}
+                placeholder="Search workspace members..."
+              />
+              <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>Canon will DM this Slack owner when a new hire needs access.</p>
+            </div>
+            {editTool.owner && (
+              <div>
+                <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>Owner Slack ID</label>
+                <Input value={editTool.owner.id} readOnly />
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setEditingTool(null)} disabled={editToolSaving}>Cancel</Button>
+            <Button onClick={() => void updateTool()} disabled={editToolSaving || !editTool.tool_name.trim() || !editTool.owner || editToolNameConflict}>
+              {editToolSaving ? <IconLoader2 size={13} className="animate-spin" /> : <IconPencil size={13} />}
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={addToolOpen} onOpenChange={setAddToolOpen}>
+        <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
+          <DialogHeader>
+            <DialogTitle>Add Tool</DialogTitle>
             <DialogDescription>
-              Are you sure you want to disconnect from{' '}
-              <span className="font-semibold text-white">
-                {connectionToDisconnect ? getProviderName(connectionToDisconnect.provider) : ''}
-              </span>
-              ? This action cannot be undone.
+              Define a tool new hires need access to and the required Slack owner for access requests.
             </DialogDescription>
           </DialogHeader>
-          {connectionToDisconnect?.provider === 'github' && (
-            <label className="flex items-start gap-3 rounded-lg border border-white/10 bg-zinc-800 p-3 text-sm text-white/70">
-              <input
-                type="checkbox"
-                className="mt-1 h-4 w-4 accent-red-500"
-                checked={uninstallOnDisconnect}
-                onChange={(e) => setUninstallOnDisconnect(e.target.checked)}
+          <div className="flex flex-col gap-3">
+            <div>
+              <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
+                Tool Name <span style={{ color: 'var(--red-text)' }}>*</span>
+              </label>
+              <ToolNameCombobox
+                value={newTool.tool_name}
+                onChange={(toolName) => setNewTool((p) => ({ ...p, tool_name: toolName }))}
+                unavailableToolNames={configuredToolNames}
               />
-              <span>Also open GitHub to uninstall the app for this installation.</span>
-            </label>
-          )}
+              {newToolAlreadyConfigured && (
+                <p className="type-caption mt-1" style={{ color: 'var(--amber-text)' }}>This tool is already configured.</p>
+              )}
+            </div>
+            <div>
+              <div className="mb-[5px] flex items-center justify-between gap-3">
+                <label className="block type-body font-medium" style={{ color: 'var(--text-secondary)' }}>
+                  Roles
+                </label>
+                <span className="type-caption" style={{ color: 'var(--text-tertiary)' }}>{selectedRolesLabel(newTool.roles)}</span>
+              </div>
+              <RoleMultiSelect
+                value={newTool.roles}
+                onChange={(roles) => setNewTool((p) => ({ ...p, roles }))}
+              />
+              <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>Select multiple roles, or use All roles for a shared requirement.</p>
+            </div>
+            <div>
+              <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
+                Owner <span style={{ color: 'var(--red-text)' }}>*</span>
+              </label>
+              <SlackUserPicker
+                value={newTool.owner}
+                onChange={(user) => setNewTool((p) => ({ ...p, owner: user }))}
+                placeholder="Search workspace members..."
+              />
+              <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>Canon will DM this Slack owner when a new hire needs access.</p>
+            </div>
+            {newTool.owner && (
+              <div>
+                <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
+                  Owner Slack ID
+                </label>
+                <Input value={newTool.owner.id} readOnly />
+              </div>
+            )}
+          </div>
           <DialogFooter>
-            <Button variant="outline" onClick={closeDisconnectModal} className="border-white/20 text-white/80 hover:bg-white/10">
+            <Button variant="secondary" onClick={() => setAddToolOpen(false)} disabled={addToolSaving}>
+              Cancel
+            </Button>
+            <Button onClick={() => void addTool()} disabled={addToolSaving || !newTool.tool_name.trim() || !newTool.owner || newToolAlreadyConfigured}>
+              {addToolSaving ? <IconLoader2 size={13} className="animate-spin" /> : <IconTool size={13} />}
+              Add Tool
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={disconnectModalOpen && connectionToDisconnect !== null} onOpenChange={(open) => !open && closeDisconnectModal()}>
+        <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
+          <DialogHeader>
+            <DialogTitle>Disconnect {connectionToDisconnect ? providerLabel(connectionToDisconnect.provider) : 'Integration'}</DialogTitle>
+            <DialogDescription>
+              {connectionToDisconnect ? disconnectDescription(connectionToDisconnect.provider) : 'Canon will remove this integration.'}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="secondary" onClick={closeDisconnectModal}>
               Cancel
             </Button>
             <Button
-              variant="secondary"
-              className="border-red-500/50 bg-red-500/10 text-red-200 hover:bg-red-500/20"
+              variant="destructive"
               onClick={async () => {
                 if (connectionToDisconnect) {
                   await disconnect(connectionToDisconnect.connectionId, connectionToDisconnect.provider);
                   closeDisconnectModal();
-                  if (connectionToDisconnect.provider === 'github' && uninstallOnDisconnect) {
-                    if (githubInstallationId) {
-                      window.open(`https://github.com/settings/installations/${githubInstallationId}`, '_blank', 'noopener');
-                    } else {
-                      const installUrl = process.env.NEXT_PUBLIC_GITHUB_APP_INSTALL_URL;
-                      if (installUrl) window.open(installUrl, '_blank', 'noopener');
-                      else setError('GitHub App install URL is not configured.');
-                    }
-                  }
                 }
               }}
             >
@@ -995,6 +1155,62 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
         </DialogContent>
       </Dialog>
 
+      <Dialog open={gongModalOpen} onOpenChange={setGongModalOpen}>
+        <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
+          <DialogHeader>
+            <DialogTitle>Connect Gong</DialogTitle>
+            <DialogDescription>
+              Add a Gong access key and secret so Canon can sync recent call transcripts.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-3">
+            <div>
+              <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }} htmlFor="gong-access-key">
+                Access Key
+              </label>
+              <Input
+                id="gong-access-key"
+                value={gongAccessKey}
+                onChange={(event) => setGongAccessKey(event.target.value)}
+                autoComplete="off"
+              />
+            </div>
+            <div>
+              <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }} htmlFor="gong-access-key-secret">
+                Access Key Secret
+              </label>
+              <Input
+                id="gong-access-key-secret"
+                type="password"
+                value={gongAccessKeySecret}
+                onChange={(event) => setGongAccessKeySecret(event.target.value)}
+                autoComplete="off"
+              />
+            </div>
+            <div>
+              <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }} htmlFor="gong-api-base-url">
+                API Base URL
+              </label>
+              <Input
+                id="gong-api-base-url"
+                value={gongApiBaseUrl}
+                onChange={(event) => setGongApiBaseUrl(event.target.value)}
+                autoComplete="off"
+              />
+              <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>Use the default unless your Gong workspace has a regional API host.</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setGongModalOpen(false)} disabled={connecting}>
+              Cancel
+            </Button>
+            <Button onClick={connectGong} disabled={connecting || !gongAccessKey.trim() || !gongAccessKeySecret.trim()}>
+              {connecting ? <IconLoader2 size={13} className="animate-spin" /> : <IconPlug size={13} />}
+              Connect
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

@@ -4,6 +4,7 @@ type LoggerOptions = {
   label?: string;
   eventLabels?: Record<string, string>;
   uppercaseEventLabels?: boolean;
+  componentColor?: 'cyan' | 'blue' | 'orange' | 'green';
 };
 
 const LOG_LEVELS: Record<LogLevel, number> = {
@@ -20,6 +21,7 @@ const ANSI = {
   reset: '\x1b[0m',
   dim: '\x1b[2m',
   cyan: '\x1b[36m',
+  blue: '\x1b[34m',
   magenta: '\x1b[35m',
   gray: '\x1b[90m',
   yellow: '\x1b[33m',
@@ -32,6 +34,7 @@ type LoggerRuntimeOptions = {
   label?: string;
   eventLabels: Record<string, string>;
   uppercaseEventLabels: boolean;
+  componentColor: string;
 };
 
 function parseLogLevel(value: string | undefined): LogLevel {
@@ -172,7 +175,7 @@ function emit(level: LogLevel, component: string, event: string, fields: LogFiel
   const enabledColors = colorsEnabled();
   const componentLabel = humanizeLabel(options.label || component) || component;
   const eventLabel = formatEventLabel(event, options);
-  const componentToken = colorize(`[${componentLabel}]`, ANSI.cyan, enabledColors);
+  const componentToken = colorize(`[${componentLabel}]`, options.componentColor, enabledColors);
   const eventToken = colorize(`[${eventLabel}]`, ANSI.magenta, enabledColors);
   const tsToken = colorize(new Date().toISOString(), ANSI.dim, enabledColors);
   const levelToken = colorize(level.toUpperCase(), `${ANSI.bold}${levelColor(level)}`, enabledColors);
@@ -206,6 +209,11 @@ export function createLogger(component: string, options: LoggerOptions = {}) {
     label: options.label,
     eventLabels: options.eventLabels ?? {},
     uppercaseEventLabels: options.uppercaseEventLabels !== false,
+    componentColor:
+      options.componentColor === 'blue' ? ANSI.blue
+      : options.componentColor === 'orange' ? ANSI.yellow
+      : options.componentColor === 'green' ? ANSI.green
+      : ANSI.cyan,
   };
   return {
     debug: (event: string, fields?: LogFields) => emit('debug', component, event, fields, runtime),

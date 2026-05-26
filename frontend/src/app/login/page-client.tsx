@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,7 +8,6 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, AlertTriangle, Info } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
 
 export function LoginPageClient() {
   const supabase = createClient();
@@ -58,7 +57,7 @@ export function LoginPageClient() {
         email,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/signals`
+          emailRedirectTo: `${window.location.origin}/`
         }
       });
 
@@ -71,7 +70,7 @@ export function LoginPageClient() {
       if (signupData.session) {
         // Wait a moment for cookies to sync, then redirect with full page reload
         await new Promise(resolve => setTimeout(resolve, 100));
-        window.location.href = '/signals';
+        window.location.href = '/';
         return;
       }
 
@@ -103,7 +102,7 @@ export function LoginPageClient() {
       if (data.session) {
         // Wait a moment for cookies to sync, then redirect with full page reload
         await new Promise(resolve => setTimeout(resolve, 100));
-        window.location.href = '/signals';
+        window.location.href = '/';
         return;
       }
 
@@ -116,23 +115,22 @@ export function LoginPageClient() {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-10 sm:px-6 lg:px-8">
-      <div className="relative z-10 mx-auto flex w-full max-w-xl flex-col items-center gap-8">
+    <div className="flex min-h-screen items-center justify-center bg-[var(--bg-page)] px-4 py-10">
+      <div className="mx-auto flex w-full max-w-md flex-col items-center gap-8">
         <div className="w-full space-y-6">
           <div className="space-y-3">
-            <Badge>Automated Knowledge Infrastructure</Badge>
-            <h1 className="text-3xl font-semibold sm:text-4xl">
+            <h1 className="type-auth-title">
               {mode === 'forgot' ? 'Reset Your Password' : mode === 'login' ? 'Welcome Back' : 'Create Your Workspace'}
             </h1>
-            <p className="text-white/70">
+            <p className="text-[var(--text-secondary)]">
               {mode === 'forgot'
                 ? 'Enter your email and we\'ll send you a link to set a new password.'
-                : `Sign ${mode === 'login' ? 'in' : 'up'} to keep your documentation, architecture, and runbooks moving at the same pace as your code.`}
+                : `Sign ${mode === 'login' ? 'in' : 'up'} to keep your GTM hires productive and your whole team field-ready.`}
             </p>
           </div>
 
           {mode !== 'forgot' && (
-            <div className="inline-flex w-full rounded-full border border-white/10 bg-white/5 p-1">
+            <div className="inline-flex w-full rounded-full border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] p-1">
               <Button
                 type="button"
                 variant={mode === 'login' ? 'default' : 'ghost'}
@@ -140,7 +138,7 @@ export function LoginPageClient() {
                 onClick={() => switchMode('login')}
                 disabled={loading}
               >
-                Sign in
+                Sign In
               </Button>
               <Button
                 type="button"
@@ -149,7 +147,7 @@ export function LoginPageClient() {
                 onClick={() => switchMode('signup')}
                 disabled={loading}
               >
-                Create account
+                Create Account
               </Button>
             </div>
           )}
@@ -159,8 +157,8 @@ export function LoginPageClient() {
               {mode === 'forgot' ? (
                 <>
                   <div className="space-y-2">
-                    <h2 className="text-lg font-medium">Reset Your Password</h2>
-                    <p className="text-sm text-white/70">
+                    <h2 className="type-metric-sm">Reset Your Password</h2>
+                    <p className="type-body text-[var(--text-secondary)]">
                       Enter your email and we&apos;ll send you a link to set a new password.
                     </p>
                   </div>
@@ -191,17 +189,17 @@ export function LoginPageClient() {
                           Sending...
                         </>
                       ) : (
-                        'Send reset link'
+                        'Send Reset Link'
                       )}
                     </Button>
                     <Button
                       type="button"
                       variant="ghost"
-                      className="w-full text-white/70 hover:text-white"
+                      className="w-full text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                       onClick={() => switchMode('login')}
                       disabled={loading}
                     >
-                      Back to sign in
+                      Back to Sign In
                     </Button>
                   </form>
                 </>
@@ -256,15 +254,15 @@ export function LoginPageClient() {
                   </div>
 
                   {mode === 'login' && (
-                    <div className="flex items-center justify-end text-sm text-white/70">
+                    <div className="flex items-center justify-end type-body text-[var(--text-secondary)]">
                       <Button
                         type="button"
                         variant="ghost"
                         size="sm"
-                        className="h-auto px-0 text-white/70 hover:text-white"
+                        className="h-auto px-0 text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                         onClick={() => switchMode('forgot')}
                       >
-                        Forgot password?
+                        Forgot Password?
                       </Button>
                     </div>
                   )}
@@ -277,26 +275,26 @@ export function LoginPageClient() {
                     {loading ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        {mode === 'login' ? 'Signing in...' : 'Creating account...'}
+                        {mode === 'login' ? 'Signing In...' : 'Creating Account...'}
                       </>
                     ) : (
-                      mode === 'login' ? 'Sign in' : 'Create account'
+                      mode === 'login' ? 'Sign In' : 'Create Account'
                     )}
                   </Button>
                 </form>
               )}
 
               {mode === 'login' && (
-                <p className="text-center text-sm text-white/70">
+                <p className="text-center type-body text-[var(--text-secondary)]">
                   New to Canon?{' '}
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="h-auto px-0 font-medium text-white hover:underline"
+                    className="h-auto px-0 font-medium text-[var(--text-primary)] hover:underline"
                     onClick={() => switchMode('signup')}
                   >
-                    Create an account →
+                    Create an Account →
                   </Button>
                 </p>
               )}

@@ -9,10 +9,11 @@ type DeleteErrorLike = {
 
 export function isMissingSchemaError(error: DeleteErrorLike | null): boolean {
   if (!error) return false;
-  if (error.code === '42P01' || error.code === '42703' || error.code === '42704') return true;
+  if (error.code === '42P01' || error.code === '42703' || error.code === '42704' || error.code === 'PGRST205') return true;
   const message = (error.message || '').toLowerCase();
   if (message.includes('relation') && message.includes('does not exist')) return true;
   if (message.includes('column') && message.includes('does not exist')) return true;
+  if (message.includes('could not find the table') && message.includes('schema cache')) return true;
   return false;
 }
 

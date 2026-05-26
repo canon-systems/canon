@@ -1,611 +1,618 @@
 import type { Metadata } from 'next';
 import { ArrowRight, Github, Slack } from 'lucide-react';
 
+import { AnimateIn } from '@/components/AnimateIn';
 import { FaqAccordion } from '@/components/landing-page/FaqAccordion';
-import { ProductTour } from '@/components/landing-page/ProductTour';
 import { IntegrationLogos } from '@/components/IntegrationLogos';
 import { Navigation } from '@/components/Navigation';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
 const requestAccessHref = 'https://app.usecanon.com';
 
 export const metadata: Metadata = {
-  title: 'Canon | Engineering visibility that comes to you',
+  title: 'Canon — GTM Onboarding & Field Readiness',
   description:
-    "Canon turns your engineering tools into a daily briefing, so you always know what shipped, what's stuck, and what needs your attention.",
+    'Canon reduces time to productivity for GTM hires and keeps your whole team field-ready as your product and market evolve.',
   openGraph: {
-    title: 'Canon | Engineering visibility that comes to you',
+    title: 'Canon — GTM Onboarding & Field Readiness',
     description:
-      "Canon turns your engineering tools into a daily briefing, so you always know what shipped, what's stuck, and what needs your attention.",
+      'Canon reduces time to productivity for GTM hires and keeps your whole team field-ready as your product and market evolve.',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Canon | Engineering visibility that comes to you',
+    title: 'Canon — GTM Onboarding & Field Readiness',
     description:
-      "Canon turns your engineering tools into a daily briefing, so you always know what shipped, what's stuck, and what needs your attention.",
+      'Canon reduces time to productivity for GTM hires and keeps your whole team field-ready as your product and market evolve.',
   },
 };
 
-const signalCards = [
+// ── Data ──────────────────────────────────────────────────────────────────────
+
+const statusCards = [
   {
-    eyebrow: 'Delivery Signal',
-    title: 'PR merge rate dropped below baseline',
-    detail: '3 pull requests are open beyond median cycle time compared with the last 7-day baseline window.',
-    value: '-38%',
+    eyebrow: 'Hire Progress',
+    title: 'Jordan hit 3 of 5 milestones in week two',
+    detail: 'Discovery & Qualification and Competitive Positioning complete. Next: Technical Demo Certification.',
+    value: '3/5',
+    tone: 'emerald',
+  },
+  {
+    eyebrow: 'Readiness Gap',
+    title: 'Pricing update — 5 reps on active deals not current',
+    detail: "Confluence changes detected across 3 docs. Five reps with open opportunities haven't reviewed the new packaging.",
+    value: '5 gaps',
     tone: 'amber',
   },
   {
-    eyebrow: 'Execution Signal',
-    title: 'Tickets reopened above normal',
-    detail: 'Four Jira tickets moved back to in-progress this window, materially above the expected baseline.',
-    value: '+4',
-    tone: 'rose',
-  },
-  {
-    eyebrow: 'Momentum Signal',
-    title: 'Commit velocity is stable',
-    detail: 'Default branch activity remains within normal range, so leadership can focus on the true exceptions.',
-    value: 'Stable',
-    tone: 'emerald',
+    eyebrow: 'Knowledge Sync',
+    title: 'Gong analysis synced to onboarding briefs',
+    detail: 'Top-performer call patterns and two new objection responses added. All open briefs updated automatically.',
+    value: 'Synced',
+    tone: 'purple',
   },
 ] as const;
 
-const operatingRhythm = [
-  'Connect GitHub, Jira, and Slack in one session.',
-  'Canon backfills recent history immediately so the first briefing has context on day one.',
-  'Each window is compared to a matching baseline, not a generic benchmark.',
-  'Only meaningful deltas are pushed to leadership in a briefing or alert.',
+const rampLoop = [
+  { step: '01', title: 'Connect knowledge', body: 'Link Confluence, Gong, Slack, GitHub, and more. Canon keeps context current as sources update so briefs never go stale.' },
+  { step: '02', title: 'Define milestones', body: 'Set role-specific capability checkpoints. Every hire gets a structured path from day one, not a generic onboarding deck.' },
+  { step: '03', title: 'Launch the hire path', body: 'Add a new hire and Canon generates their brief, assigns milestones, and creates their access request list automatically.' },
+  { step: '04', title: 'Monitor readiness', body: 'When product or market changes create gaps, Canon surfaces who is affected — for new hires and the broader team alike.' },
 ];
 
-const evidenceLayers = [
+const statsData = [
   {
-    stage: 'Connected Sources',
-    title: 'Canon starts where your engineering truth already lives.',
-    description:
-      'A clean integration layer keeps inputs visible, healthy, and attributable so leadership never has to guess where a signal came from.',
-    image: '/sources.png',
-    alt: 'Canon sources view showing connected workspaces and integration status for GitHub, Jira, and Slack.',
-    highlights: ['Connected workspaces', 'Integration health', 'One operating surface'],
+    stat: '6–9 mo',
+    gradient: 'text-gradient-purple',
+    label: 'Average ramp time',
+    body: "Industry average for a GTM hire to reach full productivity. Most companies accept this as fixed cost. It isn't.",
+    accent: 'var(--canon-purple)',
   },
   {
-    stage: 'Executive Briefing',
-    title: 'Leadership gets the update in plain language.',
-    description:
-      'Canon turns engineering activity into a readable summary of what shipped, what is blocked, and what needs a decision.',
-    image: '/executive%20briefing.png',
-    alt: 'Canon executive briefing showing what shipped, what is stuck, and what needs attention this week.',
-    highlights: ['Plain-language narrative', 'Action-oriented output', 'Shared context'],
+    stat: '3 in 5',
+    gradient: 'text-gradient-amber',
+    label: 'Readiness gap',
+    body: 'Reps caught off-guard by a product or messaging change during a customer conversation.',
+    accent: 'var(--amber)',
   },
   {
-    stage: 'History Overview',
-    title: 'Baseline and current windows are easy to compare.',
-    description:
-      'Trend shifts are shown in context, so normal variance does not get mistaken for meaningful change.',
-    image: '/history%20top.png',
-    alt: 'Canon history overview showing baseline comparison and trend context across engineering systems.',
-    highlights: ['Baseline comparison', 'Trend context', 'At-a-glance deltas'],
+    stat: 'Day 1',
+    gradient: 'text-gradient-green',
+    label: 'When Canon starts',
+    body: 'Briefs are live before the hire walks in. And they keep updating as your product and market change.',
+    accent: 'var(--green)',
+  },
+];
+
+const features = [
+  {
+    kicker: 'Onboarding',
+    title: 'Knowledge-grounded from day one.',
+    body: 'Every brief draws from live sources — Confluence, Gong, Slack, GitHub — so the hire is working with current context, not a snapshot from last quarter.',
+    accent: 'var(--canon-purple)',
+    accentClass: 'bg-[var(--canon-purple)]',
   },
   {
-    stage: 'Workstream Deltas',
-    title: 'Work tracking signals are visible before they become narrative debt.',
-    description:
-      'Ticket creation, regression, and backlog movement are laid out side by side so delivery flow is easier to interpret.',
-    image: '/history%20jira.png',
-    alt: 'Canon history view for Jira showing baseline comparisons and workstream movement side by side.',
-    highlights: ['Flow imbalances', 'Window comparison', 'Operational clarity'],
+    kicker: 'Progress',
+    title: 'Milestones that mean something.',
+    body: 'Role-specific capability checkpoints give hire and manager a clear, shared view of progress — not just activity. You always know who is ready for what.',
+    accent: 'var(--green)',
+    accentClass: 'bg-[var(--green)]',
   },
   {
-    stage: 'Delivery Deltas',
-    title: 'Code delivery is measured with context, not gut feel.',
-    description:
-      'Commits, pull requests, and velocity shifts are scored against normal behavior so teams can respond with confidence.',
-    image: '/history%20github.png',
-    alt: 'Canon history view for GitHub showing baseline comparisons and delivery metrics over the active window.',
-    highlights: ['Commit context', 'Velocity shifts', 'Delivery patterns'],
+    kicker: 'Readiness',
+    title: 'Current after the first week, too.',
+    body: 'Canon detects product and market changes and surfaces who is affected — for new hires still ramping and for the broader team already in the field.',
+    accent: 'var(--amber)',
+    accentClass: 'bg-[var(--amber)]',
   },
-  {
-    stage: 'Source Evidence',
-    title: 'Every surfaced signal can be opened and verified.',
-    description:
-      'Canon gives leaders the evidence trail behind the summary so an alert can be trusted before it triggers follow-up.',
-    image: '/investigate%20top.png',
-    alt: 'Canon investigate page showing baseline context, directional movers, and summary metrics for a briefing item.',
-    highlights: ['Explainable briefings', 'Baseline rationale', 'Top movers'],
-  },
-  {
-    stage: 'Event Detail',
-    title: 'Granular activity stays within reach when the stakes are higher.',
-    description:
-      'From the signal, you can drill into the underlying records and verify exactly what changed inside the active window.',
-    image: '/investigate%20bottom.png',
-    alt: 'Canon investigate page lower section with detailed activity and breakdown panels for event-level verification.',
-    highlights: ['Granular records', 'Traceable evidence', 'Decision confidence'],
-  },
-] as const;
+];
+
+const integrations = [
+  { icon: <IntegrationLogos provider="confluence" size={22} />, name: 'Confluence', body: 'Sync product docs, messaging guides, and playbooks as live knowledge sources.' },
+  { icon: <IntegrationLogos provider="gong" size={22} />, name: 'Gong', body: 'Pull top-performer call patterns and objection responses into onboarding briefs.' },
+  { icon: <Slack className="h-[22px] w-[22px]" style={{ color: 'var(--text-primary)' }} aria-hidden />, name: 'Slack', body: 'Deliver onboarding updates and readiness alerts where your team already works.' },
+  { icon: <Github className="h-[22px] w-[22px]" style={{ color: 'var(--text-primary)' }} aria-hidden />, name: 'GitHub', body: 'Connect technical docs and changelogs so product updates flow into field readiness.' },
+];
 
 const faqItems = [
-  {
-    question: 'What tools does Canon connect to?',
-    answer:
-      "Canon currently connects to GitHub, Jira, and Slack, with more integrations on the way. If your stack isn't listed, reach out at john@usecanon.com and we'll let you know what's coming.",
-  },
-  {
-    question: 'Will I get a briefing every single day?',
-    answer:
-      "Only when there's something worth telling you. If nothing meaningful changed in your engineering systems, Canon stays quiet.",
-  },
-  {
-    question: 'How does Canon decide what is meaningful?',
-    answer:
-      'Canon compares your current activity window to a matching baseline window of the same length, then surfaces deviations that materially differ from what is normal for your team.',
-  },
-  {
-    question: 'How long does setup take?',
-    answer:
-      'Most teams are connected and receiving their first briefing within a single session. No heavy implementation, dashboard project, or custom rules engine required.',
-  },
-  {
-    question: 'Who is Canon built for?',
-    answer:
-      'Canon is built for technical founders, CTOs, and VPs/Heads/Directors of Engineering who need operating visibility without building a reporting stack.',
-  },
-  {
-    question: 'Is my data secure?',
-    answer:
-      'Yes. Canon uses OAuth for integrations, encrypts tokens at rest, and only reads from explicitly connected workspaces and repositories. Canon never writes to your tools.',
-  },
+  { question: 'What does Canon actually do?', answer: 'Canon builds personalized onboarding paths for GTM hires — drawing from your live knowledge sources — and then monitors for product and market changes that could create readiness gaps after onboarding ends. The result is shorter time to productivity and a field team that stays current without manual enablement work.' },
+  { question: 'Who is Canon built for?', answer: 'Canon is built for GTM leaders, sales managers, revenue operations, and enablement teams who are responsible for ramping new hires and keeping the team field-ready as the product and market evolve.' },
+  { question: 'How does readiness work after onboarding ends?', answer: 'Canon continues to watch your connected knowledge sources. When it detects a meaningful change — a new pricing model in Confluence, a product update in GitHub, a shift in competitive positioning — it surfaces who is affected and updates the relevant briefs so leaders can act before gaps reach the field.' },
+  { question: 'What knowledge sources does Canon connect to?', answer: 'Canon currently connects to Confluence, Gong, Slack, and GitHub. Additional sources are in progress. If your stack is not listed, reach out at john@usecanon.com and we will let you know what is coming.' },
+  { question: 'How long does setup take?', answer: 'Most teams are connected, milestones defined, and the first hire launched within a single session. No custom implementation or dedicated IT project required.' },
+  { question: 'Is my data secure?', answer: 'Yes. Canon uses OAuth for all integrations, encrypts tokens at rest, and only reads from explicitly connected sources. Canon never writes to your tools.' },
 ];
 
-function toneClasses(tone: (typeof signalCards)[number]['tone']) {
-  if (tone === 'amber') {
-    return {
-      shell: 'border-amber-300/30 bg-[linear-gradient(180deg,rgba(255,251,235,0.16),rgba(255,251,235,0.04))]',
-      eyebrow: 'text-amber-200/90',
-      value: 'text-amber-100',
-      pill: 'border-amber-200/25 bg-amber-200/10 text-amber-50',
-    };
-  }
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-  if (tone === 'rose') {
-    return {
-      shell: 'border-rose-300/30 bg-[linear-gradient(180deg,rgba(255,241,242,0.16),rgba(255,241,242,0.04))]',
-      eyebrow: 'text-rose-200/90',
-      value: 'text-rose-100',
-      pill: 'border-rose-200/25 bg-rose-200/10 text-rose-50',
-    };
-  }
+type StatusTone = (typeof statusCards)[number]['tone'];
 
-  return {
-    shell: 'border-emerald-300/30 bg-[linear-gradient(180deg,rgba(236,253,245,0.14),rgba(236,253,245,0.04))]',
-    eyebrow: 'text-emerald-200/90',
-    value: 'text-emerald-100',
-    pill: 'border-emerald-200/25 bg-emerald-200/10 text-emerald-50',
-  };
+function toneStyles(tone: StatusTone) {
+  if (tone === 'amber')  return { shell: { border: '1px solid var(--amber-border)',         backgroundColor: 'var(--amber-bg)' },         eyebrow: { color: 'var(--amber-text)' },   value: { color: 'var(--amber-text)' } };
+  if (tone === 'purple') return { shell: { border: '1px solid var(--canon-purple-border)', backgroundColor: 'var(--canon-purple-light)' }, eyebrow: { color: 'var(--canon-purple)' }, value: { color: 'var(--canon-purple)' } };
+  return                        { shell: { border: '1px solid var(--green-border)',         backgroundColor: 'var(--green-bg)' },         eyebrow: { color: 'var(--green-text)' },   value: { color: 'var(--green-text)' } };
 }
+
+const inner = 'mx-auto max-w-[88rem] px-4 sm:px-6 lg:px-8';
+
+// ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function LandingPage() {
   return (
-    <div className="relative min-h-screen text-white">
+    <div className="relative min-h-screen" style={{ color: 'var(--text-primary)' }}>
       <Navigation />
 
-      <main className="relative overflow-hidden">
-        <section
-          id="features"
-          className="mx-auto max-w-[94rem] px-4 pb-20 pt-10 sm:px-6 lg:px-8 lg:pb-24 lg:pt-16 scroll-mt-[88px]"
-        >
-          <div className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[46rem]">
-            <div className="absolute left-[6%] top-10 h-72 w-72 rounded-full bg-cyan-300/12 blur-3xl" />
-            <div className="absolute right-[10%] top-24 h-80 w-80 rounded-full bg-amber-200/10 blur-3xl" />
-            <div className="absolute left-1/3 top-52 h-96 w-96 rounded-full bg-fuchsia-300/8 blur-3xl" />
-          </div>
+      <main>
 
-          <div className="grid gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-start">
-            <div className="space-y-8">
-              <div className="space-y-5">
-                <Badge className="border-white/15 bg-white/8 px-3 py-1 text-[11px] uppercase tracking-[0.28em] text-white/80 hover:bg-white/8">
-                  Built for engineering leaders
-                </Badge>
-                <div className="max-w-4xl space-y-5">
-                  <h1 className="font-display text-5xl font-semibold leading-[0.94] tracking-[-0.04em] text-white sm:text-6xl lg:text-[5.8rem]">
-                    Engineering visibility that comes to you.
-                  </h1>
-                  <p className="max-w-2xl text-base leading-8 text-white/74 sm:text-lg">
-                    Canon turns your engineering tools into a daily briefing, so you always know what shipped, what's stuck, and what needs your attention. Only when there's something worth saying.
-                  </p>
-                </div>
-              </div>
+        {/* ═══════════════════════════════════════════════════════════
+            HERO
+            ─ Centered layout, dot-grid + purple ambient glow bg
+            ─ Staggered CSS animations on load (no IntersectionObserver
+              needed — these are above the fold)
+        ═══════════════════════════════════════════════════════════ */}
+        <section className="relative overflow-hidden text-center">
+          {/* Dot-grid + glow layers */}
+          <div className="hero-dot-grid pointer-events-none absolute inset-0" />
+          <div className="hero-glow pointer-events-none absolute inset-0" />
 
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                <Button size="lg" className="h-12 rounded-full bg-white px-6 text-black hover:bg-white/90" asChild>
-                  <a href={requestAccessHref} target="_blank" rel="noopener noreferrer">
-                    Request Access
-                    <ArrowRight className="h-4 w-4" />
-                  </a>
-                </Button>
-                <Button
-                  size="lg"
-                  variant="secondary"
-                  className="h-12 rounded-full border border-white/15 bg-white/8 px-6 text-white hover:bg-white/12"
-                  asChild
-                >
-                  <a href="#product-tour">See the product</a>
-                </Button>
-              </div>
+          <div className={`${inner} relative pt-20 pb-10 lg:pt-28 lg:pb-12`}>
 
-              <div className="grid gap-3 sm:grid-cols-3">
-                {[
-                  ['What shipped', 'A concise record of delivered work, straight from your tools.'],
-                  ["What's stuck", 'Blockers and regressions surfaced before they become leadership surprises.'],
-                  ['What needs you', 'Signals routed only when a decision or intervention is actually needed.'],
-                ].map(([title, body]) => (
-                  <div
-                    key={title}
-                    className="rounded-[1.75rem] border border-white/10 bg-[#0f1012] p-5"
-                  >
-                    <p className="text-sm font-medium text-white">{title}</p>
-                    <p className="mt-2 text-sm leading-6 text-white/62">{body}</p>
-                  </div>
-                ))}
-              </div>
-
-              <div className="flex flex-col gap-3 rounded-[2rem] border border-white/10 bg-[#111214] p-5 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p className="text-sm font-medium text-white">No briefing for the sake of it.</p>
-                  <p className="mt-1 text-sm text-white/62">
-                    Canon stays quiet when engineering is operating within baseline.
-                  </p>
-                </div>
-                <div className="rounded-full border border-white/12 bg-black/35 px-4 py-2 text-xs uppercase tracking-[0.22em] text-white/72">
-                  Only when it matters
-                </div>
-              </div>
+            {/* Badge */}
+            <div style={{ animation: 'fade-up 0.55s ease 0.05s both' }}>
+              <span className="badge-hero">
+                <span className="live-dot relative inline-block h-1.5 w-1.5 rounded-full bg-[var(--canon-purple)]" />
+                GTM Onboarding &amp; Field Readiness Platform
+              </span>
             </div>
 
-            <div className="space-y-5 lg:pt-10">
-              <div className="rounded-[2.2rem] border border-white/10 bg-[#111214] p-5 shadow-[0_30px_80px_rgba(0,0,0,0.45)]">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.3em] text-white/55">
-                      Canon detected
-                    </p>
-                    <p className="mt-2 text-sm text-white/65">An executive-ready view of engineering momentum.</p>
-                  </div>
-                </div>
+            {/* H1 */}
+            <h1
+              className="type-landing-hero mx-auto mt-6 max-w-3xl"
+              style={{
+                color: 'var(--text-primary)',
+                animation: 'fade-up 0.6s ease 0.15s both',
+              }}
+            >
+              Ramp GTM hires faster.<br />
+              <span className="text-gradient-purple">Keep the whole team ready.</span>
+            </h1>
 
-                <div className="mt-5 space-y-3">
-                  {signalCards.map((card) => {
-                    const tone = toneClasses(card.tone);
-                    return (
-                      <div
-                        key={card.title}
-                        className={`rounded-[1.6rem] border p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] ${tone.shell}`}
-                      >
-                        <div className="flex items-start justify-between gap-4">
-                          <div>
-                            <p className={`text-[11px] font-semibold uppercase tracking-[0.24em] ${tone.eyebrow}`}>
-                              {card.eyebrow}
-                            </p>
-                            <p className="mt-2 text-base font-medium text-white">{card.title}</p>
-                            <p className="mt-2 max-w-md text-sm leading-6 text-white/62">{card.detail}</p>
-                          </div>
-                          <div className="text-right">
-                            <p className={`font-display text-3xl font-semibold tracking-[-0.04em] ${tone.value}`}>
-                              {card.value}
-                            </p>
-                            <span className={`mt-2 inline-flex rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.24em] ${tone.pill}`}>
-                              surfaced
-                            </span>
-                          </div>
-                        </div>
+            {/* Subheadline */}
+            <p
+              className="mx-auto mt-6 max-w-xl text-base leading-7"
+              style={{ color: 'var(--text-secondary)', animation: 'fade-up 0.6s ease 0.25s both' }}
+            >
+              Canon is the onboarding platform that reduces time to productivity for GTM hires
+              and keeps your field team current as your product and market evolve.
+            </p>
+
+            {/* CTAs */}
+            <div
+              className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center"
+              style={{ animation: 'fade-up 0.6s ease 0.35s both' }}
+            >
+              <Button size="lg" className="btn-primary-shimmer" asChild>
+                <a href={requestAccessHref} target="_blank" rel="noopener noreferrer">
+                  Get Access
+                  <ArrowRight className="h-4 w-4" />
+                </a>
+              </Button>
+              <Button size="lg" variant="secondary" asChild>
+                <a href="#how-it-works">See how it works</a>
+              </Button>
+            </div>
+
+            {/* Works-with strip */}
+            <div
+              className="mt-8 flex items-center justify-center gap-2 flex-wrap"
+              style={{ animation: 'fade-up 0.6s ease 0.45s both' }}
+            >
+              <span className="type-kicker mr-2">Works with</span>
+              {[
+                { label: 'Confluence', icon: <IntegrationLogos provider="confluence" size={14} /> },
+                { label: 'Gong',       icon: <IntegrationLogos provider="gong" size={14} /> },
+                { label: 'Slack',      icon: <Slack className="h-[14px] w-[14px]" style={{ color: 'var(--text-tertiary)' }} aria-hidden /> },
+                { label: 'GitHub',     icon: <Github className="h-[14px] w-[14px]" style={{ color: 'var(--text-tertiary)' }} aria-hidden /> },
+              ].map((item) => (
+                <span
+                  key={item.label}
+                  className="flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px]"
+                  style={{ borderColor: 'var(--border-tertiary)', backgroundColor: 'rgba(255,255,255,0.03)', color: 'var(--text-tertiary)' }}
+                >
+                  {item.icon}
+                  {item.label}
+                </span>
+              ))}
+              <span className="text-xs ml-1" style={{ color: 'var(--text-tertiary)' }}>+ more</span>
+            </div>
+          </div>
+
+          {/* ── Product preview panel ── */}
+          <div
+            className={`${inner} pb-24 lg:pb-32`}
+            style={{ animation: 'fade-up 0.7s ease 0.55s both' }}
+          >
+            <div
+              className="preview-panel card-hover mt-4 w-full overflow-hidden rounded-[14px] border text-left"
+              style={{
+                borderColor: 'var(--border-secondary)',
+                boxShadow: '0 0 0 1px rgba(107,92,231,0.08), 0 32px 80px rgba(0,0,0,0.55)',
+              }}
+            >
+              {/* Window chrome */}
+              <div
+                className="flex items-center gap-3 border-b px-5 py-3"
+                style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-tertiary)' }}
+              >
+                <div className="flex items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: 'var(--border-secondary)' }} />
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: 'var(--border-secondary)' }} />
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: 'var(--border-secondary)' }} />
+                </div>
+                <div className="flex items-center gap-2 ml-2">
+                  {/* Pulsing live dot */}
+                  <span className="relative flex h-2 w-2">
+                    <span className="live-dot-ring live-dot absolute inline-flex h-full w-full rounded-full" style={{ color: 'var(--green-text)', backgroundColor: 'var(--green-text)' }} />
+                    <span className="relative inline-flex h-2 w-2 rounded-full" style={{ backgroundColor: 'var(--green-text)' }} />
+                  </span>
+                  <span className="type-kicker">Canon · Live team view</span>
+                </div>
+              </div>
+              {/* Status cards — 3-across, divided by 1px gaps */}
+              <div
+                className="grid gap-px sm:grid-cols-3"
+                style={{ backgroundColor: 'var(--border-tertiary)' }}
+              >
+                {statusCards.map((card, i) => {
+                  const tone = toneStyles(card.tone);
+                  return (
+                    <div
+                      key={card.title}
+                      className="flex flex-col gap-3 p-5 lg:p-6"
+                      style={{ backgroundColor: 'var(--bg-primary)', animation: `fade-up 0.5s ease ${0.65 + i * 0.1}s both` }}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.22em]" style={tone.eyebrow}>
+                          {card.eyebrow}
+                        </p>
+                        <span
+                          className="shrink-0 rounded-[4px] border px-2 py-0.5 text-[11px] font-semibold"
+                          style={{ ...tone.shell, ...tone.value }}
+                        >
+                          {card.value}
+                        </span>
                       </div>
-                    );
-                  })}
-                </div>
-
-                <p className="mt-4 text-xs uppercase tracking-[0.2em] text-white/38">
-                  Severity is scored against your configured baseline window.
-                </p>
-              </div>
-
-              <div className="rounded-[2rem] border border-white/10 bg-[#0d0e10] p-6">
-                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-white/55">Monday briefing</p>
-                <p className="mt-3 max-w-lg font-display text-2xl font-semibold tracking-[-0.03em] text-white">
-                  A calm, high-signal summary that leadership can read in minutes.
-                </p>
-                <p className="mt-3 max-w-lg text-sm leading-6 text-white/62">
-                  Canon sends the findings to the user, with context already assembled, so leadership does not have to
-                  go looking for meaning across dashboards and tools.
-                </p>
+                      <p className="text-sm font-medium leading-5" style={{ color: 'var(--text-primary)' }}>
+                        {card.title}
+                      </p>
+                      <p className="text-xs leading-5" style={{ color: 'var(--text-secondary)' }}>
+                        {card.detail}
+                      </p>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
         </section>
 
-        <section className="mx-auto max-w-[94rem] px-4 pb-20 sm:px-6 lg:px-8">
-          <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
-            <div className="relative overflow-hidden rounded-[2.4rem] border border-cyan-300/15 bg-[linear-gradient(145deg,rgba(18,24,32,0.98),rgba(12,13,15,1))] p-8 shadow-[0_28px_80px_rgba(0,0,0,0.35)]">
-              <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(125,211,252,0.14),transparent_36%),radial-gradient(circle_at_bottom_right,rgba(253,230,138,0.08),transparent_30%)]" />
-              <div className="relative">
-                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-cyan-100/68">Why Canon is different</p>
-                <h2 className="mt-4 font-display text-3xl font-semibold tracking-[-0.03em] text-white sm:text-4xl">
-                  Leaders should not have to assemble the story of engineering by hand.
-                </h2>
-                <p className="mt-5 max-w-2xl text-base leading-8 text-white/68">
-                  Canon closes the gap between raw engineering activity and executive understanding by pushing findings to
-                  the user, not by asking leaders to live in another analytics surface.
-                </p>
-              </div>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="relative overflow-hidden rounded-[2rem] border border-cyan-300/15 bg-[linear-gradient(180deg,rgba(16,17,19,1),rgba(10,11,13,1))] p-7">
-                <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-cyan-300 via-sky-400 to-cyan-200" />
-                <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-cyan-100/58">Search tax</p>
-                <p className="mt-4 font-display text-5xl font-semibold tracking-[-0.05em] text-white sm:text-6xl">25%</p>
-                <p className="mt-4 text-sm leading-7 text-white/64">
-                  Executives and teams spend a quarter of the workweek searching for information about what is happening
-                  across the organization.
-                </p>
-              </div>
-              <div className="relative overflow-hidden rounded-[2rem] border border-amber-300/15 bg-[linear-gradient(180deg,rgba(16,17,19,1),rgba(10,11,13,1))] p-7">
-                <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-amber-200 via-yellow-300 to-orange-200" />
-                <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-amber-100/58">Confidence gap</p>
-                <p className="mt-4 font-display text-5xl font-semibold tracking-[-0.05em] text-white sm:text-6xl">7%</p>
-                <p className="mt-4 text-sm leading-7 text-white/64">
-                  Only a small minority of leaders feel confident they understand how team activity connects to company
-                  priorities.
-                </p>
-              </div>
-              <div className="relative overflow-hidden rounded-[2rem] border border-amber-300/15 bg-[linear-gradient(135deg,rgba(250,204,21,0.08),rgba(17,18,20,1))] p-7 sm:col-span-2">
-                <div className="pointer-events-none absolute right-0 top-0 h-28 w-28 rounded-full bg-amber-200/10 blur-2xl" />
-                <p className="text-sm leading-7 text-white/66">
-                  Source: Atlassian State of Teams 2025, surveying 200 Fortune 1000 executives and 12,000 knowledge
-                  workers.
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section id="workflow" className="mx-auto max-w-[94rem] px-4 pb-20 sm:px-6 lg:px-8 scroll-mt-[88px]">
-          <div className="grid gap-8 lg:grid-cols-[0.75fr_1.25fr]">
-            <div className="space-y-4">
-              <Badge className="border-white/12 bg-white/7 text-white/75 hover:bg-white/7">Operating rhythm</Badge>
-              <h2 className="font-display text-3xl font-semibold tracking-[-0.03em] text-white sm:text-4xl">
-                Set up once. Get context every time it actually matters.
-              </h2>
-              <p className="max-w-xl text-base leading-8 text-white/68">
-                Canon works like an operating layer between your engineering systems and the places leadership already
-                pays attention.
-              </p>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              {operatingRhythm.map((step, index) => (
-                <div
-                  key={step}
-                  className="rounded-[1.9rem] border border-white/10 bg-[#101113] p-6"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/12 bg-white/8 text-xs font-semibold text-white/78">
-                      {String(index + 1).padStart(2, '0')}
-                    </span>
-                    <p className="text-sm font-medium uppercase tracking-[0.18em] text-white/48">Step {index + 1}</p>
+        {/* ═══════════════════════════════════════════════════════════
+            STATS BAND — full-bleed bg break, gradient numbers
+        ═══════════════════════════════════════════════════════════ */}
+        <div style={{ backgroundColor: 'var(--bg-secondary)' }}>
+          <div className={`${inner} py-16 lg:py-20`}>
+            <AnimateIn>
+              <p className="type-kicker text-center mb-10">The cost of slow ramp</p>
+            </AnimateIn>
+            <div
+              className="grid grid-cols-1 gap-px sm:grid-cols-3"
+              style={{ backgroundColor: 'var(--border-tertiary)' }}
+            >
+              {statsData.map((item, i) => (
+                <AnimateIn key={item.label} delay={i * 80}>
+                  <div
+                    className="flex flex-col gap-4 px-8 py-10"
+                    style={{ backgroundColor: 'var(--bg-secondary)' }}
+                  >
+                    <div
+                      className={`accent-bar h-[3px] w-8 rounded-full`}
+                      style={{ backgroundColor: item.accent, animationDelay: `${i * 80}ms` }}
+                    />
+                    <p className={`type-landing-metric ${item.gradient}`}>{item.stat}</p>
+                    <div>
+                      <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{item.label}</p>
+                      <p className="mt-2 text-sm leading-6" style={{ color: 'var(--text-secondary)' }}>{item.body}</p>
+                    </div>
                   </div>
-                  <p className="mt-5 text-base leading-7 text-white/72">{step}</p>
+                </AnimateIn>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* ═══════════════════════════════════════════════════════════
+            HOW IT WORKS — connected steps, purple rail
+        ═══════════════════════════════════════════════════════════ */}
+        <section id="how-it-works" className={`${inner} py-20 lg:py-28 scroll-mt-[88px]`}>
+          <AnimateIn className="mb-12 max-w-xl">
+            <span className="badge-hero mb-5 inline-flex">The ramp loop</span>
+            <h2 className="mt-5 type-landing-h2" style={{ color: 'var(--text-primary)' }}>
+              Set up once. Runs continuously.
+            </h2>
+            <p className="mt-4 type-landing-body" style={{ color: 'var(--text-secondary)' }}>
+              Canon connects your knowledge, structures each hire&apos;s path, and monitors
+              for changes that affect readiness — in a single loop that runs from first hire
+              to the entire team.
+            </p>
+          </AnimateIn>
+
+          {/* Steps with connecting rail */}
+          <div className="relative grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
+            {/* Rail — behind the step numbers, purple */}
+            <div
+              className="pointer-events-none absolute top-[1.05rem] hidden h-px lg:block"
+              style={{
+                left: 'calc(12.5% + 1.25rem)',
+                right: 'calc(12.5% + 1.25rem)',
+                background: 'linear-gradient(90deg, var(--canon-purple-border), var(--canon-purple), var(--canon-purple-border))',
+                opacity: 0.35,
+              }}
+            />
+            {rampLoop.map((item, i) => (
+              <AnimateIn key={item.step} delay={i * 90}>
+                <div className="flex flex-col gap-4">
+                  <span
+                    className="step-number relative z-10 inline-flex h-9 w-9 items-center justify-center rounded-full border text-xs font-semibold"
+                    style={{
+                      borderColor: 'var(--canon-purple-border)',
+                      backgroundColor: 'var(--bg-page)',
+                      color: 'var(--canon-purple)',
+                    }}
+                  >
+                    {item.step}
+                  </span>
+                  <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{item.title}</p>
+                  <p className="text-sm leading-6" style={{ color: 'var(--text-secondary)' }}>{item.body}</p>
                 </div>
+              </AnimateIn>
+            ))}
+          </div>
+
+          {/* Mid-page CTA checkpoint */}
+          <AnimateIn className="mt-12">
+            <div
+              className="card-hover flex flex-col items-start gap-4 rounded-[10px] border p-6 sm:flex-row sm:items-center sm:justify-between"
+              style={{ borderColor: 'var(--border-secondary)', backgroundColor: 'var(--bg-secondary)' }}
+            >
+              <div>
+                <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                  Ready to run the loop for your next hire?
+                </p>
+                <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                  Most teams launch a first hire path in under an hour.
+                </p>
+              </div>
+              <Button asChild className="btn-primary-shimmer shrink-0">
+                <a href={requestAccessHref} target="_blank" rel="noopener noreferrer">
+                  Get Access <ArrowRight className="h-4 w-4" />
+                </a>
+              </Button>
+            </div>
+          </AnimateIn>
+        </section>
+
+        {/* ═══════════════════════════════════════════════════════════
+            FEATURES BAND — bg break, cards with hover glow
+        ═══════════════════════════════════════════════════════════ */}
+        <div style={{ backgroundColor: 'var(--bg-secondary)' }}>
+          <div className={`${inner} py-20 lg:py-28`}>
+            <AnimateIn className="mb-12">
+              <span className="badge-hero mb-5 inline-flex">What you get</span>
+              <h2 className="mt-5 type-landing-h2" style={{ color: 'var(--text-primary)' }}>
+                Built for every stage of the ramp cycle.
+              </h2>
+            </AnimateIn>
+
+            <div className="grid gap-5 lg:grid-cols-3">
+              {features.map((card, i) => (
+                <AnimateIn key={card.kicker} delay={i * 80}>
+                  <div
+                    className="card-hover flex h-full flex-col gap-5 rounded-[12px] border p-7"
+                    style={{ borderColor: 'var(--border-tertiary)', backgroundColor: 'var(--bg-tertiary)' }}
+                  >
+                    <div
+                      className={`accent-bar h-[3px] w-8 rounded-full`}
+                      style={{ backgroundColor: card.accent, animationDelay: `${i * 80}ms` }}
+                    />
+                    <div>
+                      <p className="type-kicker mb-2">{card.kicker}</p>
+                      <h3 className="type-landing-h3" style={{ color: 'var(--text-primary)' }}>{card.title}</h3>
+                      <p className="mt-3 text-sm leading-7" style={{ color: 'var(--text-secondary)' }}>{card.body}</p>
+                    </div>
+                  </div>
+                </AnimateIn>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* ═══════════════════════════════════════════════════════════
+            INTEGRATIONS — back to bg-page
+        ═══════════════════════════════════════════════════════════ */}
+        <section id="integrations" className={`${inner} py-20 lg:py-28 scroll-mt-[88px]`}>
+          <div className="grid gap-12 lg:grid-cols-[0.45fr_0.55fr] lg:items-start">
+            <AnimateIn>
+              <span className="badge-hero mb-5 inline-flex">Integrations</span>
+              <h2 className="mt-5 type-landing-h2" style={{ color: 'var(--text-primary)' }}>
+                Connected to where your knowledge already lives.
+              </h2>
+              <p className="mt-4 type-landing-body" style={{ color: 'var(--text-secondary)' }}>
+                Canon pulls context from the tools your team uses every day and keeps it
+                current so briefs always reflect what is true now.
+              </p>
+            </AnimateIn>
+
+            <div className="grid grid-cols-2 gap-4">
+              {integrations.map((item, i) => (
+                <AnimateIn key={item.name} delay={i * 70}>
+                  <div
+                    className="card-hover rounded-[10px] border p-5"
+                    style={{ borderColor: 'var(--border-tertiary)', backgroundColor: 'var(--bg-primary)' }}
+                  >
+                    <div
+                      className="mb-4 flex h-10 w-10 items-center justify-center rounded-[8px] border"
+                      style={{ borderColor: 'var(--border-secondary)', backgroundColor: 'var(--bg-secondary)' }}
+                    >
+                      {item.icon}
+                    </div>
+                    <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{item.name}</p>
+                    <p className="mt-2 text-xs leading-5" style={{ color: 'var(--text-secondary)' }}>{item.body}</p>
+                  </div>
+                </AnimateIn>
               ))}
             </div>
           </div>
         </section>
 
-        <section className="mx-auto max-w-[94rem] px-4 pb-20 sm:px-6 lg:px-8" id="product-tour">
-          <ProductTour
-            eyebrow="Product tour"
-            title="From signal to source evidence in one surface."
-            description="Canon should feel legible at every zoom level. Start with the briefing, then move into baseline context, workstream deltas, and event-level verification when needed."
-            layers={evidenceLayers}
-          />
-        </section>
+        {/* ═══════════════════════════════════════════════════════════
+            SECURITY BAND — third bg break
+        ═══════════════════════════════════════════════════════════ */}
+        <div id="security" style={{ backgroundColor: 'var(--bg-secondary)' }} className="scroll-mt-[88px]">
+          <div className={`${inner} py-20 lg:py-28`}>
+            <div className="grid gap-12 lg:grid-cols-2 lg:items-start">
+              <AnimateIn>
+                <span className="badge-hero mb-5 inline-flex">Security</span>
+                <h2 className="mt-5 type-landing-h2" style={{ color: 'var(--text-primary)' }}>
+                  Security is part of the model, not an afterthought.
+                </h2>
+                <ul className="mt-8 space-y-5">
+                  {[
+                    'OAuth sign-ins include tamper checks to prevent replayed authentication flows.',
+                    'Tokens are encrypted at rest before storage.',
+                    'Connected-data access requires a valid authenticated session.',
+                    'Canon only reads explicitly connected sources and never writes to your tools.',
+                  ].map((item) => (
+                    <li key={item} className="flex gap-3 text-sm leading-6" style={{ color: 'var(--text-secondary)' }}>
+                      <span
+                        className="mt-[0.35em] h-1.5 w-1.5 shrink-0 rounded-full"
+                        style={{ backgroundColor: 'var(--canon-purple)' }}
+                        aria-hidden
+                      />
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </AnimateIn>
 
-        <section className="mx-auto max-w-[94rem] px-4 pb-20 sm:px-6 lg:px-8">
-          <div className="grid gap-6 lg:grid-cols-3">
-            <div className="group relative overflow-hidden rounded-[2rem] border border-cyan-300/12 bg-[linear-gradient(180deg,rgba(16,17,19,1),rgba(11,12,14,1))] p-7 shadow-[0_24px_60px_rgba(0,0,0,0.24)]">
-              <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-200/50 to-transparent" />
-              <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(125,211,252,0.12),transparent_34%)] opacity-70" />
-              <div className="relative">
-                <p className="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-100/58">Leadership use case</p>
-                <h3 className="mt-4 font-display text-2xl font-semibold tracking-[-0.03em] text-white">
-                  Decide where to intervene.
-                </h3>
-                <p className="mt-4 text-sm leading-7 text-white/66">
-                  Canon is built for operating questions: where momentum changed, what became risky, and what deserves
-                  immediate communication.
-                </p>
-              </div>
-            </div>
-            <div className="group relative overflow-hidden rounded-[2rem] border border-amber-300/12 bg-[linear-gradient(180deg,rgba(16,17,19,1),rgba(11,12,14,1))] p-7 shadow-[0_24px_60px_rgba(0,0,0,0.24)]">
-              <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-amber-200/50 to-transparent" />
-              <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(253,230,138,0.1),transparent_34%)] opacity-70" />
-              <div className="relative">
-                <p className="text-xs font-semibold uppercase tracking-[0.28em] text-amber-100/58">Operating model</p>
-                <h3 className="mt-4 font-display text-2xl font-semibold tracking-[-0.03em] text-white">
-                  Baseline, not guesswork.
-                </h3>
-                <p className="mt-4 text-sm leading-7 text-white/66">
-                  Signals are scored against a configurable baseline window so leadership sees meaningful change instead of
-                  raw volume.
-                </p>
-              </div>
-            </div>
-            <div className="group relative overflow-hidden rounded-[2rem] border border-emerald-300/12 bg-[linear-gradient(180deg,rgba(16,17,19,1),rgba(11,12,14,1))] p-7 shadow-[0_24px_60px_rgba(0,0,0,0.24)]">
-              <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-emerald-200/50 to-transparent" />
-              <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(110,231,183,0.1),transparent_34%)] opacity-70" />
-              <div className="relative">
-                <p className="text-xs font-semibold uppercase tracking-[0.28em] text-emerald-100/58">Evidence model</p>
-                <h3 className="mt-4 font-display text-2xl font-semibold tracking-[-0.03em] text-white">
-                  Traceable before actionable.
-                </h3>
-                <p className="mt-4 text-sm leading-7 text-white/66">
-                  Every briefing can be followed down to supporting activity context before a leader escalates or
-                  reprioritizes.
-                </p>
-              </div>
+              <AnimateIn delay={80}>
+                <p className="type-kicker mb-4">Data flow</p>
+                <div className="space-y-3">
+                  {[
+                    { step: '01', title: 'Connect',    body: 'OAuth access to knowledge sources and communication systems.' },
+                    { step: '02', title: 'Synthesize', body: 'Canon indexes content, generates briefs, and monitors for meaningful changes.' },
+                    { step: '03', title: 'Route',      body: 'Updates and alerts go to the channels where your team already operates.' },
+                  ].map((item, i) => (
+                    <div
+                      key={item.step}
+                      className="card-hover flex gap-4 rounded-[8px] border p-4"
+                      style={{ borderColor: 'var(--border-tertiary)', backgroundColor: 'var(--bg-tertiary)', transitionDelay: `${i * 60}ms` }}
+                    >
+                      <span className="mt-px shrink-0 text-xs font-semibold tabular-nums" style={{ color: 'var(--canon-purple)' }}>
+                        {item.step}
+                      </span>
+                      <div>
+                        <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{item.title}</p>
+                        <p className="mt-1 text-sm leading-5" style={{ color: 'var(--text-secondary)' }}>{item.body}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </AnimateIn>
             </div>
           </div>
-        </section>
+        </div>
 
-        <section
-          className="mx-auto max-w-[94rem] px-4 pb-20 sm:px-6 lg:px-8 scroll-mt-[88px]"
-          id="integrations"
-        >
-          <div className="grid gap-6 lg:grid-cols-[0.7fr_1.3fr]">
-            <div className="space-y-4">
-              <Badge className="border-white/12 bg-white/7 text-white/75 hover:bg-white/7">Integrations</Badge>
-              <h2 className="font-display text-3xl font-semibold tracking-[-0.03em] text-white sm:text-4xl">
-                Inputs from the systems your team already trusts.
-              </h2>
-              <p className="text-base leading-8 text-white/68">
-                Canon connects to where engineering work is actually happening, then routes the output back into the
-                channels where leadership already operates.
-              </p>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="rounded-[2rem] border border-white/10 bg-[#101113] p-6">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/12 bg-black/30">
-                  <Github className="h-6 w-6 text-white" aria-hidden />
-                </div>
-                <h3 className="mt-5 font-display text-2xl font-semibold tracking-[-0.03em] text-white">GitHub</h3>
-                <p className="mt-3 text-sm leading-7 text-white/64">
-                  Track pull request flow, commit activity, and delivery trend shifts with baseline context.
-                </p>
-              </div>
-
-              <div className="rounded-[2rem] border border-white/10 bg-[#101113] p-6">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/12 bg-black/30">
-                  <IntegrationLogos provider="atlassian" size={24} />
-                </div>
-                <h3 className="mt-5 font-display text-2xl font-semibold tracking-[-0.03em] text-white">Jira</h3>
-                <p className="mt-3 text-sm leading-7 text-white/64">
-                  Understand ticket movement, backlog pressure, and workstream regressions before they spread.
-                </p>
-              </div>
-
-              <div className="rounded-[2rem] border border-white/10 bg-[#101113] p-6">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/12 bg-black/30">
-                  <Slack className="h-6 w-6 text-white" aria-hidden />
-                </div>
-                <h3 className="mt-5 font-display text-2xl font-semibold tracking-[-0.03em] text-white">Slack</h3>
-                <p className="mt-3 text-sm leading-7 text-white/64">
-                  Deliver briefings and alerts into the communication layer your team already checks first.
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section
-          className="mx-auto max-w-[94rem] px-4 pb-20 sm:px-6 lg:px-8 scroll-mt-[88px]"
-          id="security"
-        >
-          <div className="grid gap-6 lg:grid-cols-[1.12fr_0.88fr]">
-            <div className="rounded-[2.2rem] border border-white/10 bg-[#101113] p-8">
-              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-white/48">Security</p>
-              <h2 className="mt-4 font-display text-3xl font-semibold tracking-[-0.03em] text-white sm:text-4xl">
-                Security is part of the operating model, not an afterthought.
-              </h2>
-              <ul className="mt-6 space-y-4 text-sm leading-7 text-white/68">
-                <li className="flex gap-3">
-                  <span className="mt-3 h-1.5 w-1.5 shrink-0 rounded-full bg-white/60" aria-hidden />
-                  OAuth sign-ins include tamper checks to prevent replayed authentication flows.
-                </li>
-                <li className="flex gap-3">
-                  <span className="mt-3 h-1.5 w-1.5 shrink-0 rounded-full bg-white/60" aria-hidden />
-                  Tokens are encrypted at rest before storage.
-                </li>
-                <li className="flex gap-3">
-                  <span className="mt-3 h-1.5 w-1.5 shrink-0 rounded-full bg-white/60" aria-hidden />
-                  Connected-data access requires a valid authenticated session.
-                </li>
-                <li className="flex gap-3">
-                  <span className="mt-3 h-1.5 w-1.5 shrink-0 rounded-full bg-white/60" aria-hidden />
-                  Canon only reads explicitly connected workspaces and repositories, and never writes to your tools.
-                </li>
-              </ul>
-            </div>
-
-            <div className="rounded-[2.2rem] border border-white/10 bg-[#111214] p-8">
-              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-white/48">Data flow</p>
-              <div className="mt-6 space-y-4">
-                {[
-                  ['Connect', 'OAuth access to source code, work tracking, and communication systems.'],
-                  ['Compute', 'Canon encrypts tokens, ingests events, and scores deviations against baseline.'],
-                  ['Route', 'Briefings and alerts go to the channels where operating decisions already happen.'],
-                ].map(([title, body]) => (
-                  <div key={title} className="rounded-[1.5rem] border border-white/10 bg-[#0b0c0e] p-5">
-                    <p className="text-sm font-medium text-white">{title}</p>
-                    <p className="mt-2 text-sm leading-6 text-white/62">{body}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="mx-auto max-w-[94rem] px-4 pb-20 sm:px-6 lg:px-8">
-          <div className="grid gap-6 lg:grid-cols-[0.74fr_1.26fr]">
-            <div className="space-y-4">
-              <Badge className="border-white/12 bg-white/7 text-white/75 hover:bg-white/7">FAQ</Badge>
-              <h2 className="font-display text-3xl font-semibold tracking-[-0.03em] text-white sm:text-4xl">
+        {/* ═══════════════════════════════════════════════════════════
+            FAQ — back to bg-page
+        ═══════════════════════════════════════════════════════════ */}
+        <section className={`${inner} py-20 lg:py-28`}>
+          <div className="grid gap-12 lg:grid-cols-[0.45fr_0.55fr] lg:items-start">
+            <AnimateIn>
+              <span className="badge-hero mb-5 inline-flex">FAQ</span>
+              <h2 className="mt-5 type-landing-h2" style={{ color: 'var(--text-primary)' }}>
                 Common questions
               </h2>
-            </div>
-
-            <FaqAccordion items={faqItems} />
-          </div>
-        </section>
-
-        <section className="mx-auto max-w-[94rem] px-4 pb-20 sm:px-6 lg:px-8">
-          <div className="rounded-[2.5rem] border border-white/10 bg-[linear-gradient(140deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] p-8 sm:p-10 lg:p-12">
-            <div className="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
-              <div className="max-w-3xl">
-                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-white/48">Final call</p>
-                <h2 className="mt-4 font-display text-4xl font-semibold tracking-[-0.04em] text-white sm:text-5xl">
-                  Give leadership one source of truth for engineering movement.
-                </h2>
-                <p className="mt-4 text-base leading-8 text-white/68">
-                  Canon replaces reactive status gathering with a readable operating layer grounded in the systems your
-                  team already uses every day.
-                </p>
-              </div>
-
-              <div className="flex flex-col gap-3 sm:flex-row">
-                <Button size="lg" className="h-12 rounded-full bg-white px-6 text-black hover:bg-white/90" asChild>
-                  <a href={requestAccessHref} target="_blank" rel="noopener noreferrer">
-                    Request Access
-                    <ArrowRight className="h-4 w-4" />
-                  </a>
-                </Button>
-                <Button
-                  size="lg"
-                  variant="secondary"
-                  className="h-12 rounded-full border border-white/15 bg-white/8 px-6 text-white hover:bg-white/12"
-                  asChild
+              <p className="mt-4 type-landing-body" style={{ color: 'var(--text-secondary)' }}>
+                Anything not covered?{' '}
+                <a
+                  href="mailto:john@usecanon.com"
+                  className="underline underline-offset-2 transition-colors hover:text-[var(--text-primary)]"
+                  style={{ color: 'var(--text-secondary)' }}
                 >
-                  <a href="mailto:john@usecanon.com">Ask a question</a>
-                </Button>
-              </div>
-            </div>
+                  Email us.
+                </a>
+              </p>
+            </AnimateIn>
+            <AnimateIn delay={60}>
+              <FaqAccordion items={faqItems} />
+            </AnimateIn>
           </div>
         </section>
+
+        {/* ═══════════════════════════════════════════════════════════
+            FINAL CTA — animated gradient border, centered
+        ═══════════════════════════════════════════════════════════ */}
+        <section className={`${inner} pb-28`}>
+          <AnimateIn>
+            {/* gradient-border-wrap provides the animated gradient border */}
+            <div className="gradient-border-wrap">
+              <div
+                className="rounded-[13px] px-8 py-16 text-center sm:px-16"
+                style={{ backgroundColor: 'var(--bg-primary)' }}
+              >
+                <p className="type-kicker mb-6">Get started today</p>
+                <h2
+                  className="mx-auto max-w-2xl type-landing-h2"
+                  style={{ color: 'var(--text-primary)' }}
+                >
+                  Give every GTM hire the shortest path to full productivity.
+                </h2>
+                <p
+                  className="mx-auto mt-4 max-w-xl type-landing-body"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  Canon replaces scattered onboarding docs and reactive enablement with a
+                  single continuous loop that keeps both new hires and the broader team
+                  field-ready.
+                </p>
+                <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+                  <Button size="lg" className="btn-primary-shimmer" asChild>
+                    <a href={requestAccessHref} target="_blank" rel="noopener noreferrer">
+                      Get Access
+                      <ArrowRight className="h-4 w-4" />
+                    </a>
+                  </Button>
+                  <Button size="lg" variant="secondary" asChild>
+                    <a href="mailto:john@usecanon.com">Ask a question</a>
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </AnimateIn>
+        </section>
+
       </main>
 
-      <footer className="relative border-t border-white/10">
-        <div className="mx-auto flex max-w-[94rem] flex-col gap-4 px-4 py-10 text-white/62 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
+      <footer className="border-t" style={{ borderColor: 'var(--border-tertiary)' }}>
+        <div
+          className={`${inner} flex flex-col gap-4 py-10 sm:flex-row sm:items-center sm:justify-between`}
+          style={{ color: 'var(--text-tertiary)' }}
+        >
           <p>© 2026 Canon</p>
-          <a href="mailto:john@usecanon.com" className="transition hover:text-white">
+          <a
+            href="mailto:john@usecanon.com"
+            className="transition-colors duration-[120ms] hover:text-[var(--text-primary)]"
+          >
             Contact
           </a>
         </div>
