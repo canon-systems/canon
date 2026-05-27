@@ -2,14 +2,10 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import {
   IconArrowRight,
-  IconCheck,
   IconChevronRight,
   IconDatabase,
   IconFlag,
-  IconPlugConnected,
   IconRadar,
-  IconRefresh,
-  IconRoute,
   IconTool,
   IconUsers,
 } from '@tabler/icons-react';
@@ -22,7 +18,7 @@ const rampLoop = [
     step: '01',
     href: '/knowledge',
     title: 'Knowledge sync',
-    description: 'Keep company context fresh so onboarding briefs and readiness signals always reflect what\'s current.',
+    description: 'Keep company context fresh so onboarding briefs always reflect what\'s current.',
     action: 'Connect Knowledge',
     icon: IconDatabase,
   },
@@ -38,26 +34,31 @@ const rampLoop = [
     step: '03',
     href: '/new-hires/new',
     title: 'New hire path',
-    description: 'Assign milestones, access requests, and readiness briefings to each hire from day one.',
+    description: 'Assign milestones, access requests, and context briefings to each hire from day one.',
     action: 'Add New Hire',
     icon: IconUsers,
   },
-  {
-    step: '04',
-    href: '/readiness',
-    title: 'Readiness signals',
-    description: 'Detect product and customer changes before they create gaps in the field.',
-    action: 'Check Readiness',
-    icon: IconRadar,
-  },
 ];
 
-const suggestedPath = [
-  { href: '/knowledge', title: 'Connect your knowledge sources', description: 'Keep onboarding briefs and readiness signals current.' },
-  { href: '/milestones', title: 'Review and tailor milestones', description: 'Align technical and sales capabilities to your Technical GTM roles.' },
-  { href: '/settings?tab=tools', title: 'Configure tool access', description: 'Define which tools each role needs and who can grant access.' },
-  { href: '/new-hires/new', title: 'Add your next hire', description: 'Launch a personalized onboarding path.' },
-  { href: '/readiness', title: 'Check readiness signals', description: 'Keep your team current as product and market change.' },
+const foundationLinks = [
+  {
+    href: '/knowledge',
+    title: 'Connect knowledge',
+    description: 'Give Canon the source material it should use for briefs, milestones, and readiness updates.',
+    icon: IconDatabase,
+  },
+  {
+    href: '/milestones',
+    title: 'Shape milestones',
+    description: 'Turn role expectations into a clear ramp path for Technical GTM hires.',
+    icon: IconFlag,
+  },
+  {
+    href: '/settings?tab=tools',
+    title: 'Set tool access',
+    description: 'Map every required tool to the roles and owners who can grant access.',
+    icon: IconTool,
+  },
 ];
 
 const integrations = [
@@ -72,152 +73,160 @@ export default async function HomePage() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div
-        className="flex items-start justify-between gap-4 px-6 pt-5 pb-4 border-b shrink-0"
-        style={{ borderColor: 'var(--border-tertiary)' }}
-      >
-        <div>
-          <h1 className="type-page-title" style={{ color: 'var(--text-primary)' }}>Welcome to Canon</h1>
-          <p className="type-page-subtitle mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>
-            Keep Technical GTM hires productive and your whole team field-ready as your product and market evolve.
-          </p>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <Button asChild variant="secondary" size="sm">
-            <Link href="/new-hires">
-              <IconUsers size={13} /> View Hires
-            </Link>
-          </Button>
-          <Button asChild size="sm">
-            <Link href="/new-hires/new">
-              <IconUsers size={13} /> Add New Hire
-            </Link>
-          </Button>
-        </div>
-      </div>
+      <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6">
+        <div className="mx-auto flex w-full max-w-[1080px] flex-col gap-8">
+          <section
+            className="border-b pb-8"
+            style={{ borderColor: 'var(--border-tertiary)' }}
+          >
+            <div className="max-w-3xl">
+              <h1 className="max-w-3xl text-[30px] font-semibold leading-[1.12] tracking-normal sm:text-[34px]" style={{ color: 'var(--text-primary)' }}>
+                Build the next successful ramp
+              </h1>
+              <p className="type-body mt-3 max-w-2xl leading-[1.55]" style={{ color: 'var(--text-secondary)' }}>
+                Canon is a guided path for Technical GTM onboarding. Start with the context your team already uses, shape it into role-specific milestones, and keep each hire moving as the product changes.
+              </p>
+              <div className="mt-5 flex flex-wrap items-center gap-2">
+                <Button asChild size="sm">
+                  <Link href="/new-hires/new">
+                    <IconUsers size={13} /> Start a Hire Path
+                  </Link>
+                </Button>
+                <Button asChild variant="secondary" size="sm">
+                  <Link href="/knowledge">
+                    <IconDatabase size={13} /> Connect Context
+                  </Link>
+                </Button>
+                <Button asChild variant="ghost" size="sm">
+                  <Link href="/new-hires">
+                    View Hires <IconArrowRight size={13} />
+                  </Link>
+                </Button>
+              </div>
+            </div>
+          </section>
 
-      <div className="flex-1 overflow-y-auto px-6 py-6">
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-
-          {/* Main column — ramp loop */}
-          <div>
-            <div
-              className="flex items-start justify-between gap-4 pb-5 border-b"
-              style={{ borderColor: 'var(--border-tertiary)' }}
-            >
-              <div>
-                <h2 className="type-section-title" style={{ color: 'var(--text-primary)' }}>Start the ramp loop</h2>
-                <p className="type-body mt-1 max-w-lg leading-[1.5]" style={{ color: 'var(--text-secondary)' }}>
-                  Canon keeps onboarding and field readiness in a continuous loop built for Technical GTM roles: source the context, define the path, launch the ramp, then stay ahead of change as it happens.
+          <section>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div className="min-w-0">
+                <h2 className="type-section-title" style={{ color: 'var(--text-primary)' }}>Build the path and keep it current</h2>
+                <p className="type-body mt-1 max-w-2xl leading-[1.5]" style={{ color: 'var(--text-secondary)' }}>
+                  The path starts with source context, becomes role-specific milestones, and lands as a guided plan for each hire.
                 </p>
               </div>
-              <Button asChild variant="secondary" size="sm" className="shrink-0">
-                <Link href="/readiness">
-                  <IconRefresh size={13} /> How It Updates
-                </Link>
-              </Button>
             </div>
 
-            <div className="flex flex-col">
-              {rampLoop.map((item, index) => {
-                const Icon = item.icon;
-                const isLast = index === rampLoop.length - 1;
-                return (
-                  <div
-                    key={item.step}
-                    className="flex gap-4 py-5"
-                    style={{ borderBottom: isLast ? 'none' : '1px solid var(--border-tertiary)' }}
-                  >
-                    <div className="flex flex-col items-center shrink-0">
-                      <div
-                        className="w-9 h-9 rounded-[8px] flex items-center justify-center"
-                        style={{ backgroundColor: 'var(--canon-purple-light)', color: 'var(--canon-purple)' }}
-                      >
-                        <Icon size={17} />
-                      </div>
-                      {!isLast && (
-                        <div className="mt-3 flex-1 w-px" style={{ backgroundColor: 'var(--border-secondary)' }} />
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0 flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="type-caption font-semibold" style={{ color: 'var(--canon-purple)' }}>{item.step}</span>
-                          <h3 className="type-card-title" style={{ color: 'var(--text-primary)' }}>{item.title}</h3>
-                        </div>
-                        <p className="type-body leading-[1.5]" style={{ color: 'var(--text-secondary)' }}>
-                          {item.description}
-                        </p>
-                      </div>
-                      <Button asChild variant="secondary" size="sm" className="shrink-0 self-start">
-                        <Link href={item.href}>
-                          {item.action}
-                          <IconArrowRight size={13} />
-                        </Link>
-                      </Button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div
-              className="flex items-start gap-3 pt-4 border-t"
-              style={{ borderColor: 'var(--border-tertiary)' }}
-            >
-              <IconRoute size={15} className="shrink-0 mt-[2px]" style={{ color: 'var(--text-tertiary)' }} />
-              <p className="type-body leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
-                Readiness signals feed back into knowledge and milestones, so every hire and every role stays current — not just at day one.
-              </p>
-            </div>
-          </div>
-
-          {/* Sidebar */}
-          <aside className="flex flex-col gap-4">
-            <div
-              className="rounded-[8px] border px-5 py-5"
-              style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}
-            >
-              <h2 className="type-section-title" style={{ color: 'var(--text-primary)' }}>Suggested path</h2>
-              <p className="type-body mt-1 leading-[1.5]" style={{ color: 'var(--text-secondary)' }}>
-                The steps that build onboarding strength and field readiness together.
-              </p>
-              <ol className="mt-4 flex flex-col gap-1">
-                {suggestedPath.map((step, index) => (
-                  <li key={step.href}>
+            <div className="relative mt-6">
+              <div className="absolute bottom-5 left-5 top-5 w-px lg:hidden" style={{ backgroundColor: 'var(--border-tertiary)' }} />
+              <div className="absolute left-[6%] right-[6%] top-5 hidden h-px lg:block" style={{ backgroundColor: 'var(--border-tertiary)' }} />
+              <div className="grid gap-6 lg:grid-cols-3">
+                {rampLoop.map((item) => {
+                  const Icon = item.icon;
+                  return (
                     <Link
-                      href={step.href}
-                      className="group flex items-start gap-3 rounded-[7px] px-1 py-2 transition-colors duration-[120ms] hover:bg-[var(--bg-secondary)]"
+                      key={item.step}
+                      href={item.href}
+                      className="group relative flex min-w-0 gap-4 rounded-[8px] p-1 transition-colors duration-[120ms] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--canon-purple)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-page)] lg:flex-col lg:gap-3"
                     >
                       <span
-                        className="mt-[2px] flex h-7 w-7 shrink-0 items-center justify-center rounded-full border type-control-sm"
+                        className="relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-[8px] border"
                         style={{
-                          borderColor: index === 0 ? 'var(--canon-purple)' : 'var(--border-secondary)',
-                          color: index === 0 ? 'var(--canon-purple)' : 'var(--text-tertiary)',
+                          backgroundColor: 'var(--bg-primary)',
+                          borderColor: 'var(--border-secondary)',
+                          color: 'var(--canon-purple)',
                         }}
                       >
-                        {index + 1}
+                        <Icon size={18} />
+                      </span>
+                      <span className="min-w-0 pb-2 lg:pb-0">
+                        <span className="block type-caption font-semibold" style={{ color: 'var(--canon-purple)' }}>{item.step}</span>
+                        <span className="mt-1 block type-card-title text-[var(--text-primary)] transition-colors duration-[120ms] group-hover:text-[var(--canon-purple)]">
+                          {item.title}
+                        </span>
+                        <span className="mt-2 block type-body leading-[1.5]" style={{ color: 'var(--text-secondary)' }}>
+                          {item.description}
+                        </span>
+                        <span className="mt-3 flex items-center gap-1.5 type-control-sm font-medium" style={{ color: 'var(--canon-purple)' }}>
+                          {item.action}
+                          <IconArrowRight size={13} className="transition-transform duration-[120ms] group-hover:translate-x-0.5" />
+                        </span>
+                      </span>
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+
+            <Link
+              href="/readiness"
+              className="group mt-6 flex flex-col gap-4 border-t pt-5 transition-colors duration-[120ms] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--canon-purple)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-page)] sm:flex-row sm:items-start sm:justify-between"
+              style={{ borderColor: 'var(--border-tertiary)' }}
+            >
+              <span className="flex min-w-0 items-start gap-3">
+                <span
+                  className="mt-[1px] flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px]"
+                  style={{ backgroundColor: 'var(--canon-purple-light)', color: 'var(--canon-purple)' }}
+                >
+                  <IconRadar size={16} />
+                </span>
+                <span className="min-w-0">
+                  <span className="block type-card-title text-[var(--text-primary)] transition-colors duration-[120ms] group-hover:text-[var(--canon-purple)]">
+                    Readiness keeps the path current
+                  </span>
+                  <span className="mt-1 block type-body max-w-3xl leading-[1.5]" style={{ color: 'var(--text-secondary)' }}>
+                    Product, customer, and field changes loop back into knowledge and milestones, so the ramp keeps pace after day one.
+                  </span>
+                </span>
+              </span>
+              <span className="flex shrink-0 items-center gap-1.5 type-control-sm font-medium" style={{ color: 'var(--canon-purple)' }}>
+                Review signals
+                <IconArrowRight size={13} className="transition-transform duration-[120ms] group-hover:translate-x-0.5" />
+              </span>
+            </Link>
+          </section>
+
+          <section
+            className="grid gap-8 border-t pt-7 lg:grid-cols-[minmax(0,1fr)_360px]"
+            style={{ borderColor: 'var(--border-tertiary)' }}
+          >
+            <div className="min-w-0">
+              <h2 className="type-section-title" style={{ color: 'var(--text-primary)' }}>Prepare the foundation</h2>
+              <p className="type-body mt-1 max-w-2xl leading-[1.5]" style={{ color: 'var(--text-secondary)' }}>
+                Strong ramps start with trusted context, role-specific milestones, and clear access ownership.
+              </p>
+              <div className="mt-4 flex flex-col">
+                {foundationLinks.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className="group flex items-start gap-3 border-t py-4 first:border-t-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--canon-purple)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-page)]"
+                      style={{ borderColor: 'var(--border-tertiary)' }}
+                    >
+                      <span
+                        className="mt-[1px] flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px]"
+                        style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}
+                      >
+                        <Icon size={15} />
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block type-body-strong" style={{ color: 'var(--text-primary)' }}>{step.title}</span>
-                        <span className="block type-caption mt-[2px] leading-[1.45]" style={{ color: 'var(--text-tertiary)' }}>{step.description}</span>
+                        <span className="block type-body-strong text-[var(--text-primary)] transition-colors duration-[120ms] group-hover:text-[var(--canon-purple)]">{item.title}</span>
+                        <span className="mt-[2px] block type-caption leading-[1.45]" style={{ color: 'var(--text-tertiary)' }}>{item.description}</span>
                       </span>
                       <IconChevronRight size={14} className="mt-[6px] shrink-0 text-[var(--text-tertiary)] transition-colors duration-[120ms] group-hover:text-[var(--text-primary)]" />
                     </Link>
-                  </li>
-                ))}
-              </ol>
+                  );
+                })}
+              </div>
             </div>
 
-            <div
-              className="rounded-[8px] border px-5 py-5"
-              style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}
-            >
-              <div className="flex items-start justify-between gap-3 mb-4">
+            <div className="min-w-0">
+              <div className="flex items-start justify-between gap-3">
                 <div>
-                  <h2 className="type-section-title" style={{ color: 'var(--text-primary)' }}>Integrations</h2>
-                  <p className="type-body mt-1" style={{ color: 'var(--text-secondary)' }}>
-                    Connect the tools that hold onboarding context.
+                  <h2 className="type-section-title" style={{ color: 'var(--text-primary)' }}>Bring in context</h2>
+                  <p className="type-body mt-1 leading-[1.5]" style={{ color: 'var(--text-secondary)' }}>
+                    Connect the sources Canon should learn from.
                   </p>
                 </div>
                 <Button asChild variant="ghost" size="sm" className="shrink-0 text-[var(--canon-purple)] hover:text-[var(--canon-purple)]">
@@ -226,65 +235,27 @@ export default async function HomePage() {
                   </Link>
                 </Button>
               </div>
-              <div className="flex flex-col">
+              <div className="mt-4 flex flex-col">
                 {integrations.map((integration) => (
                   <Link
                     key={integration.name}
                     href={integration.href}
-                    className="group flex items-center gap-3 border-t py-3 first:border-t-0 transition-colors duration-[120ms]"
+                    className="group flex items-center gap-3 border-t py-4 first:border-t-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--canon-purple)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-page)]"
                     style={{ borderColor: 'var(--border-tertiary)' }}
                   >
                     <span className="flex h-8 w-8 shrink-0 items-center justify-center">
                       <IntegrationLogos provider={integration.icon} size={22} />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block type-body-strong" style={{ color: 'var(--text-primary)' }}>{integration.name}</span>
-                      <span className="mt-[2px] flex items-center gap-1.5 type-caption" style={{ color: 'var(--text-tertiary)' }}>
-                        <IconPlugConnected size={11} />
-                        {integration.status}
-                      </span>
+                      <span className="block type-body-strong text-[var(--text-primary)] transition-colors duration-[120ms] group-hover:text-[var(--canon-purple)]">{integration.name}</span>
+                      <span className="block type-caption mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>{integration.status}</span>
                     </span>
                     <IconChevronRight size={14} className="shrink-0 text-[var(--text-tertiary)] transition-colors duration-[120ms] group-hover:text-[var(--text-primary)]" />
                   </Link>
                 ))}
               </div>
             </div>
-
-            <Link
-              href="/settings?tab=tools"
-              className="group rounded-[8px] border px-5 py-4 flex items-start gap-3 transition-colors duration-[120ms] hover:bg-[var(--bg-secondary)]"
-              style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}
-            >
-              <span
-                className="mt-[2px] flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px]"
-                style={{ backgroundColor: 'var(--canon-purple-light)', color: 'var(--canon-purple)' }}
-              >
-                <IconTool size={16} />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block type-body-strong" style={{ color: 'var(--text-primary)' }}>Configure tool access</span>
-                <span className="block type-caption mt-[3px] leading-[1.45]" style={{ color: 'var(--text-tertiary)' }}>
-                  Define which tools each role needs and assign owners who can grant access. Canon handles the rest.
-                </span>
-              </span>
-              <IconChevronRight size={14} className="mt-[6px] shrink-0 text-[var(--text-tertiary)] transition-colors duration-[120ms] group-hover:text-[var(--text-primary)]" />
-            </Link>
-
-            <div
-              className="rounded-[8px] border px-4 py-3"
-              style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-tertiary)' }}
-            >
-              <div className="flex items-start gap-3">
-                <span className="mt-[1px] flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--green-bg)] text-[var(--green)]">
-                  <IconCheck size={14} />
-                </span>
-                <p className="type-body leading-[1.5]" style={{ color: 'var(--text-secondary)' }}>
-                  Canon works best when milestones reflect your actual Technical GTM role requirements before the next hire starts.
-                </p>
-              </div>
-            </div>
-          </aside>
-
+          </section>
         </div>
       </div>
     </div>

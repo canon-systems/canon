@@ -491,7 +491,7 @@ export function NewHiresClient() {
           <div className="flex items-center justify-between mb-3">
             <span className="type-metric-sm" style={{ color: 'var(--text-primary)' }}>
               New Hires{' '}
-              <span className="type-page-subtitle font-normal" style={{ color: 'var(--text-tertiary)' }}>{hires.length}</span>
+              <span className="type-caption font-normal tabular-nums" style={{ color: 'var(--text-tertiary)' }}>{hires.length}</span>
             </span>
             <Button size="sm" onClick={() => setShowAddModal(true)}><IconPlus size={13} /> Add</Button>
           </div>
@@ -776,7 +776,7 @@ export function NewHiresClient() {
                   <TabsContent value="Access">
                     <div className="flex items-center justify-between mb-4">
                       <p className="type-body" style={{ color: 'var(--text-tertiary)' }}>
-                        {selectedDetail.access_requests.length === 0 ? 'No tools configured for this hire.' : `${selectedDetail.access_requests.length} tool${selectedDetail.access_requests.length === 1 ? '' : 's'}`}
+                        {selectedDetail.access_requests.length === 0 ? '' : `${selectedDetail.access_requests.length} tool${selectedDetail.access_requests.length === 1 ? '' : 's'}`}
                       </p>
                       <Button size="sm" variant="secondary" onClick={() => setAddAccessOpen(true)}>
                         <IconPlus size={13} /> Add Tool

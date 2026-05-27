@@ -477,7 +477,7 @@ export function MilestonesClient() {
           <div className="flex items-center justify-between">
             <span className="type-metric-sm" style={{ color: 'var(--text-primary)' }}>
               Milestones{' '}
-              <span className="type-page-subtitle font-normal" style={{ color: 'var(--text-tertiary)' }}>
+              <span className="type-caption font-normal tabular-nums" style={{ color: 'var(--text-tertiary)' }}>
                 {milestones.length}
               </span>
             </span>
