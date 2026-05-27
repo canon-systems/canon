@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   IconBrain,
   IconCheck,
   IconEdit,
   IconInfoCircle,
+  IconLoader2,
   IconPlus,
   IconSparkles,
   IconTarget,
@@ -27,9 +28,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner';
 import { MilestoneCard } from '@/components/milestone-card';
 import { cn } from '@/components/ui/utils';
-import type { HireRole, MilestoneProposal, RampMilestone } from '@/types/onboarding';
+import type { HireRole, MilestoneGenerationRun, MilestoneProposal, RampMilestone } from '@/types/onboarding';
 
 const ROLES: HireRole[] = ['AI Solutions Architect', 'Solutions Engineer', 'Implementation Engineer'];
+const MILESTONE_GENERATION_STORAGE_KEY = 'canon-milestone-generation-run';
 
 const ROLE_META: Record<HireRole, { id: string; color: string; abbr: string; label: string }> = {
   'AI Solutions Architect': { id: 'ai-sa', color: 'var(--role-ai)', abbr: 'AI', label: 'AI Solutions Architect' },
@@ -56,6 +58,13 @@ type ProposalEditForm = {
   real_work_trigger: string;
   retrieval_brief: string;
   success_signals: string;
+};
+
+type MilestonesResponse = {
+  milestones?: RampMilestone[];
+  proposals?: MilestoneProposal[];
+  latest_generation?: MilestoneGenerationRun | null;
+  error?: string;
 };
 
 const emptyForm = (role: HireRole): MilestoneForm => ({
@@ -92,6 +101,77 @@ const proposalToEditForm = (proposal: MilestoneProposal): ProposalEditForm => ({
 
 function successSignals(value: string) {
   return value.split('\n').map((line) => line.trim()).filter(Boolean);
+}
+
+function isGenerationActive(run: MilestoneGenerationRun | null | undefined) {
+  return run?.status === 'queued' || run?.status === 'running';
+}
+
+function rememberGeneration(run: MilestoneGenerationRun) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(MILESTONE_GENERATION_STORAGE_KEY, JSON.stringify({
+    id: run.id,
+    status: run.status,
+    created_at: run.created_at,
+  }));
+}
+
+function clearRememberedGeneration(runId?: string) {
+  if (typeof window === 'undefined') return;
+  const raw = window.localStorage.getItem(MILESTONE_GENERATION_STORAGE_KEY);
+  if (!raw) return;
+
+  if (!runId) {
+    window.localStorage.removeItem(MILESTONE_GENERATION_STORAGE_KEY);
+    return;
+  }
+
+  try {
+    const saved = JSON.parse(raw) as { id?: string };
+    if (saved.id === runId) window.localStorage.removeItem(MILESTONE_GENERATION_STORAGE_KEY);
+  } catch {
+    window.localStorage.removeItem(MILESTONE_GENERATION_STORAGE_KEY);
+  }
+}
+
+function GenerationStatusPanel({
+  run,
+  starting,
+}: {
+  run: MilestoneGenerationRun | null;
+  starting: boolean;
+}) {
+  const active = starting || isGenerationActive(run);
+  if (!active) return null;
+
+  const statusLabel = run?.status === 'running' ? 'Generating drafts' : 'Queued for generation';
+  const detail = run?.status === 'running'
+    ? 'Canon is reading indexed company knowledge and preparing role-specific draft milestones.'
+    : 'Canon is waiting for the milestone generation worker to start.';
+
+  return (
+    <div
+      className="mb-5 rounded-[8px] border px-4 py-3"
+      style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--canon-purple-border)' }}
+      role="status"
+      aria-live="polite"
+    >
+      <div className="flex items-start gap-3">
+        <div className="mt-[1px] flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-[7px] bg-[var(--canon-purple-light)] text-[var(--canon-purple)]">
+          <IconLoader2 size={15} className="animate-spin" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="type-panel-title text-[var(--text-primary)]">{statusLabel}</div>
+          <p className="type-body mt-1 text-[var(--text-secondary)]">{detail}</p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+            {[1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-2 rounded-full bg-[var(--bg-secondary)]" />
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function ProposalCard({
@@ -153,7 +233,8 @@ export function MilestonesClient() {
   const [form, setForm] = useState<MilestoneForm>(emptyForm('AI Solutions Architect'));
   const [submitting, setSubmitting] = useState(false);
   const [editSubmitting, setEditSubmitting] = useState(false);
-  const [generating, setGenerating] = useState(false);
+  const [generationStarting, setGenerationStarting] = useState(false);
+  const [generationRun, setGenerationRun] = useState<MilestoneGenerationRun | null>(null);
   const [actionId, setActionId] = useState<string | null>(null);
   const [editError, setEditError] = useState('');
   const [deleteError, setDeleteError] = useState('');
@@ -162,13 +243,22 @@ export function MilestonesClient() {
   const [editProposalSubmitting, setEditProposalSubmitting] = useState(false);
   const [editProposalError, setEditProposalError] = useState('');
   const [bulkAction, setBulkAction] = useState<'accept_all' | 'reject_all' | null>(null);
+  const generationNoticeRef = useRef<string | null>(null);
 
   const load = useCallback(async () => {
     try {
       const res = await fetch('/api/onboarding/milestones');
-      const data = (await res.json()) as { milestones?: RampMilestone[]; proposals?: MilestoneProposal[] };
+      const data = (await res.json()) as MilestonesResponse;
       setMilestones(data.milestones ?? []);
       setProposals(data.proposals ?? []);
+      setGenerationRun(data.latest_generation ?? null);
+
+      const latestGeneration = data.latest_generation ?? null;
+      if (latestGeneration && isGenerationActive(latestGeneration)) {
+        rememberGeneration(latestGeneration);
+      } else if (latestGeneration?.status === 'completed' || latestGeneration?.status === 'failed') {
+        clearRememberedGeneration(latestGeneration.id);
+      }
     } catch {
       // silent
     } finally {
@@ -256,43 +346,70 @@ export function MilestonesClient() {
 
   const activeMilestones = byRole(activeRole);
   const activeProposals = proposalsByRole(activeRole);
+  const generating = generationStarting || isGenerationActive(generationRun);
+
+  useEffect(() => {
+    if (!isGenerationActive(generationRun)) return undefined;
+
+    const interval = window.setInterval(() => {
+      void load();
+    }, 3000);
+
+    return () => window.clearInterval(interval);
+  }, [generationRun, load]);
+
+  useEffect(() => {
+    if (generationRun && isGenerationActive(generationRun)) {
+      generationNoticeRef.current = generationRun.id;
+      return;
+    }
+
+    const rememberedRunId = (() => {
+      if (typeof window === 'undefined') return null;
+      const raw = window.localStorage.getItem(MILESTONE_GENERATION_STORAGE_KEY);
+      if (!raw) return null;
+      try {
+        return (JSON.parse(raw) as { id?: string }).id ?? null;
+      } catch {
+        return null;
+      }
+    })();
+    const shouldNotify = !!generationRun && (generationNoticeRef.current === generationRun.id || rememberedRunId === generationRun.id);
+
+    if (generationRun?.status === 'completed') {
+      if (shouldNotify) toast.success('Milestones are ready for review');
+      clearRememberedGeneration(generationRun.id);
+      generationNoticeRef.current = null;
+    } else if (generationRun?.status === 'failed') {
+      if (shouldNotify) {
+        toast.error('Milestone generation failed', {
+          description: generationRun.error_message ?? 'Please try generating drafts again.',
+        });
+      }
+      clearRememberedGeneration(generationRun.id);
+      generationNoticeRef.current = null;
+    }
+  }, [generationRun]);
 
   async function generateMilestones() {
-    setGenerating(true);
-    const startingCount = proposals.length;
+    setGenerationStarting(true);
     try {
-      await fetch('/api/onboarding/milestones', {
+      const res = await fetch('/api/onboarding/milestones', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'generate' }),
       });
-
-      await new Promise<void>((resolve) => {
-        let attempts = 0;
-        const interval = window.setInterval(async () => {
-          attempts++;
-          try {
-            const res = await fetch('/api/onboarding/milestones');
-            const data = (await res.json()) as { milestones?: RampMilestone[]; proposals?: MilestoneProposal[] };
-            const next = data.proposals ?? [];
-            if (next.length > startingCount || attempts >= 20) {
-              clearInterval(interval);
-              setMilestones(data.milestones ?? []);
-              setProposals(next);
-              if (next.length > startingCount) {
-                toast.success('Milestones are ready for review');
-              }
-              resolve();
-            }
-          } catch {
-            if (attempts >= 20) { clearInterval(interval); resolve(); }
-          }
-        }, 3000);
-      });
+      const data = (await res.json().catch(() => ({}))) as { generation?: MilestoneGenerationRun; error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'Could not generate milestones.');
+      if (data.generation) {
+        setGenerationRun(data.generation);
+        rememberGeneration(data.generation);
+      }
+      await load();
     } catch {
       toast.error('Could not generate milestones. Please try again.');
     } finally {
-      setGenerating(false);
+      setGenerationStarting(false);
     }
   }
 
@@ -583,13 +700,11 @@ export function MilestonesClient() {
         </div>
 
         <div className="flex-1 overflow-y-auto px-8 py-6">
+          <GenerationStatusPanel run={generationRun} starting={generationStarting} />
+
           {activeMilestones.length === 0 && activeProposals.length === 0 ? (
             generating ? (
-              <div className="flex flex-col gap-4">
-                <div className="flex items-center gap-2 type-body" style={{ color: 'var(--text-tertiary)' }}>
-                  <IconBrain size={14} style={{ color: 'var(--canon-purple)', flexShrink: 0 }} />
-                  Generating milestones from your knowledge sources…
-                </div>
+              <div className="flex flex-col gap-3">
                 {[1, 2, 3, 4].map((i) => (
                   <Skeleton key={i} className="h-24 rounded-[10px] bg-[var(--bg-primary)]" />
                 ))}

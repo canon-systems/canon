@@ -444,6 +444,34 @@ async function generateForOrg(organizationId: string) {
   return { proposalsCreated, rolesProcessed };
 }
 
+async function updateGenerationRun(params: {
+  generationRunId?: string;
+  status: 'running' | 'completed' | 'failed';
+  proposalsCreated?: number;
+  rolesProcessed?: number;
+  errorMessage?: string;
+}) {
+  if (!params.generationRunId) return;
+
+  const supabase = createServiceRoleClient();
+  const timestamp = new Date().toISOString();
+  const patch: Record<string, unknown> = {
+    status: params.status,
+    updated_at: timestamp,
+  };
+
+  if (params.status === 'running') patch.started_at = timestamp;
+  if (params.status === 'completed' || params.status === 'failed') patch.completed_at = timestamp;
+  if (typeof params.proposalsCreated === 'number') patch.proposals_created = params.proposalsCreated;
+  if (typeof params.rolesProcessed === 'number') patch.roles_processed = params.rolesProcessed;
+  if (params.errorMessage) patch.error_message = params.errorMessage;
+
+  await supabase
+    .from('milestone_generation_runs')
+    .update(patch)
+    .eq('id', params.generationRunId);
+}
+
 export const milestoneProposalGeneration = inngest.createFunction(
   {
     id: 'milestone-proposal-generation',
@@ -453,21 +481,45 @@ export const milestoneProposalGeneration = inngest.createFunction(
   { event: 'onboarding/milestones.generate.requested' },
   async ({ event, step }) => {
     const organizationId = event.data?.organizationId as string | undefined;
-    log.info('generation_start', { organizationId: organizationId ?? 'all' });
+    const generationRunId = event.data?.generationRunId as string | undefined;
+    log.info('generation_start', { organizationId: organizationId ?? 'all', generationRunId });
+
+    await step.run('mark-generation-running', () => updateGenerationRun({
+      generationRunId,
+      status: 'running',
+    }));
 
     const supabase = createServiceRoleClient();
-    const orgs = organizationId
-      ? [{ id: organizationId }]
-      : ((await supabase.from('organizations').select('id')).data ?? []);
+    try {
+      const orgs = organizationId
+        ? [{ id: organizationId }]
+        : ((await supabase.from('organizations').select('id')).data ?? []);
 
-    let totalCreated = 0;
-    for (const org of orgs) {
-      const result = await step.run(`generate-org-${org.id}`, () => generateForOrg(org.id));
-      totalCreated += result.proposalsCreated;
+      let totalCreated = 0;
+      let totalRolesProcessed = 0;
+      for (const org of orgs) {
+        const result = await step.run(`generate-org-${org.id}`, () => generateForOrg(org.id));
+        totalCreated += result.proposalsCreated;
+        totalRolesProcessed += result.rolesProcessed;
+      }
+
+      await step.run('mark-generation-completed', () => updateGenerationRun({
+        generationRunId,
+        status: 'completed',
+        proposalsCreated: totalCreated,
+        rolesProcessed: totalRolesProcessed,
+      }));
+
+      log.info('generation_complete', { orgsProcessed: orgs.length, proposalsCreated: totalCreated, generationRunId });
+      return { ok: true, orgsProcessed: orgs.length, proposalsCreated: totalCreated };
+    } catch (error) {
+      await step.run('mark-generation-failed', () => updateGenerationRun({
+        generationRunId,
+        status: 'failed',
+        errorMessage: errorMessage(error),
+      }));
+      throw error;
     }
-
-    log.info('generation_complete', { orgsProcessed: orgs.length, proposalsCreated: totalCreated });
-    return { ok: true, orgsProcessed: orgs.length, proposalsCreated: totalCreated };
   }
 );
 

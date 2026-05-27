@@ -8,6 +8,7 @@ export type ReadinessCategory = 'product_change' | 'customer_objection' | 'demo_
 export type ReadinessImpactLevel = 'low' | 'medium' | 'high';
 export type ReadinessStatus = 'draft' | 'reviewed' | 'sent' | 'archived';
 export type MilestoneProposalStatus = 'draft' | 'approved' | 'rejected';
+export type MilestoneGenerationRunStatus = 'queued' | 'running' | 'completed' | 'failed';
 export type MilestoneProgressStatus = 'not_started' | 'briefed' | 'evidence_detected' | 'verified';
 export type MilestoneEvidenceType =
   | 'access_readiness'
@@ -164,6 +165,20 @@ export interface MilestoneProposal {
   approved_milestone_id: string | null;
   approved_at: string | null;
   rejected_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MilestoneGenerationRun {
+  id: string;
+  organization_id: string;
+  requested_by: string | null;
+  status: MilestoneGenerationRunStatus;
+  proposals_created: number;
+  roles_processed: number;
+  error_message: string | null;
+  started_at: string | null;
+  completed_at: string | null;
   created_at: string;
   updated_at: string;
 }
