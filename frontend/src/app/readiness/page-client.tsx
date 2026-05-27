@@ -225,13 +225,19 @@ export function ReadinessClient() {
 
   async function generateSignals() {
     setGenerating(true);
-    const startingCount = brief?.items?.length ?? 0;
+    const requestedAt = Date.now();
     try {
-      await fetch('/api/onboarding/readiness', {
+      const response = await fetch('/api/onboarding/readiness', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'generate' }),
       });
+      const result = (await response.json().catch(() => ({}))) as { error?: string; detail?: string };
+      if (!response.ok) {
+        throw new Error(result.detail || result.error || 'Failed to queue readiness analysis');
+      }
+
+      toast.success('Readiness analysis queued');
 
       await new Promise<void>((resolve) => {
         let attempts = 0;
@@ -241,11 +247,14 @@ export function ReadinessClient() {
             const res = await fetch('/api/onboarding/readiness');
             const data = (await res.json()) as { brief?: ReadinessBrief | null };
             const next = data.brief;
-            const nextCount = next?.items?.length ?? 0;
-            if (nextCount > startingCount || attempts >= 20) {
+            const newestUpdate = Math.max(
+              ...(next?.items ?? []).map((item) => new Date(item.updated_at || item.detected_at || item.created_at).getTime()),
+              0
+            );
+            if (newestUpdate >= requestedAt || attempts >= 20) {
               clearInterval(interval);
               setBrief(next ?? null);
-              if (nextCount > startingCount) {
+              if (newestUpdate >= requestedAt) {
                 toast.success('Readiness signals are ready for review');
               }
               resolve();
@@ -255,8 +264,9 @@ export function ReadinessClient() {
           }
         }, 3000);
       });
-    } catch {
-      toast.error('Could not generate readiness signals. Please try again.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not generate readiness signals. Please try again.';
+      toast.error(message);
     } finally {
       setGenerating(false);
     }
@@ -582,9 +592,6 @@ export function ReadinessClient() {
       <div className="flex items-start justify-between px-6 pt-5 pb-4 border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
         <div>
           <h1 className="type-page-title" style={{ color: 'var(--text-primary)' }}>Readiness</h1>
-          <p className="type-page-subtitle mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>
-            Detect change, explain impact, identify audience, recommend action, then send or prevent.
-          </p>
         </div>
         <Button size="sm" onClick={generateSignals} disabled={generating} className="mt-1">
           <IconBrain size={13} /> {generating ? 'Generating...' : 'Generate Signals'}
@@ -603,16 +610,16 @@ export function ReadinessClient() {
             ))}
           </div>
         ) : (
-        <div className="flex flex-col items-center justify-center flex-1 gap-3 py-12">
-          <IconRadar size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
-          <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Readiness Signals</div>
-          <div className="type-body text-center max-w-[280px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
-            Signals are generated from your knowledge sources. Add a source to get started.
+          <div className="flex flex-col items-center justify-center flex-1 gap-3 py-12">
+            <IconRadar size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
+            <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Readiness Signals</div>
+            <div className="type-body text-center max-w-[280px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
+              Signals are generated from your knowledge sources. Add a source to get started.
+            </div>
+            <Link href="/knowledge">
+              <Button size="sm" className="mt-1">Add Knowledge Sources</Button>
+            </Link>
           </div>
-          <Link href="/knowledge">
-            <Button size="sm" className="mt-1">Add Knowledge Sources</Button>
-          </Link>
-        </div>
         )
       ) : (
         <div className="flex flex-1 overflow-hidden">

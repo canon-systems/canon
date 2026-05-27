@@ -519,7 +519,6 @@ export function KnowledgeClient() {
       <div className="flex items-start justify-between px-6 pt-5 pb-4 border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
         <div>
           <h1 className="type-page-title" style={{ color: 'var(--text-primary)' }}>Knowledge</h1>
-          <p className="type-page-subtitle mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>Powers onboarding briefs and readiness signals</p>
         </div>
         <div className="flex items-center gap-2">
           <Button onClick={openAddModal} size="sm"><IconPlus size={14} /> Add Source</Button>

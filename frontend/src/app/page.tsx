@@ -84,7 +84,6 @@ export default async function HomePage() {
                 Build the next successful ramp
               </h1>
               <p className="type-body mt-3 max-w-2xl leading-[1.55]" style={{ color: 'var(--text-secondary)' }}>
-                Canon is a guided path for Technical GTM onboarding. Start with the context your team already uses, shape it into role-specific milestones, and keep each hire moving as the product changes.
               </p>
               <div className="mt-5 flex flex-wrap items-center gap-2">
                 <Button asChild size="sm">

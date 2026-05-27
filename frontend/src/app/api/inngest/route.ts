@@ -7,6 +7,7 @@ import {
   accessCoordinator,
   accessGrantedNotifier,
   readinessAnalysis,
+  readinessAnalysisOnDemand,
   milestoneProposalGeneration,
   milestoneProposalScheduledGeneration,
 } from "../../../inngest";
@@ -22,6 +23,7 @@ export const { GET, POST, PUT } = serve({
     dailyRampCheck,
     accessCoordinator,
     accessGrantedNotifier,
+    readinessAnalysisOnDemand,
     readinessAnalysis,
     milestoneProposalGeneration,
     milestoneProposalScheduledGeneration,
