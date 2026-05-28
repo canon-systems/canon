@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
+import { rampDayFromStartDate } from '@/lib/onboarding/rampDay';
 import type { HireRole, HireStatus, MilestoneEvidenceRequirement } from '@/types/onboarding';
 
 export const dynamic = 'force-dynamic';
@@ -121,10 +122,12 @@ export async function GET(
       };
     });
 
-    const nextMilestone = (milestones ?? []).find((milestone) => milestone.day_trigger > hire.ramp_day) ?? null;
+    const computedRampDay = rampDayFromStartDate(hire.start_date);
+    const hireWithRampDay = { ...hire, ramp_day: computedRampDay };
+    const nextMilestone = (milestones ?? []).find((milestone) => milestone.day_trigger > computedRampDay) ?? null;
 
     return NextResponse.json({
-      hire,
+      hire: hireWithRampDay,
       deliveries: deliveries ?? [],
       access_requests: accessRequests ?? [],
       next_milestone: nextMilestone,
@@ -222,7 +225,12 @@ export async function PATCH(
 
     if (error || !updated) return NextResponse.json({ error: 'New hire not found or update failed' }, { status: 404 });
 
-    return NextResponse.json({ hire: updated });
+    return NextResponse.json({
+      hire: {
+        ...updated,
+        ramp_day: rampDayFromStartDate(updated.start_date),
+      },
+    });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('[api/onboarding/new-hires/:id] PATCH failed', error);

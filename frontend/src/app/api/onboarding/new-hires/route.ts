@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
 import { inngest } from '@/inngest/client';
+import { rampDayFromStartDate } from '@/lib/onboarding/rampDay';
 import type { HireRole } from '@/types/onboarding';
 
 export const dynamic = 'force-dynamic';
@@ -32,7 +33,12 @@ export async function GET() {
       .order('start_date', { ascending: false });
 
     if (error) throw error;
-    return NextResponse.json({ hires: hires ?? [] });
+    const hiresWithRampDay = (hires ?? []).map((hire) => ({
+      ...hire,
+      ramp_day: rampDayFromStartDate(hire.start_date),
+    }));
+
+    return NextResponse.json({ hires: hiresWithRampDay });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('[api/onboarding/new-hires] GET failed', error);

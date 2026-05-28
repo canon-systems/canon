@@ -5,6 +5,7 @@ import { llm, embeddingModel } from '@/lib/ai';
 import { createLogger, errorMessage } from '@/lib/server/logging';
 import { syncAccessReadinessEvidence } from '@/lib/server/milestoneEvidence';
 import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
+import { rampDayFromStartDate } from '@/lib/onboarding/rampDay';
 import type { HireRole, RampMilestone, MilestoneEvidenceRequirement } from '@/types/onboarding';
 
 const log = createLogger('inngest.daily_ramp_check', {
@@ -169,7 +170,7 @@ export const dailyRampCheck = inngest.createFunction(
 
     const { data: activeHires } = await supabase
       .from('new_hires')
-      .select('id, organization_id, first_name, last_name, name, role, slack_user_id, ramp_day, status')
+      .select('id, organization_id, first_name, last_name, name, role, slack_user_id, start_date, ramp_day, status')
       .eq('status', 'active');
 
     if (!activeHires || activeHires.length === 0) {
@@ -201,7 +202,7 @@ export const dailyRampCheck = inngest.createFunction(
     for (const hire of activeHires) {
       try {
         await step.run(`process-hire-${hire.id}`, async () => {
-          const newRampDay = hire.ramp_day + 1;
+          const newRampDay = rampDayFromStartDate(hire.start_date);
 
           await supabase
             .from('new_hires')
