@@ -3,6 +3,7 @@ import { ArrowRight } from 'lucide-react';
 
 import { AnimateIn } from '@/components/AnimateIn';
 import { FaqAccordion } from '@/components/landing-page/FaqAccordion';
+import { ProductTour } from '@/components/landing-page/ProductTour';
 import { IntegrationLogos } from '@/components/IntegrationLogos';
 import { Navigation } from '@/components/Navigation';
 import { Button } from '@/components/ui/button';
@@ -58,6 +59,54 @@ const rampLoop = [
   { step: '03', title: 'Launch the hire path', body: 'Add a new hire and Canon generates their brief, assigns milestones, and creates their access request list automatically.' },
   { step: '04', title: 'Monitor readiness', body: 'When product or market changes create gaps, Canon surfaces who is affected, for new hires and the broader team alike.' },
 ];
+
+const productTourLayers = [
+  {
+    stage: 'Home',
+    title: 'See ramp status and readiness in one place.',
+    description:
+      'The home view gives managers a concise operating surface for hire progress, team readiness, and the work Canon is doing behind the scenes.',
+    image: '/home.png',
+    alt: 'Canon home dashboard showing onboarding and readiness status.',
+    highlights: ['Team overview', 'Live status', 'Manager cockpit'],
+  },
+  {
+    stage: 'New hire',
+    title: 'Launch a role-specific path before day one.',
+    description:
+      'Add a hire, choose the role context, and Canon prepares the onboarding path from your connected knowledge sources instead of starting from a blank plan.',
+    image: '/new_hire.png',
+    alt: 'Canon new hire setup screen for creating an onboarding path.',
+    highlights: ['Role context', 'Path setup', 'Day-one ready'],
+  },
+  {
+    stage: 'Milestones',
+    title: 'Track outcomes, not just completed tasks.',
+    description:
+      'Milestones make readiness visible through capability checkpoints that managers and new hires can both use to understand what is complete and what comes next.',
+    image: '/milestones.png',
+    alt: 'Canon milestones screen showing onboarding checkpoint progress.',
+    highlights: ['Capabilities', 'Progress clarity', 'Shared expectations'],
+  },
+  {
+    stage: 'Knowledge',
+    title: 'Ground every brief in current source material.',
+    description:
+      'Canon pulls from connected product docs, call intelligence, and internal knowledge so onboarding stays tied to what your team actually knows today.',
+    image: '/knowledge.png',
+    alt: 'Canon knowledge screen showing connected source material.',
+    highlights: ['Connected sources', 'Brief generation', 'Fresh context'],
+  },
+  {
+    stage: 'Readiness',
+    title: 'Catch field gaps as the business changes.',
+    description:
+      'When product, pricing, or positioning changes, Canon surfaces who is affected so readiness work can happen before stale information reaches a customer conversation.',
+    image: '/readiness.png',
+    alt: 'Canon readiness screen showing field readiness gaps and updates.',
+    highlights: ['Gap detection', 'Change monitoring', 'Field alerts'],
+  },
+] as const;
 
 const statsData = [
   {
@@ -204,7 +253,7 @@ export default function LandingPage() {
                 </a>
               </Button>
               <Button size="lg" variant="secondary" asChild>
-                <a href="#how-it-works">See how it works</a>
+                <a href="#product-tour">See the product</a>
               </Button>
             </div>
 
@@ -350,6 +399,20 @@ export default function LandingPage() {
             </div>
           </div>
         </div>
+
+        {/* ═══════════════════════════════════════════════════════════
+            PRODUCT TOUR — real app screenshots from public assets
+        ═══════════════════════════════════════════════════════════ */}
+        <section id="product-tour" className={`${inner} py-20 lg:py-28 scroll-mt-[88px]`}>
+          <AnimateIn>
+            <ProductTour
+              eyebrow="Product sneak peek"
+              title="A first look at the Canon workspace."
+              description="Canon turns scattered enablement work into a focused application surface for onboarding, milestone tracking, source-grounded knowledge, and ongoing field readiness."
+              layers={productTourLayers}
+            />
+          </AnimateIn>
+        </section>
 
         {/* ═══════════════════════════════════════════════════════════
             HOW IT WORKS — connected steps, purple rail
