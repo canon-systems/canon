@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 const appHref = 'https://app.usecanon.com';
 
 const navLinks = [
+  { title: 'Product', href: '#product-tour' },
   { title: 'How It Works', href: '#how-it-works' },
   { title: 'Integrations', href: '#integrations' },
   { title: 'Security', href: '#security' },
