@@ -82,7 +82,7 @@ export function ProductTour({ eyebrow, title, description, layers }: ProductTour
           <p className="type-landing-body" style={{ color: 'var(--text-secondary)' }}>{description}</p>
         </div>
 
-        <div ref={trackRef} className="relative lg:min-h-[430vh] lg:pb-[26vh]">
+        <div ref={trackRef} className="relative lg:min-h-[300vh]">
           <div className="grid gap-8 lg:sticky lg:top-20 lg:grid-cols-[0.84fr_1.16fr] lg:items-start">
           <div className="space-y-4">
             {layers.map((layer, index) => {
