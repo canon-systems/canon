@@ -17,7 +17,15 @@ export function NewHireFormClient() {
 
       <div className="mb-6">
         <h1 className="type-page-title text-[var(--text-primary)]">Add New Hire</h1>
-        <p className="text-[var(--text-secondary)] type-body mt-0.5">Canon will set up their onboarding path, access requests, and readiness updates.</p>
+      </div>
+
+      <div className="mb-6">
+        <h2 className="max-w-2xl text-[24px] font-semibold leading-[1.18] tracking-normal text-[var(--text-primary)]">
+          Start with the details Canon needs
+        </h2>
+        <p className="type-body mt-2 max-w-2xl leading-[1.5] text-[var(--text-secondary)]">
+          Canon uses the hire&apos;s role and start date to prepare the onboarding path, access requests, and readiness updates.
+        </p>
       </div>
 
       <NewHireForm

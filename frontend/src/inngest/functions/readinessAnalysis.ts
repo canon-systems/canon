@@ -17,6 +17,7 @@ const log = createLogger('inngest.readiness_analysis', {
     signal_detected: 'Signal Detected',
     signal_none: 'No Signal',
     signal_failed: 'Signal Failed',
+    signals_refreshed: 'Signals Refreshed',
     delivery_sent: 'Delivery Sent',
     delivery_failed: 'Delivery Failed',
     delivery_plan: 'Delivery Plan',
@@ -34,7 +35,7 @@ type KnowledgeChunkResult = {
 
 type ChunkRetrievalResult = {
   chunks: KnowledgeChunkResult[];
-  strategy: 'vector' | 'recent_keyword_fallback' | 'none';
+  strategy: 'vector_plus_recent' | 'recent' | 'company_recent' | 'none';
   vectorMatches: number;
   fallbackCandidates: number;
 };
@@ -54,84 +55,34 @@ const ALL_ROLES: HireRole[] = ['AI Solutions Architect', 'Solutions Engineer', '
 
 const CATEGORY_QUERIES: Record<ReadinessCategory, string> = {
   product_change:
-    'product update feature change launch release announcement new capability limitation pricing',
+    'product update feature change launch release announcement new capability limitation pricing packaging availability migration rollout',
   customer_objection:
-    'customer concern objection pushback hesitation resistance problem complaint feedback',
+    'customer concern objection pushback hesitation resistance problem complaint feedback blocker risk trust escalation',
   demo_guidance:
     'demo presentation pitch talk track narrative best practice show walkthrough discovery',
   implementation_pattern:
-    'implementation setup configuration deployment technical pattern best practice architecture',
-};
-
-const CATEGORY_KEYWORDS: Record<ReadinessCategory, string[]> = {
-  product_change: [
-    'product',
-    'feature',
-    'launch',
-    'release',
-    'pricing',
-    'packaging',
-    'migration',
-    'availability',
-    'rollout',
-    'capability',
-    'limitation',
-  ],
-  customer_objection: [
-    'objection',
-    'pushback',
-    'hesitation',
-    'concern',
-    'question',
-    'blocker',
-    'signature',
-    'prospect',
-    'customer',
-    'momentum',
-  ],
-  demo_guidance: [
-    'demo',
-    'deck',
-    'presentation',
-    'pitch',
-    'talk track',
-    'narrative',
-    'show',
-    'walkthrough',
-    'discovery',
-    'conversion',
-  ],
-  implementation_pattern: [
-    'implementation',
-    'go-live',
-    'deployment',
-    'setup',
-    'configuration',
-    'technical',
-    'project manager',
-    'kickoff',
-    'stakeholder',
-    'approval',
-  ],
+    'implementation setup configuration deployment technical pattern best practice architecture migration go-live launch risk',
 };
 
 const CATEGORY_DESCRIPTIONS: Record<ReadinessCategory, string> = {
   product_change:
-    'a product change, new feature, launch, updated capability, or pricing/limit change that GTM teams need to know about',
+    'a product capability, product limitation, reliability issue, launch dependency, availability change, pricing/packaging change, or customer-facing product gap that GTM teams need to know about',
   customer_objection:
-    'a customer objection, concern, or recurring question pattern that GTM teams should have a prepared response to',
+    'a customer concern, objection, trust issue, product maturity concern, escalation, blocker, or recurring question pattern that GTM teams should have a prepared response to',
   demo_guidance:
     'updated demo guidance, new talk tracks, narrative changes, or presentation best practices',
   implementation_pattern:
-    'an implementation pattern, technical setup change, common issue, or delivery best practice',
+    'an implementation pattern, technical setup issue, migration risk, deployment blocker, production configuration concern, or delivery best practice',
 };
 
-const CATEGORIES: ReadinessCategory[] = [
+const ReadinessCategorySchema = z.enum([
   'product_change',
   'customer_objection',
   'demo_guidance',
   'implementation_pattern',
-];
+]);
+
+const CATEGORIES = ReadinessCategorySchema.options satisfies ReadinessCategory[];
 
 const CATEGORY_TITLES: Record<ReadinessCategory, string> = {
   product_change: 'Product Changes',
@@ -140,62 +91,126 @@ const CATEGORY_TITLES: Record<ReadinessCategory, string> = {
   implementation_pattern: 'Implementation Patterns',
 };
 
-const SignalSchema = z.object({
-  detected: z
-    .boolean()
-    .describe('Whether a clear, actionable signal was found in the knowledge chunks'),
-  title: z.string().optional().describe('Concise headline under 10 words; omit if not detected'),
+const SignalItemSchema = z.object({
+  title: z.string().describe('Concise headline under 10 words'),
   summary: z
     .string()
-    .optional()
-    .describe('1–2 sentences describing the signal in plain language; omit if not detected'),
+    .describe('1–2 sentences describing the signal in plain language'),
   recommended_action: z
     .string()
     .optional()
-    .describe('Specific action starting with a verb; omit if not detected'),
+    .describe('Specific action starting with a verb'),
   impact_level: z
     .enum(['low', 'medium', 'high'])
     .optional()
-    .describe('Urgency for GTM teams; omit if not detected'),
+    .describe('Urgency for GTM teams'),
   affected_roles: z
     .array(z.enum(['AI Solutions Architect', 'Solutions Engineer', 'Implementation Engineer']))
     .optional()
-    .describe('Which roles are affected; omit if not detected'),
+    .describe('Which roles are affected'),
 });
 
-async function detectSignal(params: {
+const SignalsSchema = z.object({
+  signals: z
+    .array(SignalItemSchema)
+    .max(3)
+    .describe('Distinct, actionable readiness signals found for this category. Empty when no clear signal exists.'),
+});
+
+const CompanySignalItemSchema = SignalItemSchema.extend({
+  category: ReadinessCategorySchema.describe('Closest readiness category for this signal'),
+});
+
+const CompanySignalsSchema = z.object({
+  signals: z
+    .array(CompanySignalItemSchema)
+    .max(12)
+    .describe('Distinct, actionable company readiness signals across all categories. Empty when no clear signal exists.'),
+});
+
+async function detectSignals(params: {
   category: ReadinessCategory;
   chunks: KnowledgeChunkResult[];
-}): Promise<z.infer<typeof SignalSchema>> {
+}): Promise<Array<z.infer<typeof SignalItemSchema>>> {
   const { category, chunks } = params;
 
-  if (chunks.length === 0) return { detected: false };
+  if (chunks.length === 0) return [];
 
   const chunkText = chunks.map((c) => c.content).join('\n\n---\n\n');
 
   const { object } = await generateObject({
     model: llm,
-    schema: SignalSchema,
+    schema: SignalsSchema,
     prompt: `You are Canon, an AI that monitors company Slack channels to keep GTM teams current.
 
 Analyze these Slack knowledge chunks and determine whether they contain a clear signal of ${CATEGORY_DESCRIPTIONS[category]}.
 
-Only flag a signal if there is genuine, actionable information — not general chatter or tangentially related messages. If the chunks are vague, unrelated, or insufficient to form a clear signal, set detected to false.
+Only flag signals if there is genuine, actionable information — not general chatter or tangentially related messages. If the chunks are vague, unrelated, or insufficient to form a clear signal, return an empty signals array.
+
+Return up to 3 distinct signals for this category. Do not collapse unrelated customer blockers into one generic signal. Do not duplicate the same signal with different wording.
 
 Knowledge chunks:
 ${chunkText}
 
-If a clear signal exists, provide:
+For each clear signal, provide:
 - title: A concise headline (under 10 words)
 - summary: 1–2 sentences describing what GTM teams need to know
 - recommended_action: A specific next step starting with a verb (e.g. "Update the Day 14 milestone with...")
 - impact_level: How urgently teams need this (low / medium / high)
 - affected_roles: Which roles are affected (subset of: AI Solutions Architect, Solutions Engineer, Implementation Engineer)
 
-If there is no clear signal, set detected to false and omit all other fields.`,
+If there is no clear signal, return { "signals": [] }.`,
   });
 
-  return object;
+  return object.signals;
+}
+
+async function detectCompanyReadinessSignals(params: {
+  chunks: KnowledgeChunkResult[];
+}): Promise<Array<z.infer<typeof CompanySignalItemSchema>>> {
+  const { chunks } = params;
+
+  if (chunks.length === 0) return [];
+
+  const chunkText = chunks.map((c) => c.content).join('\n\n---\n\n');
+
+  const { object } = await generateObject({
+    model: llm,
+    schema: CompanySignalsSchema,
+    prompt: `You are Canon, an AI that monitors company knowledge to keep technical GTM teams continuously ready.
+
+Analyze these knowledge chunks and extract any company-related readiness signals. Do not depend on exact keywords or a predefined topic list. Use judgment: if a Solutions Engineer, AI Solutions Architect, Implementation Engineer, or customer-facing technical teammate would need to change what they say, demo, qualify, document, escalate, configure, or promise, it is a readiness signal.
+
+Strong signals include, but are not limited to:
+- product gaps, maturity concerns, reliability issues, permissions/audit/reporting issues, integration limitations, pricing or packaging confusion
+- customer objections, trust issues, support escalations, repeated tickets, stakeholder hesitation, rollout risk
+- demo-to-reality mismatch, outdated talk tracks, unclear positioning, expectation gaps created during sales or onboarding
+- implementation blockers, auth/configuration ambiguity, migration risk, manual work replacing expected automation, unsupported architecture concerns
+- process changes, owner gaps, missing documentation, launch timing risk, enablement requests, or preventative guidance
+
+Only return signals with concrete implications and a clear recommended action. Do not return general chatter, vague status updates, or duplicates. If multiple unrelated blockers appear, return them as separate signals.
+
+Map every signal to the closest category:
+- product_change: product capability, limitation, maturity, reliability, reporting, admin controls, pricing/packaging, rollout, or customer-facing product gap
+- customer_objection: customer concern, trust issue, objection, escalation, repeated support complaint, stakeholder hesitation, or response gap
+- demo_guidance: demo narrative, sales expectation mismatch, talk track, presentation, proof point, or demo flow change
+- implementation_pattern: setup, auth, configuration, deployment, migration, architecture, integration, go-live, or delivery risk
+
+Knowledge chunks:
+${chunkText}
+
+For each clear signal, provide:
+- category
+- title: A concise headline (under 10 words)
+- summary: 1–2 sentences describing what technical GTM teams need to know
+- recommended_action: A specific next step starting with a verb
+- impact_level: How urgently teams need this (low / medium / high)
+- affected_roles: Which roles are affected (subset of: AI Solutions Architect, Solutions Engineer, Implementation Engineer)
+
+If there is no clear signal, return { "signals": [] }.`,
+  });
+
+  return object.signals;
 }
 
 function normalizeChunk(row: {
@@ -212,11 +227,21 @@ function normalizeChunk(row: {
   };
 }
 
-function keywordScore(content: string, category: ReadinessCategory) {
-  const normalized = content.toLowerCase();
-  return CATEGORY_KEYWORDS[category].reduce((score, keyword) => {
-    return normalized.includes(keyword) ? score + 1 : score;
-  }, 0);
+function isGeneratedReadinessChunk(content: string) {
+  return /(^|\n)\*(readiness|product changes|customer objections|demo guidance|implementation patterns|product|customer objections|implementation patterns) update\*/i.test(content);
+}
+
+function nonGeneratedReadinessChunks(chunks: KnowledgeChunkResult[]) {
+  return chunks.filter((chunk) => !isGeneratedReadinessChunk(chunk.content));
+}
+
+function uniqueChunks(chunks: KnowledgeChunkResult[]) {
+  const seen = new Set<string>();
+  return chunks.filter((chunk) => {
+    if (seen.has(chunk.id)) return false;
+    seen.add(chunk.id);
+    return true;
+  });
 }
 
 function uniqueChunkMetadataStrings(chunks: KnowledgeChunkResult[], key: string) {
@@ -227,6 +252,17 @@ function uniqueChunkMetadataStrings(chunks: KnowledgeChunkResult[], key: string)
         .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
     )
   );
+}
+
+function signalKey(signal: {
+  category: ReadinessCategory;
+  title: string;
+  summary: string;
+}) {
+  return `${signal.category}:${signal.title}:${signal.summary}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
 }
 
 function metadataStringArray(item: Pick<ReadinessDeliveryItem, 'source_metadata'>, key: string) {
@@ -488,15 +524,9 @@ async function retrieveCandidateChunks(params: {
 
   if (vectorError) throw vectorError;
 
-  const normalizedVectorChunks = ((vectorChunks ?? []) as KnowledgeChunkResult[]).map(normalizeChunk);
-  if (normalizedVectorChunks.length > 0) {
-    return {
-      chunks: normalizedVectorChunks,
-      strategy: 'vector',
-      vectorMatches: normalizedVectorChunks.length,
-      fallbackCandidates: 0,
-    };
-  }
+  const normalizedVectorChunks = nonGeneratedReadinessChunks(
+    ((vectorChunks ?? []) as KnowledgeChunkResult[]).map(normalizeChunk)
+  );
 
   const { data: recentChunks, error: recentError } = await supabase
     .from('knowledge_chunks')
@@ -507,23 +537,46 @@ async function retrieveCandidateChunks(params: {
 
   if (recentError) throw recentError;
 
-  const rankedFallbackChunks = ((recentChunks ?? []) as Array<{
+  const recentNonGeneratedChunks = nonGeneratedReadinessChunks(((recentChunks ?? []) as Array<{
     id: string;
     content: string;
     metadata: Record<string, unknown> | null;
-  }>)
-    .map((chunk) => ({
-      chunk: normalizeChunk(chunk),
-      score: keywordScore(chunk.content, category),
-    }))
-    .filter(({ score }) => score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 8)
-    .map(({ chunk }) => chunk);
+  }>).map(normalizeChunk)).slice(0, 12);
+
+  const chunks = uniqueChunks([...normalizedVectorChunks, ...recentNonGeneratedChunks]).slice(0, 12);
 
   return {
-    chunks: rankedFallbackChunks,
-    strategy: rankedFallbackChunks.length > 0 ? 'recent_keyword_fallback' : 'none',
+    chunks,
+    strategy: normalizedVectorChunks.length > 0 ? 'vector_plus_recent' : chunks.length > 0 ? 'recent' : 'none',
+    vectorMatches: normalizedVectorChunks.length,
+    fallbackCandidates: recentChunks?.length ?? 0,
+  };
+}
+
+async function retrieveCompanyReadinessChunks(params: {
+  supabase: ReturnType<typeof createServiceRoleClient>;
+  organizationId: string;
+}): Promise<ChunkRetrievalResult> {
+  const { supabase, organizationId } = params;
+
+  const { data: recentChunks, error: recentError } = await supabase
+    .from('knowledge_chunks')
+    .select('id, content, metadata')
+    .eq('organization_id', organizationId)
+    .order('created_at', { ascending: false })
+    .limit(50);
+
+  if (recentError) throw recentError;
+
+  const chunks = nonGeneratedReadinessChunks(((recentChunks ?? []) as Array<{
+    id: string;
+    content: string;
+    metadata: Record<string, unknown> | null;
+  }>).map(normalizeChunk)).slice(0, 40);
+
+  return {
+    chunks,
+    strategy: chunks.length > 0 ? 'company_recent' : 'none',
     vectorMatches: 0,
     fallbackCandidates: recentChunks?.length ?? 0,
   };
@@ -547,7 +600,7 @@ export const readinessAnalysisOnDemand = inngest.createFunction(
     let totalSignals = 0;
 
     for (const org of orgs) {
-      await step.run(`analyze-org-${org.id}`, async () => {
+      const result = await step.run(`analyze-org-${org.id}`, async () => {
         const { count } = await supabase
           .from('knowledge_chunks')
           .select('id', { count: 'exact', head: true })
@@ -555,7 +608,7 @@ export const readinessAnalysisOnDemand = inngest.createFunction(
 
         if (!count || count === 0) {
           log.info('org_skipped', { orgId: org.id, reason: 'no_knowledge_chunks' });
-          return;
+          return { signalsDetected: 0, signalsReviewed: 0 };
         }
 
         type ReadinessItemPayload = {
@@ -574,7 +627,89 @@ export const readinessAnalysisOnDemand = inngest.createFunction(
         };
 
         const itemsToInsert: ReadinessItemPayload[] = [];
+        const seenSignalKeys = new Set<string>();
         let signalsReviewedTotal = 0;
+
+        try {
+          const retrieval = await retrieveCompanyReadinessChunks({
+            supabase,
+            organizationId: org.id,
+          });
+          const typedChunks = retrieval.chunks;
+          signalsReviewedTotal += typedChunks.length;
+
+          const signals = await detectCompanyReadinessSignals({ chunks: typedChunks });
+
+          if (signals.length === 0) {
+            log.info('signal_none', {
+              orgId: org.id,
+              category: 'company_scan',
+              chunksReviewed: typedChunks.length,
+              retrievalStrategy: retrieval.strategy,
+              vectorMatches: retrieval.vectorMatches,
+              fallbackCandidates: retrieval.fallbackCandidates,
+            });
+          }
+
+          const channelIds = uniqueChunkMetadataStrings(typedChunks, 'channel_id');
+          const channelNames = uniqueChunkMetadataStrings(typedChunks, 'channel_name');
+          const sourceEvidence = evidenceFromChunks(typedChunks);
+          if (channelIds.length === 0 || channelNames.length === 0) {
+            const fallbackSource = await fallbackSlackSourceMetadata({ supabase, organizationId: org.id });
+            if (channelIds.length === 0 && fallbackSource.channelId) channelIds.push(fallbackSource.channelId);
+            if (channelNames.length === 0 && fallbackSource.channelName) channelNames.push(fallbackSource.channelName);
+            if (sourceEvidence.length === 0 && (fallbackSource.channelId || fallbackSource.channelName)) {
+              sourceEvidence.push({
+                provider: 'slack',
+                channel_id: fallbackSource.channelId,
+                channel_name: fallbackSource.channelName,
+                message_ts: null,
+                url: fallbackSource.channelId ? slackMessageUrl(fallbackSource.channelId, null) : null,
+              });
+            }
+          }
+
+          for (const signal of signals) {
+            const key = signalKey(signal);
+            if (seenSignalKeys.has(key)) continue;
+            seenSignalKeys.add(key);
+
+            itemsToInsert.push({
+              organization_id: org.id,
+              category: signal.category,
+              title: signal.title,
+              summary: signal.summary,
+              recommended_action: signal.recommended_action ?? null,
+              impact_level: signal.impact_level ?? 'medium',
+              affected_roles: signal.affected_roles ?? ALL_ROLES,
+              source: 'slack',
+              source_url: null,
+              source_metadata: {
+                signals_reviewed: typedChunks.length,
+                detected_by: 'company_readiness_scan',
+                retrieval_strategy: retrieval.strategy,
+                vector_matches: retrieval.vectorMatches,
+                fallback_candidates: retrieval.fallbackCandidates,
+                channel_ids: channelIds,
+                channel_names: channelNames,
+                source_evidence: sourceEvidence,
+              },
+              status: 'draft',
+              updated_at: new Date().toISOString(),
+            });
+
+            log.info('signal_detected', {
+              orgId: org.id,
+              category: signal.category,
+              title: signal.title,
+              impact: signal.impact_level,
+              chunksReviewed: typedChunks.length,
+              retrievalStrategy: retrieval.strategy,
+            });
+          }
+        } catch (error) {
+          log.error('signal_failed', { orgId: org.id, category: 'company_scan', error: errorMessage(error) });
+        }
 
         for (const category of CATEGORIES) {
           try {
@@ -586,9 +721,9 @@ export const readinessAnalysisOnDemand = inngest.createFunction(
             const typedChunks = retrieval.chunks;
             signalsReviewedTotal += typedChunks.length;
 
-            const signal = await detectSignal({ category, chunks: typedChunks });
+            const signals = await detectSignals({ category, chunks: typedChunks });
 
-            if (!signal.detected || !signal.title || !signal.summary) {
+            if (signals.length === 0) {
               log.info('signal_none', {
                 orgId: org.id,
                 category,
@@ -618,71 +753,81 @@ export const readinessAnalysisOnDemand = inngest.createFunction(
               }
             }
 
-            itemsToInsert.push({
-              organization_id: org.id,
-              category,
-              title: signal.title,
-              summary: signal.summary,
-              recommended_action: signal.recommended_action ?? null,
-              impact_level: signal.impact_level ?? 'medium',
-              affected_roles: signal.affected_roles ?? ALL_ROLES,
-              source: 'slack',
-              source_url: null,
-              source_metadata: {
-                signals_reviewed: typedChunks.length,
-                detected_by: 'ai_pipeline',
-                retrieval_strategy: retrieval.strategy,
-                vector_matches: retrieval.vectorMatches,
-                fallback_candidates: retrieval.fallbackCandidates,
-                channel_ids: channelIds,
-                channel_names: channelNames,
-                source_evidence: sourceEvidence,
-              },
-              status: 'draft',
-              updated_at: new Date().toISOString(),
-            });
+            for (const signal of signals) {
+              const key = signalKey({ category, title: signal.title, summary: signal.summary });
+              if (seenSignalKeys.has(key)) continue;
+              seenSignalKeys.add(key);
 
-            log.info('signal_detected', {
-              orgId: org.id,
-              category,
-              title: signal.title,
-              impact: signal.impact_level,
-              chunksReviewed: typedChunks.length,
-              retrievalStrategy: retrieval.strategy,
-            });
-            totalSignals++;
+              itemsToInsert.push({
+                organization_id: org.id,
+                category,
+                title: signal.title,
+                summary: signal.summary,
+                recommended_action: signal.recommended_action ?? null,
+                impact_level: signal.impact_level ?? 'medium',
+                affected_roles: signal.affected_roles ?? ALL_ROLES,
+                source: 'slack',
+                source_url: null,
+                source_metadata: {
+                  signals_reviewed: typedChunks.length,
+                  detected_by: 'ai_pipeline',
+                  retrieval_strategy: retrieval.strategy,
+                  vector_matches: retrieval.vectorMatches,
+                  fallback_candidates: retrieval.fallbackCandidates,
+                  channel_ids: channelIds,
+                  channel_names: channelNames,
+                  source_evidence: sourceEvidence,
+                },
+                status: 'draft',
+                updated_at: new Date().toISOString(),
+              });
+
+              log.info('signal_detected', {
+                orgId: org.id,
+                category,
+                title: signal.title,
+                impact: signal.impact_level,
+                chunksReviewed: typedChunks.length,
+                retrievalStrategy: retrieval.strategy,
+              });
+            }
           } catch (error) {
             log.error('signal_failed', { orgId: org.id, category, error: errorMessage(error) });
           }
         }
 
         if (itemsToInsert.length > 0) {
-          const { data: existingItems } = await supabase
+          const categoriesToRefresh = Array.from(new Set(itemsToInsert.map((item) => item.category)));
+          const refreshedAt = new Date().toISOString();
+
+          const { error: archiveError } = await supabase
             .from('readiness_items')
-            .select('category')
+            .update({ status: 'archived', updated_at: refreshedAt })
             .eq('organization_id', org.id)
+            .in('category', categoriesToRefresh)
             .neq('status', 'archived');
 
-          const existingCategories = new Set(
-            (existingItems ?? []).map((row) => row.category as ReadinessCategory)
-          );
+          if (archiveError) throw archiveError;
 
-          const toInsert = itemsToInsert.filter((item) => !existingCategories.has(item.category));
-          if (toInsert.length > 0) {
-            const { data: insertedItems, error: insertError } = await supabase
-              .from('readiness_items')
-              .insert(toInsert)
-              .select('id, organization_id, category, title, summary, recommended_action, affected_roles, source_metadata');
+          log.info('signals_refreshed', {
+            orgId: org.id,
+            categories: categoriesToRefresh,
+            itemCount: itemsToInsert.length,
+          });
 
-            if (insertError) throw insertError;
+          const { data: insertedItems, error: insertError } = await supabase
+            .from('readiness_items')
+            .insert(itemsToInsert)
+            .select('id, organization_id, category, title, summary, recommended_action, affected_roles, source_metadata');
 
-            await deliverReadinessItems({
-              supabase,
-              ownerId: org.owner_id,
-              organizationId: org.id,
-              items: (insertedItems ?? []) as ReadinessDeliveryItem[],
-            });
-          }
+          if (insertError) throw insertError;
+
+          await deliverReadinessItems({
+            supabase,
+            ownerId: org.owner_id,
+            organizationId: org.id,
+            items: (insertedItems ?? []) as ReadinessDeliveryItem[],
+          });
         }
 
         log.info('org_complete', {
@@ -690,7 +835,13 @@ export const readinessAnalysisOnDemand = inngest.createFunction(
           signalsDetected: itemsToInsert.length,
           signalsReviewed: signalsReviewedTotal,
         });
+
+        return {
+          signalsDetected: itemsToInsert.length,
+          signalsReviewed: signalsReviewedTotal,
+        };
       });
+      totalSignals += result.signalsDetected;
     }
 
     log.info('analysis_complete', { orgsProcessed: 1, totalSignals });
@@ -720,7 +871,7 @@ export const readinessAnalysis = inngest.createFunction(
     let totalSignals = 0;
 
     for (const org of orgs) {
-      await step.run(`analyze-org-${org.id}`, async () => {
+      const result = await step.run(`analyze-org-${org.id}`, async () => {
         const { count } = await supabase
           .from('knowledge_chunks')
           .select('id', { count: 'exact', head: true })
@@ -728,7 +879,7 @@ export const readinessAnalysis = inngest.createFunction(
 
         if (!count || count === 0) {
           log.info('org_skipped', { orgId: org.id, reason: 'no_knowledge_chunks' });
-          return;
+          return { signalsDetected: 0, signalsReviewed: 0 };
         }
 
         type ReadinessItemPayload = {
@@ -747,7 +898,89 @@ export const readinessAnalysis = inngest.createFunction(
         };
 
         const itemsToInsert: ReadinessItemPayload[] = [];
+        const seenSignalKeys = new Set<string>();
         let signalsReviewedTotal = 0;
+
+        try {
+          const retrieval = await retrieveCompanyReadinessChunks({
+            supabase,
+            organizationId: org.id,
+          });
+          const typedChunks = retrieval.chunks;
+          signalsReviewedTotal += typedChunks.length;
+
+          const signals = await detectCompanyReadinessSignals({ chunks: typedChunks });
+
+          if (signals.length === 0) {
+            log.info('signal_none', {
+              orgId: org.id,
+              category: 'company_scan',
+              chunksReviewed: typedChunks.length,
+              retrievalStrategy: retrieval.strategy,
+              vectorMatches: retrieval.vectorMatches,
+              fallbackCandidates: retrieval.fallbackCandidates,
+            });
+          }
+
+          const channelIds = uniqueChunkMetadataStrings(typedChunks, 'channel_id');
+          const channelNames = uniqueChunkMetadataStrings(typedChunks, 'channel_name');
+          const sourceEvidence = evidenceFromChunks(typedChunks);
+          if (channelIds.length === 0 || channelNames.length === 0) {
+            const fallbackSource = await fallbackSlackSourceMetadata({ supabase, organizationId: org.id });
+            if (channelIds.length === 0 && fallbackSource.channelId) channelIds.push(fallbackSource.channelId);
+            if (channelNames.length === 0 && fallbackSource.channelName) channelNames.push(fallbackSource.channelName);
+            if (sourceEvidence.length === 0 && (fallbackSource.channelId || fallbackSource.channelName)) {
+              sourceEvidence.push({
+                provider: 'slack',
+                channel_id: fallbackSource.channelId,
+                channel_name: fallbackSource.channelName,
+                message_ts: null,
+                url: fallbackSource.channelId ? slackMessageUrl(fallbackSource.channelId, null) : null,
+              });
+            }
+          }
+
+          for (const signal of signals) {
+            const key = signalKey(signal);
+            if (seenSignalKeys.has(key)) continue;
+            seenSignalKeys.add(key);
+
+            itemsToInsert.push({
+              organization_id: org.id,
+              category: signal.category,
+              title: signal.title,
+              summary: signal.summary,
+              recommended_action: signal.recommended_action ?? null,
+              impact_level: signal.impact_level ?? 'medium',
+              affected_roles: signal.affected_roles ?? ALL_ROLES,
+              source: 'slack',
+              source_url: null,
+              source_metadata: {
+                signals_reviewed: typedChunks.length,
+                detected_by: 'company_readiness_scan',
+                retrieval_strategy: retrieval.strategy,
+                vector_matches: retrieval.vectorMatches,
+                fallback_candidates: retrieval.fallbackCandidates,
+                channel_ids: channelIds,
+                channel_names: channelNames,
+                source_evidence: sourceEvidence,
+              },
+              status: 'draft',
+              updated_at: new Date().toISOString(),
+            });
+
+            log.info('signal_detected', {
+              orgId: org.id,
+              category: signal.category,
+              title: signal.title,
+              impact: signal.impact_level,
+              chunksReviewed: typedChunks.length,
+              retrievalStrategy: retrieval.strategy,
+            });
+          }
+        } catch (error) {
+          log.error('signal_failed', { orgId: org.id, category: 'company_scan', error: errorMessage(error) });
+        }
 
         for (const category of CATEGORIES) {
           try {
@@ -759,9 +992,9 @@ export const readinessAnalysis = inngest.createFunction(
             const typedChunks = retrieval.chunks;
             signalsReviewedTotal += typedChunks.length;
 
-            const signal = await detectSignal({ category, chunks: typedChunks });
+            const signals = await detectSignals({ category, chunks: typedChunks });
 
-            if (!signal.detected || !signal.title || !signal.summary) {
+            if (signals.length === 0) {
               log.info('signal_none', {
                 orgId: org.id,
                 category,
@@ -791,39 +1024,44 @@ export const readinessAnalysis = inngest.createFunction(
               }
             }
 
-            itemsToInsert.push({
-              organization_id: org.id,
-              category,
-              title: signal.title,
-              summary: signal.summary,
-              recommended_action: signal.recommended_action ?? null,
-              impact_level: signal.impact_level ?? 'medium',
-              affected_roles: signal.affected_roles ?? ALL_ROLES,
-              source: 'slack',
-              source_url: null,
-              source_metadata: {
-                signals_reviewed: typedChunks.length,
-                detected_by: 'ai_pipeline',
-                retrieval_strategy: retrieval.strategy,
-                vector_matches: retrieval.vectorMatches,
-                fallback_candidates: retrieval.fallbackCandidates,
-                channel_ids: channelIds,
-                channel_names: channelNames,
-                source_evidence: sourceEvidence,
-              },
-              status: 'draft',
-              updated_at: new Date().toISOString(),
-            });
+            for (const signal of signals) {
+              const key = signalKey({ category, title: signal.title, summary: signal.summary });
+              if (seenSignalKeys.has(key)) continue;
+              seenSignalKeys.add(key);
 
-            log.info('signal_detected', {
-              orgId: org.id,
-              category,
-              title: signal.title,
-              impact: signal.impact_level,
-              chunksReviewed: typedChunks.length,
-              retrievalStrategy: retrieval.strategy,
-            });
-            totalSignals++;
+              itemsToInsert.push({
+                organization_id: org.id,
+                category,
+                title: signal.title,
+                summary: signal.summary,
+                recommended_action: signal.recommended_action ?? null,
+                impact_level: signal.impact_level ?? 'medium',
+                affected_roles: signal.affected_roles ?? ALL_ROLES,
+                source: 'slack',
+                source_url: null,
+                source_metadata: {
+                  signals_reviewed: typedChunks.length,
+                  detected_by: 'ai_pipeline',
+                  retrieval_strategy: retrieval.strategy,
+                  vector_matches: retrieval.vectorMatches,
+                  fallback_candidates: retrieval.fallbackCandidates,
+                  channel_ids: channelIds,
+                  channel_names: channelNames,
+                  source_evidence: sourceEvidence,
+                },
+                status: 'draft',
+                updated_at: new Date().toISOString(),
+              });
+
+              log.info('signal_detected', {
+                orgId: org.id,
+                category,
+                title: signal.title,
+                impact: signal.impact_level,
+                chunksReviewed: typedChunks.length,
+                retrievalStrategy: retrieval.strategy,
+              });
+            }
           } catch (error) {
             log.error('signal_failed', { orgId: org.id, category, error: errorMessage(error) });
           }
@@ -832,15 +1070,19 @@ export const readinessAnalysis = inngest.createFunction(
         if (itemsToInsert.length > 0) {
           const { data: existingItems } = await supabase
             .from('readiness_items')
-            .select('category')
+            .select('category, title, summary')
             .eq('organization_id', org.id)
             .neq('status', 'archived');
 
-          const existingCategories = new Set(
-            (existingItems ?? []).map((row) => row.category as ReadinessCategory)
+          const existingSignalKeys = new Set(
+            (existingItems ?? []).map((row) => signalKey({
+              category: row.category as ReadinessCategory,
+              title: row.title,
+              summary: row.summary,
+            }))
           );
 
-          const toInsert = itemsToInsert.filter((item) => !existingCategories.has(item.category));
+          const toInsert = itemsToInsert.filter((item) => !existingSignalKeys.has(signalKey(item)));
           if (toInsert.length > 0) {
             const { data: insertedItems, error: insertError } = await supabase
               .from('readiness_items')
@@ -863,7 +1105,13 @@ export const readinessAnalysis = inngest.createFunction(
           signalsDetected: itemsToInsert.length,
           signalsReviewed: signalsReviewedTotal,
         });
+
+        return {
+          signalsDetected: itemsToInsert.length,
+          signalsReviewed: signalsReviewedTotal,
+        };
       });
+      totalSignals += result.signalsDetected;
     }
 
     log.info('analysis_complete', { orgsProcessed: orgs.length, totalSignals });

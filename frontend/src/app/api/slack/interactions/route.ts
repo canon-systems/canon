@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { inngest } from '@/inngest/client';
-import { syncAccessReadinessEvidence } from '@/lib/server/milestoneEvidence';
+import { syncAccessReadinessEvidence, recordMilestoneEvidence } from '@/lib/server/milestoneEvidence';
+import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
 import { createLogger } from '@/lib/server/logging';
 
 export const dynamic = 'force-dynamic';
@@ -14,6 +15,7 @@ const log = createLogger('api.slack.interactions', {
   eventLabels: {
     interaction_received: 'Interaction Received',
     access_granted: 'Access Granted',
+    milestone_feedback_received: 'Milestone Feedback Received',
     interaction_skipped: 'Interaction Skipped',
     interaction_failed: 'Interaction Failed',
   },
@@ -26,9 +28,15 @@ type SlackAction = {
 
 type SlackInteractionPayload = {
   type: string;
+  trigger_id?: string;
   actions?: SlackAction[];
   response_url?: string;
   user?: { id: string; name: string };
+  view?: {
+    callback_id: string;
+    private_metadata: string;
+    state: { values: Record<string, Record<string, { value?: string }>> };
+  };
 };
 
 function verifySlackSignature(params: {
@@ -49,6 +57,73 @@ function verifySlackSignature(params: {
   } catch {
     return false;
   }
+}
+
+async function getBotTokenForHire(newHireId: string): Promise<string | null> {
+  const supabase = createServiceRoleClient();
+  const { data: hire } = await supabase
+    .from('new_hires')
+    .select('organization_id')
+    .eq('id', newHireId)
+    .single();
+  if (!hire) return null;
+
+  const { data: org } = await supabase
+    .from('organizations')
+    .select('owner_id')
+    .eq('id', hire.organization_id)
+    .single();
+  if (!org?.owner_id) return null;
+
+  const { data: connection } = await supabase
+    .from('oauth_connections')
+    .select('connection_id')
+    .eq('user_id', org.owner_id)
+    .eq('provider', 'slack')
+    .eq('status', 'active')
+    .maybeSingle();
+  if (!connection) return null;
+
+  return getProviderAccessToken({ provider: 'slack', connectionId: connection.connection_id });
+}
+
+async function openMilestoneFeedbackModal(params: {
+  botToken: string;
+  triggerId: string;
+  newHireId: string;
+  milestoneId: string;
+  responseType: 'need_context' | 'blocked';
+}): Promise<void> {
+  const { botToken, triggerId, newHireId, milestoneId, responseType } = params;
+  const privateMetadata = JSON.stringify({ new_hire_id: newHireId, milestone_id: milestoneId, response_type: responseType });
+  await fetch('https://slack.com/api/views.open', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${botToken}`, 'Content-Type': 'application/json; charset=utf-8' },
+    body: JSON.stringify({
+      trigger_id: triggerId,
+      view: {
+        type: 'modal',
+        callback_id: 'milestone_feedback',
+        private_metadata: privateMetadata,
+        title: { type: 'plain_text', text: responseType === 'blocked' ? "I'm Blocked" : 'Need Context' },
+        submit: { type: 'plain_text', text: 'Send' },
+        close: { type: 'plain_text', text: 'Cancel' },
+        blocks: [
+          {
+            type: 'input',
+            block_id: 'feedback_block',
+            label: { type: 'plain_text', text: 'What would help you move forward?' },
+            element: {
+              type: 'plain_text_input',
+              action_id: 'feedback_message',
+              multiline: true,
+              placeholder: { type: 'plain_text', text: 'Describe what context you need or what\'s blocking you...' },
+            },
+          },
+        ],
+      },
+    }),
+  });
 }
 
 async function updateSlackMessage(responseUrl: string, toolName: string) {
@@ -160,6 +235,26 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      if (action?.action_id === 'milestone_need_context' || action?.action_id === 'milestone_blocked') {
+        const [newHireId, milestoneId] = (action.value ?? '').split('|');
+        const responseType = action.action_id === 'milestone_blocked' ? 'blocked' : 'need_context';
+
+        if (!newHireId || !milestoneId || !payload.trigger_id) {
+          log.warn('interaction_skipped', { reason: 'missing_milestone_button_params', actionId: action.action_id });
+          return new NextResponse('', { status: 200 });
+        }
+
+        const botToken = await getBotTokenForHire(newHireId);
+        if (!botToken) {
+          log.warn('interaction_skipped', { reason: 'no_bot_token_for_hire', newHireId });
+          return new NextResponse('', { status: 200 });
+        }
+
+        await openMilestoneFeedbackModal({ botToken, triggerId: payload.trigger_id, newHireId, milestoneId, responseType }).catch((err: unknown) => {
+          log.warn('interaction_skipped', { reason: 'open_modal_failed', error: err instanceof Error ? err.message : String(err) });
+        });
+      }
+
       if (action?.action_id === 'access_confirmed_by_hire') {
         const accessRequestId = action.value;
         if (!accessRequestId) {
@@ -212,6 +307,40 @@ export async function POST(request: NextRequest) {
           }
         }
       }
+    }
+
+    if (payload.type === 'view_submission' && payload.view?.callback_id === 'milestone_feedback') {
+      let metadata: { new_hire_id?: string; milestone_id?: string; response_type?: string } = {};
+      try {
+        metadata = JSON.parse(payload.view.private_metadata) as typeof metadata;
+      } catch {
+        log.warn('interaction_failed', { reason: 'invalid_modal_private_metadata' });
+        return new NextResponse('', { status: 200 });
+      }
+
+      const { new_hire_id: newHireId, milestone_id: milestoneId, response_type: responseType } = metadata;
+      if (!newHireId || !milestoneId) {
+        log.warn('interaction_skipped', { reason: 'missing_hire_or_milestone_in_modal_metadata' });
+        return new NextResponse('', { status: 200 });
+      }
+
+      const message = payload.view.state.values['feedback_block']?.['feedback_message']?.value ?? '';
+      const supabase = createServiceRoleClient();
+      await recordMilestoneEvidence({
+        supabase,
+        newHireId,
+        milestoneId,
+        evidenceType: 'new_hire_blocker',
+        trustLevel: 'low',
+        confidence: 0.2,
+        source: 'new_hire_slack_response',
+        sourceEventId: `slack-modal:${newHireId}:${milestoneId}:${responseType ?? 'need_context'}`,
+        metadata: { response_type: responseType ?? 'need_context', message },
+      }).catch((err: unknown) => {
+        log.error('interaction_failed', { reason: 'record_evidence_failed', error: err instanceof Error ? err.message : String(err) });
+      });
+
+      log.info('milestone_feedback_received', { newHireId, milestoneId, responseType: responseType ?? 'need_context' });
     }
   } catch (err: unknown) {
     log.error('interaction_failed', {

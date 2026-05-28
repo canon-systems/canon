@@ -5,7 +5,6 @@ import { llm, embeddingModel } from '@/lib/ai';
 import { createLogger, errorMessage } from '@/lib/server/logging';
 import { syncAccessReadinessEvidence } from '@/lib/server/milestoneEvidence';
 import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
-import { randomBytes } from 'crypto';
 import type { HireRole, RampMilestone, MilestoneEvidenceRequirement } from '@/types/onboarding';
 
 const log = createLogger('inngest.daily_ramp_check', {
@@ -53,7 +52,8 @@ function buildBlockKitMessage(params: {
   body: string;
   nextMilestoneDay: number | null;
   nextMilestoneTitle: string | null;
-  responseUrl: string | null;
+  newHireId: string;
+  milestoneId: string;
 }): { blocks: unknown[]; text: string } {
   const blocks: unknown[] = [
     {
@@ -76,27 +76,27 @@ function buildBlockKitMessage(params: {
     });
   }
 
-  if (params.responseUrl) {
-    blocks.push({
-      type: 'actions',
-      elements: [
-        {
-          type: 'button',
-          text: { type: 'plain_text', text: 'Need more context?', emoji: true },
-          url: params.responseUrl,
-          action_id: 'milestone_context_request',
-        },
-      ],
-    });
-  }
+  const buttonValue = `${params.newHireId}|${params.milestoneId}`;
+  blocks.push({
+    type: 'actions',
+    elements: [
+      {
+        type: 'button',
+        text: { type: 'plain_text', text: 'Need more context', emoji: true },
+        value: buttonValue,
+        action_id: 'milestone_need_context',
+      },
+      {
+        type: 'button',
+        text: { type: 'plain_text', text: "I'm blocked", emoji: true },
+        value: buttonValue,
+        action_id: 'milestone_blocked',
+        style: 'danger',
+      },
+    ],
+  });
 
   return { blocks, text: `Day ${params.rampDay} — ${params.milestoneTitle}` };
-}
-
-function appBaseUrl() {
-  if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '');
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
-  return 'http://localhost:3000';
 }
 
 function metadataStringArray(value: unknown) {
@@ -106,23 +106,6 @@ function metadataStringArray(value: unknown) {
 function evidenceSummary(requirements: MilestoneEvidenceRequirement[]) {
   if (!Array.isArray(requirements) || requirements.length === 0) return 'Real work activity or manager-confirmed evidence.';
   return requirements.map((requirement) => requirement.label).join('; ');
-}
-
-async function createResponseLink(params: {
-  supabase: ReturnType<typeof createServiceRoleClient>;
-  newHireId: string;
-  milestoneId: string;
-}) {
-  const token = randomBytes(24).toString('hex');
-  const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString();
-  const { error } = await params.supabase.from('milestone_response_tokens').insert({
-    token,
-    new_hire_id: params.newHireId,
-    milestone_id: params.milestoneId,
-    expires_at: expiresAt,
-  });
-  if (error) return null;
-  return `${appBaseUrl()}/milestone-response/${token}`;
 }
 
 async function generateSummary(params: {
@@ -325,12 +308,6 @@ export const dailyRampCheck = inngest.createFunction(
           });
 
           const firstName = hire.first_name;
-          const responseUrl = await createResponseLink({
-            supabase,
-            newHireId: hire.id,
-            milestoneId: milestone.id,
-          });
-
           const summaryText = await generateSummary({
             firstName,
             role: hire.role as HireRole,
@@ -348,7 +325,8 @@ export const dailyRampCheck = inngest.createFunction(
             body: summaryText,
             nextMilestoneDay: nextMilestone?.day_trigger ?? null,
             nextMilestoneTitle: nextMilestone?.title ?? null,
-            responseUrl,
+            newHireId: hire.id,
+            milestoneId: milestone.id,
           });
 
           const slackResult = await sendSlackDM({

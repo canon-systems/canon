@@ -63,6 +63,13 @@ function eventIds(value: unknown) {
   return Array.isArray(ids) ? ids.filter((entry): entry is string => typeof entry === 'string') : undefined;
 }
 
+function isMissingMilestoneGenerationRuns(error: unknown) {
+  return !!error && typeof error === 'object' && (
+    (error as { code?: string }).code === 'PGRST205' ||
+    String((error as { message?: string }).message ?? '').includes('milestone_generation_runs')
+  );
+}
+
 async function organizationForUser() {
   const { user } = await getSession();
   if (!user) return { user: null, org: null, supabase: null };
@@ -85,7 +92,7 @@ export async function GET(request: NextRequest) {
     const roleParam = request.nextUrl.searchParams.get('role');
     if (roleParam && !isRole(roleParam)) return NextResponse.json({ error: 'Invalid role' }, { status: 400 });
 
-    if (!org) return NextResponse.json({ milestones: [], proposals: [] });
+    if (!org) return NextResponse.json({ milestones: [], proposals: [], latest_generation: null });
 
     let milestoneQuery = supabase
       .from('ramp_milestones')
@@ -112,8 +119,18 @@ export async function GET(request: NextRequest) {
       proposalQuery = proposalQuery.eq('role', roleParam);
     }
 
-    const { data: proposals, error: proposalError } = await proposalQuery;
+    const [{ data: proposals, error: proposalError }, { data: latestGeneration, error: generationError }] = await Promise.all([
+      proposalQuery,
+      supabase
+        .from('milestone_generation_runs')
+        .select('*')
+        .eq('organization_id', org.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
     if (proposalError) throw proposalError;
+    if (generationError && !isMissingMilestoneGenerationRuns(generationError)) throw generationError;
 
     log.debug('milestones_loaded', {
       userId: user.id,
@@ -123,7 +140,11 @@ export async function GET(request: NextRequest) {
       proposalCount: proposals?.length ?? 0,
     });
 
-    return NextResponse.json({ milestones: milestones ?? [], proposals: proposals ?? [] });
+    return NextResponse.json({
+      milestones: milestones ?? [],
+      proposals: proposals ?? [],
+      latest_generation: latestGeneration ?? null,
+    });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('[api/onboarding/milestones] GET failed', error);
@@ -154,17 +175,48 @@ export async function POST(request: NextRequest) {
     };
 
     if (body.action === 'generate') {
+      const { data: generationRun, error: generationRunError } = await supabase
+        .from('milestone_generation_runs')
+        .insert({
+          organization_id: org.id,
+          requested_by: user.id,
+          status: 'queued',
+          updated_at: new Date().toISOString(),
+        })
+        .select()
+        .single();
+
+      if (generationRunError && isMissingMilestoneGenerationRuns(generationRunError)) {
+        const result = await inngest.send({
+          name: 'onboarding/milestones.generate.requested',
+          data: { organizationId: org.id, requestedBy: user.id },
+        });
+        log.info('generation_requested', {
+          userId: user.id,
+          organizationId: org.id,
+          eventName: 'onboarding/milestones.generate.requested',
+          eventIds: eventIds(result),
+          statusTracking: 'unavailable',
+        });
+        return NextResponse.json({ ok: true, requested: true, generation: null });
+      }
+
+      if (generationRunError || !generationRun) {
+        throw generationRunError ?? new Error('Milestone generation run insert failed');
+      }
+
       const result = await inngest.send({
         name: 'onboarding/milestones.generate.requested',
-        data: { organizationId: org.id, requestedBy: user.id },
+        data: { organizationId: org.id, requestedBy: user.id, generationRunId: generationRun.id },
       });
       log.info('generation_requested', {
         userId: user.id,
         organizationId: org.id,
+        generationRunId: generationRun.id,
         eventName: 'onboarding/milestones.generate.requested',
         eventIds: eventIds(result),
       });
-      return NextResponse.json({ ok: true, requested: true });
+      return NextResponse.json({ ok: true, requested: true, generation: generationRun });
     }
 
     if (body.action === 'update_proposal') {

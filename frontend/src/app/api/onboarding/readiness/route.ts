@@ -20,6 +20,8 @@ const log = createLogger('api.onboarding.readiness', {
   label: 'Readiness API',
   eventLabels: {
     send_requested: 'Send Requested',
+    generate_requested: 'Generate Requested',
+    generate_queued: 'Generate Queued',
     send_target_resolved: 'Send Target Resolved',
     send_target_missing: 'Send Target Missing',
     send_items_selected: 'Send Items Selected',
@@ -351,14 +353,6 @@ export async function POST(request: NextRequest) {
       : [];
     const userIds = validSlackDmTargets(body.userIds);
 
-    log.info('send_requested', {
-      userId: user.id,
-      categoryCount: categories?.length ?? 0,
-      itemIdCount: itemIds.length,
-      requestedChannels: requestedChannelIds,
-      requestedDmTargets: userIds.length,
-    });
-
     const supabase = await createClient();
     const { data: org } = await supabase
       .from('organizations')
@@ -369,12 +363,29 @@ export async function POST(request: NextRequest) {
     if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
 
     if (body.action === 'generate') {
+      log.info('generate_requested', {
+        userId: user.id,
+        orgId: org.id,
+      });
       await inngest.send({
         name: 'onboarding/readiness.generate.requested',
         data: { organizationId: org.id, ownerId: user.id },
       });
+      log.info('generate_queued', {
+        userId: user.id,
+        orgId: org.id,
+        event: 'onboarding/readiness.generate.requested',
+      });
       return NextResponse.json({ ok: true, requested: true });
     }
+
+    log.info('send_requested', {
+      userId: user.id,
+      categoryCount: categories?.length ?? 0,
+      itemIdCount: itemIds.length,
+      requestedChannels: requestedChannelIds,
+      requestedDmTargets: userIds.length,
+    });
 
     let query = supabase
       .from('readiness_items')

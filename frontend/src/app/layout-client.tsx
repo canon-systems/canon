@@ -6,6 +6,22 @@ import { createClient } from '@/lib/supabase/client';
 import type { User, Session } from '@supabase/supabase-js';
 import { isAuthApiError } from '@supabase/supabase-js';
 import { Navigation } from '@/components/Navigation';
+import { toast } from 'sonner';
+
+const MILESTONE_GENERATION_STORAGE_KEY = 'canon-milestone-generation-run';
+
+function activeMilestoneGenerationId() {
+  if (typeof window === 'undefined') return null;
+  const raw = window.localStorage.getItem(MILESTONE_GENERATION_STORAGE_KEY);
+  if (!raw) return null;
+
+  try {
+    return (JSON.parse(raw) as { id?: string }).id ?? null;
+  } catch {
+    window.localStorage.removeItem(MILESTONE_GENERATION_STORAGE_KEY);
+    return null;
+  }
+}
 
 export function RootLayoutClient({
   children,
@@ -21,7 +37,6 @@ export function RootLayoutClient({
   const supabase = createClient();
 
   const isLoginPage = pathname === '/login' || pathname.startsWith('/login/');
-  const isPublicResponsePage = pathname.startsWith('/milestone-response/');
 
   useEffect(() => {
     const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
@@ -89,6 +104,50 @@ export function RootLayoutClient({
     };
   }, [supabase, router, initialSession, pathname]);
 
+  useEffect(() => {
+    if (isLoginPage || pathname.startsWith('/milestones')) return undefined;
+
+    let stopped = false;
+    async function checkMilestoneGeneration() {
+      const runId = activeMilestoneGenerationId();
+      if (!runId || stopped) return;
+
+      try {
+        const res = await fetch('/api/onboarding/milestones');
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          latest_generation?: {
+            id: string;
+            status: 'queued' | 'running' | 'completed' | 'failed';
+            error_message: string | null;
+          } | null;
+        };
+        const run = data.latest_generation;
+        if (!run || run.id !== runId) return;
+
+        if (run.status === 'completed') {
+          window.localStorage.removeItem(MILESTONE_GENERATION_STORAGE_KEY);
+          toast.success('Milestones are ready for review');
+        } else if (run.status === 'failed') {
+          window.localStorage.removeItem(MILESTONE_GENERATION_STORAGE_KEY);
+          toast.error('Milestone generation failed', {
+            description: run.error_message ?? 'Open Milestones and try generating drafts again.',
+          });
+        }
+      } catch {
+        // Keep polling; this is a notification convenience, not critical path UI.
+      }
+    }
+
+    void checkMilestoneGeneration();
+    const interval = window.setInterval(checkMilestoneGeneration, 5000);
+
+    return () => {
+      stopped = true;
+      if (interval) window.clearInterval(interval);
+    };
+  }, [isLoginPage, pathname]);
+
   async function handleLogout() {
     try {
       await supabase.auth.signOut();
@@ -100,7 +159,7 @@ export function RootLayoutClient({
     }
   }
 
-  if (isLoginPage || isPublicResponsePage) {
+  if (isLoginPage) {
     return <>{children}</>;
   }
 
