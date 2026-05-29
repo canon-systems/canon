@@ -51,6 +51,11 @@ type ReadinessDeliveryItem = {
   source_metadata: Record<string, unknown>;
 };
 
+type RoleProfileResult = {
+  role: HireRole;
+  job_description: string | null;
+};
+
 const ALL_ROLES: HireRole[] = ['AI Solutions Architect', 'Solutions Engineer', 'Implementation Engineer'];
 
 const CATEGORY_QUERIES: Record<ReadinessCategory, string> = {
@@ -131,12 +136,14 @@ const CompanySignalsSchema = z.object({
 async function detectSignals(params: {
   category: ReadinessCategory;
   chunks: KnowledgeChunkResult[];
+  roleProfiles: RoleProfileResult[];
 }): Promise<Array<z.infer<typeof SignalItemSchema>>> {
-  const { category, chunks } = params;
+  const { category, chunks, roleProfiles } = params;
 
   if (chunks.length === 0) return [];
 
   const chunkText = chunks.map((c) => c.content).join('\n\n---\n\n');
+  const roleContext = roleProfileContext(roleProfiles);
 
   const { object } = await generateObject({
     model: llm,
@@ -144,6 +151,9 @@ async function detectSignals(params: {
     prompt: `You are Canon, an AI that monitors company Slack channels to keep GTM teams current.
 
 Analyze these Slack knowledge chunks and determine whether they contain a clear signal of ${CATEGORY_DESCRIPTIONS[category]}.
+
+Use these role job descriptions when deciding affected_roles and recommended actions:
+${roleContext}
 
 Only flag signals if there is genuine, actionable information — not general chatter or tangentially related messages. If the chunks are vague, unrelated, or insufficient to form a clear signal, return an empty signals array.
 
@@ -157,7 +167,7 @@ For each clear signal, provide:
 - summary: 1–2 sentences describing what GTM teams need to know
 - recommended_action: A specific next step starting with a verb (e.g. "Update the Day 14 milestone with...")
 - impact_level: How urgently teams need this (low / medium / high)
-- affected_roles: Which roles are affected (subset of: AI Solutions Architect, Solutions Engineer, Implementation Engineer)
+- affected_roles: Which roles are affected based on the role job descriptions and concrete implications (subset of: AI Solutions Architect, Solutions Engineer, Implementation Engineer)
 
 If there is no clear signal, return { "signals": [] }.`,
   });
@@ -167,12 +177,14 @@ If there is no clear signal, return { "signals": [] }.`,
 
 async function detectCompanyReadinessSignals(params: {
   chunks: KnowledgeChunkResult[];
+  roleProfiles: RoleProfileResult[];
 }): Promise<Array<z.infer<typeof CompanySignalItemSchema>>> {
-  const { chunks } = params;
+  const { chunks, roleProfiles } = params;
 
   if (chunks.length === 0) return [];
 
   const chunkText = chunks.map((c) => c.content).join('\n\n---\n\n');
+  const roleContext = roleProfileContext(roleProfiles);
 
   const { object } = await generateObject({
     model: llm,
@@ -180,6 +192,9 @@ async function detectCompanyReadinessSignals(params: {
     prompt: `You are Canon, an AI that monitors company knowledge to keep technical GTM teams continuously ready.
 
 Analyze these knowledge chunks and extract any company-related readiness signals. Do not depend on exact keywords or a predefined topic list. Use judgment: if a Solutions Engineer, AI Solutions Architect, Implementation Engineer, or customer-facing technical teammate would need to change what they say, demo, qualify, document, escalate, configure, or promise, it is a readiness signal.
+
+Use these role job descriptions when deciding whether each signal applies to each role:
+${roleContext}
 
 Strong signals include, but are not limited to:
 - product gaps, maturity concerns, reliability issues, permissions/audit/reporting issues, integration limitations, pricing or packaging confusion
@@ -205,7 +220,7 @@ For each clear signal, provide:
 - summary: 1–2 sentences describing what technical GTM teams need to know
 - recommended_action: A specific next step starting with a verb
 - impact_level: How urgently teams need this (low / medium / high)
-- affected_roles: Which roles are affected (subset of: AI Solutions Architect, Solutions Engineer, Implementation Engineer)
+- affected_roles: Which roles are affected based on the role job descriptions and concrete implications (subset of: AI Solutions Architect, Solutions Engineer, Implementation Engineer)
 
 If there is no clear signal, return { "signals": [] }.`,
   });
@@ -268,6 +283,28 @@ function signalKey(signal: {
 function metadataStringArray(item: Pick<ReadinessDeliveryItem, 'source_metadata'>, key: string) {
   const value = item.source_metadata?.[key];
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0) : [];
+}
+
+function compactText(value: string, maxLength: number) {
+  const compacted = value.replace(/\s+/g, ' ').trim();
+  return compacted.length <= maxLength ? compacted : compacted.slice(0, maxLength - 1).trimEnd();
+}
+
+function roleProfileContext(roleProfiles: RoleProfileResult[]) {
+  const profilesByRole = new Map(roleProfiles.map((profile) => [profile.role, profile]));
+  return ALL_ROLES.map((role) => {
+    const jobDescription = compactText(profilesByRole.get(role)?.job_description ?? '', 1800);
+    return jobDescription
+      ? `${role}:\n${jobDescription}`
+      : `${role}:\nNo job description provided. Use only explicit evidence and the role title.`;
+  }).join('\n\n');
+}
+
+function roleProfileMetadata(roleProfiles: RoleProfileResult[]) {
+  return roleProfiles.flatMap((profile) => {
+    const jobDescription = profile.job_description?.trim();
+    return jobDescription ? [{ role: profile.role, has_job_description: true }] : [];
+  });
 }
 
 function slackMessageUrl(channelId: string, messageTs: string | null) {
@@ -629,6 +666,12 @@ export const readinessAnalysisOnDemand = inngest.createFunction(
         const itemsToInsert: ReadinessItemPayload[] = [];
         const seenSignalKeys = new Set<string>();
         let signalsReviewedTotal = 0;
+        const { data: roleProfileRows } = await supabase
+          .from('role_profiles')
+          .select('role, job_description')
+          .eq('organization_id', org.id);
+        const roleProfiles = (roleProfileRows ?? []) as RoleProfileResult[];
+        const roleProfileSourceMetadata = roleProfileMetadata(roleProfiles);
 
         try {
           const retrieval = await retrieveCompanyReadinessChunks({
@@ -638,7 +681,7 @@ export const readinessAnalysisOnDemand = inngest.createFunction(
           const typedChunks = retrieval.chunks;
           signalsReviewedTotal += typedChunks.length;
 
-          const signals = await detectCompanyReadinessSignals({ chunks: typedChunks });
+          const signals = await detectCompanyReadinessSignals({ chunks: typedChunks, roleProfiles });
 
           if (signals.length === 0) {
             log.info('signal_none', {
@@ -693,6 +736,7 @@ export const readinessAnalysisOnDemand = inngest.createFunction(
                 channel_ids: channelIds,
                 channel_names: channelNames,
                 source_evidence: sourceEvidence,
+                role_profiles: roleProfileSourceMetadata,
               },
               status: 'draft',
               updated_at: new Date().toISOString(),
@@ -721,7 +765,7 @@ export const readinessAnalysisOnDemand = inngest.createFunction(
             const typedChunks = retrieval.chunks;
             signalsReviewedTotal += typedChunks.length;
 
-            const signals = await detectSignals({ category, chunks: typedChunks });
+            const signals = await detectSignals({ category, chunks: typedChunks, roleProfiles });
 
             if (signals.length === 0) {
               log.info('signal_none', {
@@ -777,6 +821,7 @@ export const readinessAnalysisOnDemand = inngest.createFunction(
                   channel_ids: channelIds,
                   channel_names: channelNames,
                   source_evidence: sourceEvidence,
+                  role_profiles: roleProfileSourceMetadata,
                 },
                 status: 'draft',
                 updated_at: new Date().toISOString(),
@@ -900,6 +945,12 @@ export const readinessAnalysis = inngest.createFunction(
         const itemsToInsert: ReadinessItemPayload[] = [];
         const seenSignalKeys = new Set<string>();
         let signalsReviewedTotal = 0;
+        const { data: roleProfileRows } = await supabase
+          .from('role_profiles')
+          .select('role, job_description')
+          .eq('organization_id', org.id);
+        const roleProfiles = (roleProfileRows ?? []) as RoleProfileResult[];
+        const roleProfileSourceMetadata = roleProfileMetadata(roleProfiles);
 
         try {
           const retrieval = await retrieveCompanyReadinessChunks({
@@ -909,7 +960,7 @@ export const readinessAnalysis = inngest.createFunction(
           const typedChunks = retrieval.chunks;
           signalsReviewedTotal += typedChunks.length;
 
-          const signals = await detectCompanyReadinessSignals({ chunks: typedChunks });
+          const signals = await detectCompanyReadinessSignals({ chunks: typedChunks, roleProfiles });
 
           if (signals.length === 0) {
             log.info('signal_none', {
@@ -964,6 +1015,7 @@ export const readinessAnalysis = inngest.createFunction(
                 channel_ids: channelIds,
                 channel_names: channelNames,
                 source_evidence: sourceEvidence,
+                role_profiles: roleProfileSourceMetadata,
               },
               status: 'draft',
               updated_at: new Date().toISOString(),
@@ -992,7 +1044,7 @@ export const readinessAnalysis = inngest.createFunction(
             const typedChunks = retrieval.chunks;
             signalsReviewedTotal += typedChunks.length;
 
-            const signals = await detectSignals({ category, chunks: typedChunks });
+            const signals = await detectSignals({ category, chunks: typedChunks, roleProfiles });
 
             if (signals.length === 0) {
               log.info('signal_none', {
@@ -1048,6 +1100,7 @@ export const readinessAnalysis = inngest.createFunction(
                   channel_ids: channelIds,
                   channel_names: channelNames,
                   source_evidence: sourceEvidence,
+                  role_profiles: roleProfileSourceMetadata,
                 },
                 status: 'draft',
                 updated_at: new Date().toISOString(),

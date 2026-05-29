@@ -28,7 +28,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner';
 import { MilestoneCard } from '@/components/milestone-card';
 import { cn } from '@/components/ui/utils';
-import type { HireRole, MilestoneGenerationRun, MilestoneProposal, RampMilestone } from '@/types/onboarding';
+import type { HireRole, MilestoneGenerationRun, MilestoneProposal, RampMilestone, RoleProfile } from '@/types/onboarding';
 
 const ROLES: HireRole[] = ['AI Solutions Architect', 'Solutions Engineer', 'Implementation Engineer'];
 const MILESTONE_GENERATION_STORAGE_KEY = 'canon-milestone-generation-run';
@@ -67,6 +67,11 @@ type MilestonesResponse = {
   error?: string;
 };
 
+type RoleProfilesResponse = {
+  profiles?: RoleProfile[];
+  error?: string;
+};
+
 const emptyForm = (role: HireRole): MilestoneForm => ({
   role,
   day_trigger: '',
@@ -101,6 +106,10 @@ const proposalToEditForm = (proposal: MilestoneProposal): ProposalEditForm => ({
 
 function successSignals(value: string) {
   return value.split('\n').map((line) => line.trim()).filter(Boolean);
+}
+
+function roleProfileFor(profiles: RoleProfile[], role: HireRole) {
+  return profiles.find((profile) => profile.role === role) ?? null;
 }
 
 function isGenerationActive(run: MilestoneGenerationRun | null | undefined) {
@@ -224,6 +233,7 @@ function ProposalCard({
 export function MilestonesClient() {
   const [milestones, setMilestones] = useState<RampMilestone[]>([]);
   const [proposals, setProposals] = useState<MilestoneProposal[]>([]);
+  const [roleProfiles, setRoleProfiles] = useState<RoleProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeRole, setActiveRole] = useState<HireRole>('AI Solutions Architect');
   const [showAddForm, setShowAddForm] = useState(false);
@@ -243,15 +253,24 @@ export function MilestonesClient() {
   const [editProposalSubmitting, setEditProposalSubmitting] = useState(false);
   const [editProposalError, setEditProposalError] = useState('');
   const [bulkAction, setBulkAction] = useState<'accept_all' | 'reject_all' | null>(null);
+  const [editingRoleProfile, setEditingRoleProfile] = useState(false);
+  const [roleProfileForm, setRoleProfileForm] = useState('');
+  const [roleProfileSubmitting, setRoleProfileSubmitting] = useState(false);
+  const [roleProfileError, setRoleProfileError] = useState('');
   const generationNoticeRef = useRef<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch('/api/onboarding/milestones');
-      const data = (await res.json()) as MilestonesResponse;
+      const [milestoneRes, roleProfileRes] = await Promise.all([
+        fetch('/api/onboarding/milestones'),
+        fetch('/api/onboarding/role-profiles'),
+      ]);
+      const data = (await milestoneRes.json()) as MilestonesResponse;
+      const profileData = (await roleProfileRes.json()) as RoleProfilesResponse;
       setMilestones(data.milestones ?? []);
       setProposals(data.proposals ?? []);
       setGenerationRun(data.latest_generation ?? null);
+      setRoleProfiles(profileData.profiles ?? []);
 
       const latestGeneration = data.latest_generation ?? null;
       if (latestGeneration && isGenerationActive(latestGeneration)) {
@@ -280,6 +299,40 @@ export function MilestonesClient() {
     setEditError('');
     setEditingMilestone(milestone);
     setEditForm(milestoneForm(milestone));
+  }
+
+  function openRoleProfileEditor() {
+    setRoleProfileError('');
+    setRoleProfileForm(roleProfileFor(roleProfiles, activeRole)?.job_description ?? '');
+    setEditingRoleProfile(true);
+  }
+
+  async function saveRoleProfile(e: React.FormEvent) {
+    e.preventDefault();
+    setRoleProfileSubmitting(true);
+    setRoleProfileError('');
+    try {
+      const res = await fetch('/api/onboarding/role-profiles', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          role: activeRole,
+          job_description: roleProfileForm,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { profile?: RoleProfile; error?: string };
+      if (!res.ok || !data.profile) throw new Error(data.error ?? 'Failed to save job description.');
+      setRoleProfiles((profiles) => {
+        const rest = profiles.filter((profile) => profile.role !== data.profile?.role);
+        return [...rest, data.profile as RoleProfile];
+      });
+      setEditingRoleProfile(false);
+      toast.success('Role job description saved');
+    } catch (error) {
+      setRoleProfileError(error instanceof Error ? error.message : 'Failed to save job description.');
+    } finally {
+      setRoleProfileSubmitting(false);
+    }
   }
 
   async function handleAdd(e: React.FormEvent) {
@@ -346,6 +399,8 @@ export function MilestonesClient() {
 
   const activeMilestones = byRole(activeRole);
   const activeProposals = proposalsByRole(activeRole);
+  const activeRoleProfile = roleProfileFor(roleProfiles, activeRole);
+  const activeJobDescription = activeRoleProfile?.job_description.trim() ?? '';
   const generating = generationStarting || isGenerationActive(generationRun);
 
   useEffect(() => {
@@ -682,13 +737,34 @@ export function MilestonesClient() {
                 )}
               </div>
             </div>
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => { setShowAddForm(true); setForm(emptyForm(activeRole)); }}
-            >
-              <IconPlus size={13} /> Add Milestone
-            </Button>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button size="sm" variant="secondary" onClick={openRoleProfileEditor}>
+                <IconEdit size={13} /> Job Description
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => { setShowAddForm(true); setForm(emptyForm(activeRole)); }}
+              >
+                <IconPlus size={13} /> Add Milestone
+              </Button>
+            </div>
+          </div>
+          <div
+            className="mb-3 rounded-[8px] border px-[14px] py-[10px]"
+            style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="type-kicker text-[var(--text-tertiary)]">Role Job Description</div>
+                <p className="type-body mt-1 line-clamp-2 text-[var(--text-secondary)]">
+                  {activeJobDescription || 'No job description saved for this role yet.'}
+                </p>
+              </div>
+              <Button size="sm" variant="ghost" onClick={openRoleProfileEditor}>
+                {activeJobDescription ? 'Edit' : 'Add'}
+              </Button>
+            </div>
           </div>
           <div
             className="px-[14px] py-[10px] rounded-[8px] flex items-center gap-2 type-body border"
@@ -864,6 +940,40 @@ export function MilestonesClient() {
               </Button>
               <Button type="submit" disabled={submitting}>
                 {submitting ? 'Saving...' : 'Save Milestone'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Role Job Description Dialog */}
+      <Dialog open={editingRoleProfile} onOpenChange={(open) => { if (!open) setEditingRoleProfile(false); }}>
+        <DialogContent className="max-w-2xl border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
+          <DialogHeader>
+            <DialogTitle className="text-[var(--text-primary)]">Role Job Description</DialogTitle>
+            <DialogDescription>
+              Save the job description Canon should use when generating milestones and readiness signals for {activeRole}.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={saveRoleProfile} className="min-h-0 space-y-4 overflow-y-auto pr-1">
+            <div>
+              <p className="type-caption mb-1 text-[var(--text-tertiary)]">Job Description</p>
+              <Textarea
+                value={roleProfileForm}
+                onChange={(e) => setRoleProfileForm(e.target.value)}
+                placeholder="Paste the role job description, responsibilities, tools, customer interactions, and success criteria."
+                maxLength={12000}
+                className="textarea-ui min-h-[260px] border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body"
+              />
+              <p className="type-caption mt-2 text-[var(--text-tertiary)]">{roleProfileForm.length}/12000</p>
+            </div>
+            {roleProfileError && <p className="type-body text-[var(--red-text)]">{roleProfileError}</p>}
+            <DialogFooter>
+              <Button type="button" variant="secondary" onClick={() => setEditingRoleProfile(false)} disabled={roleProfileSubmitting}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={roleProfileSubmitting}>
+                {roleProfileSubmitting ? 'Saving...' : 'Save Job Description'}
               </Button>
             </DialogFooter>
           </form>

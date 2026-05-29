@@ -32,6 +32,11 @@ type KnowledgeChunkResult = {
   created_at: string;
 };
 
+type RoleProfileResult = {
+  role: HireRole;
+  job_description: string | null;
+};
+
 const EvidenceRequirementSchema = z.object({
   type: z.enum(['access_readiness', 'tool_activity', 'communication_activity', 'customer_exposure']),
   label: z.string().min(3).max(120),
@@ -230,8 +235,9 @@ function chunkEvidence(chunks: KnowledgeChunkResult[]): MilestoneSourceEvidence[
 async function generateRoleProposals(params: {
   chunks: KnowledgeChunkResult[];
   role: HireRole;
+  roleProfile?: RoleProfileResult | null;
 }) {
-  const { chunks, role } = params;
+  const { chunks, role, roleProfile } = params;
   const promptChunks = chunks.slice(0, PROMPT_CHUNK_LIMIT);
   const chunkText = promptChunks.map((chunk, index) => {
     const metadata = chunk.metadata ?? {};
@@ -242,6 +248,10 @@ async function generateRoleProposals(params: {
         : 'company knowledge';
     return `Source ${index + 1} (${source}):\n${compactText(chunk.content, PROMPT_CHUNK_CHAR_LIMIT)}`;
   }).join('\n\n---\n\n');
+  const jobDescription = compactText(roleProfile?.job_description ?? '', 4000);
+  const roleContext = jobDescription
+    ? `Role job description:\n${jobDescription}`
+    : `Role job description: Not provided. Use the role title only and avoid assumptions beyond company evidence.`;
 
   const { output } = await generateText({
     model: wrapLanguageModel({
@@ -250,6 +260,8 @@ async function generateRoleProposals(params: {
     }),
     output: Output.object({ schema: LooseProposalListSchema }),
     prompt: `You are Canon, an onboarding architect. Create empirical milestone proposals for a ${role}.
+
+${roleContext}
 
 Return only JSON with this shape:
 {
@@ -278,6 +290,8 @@ Return only JSON with this shape:
 }
 
 Use only the company knowledge below. Do not create generic onboarding defaults. If the knowledge is too thin or unrelated to this role, return {"proposals":[]}.
+
+Use the job description to decide which company evidence matters for this role. Favor milestones that connect real company work to the role's responsibilities, tools, customer interactions, success criteria, and handoffs. Do not create milestones for duties outside the role description unless the company knowledge clearly shows the role owns that work.
 
 Milestones are pre-briefs before real work. They should prepare a new hire for a real experience and define concrete signals that prove the experience happened. Do not include practice tasks or homework.
 
@@ -330,7 +344,7 @@ async function generateForOrg(organizationId: string) {
     return { proposalsCreated: 0, rolesProcessed: 0 };
   }
 
-  const [{ data: chunks, error }, { data: activeMilestones }, { data: draftProposals }] = await Promise.all([
+  const [{ data: chunks, error }, { data: activeMilestones }, { data: draftProposals }, { data: roleProfiles }] = await Promise.all([
     supabase
       .from('knowledge_chunks')
       .select('id, content, metadata, created_at')
@@ -349,6 +363,10 @@ async function generateForOrg(organizationId: string) {
       .eq('organization_id', organizationId)
       .eq('status', 'draft')
       .limit(500),
+    supabase
+      .from('role_profiles')
+      .select('role, job_description')
+      .eq('organization_id', organizationId),
   ]);
 
   if (error) throw error;
@@ -376,11 +394,18 @@ async function generateForOrg(organizationId: string) {
       return [role, keys];
     })
   );
+  const roleProfileByRole = new Map<HireRole, RoleProfileResult>(
+    ((roleProfiles ?? []) as RoleProfileResult[]).map((profile) => [profile.role, profile])
+  );
 
   const roleResults = await Promise.all(
     ROLES.map(async (role) => {
       try {
-        const { proposals, rawCount, invalidCount, promptChunkCount } = await generateRoleProposals({ role, chunks: typedChunks });
+        const { proposals, rawCount, invalidCount, promptChunkCount } = await generateRoleProposals({
+          role,
+          chunks: typedChunks,
+          roleProfile: roleProfileByRole.get(role) ?? null,
+        });
         const existingKeys = existingKeysByRole.get(role) ?? new Set<string>();
         const inserts: object[] = [];
         let duplicateCount = 0;

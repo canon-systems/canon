@@ -100,6 +100,15 @@ export interface NewHireWithCounts extends NewHire {
   access_request_count: number;
 }
 
+export interface RoleProfile {
+  id: string;
+  organization_id: string;
+  role: HireRole;
+  job_description: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface KnowledgeSource {
   id: string;
   organization_id: string;
