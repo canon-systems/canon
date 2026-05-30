@@ -127,9 +127,14 @@ function sourceEvidence(item: ReadinessItem | null): SourceEvidence[] {
   return [{ label: item.source ?? 'Source', url: null }];
 }
 
-function formatDate(value: string | null) {
+function formatTimestamp(value: string | null) {
   if (!value) return 'Not sent';
-  return new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric' }).format(new Date(value));
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(value));
 }
 
 function preventionText(item: ReadinessItem | null) {
@@ -825,7 +830,7 @@ export function ReadinessClient() {
                         >
                           <div className="type-panel-title truncate" style={{ color: 'var(--text-primary)' }}>{item.title}</div>
                           <div className="type-caption mt-[1px]" style={{ color: 'var(--text-tertiary)' }}>
-                            {item.affected_roles.length} role{item.affected_roles.length === 1 ? '' : 's'} · {formatDate(item.sent_at)}
+                            {item.affected_roles.length} role{item.affected_roles.length === 1 ? '' : 's'} · {formatTimestamp(item.sent_at)}
                           </div>
                         </button>
                         <StatusBadge variant={statusBadge[item.status]} label={statusLabels[item.status]} />
@@ -970,7 +975,7 @@ export function ReadinessClient() {
                         label={statusLabels[selectedItem.status]}
                       />
                       <span className="type-body" style={{ color: 'var(--text-tertiary)' }}>
-                        {formatDate(selectedItem.sent_at)}
+                        {formatTimestamp(selectedItem.sent_at)}
                       </span>
                     </div>
                     <Button
@@ -1055,7 +1060,7 @@ export function ReadinessClient() {
                     <StepRow icon={selectedItem.status === 'sent' ? IconCheck : IconSend} label="5. Send or prevent" divider={false}>
                       <p className="type-card-body" style={{ color: 'var(--text-secondary)' }}>
                         {selectedItem.status === 'sent'
-                          ? `Sent ${formatDate(selectedItem.sent_at)}.`
+                          ? `Sent ${formatTimestamp(selectedItem.sent_at)}.`
                           : `${unsentCategoryItems.length} update${unsentCategoryItems.length === 1 ? '' : 's'} ready in this filter.`}
                       </p>
                     </StepRow>
