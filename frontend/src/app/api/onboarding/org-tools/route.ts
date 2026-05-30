@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
+import { normalizeRoleName } from '@/lib/onboarding/roles';
 
 export const dynamic = 'force-dynamic';
-
-const validRoles = ['AI Solutions Architect', 'Solutions Engineer', 'Implementation Engineer'];
 
 function normalizeToolName(toolName: string) {
   return toolName.trim().toLowerCase();
@@ -67,13 +66,10 @@ export async function POST(request: NextRequest) {
       owner_slack_id?: string;
     };
 
-    const { tool_name, role, owner_name, owner_email, owner_slack_id } = body;
+    const { tool_name, owner_name, owner_email, owner_slack_id } = body;
+    const role = body.role ? normalizeRoleName(body.role) : null;
     if (!tool_name?.trim()) {
       return NextResponse.json({ error: 'tool_name is required' }, { status: 400 });
-    }
-
-    if (role && !validRoles.includes(role)) {
-      return NextResponse.json({ error: 'Invalid role' }, { status: 400 });
     }
 
     if (!owner_name?.trim() || !owner_slack_id?.trim()) {
@@ -88,6 +84,17 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+
+    if (role) {
+      const { data: roleProfile } = await supabase
+        .from('role_profiles')
+        .select('id')
+        .eq('organization_id', org.id)
+        .eq('role', role)
+        .eq('status', 'active')
+        .maybeSingle();
+      if (!roleProfile) return NextResponse.json({ error: 'Role is not active' }, { status: 400 });
+    }
 
     const { data: existingTools, error: existingError } = await supabase
       .from('org_tools')
@@ -136,13 +143,10 @@ export async function PATCH(request: NextRequest) {
       owner_slack_id?: string | null;
     };
 
-    const { id, tool_name, role, owner_name, owner_email, owner_slack_id } = body;
+    const { id, tool_name, owner_name, owner_email, owner_slack_id } = body;
+    const role = body.role ? normalizeRoleName(body.role) : null;
     if (!id || !tool_name?.trim()) {
       return NextResponse.json({ error: 'id and tool_name are required' }, { status: 400 });
-    }
-
-    if (role && !validRoles.includes(role)) {
-      return NextResponse.json({ error: 'Invalid role' }, { status: 400 });
     }
 
     if (!owner_name?.trim() || !owner_slack_id?.trim()) {
@@ -157,6 +161,17 @@ export async function PATCH(request: NextRequest) {
       .single();
 
     if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+
+    if (role) {
+      const { data: roleProfile } = await supabase
+        .from('role_profiles')
+        .select('id')
+        .eq('organization_id', org.id)
+        .eq('role', role)
+        .eq('status', 'active')
+        .maybeSingle();
+      if (!roleProfile) return NextResponse.json({ error: 'Role is not active' }, { status: 400 });
+    }
 
     const { data: existingTools, error: existingError } = await supabase
       .from('org_tools')

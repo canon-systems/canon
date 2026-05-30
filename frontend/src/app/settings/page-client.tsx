@@ -16,6 +16,7 @@ import {
   IconTool,
   IconTrash,
   IconUser,
+  IconUsers,
   IconX,
 } from '@tabler/icons-react';
 import { IntegrationLogos } from '@/components/IntegrationLogos';
@@ -26,13 +27,15 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Avatar } from '@/components/ui/avatar';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Alert } from '@/components/ui/alert';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/components/ui/utils';
 import { ToolLogo } from '@/components/ToolLogo';
 import { ToolNameCombobox } from '@/components/tool-name-combobox';
 import { SlackUserPicker, type SlackUser } from '@/components/SlackUserPicker';
-import type { OrgTool, HireRole } from '@/types/onboarding';
+import { activeRoleProfiles, normalizeRoleName, roleAbbreviation, roleColor } from '@/lib/onboarding/roles';
+import type { OrgTool, HireRole, RoleProfile } from '@/types/onboarding';
 
 interface Connection {
   id: string;
@@ -51,7 +54,7 @@ interface SettingsPageClientProps {
 const settingSections = [
   { section: 'Account', items: [{ id: 'profile', label: 'Profile', icon: IconUser }, { id: 'org', label: 'Organization', icon: IconBuilding }] },
   { section: 'Connections', items: [{ id: 'integrations', label: 'Integrations', icon: IconPlug }, { id: 'notifications', label: 'Notifications', icon: IconBell }] },
-  { section: 'Onboarding', items: [{ id: 'tools', label: 'Tools', icon: IconTool }] },
+  { section: 'Onboarding', items: [{ id: 'roles', label: 'Roles', icon: IconUsers }, { id: 'tools', label: 'Tools', icon: IconTool }] },
   {
     section: 'Developer',
     items: [
@@ -61,31 +64,9 @@ const settingSections = [
   { section: 'Danger', items: [{ id: 'delete', label: 'Delete Account', icon: IconTrash, danger: true }] },
 ];
 
-const SETTINGS_TABS = ['profile', 'org', 'integrations', 'notifications', 'tools', 'apikeys', 'delete'] as const;
+const SETTINGS_TABS = ['profile', 'org', 'integrations', 'notifications', 'roles', 'tools', 'apikeys', 'delete'] as const;
 type SettingsTab = typeof SETTINGS_TABS[number];
-const HIRE_ROLES: HireRole[] = ['AI Solutions Architect', 'Solutions Engineer', 'Implementation Engineer'];
 type ToolFilter = 'all' | 'all_roles' | 'unowned' | HireRole;
-
-const ROLE_META: Record<HireRole, { short: string; color: string; background: string; border: string }> = {
-  'AI Solutions Architect': {
-    short: 'AI SA',
-    color: 'var(--role-ai)',
-    background: 'rgba(13, 148, 136, 0.14)',
-    border: 'rgba(13, 148, 136, 0.42)',
-  },
-  'Solutions Engineer': {
-    short: 'SE',
-    color: 'var(--role-se)',
-    background: 'rgba(107, 92, 231, 0.15)',
-    border: 'rgba(155, 141, 245, 0.48)',
-  },
-  'Implementation Engineer': {
-    short: 'IE',
-    color: 'var(--role-ie)',
-    background: 'rgba(37, 99, 235, 0.14)',
-    border: 'rgba(37, 99, 235, 0.42)',
-  },
-};
 
 interface ToolGroup {
   key: string;
@@ -101,10 +82,6 @@ interface ToolGroup {
 
 function isSettingsTab(value: string | null): value is SettingsTab {
   return SETTINGS_TABS.includes(value as SettingsTab);
-}
-
-function isHireRole(value: ToolFilter): value is HireRole {
-  return HIRE_ROLES.includes(value as HireRole);
 }
 
 function normalizeToolName(toolName: string) {
@@ -171,15 +148,17 @@ function toggleRoleSelection(currentRoles: HireRole[], role: HireRole) {
 function selectedRolesLabel(roles: HireRole[]) {
   if (roles.length === 0) return 'All roles';
   if (roles.length === 1) return roles[0];
-  return roles.map((role) => ROLE_META[role].short).join(', ');
+  return roles.map((role) => roleAbbreviation(role)).join(', ');
 }
 
 function RoleMultiSelect({
   value,
   onChange,
+  roles,
 }: {
   value: HireRole[];
   onChange: (roles: HireRole[]) => void;
+  roles: HireRole[];
 }) {
   const allRolesSelected = value.length === 0;
 
@@ -212,7 +191,7 @@ function RoleMultiSelect({
 
         <div className="my-1 h-px bg-[var(--border-tertiary)]" />
 
-        {HIRE_ROLES.map((role) => {
+        {roles.map((role, index) => {
           const selected = value.includes(role);
           return (
             <button
@@ -228,7 +207,7 @@ function RoleMultiSelect({
               )}
             >
               <span>{role}</span>
-              {selected && <IconCheck size={14} style={{ color: ROLE_META[role].color }} />}
+              {selected && <IconCheck size={14} style={{ color: roleColor(role, index) }} />}
             </button>
           );
         })}
@@ -256,7 +235,18 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   const [gongApiBaseUrl, setGongApiBaseUrl] = useState('https://api.gong.io');
 
   const [tools, setTools] = useState<OrgTool[]>([]);
+  const [roleProfiles, setRoleProfiles] = useState<RoleProfile[]>([]);
   const [toolsLoading, setToolsLoading] = useState(false);
+  const [rolesLoading, setRolesLoading] = useState(false);
+  const [addRoleOpen, setAddRoleOpen] = useState(false);
+  const [addRoleSaving, setAddRoleSaving] = useState(false);
+  const [newRole, setNewRole] = useState({ role: '', job_description: '' });
+  const [editingRole, setEditingRole] = useState<RoleProfile | null>(null);
+  const [editRoleForm, setEditRoleForm] = useState({ job_description: '' });
+  const [editRoleSaving, setEditRoleSaving] = useState(false);
+  const [archivingRole, setArchivingRole] = useState<RoleProfile | null>(null);
+  const [archiveRoleSaving, setArchiveRoleSaving] = useState(false);
+  const [restoreRoleId, setRestoreRoleId] = useState<string | null>(null);
   const [addToolOpen, setAddToolOpen] = useState(false);
   const [addToolSaving, setAddToolSaving] = useState(false);
   const [toolFilter, setToolFilter] = useState<ToolFilter>('all');
@@ -290,16 +280,25 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
 
   const loadTools = useCallback(async () => {
     setToolsLoading(true);
+    setRolesLoading(true);
     try {
-      const res = await fetch('/api/onboarding/org-tools');
-      const data = (await res.json()) as { tools?: OrgTool[] };
+      const [toolsRes, rolesRes] = await Promise.all([
+        fetch('/api/onboarding/org-tools'),
+        fetch('/api/onboarding/role-profiles?include_archived=true'),
+      ]);
+      const data = (await toolsRes.json()) as { tools?: OrgTool[] };
+      const rolesData = (await rolesRes.json()) as { profiles?: RoleProfile[] };
       setTools(data.tools ?? []);
+      setRoleProfiles(rolesData.profiles ?? []);
     } catch {
       // non-fatal
     } finally {
       setToolsLoading(false);
+      setRolesLoading(false);
     }
   }, []);
+
+  const activeToolRoles = activeRoleProfiles(roleProfiles).map((profile) => profile.role);
 
   async function addTool() {
     if (!newTool.tool_name.trim() || !newTool.owner) return;
@@ -370,6 +369,102 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
       }
     } finally {
       setDeleteToolSaving(false);
+    }
+  }
+
+  async function addRole() {
+    const role = normalizeRoleName(newRole.role);
+    if (!role) return;
+    setAddRoleSaving(true);
+    try {
+      const res = await fetch('/api/onboarding/role-profiles', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          role,
+          job_description: newRole.job_description,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'add_role');
+      setNewRole({ role: '', job_description: '' });
+      setAddRoleOpen(false);
+      await loadTools();
+      toast.success('Role added');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Something went wrong adding the role.');
+    } finally {
+      setAddRoleSaving(false);
+    }
+  }
+
+  function openEditRole(profile: RoleProfile) {
+    setEditingRole(profile);
+    setEditRoleForm({ job_description: profile.job_description ?? '' });
+  }
+
+  async function saveRole() {
+    if (!editingRole) return;
+    setEditRoleSaving(true);
+    try {
+      const res = await fetch('/api/onboarding/role-profiles', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          role: editingRole.role,
+          job_description: editRoleForm.job_description,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'save_role');
+      setEditingRole(null);
+      await loadTools();
+      toast.success('Role saved');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Something went wrong saving the role.');
+    } finally {
+      setEditRoleSaving(false);
+    }
+  }
+
+  async function archiveRole() {
+    if (!archivingRole) return;
+    setArchiveRoleSaving(true);
+    try {
+      const res = await fetch(`/api/onboarding/role-profiles?${new URLSearchParams({ role: archivingRole.role }).toString()}`, {
+        method: 'DELETE',
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'archive_role');
+      setArchivingRole(null);
+      await loadTools();
+      toast.success('Role archived');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Something went wrong archiving the role.');
+    } finally {
+      setArchiveRoleSaving(false);
+    }
+  }
+
+  async function restoreRole(profile: RoleProfile) {
+    setRestoreRoleId(profile.id);
+    try {
+      const res = await fetch('/api/onboarding/role-profiles', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          role: profile.role,
+          job_description: profile.job_description ?? '',
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'restore_role');
+      await loadTools();
+      toast.success('Role restored');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Something went wrong restoring the role.');
+    } finally {
+      setRestoreRoleId(null);
     }
   }
 
@@ -526,7 +621,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   }, [loadConnections]);
 
   useEffect(() => {
-    if (activeSetting === 'tools') loadTools();
+    if (activeSetting === 'tools' || activeSetting === 'roles') loadTools();
   }, [activeSetting, loadTools]);
 
   async function connectSlack() {
@@ -738,6 +833,97 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     );
   }
 
+  function renderRoles() {
+    const activeRoles = activeRoleProfiles(roleProfiles);
+    const archivedRoles = roleProfiles
+      .filter((profile) => profile.status === 'archived')
+      .sort((a, b) => (a.display_order - b.display_order) || a.role.localeCompare(b.role));
+
+    return (
+      <div className="max-w-5xl">
+        <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="max-w-2xl">
+            <div className="type-section-title" style={{ color: 'var(--text-primary)' }}>
+              Role catalog
+            </div>
+            <p className="type-body mt-[3px]" style={{ color: 'var(--text-secondary)' }}>
+              Configure which roles Canon should include in milestone generation, readiness briefs, new-hire setup, and tool access scoping.
+            </p>
+          </div>
+          <Button onClick={() => setAddRoleOpen(true)} className="flex-shrink-0">
+            <IconPlus size={13} />
+            Add Role
+          </Button>
+        </div>
+
+        {rolesLoading ? (
+          <div className="flex items-center gap-2 type-body" style={{ color: 'var(--text-tertiary)' }}>
+            <IconLoader2 size={14} className="animate-spin" /> Loading Roles...
+          </div>
+        ) : activeRoles.length === 0 ? (
+          <Card className="px-5 py-8 text-center">
+            <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No active roles</div>
+            <div className="type-body mt-2" style={{ color: 'var(--text-tertiary)' }}>
+              Add a role before generating milestones or readiness briefs.
+            </div>
+          </Card>
+        ) : (
+          <div className="space-y-3">
+            {activeRoles.map((profile, index) => (
+              <Card key={profile.id} className="px-4 py-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="flex min-w-0 gap-3">
+                    <div
+                      className="mt-[1px] flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[8px] type-caption font-medium text-[var(--text-primary)]"
+                      style={{ backgroundColor: roleColor(profile.role, index) }}
+                    >
+                      {roleAbbreviation(profile.role)}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="type-card-title text-[var(--text-primary)]">{profile.role}</div>
+                      <div className="type-caption mt-[2px] text-[var(--text-tertiary)]">Active role</div>
+                      <p className="type-body mt-2 line-clamp-2 text-[var(--text-secondary)]">
+                        {profile.job_description || 'No job description saved yet.'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-shrink-0 gap-2">
+                    <Button size="sm" variant="secondary" onClick={() => openEditRole(profile)}>
+                      <IconPencil size={13} /> Edit
+                    </Button>
+                    <Button size="sm" variant="secondary" onClick={() => setArchivingRole(profile)}>
+                      <IconTrash size={13} /> Archive
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+            ))}
+
+            {archivedRoles.length > 0 && (
+              <div className="pt-4">
+                <div className="type-kicker mb-2 text-[var(--text-tertiary)]">Archived Roles</div>
+                <div className="space-y-2">
+                  {archivedRoles.map((profile) => (
+                    <Card key={profile.id} className="flex items-center justify-between gap-3 px-4 py-3 opacity-80">
+                      <div className="min-w-0">
+                        <div className="type-card-title truncate text-[var(--text-primary)]">{profile.role}</div>
+                        <div className="type-caption text-[var(--text-tertiary)]">Excluded from milestones and readiness briefs</div>
+                      </div>
+                      <Button size="sm" variant="secondary" onClick={() => void restoreRole(profile)} disabled={restoreRoleId === profile.id}>
+                        {restoreRoleId === profile.id ? <IconLoader2 size={13} className="animate-spin" /> : <IconCheck size={13} />}
+                        Restore
+                      </Button>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   function renderTools() {
     const toolGroups = groupOrgTools(tools);
     const roleSpecificCount = toolGroups.filter((group) => !group.allRoles).length;
@@ -745,9 +931,9 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     const filterOptions: Array<{ id: ToolFilter; label: string; count: number }> = [
       { id: 'all', label: 'All tools', count: toolGroups.length },
       { id: 'all_roles', label: 'All roles', count: toolGroups.filter((group) => group.allRoles).length },
-      ...HIRE_ROLES.map((role) => ({
+      ...activeToolRoles.map((role) => ({
         id: role,
-        label: ROLE_META[role].short,
+        label: roleAbbreviation(role),
         count: toolGroups.filter((group) => group.allRoles || group.roles.includes(role)).length,
       })),
       { id: 'unowned', label: 'Needs owner', count: unownedCount },
@@ -756,7 +942,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
       if (toolFilter === 'all') return true;
       if (toolFilter === 'all_roles') return tool.allRoles;
       if (toolFilter === 'unowned') return !groupHasOwner(tool);
-      if (isHireRole(toolFilter)) return tool.allRoles || tool.roles.includes(toolFilter);
+      if (activeToolRoles.includes(toolFilter)) return tool.allRoles || tool.roles.includes(toolFilter);
       return true;
     });
 
@@ -878,18 +1064,19 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                                 </span>
                               ) : (
                                 tool.roles.map((role) => {
-                                  const roleMeta = ROLE_META[role];
+                                  const roleIndex = activeToolRoles.indexOf(role);
+                                  const color = roleColor(role, roleIndex === -1 ? 0 : roleIndex);
                                   return (
                                     <span
                                       key={role}
                                       className="inline-flex items-center rounded-full border px-2 py-[3px] type-caption font-medium"
                                       style={{
-                                        backgroundColor: roleMeta.background,
-                                        borderColor: roleMeta.border,
-                                        color: roleMeta.color,
+                                        backgroundColor: 'var(--bg-secondary)',
+                                        borderColor: 'var(--border-secondary)',
+                                        color,
                                       }}
                                     >
-                                      {roleMeta.short}
+                                      {roleAbbreviation(role)}
                                     </span>
                                   );
                                 })
@@ -1005,6 +1192,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
           <div className="surface-page flex-1 overflow-y-auto px-7 py-6">
             {activeSetting === 'profile' && renderProfile()}
             {activeSetting === 'integrations' && renderIntegrations()}
+            {activeSetting === 'roles' && renderRoles()}
             {activeSetting === 'tools' && renderTools()}
             {activeSetting === 'delete' && renderPlaceholder('Delete Account')}
             {activeSetting === 'org' && renderPlaceholder('Organization')}
@@ -1013,6 +1201,97 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
           </div>
         </div>
       </div>
+
+      <Dialog open={addRoleOpen} onOpenChange={setAddRoleOpen}>
+        <DialogContent className="max-w-2xl border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
+          <DialogHeader>
+            <DialogTitle>Add Role</DialogTitle>
+            <DialogDescription>Add a role Canon should include in milestones, readiness briefs, new-hire setup, and tool scoping.</DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-3">
+            <div>
+              <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
+                Role Name <span style={{ color: 'var(--red-text)' }}>*</span>
+              </label>
+              <Input
+                value={newRole.role}
+                onChange={(e) => setNewRole((p) => ({ ...p, role: e.target.value }))}
+                placeholder="Customer Success Engineer"
+                maxLength={120}
+              />
+            </div>
+            <div>
+              <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
+                Job Description
+              </label>
+              <Textarea
+                value={newRole.job_description}
+                onChange={(e) => setNewRole((p) => ({ ...p, job_description: e.target.value }))}
+                placeholder="Paste responsibilities, tools, customer interactions, and success criteria."
+                maxLength={12000}
+                className="textarea-ui min-h-[220px] w-full border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setAddRoleOpen(false)} disabled={addRoleSaving}>Cancel</Button>
+            <Button onClick={() => void addRole()} disabled={addRoleSaving || !normalizeRoleName(newRole.role)}>
+              {addRoleSaving ? <IconLoader2 size={13} className="animate-spin" /> : <IconPlus size={13} />}
+              Add Role
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={editingRole !== null} onOpenChange={(open) => !open && setEditingRole(null)}>
+        <DialogContent className="max-w-2xl border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
+          <DialogHeader>
+            <DialogTitle>{editingRole?.role ?? 'Edit Role'}</DialogTitle>
+            <DialogDescription>Update the job description Canon should use when targeting milestones and readiness signals.</DialogDescription>
+          </DialogHeader>
+          <div>
+            <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
+              Job Description
+            </label>
+            <Textarea
+              value={editRoleForm.job_description}
+              onChange={(e) => setEditRoleForm({ job_description: e.target.value })}
+              placeholder="Paste responsibilities, tools, customer interactions, and success criteria."
+              maxLength={12000}
+              className="textarea-ui min-h-[280px] w-full border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body"
+            />
+            <p className="type-caption mt-1 text-[var(--text-tertiary)]">{editRoleForm.job_description.length}/12000</p>
+          </div>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setEditingRole(null)} disabled={editRoleSaving}>Cancel</Button>
+            <Button onClick={() => void saveRole()} disabled={editRoleSaving}>
+              {editRoleSaving ? <IconLoader2 size={13} className="animate-spin" /> : <IconPencil size={13} />}
+              Save Role
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={archivingRole !== null} onOpenChange={(open) => !open && setArchivingRole(null)}>
+        <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
+          <DialogHeader>
+            <DialogTitle>Archive Role</DialogTitle>
+            <DialogDescription>
+              Archive <strong>{archivingRole?.role}</strong>? Canon will stop generating milestones and readiness briefs for this role.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-[8px] border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] px-3 py-2 type-body text-[var(--text-secondary)]">
+            Active milestones and draft proposals for this role will be archived. Existing hires and historical evidence stay intact.
+          </div>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setArchivingRole(null)} disabled={archiveRoleSaving}>Cancel</Button>
+            <Button variant="destructive" onClick={() => void archiveRole()} disabled={archiveRoleSaving}>
+              {archiveRoleSaving ? <IconLoader2 size={13} className="animate-spin" /> : null}
+              Archive Role
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={deletingTool !== null} onOpenChange={(open) => !open && setDeletingTool(null)}>
         <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
@@ -1060,6 +1339,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
               <RoleMultiSelect
                 value={editTool.roles}
                 onChange={(roles) => setEditTool((p) => ({ ...p, roles }))}
+                roles={activeToolRoles}
               />
               <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>Select multiple roles, or use All roles for a shared requirement.</p>
             </div>
@@ -1123,6 +1403,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
               <RoleMultiSelect
                 value={newTool.roles}
                 onChange={(roles) => setNewTool((p) => ({ ...p, roles }))}
+                roles={activeToolRoles}
               />
               <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>Select multiple roles, or use All roles for a shared requirement.</p>
             </div>

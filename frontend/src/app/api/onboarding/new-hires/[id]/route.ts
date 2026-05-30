@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
 import { rampDayFromStartDate } from '@/lib/onboarding/rampDay';
-import type { HireRole, HireStatus, MilestoneEvidenceRequirement } from '@/types/onboarding';
+import { normalizeRoleName } from '@/lib/onboarding/roles';
+import type { HireStatus, MilestoneEvidenceRequirement } from '@/types/onboarding';
 
 export const dynamic = 'force-dynamic';
 
-const VALID_ROLES: HireRole[] = ['AI Solutions Architect', 'Solutions Engineer', 'Implementation Engineer'];
 const VALID_STATUSES: HireStatus[] = ['active', 'paused', 'completed'];
 
 function isDateInputValue(value: string) {
@@ -181,10 +181,16 @@ export async function PATCH(
     }
 
     if (typeof body.role === 'string') {
-      if (!VALID_ROLES.includes(body.role as HireRole)) {
-        return NextResponse.json({ error: 'Invalid role' }, { status: 400 });
-      }
-      patch.role = body.role;
+      const role = normalizeRoleName(body.role);
+      const { data: roleProfile } = await supabase
+        .from('role_profiles')
+        .select('id')
+        .eq('organization_id', org.id)
+        .eq('role', role)
+        .eq('status', 'active')
+        .maybeSingle();
+      if (!roleProfile) return NextResponse.json({ error: 'Role is not active' }, { status: 400 });
+      patch.role = role;
     }
 
     if (typeof body.start_date === 'string') {

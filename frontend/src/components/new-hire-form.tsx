@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { IconCalendar } from '@tabler/icons-react';
 import { Button } from '@/components/ui/button';
@@ -10,9 +10,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import type { HireRole } from '@/types/onboarding';
-
-const ROLES: HireRole[] = ['AI Solutions Architect', 'Solutions Engineer', 'Implementation Engineer'];
+import { activeRoleProfiles } from '@/lib/onboarding/roles';
+import type { HireRole, RoleProfile } from '@/types/onboarding';
 
 export type EditableNewHire = {
   id: string;
@@ -56,6 +55,7 @@ export function NewHireForm({
   const editing = Boolean(initialHire);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [roles, setRoles] = useState<HireRole[]>([]);
   const [startDate, setStartDate] = useState<Date | undefined>(
     initialHire ? fromDateInputValue(initialHire.start_date) : undefined
   );
@@ -72,6 +72,23 @@ export function NewHireForm({
   function set(field: keyof typeof form, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }));
   }
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadRoles() {
+      try {
+        const res = await fetch('/api/onboarding/role-profiles');
+        const data = (await res.json()) as { profiles?: RoleProfile[] };
+        const nextRoles = activeRoleProfiles(data.profiles ?? []).map((profile) => profile.role);
+        if (initialHire?.role && !nextRoles.includes(initialHire.role)) nextRoles.push(initialHire.role);
+        if (!cancelled) setRoles(nextRoles);
+      } catch {
+        if (!cancelled) setRoles(initialHire?.role ? [initialHire.role] : []);
+      }
+    }
+    void loadRoles();
+    return () => { cancelled = true; };
+  }, [initialHire?.role]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -157,11 +174,14 @@ export function NewHireForm({
               <SelectValue placeholder="Select a Role" />
             </SelectTrigger>
             <SelectContent>
-              {ROLES.map((role) => (
+              {roles.map((role) => (
                 <SelectItem key={role} value={role}>{role}</SelectItem>
               ))}
             </SelectContent>
           </Select>
+          {roles.length === 0 && (
+            <p className="text-[var(--red-text)] type-caption">Add an active role in Milestones before creating a hire.</p>
+          )}
         </div>
 
         <div className="space-y-2">

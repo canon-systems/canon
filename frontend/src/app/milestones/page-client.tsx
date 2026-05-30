@@ -1,11 +1,11 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import Link from 'next/link';
 import {
   IconBrain,
   IconCheck,
   IconEdit,
-  IconInfoCircle,
   IconLoader2,
   IconPlus,
   IconSparkles,
@@ -28,16 +28,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner';
 import { MilestoneCard } from '@/components/milestone-card';
 import { cn } from '@/components/ui/utils';
+import { DEFAULT_ROLES, activeRoleProfiles, roleAbbreviation, roleColor } from '@/lib/onboarding/roles';
 import type { HireRole, MilestoneGenerationRun, MilestoneProposal, RampMilestone, RoleProfile } from '@/types/onboarding';
 
-const ROLES: HireRole[] = ['AI Solutions Architect', 'Solutions Engineer', 'Implementation Engineer'];
 const MILESTONE_GENERATION_STORAGE_KEY = 'canon-milestone-generation-run';
-
-const ROLE_META: Record<HireRole, { id: string; color: string; abbr: string; label: string }> = {
-  'AI Solutions Architect': { id: 'ai-sa', color: 'var(--role-ai)', abbr: 'AI', label: 'AI Solutions Architect' },
-  'Solutions Engineer': { id: 'se', color: 'var(--role-se)', abbr: 'SE', label: 'Solutions Engineer' },
-  'Implementation Engineer': { id: 'ie', color: 'var(--role-ie)', abbr: 'IE', label: 'Implementation Engineer' },
-};
 
 type MilestoneForm = {
   role: HireRole;
@@ -235,12 +229,12 @@ export function MilestonesClient() {
   const [proposals, setProposals] = useState<MilestoneProposal[]>([]);
   const [roleProfiles, setRoleProfiles] = useState<RoleProfile[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeRole, setActiveRole] = useState<HireRole>('AI Solutions Architect');
+  const [activeRole, setActiveRole] = useState<HireRole>(DEFAULT_ROLES[0]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingMilestone, setEditingMilestone] = useState<RampMilestone | null>(null);
-  const [editForm, setEditForm] = useState<MilestoneForm>(emptyForm('AI Solutions Architect'));
+  const [editForm, setEditForm] = useState<MilestoneForm>(emptyForm(DEFAULT_ROLES[0]));
   const [pendingDelete, setPendingDelete] = useState<RampMilestone | null>(null);
-  const [form, setForm] = useState<MilestoneForm>(emptyForm('AI Solutions Architect'));
+  const [form, setForm] = useState<MilestoneForm>(emptyForm(DEFAULT_ROLES[0]));
   const [submitting, setSubmitting] = useState(false);
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [generationStarting, setGenerationStarting] = useState(false);
@@ -253,10 +247,6 @@ export function MilestonesClient() {
   const [editProposalSubmitting, setEditProposalSubmitting] = useState(false);
   const [editProposalError, setEditProposalError] = useState('');
   const [bulkAction, setBulkAction] = useState<'accept_all' | 'reject_all' | null>(null);
-  const [editingRoleProfile, setEditingRoleProfile] = useState(false);
-  const [roleProfileForm, setRoleProfileForm] = useState('');
-  const [roleProfileSubmitting, setRoleProfileSubmitting] = useState(false);
-  const [roleProfileError, setRoleProfileError] = useState('');
   const generationNoticeRef = useRef<string | null>(null);
 
   const load = useCallback(async () => {
@@ -270,7 +260,12 @@ export function MilestonesClient() {
       setMilestones(data.milestones ?? []);
       setProposals(data.proposals ?? []);
       setGenerationRun(data.latest_generation ?? null);
-      setRoleProfiles(profileData.profiles ?? []);
+      const nextProfiles = profileData.profiles ?? [];
+      setRoleProfiles(nextProfiles);
+      const nextActiveProfiles = activeRoleProfiles(nextProfiles);
+      if (nextActiveProfiles.length > 0 && !nextActiveProfiles.some((profile) => profile.role === activeRole)) {
+        setActiveRole(nextActiveProfiles[0].role);
+      }
 
       const latestGeneration = data.latest_generation ?? null;
       if (latestGeneration && isGenerationActive(latestGeneration)) {
@@ -283,7 +278,7 @@ export function MilestonesClient() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [activeRole]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -299,40 +294,6 @@ export function MilestonesClient() {
     setEditError('');
     setEditingMilestone(milestone);
     setEditForm(milestoneForm(milestone));
-  }
-
-  function openRoleProfileEditor() {
-    setRoleProfileError('');
-    setRoleProfileForm(roleProfileFor(roleProfiles, activeRole)?.job_description ?? '');
-    setEditingRoleProfile(true);
-  }
-
-  async function saveRoleProfile(e: React.FormEvent) {
-    e.preventDefault();
-    setRoleProfileSubmitting(true);
-    setRoleProfileError('');
-    try {
-      const res = await fetch('/api/onboarding/role-profiles', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          role: activeRole,
-          job_description: roleProfileForm,
-        }),
-      });
-      const data = (await res.json().catch(() => ({}))) as { profile?: RoleProfile; error?: string };
-      if (!res.ok || !data.profile) throw new Error(data.error ?? 'Failed to save job description.');
-      setRoleProfiles((profiles) => {
-        const rest = profiles.filter((profile) => profile.role !== data.profile?.role);
-        return [...rest, data.profile as RoleProfile];
-      });
-      setEditingRoleProfile(false);
-      toast.success('Role job description saved');
-    } catch (error) {
-      setRoleProfileError(error instanceof Error ? error.message : 'Failed to save job description.');
-    } finally {
-      setRoleProfileSubmitting(false);
-    }
   }
 
   async function handleAdd(e: React.FormEvent) {
@@ -397,10 +358,13 @@ export function MilestonesClient() {
   const proposalsByRole = (role: HireRole) =>
     proposals.filter((p) => p.role === role).sort((a, b) => a.suggested_day_trigger - b.suggested_day_trigger);
 
+  const activeProfiles = activeRoleProfiles(roleProfiles);
   const activeMilestones = byRole(activeRole);
   const activeProposals = proposalsByRole(activeRole);
   const activeRoleProfile = roleProfileFor(roleProfiles, activeRole);
   const activeJobDescription = activeRoleProfile?.job_description.trim() ?? '';
+  const activeRoleIndex = activeProfiles.findIndex((profile) => profile.role === activeRole);
+  const activeRoleDisplayColor = roleColor(activeRole, activeRoleIndex);
   const generating = generationStarting || isGenerationActive(generationRun);
 
   useEffect(() => {
@@ -653,21 +617,22 @@ export function MilestonesClient() {
                 {milestones.length}
               </span>
             </span>
-            <Button size="sm" onClick={generateMilestones} disabled={generating}>
+            <Button size="sm" onClick={generateMilestones} disabled={generating || activeProfiles.length === 0}>
               <IconBrain size={13} /> {generating ? 'Generating...' : 'Generate'}
             </Button>
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          {ROLES.map((role) => {
-            const meta = ROLE_META[role];
+          {activeProfiles.map((profile, index) => {
+            const role = profile.role;
             const active = activeRole === role;
             const count = byRole(role).length;
             const pCount = proposalsByRole(role).length;
+            const color = roleColor(role, index);
             return (
               <div
-                key={meta.id}
+                key={profile.id}
                 role="button"
                 tabIndex={0}
                 onClick={() => { setActiveRole(role); setForm(emptyForm(role)); }}
@@ -686,12 +651,12 @@ export function MilestonesClient() {
               >
                 <div
                   className="w-[30px] h-[30px] rounded-[7px] flex items-center justify-center type-caption font-medium text-[var(--text-primary)] flex-shrink-0"
-                  style={{ backgroundColor: meta.color }}
+                  style={{ backgroundColor: color }}
                 >
-                  {meta.abbr}
+                  {roleAbbreviation(role)}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="type-panel-title truncate" style={{ color: 'var(--text-primary)' }}>{meta.label}</div>
+                  <div className="type-panel-title truncate" style={{ color: 'var(--text-primary)' }}>{role}</div>
                   <div className="type-caption mt-[1px]" style={{ color: 'var(--text-tertiary)' }}>
                     {count} milestone{count !== 1 ? 's' : ''}
                     {pCount > 0 && ` · ${pCount} draft${pCount !== 1 ? 's' : ''}`}
@@ -708,6 +673,11 @@ export function MilestonesClient() {
               </div>
             );
           })}
+          <div className="p-3">
+            <Button size="sm" variant="secondary" className="w-full" asChild>
+              <Link href="/settings?tab=roles">Configure Roles</Link>
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -719,11 +689,11 @@ export function MilestonesClient() {
               <div className="flex items-center gap-3">
                 <div
                   className="w-8 h-8 rounded-[7px] flex items-center justify-center type-caption font-medium text-[var(--text-primary)] flex-shrink-0"
-                  style={{ backgroundColor: ROLE_META[activeRole].color }}
+                  style={{ backgroundColor: activeRoleDisplayColor }}
                 >
-                  {ROLE_META[activeRole].abbr}
+                  {roleAbbreviation(activeRole)}
                 </div>
-                <h1 className="type-detail-title" style={{ color: 'var(--text-primary)' }}>{activeRole}</h1>
+                <h1 className="type-detail-title" style={{ color: 'var(--text-primary)' }}>{activeRole || 'No active roles'}</h1>
               </div>
               <div className="flex items-center gap-2 mt-2 type-body" style={{ color: 'var(--text-tertiary)' }}>
                 <span>{activeMilestones.length} approved</span>
@@ -738,13 +708,16 @@ export function MilestonesClient() {
               </div>
             </div>
             <div className="flex flex-wrap justify-end gap-2">
-              <Button size="sm" variant="secondary" onClick={openRoleProfileEditor}>
-                <IconEdit size={13} /> Job Description
+              <Button size="sm" variant="secondary" asChild>
+                <Link href="/settings?tab=roles">
+                  <IconEdit size={13} /> Edit Role
+                </Link>
               </Button>
               <Button
                 size="sm"
                 variant="secondary"
                 onClick={() => { setShowAddForm(true); setForm(emptyForm(activeRole)); }}
+                disabled={!activeRole}
               >
                 <IconPlus size={13} /> Add Milestone
               </Button>
@@ -761,24 +734,28 @@ export function MilestonesClient() {
                   {activeJobDescription || 'No job description saved for this role yet.'}
                 </p>
               </div>
-              <Button size="sm" variant="ghost" onClick={openRoleProfileEditor}>
-                {activeJobDescription ? 'Edit' : 'Add'}
+              <Button size="sm" variant="ghost" asChild>
+                <Link href="/settings?tab=roles">{activeJobDescription ? 'Edit' : 'Add'}</Link>
               </Button>
             </div>
-          </div>
-          <div
-            className="px-[14px] py-[10px] rounded-[8px] flex items-center gap-2 type-body border"
-            style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)', color: 'var(--text-secondary)' }}
-          >
-            <IconInfoCircle size={14} style={{ color: 'var(--canon-purple)', flexShrink: 0 }} />
-            Canon only uses approved milestones. Drafts are generated from indexed company knowledge and stay inactive until approved.
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto px-8 py-6">
           <GenerationStatusPanel run={generationRun} starting={generationStarting} />
 
-          {activeMilestones.length === 0 && activeProposals.length === 0 ? (
+          {activeProfiles.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full gap-3 py-12">
+              <IconTarget size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
+              <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Active Roles</div>
+              <div className="type-body text-center max-w-[260px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
+                Add a role before generating milestones or readiness briefs.
+              </div>
+              <Button size="sm" asChild>
+                <Link href="/settings?tab=roles">Configure Roles</Link>
+              </Button>
+            </div>
+          ) : activeMilestones.length === 0 && activeProposals.length === 0 ? (
             generating ? (
               <div className="flex flex-col gap-3">
                 {[1, 2, 3, 4].map((i) => (
@@ -786,21 +763,21 @@ export function MilestonesClient() {
                 ))}
               </div>
             ) : (
-            <div className="flex flex-col items-center justify-center h-full gap-3 py-12">
-              <IconTarget size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
-              <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Approved Milestones</div>
-              <div className="type-body text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
-                Generate drafts from company knowledge or add a milestone manually.
+              <div className="flex flex-col items-center justify-center h-full gap-3 py-12">
+                <IconTarget size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
+                <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Approved Milestones</div>
+                <div className="type-body text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
+                  Generate drafts from company knowledge or add a milestone manually.
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={generateMilestones} disabled={generating}>
+                    <IconBrain size={13} /> Generate
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={() => { setShowAddForm(true); setForm(emptyForm(activeRole)); }}>
+                    Add Manually
+                  </Button>
+                </div>
               </div>
-              <div className="flex gap-2">
-                <Button size="sm" onClick={generateMilestones} disabled={generating}>
-                  <IconBrain size={13} /> Generate
-                </Button>
-                <Button size="sm" variant="secondary" onClick={() => { setShowAddForm(true); setForm(emptyForm(activeRole)); }}>
-                  Add Manually
-                </Button>
-              </div>
-            </div>
             )
           ) : (
             <div className="flex flex-col gap-5">
@@ -946,40 +923,6 @@ export function MilestonesClient() {
         </DialogContent>
       </Dialog>
 
-      {/* Role Job Description Dialog */}
-      <Dialog open={editingRoleProfile} onOpenChange={(open) => { if (!open) setEditingRoleProfile(false); }}>
-        <DialogContent className="max-w-2xl border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
-          <DialogHeader>
-            <DialogTitle className="text-[var(--text-primary)]">Role Job Description</DialogTitle>
-            <DialogDescription>
-              Save the job description Canon should use when generating milestones and readiness signals for {activeRole}.
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={saveRoleProfile} className="min-h-0 space-y-4 overflow-y-auto pr-1">
-            <div>
-              <p className="type-caption mb-1 text-[var(--text-tertiary)]">Job Description</p>
-              <Textarea
-                value={roleProfileForm}
-                onChange={(e) => setRoleProfileForm(e.target.value)}
-                placeholder="Paste the role job description, responsibilities, tools, customer interactions, and success criteria."
-                maxLength={12000}
-                className="textarea-ui min-h-[260px] border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body"
-              />
-              <p className="type-caption mt-2 text-[var(--text-tertiary)]">{roleProfileForm.length}/12000</p>
-            </div>
-            {roleProfileError && <p className="type-body text-[var(--red-text)]">{roleProfileError}</p>}
-            <DialogFooter>
-              <Button type="button" variant="secondary" onClick={() => setEditingRoleProfile(false)} disabled={roleProfileSubmitting}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={roleProfileSubmitting}>
-                {roleProfileSubmitting ? 'Saving...' : 'Save Job Description'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
       {/* Edit Milestone Dialog */}
       <Dialog open={!!editingMilestone} onOpenChange={(open) => { if (!open) setEditingMilestone(null); }}>
         <DialogContent className="max-w-2xl border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
@@ -1008,8 +951,8 @@ export function MilestonesClient() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {ROLES.map((role) => (
-                      <SelectItem key={role} value={role}>{role}</SelectItem>
+                    {activeProfiles.map((profile) => (
+                      <SelectItem key={profile.id} value={profile.role}>{profile.role}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

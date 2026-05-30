@@ -3,11 +3,11 @@ import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
 import { inngest } from '@/inngest/client';
 import { createLogger } from '@/lib/server/logging';
+import { normalizeRoleName } from '@/lib/onboarding/roles';
 import type { HireRole, MilestoneEvidenceRequirement } from '@/types/onboarding';
 
 export const dynamic = 'force-dynamic';
 
-const validRoles: HireRole[] = ['AI Solutions Architect', 'Solutions Engineer', 'Implementation Engineer'];
 const log = createLogger('api.onboarding.milestones', {
   label: 'Milestones API',
   eventLabels: {
@@ -23,7 +23,7 @@ const log = createLogger('api.onboarding.milestones', {
 });
 
 function isRole(value: unknown): value is HireRole {
-  return typeof value === 'string' && validRoles.includes(value as HireRole);
+  return typeof value === 'string' && normalizeRoleName(value).length >= 2 && normalizeRoleName(value).length <= 120;
 }
 
 function stringField(value: unknown) {
@@ -84,12 +84,28 @@ async function organizationForUser() {
   return { user, org, supabase };
 }
 
+async function isActiveRole(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  organizationId: string,
+  role: string
+) {
+  const { data } = await supabase
+    .from('role_profiles')
+    .select('id')
+    .eq('organization_id', organizationId)
+    .eq('role', role)
+    .eq('status', 'active')
+    .maybeSingle();
+
+  return Boolean(data);
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { user, org, supabase } = await organizationForUser();
     if (!user || !supabase) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const roleParam = request.nextUrl.searchParams.get('role');
+    const roleParam = normalizeRoleName(request.nextUrl.searchParams.get('role') ?? '');
     if (roleParam && !isRole(roleParam)) return NextResponse.json({ error: 'Invalid role' }, { status: 400 });
 
     if (!org) return NextResponse.json({ milestones: [], proposals: [], latest_generation: null });
@@ -280,6 +296,9 @@ export async function POST(request: NextRequest) {
         .single();
 
       if (proposalError || !proposal) return NextResponse.json({ error: 'Proposal not found or already resolved' }, { status: 404 });
+      if (!(await isActiveRole(supabase, org.id, proposal.role))) {
+        return NextResponse.json({ error: 'Role is not active' }, { status: 400 });
+      }
 
       const title = stringField(body.title) || proposal.title;
       const dayTrigger = typeof body.day_trigger === 'number' ? body.day_trigger : proposal.suggested_day_trigger;
@@ -340,7 +359,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ milestone }, { status: 201 });
     }
 
-    const { role, day_trigger, title, description, knowledge_query } = body;
+    const { day_trigger, title, description, knowledge_query } = body;
+    const role = normalizeRoleName(body.role ?? '');
     const capabilityOutcome = stringField(body.capability_outcome) || stringField(description);
     const briefingGoal = stringField(body.briefing_goal) || capabilityOutcome;
     const realWorkTrigger = stringField(body.real_work_trigger);
@@ -355,6 +375,9 @@ export async function POST(request: NextRequest) {
 
     if (!isRole(role)) {
       return NextResponse.json({ error: 'Invalid role' }, { status: 400 });
+    }
+    if (!(await isActiveRole(supabase, org.id, role))) {
+      return NextResponse.json({ error: 'Role is not active' }, { status: 400 });
     }
 
     const { data: milestone, error } = await supabase
@@ -423,7 +446,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     const dayTrigger = body.day_trigger;
-    const role = body.role as HireRole | undefined;
+    const role = typeof body.role === 'string' ? normalizeRoleName(body.role) : undefined;
     const title = stringField(body.title);
     const capabilityOutcome = stringField(body.capability_outcome);
     const briefingGoal = stringField(body.briefing_goal);
@@ -443,6 +466,9 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({
         error: 'day_trigger, title, capability_outcome, briefing_goal, real_work_trigger, and retrieval_brief are required',
       }, { status: 400 });
+    }
+    if (role && !(await isActiveRole(supabase, org.id, role))) {
+      return NextResponse.json({ error: 'Role is not active' }, { status: 400 });
     }
 
     const { data: milestone, error } = await supabase
