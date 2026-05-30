@@ -11,19 +11,19 @@ import { Button } from '@/components/ui/button';
 const requestAccessHref = 'https://app.usecanon.com';
 
 export const metadata: Metadata = {
-  title: 'Canon | Technical GTM Onboarding & Readiness',
+  title: 'Canon | Technical GTM Readiness Platform',
   description:
-    'Canon reduces time to productivity for Technical GTM hires and keeps your whole team field-ready as your product and market evolve.',
+    'Canon gets new hires customer-ready faster and keeps field teams current as products, pricing, positioning, and processes change.',
   openGraph: {
-    title: 'Canon | Technical GTM Onboarding & Readiness',
+    title: 'Canon | Technical GTM Readiness Platform',
     description:
-      'Canon reduces time to productivity for Technical GTM hires and keeps your whole team field-ready as your product and market evolve.',
+      'Canon gets new hires customer-ready faster and keeps field teams current as products, pricing, positioning, and processes change.',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Canon | Technical GTM Onboarding & Readiness',
+    title: 'Canon | Technical GTM Readiness Platform',
     description:
-      'Canon reduces time to productivity for Technical GTM hires and keeps your whole team field-ready as your product and market evolve.',
+      'Canon gets new hires customer-ready faster and keeps field teams current as products, pricing, positioning, and processes change.',
   },
 };
 
@@ -63,45 +63,45 @@ const rampLoop = [
 const productTourLayers = [
   {
     stage: 'Home',
-    title: 'See ramp status and readiness in one place.',
+    title: 'See team readiness in one place.',
     description:
-      'The home view gives managers a concise operating surface for hire progress, team readiness, and the work Canon is doing behind the scenes.',
+      'The home view gives managers a live operating surface for new hire progress, field readiness gaps, and the work Canon is doing behind the scenes.',
     image: '/home.png',
-    alt: 'Canon home dashboard showing onboarding and readiness status.',
-    highlights: ['Team overview', 'Live status', 'Manager cockpit'],
+    alt: 'Canon home dashboard showing ramp progress and field readiness status.',
+    highlights: ['Team readiness', 'Live gaps', 'Manager cockpit'],
   },
   {
     stage: 'New hire',
-    title: 'Launch a role-specific path before day one.',
+    title: 'Get new hires customer-ready faster.',
     description:
-      'Add a hire, choose the role context, and Canon prepares the onboarding path from your connected knowledge sources instead of starting from a blank plan.',
+      'Add a hire, choose the role context, and Canon turns connected company knowledge into a readiness path before they face customers.',
     image: '/new_hire.png',
-    alt: 'Canon new hire setup screen for creating an onboarding path.',
-    highlights: ['Role context', 'Path setup', 'Day-one ready'],
+    alt: 'Canon new hire setup screen for creating a readiness path.',
+    highlights: ['Role context', 'Ramp path', 'Customer-ready'],
   },
   {
     stage: 'Milestones',
-    title: 'Track outcomes, not just completed tasks.',
+    title: 'Measure readiness, not task completion.',
     description:
-      'Milestones make readiness visible through capability checkpoints that managers and new hires can both use to understand what is complete and what comes next.',
+      'Milestones define the capabilities, real work triggers, and success signals that prove whether someone is ready to operate in the field.',
     image: '/milestones.png',
-    alt: 'Canon milestones screen showing onboarding checkpoint progress.',
-    highlights: ['Capabilities', 'Progress clarity', 'Shared expectations'],
+    alt: 'Canon milestones screen showing readiness checkpoint progress.',
+    highlights: ['Capabilities', 'Proof of readiness', 'Shared expectations'],
   },
   {
     stage: 'Knowledge',
-    title: 'Ground every brief in current source material.',
+    title: 'Keep readiness grounded in current knowledge.',
     description:
-      'Canon pulls from connected product docs, call intelligence, and internal knowledge so onboarding stays tied to what your team actually knows today.',
+      'Canon pulls from connected product docs, calls, Slack conversations, and technical sources so the field is trained on what is true now.',
     image: '/knowledge.png',
     alt: 'Canon knowledge screen showing connected source material.',
-    highlights: ['Connected sources', 'Brief generation', 'Fresh context'],
+    highlights: ['Connected sources', 'Fresh context', 'No stale decks'],
   },
   {
     stage: 'Readiness',
-    title: 'Catch field gaps as the business changes.',
+    title: 'Catch stale field knowledge before customers do.',
     description:
-      'When product, pricing, or positioning changes, Canon surfaces who is affected so readiness work can happen before stale information reaches a customer conversation.',
+      'When product, pricing, or positioning changes, Canon surfaces who is affected so teams can act before outdated information reaches a customer conversation.',
     image: '/readiness.png',
     alt: 'Canon readiness screen showing field readiness gaps and updates.',
     highlights: ['Gap detection', 'Change monitoring', 'Field alerts'],
@@ -216,7 +216,7 @@ export default function LandingPage() {
             <div style={{ animation: 'fade-up 0.55s ease 0.05s both' }}>
               <span className="badge-hero">
                 <span className="live-dot relative inline-block h-1.5 w-1.5 rounded-full bg-[var(--canon-purple)]" />
-                Technical GTM Onboarding &amp; Field Readiness Platform
+                Technical GTM Readiness Platform
               </span>
             </div>
 
@@ -228,8 +228,8 @@ export default function LandingPage() {
                 animation: 'fade-up 0.6s ease 0.15s both',
               }}
             >
-              Ramp Technical GTM faster.<br />
-              <span className="text-gradient-purple">Stay ready.</span>
+              Keep Technical GTM teams<br />
+              <span className="text-gradient-purple">customer-ready.</span>
             </h1>
 
             {/* Subheadline */}
@@ -237,8 +237,7 @@ export default function LandingPage() {
               className="mx-auto mt-6 max-w-xl text-base leading-7"
               style={{ color: 'var(--text-secondary)', animation: 'fade-up 0.6s ease 0.25s both' }}
             >
-              Canon is the onboarding platform that reduces time to productivity for Technical GTM hires
-              and keeps your field team current as your product and market evolve.
+              Your product changes faster than your field team can keep up. Canon keeps new hires and current teams customer-ready before stale information reaches a customer call.
             </p>
 
             {/* CTAs */}
@@ -357,7 +356,7 @@ export default function LandingPage() {
         <div style={{ backgroundColor: 'var(--bg-secondary)' }}>
           <div className={`${inner} py-16 lg:py-20`}>
             <AnimateIn>
-              <p className="type-kicker text-center mb-10">The cost of slow ramp</p>
+              <p className="type-kicker text-center mb-10">The cost of being unready</p>
             </AnimateIn>
             <div
               className="grid grid-cols-1 gap-px sm:grid-cols-3"
@@ -407,8 +406,8 @@ export default function LandingPage() {
           <AnimateIn>
             <ProductTour
               eyebrow="Product sneak peek"
-              title="A first look at the Canon workspace."
-              description="Canon turns scattered enablement work into a focused application surface for onboarding, milestone tracking, source-grounded knowledge, and ongoing field readiness."
+              title="A first look at the Canon readiness system."
+              description="Canon turns scattered company knowledge into a focused operating surface for new hire readiness, field updates, milestone tracking, and customer-facing confidence."
               layers={productTourLayers}
             />
           </AnimateIn>
@@ -419,44 +418,52 @@ export default function LandingPage() {
         ═══════════════════════════════════════════════════════════ */}
         <section id="how-it-works" className={`${inner} py-20 lg:py-28 scroll-mt-[88px]`}>
           <AnimateIn className="mb-12 max-w-xl">
-            <span className="badge-hero mb-5 inline-flex">The ramp loop</span>
+            <span className="badge-hero mb-5 inline-flex">The readiness loop</span>
             <h2 className="mt-5 type-landing-h2" style={{ color: 'var(--text-primary)' }}>
               Set up once. Runs continuously.
             </h2>
             <p className="mt-4 type-landing-body" style={{ color: 'var(--text-secondary)' }}>
-              Canon connects your knowledge, structures each hire&apos;s path, and monitors
-              for changes that affect readiness, in a single loop that runs from first hire
-              to the entire team.
+              Canon connects your knowledge, gets new hires ready faster, and monitors
+              for changes that affect the field, in a single loop that keeps the whole team
+              customer-ready.
             </p>
           </AnimateIn>
 
           {/* Steps with connecting rail */}
-          <div className="relative grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
-            {/* Rail — behind the step numbers, purple */}
-            <div
-              className="pointer-events-none absolute top-[1.05rem] hidden h-px lg:block"
-              style={{
-                left: 'calc(12.5% + 1.25rem)',
-                right: 'calc(12.5% + 1.25rem)',
-                background: 'linear-gradient(90deg, var(--canon-purple-border), var(--canon-purple), var(--canon-purple-border))',
-                opacity: 0.35,
-              }}
-            />
+          <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
             {rampLoop.map((item, i) => (
               <AnimateIn key={item.step} delay={i * 90}>
-                <div className="flex flex-col gap-4">
+                <div className="relative flex flex-col gap-4">
+                  {i < rampLoop.length - 1 && (
+                    <div
+                      className="pointer-events-none absolute top-[1.125rem] left-12 right-[-2rem] hidden h-px lg:block"
+                      style={{
+                        background:
+                          'linear-gradient(90deg, var(--canon-purple-border), var(--canon-purple-border))',
+                        opacity: 0.45,
+                      }}
+                    />
+                  )}
+
                   <span
                     className="step-number relative z-10 inline-flex h-9 w-9 items-center justify-center rounded-full border text-xs font-semibold"
                     style={{
                       borderColor: 'var(--canon-purple-border)',
                       backgroundColor: 'var(--bg-page)',
                       color: 'var(--canon-purple)',
+                      boxShadow: '0 0 0 10px var(--bg-page)',
                     }}
                   >
                     {item.step}
                   </span>
-                  <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{item.title}</p>
-                  <p className="text-sm leading-6" style={{ color: 'var(--text-secondary)' }}>{item.body}</p>
+
+                  <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                    {item.title}
+                  </p>
+
+                  <p className="text-sm leading-6" style={{ color: 'var(--text-secondary)' }}>
+                    {item.body}
+                  </p>
                 </div>
               </AnimateIn>
             ))}
@@ -470,10 +477,10 @@ export default function LandingPage() {
             >
               <div>
                 <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-                  Ready to run the loop for your next hire?
+                  Ready to keep your field team customer-ready?
                 </p>
                 <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
-                  Most teams launch a first hire path in under an hour.
+                  Start with new hire readiness, then keep the broader team current as things change.
                 </p>
               </div>
               <Button asChild className="btn-primary-shimmer shrink-0">
@@ -493,7 +500,7 @@ export default function LandingPage() {
             <AnimateIn className="mb-12">
               <span className="badge-hero mb-5 inline-flex">What you get</span>
               <h2 className="mt-5 type-landing-h2" style={{ color: 'var(--text-primary)' }}>
-                Built for every stage of the ramp cycle.
+                Built for every stage of Technical GTM readiness.
               </h2>
             </AnimateIn>
 
@@ -528,11 +535,11 @@ export default function LandingPage() {
             <AnimateIn>
               <span className="badge-hero mb-5 inline-flex">Integrations</span>
               <h2 className="mt-5 type-landing-h2" style={{ color: 'var(--text-primary)' }}>
-                Connected to where your knowledge already lives.
+                Connected to where readiness gaps begin.
               </h2>
               <p className="mt-4 type-landing-body" style={{ color: 'var(--text-secondary)' }}>
-                Canon pulls context from the tools your team uses every day and keeps it
-                current so briefs always reflect what is true now.
+                Canon pulls context from the tools your team uses every day so new hire paths,
+                field updates, and readiness alerts always reflect what is true now.
               </p>
             </AnimateIn>
 
@@ -659,15 +666,15 @@ export default function LandingPage() {
                   className="mx-auto max-w-2xl type-landing-h2"
                   style={{ color: 'var(--text-primary)' }}
                 >
-                  Give every Technical GTM hire the shortest path to full productivity.
+                  Keep every Technical GTM hire and field teammate customer-ready.
                 </h2>
                 <p
                   className="mx-auto mt-4 max-w-xl type-landing-body"
                   style={{ color: 'var(--text-secondary)' }}
                 >
                   Canon replaces scattered onboarding docs and reactive enablement with a
-                  single continuous loop that keeps both new hires and the broader team
-                  field-ready.
+                  continuous readiness loop for new hires, current teams, and every product
+                  change that matters.
                 </p>
                 <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
                   <Button size="lg" className="btn-primary-shimmer" asChild>
