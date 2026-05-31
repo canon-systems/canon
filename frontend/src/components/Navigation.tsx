@@ -27,12 +27,12 @@ interface NavigationProps {
 const primaryNav = [
   { href: '/', label: 'Home', icon: IconHome2, exact: true },
   { href: '/new-hires', label: 'Hire Paths', icon: IconUsers, exact: false },
-  { href: '/knowledge', label: 'Knowledge', icon: IconBrain, exact: false },
   { href: '/milestones', label: 'Milestones', icon: IconFlag, exact: false },
   { href: '/readiness', label: 'Readiness', icon: IconRadar, exact: false },
 ];
 
 const secondaryNav = [
+  { href: '/knowledge', label: 'Knowledge', icon: IconBrain, exact: false },
   { href: '/settings?tab=profile', label: 'Settings', icon: IconSettings, exact: false },
 ];
 
