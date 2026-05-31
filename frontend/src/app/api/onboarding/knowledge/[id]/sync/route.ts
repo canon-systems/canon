@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
-import { createClient } from '@/lib/supabase/server';
 import { inngest } from '@/inngest/client';
 import { createLogger } from '@/lib/server/logging';
+import { requireWorkspace } from '@/lib/server/organization';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,21 +26,13 @@ export async function POST(
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { id } = await params;
-    const supabase = await createClient();
-
-    const { data: org } = await supabase
-      .from('organizations')
-      .select('id')
-      .eq('owner_id', user.id)
-      .single();
-
-    if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+    const { supabase, organization } = await requireWorkspace(user);
 
     const { data: source } = await supabase
       .from('knowledge_sources')
       .select('id, name, slack_channel_id, slack_channel_name')
       .eq('id', id)
-      .eq('organization_id', org.id)
+      .eq('organization_id', organization.id)
       .single();
 
     if (!source) return NextResponse.json({ error: 'Knowledge source not found' }, { status: 404 });
@@ -55,7 +47,7 @@ export async function POST(
         sourceId: source.id,
         channel: source.slack_channel_name || source.name,
         channelId: source.slack_channel_id,
-        organizationId: org.id,
+        organizationId: organization.id,
         userId: user.id,
         operation: 'mark_pending',
         error: statusError.message,
@@ -66,14 +58,14 @@ export async function POST(
     try {
       await inngest.send({
         name: 'onboarding/knowledge.sync.requested',
-        data: { sourceId: id, organizationId: org.id },
+        data: { sourceId: id, organizationId: organization.id },
       });
     } catch (queueError) {
       log.error('sync_queue_failed', {
         sourceId: source.id,
         channel: source.slack_channel_name || source.name,
         channelId: source.slack_channel_id,
-        organizationId: org.id,
+        organizationId: organization.id,
         userId: user.id,
         operation: 'inngest_send',
         error: queueError instanceof Error ? queueError.message : String(queueError),
@@ -85,7 +77,7 @@ export async function POST(
       sourceId: source.id,
       channel: source.slack_channel_name || source.name,
       channelId: source.slack_channel_id,
-      organizationId: org.id,
+      organizationId: organization.id,
       userId: user.id,
       reason: 'manual_sync',
     });
@@ -107,21 +99,13 @@ export async function DELETE(
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { id } = await params;
-    const supabase = await createClient();
-
-    const { data: org } = await supabase
-      .from('organizations')
-      .select('id')
-      .eq('owner_id', user.id)
-      .single();
-
-    if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+    const { supabase, organization } = await requireWorkspace(user);
 
     const { data: source } = await supabase
       .from('knowledge_sources')
       .select('id, name, slack_channel_id, slack_channel_name, status, chunk_count')
       .eq('id', id)
-      .eq('organization_id', org.id)
+      .eq('organization_id', organization.id)
       .single();
 
     if (!source) return NextResponse.json({ error: 'Knowledge source not found' }, { status: 404 });
@@ -134,13 +118,13 @@ export async function DELETE(
       .from('knowledge_sources')
       .update({ status: 'stopped', error_message: null })
       .eq('id', source.id)
-      .eq('organization_id', org.id);
+      .eq('organization_id', organization.id);
 
     log.info('sync_stop_requested', {
       sourceId: source.id,
       channel: source.slack_channel_name || source.name,
       channelId: source.slack_channel_id,
-      organizationId: org.id,
+      organizationId: organization.id,
       userId: user.id,
       previousStatus: source.status,
       nextStatus: 'stopped',

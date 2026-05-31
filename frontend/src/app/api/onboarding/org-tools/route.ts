@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
-import { createClient } from '@/lib/supabase/server';
 import { normalizeRoleName } from '@/lib/onboarding/roles';
+import { requireWorkspace, requireWorkspaceAdmin } from '@/lib/server/organization';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,19 +29,12 @@ export async function GET() {
     const { user } = await getSession();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const supabase = await createClient();
-    const { data: org } = await supabase
-      .from('organizations')
-      .select('id')
-      .eq('owner_id', user.id)
-      .single();
-
-    if (!org) return NextResponse.json({ tools: [] });
+    const { supabase, organization } = await requireWorkspace(user);
 
     const { data, error } = await supabase
       .from('org_tools')
       .select('*')
-      .eq('organization_id', org.id)
+      .eq('organization_id', organization.id)
       .order('tool_name', { ascending: true });
 
     if (error) throw error;
@@ -76,20 +69,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Slack owner is required' }, { status: 400 });
     }
 
-    const supabase = await createClient();
-    const { data: org } = await supabase
-      .from('organizations')
-      .select('id')
-      .eq('owner_id', user.id)
-      .single();
-
-    if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+    const { supabase, organization } = await requireWorkspaceAdmin(user);
 
     if (role) {
       const { data: roleProfile } = await supabase
         .from('role_profiles')
         .select('id')
-        .eq('organization_id', org.id)
+        .eq('organization_id', organization.id)
         .eq('role', role)
         .eq('status', 'active')
         .maybeSingle();
@@ -99,7 +85,7 @@ export async function POST(request: NextRequest) {
     const { data: existingTools, error: existingError } = await supabase
       .from('org_tools')
       .select('id, tool_name, role')
-      .eq('organization_id', org.id);
+      .eq('organization_id', organization.id);
 
     if (existingError) throw existingError;
 
@@ -110,7 +96,7 @@ export async function POST(request: NextRequest) {
     const { data: tool, error } = await supabase
       .from('org_tools')
       .insert({
-        organization_id: org.id,
+        organization_id: organization.id,
         tool_name: tool_name.trim(),
         role: role || null,
         owner_name: owner_name?.trim() || null,
@@ -153,20 +139,13 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'Slack owner is required' }, { status: 400 });
     }
 
-    const supabase = await createClient();
-    const { data: org } = await supabase
-      .from('organizations')
-      .select('id')
-      .eq('owner_id', user.id)
-      .single();
-
-    if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+    const { supabase, organization } = await requireWorkspaceAdmin(user);
 
     if (role) {
       const { data: roleProfile } = await supabase
         .from('role_profiles')
         .select('id')
-        .eq('organization_id', org.id)
+        .eq('organization_id', organization.id)
         .eq('role', role)
         .eq('status', 'active')
         .maybeSingle();
@@ -176,7 +155,7 @@ export async function PATCH(request: NextRequest) {
     const { data: existingTools, error: existingError } = await supabase
       .from('org_tools')
       .select('id, tool_name, role')
-      .eq('organization_id', org.id);
+      .eq('organization_id', organization.id);
 
     if (existingError) throw existingError;
 
@@ -194,7 +173,7 @@ export async function PATCH(request: NextRequest) {
         owner_slack_id: owner_slack_id?.trim() || null,
       })
       .eq('id', id)
-      .eq('organization_id', org.id)
+      .eq('organization_id', organization.id)
       .select()
       .single();
 
@@ -215,20 +194,13 @@ export async function DELETE(request: NextRequest) {
     const id = request.nextUrl.searchParams.get('id');
     if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 });
 
-    const supabase = await createClient();
-    const { data: org } = await supabase
-      .from('organizations')
-      .select('id')
-      .eq('owner_id', user.id)
-      .single();
-
-    if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+    const { supabase, organization } = await requireWorkspaceAdmin(user);
 
     const { error } = await supabase
       .from('org_tools')
       .delete()
       .eq('id', id)
-      .eq('organization_id', org.id);
+      .eq('organization_id', organization.id);
 
     if (error) throw error;
     return NextResponse.json({ ok: true });

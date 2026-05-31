@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
-import { createClient } from '@/lib/supabase/server';
 import { inngest } from '@/inngest/client';
 import { createLogger } from '@/lib/server/logging';
+import { requireWorkspace } from '@/lib/server/organization';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,28 +21,18 @@ export async function GET() {
     const { user } = await getSession();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const supabase = await createClient();
-    const { data: org } = await supabase
-      .from('organizations')
-      .select('id')
-      .eq('owner_id', user.id)
-      .single();
-
-    if (!org) {
-      log.info('sources_loaded', { userId: user.id, sourceCount: 0, reason: 'organization_not_found' });
-      return NextResponse.json({ sources: [] });
-    }
+    const { supabase, organization } = await requireWorkspace(user);
 
     const { data: sources, error } = await supabase
       .from('knowledge_sources')
       .select('*')
-      .eq('organization_id', org.id)
+      .eq('organization_id', organization.id)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
     log.info('sources_loaded', {
       userId: user.id,
-      organizationId: org.id,
+      organizationId: organization.id,
       sourceCount: sources?.length ?? 0,
     });
     return NextResponse.json({ sources: sources ?? [] });
@@ -75,14 +65,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unsupported knowledge provider' }, { status: 400 });
     }
 
-    const supabase = await createClient();
-    const { data: org } = await supabase
-      .from('organizations')
-      .select('id')
-      .eq('owner_id', user.id)
-      .single();
-
-    if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+    const { supabase, organization } = await requireWorkspace(user);
 
     if (provider === 'gong') {
       const { data: connection } = await supabase
@@ -100,7 +83,7 @@ export async function POST(request: NextRequest) {
       const { data: existingGongSource } = await supabase
         .from('knowledge_sources')
         .select('id')
-        .eq('organization_id', org.id)
+        .eq('organization_id', organization.id)
         .eq('provider', 'gong')
         .limit(1)
         .maybeSingle();
@@ -113,7 +96,7 @@ export async function POST(request: NextRequest) {
     const { data: source, error } = await supabase
       .from('knowledge_sources')
       .insert({
-        organization_id: org.id,
+        organization_id: organization.id,
         provider,
         name: name || slack_channel_name || slack_channel_id || 'Gong Calls',
         slack_channel_id: provider === 'slack' ? slack_channel_id : null,
@@ -126,7 +109,7 @@ export async function POST(request: NextRequest) {
     if (error || !source) {
       log.error('source_create_failed', {
         userId: user.id,
-        organizationId: org.id,
+        organizationId: organization.id,
         channel: slack_channel_name || name || slack_channel_id,
         channelId: slack_channel_id,
         error: error?.message || 'insert_failed',
@@ -136,7 +119,7 @@ export async function POST(request: NextRequest) {
 
     log.info('source_created', {
       userId: user.id,
-      organizationId: org.id,
+      organizationId: organization.id,
       sourceId: source.id,
       provider: source.provider,
       channel: source.slack_channel_name || source.name,
@@ -146,7 +129,7 @@ export async function POST(request: NextRequest) {
 
     await inngest.send({
       name: 'onboarding/knowledge.sync.requested',
-      data: { sourceId: source.id, organizationId: org.id },
+      data: { sourceId: source.id, organizationId: organization.id },
     });
 
     log.info('sync_queued', {
@@ -154,7 +137,7 @@ export async function POST(request: NextRequest) {
       channel: source.slack_channel_name || source.name,
       channelId: source.slack_channel_id,
       provider: source.provider,
-      organizationId: org.id,
+      organizationId: organization.id,
       reason: 'source_created',
     });
 

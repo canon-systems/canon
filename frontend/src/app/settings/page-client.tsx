@@ -47,6 +47,36 @@ interface Connection {
   updated_at: string;
 }
 
+type WorkspaceRole = 'owner' | 'admin' | 'member';
+
+interface Workspace {
+  id: string;
+  name: string;
+  slug: string;
+  owner_id: string | null;
+  role: WorkspaceRole;
+}
+
+interface WorkspaceMember {
+  id: string;
+  user_id: string;
+  role: WorkspaceRole;
+  email: string | null;
+  is_current_user: boolean;
+  created_at: string;
+}
+
+interface WorkspaceInvitation {
+  id: string;
+  email: string;
+  role: Exclude<WorkspaceRole, 'owner'>;
+  token: string;
+  accepted_at: string | null;
+  revoked_at: string | null;
+  expires_at: string;
+  created_at: string;
+}
+
 interface SettingsPageClientProps {
   user: SupabaseUser | null;
 }
@@ -233,6 +263,16 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   const [gongAccessKey, setGongAccessKey] = useState('');
   const [gongAccessKeySecret, setGongAccessKeySecret] = useState('');
   const [gongApiBaseUrl, setGongApiBaseUrl] = useState('https://api.gong.io');
+  const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const [workspaceMembers, setWorkspaceMembers] = useState<WorkspaceMember[]>([]);
+  const [workspaceInvitations, setWorkspaceInvitations] = useState<WorkspaceInvitation[]>([]);
+  const [workspaceLoading, setWorkspaceLoading] = useState(false);
+  const [workspaceSaving, setWorkspaceSaving] = useState(false);
+  const [workspaceName, setWorkspaceName] = useState('');
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState<Exclude<WorkspaceRole, 'owner'>>('member');
+  const [inviteSaving, setInviteSaving] = useState(false);
+  const [lastInviteUrl, setLastInviteUrl] = useState('');
 
   const [tools, setTools] = useState<OrgTool[]>([]);
   const [roleProfiles, setRoleProfiles] = useState<RoleProfile[]>([]);
@@ -299,6 +339,117 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   }, []);
 
   const activeToolRoles = activeRoleProfiles(roleProfiles).map((profile) => profile.role);
+
+  const loadWorkspace = useCallback(async () => {
+    setWorkspaceLoading(true);
+    try {
+      const [workspaceRes, membersRes, invitationsRes] = await Promise.all([
+        fetch('/api/workspace'),
+        fetch('/api/workspace/members'),
+        fetch('/api/workspace/invitations'),
+      ]);
+
+      const workspaceData = (await workspaceRes.json().catch(() => ({}))) as { workspace?: Workspace };
+      const membersData = (await membersRes.json().catch(() => ({}))) as { members?: WorkspaceMember[] };
+      const invitationsData = (await invitationsRes.json().catch(() => ({}))) as { invitations?: WorkspaceInvitation[] };
+
+      if (!workspaceRes.ok) throw new Error('workspace_load');
+
+      setWorkspace(workspaceData.workspace ?? null);
+      setWorkspaceName(workspaceData.workspace?.name ?? '');
+      setWorkspaceMembers(membersRes.ok ? membersData.members ?? [] : []);
+      setWorkspaceInvitations(invitationsRes.ok ? invitationsData.invitations ?? [] : []);
+    } catch {
+      toast.error('Unable to load workspace settings.');
+    } finally {
+      setWorkspaceLoading(false);
+    }
+  }, []);
+
+  async function saveWorkspaceName() {
+    const name = workspaceName.trim();
+    if (!name) return;
+    setWorkspaceSaving(true);
+    try {
+      const res = await fetch('/api/workspace', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { workspace?: Workspace; error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'workspace_save');
+      setWorkspace(data.workspace ?? null);
+      setWorkspaceName(data.workspace?.name ?? name);
+      toast.success('Workspace updated');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to update workspace.');
+    } finally {
+      setWorkspaceSaving(false);
+    }
+  }
+
+  async function createInvitation() {
+    if (!inviteEmail.trim()) return;
+    setInviteSaving(true);
+    setLastInviteUrl('');
+    try {
+      const res = await fetch('/api/workspace/invitations', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email: inviteEmail, role: inviteRole }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { invite_url?: string; error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'invite_create');
+      setInviteEmail('');
+      setLastInviteUrl(data.invite_url ?? '');
+      await loadWorkspace();
+      toast.success('Invitation created');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to create invitation.');
+    } finally {
+      setInviteSaving(false);
+    }
+  }
+
+  async function updateMemberRole(member: WorkspaceMember, role: Exclude<WorkspaceRole, 'owner'>) {
+    try {
+      const res = await fetch('/api/workspace/members', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ member_id: member.id, role }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'member_update');
+      await loadWorkspace();
+      toast.success('Member updated');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to update member.');
+    }
+  }
+
+  async function removeMember(member: WorkspaceMember) {
+    try {
+      const res = await fetch(`/api/workspace/members?member_id=${encodeURIComponent(member.id)}`, { method: 'DELETE' });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'member_remove');
+      setWorkspaceMembers((prev) => prev.filter((entry) => entry.id !== member.id));
+      toast.success('Member removed');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to remove member.');
+    }
+  }
+
+  async function revokeInvitation(invitation: WorkspaceInvitation) {
+    try {
+      const res = await fetch(`/api/workspace/invitations?id=${encodeURIComponent(invitation.id)}`, { method: 'DELETE' });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'invite_revoke');
+      await loadWorkspace();
+      toast.success('Invitation revoked');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to revoke invitation.');
+    }
+  }
 
   async function addTool() {
     if (!newTool.tool_name.trim() || !newTool.owner) return;
@@ -623,6 +774,10 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   useEffect(() => {
     if (activeSetting === 'tools' || activeSetting === 'roles') loadTools();
   }, [activeSetting, loadTools]);
+
+  useEffect(() => {
+    if (activeSetting === 'org') loadWorkspace();
+  }, [activeSetting, loadWorkspace]);
 
   async function connectSlack() {
     setConnecting(true);
@@ -1132,6 +1287,152 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     );
   }
 
+  function renderOrg() {
+    const canAdmin = workspace?.role === 'owner' || workspace?.role === 'admin';
+    const activeInvitations = workspaceInvitations.filter((invitation) => !invitation.accepted_at && !invitation.revoked_at);
+
+    return (
+      <div className="max-w-5xl space-y-5">
+        <Card className="px-5 py-5">
+          <div className="mb-4 flex items-start justify-between gap-4">
+            <div>
+              <div className="type-section-title text-[var(--text-primary)]">Workspace</div>
+              <div className="type-body mt-[3px] text-[var(--text-secondary)]">
+                {workspaceLoading ? 'Loading workspace...' : workspace?.slug ?? 'Workspace setup'}
+              </div>
+            </div>
+            {workspace?.role && (
+              <span className="rounded-[6px] border border-[var(--border-secondary)] px-2 py-1 type-caption capitalize text-[var(--text-secondary)]">
+                {workspace.role}
+              </span>
+            )}
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+            <div>
+              <label className="mb-[5px] block type-body font-medium text-[var(--text-secondary)]">Workspace name</label>
+              <Input
+                value={workspaceName}
+                onChange={(event) => setWorkspaceName(event.target.value)}
+                readOnly={!canAdmin}
+              />
+            </div>
+            <Button onClick={() => void saveWorkspaceName()} disabled={!canAdmin || workspaceSaving || workspaceName.trim() === workspace?.name}>
+              {workspaceSaving ? <IconLoader2 size={13} className="animate-spin" /> : <IconCheck size={13} />}
+              Save
+            </Button>
+          </div>
+        </Card>
+
+        <Card className="px-5 py-5">
+          <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <div className="type-section-title text-[var(--text-primary)]">Members</div>
+              <p className="type-body mt-[3px] text-[var(--text-secondary)]">Owners and admins can invite teammates and manage access.</p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            {workspaceMembers.map((member) => (
+              <div key={member.id} className="flex flex-col gap-3 rounded-[7px] border border-[var(--border-tertiary)] px-3 py-3 md:flex-row md:items-center">
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <Avatar name={member.email ?? member.user_id} size="sm" />
+                  <div className="min-w-0">
+                    <div className="truncate type-body-strong text-[var(--text-primary)]">
+                      {member.email ?? member.user_id}
+                    </div>
+                    <div className="type-caption capitalize text-[var(--text-tertiary)]">
+                      {member.role}{member.is_current_user ? ' · You' : ''}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  {member.role === 'owner' ? (
+                    <Button size="sm" variant="secondary" disabled>Owner</Button>
+                  ) : (
+                    <>
+                      <select
+                        value={member.role}
+                        disabled={!canAdmin}
+                        onChange={(event) => void updateMemberRole(member, event.target.value as Exclude<WorkspaceRole, 'owner'>)}
+                        className="h-8 rounded-[6px] border border-[var(--border-secondary)] bg-[var(--bg-primary)] px-2 type-field text-[var(--text-primary)]"
+                      >
+                        <option value="admin">Admin</option>
+                        <option value="member">Member</option>
+                      </select>
+                      <Button size="sm" variant="secondary" onClick={() => void removeMember(member)} disabled={!canAdmin || member.is_current_user}>
+                        <IconTrash size={13} /> Remove
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        <Card className="px-5 py-5">
+          <div className="mb-4">
+            <div className="type-section-title text-[var(--text-primary)]">Invitations</div>
+            <p className="type-body mt-[3px] text-[var(--text-secondary)]">Create an invite link for a teammate to join this workspace.</p>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-[1fr_130px_auto] md:items-end">
+            <div>
+              <label className="mb-[5px] block type-body font-medium text-[var(--text-secondary)]">Email</label>
+              <Input
+                value={inviteEmail}
+                onChange={(event) => setInviteEmail(event.target.value)}
+                placeholder="teammate@company.com"
+                disabled={!canAdmin}
+              />
+            </div>
+            <div>
+              <label className="mb-[5px] block type-body font-medium text-[var(--text-secondary)]">Role</label>
+              <select
+                value={inviteRole}
+                disabled={!canAdmin}
+                onChange={(event) => setInviteRole(event.target.value as Exclude<WorkspaceRole, 'owner'>)}
+                className="h-9 w-full rounded-[7px] border border-[var(--border-secondary)] bg-[var(--bg-primary)] px-2 type-field text-[var(--text-primary)]"
+              >
+                <option value="member">Member</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+            <Button onClick={() => void createInvitation()} disabled={!canAdmin || inviteSaving || !inviteEmail.trim()}>
+              {inviteSaving ? <IconLoader2 size={13} className="animate-spin" /> : <IconPlus size={13} />}
+              Invite
+            </Button>
+          </div>
+
+          {lastInviteUrl && (
+            <div className="mt-3 rounded-[7px] border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] px-3 py-2">
+              <div className="type-caption text-[var(--text-tertiary)]">Invite link</div>
+              <div className="mt-1 break-all font-mono text-[12px] text-[var(--text-primary)]">{lastInviteUrl}</div>
+            </div>
+          )}
+
+          {activeInvitations.length > 0 && (
+            <div className="mt-4 space-y-2">
+              {activeInvitations.map((invitation) => (
+                <div key={invitation.id} className="flex flex-col gap-2 rounded-[7px] border border-[var(--border-tertiary)] px-3 py-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <div className="type-body-strong text-[var(--text-primary)]">{invitation.email}</div>
+                    <div className="type-caption capitalize text-[var(--text-tertiary)]">{invitation.role} · Expires {formatDate(invitation.expires_at)}</div>
+                  </div>
+                  <Button size="sm" variant="secondary" onClick={() => void revokeInvitation(invitation)} disabled={!canAdmin}>
+                    <IconX size={13} /> Revoke
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      </div>
+    );
+  }
+
   function renderPlaceholder(label: string) {
     return (
       <Card className="max-w-2xl px-5 py-8 text-center">
@@ -1195,7 +1496,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
             {activeSetting === 'roles' && renderRoles()}
             {activeSetting === 'tools' && renderTools()}
             {activeSetting === 'delete' && renderPlaceholder('Delete Account')}
-            {activeSetting === 'org' && renderPlaceholder('Organization')}
+            {activeSetting === 'org' && renderOrg()}
             {activeSetting === 'notifications' && renderPlaceholder('Notifications')}
             {activeSetting === 'apikeys' && renderPlaceholder('API Keys')}
           </div>

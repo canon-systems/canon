@@ -9,6 +9,7 @@ import {
 } from '@/lib/server/services/usageTracking';
 import { ATLASSIAN_PROVIDER, canonicalProvider } from '@/lib/providers';
 import { createLogger } from '@/lib/server/logging';
+import { getOrCreateOrganizationForUser } from '@/lib/server/organization';
 
 const log = createLogger('api.integrations.disconnect', {
   label: 'Integration Disconnect',
@@ -63,17 +64,13 @@ export async function POST(request: NextRequest) {
 
     const supabase = createServiceRoleClient();
 
-    const { data: org } = await supabase
-      .from('organizations')
-      .select('id')
-      .eq('owner_id', user.id)
-      .maybeSingle();
+    const organization = await getOrCreateOrganizationForUser(supabase, user);
 
     log.info('disconnect_requested', {
       userId: user.id,
       provider: normalizedProvider ?? provider ?? 'unknown',
       connectionId: connectionId ?? 'by_provider',
-      orgId: org?.id,
+      orgId: organization.id,
     });
 
     let connectionLookup = supabase
@@ -111,18 +108,18 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (org && integrationProviderSet.has('slack')) {
+    if (integrationProviderSet.has('slack')) {
       const { error: deliverySettingsDeleteError } = await supabase
         .from('readiness_delivery_settings')
         .delete()
-        .eq('organization_id', org.id);
+        .eq('organization_id', organization.id);
 
       if (deliverySettingsDeleteError) {
         console.warn('Failed to clear readiness delivery settings during Slack disconnect:', deliverySettingsDeleteError);
       } else {
         log.info('delivery_settings_cleared', {
           userId: user.id,
-          orgId: org.id,
+          orgId: organization.id,
           provider: 'slack',
         });
       }
@@ -143,11 +140,11 @@ export async function POST(request: NextRequest) {
     const sourcesById = new Map<string, SourceRow>();
 
     const sourceProviders = Array.from(sourceProviderSet);
-    if (org && sourceProviders.length > 0) {
+    if (sourceProviders.length > 0) {
       const { data: sourceRowsByProvider, error: sourceByProviderError } = (await supabase
         .from('knowledge_sources')
         .select('id, provider, name, slack_channel_id, slack_channel_name')
-        .eq('organization_id', org.id)
+        .eq('organization_id', organization.id)
         .in('provider', sourceProviders)) as { data: SourceRow[] | null; error: { message?: string } | null };
 
       if (sourceByProviderError) {
@@ -170,7 +167,7 @@ export async function POST(request: NextRequest) {
         .from('knowledge_sources')
         .delete()
         .eq('id', source.id)
-        .eq('organization_id', org?.id ?? '');
+        .eq('organization_id', organization.id);
 
       if (sourceDeleteError) {
         throw sourceDeleteError;
@@ -195,7 +192,7 @@ export async function POST(request: NextRequest) {
 
     log.info('source_cleanup_completed', {
       userId: user.id,
-      orgId: org?.id,
+      orgId: organization.id,
       provider: normalizedProvider ?? provider ?? 'unknown',
       sourceCount: sourcesById.size,
     });

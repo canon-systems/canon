@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
-import { createClient } from '@/lib/supabase/server';
 import { createLogger } from '@/lib/server/logging';
+import { requireWorkspace, requireWorkspaceAdmin } from '@/lib/server/organization';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,17 +15,6 @@ const log = createLogger('api.onboarding.knowledge.source', {
     source_deleted: 'Source Deleted',
   },
 });
-
-async function getOrganizationId(userId: string) {
-  const supabase = await createClient();
-  const { data: org } = await supabase
-    .from('organizations')
-    .select('id')
-    .eq('owner_id', userId)
-    .single();
-
-  return { supabase, organizationId: org?.id as string | undefined };
-}
 
 export async function PATCH(
   request: NextRequest,
@@ -43,14 +32,13 @@ export async function PATCH(
       return NextResponse.json({ error: 'name is required' }, { status: 400 });
     }
 
-    const { supabase, organizationId } = await getOrganizationId(user.id);
-    if (!organizationId) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+    const { supabase, organization } = await requireWorkspace(user);
 
     const { data: source, error } = await supabase
       .from('knowledge_sources')
       .update({ name })
       .eq('id', id)
-      .eq('organization_id', organizationId)
+      .eq('organization_id', organization.id)
       .select()
       .single();
 
@@ -60,7 +48,7 @@ export async function PATCH(
 
     log.info('source_renamed', {
       userId: user.id,
-      organizationId,
+      organizationId: organization.id,
       sourceId: source.id,
       name: source.name,
       channel: source.slack_channel_name || source.name,
@@ -84,14 +72,13 @@ export async function DELETE(
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { id } = await params;
-    const { supabase, organizationId } = await getOrganizationId(user.id);
-    if (!organizationId) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+    const { supabase, organization } = await requireWorkspaceAdmin(user);
 
     const { data: source } = await supabase
       .from('knowledge_sources')
       .select('id, name, slack_channel_id, slack_channel_name, status')
       .eq('id', id)
-      .eq('organization_id', organizationId)
+      .eq('organization_id', organization.id)
       .single();
 
     if (!source) {
@@ -103,11 +90,11 @@ export async function DELETE(
         .from('knowledge_sources')
         .update({ status: 'stopped', error_message: null })
         .eq('id', id)
-        .eq('organization_id', organizationId);
+        .eq('organization_id', organization.id);
 
       log.info('source_stopped_before_delete', {
         userId: user.id,
-        organizationId,
+        organizationId: organization.id,
         sourceId: source.id,
         channel: source.slack_channel_name || source.name,
         channelId: source.slack_channel_id,
@@ -119,7 +106,7 @@ export async function DELETE(
       .from('knowledge_sources')
       .delete()
       .eq('id', id)
-      .eq('organization_id', organizationId);
+      .eq('organization_id', organization.id);
 
     if (error) {
       return NextResponse.json({ error: 'Knowledge source not found or delete failed' }, { status: 404 });
@@ -127,7 +114,7 @@ export async function DELETE(
 
     log.info('source_deleted', {
       userId: user.id,
-      organizationId,
+      organizationId: organization.id,
       sourceId: source.id,
       channel: source.slack_channel_name || source.name,
       channelId: source.slack_channel_id,

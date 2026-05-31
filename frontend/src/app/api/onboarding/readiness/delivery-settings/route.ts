@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
-import { createClient } from '@/lib/supabase/server';
 import { createLogger } from '@/lib/server/logging';
+import { requireWorkspace, requireWorkspaceAdmin } from '@/lib/server/organization';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,26 +38,19 @@ export async function GET() {
     const { user } = await getSession();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const supabase = await createClient();
-    const { data: org } = await supabase
-      .from('organizations')
-      .select('id')
-      .eq('owner_id', user.id)
-      .single();
-
-    if (!org) return NextResponse.json({ settings: null });
+    const { supabase, organization } = await requireWorkspace(user);
 
     const { data: settings, error } = await supabase
       .from('readiness_delivery_settings')
       .select('channel_ids, channel_names, slack_user_ids')
-      .eq('organization_id', org.id)
+      .eq('organization_id', organization.id)
       .maybeSingle();
 
     if (error) throw error;
 
     log.info('settings_loaded', {
       userId: user.id,
-      orgId: org.id,
+      orgId: organization.id,
       channelCount: Array.isArray(settings?.channel_ids) ? settings.channel_ids.length : 0,
       dmTargets: Array.isArray(settings?.slack_user_ids) ? settings.slack_user_ids.length : 0,
     });
@@ -106,20 +99,13 @@ export async function PATCH(request: NextRequest) {
       dmTargets: userIds.length,
     });
 
-    const supabase = await createClient();
-    const { data: org } = await supabase
-      .from('organizations')
-      .select('id')
-      .eq('owner_id', user.id)
-      .single();
-
-    if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+    const { supabase, organization } = await requireWorkspaceAdmin(user);
 
     const updatedAt = new Date().toISOString();
     const { data: settings, error } = await supabase
       .from('readiness_delivery_settings')
       .upsert({
-        organization_id: org.id,
+        organization_id: organization.id,
         channel_ids: channelIds,
         channel_names: channelNames,
         slack_user_ids: userIds,
@@ -132,7 +118,7 @@ export async function PATCH(request: NextRequest) {
 
     log.info('settings_saved', {
       userId: user.id,
-      orgId: org.id,
+      orgId: organization.id,
       channelCount: Array.isArray(settings.channel_ids) ? settings.channel_ids.length : 0,
       dmTargets: Array.isArray(settings.slack_user_ids) ? settings.slack_user_ids.length : 0,
     });

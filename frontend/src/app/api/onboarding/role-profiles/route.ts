@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
-import { createClient } from '@/lib/supabase/server';
 import { createLogger } from '@/lib/server/logging';
 import { DEFAULT_ROLES, normalizeRoleName } from '@/lib/onboarding/roles';
+import { requireWorkspace, requireWorkspaceAdmin } from '@/lib/server/organization';
 import type { RoleProfile } from '@/types/onboarding';
 
 export const dynamic = 'force-dynamic';
@@ -29,20 +29,6 @@ function validRoleName(value: string) {
   return value.length >= 2 && value.length <= 120;
 }
 
-async function organizationForUser() {
-  const { user } = await getSession();
-  if (!user) return { user: null, org: null, supabase: null };
-
-  const supabase = await createClient();
-  const { data: org } = await supabase
-    .from('organizations')
-    .select('id')
-    .eq('owner_id', user.id)
-    .single();
-
-  return { user, org, supabase };
-}
-
 function fallbackProfiles(organizationId: string): RoleProfile[] {
   const timestamp = new Date().toISOString();
   return DEFAULT_ROLES.map((role, index) => ({
@@ -59,19 +45,18 @@ function fallbackProfiles(organizationId: string): RoleProfile[] {
 
 export async function GET(request: NextRequest) {
   try {
-    const { user, org, supabase } = await organizationForUser();
-    if (!user || !supabase) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const { user } = await getSession();
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const { supabase, organization } = await requireWorkspace(user);
 
     const roleParam = roleName(request.nextUrl.searchParams.get('role'));
     if (roleParam && !validRoleName(roleParam)) return NextResponse.json({ error: 'Invalid role' }, { status: 400 });
     const includeArchived = request.nextUrl.searchParams.get('include_archived') === 'true';
 
-    if (!org) return NextResponse.json({ profiles: [] });
-
     let query = supabase
       .from('role_profiles')
       .select('*')
-      .eq('organization_id', org.id)
+      .eq('organization_id', organization.id)
       .order('display_order', { ascending: true })
       .order('role', { ascending: true });
 
@@ -81,11 +66,11 @@ export async function GET(request: NextRequest) {
 
     const { data: profiles, error } = await query;
     if (error) throw error;
-    const rows = profiles?.length ? profiles : includeArchived || roleParam ? [] : fallbackProfiles(org.id);
+    const rows = profiles?.length ? profiles : includeArchived || roleParam ? [] : fallbackProfiles(organization.id);
 
     log.debug('role_profiles_loaded', {
       userId: user.id,
-      organizationId: org.id,
+      organizationId: organization.id,
       role: roleParam ?? 'all',
       profileCount: rows.length,
     });
@@ -100,9 +85,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { user, org, supabase } = await organizationForUser();
-    if (!user || !supabase) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+    const { user } = await getSession();
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const { supabase, organization } = await requireWorkspaceAdmin(user);
 
     const body = (await request.json().catch(() => ({}))) as {
       role?: unknown;
@@ -120,13 +105,13 @@ export async function POST(request: NextRequest) {
     const { count } = await supabase
       .from('role_profiles')
       .select('id', { count: 'exact', head: true })
-      .eq('organization_id', org.id);
+      .eq('organization_id', organization.id);
 
     const timestamp = new Date().toISOString();
     const { data: profile, error } = await supabase
       .from('role_profiles')
       .upsert({
-        organization_id: org.id,
+        organization_id: organization.id,
         role,
         job_description: jobDescription,
         status: 'active',
@@ -140,7 +125,7 @@ export async function POST(request: NextRequest) {
 
     log.info('role_profile_added', {
       userId: user.id,
-      organizationId: org.id,
+      organizationId: organization.id,
       role: profile.role,
     });
 
@@ -154,9 +139,9 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
-    const { user, org, supabase } = await organizationForUser();
-    if (!user || !supabase) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+    const { user } = await getSession();
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const { supabase, organization } = await requireWorkspaceAdmin(user);
 
     const body = (await request.json().catch(() => ({}))) as {
       role?: unknown;
@@ -175,7 +160,7 @@ export async function PUT(request: NextRequest) {
     const { data: profile, error } = await supabase
       .from('role_profiles')
       .upsert({
-        organization_id: org.id,
+        organization_id: organization.id,
         role,
         job_description: jobDescription,
         status: 'active',
@@ -188,7 +173,7 @@ export async function PUT(request: NextRequest) {
 
     log.info('role_profile_saved', {
       userId: user.id,
-      organizationId: org.id,
+      organizationId: organization.id,
       role: profile.role,
       descriptionLength: profile.job_description.length,
     });
@@ -203,9 +188,9 @@ export async function PUT(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const { user, org, supabase } = await organizationForUser();
-    if (!user || !supabase) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+    const { user } = await getSession();
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const { supabase, organization } = await requireWorkspaceAdmin(user);
 
     const role = roleName(request.nextUrl.searchParams.get('role'));
     if (!validRoleName(role)) return NextResponse.json({ error: 'Invalid role' }, { status: 400 });
@@ -214,7 +199,7 @@ export async function DELETE(request: NextRequest) {
     const { data: profile, error } = await supabase
       .from('role_profiles')
       .update({ status: 'archived', updated_at: timestamp })
-      .eq('organization_id', org.id)
+      .eq('organization_id', organization.id)
       .eq('role', role)
       .select('*')
       .single();
@@ -225,20 +210,20 @@ export async function DELETE(request: NextRequest) {
       supabase
         .from('ramp_milestones')
         .update({ status: 'archived', updated_at: timestamp })
-        .eq('organization_id', org.id)
+        .eq('organization_id', organization.id)
         .eq('role', role)
         .eq('status', 'active'),
       supabase
         .from('milestone_proposals')
         .update({ status: 'rejected', rejected_at: timestamp, updated_at: timestamp })
-        .eq('organization_id', org.id)
+        .eq('organization_id', organization.id)
         .eq('role', role)
         .eq('status', 'draft'),
     ]);
 
     log.info('role_profile_archived', {
       userId: user.id,
-      organizationId: org.id,
+      organizationId: organization.id,
       role,
     });
 
