@@ -34,7 +34,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge, type BadgeVariant } from '@/components/ui/status-badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/components/ui/utils';
-import type { ReadinessBrief, ReadinessCategory, ReadinessItem, ReadinessStatus } from '@/types/onboarding';
+import type { KnowledgeSource, ReadinessBrief, ReadinessCategory, ReadinessItem, ReadinessStatus } from '@/types/onboarding';
 
 const categories = [
   { id: 'product_change' as const, label: 'Product' },
@@ -213,6 +213,7 @@ function StepRow({
 
 export function ReadinessClient() {
   const [brief, setBrief] = useState<ReadinessBrief | null>(null);
+  const [hasKnowledgeSources, setHasKnowledgeSources] = useState(false);
   const [loading, setLoading] = useState(true);
   const [activeCategories, setActiveCategories] = useState<ReadinessCategory[]>(categories.map((category) => category.id));
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
@@ -294,11 +295,17 @@ export function ReadinessClient() {
 
     async function load() {
       try {
-        const res = await fetch('/api/onboarding/readiness');
-        const data = (await res.json()) as { brief?: ReadinessBrief | null };
+        const [readinessRes, knowledgeRes] = await Promise.all([
+          fetch('/api/onboarding/readiness'),
+          fetch('/api/onboarding/knowledge'),
+        ]);
+        const data = (await readinessRes.json()) as { brief?: ReadinessBrief | null };
+        const knowledgeData = (await knowledgeRes.json()) as { sources?: KnowledgeSource[] };
         if (!cancelled) setBrief(data.brief ?? null);
+        if (!cancelled) setHasKnowledgeSources((knowledgeData.sources ?? []).length > 0);
       } catch {
         if (!cancelled) setBrief(null);
+        if (!cancelled) setHasKnowledgeSources(false);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -619,11 +626,19 @@ export function ReadinessClient() {
             <IconRadar size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
             <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Readiness Signals</div>
             <div className="type-body text-center max-w-[280px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
-              Signals are generated from your knowledge sources. Add a source to get started.
+              {hasKnowledgeSources
+                ? 'Generate readiness signals from your connected knowledge sources.'
+                : 'Signals are generated from your knowledge sources. Add a source to get started.'}
             </div>
-            <Link href="/knowledge">
-              <Button size="sm" className="mt-1">Add Knowledge Sources</Button>
-            </Link>
+            {hasKnowledgeSources ? (
+              <Button size="sm" className="mt-1" onClick={generateSignals} disabled={generating}>
+                <IconBrain size={13} /> Generate Signals
+              </Button>
+            ) : (
+              <Link href="/knowledge">
+                <Button size="sm" className="mt-1">Add Knowledge Sources</Button>
+              </Link>
+            )}
           </div>
         )
       ) : (
