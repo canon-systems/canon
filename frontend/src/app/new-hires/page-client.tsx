@@ -150,7 +150,7 @@ function HireActionsMenu({
         <DropdownMenuSeparator />
         <DropdownMenuItem className="text-[var(--red-text)] focus:text-[var(--red-text)]" onClick={() => onDelete(hire)}>
           <IconTrash size={14} />
-          Delete Hire
+          Delete Hire Path
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -490,7 +490,7 @@ export function NewHiresClient() {
         <div className="split-header p-4 border-b">
           <div className="flex items-center justify-between mb-3">
             <span className="type-metric-sm" style={{ color: 'var(--text-primary)' }}>
-              New Hires{' '}
+              Hire Paths{' '}
               <span className="type-caption font-normal tabular-nums" style={{ color: 'var(--text-tertiary)' }}>{hires.length}</span>
             </span>
             <Button size="sm" onClick={() => setShowAddModal(true)}><IconPlus size={13} /> Add</Button>
@@ -515,7 +515,7 @@ export function NewHiresClient() {
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search Hires..."
+              placeholder="Search Hire Paths..."
               className="h-8 border-[var(--border-tertiary)] bg-[var(--bg-primary)] pl-8 type-body"
             />
           </div>
@@ -526,10 +526,10 @@ export function NewHiresClient() {
             <div className="flex flex-col items-center justify-center flex-1 gap-3 py-12 px-6">
               <IconUsers size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
               <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>
-                {hires.length === 0 ? 'No Hires Yet' : 'No Results'}
+                {hires.length === 0 ? 'No Hire Paths Yet' : 'No Results'}
               </div>
               <div className="type-body text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
-                {hires.length === 0 ? 'Add your first new hire to start onboarding.' : 'Try adjusting your search or filter.'}
+                {hires.length === 0 ? 'Launch the first hire path to start tracking readiness.' : 'Try adjusting your search or filter.'}
               </div>
             </div>
           ) : (
@@ -583,7 +583,7 @@ export function NewHiresClient() {
         {selectedHire ? (
           detailLoading || !selectedDetail ? (
             <div className="flex h-full flex-col">
-              <div className="split-header px-8 pt-6 pb-5 border-b">
+              <div className="detail-page-header px-8 py-5 border-b">
                 <Skeleton className="h-24 rounded-[10px] bg-[var(--bg-primary)]" />
               </div>
               <div className="px-8 py-6">
@@ -592,8 +592,8 @@ export function NewHiresClient() {
             </div>
           ) : (
             <div className="flex h-full flex-col overflow-hidden">
-              <div className="split-header px-8 pt-6 pb-5 border-b">
-                <div className="flex items-start gap-5 mb-5">
+              <div className="detail-page-header px-8 py-5 border-b">
+                <div className="flex items-start gap-5 mb-4">
                   <Avatar name={`${selectedDetail.hire.first_name} ${selectedDetail.hire.last_name}`} size="lg" />
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
@@ -660,9 +660,10 @@ export function NewHiresClient() {
                 <TabsList className="split-tabbar border-b px-8">
                   {(['Ramp Evidence', 'Access'] as const).map((tab) => {
                     const count = tab === 'Ramp Evidence' ? selectedDetail.milestone_path.length : selectedDetail.access_requests.length;
+                    const label = tab === 'Ramp Evidence' ? 'Readiness Evidence' : tab;
                     return (
                       <TabsTrigger key={tab} value={tab} className="px-5 inline-flex items-center gap-2">
-                        {tab}
+                        {label}
                         <span className="type-body opacity-80">{count}</span>
                       </TabsTrigger>
                     );
@@ -676,7 +677,7 @@ export function NewHiresClient() {
                         <IconUsers size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
                         <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Milestone Path Yet</div>
                         <div className="type-body text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
-                          Approved milestones for this role will appear here.
+                          Approved readiness milestones for this role will appear here.
                         </div>
                       </div>
                     ) : (
@@ -739,7 +740,7 @@ export function NewHiresClient() {
                                   </div>
                                 ) : (
                                   <p className="type-body leading-[1.65]" style={{ color: 'var(--text-tertiary)' }}>
-                                    Evidence will appear when Canon detects real work activity or a manager verifies this milestone.
+                                    Evidence will appear when Canon detects real work activity or a manager verifies this readiness milestone.
                                   </p>
                                 )}
                                 {relatedDelivery?.content_delivered && (
@@ -860,9 +861,9 @@ export function NewHiresClient() {
         ) : (
           <div className="flex flex-col items-center justify-center h-full gap-3 py-12">
             <IconUsers size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
-            <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>Select a Hire</div>
+            <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>Select a Hire Path</div>
             <div className="type-body text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
-              Choose a new hire from the list to preview their ramp.
+              Choose a hire path from the list to review readiness progress.
             </div>
           </div>
         )}
@@ -870,7 +871,7 @@ export function NewHiresClient() {
       <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
         <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Add New Hire</DialogTitle>
+            <DialogTitle>Launch Hire Path</DialogTitle>
           </DialogHeader>
           <NewHireForm
             onCreated={(hireId) => {
@@ -885,9 +886,9 @@ export function NewHiresClient() {
       <Dialog open={editingHire !== null} onOpenChange={(open) => !open && setEditingHire(null)}>
         <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Edit Hire</DialogTitle>
+            <DialogTitle>Edit Hire Path</DialogTitle>
             <DialogDescription>
-              Update this hire&apos;s profile and ramp start details.
+              Update this hire&apos;s profile and readiness start details.
             </DialogDescription>
           </DialogHeader>
           {editingHire && (
@@ -1009,9 +1010,9 @@ export function NewHiresClient() {
       <Dialog open={pendingDelete !== null} onOpenChange={(open) => !open && setPendingDelete(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Delete Hire</DialogTitle>
+            <DialogTitle>Delete Hire Path</DialogTitle>
             <DialogDescription>
-              Delete {pendingDelete?.first_name} {pendingDelete?.last_name}? This removes the hire, deliveries, and access requests from Canon.
+              Delete {pendingDelete?.first_name} {pendingDelete?.last_name}&apos;s hire path? This removes the hire, briefings, readiness evidence, and access requests from Canon.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -1019,7 +1020,7 @@ export function NewHiresClient() {
               Cancel
             </Button>
             <Button type="button" variant="destructive" onClick={deleteHire} disabled={actionLoadingId === pendingDelete?.id}>
-              {actionLoadingId === pendingDelete?.id ? 'Deleting...' : 'Delete Hire'}
+              {actionLoadingId === pendingDelete?.id ? 'Deleting...' : 'Delete Hire Path'}
             </Button>
           </DialogFooter>
         </DialogContent>

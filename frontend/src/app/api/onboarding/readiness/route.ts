@@ -258,7 +258,7 @@ function buildReadinessBrief(items: ReadinessItem[]): ReadinessBrief | null {
 
   return {
     title: 'This week\'s readiness brief',
-    subtitle: 'Generated from Slack knowledge, field conversations, and milestone gaps.',
+    subtitle: 'Generated from Slack knowledge, field conversations, and readiness gaps.',
     detected_shift: [
       productChange?.title ? `${productChange.title}.` : productChange?.summary,
       customerObjection?.summary,
@@ -280,7 +280,7 @@ function buildReadinessBrief(items: ReadinessItem[]): ReadinessBrief | null {
     }),
     affected_roles,
     health_stats: [
-      { label: 'Milestones covered', value: `${milestonesCovered}%` },
+      { label: 'Readiness milestones covered', value: `${milestonesCovered}%` },
       { label: 'Stale knowledge areas', value: String(staleAreas) },
       { label: 'Signals reviewed', value: String(signalsReviewed) },
     ],

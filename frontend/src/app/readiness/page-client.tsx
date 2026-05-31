@@ -151,7 +151,7 @@ function nextAction(item: ReadinessItem | null) {
   if (item.category === 'customer_objection') return 'Send the approved response and assign a technical owner.';
   if (item.category === 'demo_guidance') return 'Send the updated demo note and refresh the talk track.';
   if (item.category === 'implementation_pattern') return 'Send implementation guidance and update the kickoff checklist.';
-  return 'Send a role-specific product update and review affected ramp milestones.';
+  return 'Send a role-specific product update and review affected readiness milestones.';
 }
 
 function selectedCategoryLabel(selectedCategories: ReadinessCategory[]) {
@@ -594,11 +594,11 @@ export function ReadinessClient() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="flex items-start justify-between px-6 pt-5 pb-4 border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
+      <div className="app-page-header flex items-center justify-between gap-4 border-b">
         <div>
           <h1 className="type-page-title" style={{ color: 'var(--text-primary)' }}>Readiness</h1>
         </div>
-        <Button size="sm" onClick={generateSignals} disabled={generating} className="mt-1">
+        <Button size="sm" onClick={generateSignals} disabled={generating}>
           <IconBrain size={13} /> {generating ? 'Generating...' : 'Generate Signals'}
         </Button>
       </div>
@@ -967,7 +967,7 @@ export function ReadinessClient() {
           <div className="surface-page flex-1 min-w-0 flex flex-col overflow-hidden">
             {selectedItem ? (
               <>
-                <div className="split-header px-8 pt-6 pb-5 border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
+                <div className="detail-page-header px-8 py-5 border-b">
                   <div className="flex items-start justify-between gap-4 mb-3">
                     <div className="flex items-center gap-2 flex-wrap">
                       <StatusBadge

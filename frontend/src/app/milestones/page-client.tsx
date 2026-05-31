@@ -149,8 +149,8 @@ function GenerationStatusPanel({
 
   const statusLabel = run?.status === 'running' ? 'Generating drafts' : 'Queued for generation';
   const detail = run?.status === 'running'
-    ? 'Canon is reading indexed company knowledge and preparing role-specific draft milestones.'
-    : 'Canon is waiting for the milestone generation worker to start.';
+    ? 'Canon is reading indexed company knowledge and preparing role-specific readiness milestones.'
+    : 'Canon is waiting for readiness milestone generation to start.';
 
   return (
     <div
@@ -396,12 +396,12 @@ export function MilestonesClient() {
     const shouldNotify = !!generationRun && (generationNoticeRef.current === generationRun.id || rememberedRunId === generationRun.id);
 
     if (generationRun?.status === 'completed') {
-      if (shouldNotify) toast.success('Milestones are ready for review');
+      if (shouldNotify) toast.success('Readiness milestones are ready for review');
       clearRememberedGeneration(generationRun.id);
       generationNoticeRef.current = null;
     } else if (generationRun?.status === 'failed') {
       if (shouldNotify) {
-        toast.error('Milestone generation failed', {
+        toast.error('Readiness milestone generation failed', {
           description: generationRun.error_message ?? 'Please try generating drafts again.',
         });
       }
@@ -419,14 +419,14 @@ export function MilestonesClient() {
         body: JSON.stringify({ action: 'generate' }),
       });
       const data = (await res.json().catch(() => ({}))) as { generation?: MilestoneGenerationRun; error?: string };
-      if (!res.ok) throw new Error(data.error ?? 'Could not generate milestones.');
+      if (!res.ok) throw new Error(data.error ?? 'Could not generate readiness milestones.');
       if (data.generation) {
         setGenerationRun(data.generation);
         rememberGeneration(data.generation);
       }
       await load();
     } catch {
-      toast.error('Could not generate milestones. Please try again.');
+      toast.error('Could not generate readiness milestones. Please try again.');
     } finally {
       setGenerationStarting(false);
     }
@@ -612,7 +612,7 @@ export function MilestonesClient() {
         <div className="split-header p-4 border-b">
           <div className="flex items-center justify-between">
             <span className="type-metric-sm" style={{ color: 'var(--text-primary)' }}>
-              Milestones{' '}
+              Readiness Milestones{' '}
               <span className="type-caption font-normal tabular-nums" style={{ color: 'var(--text-tertiary)' }}>
                 {milestones.length}
               </span>
@@ -683,7 +683,7 @@ export function MilestonesClient() {
 
       {/* Right panel — role detail */}
       <div className="surface-page flex-1 min-w-0 flex flex-col overflow-hidden">
-        <div className="split-header px-8 pt-6 pb-5 border-b">
+        <div className="detail-page-header px-8 py-5 border-b">
           <div className="flex items-start justify-between gap-4 mb-4">
             <div>
               <div className="flex items-center gap-3">
@@ -729,7 +729,7 @@ export function MilestonesClient() {
           >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <div className="type-kicker text-[var(--text-tertiary)]">Role Job Description</div>
+                <div className="type-kicker text-[var(--text-tertiary)]">Role Readiness Context</div>
                 <p className="type-body mt-1 line-clamp-2 text-[var(--text-secondary)]">
                   {activeJobDescription || 'No job description saved for this role yet.'}
                 </p>
@@ -749,7 +749,7 @@ export function MilestonesClient() {
               <IconTarget size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
               <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Active Roles</div>
               <div className="type-body text-center max-w-[260px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
-                Add a role before generating milestones or readiness briefs.
+                Add a role before generating readiness milestones or field briefs.
               </div>
               <Button size="sm" asChild>
                 <Link href="/settings?tab=roles">Configure Roles</Link>
@@ -765,16 +765,16 @@ export function MilestonesClient() {
             ) : (
               <div className="flex flex-col items-center justify-center h-full gap-3 py-12">
                 <IconTarget size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
-                <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Approved Milestones</div>
+                <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Approved Readiness Milestones</div>
                 <div className="type-body text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
-                  Generate drafts from company knowledge or add a milestone manually.
+                  Generate draft proof points from company knowledge or add a readiness milestone manually.
                 </div>
                 <div className="flex gap-2">
                   <Button size="sm" onClick={generateMilestones} disabled={generating}>
                     <IconBrain size={13} /> Generate
                   </Button>
                   <Button size="sm" variant="secondary" onClick={() => { setShowAddForm(true); setForm(emptyForm(activeRole)); }}>
-                    Add Manually
+                      Add Manually
                   </Button>
                 </div>
               </div>
@@ -839,9 +839,9 @@ export function MilestonesClient() {
       <Dialog open={showAddForm} onOpenChange={(open) => { if (!open) setShowAddForm(false); }}>
         <DialogContent className="max-w-2xl border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
           <DialogHeader>
-            <DialogTitle className="text-[var(--text-primary)]">Add Milestone</DialogTitle>
+            <DialogTitle className="text-[var(--text-primary)]">Add Readiness Milestone</DialogTitle>
             <DialogDescription>
-              Add a new capability milestone for the {activeRole} onboarding and readiness path.
+              Add a new capability proof point for the {activeRole} readiness path.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleAdd} className="min-h-0 space-y-4 overflow-y-auto pr-1">
@@ -1111,14 +1111,14 @@ export function MilestonesClient() {
       <Dialog open={!!pendingDelete} onOpenChange={(open) => { if (!open) setPendingDelete(null); }}>
         <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
           <DialogHeader>
-            <DialogTitle className="text-[var(--text-primary)]">Remove Milestone</DialogTitle>
+            <DialogTitle className="text-[var(--text-primary)]">Remove Readiness Milestone</DialogTitle>
             <DialogDescription>
-              Remove {pendingDelete?.title}? This archives it from future onboarding paths while preserving historical delivery and evidence records.
+              Remove {pendingDelete?.title}? This archives it from future hire paths while preserving historical delivery and evidence records.
             </DialogDescription>
           </DialogHeader>
           {pendingDelete && (
             <div className="rounded-[8px] border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] px-3 py-2">
-              <div className="type-kicker mb-1 text-[var(--text-tertiary)]">Approved Milestone</div>
+              <div className="type-kicker mb-1 text-[var(--text-tertiary)]">Approved Readiness Milestone</div>
               <p className="type-body-strong text-[var(--text-primary)]">Day {pendingDelete.day_trigger} - {pendingDelete.title}</p>
               <p className="type-caption mt-1 text-[var(--text-tertiary)]">{pendingDelete.role}</p>
             </div>

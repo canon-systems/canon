@@ -504,7 +504,7 @@ export function KnowledgeClient() {
   if (loading) {
     return (
       <div className="flex h-full flex-col">
-        <div className="px-6 py-5 border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
+        <div className="app-page-header border-b">
           <Skeleton className="h-8 w-48 bg-[var(--bg-primary)]" />
         </div>
         <div className="flex gap-3 px-6 py-[14px] border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
@@ -516,7 +516,7 @@ export function KnowledgeClient() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="flex items-start justify-between px-6 pt-5 pb-4 border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
+      <div className="app-page-header flex items-center justify-between gap-4 border-b">
         <div>
           <h1 className="type-page-title" style={{ color: 'var(--text-primary)' }}>Knowledge</h1>
         </div>
@@ -527,7 +527,7 @@ export function KnowledgeClient() {
 
       <div className="flex gap-3 px-6 py-[14px] border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
         {[
-          { icon: IconDatabase, iconColor: 'var(--canon-purple)', iconBg: 'var(--canon-purple-light)', value: totalKnowledgeItems, label: 'Knowledge Items' },
+          { icon: IconDatabase, iconColor: 'var(--canon-purple)', iconBg: 'var(--canon-purple-light)', value: totalKnowledgeItems, label: 'Readiness Items' },
           { icon: IconChecks, iconColor: 'var(--green)', iconBg: 'var(--green-bg)', value: activeCount, label: 'Active Sources' },
           { icon: IconAlertCircle, iconColor: 'var(--red)', iconBg: 'var(--red-bg)', value: errorCount, label: 'Needs Attention' },
           { icon: IconClock, iconColor: 'var(--amber)', iconBg: 'var(--amber-bg)', value: pendingCount, label: 'Pending Sync' },
@@ -549,7 +549,7 @@ export function KnowledgeClient() {
           <IconDatabase size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
           <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Knowledge Sources Yet</div>
           <div className="type-body text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
-            Connect sources so Canon can learn from their history.
+            Connect sources so Canon can keep hire paths, field updates, and readiness alerts current.
           </div>
           <Button onClick={openAddModal} size="sm"><IconPlus size={13} /> Add a Source</Button>
         </div>
@@ -813,7 +813,7 @@ export function KnowledgeClient() {
           <DialogHeader>
             <DialogTitle className="text-[var(--text-primary)]">Add Source</DialogTitle>
             <DialogDescription>
-              {noIntegrationsConnected ? 'Connect an integration to start adding knowledge sources.' : 'Select sources for Canon to learn from.'}
+              {noIntegrationsConnected ? 'Connect an integration to start adding knowledge sources.' : 'Select sources Canon should use for readiness.'}
             </DialogDescription>
           </DialogHeader>
           {!noIntegrationsConnected && (

@@ -54,7 +54,7 @@ interface SettingsPageClientProps {
 const settingSections = [
   { section: 'Account', items: [{ id: 'profile', label: 'Profile', icon: IconUser }, { id: 'org', label: 'Organization', icon: IconBuilding }] },
   { section: 'Connections', items: [{ id: 'integrations', label: 'Integrations', icon: IconPlug }, { id: 'notifications', label: 'Notifications', icon: IconBell }] },
-  { section: 'Onboarding', items: [{ id: 'roles', label: 'Roles', icon: IconUsers }, { id: 'tools', label: 'Tools', icon: IconTool }] },
+  { section: 'Readiness', items: [{ id: 'roles', label: 'Roles', icon: IconUsers }, { id: 'tools', label: 'Tools', icon: IconTool }] },
   {
     section: 'Developer',
     items: [
@@ -730,7 +730,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
       id: 'slack',
       provider: 'slack' as const,
       name: 'Slack',
-      description: 'Send onboarding DMs and sync channel knowledge.',
+      description: 'Send hire-path DMs and sync channel knowledge.',
       iconBg: 'var(--slack-bg)',
       iconColor: 'var(--slack-text)',
       connected: !!slackConnection,
@@ -741,7 +741,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
       id: 'gong',
       provider: 'gong' as const,
       name: 'Gong',
-      description: 'Sync customer call transcripts as onboarding knowledge.',
+      description: 'Sync customer call transcripts as readiness knowledge.',
       iconBg: 'var(--gong-bg)',
       iconColor: 'var(--gong-text)',
       connected: !!gongConnection,
@@ -847,7 +847,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
               Role catalog
             </div>
             <p className="type-body mt-[3px]" style={{ color: 'var(--text-secondary)' }}>
-              Configure which roles Canon should include in milestone generation, readiness briefs, new-hire setup, and tool access scoping.
+              Configure which roles Canon should include in readiness milestones, field briefs, hire paths, and tool access scoping.
             </p>
           </div>
           <Button onClick={() => setAddRoleOpen(true)} className="flex-shrink-0">
@@ -864,7 +864,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
           <Card className="px-5 py-8 text-center">
             <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No active roles</div>
             <div className="type-body mt-2" style={{ color: 'var(--text-tertiary)' }}>
-              Add a role before generating milestones or readiness briefs.
+              Add a role before generating readiness milestones or field briefs.
             </div>
           </Card>
         ) : (
@@ -907,7 +907,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                     <Card key={profile.id} className="flex items-center justify-between gap-3 px-4 py-3 opacity-80">
                       <div className="min-w-0">
                         <div className="type-card-title truncate text-[var(--text-primary)]">{profile.role}</div>
-                        <div className="type-caption text-[var(--text-tertiary)]">Excluded from milestones and readiness briefs</div>
+                        <div className="type-caption text-[var(--text-tertiary)]">Excluded from readiness milestones and field briefs</div>
                       </div>
                       <Button size="sm" variant="secondary" onClick={() => void restoreRole(profile)} disabled={restoreRoleId === profile.id}>
                         {restoreRoleId === profile.id ? <IconLoader2 size={13} className="animate-spin" /> : <IconCheck size={13} />}
@@ -954,7 +954,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
               Tool access registry
             </div>
             <p className="type-body mt-[3px]" style={{ color: 'var(--text-secondary)' }}>
-              Configure the tools new hires need, the role scope, and the owner who can grant access.
+              Configure the tools each hire path needs, the role scope, and the owner who can grant access.
             </p>
           </div>
           <Button onClick={() => setAddToolOpen(true)} className="flex-shrink-0">
@@ -971,7 +971,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
           <Card className="px-5 py-8 text-center">
             <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No tools configured</div>
             <div className="type-body mt-2" style={{ color: 'var(--text-tertiary)' }}>
-              Add the tools each role needs access to and assign an owner who can grant it. Canon will prompt new hires and notify owners automatically.
+              Add the tools each role needs access to and assign an owner who can grant it. Canon will prompt the hire and notify owners automatically.
             </div>
           </Card>
         ) : (
@@ -1151,9 +1151,9 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   return (
     <>
       <div className="flex h-full flex-col overflow-hidden">
-        <div className="surface-divider px-6 pt-5 pb-4 border-b">
+        <div className="app-page-header border-b">
           <h1 className="type-page-title" style={{ color: 'var(--text-primary)' }}>Settings</h1>
-          <p className="type-page-subtitle mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>Manage Your Account and Workspace Connections</p>
+          <p className="type-page-subtitle mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>Manage the roles, sources, and integrations behind team readiness</p>
         </div>
 
         <div className="flex flex-1 overflow-hidden">
@@ -1206,7 +1206,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
         <DialogContent className="max-w-2xl border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
           <DialogHeader>
             <DialogTitle>Add Role</DialogTitle>
-            <DialogDescription>Add a role Canon should include in milestones, readiness briefs, new-hire setup, and tool scoping.</DialogDescription>
+            <DialogDescription>Add a role Canon should include in readiness milestones, field briefs, hire paths, and tool scoping.</DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-3">
             <div>
@@ -1247,7 +1247,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
         <DialogContent className="max-w-2xl border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
           <DialogHeader>
             <DialogTitle>{editingRole?.role ?? 'Edit Role'}</DialogTitle>
-            <DialogDescription>Update the job description Canon should use when targeting milestones and readiness signals.</DialogDescription>
+            <DialogDescription>Update the role context Canon should use when targeting readiness milestones and signals.</DialogDescription>
           </DialogHeader>
           <div>
             <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
@@ -1277,11 +1277,11 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
           <DialogHeader>
             <DialogTitle>Archive Role</DialogTitle>
             <DialogDescription>
-              Archive <strong>{archivingRole?.role}</strong>? Canon will stop generating milestones and readiness briefs for this role.
+              Archive <strong>{archivingRole?.role}</strong>? Canon will stop generating readiness milestones and field briefs for this role.
             </DialogDescription>
           </DialogHeader>
           <div className="rounded-[8px] border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] px-3 py-2 type-body text-[var(--text-secondary)]">
-            Active milestones and draft proposals for this role will be archived. Existing hires and historical evidence stay intact.
+            Active readiness milestones and draft proposals for this role will be archived. Existing hire paths and historical evidence stay intact.
           </div>
           <DialogFooter>
             <Button variant="secondary" onClick={() => setArchivingRole(null)} disabled={archiveRoleSaving}>Cancel</Button>
@@ -1352,7 +1352,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                 onChange={(user) => setEditTool((p) => ({ ...p, owner: user }))}
                 placeholder="Search workspace members..."
               />
-              <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>Canon will DM this Slack owner when a new hire needs access.</p>
+              <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>Canon will DM this Slack owner when a hire needs access.</p>
             </div>
             {editTool.owner && (
               <div>
@@ -1376,7 +1376,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
           <DialogHeader>
             <DialogTitle>Add Tool</DialogTitle>
             <DialogDescription>
-              Define a tool new hires need access to and the required Slack owner for access requests.
+              Define a tool hire paths need access to and the required Slack owner for access requests.
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-3">
@@ -1416,7 +1416,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                 onChange={(user) => setNewTool((p) => ({ ...p, owner: user }))}
                 placeholder="Search workspace members..."
               />
-              <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>Canon will DM this Slack owner when a new hire needs access.</p>
+              <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>Canon will DM this Slack owner when a hire needs access.</p>
             </div>
             {newTool.owner && (
               <div>

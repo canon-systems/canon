@@ -117,7 +117,7 @@ export function NewHireForm({
       );
       const data = (await res.json()) as { hire?: EditableNewHire; error?: string };
       if (!res.ok) {
-        setError(data.error ?? (editing ? 'Failed to Update New Hire' : 'Failed to Create New Hire'));
+        setError(data.error ?? (editing ? 'Failed to Update Hire Path' : 'Failed to Launch Hire Path'));
         return;
       }
       if (editing && data.hire) {
@@ -180,7 +180,7 @@ export function NewHireForm({
             </SelectContent>
           </Select>
           {roles.length === 0 && (
-            <p className="text-[var(--red-text)] type-caption">Add an active role in Milestones before creating a hire.</p>
+            <p className="text-[var(--red-text)] type-caption">Add an active role in Readiness Milestones before launching a hire path.</p>
           )}
         </div>
 
@@ -232,7 +232,7 @@ export function NewHireForm({
 
       <div className="flex gap-3">
         <Button type="submit" disabled={submitting} className="flex-1">
-          {submitting ? (editing ? 'Saving...' : 'Creating...') : (editing ? 'Save Changes' : 'Add New Hire')}
+          {submitting ? (editing ? 'Saving...' : 'Launching...') : (editing ? 'Save Changes' : 'Launch Hire Path')}
         </Button>
         {onCancel && (
           <Button type="button" variant="secondary" onClick={onCancel}>

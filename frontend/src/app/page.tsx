@@ -18,25 +18,33 @@ const rampLoop = [
     step: '01',
     href: '/knowledge',
     title: 'Knowledge sync',
-    description: 'Keep company context fresh so onboarding briefs always reflect what\'s current.',
+    description: 'Keep company context fresh so hire paths, field updates, and readiness alerts reflect what is true now.',
     action: 'Connect Knowledge',
     icon: IconDatabase,
   },
   {
     step: '02',
     href: '/milestones',
-    title: 'Milestones',
-    description: 'Define the technical and sales capabilities each Technical GTM role needs, and keep every hire current as your product and market shift.',
+    title: 'Readiness milestones',
+    description: 'Define the capabilities, real work triggers, and success signals that prove field readiness by role.',
     action: 'Review Milestones',
     icon: IconFlag,
   },
   {
     step: '03',
     href: '/new-hires/new',
-    title: 'New hire path',
-    description: 'Assign milestones, access requests, and context briefings to each hire from day one.',
-    action: 'Add New Hire',
+    title: 'Hire path',
+    description: 'Launch a readiness path for each new hire with milestones, access requests, and contextual briefs from day one.',
+    action: 'Launch Hire Path',
     icon: IconUsers,
+  },
+  {
+    step: '04',
+    href: '/readiness',
+    title: 'Readiness signals',
+    description: 'Surface product, customer, and field changes that affect new hires and the broader team.',
+    action: 'Review Signals',
+    icon: IconRadar,
   },
 ];
 
@@ -44,13 +52,13 @@ const foundationLinks = [
   {
     href: '/knowledge',
     title: 'Connect knowledge',
-    description: 'Give Canon the source material it should use for briefs, milestones, and readiness updates.',
+    description: 'Give Canon the source material it should use for hire paths, milestones, and readiness signals.',
     icon: IconDatabase,
   },
   {
     href: '/milestones',
-    title: 'Shape milestones',
-    description: 'Turn role expectations into a clear ramp path for Technical GTM hires.',
+    title: 'Shape readiness milestones',
+    description: 'Turn role expectations into clear proof points for Technical GTM readiness.',
     icon: IconFlag,
   },
   {
@@ -81,14 +89,12 @@ export default async function HomePage() {
           >
             <div className="max-w-3xl">
               <h1 className="max-w-3xl text-[30px] font-semibold leading-[1.12] tracking-normal sm:text-[34px]" style={{ color: 'var(--text-primary)' }}>
-                Build the next successful ramp
+                Keep Technical GTM teams customer-ready
               </h1>
-              <p className="type-body mt-3 max-w-2xl leading-[1.55]" style={{ color: 'var(--text-secondary)' }}>
-              </p>
               <div className="mt-5 flex flex-wrap items-center gap-2">
                 <Button asChild size="sm">
                   <Link href="/new-hires/new">
-                    <IconUsers size={13} /> Start a Hire Path
+                    <IconUsers size={13} /> Launch Hire Path
                   </Link>
                 </Button>
                 <Button asChild variant="secondary" size="sm">
@@ -98,7 +104,7 @@ export default async function HomePage() {
                 </Button>
                 <Button asChild variant="ghost" size="sm">
                   <Link href="/new-hires">
-                    View Hires <IconArrowRight size={13} />
+                    View Hire Paths <IconArrowRight size={13} />
                   </Link>
                 </Button>
               </div>
@@ -108,9 +114,9 @@ export default async function HomePage() {
           <section>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
               <div className="min-w-0">
-                <h2 className="type-section-title" style={{ color: 'var(--text-primary)' }}>Build the path and keep it current</h2>
+                <h2 className="type-section-title" style={{ color: 'var(--text-primary)' }}>The readiness loop</h2>
                 <p className="type-body mt-1 max-w-2xl leading-[1.5]" style={{ color: 'var(--text-secondary)' }}>
-                  The path starts with source context, becomes role-specific milestones, and lands as a guided plan for each hire.
+                  Canon connects your knowledge, gets new hires ready faster, and monitors for changes that affect the field.
                 </p>
               </div>
             </div>
@@ -118,7 +124,7 @@ export default async function HomePage() {
             <div className="relative mt-6">
               <div className="absolute bottom-5 left-5 top-5 w-px lg:hidden" style={{ backgroundColor: 'var(--border-tertiary)' }} />
               <div className="absolute left-[6%] right-[6%] top-5 hidden h-px lg:block" style={{ backgroundColor: 'var(--border-tertiary)' }} />
-              <div className="grid gap-6 lg:grid-cols-3">
+              <div className="grid gap-6 lg:grid-cols-4">
                 {rampLoop.map((item) => {
                   const Icon = item.icon;
                   return (
@@ -173,7 +179,7 @@ export default async function HomePage() {
                     Readiness keeps the path current
                   </span>
                   <span className="mt-1 block type-body max-w-3xl leading-[1.5]" style={{ color: 'var(--text-secondary)' }}>
-                    Product, customer, and field changes loop back into knowledge and milestones, so the ramp keeps pace after day one.
+                    Product, customer, and field changes loop back into knowledge and milestones, so readiness keeps pace after day one.
                   </span>
                 </span>
               </span>
@@ -189,9 +195,9 @@ export default async function HomePage() {
             style={{ borderColor: 'var(--border-tertiary)' }}
           >
             <div className="min-w-0">
-              <h2 className="type-section-title" style={{ color: 'var(--text-primary)' }}>Prepare the foundation</h2>
+              <h2 className="type-section-title" style={{ color: 'var(--text-primary)' }}>Prepare the readiness system</h2>
               <p className="type-body mt-1 max-w-2xl leading-[1.5]" style={{ color: 'var(--text-secondary)' }}>
-                Strong ramps start with trusted context, role-specific milestones, and clear access ownership.
+                Customer-ready teams start with trusted context, role-specific proof points, and clear access ownership.
               </p>
               <div className="mt-4 flex flex-col">
                 {foundationLinks.map((item) => {
@@ -225,7 +231,7 @@ export default async function HomePage() {
                 <div>
                   <h2 className="type-section-title" style={{ color: 'var(--text-primary)' }}>Bring in context</h2>
                   <p className="type-body mt-1 leading-[1.5]" style={{ color: 'var(--text-secondary)' }}>
-                    Connect the sources Canon should learn from.
+                    Connect the sources where readiness gaps begin.
                   </p>
                 </div>
                 <Button asChild variant="ghost" size="sm" className="shrink-0 text-[var(--canon-purple)] hover:text-[var(--canon-purple)]">

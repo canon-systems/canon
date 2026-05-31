@@ -26,7 +26,7 @@ interface NavigationProps {
 
 const primaryNav = [
   { href: '/', label: 'Home', icon: IconHome2, exact: true },
-  { href: '/new-hires', label: 'New Hires', icon: IconUsers, exact: false },
+  { href: '/new-hires', label: 'Hire Paths', icon: IconUsers, exact: false },
   { href: '/knowledge', label: 'Knowledge', icon: IconBrain, exact: false },
   { href: '/milestones', label: 'Milestones', icon: IconFlag, exact: false },
   { href: '/readiness', label: 'Readiness', icon: IconRadar, exact: false },
@@ -85,7 +85,7 @@ export function Navigation({ user, onLogout }: NavigationProps) {
   return (
     <aside
       className={cn(
-        'surface-sidebar relative flex h-screen shrink-0 flex-col border-r py-5 transition-[width] duration-200 ease-out',
+        'surface-sidebar relative flex h-screen shrink-0 flex-col border-r py-3 transition-[width] duration-200 ease-out',
         collapsed ? 'w-[72px]' : 'w-[200px]'
       )}
     >
@@ -102,12 +102,12 @@ export function Navigation({ user, onLogout }: NavigationProps) {
       <Link
         href="/"
         className={cn(
-          'surface-divider flex items-center gap-[9px] px-4 pb-5 border-b mb-3',
-          collapsed && 'justify-center px-0'
+          'app-brand flex items-center gap-[9px]',
+          collapsed && 'justify-center'
         )}
         title={collapsed ? 'Canon' : undefined}
       >
-        <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-[7px] bg-black overflow-hidden">
+        <span className="app-brand-mark flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-[8px] overflow-hidden">
           <Image
             src="/web-app-manifest-512x512.png"
             alt="Canon"
@@ -118,7 +118,7 @@ export function Navigation({ user, onLogout }: NavigationProps) {
           />
         </span>
         {!collapsed && (
-          <span className="type-card-title" style={{ color: 'var(--text-primary)' }}>Canon</span>
+          <span className="type-panel-title" style={{ color: 'var(--text-primary)' }}>Canon</span>
         )}
       </Link>
 
