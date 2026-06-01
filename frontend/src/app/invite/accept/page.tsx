@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { IconCheck, IconLoader2, IconX } from '@tabler/icons-react';
 
+import { loginPathForNext } from '@/lib/authRedirect';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 
@@ -11,6 +12,7 @@ export default function AcceptInvitePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get('token') ?? '';
+  const loginPath = loginPathForNext(`/invite/accept?token=${encodeURIComponent(token)}`);
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [message, setMessage] = useState('Accepting invitation...');
 
@@ -32,6 +34,7 @@ export default function AcceptInvitePage() {
         });
         const data = (await res.json().catch(() => ({}))) as { error?: string };
         if (cancelled) return;
+        if (res.status === 401) throw new Error('Sign in or create an account with the invited email to accept this workspace invitation.');
         if (!res.ok) throw new Error(data.error ?? 'Unable to accept invitation.');
         setStatus('success');
         setMessage('You have joined the workspace.');
@@ -60,7 +63,7 @@ export default function AcceptInvitePage() {
         <p className="type-body mt-2 text-[var(--text-secondary)]">{message}</p>
         <div className="mt-5 flex justify-center gap-2">
           {status === 'error' && (
-            <Button variant="secondary" onClick={() => router.push('/login')}>
+            <Button variant="secondary" onClick={() => router.push(loginPath)}>
               Sign In
             </Button>
           )}

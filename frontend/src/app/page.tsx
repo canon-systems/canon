@@ -14,7 +14,7 @@ const operatingLoop = [
   {
     step: '01',
     href: '/new-hires/new',
-    title: 'Launch hire path',
+    title: 'Launch Hire Path',
     description: 'Create a role-specific path with milestones, access requests, and briefings already in place.',
     action: 'Launch Path',
     icon: IconUsers,
@@ -22,7 +22,7 @@ const operatingLoop = [
   {
     step: '02',
     href: '/milestones',
-    title: 'Verify real work',
+    title: 'Verify Real Work',
     description: 'Use capability outcomes and evidence to see whether each person is becoming customer-ready.',
     action: 'Review Evidence',
     icon: IconFlag,
@@ -30,7 +30,7 @@ const operatingLoop = [
   {
     step: '03',
     href: '/readiness',
-    title: 'Close readiness gaps',
+    title: 'Close Readiness Gaps',
     description: 'Spot product, customer, and field changes that affect current hires and the broader team.',
     action: 'Review Signals',
     icon: IconRadar,
@@ -41,7 +41,7 @@ const setupFocus = [
   {
     href: '/settings?tab=roles',
     label: 'Roles',
-    title: 'Define who Canon supports',
+    title: 'Define Who Canon Supports',
     description: 'Add every Technical GTM role that needs hire paths, readiness milestones, and field updates.',
     action: 'Set Up Roles',
     icon: IconUsers,
@@ -51,7 +51,7 @@ const setupFocus = [
   {
     href: '/settings?tab=tools',
     label: 'Tools',
-    title: 'Map what each role needs',
+    title: 'Map What Each Role Needs',
     description: 'Connect every required system to an owner so access requests are ready before the hire path starts.',
     action: 'Map Tools',
     icon: IconTool,
@@ -61,7 +61,7 @@ const setupFocus = [
   {
     href: '/settings?tab=integrations',
     label: 'Integrations',
-    title: 'Connect the tools Canon reads',
+    title: 'Connect the Tools Canon Reads',
     description: 'Link the source systems Canon uses to keep readiness paths current as the field changes.',
     action: 'Connect Tools',
     icon: IconLink,
@@ -85,7 +85,7 @@ export default async function HomePage() {
             <div className="min-w-0">
               <div className="max-w-3xl">
                 <h1 id="home-title" className="max-w-3xl text-[30px] font-semibold leading-[1.12] tracking-normal sm:text-[34px]" style={{ color: 'var(--text-primary)' }}>
-                  Keep Technical GTM teams customer-ready
+                  Keep Technical GTM Teams Customer-Ready
                 </h1>
                 <p className="type-body mt-3 max-w-2xl leading-[1.6]" style={{ color: 'var(--text-secondary)' }}>
                   Start with the roles you support and the tools they need. Canon uses that foundation to build hire paths, readiness milestones, and field updates that stay current as your product changes.
@@ -111,7 +111,7 @@ export default async function HomePage() {
 
               <section aria-labelledby="operating-loop-title" className="mt-8 border-t pt-6" style={{ borderColor: 'var(--border-tertiary)' }}>
                 <div className="min-w-0">
-                  <h2 id="operating-loop-title" className="type-section-title" style={{ color: 'var(--text-primary)' }}>What happens after setup</h2>
+                  <h2 id="operating-loop-title" className="type-section-title" style={{ color: 'var(--text-primary)' }}>What Happens After Setup</h2>
                   <p className="type-body mt-1 max-w-2xl leading-[1.5]" style={{ color: 'var(--text-secondary)' }}>
                     Once roles and tools are mapped, Canon turns them into operating workflows for hires and field teams.
                   </p>
@@ -171,7 +171,7 @@ export default async function HomePage() {
               className="rounded-[8px] border p-4"
               style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-tertiary)' }}
             >
-              <div className="type-kicker mb-3" style={{ color: 'var(--text-tertiary)' }}>Foundation first</div>
+              <div className="type-kicker mb-3" style={{ color: 'var(--text-tertiary)' }}>Foundation First</div>
               <div className="flex flex-col gap-3">
                 {setupFocus.map((item) => {
                   const Icon = item.icon;

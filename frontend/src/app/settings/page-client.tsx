@@ -7,7 +7,6 @@ import {
   IconBuilding,
   IconCheck,
   IconChevronDown,
-  IconKey,
   IconLoader2,
   IconMail,
   IconPencil,
@@ -100,13 +99,6 @@ const settingSections = [
   { section: 'Account', items: [{ id: 'profile', label: 'Profile', icon: IconUser }, { id: 'org', label: 'Organization', icon: IconBuilding }] },
   { section: 'Connections', items: [{ id: 'integrations', label: 'Integrations', icon: IconPlug }] },
   { section: 'Readiness', items: [{ id: 'roles', label: 'Roles', icon: IconUsers }, { id: 'tools', label: 'Tools', icon: IconTool }] },
-  {
-    section: 'Developer',
-    items: [
-      { id: 'apikeys', label: 'API Keys', icon: IconKey },
-    ],
-  },
-  { section: 'Danger', items: [{ id: 'delete', label: 'Delete Account', icon: IconTrash, danger: true }] },
 ];
 
 const SETTINGS_TABS = ['profile', 'org', 'integrations', 'roles', 'tools', 'apikeys', 'delete'] as const;
@@ -968,29 +960,29 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
 
         {integrations.map((int) => {
           return (
-          <Card key={int.id} className="mb-[10px] flex items-center gap-[14px] px-4 py-[14px]">
-            <div className="w-9 h-9 rounded-[9px] flex items-center justify-center flex-shrink-0" style={{ backgroundColor: int.iconBg, color: int.iconColor }}>
-              <IntegrationLogos provider={int.provider} size={22} color={int.iconColor} />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="type-section-title" style={{ color: 'var(--text-primary)' }}>{int.name}</div>
-              <div className="type-body mt-[2px]" style={{ color: 'var(--text-secondary)' }}>{int.description}</div>
-              <div className="flex items-center gap-[5px] mt-1">
-                <div className="w-[6px] h-[6px] rounded-full" style={{ backgroundColor: int.connected ? 'var(--green)' : 'var(--border-secondary)' }} />
-                <span className="type-caption" style={{ color: int.connected ? 'var(--green-text)' : 'var(--text-tertiary)' }}>
-                  {int.connected ? `Active · ${int.workspace}` : 'Not Connected'}
-                </span>
+            <Card key={int.id} className="mb-[10px] flex items-center gap-[14px] px-4 py-[14px]">
+              <div className="w-9 h-9 rounded-[9px] flex items-center justify-center flex-shrink-0" style={{ backgroundColor: int.iconBg, color: int.iconColor }}>
+                <IntegrationLogos provider={int.provider} size={22} color={int.iconColor} />
               </div>
-            </div>
-            {int.connected ? (
-              <Button variant="destructive" onClick={int.action}>Disconnect</Button>
-            ) : (
-              <Button variant="secondary" onClick={int.action} disabled={connecting}>
-                {connecting ? <IconLoader2 size={13} className="animate-spin" /> : <IconPlug size={13} />}
-                Connect
-              </Button>
-            )}
-          </Card>
+              <div className="flex-1 min-w-0">
+                <div className="type-section-title" style={{ color: 'var(--text-primary)' }}>{int.name}</div>
+                <div className="type-body mt-[2px]" style={{ color: 'var(--text-secondary)' }}>{int.description}</div>
+                <div className="flex items-center gap-[5px] mt-1">
+                  <div className="w-[6px] h-[6px] rounded-full" style={{ backgroundColor: int.connected ? 'var(--green)' : 'var(--border-secondary)' }} />
+                  <span className="type-caption" style={{ color: int.connected ? 'var(--green-text)' : 'var(--text-tertiary)' }}>
+                    {int.connected ? `Active · ${int.workspace}` : 'Not Connected'}
+                  </span>
+                </div>
+              </div>
+              {int.connected ? (
+                <Button variant="destructive" onClick={int.action}>Disconnect</Button>
+              ) : (
+                <Button variant="secondary" onClick={int.action} disabled={connecting}>
+                  {connecting ? <IconLoader2 size={13} className="animate-spin" /> : <IconPlug size={13} />}
+                  Connect
+                </Button>
+              )}
+            </Card>
           );
         })}
 
@@ -1014,7 +1006,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
         <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-2xl">
             <div className="type-section-title" style={{ color: 'var(--text-primary)' }}>
-              Role catalog
+              Role Catalog
             </div>
             <p className="type-body mt-[3px]" style={{ color: 'var(--text-secondary)' }}>
               Configure which roles Canon should include in readiness milestones, field briefs, hire paths, and tool access scoping.
@@ -1032,7 +1024,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
           </div>
         ) : activeRoles.length === 0 ? (
           <Card className="px-5 py-8 text-center">
-            <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No active roles</div>
+            <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Active Roles</div>
             <div className="type-body mt-2" style={{ color: 'var(--text-tertiary)' }}>
               Add a role before generating readiness milestones or field briefs.
             </div>
@@ -1121,7 +1113,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
         <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-2xl">
             <div className="type-section-title" style={{ color: 'var(--text-primary)' }}>
-              Tool access registry
+              Tool Access Registry
             </div>
             <p className="type-body mt-[3px]" style={{ color: 'var(--text-secondary)' }}>
               Configure the tools each hire path needs, the role scope, and the owner who can grant access.
@@ -1139,7 +1131,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
           </div>
         ) : toolGroups.length === 0 ? (
           <Card className="px-5 py-8 text-center">
-            <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No tools configured</div>
+            <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Tools Configured</div>
             <div className="type-body mt-2" style={{ color: 'var(--text-tertiary)' }}>
               Add the tools each role needs access to and assign an owner who can grant it. Canon will prompt the hire and notify owners automatically.
             </div>
@@ -1191,7 +1183,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                   {filteredTools.length === 0 ? (
                     <div className="px-5 py-8 text-center">
                       <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>
-                        No matching tools
+                        No Matching Tools
                       </div>
                       <div className="type-body mt-2" style={{ color: 'var(--text-tertiary)' }}>
                         Try a different role filter or add another tool.
@@ -1312,17 +1304,17 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
       count?: number;
       icon: typeof IconBuilding;
     }> = [
-      { id: 'overview', label: 'Overview', icon: IconBuilding },
-      { id: 'members', label: 'Members', count: workspaceMembers.length, icon: IconUsers },
-      { id: 'requests', label: 'Requests', count: pendingJoinRequests.length, icon: IconUserPlus },
-      { id: 'invitations', label: 'Invites', count: activeInvitations.length, icon: IconMail },
-    ];
+        { id: 'overview', label: 'Overview', icon: IconBuilding },
+        { id: 'members', label: 'Members', count: workspaceMembers.length, icon: IconUsers },
+        { id: 'requests', label: 'Requests', count: pendingJoinRequests.length, icon: IconUserPlus },
+        { id: 'invitations', label: 'Invites', count: activeInvitations.length, icon: IconMail },
+      ];
 
     const summaryItems = [
       { label: 'Members', value: workspaceMembers.length, icon: IconUsers },
-      { label: 'Pending requests', value: pendingJoinRequests.length, icon: IconUserPlus },
-      { label: 'Active invites', value: activeInvitations.length, icon: IconMail },
-      { label: 'Your access', value: workspace?.role ?? 'member', icon: IconShieldCheck },
+      { label: 'Pending Requests', value: pendingJoinRequests.length, icon: IconUserPlus },
+      { label: 'Active Invites', value: activeInvitations.length, icon: IconMail },
+      { label: 'Your Access', value: workspace?.role ?? 'member', icon: IconShieldCheck },
     ];
 
     return (
@@ -1333,7 +1325,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
               <div className="min-w-0">
                 <div className="type-section-title text-[var(--text-primary)]">Organization</div>
                 <div className="type-body mt-[3px] text-[var(--text-secondary)]">
-                  {workspaceLoading ? 'Loading workspace...' : workspace?.slug ?? 'Workspace setup'}
+                  {workspaceLoading ? 'Loading workspace...' : workspace?.slug ?? 'Workspace Setup'}
                 </div>
               </div>
               {workspace?.role && (
@@ -1383,7 +1375,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                   {section.count !== undefined && (
                     <span className={cn(
                       'rounded-full px-1.5 py-[1px] text-[11px] leading-4',
-                      selected ? 'bg-white/70 text-[var(--canon-purple)]' : 'bg-[var(--bg-secondary)] text-[var(--text-tertiary)]'
+                      selected ? 'bg-[var(--auth-illustration-card-strong)] text-[var(--canon-purple)]' : 'bg-[var(--bg-secondary)] text-[var(--text-tertiary)]'
                     )}>
                       {section.count}
                     </span>
@@ -1397,7 +1389,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
         {activeOrgSection === 'overview' && (
           <Card className="px-5 py-5">
             <div className="mb-4">
-              <div className="type-section-title text-[var(--text-primary)]">Workspace profile</div>
+              <div className="type-section-title text-[var(--text-primary)]">Workspace Profile</div>
               <p className="type-body mt-[3px] max-w-2xl text-[var(--text-secondary)]">
                 Workspace identity is finalized during onboarding and stays consistent for teammates, invitations, and access requests.
               </p>
@@ -1405,15 +1397,15 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
 
             <div className="grid gap-3 md:grid-cols-2">
               <div className="rounded-[7px] border border-[var(--border-tertiary)] px-3 py-3">
-                <div className="type-caption text-[var(--text-tertiary)]">Workspace name</div>
+                <div className="type-caption text-[var(--text-tertiary)]">Workspace Name</div>
                 <div className="mt-1 type-body-strong text-[var(--text-primary)]">{workspace?.name ?? 'Not available'}</div>
               </div>
               <div className="rounded-[7px] border border-[var(--border-tertiary)] px-3 py-3">
-                <div className="type-caption text-[var(--text-tertiary)]">Workspace slug</div>
+                <div className="type-caption text-[var(--text-tertiary)]">Workspace Slug</div>
                 <div className="mt-1 break-all font-mono text-[12px] text-[var(--text-primary)]">{workspace?.slug ?? 'Not available'}</div>
               </div>
               <div className="rounded-[7px] border border-[var(--border-tertiary)] px-3 py-3">
-                <div className="type-caption text-[var(--text-tertiary)]">Admin access</div>
+                <div className="type-caption text-[var(--text-tertiary)]">Admin Access</div>
                 <div className="mt-1 type-body text-[var(--text-primary)]">
                   {canAdmin ? 'You can manage members, requests, and invites.' : 'Ask an owner or admin to make organization changes.'}
                 </div>
@@ -1430,7 +1422,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                 <p className="type-body mt-[3px] text-[var(--text-secondary)]">Manage role-level access for everyone in this workspace.</p>
               </div>
               <Button size="sm" variant="secondary" onClick={() => setActiveOrgSection('invitations')} disabled={!canAdmin}>
-                <IconPlus size={13} /> Invite member
+                <IconPlus size={13} /> Invite Member
               </Button>
             </div>
 
@@ -1487,7 +1479,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
           <Card className="px-5 py-5">
             <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div>
-                <div className="type-section-title text-[var(--text-primary)]">Access requests</div>
+                <div className="type-section-title text-[var(--text-primary)]">Access Requests</div>
                 <p className="type-body mt-[3px] text-[var(--text-secondary)]">Approve or deny people who asked to join without an invite link.</p>
               </div>
               <span className="w-fit rounded-[6px] border border-[var(--border-secondary)] px-2 py-1 type-caption text-[var(--text-secondary)]">
@@ -1576,7 +1568,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
 
             {lastInviteUrl && (
               <div className="mt-3 rounded-[7px] border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] px-3 py-2">
-                <div className="type-caption text-[var(--text-tertiary)]">Invite link</div>
+                <div className="type-caption text-[var(--text-tertiary)]">Invite Link</div>
                 <div className="mt-1 break-all font-mono text-[12px] text-[var(--text-primary)]">{lastInviteUrl}</div>
               </div>
             )}

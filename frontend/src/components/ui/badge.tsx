@@ -8,12 +8,12 @@ const badgeVariants = cva(
     variants: {
       variant: {
         default: "bg-[var(--bg-secondary)] text-[var(--text-primary)] border border-[var(--border-tertiary)]",
-        secondary: "bg-[var(--text-primary)] text-[var(--bg-page)] border border-[var(--border-secondary)]",
+        secondary: "bg-[var(--canon-purple-light)] text-[var(--canon-purple-dark)] border border-[var(--canon-purple-border)]",
         outline: "bg-transparent text-[var(--text-primary)] border border-[var(--border-secondary)]",
         muted: "bg-[var(--bg-secondary)] text-[var(--text-primary)] border border-[var(--border-tertiary)]",
-        success: "border-[var(--border-tertiary)] bg-[var(--bg-secondary)] text-[var(--text-secondary)]",
-        warning: "border-[var(--border-tertiary)] bg-[var(--bg-secondary)] text-[var(--text-secondary)]",
-        destructive: "border-[var(--border-tertiary)] bg-[var(--bg-secondary)] text-[var(--text-secondary)]",
+        success: "border-[var(--green-border)] bg-[var(--green-bg)] text-[var(--green-text)]",
+        warning: "border-[var(--amber-border)] bg-[var(--amber-bg)] text-[var(--amber-text)]",
+        destructive: "border-[var(--red-border)] bg-[var(--red-bg)] text-[var(--red-text)]",
       },
     },
     defaultVariants: {

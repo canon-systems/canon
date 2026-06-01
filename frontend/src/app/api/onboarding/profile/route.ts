@@ -14,18 +14,27 @@ export async function POST(request: NextRequest) {
     const { user } = await getSession();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const existingFirstName = stringField(user.user_metadata?.first_name);
-    const existingLastName = stringField(user.user_metadata?.last_name);
-    if (existingFirstName || existingLastName) {
-      return NextResponse.json({ error: 'Profile name is already finalized' }, { status: 409 });
-    }
-
     const body = (await request.json().catch(() => ({}))) as {
       first_name?: unknown;
       last_name?: unknown;
     };
     const firstName = stringField(body.first_name);
     const lastName = stringField(body.last_name);
+    const existingFirstName = stringField(user.user_metadata?.first_name);
+    const existingLastName = stringField(user.user_metadata?.last_name);
+    if (existingFirstName || existingLastName) {
+      if (existingFirstName === firstName && existingLastName === lastName) {
+        return NextResponse.json({
+          profile: {
+            first_name: existingFirstName,
+            last_name: existingLastName,
+            full_name: `${existingFirstName} ${existingLastName}`,
+          },
+        });
+      }
+
+      return NextResponse.json({ error: 'Profile name is already finalized' }, { status: 409 });
+    }
 
     if (firstName.length < 1 || firstName.length > 80) {
       return NextResponse.json({ error: 'First name must be 1-80 characters' }, { status: 400 });

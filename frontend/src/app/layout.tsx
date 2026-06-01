@@ -31,7 +31,7 @@ export default async function RootLayout({
   const { user, session } = await getSession();
 
   return (
-    <html lang="en" className="dark">
+    <html lang="en">
       <body className={`min-h-screen antialiased ${inter.variable} ${interDisplay.variable}`}>
         <RootLayoutClient user={user} session={session}>
           {children}

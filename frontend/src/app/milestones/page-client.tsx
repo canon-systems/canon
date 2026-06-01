@@ -693,7 +693,7 @@ export function MilestonesClient() {
                 >
                   {roleAbbreviation(activeRole)}
                 </div>
-                <h1 className="type-detail-title" style={{ color: 'var(--text-primary)' }}>{activeRole || 'No active roles'}</h1>
+                <h1 className="type-detail-title" style={{ color: 'var(--text-primary)' }}>{activeRole || 'No Active Roles'}</h1>
               </div>
               <div className="flex items-center gap-2 mt-2 type-body" style={{ color: 'var(--text-tertiary)' }}>
                 <span>{activeMilestones.length} approved</span>

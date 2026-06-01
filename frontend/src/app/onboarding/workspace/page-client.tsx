@@ -2,11 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Building2, Check, Loader2, Search, Users } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Building2, Check, Clock3, Loader2, Search, ShieldCheck, Users } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -142,72 +141,122 @@ export function WorkspaceOnboardingClient({ userEmail, initialFirstName, initial
     }
   }
 
+  const profileReady = firstName.trim().length > 0 && lastName.trim().length > 0;
+  const canCreate = profileReady && workspaceName.trim().length >= 2;
+  const canJoin = profileReady && workspaceLookup.trim().length >= 2;
+
   return (
-    <div className="min-h-screen bg-[var(--bg-page)] px-4 py-8 sm:px-6">
-      <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
-        <div className="max-w-2xl">
-          <div className="type-kicker text-[var(--canon-purple)]">Workspace setup</div>
-          <h1 className="mt-2 text-[30px] font-semibold leading-[1.14] tracking-normal text-[var(--text-primary)] sm:text-[36px]">
-            Choose how you want to use Canon
-          </h1>
-          <p className="type-body mt-3 leading-[1.6] text-[var(--text-secondary)]">
-            {userEmail ? `${userEmail} needs a workspace before creating hire paths or connecting knowledge sources.` : 'Your account needs a workspace before creating hire paths or connecting knowledge sources.'}
-          </p>
-          <p className="type-body mt-2 leading-[1.6] text-[var(--text-secondary)]">
-            Double-check your name and workspace details before continuing. These values are finalized when you create your profile.
-          </p>
-        </div>
-
-        {(error || info) && (
-          <Alert variant={error ? 'destructive' : 'default'}>
-            <AlertDescription>{error ?? info}</AlertDescription>
-          </Alert>
-        )}
-
-        <div className="grid gap-4 md:grid-cols-2">
-          <button
-            type="button"
-            onClick={() => setMode('create')}
-            className={`rounded-[8px] border px-4 py-4 text-left transition ${mode === 'create' ? 'border-[var(--canon-purple)] bg-[var(--bg-primary)] shadow-sm' : 'border-[var(--border-tertiary)] bg-[var(--bg-secondary)] hover:bg-[var(--bg-primary)]'}`}
-          >
+    <main className="min-h-screen overflow-hidden bg-[var(--auth-page-bg)] px-4 py-6 text-[var(--text-primary)] sm:px-6 lg:px-8">
+      <div className="pointer-events-none fixed inset-0 bg-[linear-gradient(var(--auth-grid-line)_1px,transparent_1px),linear-gradient(90deg,var(--auth-grid-line)_1px,transparent_1px)] bg-[length:72px_72px] opacity-25" />
+      <div className="relative mx-auto grid min-h-[calc(100vh-48px)] w-full max-w-6xl gap-6 lg:grid-cols-[0.9fr_1.1fr]">
+        <section className="flex flex-col justify-between rounded-[8px] border border-[var(--canon-purple-border)] bg-[var(--auth-illustration-bg)] p-5 shadow-[var(--shadow-md)] sm:p-7">
+          <div>
             <div className="flex items-center gap-3">
-              <span className="flex h-9 w-9 items-center justify-center rounded-[7px] bg-[var(--canon-purple-light)] text-[var(--canon-purple)]">
-                <Building2 size={17} />
-              </span>
-              <span>
-                <span className="block type-body-strong text-[var(--text-primary)]">Create workspace</span>
-                <span className="block type-caption text-[var(--text-tertiary)]">Start a new team space and become owner.</span>
-              </span>
+              <div className="flex h-10 w-10 items-center justify-center rounded-[8px] bg-[var(--canon-purple)] text-[15px] font-semibold text-[var(--text-on-accent)]">C</div>
+              <div>
+                <div className="text-[15px] font-semibold leading-none">Canon</div>
+                <div className="mt-1 type-caption">Workspace Setup</div>
+              </div>
             </div>
-          </button>
+            <h1 className="mt-10 max-w-xl text-[38px] font-semibold leading-[1.04] tracking-normal text-[var(--text-primary)] sm:text-[52px]">
+              Choose the Workspace Path That Matches Your Team
+            </h1>
+            <p className="mt-5 max-w-lg text-[14px] leading-7 text-[var(--text-secondary)]">
+              {userEmail ? `${userEmail} is signed in. Finish setup once, then Canon will route you into the right readiness workspace.` : 'Finish setup once, then Canon will route you into the right readiness workspace.'}
+            </p>
+          </div>
 
-          <button
-            type="button"
-            onClick={() => setMode('join')}
-            className={`rounded-[8px] border px-4 py-4 text-left transition ${mode === 'join' ? 'border-[var(--canon-purple)] bg-[var(--bg-primary)] shadow-sm' : 'border-[var(--border-tertiary)] bg-[var(--bg-secondary)] hover:bg-[var(--bg-primary)]'}`}
+          <div className="mt-10 space-y-3">
+            <div className="rounded-[8px] border border-[var(--border-tertiary)] bg-[var(--auth-panel-bg-translucent)] p-4">
+              <div className="flex items-center gap-2 type-body-strong">
+                <ShieldCheck size={16} className="text-[var(--green-text)]" />
+                Profile Names Are Finalized Here
+              </div>
+              <p className="mt-2 type-caption leading-5">They appear in member lists, access requests, and technical GTM readiness workflows.</p>
+            </div>
+            {(loadingRequests || pendingRequests.length > 0) && (
+              <div className="rounded-[8px] border border-[var(--amber-border)] bg-[var(--amber-bg-subtle)] p-4">
+                <div className="flex items-center gap-2 type-body-strong">
+                  <Clock3 size={16} className="text-[var(--amber-text)]" />
+                  Pending Workspace Requests
+                </div>
+                {loadingRequests ? (
+                  <div className="mt-2 type-caption">Loading requests...</div>
+                ) : (
+                  <div className="mt-3 space-y-2">
+                    {pendingRequests.map((request) => (
+                      <div key={request.id} className="rounded-[7px] border border-[var(--border-tertiary)] bg-[var(--bg-primary)] px-3 py-2">
+                        <div className="type-body-strong">{request.organizations?.name ?? 'Workspace Request'}</div>
+                        <div className="type-caption">
+                          Pending approval{request.organizations?.slug ? ` - ${request.organizations.slug}` : ''}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="rounded-[8px] border border-[var(--border-tertiary)] bg-[var(--auth-panel-bg)] p-5 text-[var(--text-primary)] shadow-[var(--shadow-lg)] sm:p-6">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => setMode('create')}
+              className={`rounded-[8px] border px-4 py-4 text-left transition ${mode === 'create' ? 'border-[var(--canon-purple)] bg-[var(--bg-primary)] shadow-sm' : 'border-[var(--border-tertiary)] bg-[var(--bg-tertiary)] hover:bg-[var(--bg-primary)]'}`}
+            >
+              <span className="flex items-center gap-3">
+                <span className="flex h-9 w-9 items-center justify-center rounded-[7px] bg-[var(--canon-purple-light)] text-[var(--canon-purple)]">
+                  <Building2 size={17} />
+                </span>
+                <span>
+                  <span className="block text-[13px] font-semibold text-[var(--text-primary)]">Create Workspace</span>
+                  <span className="block text-[11px] leading-5 text-[var(--text-tertiary)]">Start a new team space as owner.</span>
+                </span>
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setMode('join')}
+              className={`rounded-[8px] border px-4 py-4 text-left transition ${mode === 'join' ? 'border-[var(--canon-purple)] bg-[var(--bg-primary)] shadow-sm' : 'border-[var(--border-tertiary)] bg-[var(--bg-tertiary)] hover:bg-[var(--bg-primary)]'}`}
+            >
+              <span className="flex items-center gap-3">
+                <span className="flex h-9 w-9 items-center justify-center rounded-[7px] bg-[var(--green-bg)] text-[var(--green)]">
+                  <Users size={17} />
+                </span>
+                <span>
+                  <span className="block text-[13px] font-semibold text-[var(--text-primary)]">Join Workspace</span>
+                  <span className="block text-[11px] leading-5 text-[var(--text-tertiary)]">Ask an admin to approve access.</span>
+                </span>
+              </span>
+            </button>
+          </div>
+
+          {(error || info) && (
+            <Alert variant={error ? 'destructive' : 'success'} className="mt-5 bg-[var(--bg-primary)]">
+              {error ? <AlertTriangle className="h-4 w-4" /> : <Check className="h-4 w-4" />}
+              <AlertDescription>{error ?? info}</AlertDescription>
+            </Alert>
+          )}
+
+          <form
+            className="mt-6 space-y-5"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (mode === 'create') void createWorkspace();
+              else void requestAccess();
+            }}
           >
-            <div className="flex items-center gap-3">
-              <span className="flex h-9 w-9 items-center justify-center rounded-[7px] bg-[var(--green-bg)] text-[var(--green)]">
-                <Users size={17} />
-              </span>
-              <span>
-                <span className="block type-body-strong text-[var(--text-primary)]">Join workspace</span>
-                <span className="block type-caption text-[var(--text-tertiary)]">Ask an admin to approve your account.</span>
-              </span>
-            </div>
-          </button>
-        </div>
-
-        <Card>
-          <CardContent className="space-y-5 px-5 py-5">
             <div>
-              <div className="type-section-title text-[var(--text-primary)]">Your profile</div>
-              <p className="type-body mt-[3px] text-[var(--text-secondary)]">Canon uses your name in member lists, access requests, and shared workspace views. This name cannot be changed later.</p>
+              <h2 className="text-[22px] font-semibold leading-[1.12] tracking-normal text-[var(--text-primary)]">Finalize Your Profile</h2>
+              <p className="mt-2 text-[13px] leading-6 text-[var(--text-secondary)]">Use the name teammates should see in requests, readiness reviews, and workspace activity.</p>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <Label htmlFor="first-name">First name</Label>
+              <div className="space-y-2">
+                <Label htmlFor="first-name" className="text-[var(--text-secondary)]">First Name</Label>
                 <Input
                   id="first-name"
                   value={firstName}
@@ -215,10 +264,11 @@ export function WorkspaceOnboardingClient({ userEmail, initialFirstName, initial
                   placeholder="Jane"
                   disabled={saving}
                   autoComplete="given-name"
+                  className="h-11 border-[var(--border-secondary)] bg-[var(--bg-primary)] text-[13px] text-[var(--text-primary)] placeholder:text-[var(--text-placeholder)]"
                 />
               </div>
-              <div>
-                <Label htmlFor="last-name">Last name</Label>
+              <div className="space-y-2">
+                <Label htmlFor="last-name" className="text-[var(--text-secondary)]">Last Name</Label>
                 <Input
                   id="last-name"
                   value={lastName}
@@ -226,6 +276,7 @@ export function WorkspaceOnboardingClient({ userEmail, initialFirstName, initial
                   placeholder="Sellers"
                   disabled={saving}
                   autoComplete="family-name"
+                  className="h-11 border-[var(--border-secondary)] bg-[var(--bg-primary)] text-[13px] text-[var(--text-primary)] placeholder:text-[var(--text-placeholder)]"
                 />
               </div>
             </div>
@@ -233,86 +284,67 @@ export function WorkspaceOnboardingClient({ userEmail, initialFirstName, initial
             <div className="h-px bg-[var(--border-tertiary)]" />
 
             {mode === 'create' ? (
-              <>
+              <div className="space-y-4">
                 <div>
-                  <div className="type-section-title text-[var(--text-primary)]">Create a new workspace</div>
-                  <p className="type-body mt-[3px] text-[var(--text-secondary)]">This workspace will be the shared home for roles, sources, hire paths, and readiness settings. The workspace name is final.</p>
+                  <h3 className="text-[16px] font-semibold leading-tight text-[var(--text-primary)]">Create a New Workspace</h3>
+                  <p className="mt-2 text-[13px] leading-6 text-[var(--text-secondary)]">This becomes the shared home for roles, sources, launch context, and readiness settings.</p>
                 </div>
-                <div>
-                  <Label htmlFor="workspace-name">Workspace name</Label>
+                <div className="space-y-2">
+                  <Label htmlFor="workspace-name" className="text-[var(--text-secondary)]">Workspace Name</Label>
                   <Input
                     id="workspace-name"
                     value={workspaceName}
                     onChange={(event) => setWorkspaceName(event.target.value)}
                     placeholder="Acme Technical GTM"
                     disabled={saving}
+                    className="h-11 border-[var(--border-secondary)] bg-[var(--bg-primary)] text-[13px] text-[var(--text-primary)] placeholder:text-[var(--text-placeholder)]"
                   />
                 </div>
-                <Button onClick={() => void createWorkspace()} disabled={saving || firstName.trim().length < 1 || lastName.trim().length < 1 || workspaceName.trim().length < 2}>
+                <Button type="submit" className="h-11 rounded-[8px] bg-[var(--canon-purple)] text-[var(--text-on-accent)]" disabled={saving || !canCreate}>
                   {saving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-                  Create Workspace
+                  Create workspace
+                  <ArrowRight size={14} />
                 </Button>
-              </>
+              </div>
             ) : (
-              <>
+              <div className="space-y-4">
                 <div>
-                  <div className="type-section-title text-[var(--text-primary)]">Request workspace access</div>
-                  <p className="type-body mt-[3px] text-[var(--text-secondary)]">Use the workspace slug when you have it. Admins will see your request in Organization settings after your profile is finalized.</p>
+                  <h3 className="text-[16px] font-semibold leading-tight text-[var(--text-primary)]">Request Workspace Access</h3>
+                  <p className="mt-2 text-[13px] leading-6 text-[var(--text-secondary)]">Use the workspace slug when you have it. Admins will see this in Organization settings.</p>
                 </div>
-                <div>
-                  <Label htmlFor="workspace-lookup">Workspace name or slug</Label>
+                <div className="space-y-2">
+                  <Label htmlFor="workspace-lookup" className="text-[var(--text-secondary)]">Workspace Name or Slug</Label>
                   <Input
                     id="workspace-lookup"
                     value={workspaceLookup}
                     onChange={(event) => setWorkspaceLookup(event.target.value)}
                     placeholder="acme-technical-gtm"
                     disabled={saving}
+                    className="h-11 border-[var(--border-secondary)] bg-[var(--bg-primary)] text-[13px] text-[var(--text-primary)] placeholder:text-[var(--text-placeholder)]"
                   />
                 </div>
-                <div>
-                  <Label htmlFor="join-message">Message</Label>
+                <div className="space-y-2">
+                  <Label htmlFor="join-message" className="text-[var(--text-secondary)]">Message</Label>
                   <Textarea
                     id="join-message"
                     value={message}
                     onChange={(event) => setMessage(event.target.value)}
-                    placeholder="I am joining the GTM enablement team."
+                    placeholder="I am joining the technical GTM readiness workspace."
                     disabled={saving}
                     rows={4}
+                    className="border-[var(--border-secondary)] bg-[var(--bg-primary)] text-[13px] text-[var(--text-primary)] placeholder:text-[var(--text-placeholder)]"
                   />
                 </div>
-                <Button onClick={() => void requestAccess()} disabled={saving || firstName.trim().length < 1 || lastName.trim().length < 1 || workspaceLookup.trim().length < 2}>
+                <Button type="submit" className="h-11 rounded-[8px] bg-[var(--canon-purple)] text-[var(--text-on-accent)]" disabled={saving || !canJoin}>
                   {saving ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
-                  Request Access
+                  Request access
+                  <ArrowRight size={14} />
                 </Button>
-              </>
+              </div>
             )}
-          </CardContent>
-        </Card>
-
-        {(loadingRequests || pendingRequests.length > 0) && (
-          <Card>
-            <CardContent className="px-5 py-5">
-              <div className="type-section-title text-[var(--text-primary)]">Pending requests</div>
-              {loadingRequests ? (
-                <div className="type-body mt-3 text-[var(--text-secondary)]">Loading requests...</div>
-              ) : (
-                <div className="mt-3 space-y-2">
-                  {pendingRequests.map((request) => (
-                    <div key={request.id} className="rounded-[7px] border border-[var(--border-tertiary)] px-3 py-3">
-                      <div className="type-body-strong text-[var(--text-primary)]">
-                        {request.organizations?.name ?? 'Workspace request'}
-                      </div>
-                      <div className="type-caption text-[var(--text-tertiary)]">
-                        Pending approval{request.organizations?.slug ? ` - ${request.organizations.slug}` : ''}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
+          </form>
+        </section>
       </div>
-    </div>
+    </main>
   );
 }
