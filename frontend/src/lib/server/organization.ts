@@ -2,7 +2,7 @@ import type { SupabaseClient, User } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
 import { DEFAULT_ROLES } from '@/lib/onboarding/roles';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 
 export type OrganizationRole = 'owner' | 'admin' | 'member';
 
@@ -24,6 +24,10 @@ type OrganizationMembershipRow = {
   } | null;
 };
 
+type WorkspaceCreateInput = {
+  name?: string;
+};
+
 export class WorkspaceError extends Error {
   status: number;
 
@@ -39,14 +43,17 @@ function metadataString(user: User, key: string) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function workspaceNameForUser(user: User) {
-  const explicitName =
+function workspaceNameForUser(user: User, explicitWorkspaceName?: string) {
+  const explicitName = explicitWorkspaceName?.trim();
+  if (explicitName) return explicitName;
+
+  const inferredName =
     metadataString(user, 'organization_name') ||
     metadataString(user, 'company_name') ||
     metadataString(user, 'full_name') ||
     metadataString(user, 'name');
 
-  if (explicitName) return `${explicitName}'s Workspace`;
+  if (inferredName) return `${inferredName}'s Workspace`;
 
   const emailName = user.email?.split('@')[0]?.replace(/[._-]+/g, ' ').trim();
   if (emailName) return `${emailName}'s Workspace`;
@@ -62,9 +69,10 @@ function slugify(value: string) {
     .slice(0, 48);
 }
 
-function workspaceSlugForUser(user: User) {
+function workspaceSlugForUser(user: User, explicitWorkspaceName?: string) {
   const base = slugify(
-    metadataString(user, 'organization_name') ||
+    explicitWorkspaceName ||
+      metadataString(user, 'organization_name') ||
       metadataString(user, 'company_name') ||
       user.email?.split('@')[0] ||
       'workspace'
@@ -146,12 +154,31 @@ async function organizationByMembership(supabase: SupabaseClient, user: User): P
   };
 }
 
-async function createDefaultOrganization(supabase: SupabaseClient, user: User): Promise<CurrentOrganization> {
-  const { data: created, error: createError } = await supabase
+export async function getOrganizationForUser(
+  supabase: SupabaseClient,
+  user: User
+): Promise<CurrentOrganization | null> {
+  const byMembership = await organizationByMembership(supabase, user);
+  if (byMembership) return byMembership;
+
+  return organizationByOwner(supabase, user);
+}
+
+export async function createWorkspaceForUser(
+  supabase: SupabaseClient,
+  user: User,
+  input: WorkspaceCreateInput = {}
+): Promise<CurrentOrganization> {
+  const existing = await getOrganizationForUser(supabase, user);
+  if (existing) return existing;
+
+  const service = createServiceRoleClient();
+  const workspaceName = workspaceNameForUser(user, input.name);
+  const { data: created, error: createError } = await service
     .from('organizations')
     .insert({
-      name: workspaceNameForUser(user),
-      slug: workspaceSlugForUser(user),
+      name: workspaceName,
+      slug: workspaceSlugForUser(user, workspaceName),
       owner_id: user.id,
     })
     .select('id, name, slug, owner_id')
@@ -159,7 +186,7 @@ async function createDefaultOrganization(supabase: SupabaseClient, user: User): 
 
   if (createError) {
     if (createError.code === '23505') {
-      const existing = await organizationByOwner(supabase, user);
+      const existing = await organizationByOwner(service, user);
       if (existing) return existing;
     }
 
@@ -168,23 +195,10 @@ async function createDefaultOrganization(supabase: SupabaseClient, user: User): 
 
   if (!created) throw new WorkspaceError('Failed to create workspace', 500);
 
-  await ensureOwnerMembership(supabase, created.id, user.id);
-  await ensureDefaultRoleProfiles(supabase, created.id);
+  await ensureOwnerMembership(service, created.id, user.id);
+  await ensureDefaultRoleProfiles(service, created.id);
 
   return { ...created, role: 'owner' };
-}
-
-export async function getOrCreateOrganizationForUser(
-  supabase: SupabaseClient,
-  user: User
-): Promise<CurrentOrganization> {
-  const byMembership = await organizationByMembership(supabase, user);
-  if (byMembership) return byMembership;
-
-  const byOwner = await organizationByOwner(supabase, user);
-  if (byOwner) return byOwner;
-
-  return createDefaultOrganization(supabase, user);
 }
 
 export function isWorkspaceAdmin(role: OrganizationRole) {
@@ -193,7 +207,10 @@ export function isWorkspaceAdmin(role: OrganizationRole) {
 
 export async function getWorkspaceContext(user: User) {
   const supabase = await createClient();
-  const organization = await getOrCreateOrganizationForUser(supabase, user);
+  const organization = await getOrganizationForUser(supabase, user);
+  if (!organization) {
+    throw new WorkspaceError('Workspace setup required', 428);
+  }
   return { supabase, organization };
 }
 

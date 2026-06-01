@@ -1,9 +1,7 @@
-import { redirect } from 'next/navigation';
-import { getSession } from '@/lib/auth';
+import { requireWorkspacePage } from '@/lib/server/workspacePage';
 import { ReadinessClient } from './page-client';
 
 export default async function ReadinessPage() {
-  const { session } = await getSession();
-  if (!session) redirect('/login');
+  await requireWorkspacePage();
   return <ReadinessClient />;
 }

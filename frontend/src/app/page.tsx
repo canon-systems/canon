@@ -1,5 +1,4 @@
 import Link from 'next/link';
-import { redirect } from 'next/navigation';
 import {
   IconArrowRight,
   IconFlag,
@@ -8,8 +7,8 @@ import {
   IconTool,
   IconUsers,
 } from '@tabler/icons-react';
-import { getSession } from '@/lib/auth';
 import { Button } from '@/components/ui/button';
+import { requireWorkspacePage } from '@/lib/server/workspacePage';
 
 const operatingLoop = [
   {
@@ -72,8 +71,7 @@ const setupFocus = [
 ];
 
 export default async function HomePage() {
-  const { session } = await getSession();
-  if (!session) redirect('/login');
+  await requireWorkspacePage();
 
   return (
     <div className="flex h-full flex-col overflow-hidden">

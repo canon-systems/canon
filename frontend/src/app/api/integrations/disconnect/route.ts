@@ -9,7 +9,7 @@ import {
 } from '@/lib/server/services/usageTracking';
 import { ATLASSIAN_PROVIDER, canonicalProvider } from '@/lib/providers';
 import { createLogger } from '@/lib/server/logging';
-import { getOrCreateOrganizationForUser } from '@/lib/server/organization';
+import { getOrganizationForUser } from '@/lib/server/organization';
 
 const log = createLogger('api.integrations.disconnect', {
   label: 'Integration Disconnect',
@@ -64,13 +64,13 @@ export async function POST(request: NextRequest) {
 
     const supabase = createServiceRoleClient();
 
-    const organization = await getOrCreateOrganizationForUser(supabase, user);
+    const organization = await getOrganizationForUser(supabase, user);
 
     log.info('disconnect_requested', {
       userId: user.id,
       provider: normalizedProvider ?? provider ?? 'unknown',
       connectionId: connectionId ?? 'by_provider',
-      orgId: organization.id,
+      orgId: organization?.id,
     });
 
     let connectionLookup = supabase
@@ -108,7 +108,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (integrationProviderSet.has('slack')) {
+    if (organization && integrationProviderSet.has('slack')) {
       const { error: deliverySettingsDeleteError } = await supabase
         .from('readiness_delivery_settings')
         .delete()
@@ -140,7 +140,7 @@ export async function POST(request: NextRequest) {
     const sourcesById = new Map<string, SourceRow>();
 
     const sourceProviders = Array.from(sourceProviderSet);
-    if (sourceProviders.length > 0) {
+    if (organization && sourceProviders.length > 0) {
       const { data: sourceRowsByProvider, error: sourceByProviderError } = (await supabase
         .from('knowledge_sources')
         .select('id, provider, name, slack_channel_id, slack_channel_name')
@@ -157,6 +157,8 @@ export async function POST(request: NextRequest) {
     }
 
     for (const source of sourcesById.values()) {
+      if (!organization) continue;
+
       await deleteSourceDependents({
         supabase,
         userId: user.id,
@@ -192,7 +194,7 @@ export async function POST(request: NextRequest) {
 
     log.info('source_cleanup_completed', {
       userId: user.id,
-      orgId: organization.id,
+      orgId: organization?.id,
       provider: normalizedProvider ?? provider ?? 'unknown',
       sourceCount: sourcesById.size,
     });
