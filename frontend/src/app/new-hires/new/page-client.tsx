@@ -9,14 +9,14 @@ export function NewHireFormClient() {
   const router = useRouter();
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
-      <Link href="/new-hires" className="mb-6 inline-flex items-center gap-1.5 type-body transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
+    <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6">
+      <Link href="/new-hires" className="mb-5 inline-flex items-center gap-1.5 type-body transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
         <IconArrowLeft size={16} />
-        New Hires
+        Hire Paths
       </Link>
 
-      <div className="mb-6">
-        <h1 className="type-page-title text-[var(--text-primary)]">Add New Hire</h1>
+      <div className="mb-5 border-b pb-4" style={{ borderColor: 'var(--border-tertiary)' }}>
+        <h1 className="type-page-title text-[var(--text-primary)]">Launch Hire Path</h1>
       </div>
 
       <div className="mb-6">
@@ -24,7 +24,7 @@ export function NewHireFormClient() {
           Start with the details Canon needs
         </h2>
         <p className="type-body mt-2 max-w-2xl leading-[1.5] text-[var(--text-secondary)]">
-          Canon uses the hire&apos;s role and start date to prepare the onboarding path, access requests, and readiness updates.
+          Canon uses the hire&apos;s role and start date to create a readiness path, access requests, and customer-ready briefings.
         </p>
       </div>
 

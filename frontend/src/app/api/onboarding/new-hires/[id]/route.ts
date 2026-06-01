@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
-import { createClient } from '@/lib/supabase/server';
 import { rampDayFromStartDate } from '@/lib/onboarding/rampDay';
-import type { HireRole, HireStatus, MilestoneEvidenceRequirement } from '@/types/onboarding';
+import { normalizeRoleName } from '@/lib/onboarding/roles';
+import { requireWorkspace, requireWorkspaceAdmin } from '@/lib/server/organization';
+import type { HireStatus, MilestoneEvidenceRequirement } from '@/types/onboarding';
 
 export const dynamic = 'force-dynamic';
 
-const VALID_ROLES: HireRole[] = ['AI Solutions Architect', 'Solutions Engineer', 'Implementation Engineer'];
 const VALID_STATUSES: HireStatus[] = ['active', 'paused', 'completed'];
 
 function isDateInputValue(value: string) {
@@ -40,21 +40,13 @@ export async function GET(
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { id } = await params;
-    const supabase = await createClient();
-
-    const { data: org } = await supabase
-      .from('organizations')
-      .select('id')
-      .eq('owner_id', user.id)
-      .single();
-
-    if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+    const { supabase, organization } = await requireWorkspace(user);
 
     const { data: hire, error: hireError } = await supabase
       .from('new_hires')
       .select('*')
       .eq('id', id)
-      .eq('organization_id', org.id)
+      .eq('organization_id', organization.id)
       .single();
 
     if (hireError || !hire) return NextResponse.json({ error: 'New hire not found' }, { status: 404 });
@@ -74,7 +66,7 @@ export async function GET(
     const { data: milestones } = await supabase
       .from('ramp_milestones')
       .select('*')
-      .eq('organization_id', org.id)
+      .eq('organization_id', organization.id)
       .eq('role', hire.role)
       .eq('status', 'active')
       .order('day_trigger', { ascending: true })
@@ -150,15 +142,7 @@ export async function PATCH(
 
     const { id } = await params;
     const body = (await request.json()) as Record<string, unknown>;
-    const supabase = await createClient();
-
-    const { data: org } = await supabase
-      .from('organizations')
-      .select('id')
-      .eq('owner_id', user.id)
-      .single();
-
-    if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+    const { supabase, organization } = await requireWorkspace(user);
 
     const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
 
@@ -181,10 +165,16 @@ export async function PATCH(
     }
 
     if (typeof body.role === 'string') {
-      if (!VALID_ROLES.includes(body.role as HireRole)) {
-        return NextResponse.json({ error: 'Invalid role' }, { status: 400 });
-      }
-      patch.role = body.role;
+      const role = normalizeRoleName(body.role);
+      const { data: roleProfile } = await supabase
+        .from('role_profiles')
+        .select('id')
+        .eq('organization_id', organization.id)
+        .eq('role', role)
+        .eq('status', 'active')
+        .maybeSingle();
+      if (!roleProfile) return NextResponse.json({ error: 'Role is not active' }, { status: 400 });
+      patch.role = role;
     }
 
     if (typeof body.start_date === 'string') {
@@ -219,7 +209,7 @@ export async function PATCH(
       .from('new_hires')
       .update(patch)
       .eq('id', id)
-      .eq('organization_id', org.id)
+      .eq('organization_id', organization.id)
       .select()
       .single();
 
@@ -247,21 +237,13 @@ export async function DELETE(
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { id } = await params;
-    const supabase = await createClient();
-
-    const { data: org } = await supabase
-      .from('organizations')
-      .select('id')
-      .eq('owner_id', user.id)
-      .single();
-
-    if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+    const { supabase, organization } = await requireWorkspaceAdmin(user);
 
     const { error } = await supabase
       .from('new_hires')
       .delete()
       .eq('id', id)
-      .eq('organization_id', org.id);
+      .eq('organization_id', organization.id);
 
     if (error) return NextResponse.json({ error: 'New hire not found or delete failed' }, { status: 404 });
 

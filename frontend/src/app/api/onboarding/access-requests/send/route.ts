@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
-import { createClient } from '@/lib/supabase/server';
 import { inngest } from '@/inngest/client';
+import { requireWorkspace } from '@/lib/server/organization';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,21 +14,14 @@ export async function POST(request: NextRequest) {
     const { accessRequestId } = body;
     if (!accessRequestId) return NextResponse.json({ error: 'accessRequestId is required' }, { status: 400 });
 
-    const supabase = await createClient();
-    const { data: org } = await supabase
-      .from('organizations')
-      .select('id')
-      .eq('owner_id', user.id)
-      .single();
-
-    if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+    const { supabase, organization } = await requireWorkspace(user);
 
     // Verify the access request belongs to this org
     const { data: ar } = await supabase
       .from('access_requests')
       .select('id, requested_from_slack_id, new_hires!inner(organization_id)')
       .eq('id', accessRequestId)
-      .eq('new_hires.organization_id', org.id)
+      .eq('new_hires.organization_id', organization.id)
       .single();
 
     if (!ar) return NextResponse.json({ error: 'Access request not found' }, { status: 404 });

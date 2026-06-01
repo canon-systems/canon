@@ -1,4 +1,4 @@
-export type HireRole = 'AI Solutions Architect' | 'Solutions Engineer' | 'Implementation Engineer';
+export type HireRole = string;
 export type HireStatus = 'active' | 'paused' | 'completed';
 export type KnowledgeProvider = 'slack' | 'notion' | 'google_drive' | 'confluence' | 'gong';
 export type KnowledgeSourceStatus = 'pending' | 'syncing' | 'active' | 'error' | 'stopped';
@@ -105,6 +105,8 @@ export interface RoleProfile {
   organization_id: string;
   role: HireRole;
   job_description: string;
+  status: 'active' | 'archived';
+  display_order: number;
   created_at: string;
   updated_at: string;
 }

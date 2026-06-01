@@ -3,11 +3,12 @@ import { getSession } from '@/lib/auth';
 import { createClient } from '@/lib/supabase/server';
 import { inngest } from '@/inngest/client';
 import { createLogger } from '@/lib/server/logging';
+import { normalizeRoleName } from '@/lib/onboarding/roles';
+import { requireWorkspace, requireWorkspaceAdmin } from '@/lib/server/organization';
 import type { HireRole, MilestoneEvidenceRequirement } from '@/types/onboarding';
 
 export const dynamic = 'force-dynamic';
 
-const validRoles: HireRole[] = ['AI Solutions Architect', 'Solutions Engineer', 'Implementation Engineer'];
 const log = createLogger('api.onboarding.milestones', {
   label: 'Milestones API',
   eventLabels: {
@@ -23,7 +24,7 @@ const log = createLogger('api.onboarding.milestones', {
 });
 
 function isRole(value: unknown): value is HireRole {
-  return typeof value === 'string' && validRoles.includes(value as HireRole);
+  return typeof value === 'string' && normalizeRoleName(value).length >= 2 && normalizeRoleName(value).length <= 120;
 }
 
 function stringField(value: unknown) {
@@ -70,34 +71,35 @@ function isMissingMilestoneGenerationRuns(error: unknown) {
   );
 }
 
-async function organizationForUser() {
-  const { user } = await getSession();
-  if (!user) return { user: null, org: null, supabase: null };
-
-  const supabase = await createClient();
-  const { data: org } = await supabase
-    .from('organizations')
+async function isActiveRole(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  organizationId: string,
+  role: string
+) {
+  const { data } = await supabase
+    .from('role_profiles')
     .select('id')
-    .eq('owner_id', user.id)
-    .single();
+    .eq('organization_id', organizationId)
+    .eq('role', role)
+    .eq('status', 'active')
+    .maybeSingle();
 
-  return { user, org, supabase };
+  return Boolean(data);
 }
 
 export async function GET(request: NextRequest) {
   try {
-    const { user, org, supabase } = await organizationForUser();
-    if (!user || !supabase) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const { user } = await getSession();
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const { supabase, organization } = await requireWorkspace(user);
 
-    const roleParam = request.nextUrl.searchParams.get('role');
+    const roleParam = normalizeRoleName(request.nextUrl.searchParams.get('role') ?? '');
     if (roleParam && !isRole(roleParam)) return NextResponse.json({ error: 'Invalid role' }, { status: 400 });
-
-    if (!org) return NextResponse.json({ milestones: [], proposals: [], latest_generation: null });
 
     let milestoneQuery = supabase
       .from('ramp_milestones')
       .select('*')
-      .eq('organization_id', org.id)
+      .eq('organization_id', organization.id)
       .eq('status', 'active')
       .order('day_trigger', { ascending: true });
 
@@ -111,7 +113,7 @@ export async function GET(request: NextRequest) {
     let proposalQuery = supabase
       .from('milestone_proposals')
       .select('*')
-      .eq('organization_id', org.id)
+      .eq('organization_id', organization.id)
       .eq('status', 'draft')
       .order('suggested_day_trigger', { ascending: true });
 
@@ -124,7 +126,7 @@ export async function GET(request: NextRequest) {
       supabase
         .from('milestone_generation_runs')
         .select('*')
-        .eq('organization_id', org.id)
+        .eq('organization_id', organization.id)
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle(),
@@ -134,7 +136,7 @@ export async function GET(request: NextRequest) {
 
     log.debug('milestones_loaded', {
       userId: user.id,
-      organizationId: org.id,
+      organizationId: organization.id,
       role: roleParam ?? 'all',
       milestoneCount: milestones?.length ?? 0,
       proposalCount: proposals?.length ?? 0,
@@ -154,9 +156,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { user, org, supabase } = await organizationForUser();
-    if (!user || !supabase) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+    const { user } = await getSession();
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const { supabase, organization } = await requireWorkspaceAdmin(user);
 
     const body = (await request.json()) as {
       action?: string;
@@ -178,7 +180,7 @@ export async function POST(request: NextRequest) {
       const { data: generationRun, error: generationRunError } = await supabase
         .from('milestone_generation_runs')
         .insert({
-          organization_id: org.id,
+          organization_id: organization.id,
           requested_by: user.id,
           status: 'queued',
           updated_at: new Date().toISOString(),
@@ -189,11 +191,11 @@ export async function POST(request: NextRequest) {
       if (generationRunError && isMissingMilestoneGenerationRuns(generationRunError)) {
         const result = await inngest.send({
           name: 'onboarding/milestones.generate.requested',
-          data: { organizationId: org.id, requestedBy: user.id },
+          data: { organizationId: organization.id, requestedBy: user.id },
         });
         log.info('generation_requested', {
           userId: user.id,
-          organizationId: org.id,
+          organizationId: organization.id,
           eventName: 'onboarding/milestones.generate.requested',
           eventIds: eventIds(result),
           statusTracking: 'unavailable',
@@ -207,11 +209,11 @@ export async function POST(request: NextRequest) {
 
       const result = await inngest.send({
         name: 'onboarding/milestones.generate.requested',
-        data: { organizationId: org.id, requestedBy: user.id, generationRunId: generationRun.id },
+        data: { organizationId: organization.id, requestedBy: user.id, generationRunId: generationRun.id },
       });
       log.info('generation_requested', {
         userId: user.id,
-        organizationId: org.id,
+        organizationId: organization.id,
         generationRunId: generationRun.id,
         eventName: 'onboarding/milestones.generate.requested',
         eventIds: eventIds(result),
@@ -239,12 +241,12 @@ export async function POST(request: NextRequest) {
         .from('milestone_proposals')
         .update(updates)
         .eq('id', body.proposal_id)
-        .eq('organization_id', org.id)
+        .eq('organization_id', organization.id)
         .eq('status', 'draft')
         .select()
         .single();
       if (error || !proposal) return NextResponse.json({ error: 'Proposal not found or already resolved' }, { status: 404 });
-      log.debug('proposal_updated', { userId: user.id, organizationId: org.id, proposalId: proposal.id });
+      log.debug('proposal_updated', { userId: user.id, organizationId: organization.id, proposalId: proposal.id });
       return NextResponse.json({ proposal });
     }
 
@@ -254,14 +256,14 @@ export async function POST(request: NextRequest) {
         .from('milestone_proposals')
         .update({ status: 'rejected', rejected_at: new Date().toISOString(), updated_at: new Date().toISOString() })
         .eq('id', body.proposal_id)
-        .eq('organization_id', org.id)
+        .eq('organization_id', organization.id)
         .eq('status', 'draft')
         .select()
         .single();
       if (error || !proposal) return NextResponse.json({ error: 'Proposal not found or already resolved' }, { status: 404 });
       log.info('proposal_rejected', {
         userId: user.id,
-        organizationId: org.id,
+        organizationId: organization.id,
         proposalId: proposal.id,
         role: proposal.role,
       });
@@ -275,11 +277,14 @@ export async function POST(request: NextRequest) {
         .from('milestone_proposals')
         .select('*')
         .eq('id', body.proposal_id)
-        .eq('organization_id', org.id)
+        .eq('organization_id', organization.id)
         .eq('status', 'draft')
         .single();
 
       if (proposalError || !proposal) return NextResponse.json({ error: 'Proposal not found or already resolved' }, { status: 404 });
+      if (!(await isActiveRole(supabase, organization.id, proposal.role))) {
+        return NextResponse.json({ error: 'Role is not active' }, { status: 400 });
+      }
 
       const title = stringField(body.title) || proposal.title;
       const dayTrigger = typeof body.day_trigger === 'number' ? body.day_trigger : proposal.suggested_day_trigger;
@@ -295,7 +300,7 @@ export async function POST(request: NextRequest) {
       const { data: milestone, error: milestoneError } = await supabase
         .from('ramp_milestones')
         .insert({
-          organization_id: org.id,
+          organization_id: organization.id,
           role: proposal.role,
           day_trigger: dayTrigger,
           title,
@@ -330,7 +335,7 @@ export async function POST(request: NextRequest) {
 
       log.info('proposal_approved', {
         userId: user.id,
-        organizationId: org.id,
+        organizationId: organization.id,
         proposalId: proposal.id,
         milestoneId: milestone.id,
         role: milestone.role,
@@ -340,7 +345,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ milestone }, { status: 201 });
     }
 
-    const { role, day_trigger, title, description, knowledge_query } = body;
+    const { day_trigger, title, description, knowledge_query } = body;
+    const role = normalizeRoleName(body.role ?? '');
     const capabilityOutcome = stringField(body.capability_outcome) || stringField(description);
     const briefingGoal = stringField(body.briefing_goal) || capabilityOutcome;
     const realWorkTrigger = stringField(body.real_work_trigger);
@@ -356,11 +362,14 @@ export async function POST(request: NextRequest) {
     if (!isRole(role)) {
       return NextResponse.json({ error: 'Invalid role' }, { status: 400 });
     }
+    if (!(await isActiveRole(supabase, organization.id, role))) {
+      return NextResponse.json({ error: 'Role is not active' }, { status: 400 });
+    }
 
     const { data: milestone, error } = await supabase
       .from('ramp_milestones')
       .insert({
-        organization_id: org.id,
+        organization_id: organization.id,
         role,
         day_trigger,
         title,
@@ -383,7 +392,7 @@ export async function POST(request: NextRequest) {
 
     log.info('milestone_created', {
       userId: user.id,
-      organizationId: org.id,
+      organizationId: organization.id,
       milestoneId: milestone.id,
       role: milestone.role,
       dayTrigger: milestone.day_trigger,
@@ -399,9 +408,9 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const { user, org, supabase } = await organizationForUser();
-    if (!user || !supabase) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+    const { user } = await getSession();
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const { supabase, organization } = await requireWorkspaceAdmin(user);
 
     const body = (await request.json()) as {
       milestone_id?: string;
@@ -423,7 +432,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     const dayTrigger = body.day_trigger;
-    const role = body.role as HireRole | undefined;
+    const role = typeof body.role === 'string' ? normalizeRoleName(body.role) : undefined;
     const title = stringField(body.title);
     const capabilityOutcome = stringField(body.capability_outcome);
     const briefingGoal = stringField(body.briefing_goal);
@@ -444,6 +453,9 @@ export async function PATCH(request: NextRequest) {
         error: 'day_trigger, title, capability_outcome, briefing_goal, real_work_trigger, and retrieval_brief are required',
       }, { status: 400 });
     }
+    if (role && !(await isActiveRole(supabase, organization.id, role))) {
+      return NextResponse.json({ error: 'Role is not active' }, { status: 400 });
+    }
 
     const { data: milestone, error } = await supabase
       .from('ramp_milestones')
@@ -462,7 +474,7 @@ export async function PATCH(request: NextRequest) {
         updated_at: new Date().toISOString(),
       })
       .eq('id', milestoneId)
-      .eq('organization_id', org.id)
+      .eq('organization_id', organization.id)
       .eq('status', 'active')
       .select()
       .single();
@@ -471,7 +483,7 @@ export async function PATCH(request: NextRequest) {
 
     log.info('milestone_updated', {
       userId: user.id,
-      organizationId: org.id,
+      organizationId: organization.id,
       milestoneId: milestone.id,
       role: milestone.role,
       dayTrigger: milestone.day_trigger,
@@ -487,9 +499,9 @@ export async function PATCH(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const { user, org, supabase } = await organizationForUser();
-    if (!user || !supabase) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+    const { user } = await getSession();
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const { supabase, organization } = await requireWorkspaceAdmin(user);
 
     const body = (await request.json().catch(() => ({}))) as { milestone_id?: string };
     const milestoneId = stringField(body.milestone_id) || stringField(request.nextUrl.searchParams.get('id'));
@@ -499,7 +511,7 @@ export async function DELETE(request: NextRequest) {
       .from('ramp_milestones')
       .update({ status: 'archived', updated_at: new Date().toISOString() })
       .eq('id', milestoneId)
-      .eq('organization_id', org.id)
+      .eq('organization_id', organization.id)
       .eq('status', 'active')
       .select('id, role, day_trigger')
       .single();
@@ -508,7 +520,7 @@ export async function DELETE(request: NextRequest) {
 
     log.info('milestone_archived', {
       userId: user.id,
-      organizationId: org.id,
+      organizationId: organization.id,
       milestoneId: milestone.id,
       role: milestone.role,
       dayTrigger: milestone.day_trigger,

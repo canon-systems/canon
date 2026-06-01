@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
-import { createClient } from '@/lib/supabase/server';
 import { inngest } from '@/inngest/client';
 import { syncAccessReadinessEvidence } from '@/lib/server/milestoneEvidence';
+import { requireWorkspace } from '@/lib/server/organization';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,15 +12,7 @@ export async function GET(request: NextRequest) {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const newHireId = request.nextUrl.searchParams.get('new_hire_id');
-    const supabase = await createClient();
-
-    const { data: org } = await supabase
-      .from('organizations')
-      .select('id')
-      .eq('owner_id', user.id)
-      .single();
-
-    if (!org) return NextResponse.json({ access_requests: [] });
+    const { supabase, organization } = await requireWorkspace(user);
 
     let query = supabase
       .from('access_requests')
@@ -28,7 +20,7 @@ export async function GET(request: NextRequest) {
         *,
         new_hires!inner(organization_id)
       `)
-      .eq('new_hires.organization_id', org.id)
+      .eq('new_hires.organization_id', organization.id)
       .order('created_at', { ascending: true });
 
     if (newHireId) {
@@ -64,20 +56,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'new_hire_id and tool_name are required' }, { status: 400 });
     }
 
-    const supabase = await createClient();
-    const { data: org } = await supabase
-      .from('organizations')
-      .select('id')
-      .eq('owner_id', user.id)
-      .single();
-
-    if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+    const { supabase, organization } = await requireWorkspace(user);
 
     const { data: hire } = await supabase
       .from('new_hires')
       .select('id')
       .eq('id', new_hire_id)
-      .eq('organization_id', org.id)
+      .eq('organization_id', organization.id)
       .single();
 
     if (!hire) return NextResponse.json({ error: 'New hire not found' }, { status: 404 });
@@ -124,14 +109,7 @@ export async function PATCH(request: NextRequest) {
     const validStatuses = ['pending', 'sent', 'acknowledged', 'granted', 'confirmed'];
     if (status && !validStatuses.includes(status)) return NextResponse.json({ error: 'Invalid status' }, { status: 400 });
 
-    const supabase = await createClient();
-    const { data: org } = await supabase
-      .from('organizations')
-      .select('id')
-      .eq('owner_id', user.id)
-      .single();
-
-    if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+    const { supabase } = await requireWorkspace(user);
 
     const updatePayload: Record<string, unknown> = {};
     if (status) {
@@ -186,21 +164,14 @@ export async function DELETE(request: NextRequest) {
     const id = request.nextUrl.searchParams.get('id');
     if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 });
 
-    const supabase = await createClient();
-    const { data: org } = await supabase
-      .from('organizations')
-      .select('id')
-      .eq('owner_id', user.id)
-      .single();
-
-    if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+    const { supabase, organization } = await requireWorkspace(user);
 
     // Verify the request belongs to this org before deleting
     const { data: ar } = await supabase
       .from('access_requests')
       .select('id, new_hires!inner(organization_id)')
       .eq('id', id)
-      .eq('new_hires.organization_id', org.id)
+      .eq('new_hires.organization_id', organization.id)
       .single();
 
     if (!ar) return NextResponse.json({ error: 'Access request not found' }, { status: 404 });

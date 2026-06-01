@@ -56,8 +56,6 @@ type RoleProfileResult = {
   job_description: string | null;
 };
 
-const ALL_ROLES: HireRole[] = ['AI Solutions Architect', 'Solutions Engineer', 'Implementation Engineer'];
-
 const CATEGORY_QUERIES: Record<ReadinessCategory, string> = {
   product_change:
     'product update feature change launch release announcement new capability limitation pricing packaging availability migration rollout',
@@ -110,7 +108,7 @@ const SignalItemSchema = z.object({
     .optional()
     .describe('Urgency for GTM teams'),
   affected_roles: z
-    .array(z.enum(['AI Solutions Architect', 'Solutions Engineer', 'Implementation Engineer']))
+    .array(z.string().min(2).max(120))
     .optional()
     .describe('Which roles are affected'),
 });
@@ -167,7 +165,7 @@ For each clear signal, provide:
 - summary: 1–2 sentences describing what GTM teams need to know
 - recommended_action: A specific next step starting with a verb (e.g. "Update the Day 14 milestone with...")
 - impact_level: How urgently teams need this (low / medium / high)
-- affected_roles: Which roles are affected based on the role job descriptions and concrete implications (subset of: AI Solutions Architect, Solutions Engineer, Implementation Engineer)
+- affected_roles: Which roles are affected based on the role job descriptions and concrete implications. Use only exact active role names listed above.
 
 If there is no clear signal, return { "signals": [] }.`,
   });
@@ -191,7 +189,7 @@ async function detectCompanyReadinessSignals(params: {
     schema: CompanySignalsSchema,
     prompt: `You are Canon, an AI that monitors company knowledge to keep technical GTM teams continuously ready.
 
-Analyze these knowledge chunks and extract any company-related readiness signals. Do not depend on exact keywords or a predefined topic list. Use judgment: if a Solutions Engineer, AI Solutions Architect, Implementation Engineer, or customer-facing technical teammate would need to change what they say, demo, qualify, document, escalate, configure, or promise, it is a readiness signal.
+Analyze these knowledge chunks and extract any company-related readiness signals. Do not depend on exact keywords or a predefined topic list. Use judgment: if an active customer-facing technical role would need to change what they say, demo, qualify, document, escalate, configure, or promise, it is a readiness signal.
 
 Use these role job descriptions when deciding whether each signal applies to each role:
 ${roleContext}
@@ -220,7 +218,7 @@ For each clear signal, provide:
 - summary: 1–2 sentences describing what technical GTM teams need to know
 - recommended_action: A specific next step starting with a verb
 - impact_level: How urgently teams need this (low / medium / high)
-- affected_roles: Which roles are affected based on the role job descriptions and concrete implications (subset of: AI Solutions Architect, Solutions Engineer, Implementation Engineer)
+- affected_roles: Which roles are affected based on the role job descriptions and concrete implications. Use only exact active role names listed above.
 
 If there is no clear signal, return { "signals": [] }.`,
   });
@@ -292,12 +290,24 @@ function compactText(value: string, maxLength: number) {
 
 function roleProfileContext(roleProfiles: RoleProfileResult[]) {
   const profilesByRole = new Map(roleProfiles.map((profile) => [profile.role, profile]));
-  return ALL_ROLES.map((role) => {
+  return activeRolesFromProfiles(roleProfiles).map((role) => {
     const jobDescription = compactText(profilesByRole.get(role)?.job_description ?? '', 1800);
     return jobDescription
       ? `${role}:\n${jobDescription}`
       : `${role}:\nNo job description provided. Use only explicit evidence and the role title.`;
   }).join('\n\n');
+}
+
+function activeRolesFromProfiles(roleProfiles: RoleProfileResult[]) {
+  return roleProfiles.map((profile) => profile.role).filter((role) => role.trim().length > 0);
+}
+
+function normalizeAffectedRoles(value: string[] | undefined, activeRoles: HireRole[]) {
+  const requested = value?.length ? value : activeRoles;
+  const activeRoleSet = new Set(activeRoles.map((role) => role.toLowerCase()));
+  const normalized = Array.from(new Set(requested))
+    .filter((role): role is HireRole => activeRoleSet.has(role.toLowerCase()));
+  return normalized.length > 0 ? normalized : activeRoles;
 }
 
 function roleProfileMetadata(roleProfiles: RoleProfileResult[]) {
@@ -669,8 +679,16 @@ export const readinessAnalysisOnDemand = inngest.createFunction(
         const { data: roleProfileRows } = await supabase
           .from('role_profiles')
           .select('role, job_description')
-          .eq('organization_id', org.id);
+          .eq('organization_id', org.id)
+          .eq('status', 'active')
+          .order('display_order', { ascending: true })
+          .order('role', { ascending: true });
         const roleProfiles = (roleProfileRows ?? []) as RoleProfileResult[];
+        const activeRoles = activeRolesFromProfiles(roleProfiles);
+        if (activeRoles.length === 0) {
+          log.info('org_skipped', { orgId: org.id, reason: 'no_active_roles' });
+          return { signalsDetected: 0, signalsReviewed: 0 };
+        }
         const roleProfileSourceMetadata = roleProfileMetadata(roleProfiles);
 
         try {
@@ -724,7 +742,7 @@ export const readinessAnalysisOnDemand = inngest.createFunction(
               summary: signal.summary,
               recommended_action: signal.recommended_action ?? null,
               impact_level: signal.impact_level ?? 'medium',
-              affected_roles: signal.affected_roles ?? ALL_ROLES,
+              affected_roles: normalizeAffectedRoles(signal.affected_roles, activeRoles),
               source: 'slack',
               source_url: null,
               source_metadata: {
@@ -809,7 +827,7 @@ export const readinessAnalysisOnDemand = inngest.createFunction(
                 summary: signal.summary,
                 recommended_action: signal.recommended_action ?? null,
                 impact_level: signal.impact_level ?? 'medium',
-                affected_roles: signal.affected_roles ?? ALL_ROLES,
+                affected_roles: normalizeAffectedRoles(signal.affected_roles, activeRoles),
                 source: 'slack',
                 source_url: null,
                 source_metadata: {
@@ -948,8 +966,16 @@ export const readinessAnalysis = inngest.createFunction(
         const { data: roleProfileRows } = await supabase
           .from('role_profiles')
           .select('role, job_description')
-          .eq('organization_id', org.id);
+          .eq('organization_id', org.id)
+          .eq('status', 'active')
+          .order('display_order', { ascending: true })
+          .order('role', { ascending: true });
         const roleProfiles = (roleProfileRows ?? []) as RoleProfileResult[];
+        const activeRoles = activeRolesFromProfiles(roleProfiles);
+        if (activeRoles.length === 0) {
+          log.info('org_skipped', { orgId: org.id, reason: 'no_active_roles' });
+          return { signalsDetected: 0, signalsReviewed: 0 };
+        }
         const roleProfileSourceMetadata = roleProfileMetadata(roleProfiles);
 
         try {
@@ -1003,7 +1029,7 @@ export const readinessAnalysis = inngest.createFunction(
               summary: signal.summary,
               recommended_action: signal.recommended_action ?? null,
               impact_level: signal.impact_level ?? 'medium',
-              affected_roles: signal.affected_roles ?? ALL_ROLES,
+              affected_roles: normalizeAffectedRoles(signal.affected_roles, activeRoles),
               source: 'slack',
               source_url: null,
               source_metadata: {
@@ -1088,7 +1114,7 @@ export const readinessAnalysis = inngest.createFunction(
                 summary: signal.summary,
                 recommended_action: signal.recommended_action ?? null,
                 impact_level: signal.impact_level ?? 'medium',
-                affected_roles: signal.affected_roles ?? ALL_ROLES,
+                affected_roles: normalizeAffectedRoles(signal.affected_roles, activeRoles),
                 source: 'slack',
                 source_url: null,
                 source_metadata: {

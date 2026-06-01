@@ -19,8 +19,8 @@ const interDisplay = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Canon - Onboarding Agent",
-  description: "Proactive onboarding for technical GTM hires. Canon delivers AI-curated context from Slack at every ramp milestone.",
+  title: "Canon - Technical GTM Readiness Platform",
+  description: "Canon gets new hires customer-ready faster and keeps field teams current as products, pricing, positioning, and processes change.",
 };
 
 export default async function RootLayout({

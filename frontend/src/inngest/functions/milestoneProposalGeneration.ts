@@ -21,7 +21,6 @@ const log = createLogger('inngest.milestone_proposal_generation', {
   componentColor: 'orange',
 });
 
-const ROLES: HireRole[] = ['AI Solutions Architect', 'Solutions Engineer', 'Implementation Engineer'];
 const PROMPT_CHUNK_LIMIT = 24;
 const PROMPT_CHUNK_CHAR_LIMIT = 1200;
 
@@ -366,7 +365,10 @@ async function generateForOrg(organizationId: string) {
     supabase
       .from('role_profiles')
       .select('role, job_description')
-      .eq('organization_id', organizationId),
+      .eq('organization_id', organizationId)
+      .eq('status', 'active')
+      .order('display_order', { ascending: true })
+      .order('role', { ascending: true }),
   ]);
 
   if (error) throw error;
@@ -382,8 +384,17 @@ async function generateForOrg(organizationId: string) {
   });
 
   // Build per-role dedup sets from the two prefetched queries
+  const activeRoles = ((roleProfiles ?? []) as RoleProfileResult[])
+    .map((profile) => profile.role)
+    .filter((role) => role.trim().length > 0);
+
+  if (activeRoles.length === 0) {
+    log.info('org_skipped', { orgId: organizationId, reason: 'no_active_roles' });
+    return { proposalsCreated: 0, rolesProcessed: 0 };
+  }
+
   const existingKeysByRole = new Map<HireRole, Set<string>>(
-    ROLES.map((role) => {
+    activeRoles.map((role) => {
       const keys = new Set<string>();
       for (const m of (activeMilestones ?? []).filter((m) => m.role === role)) {
         keys.add(normalizeKey(`${m.title}-${m.real_work_trigger ?? ''}`));
@@ -399,7 +410,7 @@ async function generateForOrg(organizationId: string) {
   );
 
   const roleResults = await Promise.all(
-    ROLES.map(async (role) => {
+    activeRoles.map(async (role) => {
       try {
         const { proposals, rawCount, invalidCount, promptChunkCount } = await generateRoleProposals({
           role,

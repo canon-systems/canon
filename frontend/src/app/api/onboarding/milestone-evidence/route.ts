@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
-import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { createServiceRoleClient } from '@/lib/supabase/server';
 import { recordMilestoneEvidence } from '@/lib/server/milestoneEvidence';
+import { requireWorkspace } from '@/lib/server/organization';
 import type { MilestoneEvidenceTrustLevel, MilestoneEvidenceType } from '@/types/onboarding';
 
 export const dynamic = 'force-dynamic';
@@ -94,20 +95,13 @@ export async function POST(request: NextRequest) {
     const { user } = await getSession();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const supabase = await createClient();
-    const { data: org } = await supabase
-      .from('organizations')
-      .select('id')
-      .eq('owner_id', user.id)
-      .single();
-
-    if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+    const { supabase, organization } = await requireWorkspace(user);
 
     const { data: hire } = await supabase
       .from('new_hires')
       .select('id')
       .eq('id', newHireId)
-      .eq('organization_id', org.id)
+      .eq('organization_id', organization.id)
       .single();
 
     if (!hire) return NextResponse.json({ error: 'New hire not found' }, { status: 404 });

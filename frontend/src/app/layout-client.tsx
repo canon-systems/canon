@@ -127,11 +127,11 @@ export function RootLayoutClient({
 
         if (run.status === 'completed') {
           window.localStorage.removeItem(MILESTONE_GENERATION_STORAGE_KEY);
-          toast.success('Milestones are ready for review');
+          toast.success('Readiness milestones are ready for review');
         } else if (run.status === 'failed') {
           window.localStorage.removeItem(MILESTONE_GENERATION_STORAGE_KEY);
-          toast.error('Milestone generation failed', {
-            description: run.error_message ?? 'Open Milestones and try generating drafts again.',
+          toast.error('Readiness milestone generation failed', {
+            description: run.error_message ?? 'Open Readiness Milestones and try generating drafts again.',
           });
         }
       } catch {

@@ -209,6 +209,15 @@ export const dailyRampCheck = inngest.createFunction(
             .update({ ramp_day: newRampDay, updated_at: new Date().toISOString() })
             .eq('id', hire.id);
 
+          const { data: activeRole } = await supabase
+            .from('role_profiles')
+            .select('id')
+            .eq('organization_id', hire.organization_id)
+            .eq('role', hire.role)
+            .eq('status', 'active')
+            .maybeSingle();
+          if (!activeRole) return;
+
           await syncAccessReadinessEvidence({
             supabase,
             newHireId: hire.id,

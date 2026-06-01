@@ -16,6 +16,7 @@ import {
   IconTool,
   IconTrash,
   IconUser,
+  IconUsers,
   IconX,
 } from '@tabler/icons-react';
 import { IntegrationLogos } from '@/components/IntegrationLogos';
@@ -26,13 +27,15 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Avatar } from '@/components/ui/avatar';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Alert } from '@/components/ui/alert';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/components/ui/utils';
 import { ToolLogo } from '@/components/ToolLogo';
 import { ToolNameCombobox } from '@/components/tool-name-combobox';
 import { SlackUserPicker, type SlackUser } from '@/components/SlackUserPicker';
-import type { OrgTool, HireRole } from '@/types/onboarding';
+import { activeRoleProfiles, normalizeRoleName, roleAbbreviation, roleColor } from '@/lib/onboarding/roles';
+import type { OrgTool, HireRole, RoleProfile } from '@/types/onboarding';
 
 interface Connection {
   id: string;
@@ -44,6 +47,36 @@ interface Connection {
   updated_at: string;
 }
 
+type WorkspaceRole = 'owner' | 'admin' | 'member';
+
+interface Workspace {
+  id: string;
+  name: string;
+  slug: string;
+  owner_id: string | null;
+  role: WorkspaceRole;
+}
+
+interface WorkspaceMember {
+  id: string;
+  user_id: string;
+  role: WorkspaceRole;
+  email: string | null;
+  is_current_user: boolean;
+  created_at: string;
+}
+
+interface WorkspaceInvitation {
+  id: string;
+  email: string;
+  role: Exclude<WorkspaceRole, 'owner'>;
+  token: string;
+  accepted_at: string | null;
+  revoked_at: string | null;
+  expires_at: string;
+  created_at: string;
+}
+
 interface SettingsPageClientProps {
   user: SupabaseUser | null;
 }
@@ -51,7 +84,7 @@ interface SettingsPageClientProps {
 const settingSections = [
   { section: 'Account', items: [{ id: 'profile', label: 'Profile', icon: IconUser }, { id: 'org', label: 'Organization', icon: IconBuilding }] },
   { section: 'Connections', items: [{ id: 'integrations', label: 'Integrations', icon: IconPlug }, { id: 'notifications', label: 'Notifications', icon: IconBell }] },
-  { section: 'Onboarding', items: [{ id: 'tools', label: 'Tools', icon: IconTool }] },
+  { section: 'Readiness', items: [{ id: 'roles', label: 'Roles', icon: IconUsers }, { id: 'tools', label: 'Tools', icon: IconTool }] },
   {
     section: 'Developer',
     items: [
@@ -61,31 +94,9 @@ const settingSections = [
   { section: 'Danger', items: [{ id: 'delete', label: 'Delete Account', icon: IconTrash, danger: true }] },
 ];
 
-const SETTINGS_TABS = ['profile', 'org', 'integrations', 'notifications', 'tools', 'apikeys', 'delete'] as const;
+const SETTINGS_TABS = ['profile', 'org', 'integrations', 'notifications', 'roles', 'tools', 'apikeys', 'delete'] as const;
 type SettingsTab = typeof SETTINGS_TABS[number];
-const HIRE_ROLES: HireRole[] = ['AI Solutions Architect', 'Solutions Engineer', 'Implementation Engineer'];
 type ToolFilter = 'all' | 'all_roles' | 'unowned' | HireRole;
-
-const ROLE_META: Record<HireRole, { short: string; color: string; background: string; border: string }> = {
-  'AI Solutions Architect': {
-    short: 'AI SA',
-    color: 'var(--role-ai)',
-    background: 'rgba(13, 148, 136, 0.14)',
-    border: 'rgba(13, 148, 136, 0.42)',
-  },
-  'Solutions Engineer': {
-    short: 'SE',
-    color: 'var(--role-se)',
-    background: 'rgba(107, 92, 231, 0.15)',
-    border: 'rgba(155, 141, 245, 0.48)',
-  },
-  'Implementation Engineer': {
-    short: 'IE',
-    color: 'var(--role-ie)',
-    background: 'rgba(37, 99, 235, 0.14)',
-    border: 'rgba(37, 99, 235, 0.42)',
-  },
-};
 
 interface ToolGroup {
   key: string;
@@ -101,10 +112,6 @@ interface ToolGroup {
 
 function isSettingsTab(value: string | null): value is SettingsTab {
   return SETTINGS_TABS.includes(value as SettingsTab);
-}
-
-function isHireRole(value: ToolFilter): value is HireRole {
-  return HIRE_ROLES.includes(value as HireRole);
 }
 
 function normalizeToolName(toolName: string) {
@@ -171,15 +178,17 @@ function toggleRoleSelection(currentRoles: HireRole[], role: HireRole) {
 function selectedRolesLabel(roles: HireRole[]) {
   if (roles.length === 0) return 'All roles';
   if (roles.length === 1) return roles[0];
-  return roles.map((role) => ROLE_META[role].short).join(', ');
+  return roles.map((role) => roleAbbreviation(role)).join(', ');
 }
 
 function RoleMultiSelect({
   value,
   onChange,
+  roles,
 }: {
   value: HireRole[];
   onChange: (roles: HireRole[]) => void;
+  roles: HireRole[];
 }) {
   const allRolesSelected = value.length === 0;
 
@@ -212,7 +221,7 @@ function RoleMultiSelect({
 
         <div className="my-1 h-px bg-[var(--border-tertiary)]" />
 
-        {HIRE_ROLES.map((role) => {
+        {roles.map((role, index) => {
           const selected = value.includes(role);
           return (
             <button
@@ -228,7 +237,7 @@ function RoleMultiSelect({
               )}
             >
               <span>{role}</span>
-              {selected && <IconCheck size={14} style={{ color: ROLE_META[role].color }} />}
+              {selected && <IconCheck size={14} style={{ color: roleColor(role, index) }} />}
             </button>
           );
         })}
@@ -254,9 +263,30 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   const [gongAccessKey, setGongAccessKey] = useState('');
   const [gongAccessKeySecret, setGongAccessKeySecret] = useState('');
   const [gongApiBaseUrl, setGongApiBaseUrl] = useState('https://api.gong.io');
+  const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const [workspaceMembers, setWorkspaceMembers] = useState<WorkspaceMember[]>([]);
+  const [workspaceInvitations, setWorkspaceInvitations] = useState<WorkspaceInvitation[]>([]);
+  const [workspaceLoading, setWorkspaceLoading] = useState(false);
+  const [workspaceSaving, setWorkspaceSaving] = useState(false);
+  const [workspaceName, setWorkspaceName] = useState('');
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState<Exclude<WorkspaceRole, 'owner'>>('member');
+  const [inviteSaving, setInviteSaving] = useState(false);
+  const [lastInviteUrl, setLastInviteUrl] = useState('');
 
   const [tools, setTools] = useState<OrgTool[]>([]);
+  const [roleProfiles, setRoleProfiles] = useState<RoleProfile[]>([]);
   const [toolsLoading, setToolsLoading] = useState(false);
+  const [rolesLoading, setRolesLoading] = useState(false);
+  const [addRoleOpen, setAddRoleOpen] = useState(false);
+  const [addRoleSaving, setAddRoleSaving] = useState(false);
+  const [newRole, setNewRole] = useState({ role: '', job_description: '' });
+  const [editingRole, setEditingRole] = useState<RoleProfile | null>(null);
+  const [editRoleForm, setEditRoleForm] = useState({ job_description: '' });
+  const [editRoleSaving, setEditRoleSaving] = useState(false);
+  const [archivingRole, setArchivingRole] = useState<RoleProfile | null>(null);
+  const [archiveRoleSaving, setArchiveRoleSaving] = useState(false);
+  const [restoreRoleId, setRestoreRoleId] = useState<string | null>(null);
   const [addToolOpen, setAddToolOpen] = useState(false);
   const [addToolSaving, setAddToolSaving] = useState(false);
   const [toolFilter, setToolFilter] = useState<ToolFilter>('all');
@@ -290,16 +320,136 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
 
   const loadTools = useCallback(async () => {
     setToolsLoading(true);
+    setRolesLoading(true);
     try {
-      const res = await fetch('/api/onboarding/org-tools');
-      const data = (await res.json()) as { tools?: OrgTool[] };
+      const [toolsRes, rolesRes] = await Promise.all([
+        fetch('/api/onboarding/org-tools'),
+        fetch('/api/onboarding/role-profiles?include_archived=true'),
+      ]);
+      const data = (await toolsRes.json()) as { tools?: OrgTool[] };
+      const rolesData = (await rolesRes.json()) as { profiles?: RoleProfile[] };
       setTools(data.tools ?? []);
+      setRoleProfiles(rolesData.profiles ?? []);
     } catch {
       // non-fatal
     } finally {
       setToolsLoading(false);
+      setRolesLoading(false);
     }
   }, []);
+
+  const activeToolRoles = activeRoleProfiles(roleProfiles).map((profile) => profile.role);
+
+  const loadWorkspace = useCallback(async () => {
+    setWorkspaceLoading(true);
+    try {
+      const [workspaceRes, membersRes, invitationsRes] = await Promise.all([
+        fetch('/api/workspace'),
+        fetch('/api/workspace/members'),
+        fetch('/api/workspace/invitations'),
+      ]);
+
+      const workspaceData = (await workspaceRes.json().catch(() => ({}))) as { workspace?: Workspace };
+      const membersData = (await membersRes.json().catch(() => ({}))) as { members?: WorkspaceMember[] };
+      const invitationsData = (await invitationsRes.json().catch(() => ({}))) as { invitations?: WorkspaceInvitation[] };
+
+      if (!workspaceRes.ok) throw new Error('workspace_load');
+
+      setWorkspace(workspaceData.workspace ?? null);
+      setWorkspaceName(workspaceData.workspace?.name ?? '');
+      setWorkspaceMembers(membersRes.ok ? membersData.members ?? [] : []);
+      setWorkspaceInvitations(invitationsRes.ok ? invitationsData.invitations ?? [] : []);
+    } catch {
+      toast.error('Unable to load workspace settings.');
+    } finally {
+      setWorkspaceLoading(false);
+    }
+  }, []);
+
+  async function saveWorkspaceName() {
+    const name = workspaceName.trim();
+    if (!name) return;
+    setWorkspaceSaving(true);
+    try {
+      const res = await fetch('/api/workspace', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { workspace?: Workspace; error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'workspace_save');
+      setWorkspace(data.workspace ?? null);
+      setWorkspaceName(data.workspace?.name ?? name);
+      toast.success('Workspace updated');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to update workspace.');
+    } finally {
+      setWorkspaceSaving(false);
+    }
+  }
+
+  async function createInvitation() {
+    if (!inviteEmail.trim()) return;
+    setInviteSaving(true);
+    setLastInviteUrl('');
+    try {
+      const res = await fetch('/api/workspace/invitations', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email: inviteEmail, role: inviteRole }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { invite_url?: string; error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'invite_create');
+      setInviteEmail('');
+      setLastInviteUrl(data.invite_url ?? '');
+      await loadWorkspace();
+      toast.success('Invitation created');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to create invitation.');
+    } finally {
+      setInviteSaving(false);
+    }
+  }
+
+  async function updateMemberRole(member: WorkspaceMember, role: Exclude<WorkspaceRole, 'owner'>) {
+    try {
+      const res = await fetch('/api/workspace/members', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ member_id: member.id, role }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'member_update');
+      await loadWorkspace();
+      toast.success('Member updated');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to update member.');
+    }
+  }
+
+  async function removeMember(member: WorkspaceMember) {
+    try {
+      const res = await fetch(`/api/workspace/members?member_id=${encodeURIComponent(member.id)}`, { method: 'DELETE' });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'member_remove');
+      setWorkspaceMembers((prev) => prev.filter((entry) => entry.id !== member.id));
+      toast.success('Member removed');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to remove member.');
+    }
+  }
+
+  async function revokeInvitation(invitation: WorkspaceInvitation) {
+    try {
+      const res = await fetch(`/api/workspace/invitations?id=${encodeURIComponent(invitation.id)}`, { method: 'DELETE' });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'invite_revoke');
+      await loadWorkspace();
+      toast.success('Invitation revoked');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to revoke invitation.');
+    }
+  }
 
   async function addTool() {
     if (!newTool.tool_name.trim() || !newTool.owner) return;
@@ -370,6 +520,102 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
       }
     } finally {
       setDeleteToolSaving(false);
+    }
+  }
+
+  async function addRole() {
+    const role = normalizeRoleName(newRole.role);
+    if (!role) return;
+    setAddRoleSaving(true);
+    try {
+      const res = await fetch('/api/onboarding/role-profiles', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          role,
+          job_description: newRole.job_description,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'add_role');
+      setNewRole({ role: '', job_description: '' });
+      setAddRoleOpen(false);
+      await loadTools();
+      toast.success('Role added');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Something went wrong adding the role.');
+    } finally {
+      setAddRoleSaving(false);
+    }
+  }
+
+  function openEditRole(profile: RoleProfile) {
+    setEditingRole(profile);
+    setEditRoleForm({ job_description: profile.job_description ?? '' });
+  }
+
+  async function saveRole() {
+    if (!editingRole) return;
+    setEditRoleSaving(true);
+    try {
+      const res = await fetch('/api/onboarding/role-profiles', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          role: editingRole.role,
+          job_description: editRoleForm.job_description,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'save_role');
+      setEditingRole(null);
+      await loadTools();
+      toast.success('Role saved');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Something went wrong saving the role.');
+    } finally {
+      setEditRoleSaving(false);
+    }
+  }
+
+  async function archiveRole() {
+    if (!archivingRole) return;
+    setArchiveRoleSaving(true);
+    try {
+      const res = await fetch(`/api/onboarding/role-profiles?${new URLSearchParams({ role: archivingRole.role }).toString()}`, {
+        method: 'DELETE',
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'archive_role');
+      setArchivingRole(null);
+      await loadTools();
+      toast.success('Role archived');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Something went wrong archiving the role.');
+    } finally {
+      setArchiveRoleSaving(false);
+    }
+  }
+
+  async function restoreRole(profile: RoleProfile) {
+    setRestoreRoleId(profile.id);
+    try {
+      const res = await fetch('/api/onboarding/role-profiles', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          role: profile.role,
+          job_description: profile.job_description ?? '',
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'restore_role');
+      await loadTools();
+      toast.success('Role restored');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Something went wrong restoring the role.');
+    } finally {
+      setRestoreRoleId(null);
     }
   }
 
@@ -526,8 +772,12 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   }, [loadConnections]);
 
   useEffect(() => {
-    if (activeSetting === 'tools') loadTools();
+    if (activeSetting === 'tools' || activeSetting === 'roles') loadTools();
   }, [activeSetting, loadTools]);
+
+  useEffect(() => {
+    if (activeSetting === 'org') loadWorkspace();
+  }, [activeSetting, loadWorkspace]);
 
   async function connectSlack() {
     setConnecting(true);
@@ -635,7 +885,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
       id: 'slack',
       provider: 'slack' as const,
       name: 'Slack',
-      description: 'Send onboarding DMs and sync channel knowledge.',
+      description: 'Send hire-path DMs and sync channel knowledge.',
       iconBg: 'var(--slack-bg)',
       iconColor: 'var(--slack-text)',
       connected: !!slackConnection,
@@ -646,7 +896,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
       id: 'gong',
       provider: 'gong' as const,
       name: 'Gong',
-      description: 'Sync customer call transcripts as onboarding knowledge.',
+      description: 'Sync customer call transcripts as readiness knowledge.',
       iconBg: 'var(--gong-bg)',
       iconColor: 'var(--gong-text)',
       connected: !!gongConnection,
@@ -738,6 +988,97 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     );
   }
 
+  function renderRoles() {
+    const activeRoles = activeRoleProfiles(roleProfiles);
+    const archivedRoles = roleProfiles
+      .filter((profile) => profile.status === 'archived')
+      .sort((a, b) => (a.display_order - b.display_order) || a.role.localeCompare(b.role));
+
+    return (
+      <div className="max-w-5xl">
+        <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="max-w-2xl">
+            <div className="type-section-title" style={{ color: 'var(--text-primary)' }}>
+              Role catalog
+            </div>
+            <p className="type-body mt-[3px]" style={{ color: 'var(--text-secondary)' }}>
+              Configure which roles Canon should include in readiness milestones, field briefs, hire paths, and tool access scoping.
+            </p>
+          </div>
+          <Button onClick={() => setAddRoleOpen(true)} className="flex-shrink-0">
+            <IconPlus size={13} />
+            Add Role
+          </Button>
+        </div>
+
+        {rolesLoading ? (
+          <div className="flex items-center gap-2 type-body" style={{ color: 'var(--text-tertiary)' }}>
+            <IconLoader2 size={14} className="animate-spin" /> Loading Roles...
+          </div>
+        ) : activeRoles.length === 0 ? (
+          <Card className="px-5 py-8 text-center">
+            <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No active roles</div>
+            <div className="type-body mt-2" style={{ color: 'var(--text-tertiary)' }}>
+              Add a role before generating readiness milestones or field briefs.
+            </div>
+          </Card>
+        ) : (
+          <div className="space-y-3">
+            {activeRoles.map((profile, index) => (
+              <Card key={profile.id} className="px-4 py-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="flex min-w-0 gap-3">
+                    <div
+                      className="mt-[1px] flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[8px] type-caption font-medium text-[var(--text-primary)]"
+                      style={{ backgroundColor: roleColor(profile.role, index) }}
+                    >
+                      {roleAbbreviation(profile.role)}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="type-card-title text-[var(--text-primary)]">{profile.role}</div>
+                      <div className="type-caption mt-[2px] text-[var(--text-tertiary)]">Active role</div>
+                      <p className="type-body mt-2 line-clamp-2 text-[var(--text-secondary)]">
+                        {profile.job_description || 'No job description saved yet.'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-shrink-0 gap-2">
+                    <Button size="sm" variant="secondary" onClick={() => openEditRole(profile)}>
+                      <IconPencil size={13} /> Edit
+                    </Button>
+                    <Button size="sm" variant="secondary" onClick={() => setArchivingRole(profile)}>
+                      <IconTrash size={13} /> Archive
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+            ))}
+
+            {archivedRoles.length > 0 && (
+              <div className="pt-4">
+                <div className="type-kicker mb-2 text-[var(--text-tertiary)]">Archived Roles</div>
+                <div className="space-y-2">
+                  {archivedRoles.map((profile) => (
+                    <Card key={profile.id} className="flex items-center justify-between gap-3 px-4 py-3 opacity-80">
+                      <div className="min-w-0">
+                        <div className="type-card-title truncate text-[var(--text-primary)]">{profile.role}</div>
+                        <div className="type-caption text-[var(--text-tertiary)]">Excluded from readiness milestones and field briefs</div>
+                      </div>
+                      <Button size="sm" variant="secondary" onClick={() => void restoreRole(profile)} disabled={restoreRoleId === profile.id}>
+                        {restoreRoleId === profile.id ? <IconLoader2 size={13} className="animate-spin" /> : <IconCheck size={13} />}
+                        Restore
+                      </Button>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   function renderTools() {
     const toolGroups = groupOrgTools(tools);
     const roleSpecificCount = toolGroups.filter((group) => !group.allRoles).length;
@@ -745,9 +1086,9 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     const filterOptions: Array<{ id: ToolFilter; label: string; count: number }> = [
       { id: 'all', label: 'All tools', count: toolGroups.length },
       { id: 'all_roles', label: 'All roles', count: toolGroups.filter((group) => group.allRoles).length },
-      ...HIRE_ROLES.map((role) => ({
+      ...activeToolRoles.map((role) => ({
         id: role,
-        label: ROLE_META[role].short,
+        label: roleAbbreviation(role),
         count: toolGroups.filter((group) => group.allRoles || group.roles.includes(role)).length,
       })),
       { id: 'unowned', label: 'Needs owner', count: unownedCount },
@@ -756,7 +1097,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
       if (toolFilter === 'all') return true;
       if (toolFilter === 'all_roles') return tool.allRoles;
       if (toolFilter === 'unowned') return !groupHasOwner(tool);
-      if (isHireRole(toolFilter)) return tool.allRoles || tool.roles.includes(toolFilter);
+      if (activeToolRoles.includes(toolFilter)) return tool.allRoles || tool.roles.includes(toolFilter);
       return true;
     });
 
@@ -768,7 +1109,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
               Tool access registry
             </div>
             <p className="type-body mt-[3px]" style={{ color: 'var(--text-secondary)' }}>
-              Configure the tools new hires need, the role scope, and the owner who can grant access.
+              Configure the tools each hire path needs, the role scope, and the owner who can grant access.
             </p>
           </div>
           <Button onClick={() => setAddToolOpen(true)} className="flex-shrink-0">
@@ -785,7 +1126,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
           <Card className="px-5 py-8 text-center">
             <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No tools configured</div>
             <div className="type-body mt-2" style={{ color: 'var(--text-tertiary)' }}>
-              Add the tools each role needs access to and assign an owner who can grant it. Canon will prompt new hires and notify owners automatically.
+              Add the tools each role needs access to and assign an owner who can grant it. Canon will prompt the hire and notify owners automatically.
             </div>
           </Card>
         ) : (
@@ -878,18 +1219,19 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                                 </span>
                               ) : (
                                 tool.roles.map((role) => {
-                                  const roleMeta = ROLE_META[role];
+                                  const roleIndex = activeToolRoles.indexOf(role);
+                                  const color = roleColor(role, roleIndex === -1 ? 0 : roleIndex);
                                   return (
                                     <span
                                       key={role}
                                       className="inline-flex items-center rounded-full border px-2 py-[3px] type-caption font-medium"
                                       style={{
-                                        backgroundColor: roleMeta.background,
-                                        borderColor: roleMeta.border,
-                                        color: roleMeta.color,
+                                        backgroundColor: 'var(--bg-secondary)',
+                                        borderColor: 'var(--border-secondary)',
+                                        color,
                                       }}
                                     >
-                                      {roleMeta.short}
+                                      {roleAbbreviation(role)}
                                     </span>
                                   );
                                 })
@@ -945,6 +1287,152 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     );
   }
 
+  function renderOrg() {
+    const canAdmin = workspace?.role === 'owner' || workspace?.role === 'admin';
+    const activeInvitations = workspaceInvitations.filter((invitation) => !invitation.accepted_at && !invitation.revoked_at);
+
+    return (
+      <div className="max-w-5xl space-y-5">
+        <Card className="px-5 py-5">
+          <div className="mb-4 flex items-start justify-between gap-4">
+            <div>
+              <div className="type-section-title text-[var(--text-primary)]">Workspace</div>
+              <div className="type-body mt-[3px] text-[var(--text-secondary)]">
+                {workspaceLoading ? 'Loading workspace...' : workspace?.slug ?? 'Workspace setup'}
+              </div>
+            </div>
+            {workspace?.role && (
+              <span className="rounded-[6px] border border-[var(--border-secondary)] px-2 py-1 type-caption capitalize text-[var(--text-secondary)]">
+                {workspace.role}
+              </span>
+            )}
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+            <div>
+              <label className="mb-[5px] block type-body font-medium text-[var(--text-secondary)]">Workspace name</label>
+              <Input
+                value={workspaceName}
+                onChange={(event) => setWorkspaceName(event.target.value)}
+                readOnly={!canAdmin}
+              />
+            </div>
+            <Button onClick={() => void saveWorkspaceName()} disabled={!canAdmin || workspaceSaving || workspaceName.trim() === workspace?.name}>
+              {workspaceSaving ? <IconLoader2 size={13} className="animate-spin" /> : <IconCheck size={13} />}
+              Save
+            </Button>
+          </div>
+        </Card>
+
+        <Card className="px-5 py-5">
+          <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <div className="type-section-title text-[var(--text-primary)]">Members</div>
+              <p className="type-body mt-[3px] text-[var(--text-secondary)]">Owners and admins can invite teammates and manage access.</p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            {workspaceMembers.map((member) => (
+              <div key={member.id} className="flex flex-col gap-3 rounded-[7px] border border-[var(--border-tertiary)] px-3 py-3 md:flex-row md:items-center">
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <Avatar name={member.email ?? member.user_id} size="sm" />
+                  <div className="min-w-0">
+                    <div className="truncate type-body-strong text-[var(--text-primary)]">
+                      {member.email ?? member.user_id}
+                    </div>
+                    <div className="type-caption capitalize text-[var(--text-tertiary)]">
+                      {member.role}{member.is_current_user ? ' · You' : ''}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  {member.role === 'owner' ? (
+                    <Button size="sm" variant="secondary" disabled>Owner</Button>
+                  ) : (
+                    <>
+                      <select
+                        value={member.role}
+                        disabled={!canAdmin}
+                        onChange={(event) => void updateMemberRole(member, event.target.value as Exclude<WorkspaceRole, 'owner'>)}
+                        className="h-8 rounded-[6px] border border-[var(--border-secondary)] bg-[var(--bg-primary)] px-2 type-field text-[var(--text-primary)]"
+                      >
+                        <option value="admin">Admin</option>
+                        <option value="member">Member</option>
+                      </select>
+                      <Button size="sm" variant="secondary" onClick={() => void removeMember(member)} disabled={!canAdmin || member.is_current_user}>
+                        <IconTrash size={13} /> Remove
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        <Card className="px-5 py-5">
+          <div className="mb-4">
+            <div className="type-section-title text-[var(--text-primary)]">Invitations</div>
+            <p className="type-body mt-[3px] text-[var(--text-secondary)]">Create an invite link for a teammate to join this workspace.</p>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-[1fr_130px_auto] md:items-end">
+            <div>
+              <label className="mb-[5px] block type-body font-medium text-[var(--text-secondary)]">Email</label>
+              <Input
+                value={inviteEmail}
+                onChange={(event) => setInviteEmail(event.target.value)}
+                placeholder="teammate@company.com"
+                disabled={!canAdmin}
+              />
+            </div>
+            <div>
+              <label className="mb-[5px] block type-body font-medium text-[var(--text-secondary)]">Role</label>
+              <select
+                value={inviteRole}
+                disabled={!canAdmin}
+                onChange={(event) => setInviteRole(event.target.value as Exclude<WorkspaceRole, 'owner'>)}
+                className="h-9 w-full rounded-[7px] border border-[var(--border-secondary)] bg-[var(--bg-primary)] px-2 type-field text-[var(--text-primary)]"
+              >
+                <option value="member">Member</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+            <Button onClick={() => void createInvitation()} disabled={!canAdmin || inviteSaving || !inviteEmail.trim()}>
+              {inviteSaving ? <IconLoader2 size={13} className="animate-spin" /> : <IconPlus size={13} />}
+              Invite
+            </Button>
+          </div>
+
+          {lastInviteUrl && (
+            <div className="mt-3 rounded-[7px] border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] px-3 py-2">
+              <div className="type-caption text-[var(--text-tertiary)]">Invite link</div>
+              <div className="mt-1 break-all font-mono text-[12px] text-[var(--text-primary)]">{lastInviteUrl}</div>
+            </div>
+          )}
+
+          {activeInvitations.length > 0 && (
+            <div className="mt-4 space-y-2">
+              {activeInvitations.map((invitation) => (
+                <div key={invitation.id} className="flex flex-col gap-2 rounded-[7px] border border-[var(--border-tertiary)] px-3 py-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <div className="type-body-strong text-[var(--text-primary)]">{invitation.email}</div>
+                    <div className="type-caption capitalize text-[var(--text-tertiary)]">{invitation.role} · Expires {formatDate(invitation.expires_at)}</div>
+                  </div>
+                  <Button size="sm" variant="secondary" onClick={() => void revokeInvitation(invitation)} disabled={!canAdmin}>
+                    <IconX size={13} /> Revoke
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      </div>
+    );
+  }
+
   function renderPlaceholder(label: string) {
     return (
       <Card className="max-w-2xl px-5 py-8 text-center">
@@ -964,9 +1452,9 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   return (
     <>
       <div className="flex h-full flex-col overflow-hidden">
-        <div className="surface-divider px-6 pt-5 pb-4 border-b">
+        <div className="app-page-header border-b">
           <h1 className="type-page-title" style={{ color: 'var(--text-primary)' }}>Settings</h1>
-          <p className="type-page-subtitle mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>Manage Your Account and Workspace Connections</p>
+          <p className="type-page-subtitle mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>Manage the roles, sources, and integrations behind team readiness</p>
         </div>
 
         <div className="flex flex-1 overflow-hidden">
@@ -1005,14 +1493,106 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
           <div className="surface-page flex-1 overflow-y-auto px-7 py-6">
             {activeSetting === 'profile' && renderProfile()}
             {activeSetting === 'integrations' && renderIntegrations()}
+            {activeSetting === 'roles' && renderRoles()}
             {activeSetting === 'tools' && renderTools()}
             {activeSetting === 'delete' && renderPlaceholder('Delete Account')}
-            {activeSetting === 'org' && renderPlaceholder('Organization')}
+            {activeSetting === 'org' && renderOrg()}
             {activeSetting === 'notifications' && renderPlaceholder('Notifications')}
             {activeSetting === 'apikeys' && renderPlaceholder('API Keys')}
           </div>
         </div>
       </div>
+
+      <Dialog open={addRoleOpen} onOpenChange={setAddRoleOpen}>
+        <DialogContent className="max-w-2xl border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
+          <DialogHeader>
+            <DialogTitle>Add Role</DialogTitle>
+            <DialogDescription>Add a role Canon should include in readiness milestones, field briefs, hire paths, and tool scoping.</DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-3">
+            <div>
+              <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
+                Role Name <span style={{ color: 'var(--red-text)' }}>*</span>
+              </label>
+              <Input
+                value={newRole.role}
+                onChange={(e) => setNewRole((p) => ({ ...p, role: e.target.value }))}
+                placeholder="Customer Success Engineer"
+                maxLength={120}
+              />
+            </div>
+            <div>
+              <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
+                Job Description
+              </label>
+              <Textarea
+                value={newRole.job_description}
+                onChange={(e) => setNewRole((p) => ({ ...p, job_description: e.target.value }))}
+                placeholder="Paste responsibilities, tools, customer interactions, and success criteria."
+                maxLength={12000}
+                className="textarea-ui min-h-[220px] w-full border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setAddRoleOpen(false)} disabled={addRoleSaving}>Cancel</Button>
+            <Button onClick={() => void addRole()} disabled={addRoleSaving || !normalizeRoleName(newRole.role)}>
+              {addRoleSaving ? <IconLoader2 size={13} className="animate-spin" /> : <IconPlus size={13} />}
+              Add Role
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={editingRole !== null} onOpenChange={(open) => !open && setEditingRole(null)}>
+        <DialogContent className="max-w-2xl border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
+          <DialogHeader>
+            <DialogTitle>{editingRole?.role ?? 'Edit Role'}</DialogTitle>
+            <DialogDescription>Update the role context Canon should use when targeting readiness milestones and signals.</DialogDescription>
+          </DialogHeader>
+          <div>
+            <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
+              Job Description
+            </label>
+            <Textarea
+              value={editRoleForm.job_description}
+              onChange={(e) => setEditRoleForm({ job_description: e.target.value })}
+              placeholder="Paste responsibilities, tools, customer interactions, and success criteria."
+              maxLength={12000}
+              className="textarea-ui min-h-[280px] w-full border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body"
+            />
+            <p className="type-caption mt-1 text-[var(--text-tertiary)]">{editRoleForm.job_description.length}/12000</p>
+          </div>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setEditingRole(null)} disabled={editRoleSaving}>Cancel</Button>
+            <Button onClick={() => void saveRole()} disabled={editRoleSaving}>
+              {editRoleSaving ? <IconLoader2 size={13} className="animate-spin" /> : <IconPencil size={13} />}
+              Save Role
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={archivingRole !== null} onOpenChange={(open) => !open && setArchivingRole(null)}>
+        <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
+          <DialogHeader>
+            <DialogTitle>Archive Role</DialogTitle>
+            <DialogDescription>
+              Archive <strong>{archivingRole?.role}</strong>? Canon will stop generating readiness milestones and field briefs for this role.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-[8px] border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] px-3 py-2 type-body text-[var(--text-secondary)]">
+            Active readiness milestones and draft proposals for this role will be archived. Existing hire paths and historical evidence stay intact.
+          </div>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setArchivingRole(null)} disabled={archiveRoleSaving}>Cancel</Button>
+            <Button variant="destructive" onClick={() => void archiveRole()} disabled={archiveRoleSaving}>
+              {archiveRoleSaving ? <IconLoader2 size={13} className="animate-spin" /> : null}
+              Archive Role
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={deletingTool !== null} onOpenChange={(open) => !open && setDeletingTool(null)}>
         <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
@@ -1060,6 +1640,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
               <RoleMultiSelect
                 value={editTool.roles}
                 onChange={(roles) => setEditTool((p) => ({ ...p, roles }))}
+                roles={activeToolRoles}
               />
               <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>Select multiple roles, or use All roles for a shared requirement.</p>
             </div>
@@ -1072,7 +1653,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                 onChange={(user) => setEditTool((p) => ({ ...p, owner: user }))}
                 placeholder="Search workspace members..."
               />
-              <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>Canon will DM this Slack owner when a new hire needs access.</p>
+              <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>Canon will DM this Slack owner when a hire needs access.</p>
             </div>
             {editTool.owner && (
               <div>
@@ -1096,7 +1677,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
           <DialogHeader>
             <DialogTitle>Add Tool</DialogTitle>
             <DialogDescription>
-              Define a tool new hires need access to and the required Slack owner for access requests.
+              Define a tool hire paths need access to and the required Slack owner for access requests.
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-3">
@@ -1123,6 +1704,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
               <RoleMultiSelect
                 value={newTool.roles}
                 onChange={(roles) => setNewTool((p) => ({ ...p, roles }))}
+                roles={activeToolRoles}
               />
               <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>Select multiple roles, or use All roles for a shared requirement.</p>
             </div>
@@ -1135,7 +1717,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                 onChange={(user) => setNewTool((p) => ({ ...p, owner: user }))}
                 placeholder="Search workspace members..."
               />
-              <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>Canon will DM this Slack owner when a new hire needs access.</p>
+              <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>Canon will DM this Slack owner when a hire needs access.</p>
             </div>
             {newTool.owner && (
               <div>

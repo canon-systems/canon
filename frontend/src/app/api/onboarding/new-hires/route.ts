@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
-import { createClient } from '@/lib/supabase/server';
 import { inngest } from '@/inngest/client';
 import { rampDayFromStartDate } from '@/lib/onboarding/rampDay';
-import type { HireRole } from '@/types/onboarding';
+import { normalizeRoleName } from '@/lib/onboarding/roles';
+import { requireWorkspace } from '@/lib/server/organization';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,14 +13,7 @@ export async function GET() {
     const { user } = await getSession();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const supabase = await createClient();
-    const { data: org } = await supabase
-      .from('organizations')
-      .select('id')
-      .eq('owner_id', user.id)
-      .single();
-
-    if (!org) return NextResponse.json({ hires: [] });
+    const { supabase, organization } = await requireWorkspace(user);
 
     const { data: hires, error } = await supabase
       .from('new_hires')
@@ -29,7 +22,7 @@ export async function GET() {
         ramp_deliveries(count),
         access_requests(count)
       `)
-      .eq('organization_id', org.id)
+      .eq('organization_id', organization.id)
       .order('start_date', { ascending: false });
 
     if (error) throw error;
@@ -60,31 +53,30 @@ export async function POST(request: NextRequest) {
       slack_user_id?: string;
     };
 
-    const { first_name, last_name, email, role, start_date, slack_user_id } = body;
+    const { first_name, last_name, email, start_date, slack_user_id } = body;
+    const role = normalizeRoleName(body.role ?? '');
     if (!first_name || !last_name || !email || !role || !start_date || !slack_user_id) {
       return NextResponse.json({ error: 'first_name, last_name, email, role, start_date, and slack_user_id are required' }, { status: 400 });
     }
 
-    const validRoles: HireRole[] = ['AI Solutions Architect', 'Solutions Engineer', 'Implementation Engineer'];
-    if (!validRoles.includes(role as HireRole)) {
-      return NextResponse.json({ error: 'Invalid role' }, { status: 400 });
-    }
+    const { supabase, organization } = await requireWorkspace(user);
 
-    const supabase = await createClient();
-    const { data: org } = await supabase
-      .from('organizations')
+    const { data: roleProfile } = await supabase
+      .from('role_profiles')
       .select('id')
-      .eq('owner_id', user.id)
-      .single();
+      .eq('organization_id', organization.id)
+      .eq('role', role)
+      .eq('status', 'active')
+      .maybeSingle();
 
-    if (!org) {
-      return NextResponse.json({ error: 'Organization not found. Please set up your organization first.' }, { status: 404 });
+    if (!roleProfile) {
+      return NextResponse.json({ error: 'Role is not active' }, { status: 400 });
     }
 
     const { data: hire, error: hireError } = await supabase
       .from('new_hires')
       .insert({
-        organization_id: org.id,
+        organization_id: organization.id,
         created_by: user.id,
         first_name,
         last_name,
@@ -104,7 +96,7 @@ export async function POST(request: NextRequest) {
     const { data: orgTools } = await supabase
       .from('org_tools')
       .select('*')
-      .eq('organization_id', org.id)
+      .eq('organization_id', organization.id)
       .or(`role.eq.${role},role.is.null`);
 
     const accessRequestInserts = (orgTools ?? []).map((t) => ({

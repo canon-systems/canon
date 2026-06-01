@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { inngest } from '@/inngest/client';
 import { sendSlackDirectMessage, sendSlackMessage, type SlackDeliveryResult } from '@/lib/server/signals/delivery';
 import { createLogger } from '@/lib/server/logging';
+import { requireWorkspace } from '@/lib/server/organization';
 import type {
   HireRole,
   ReadinessAffectedRole,
@@ -258,7 +259,7 @@ function buildReadinessBrief(items: ReadinessItem[]): ReadinessBrief | null {
 
   return {
     title: 'This week\'s readiness brief',
-    subtitle: 'Generated from Slack knowledge, field conversations, and milestone gaps.',
+    subtitle: 'Generated from Slack knowledge, field conversations, and readiness gaps.',
     detected_shift: [
       productChange?.title ? `${productChange.title}.` : productChange?.summary,
       customerObjection?.summary,
@@ -280,7 +281,7 @@ function buildReadinessBrief(items: ReadinessItem[]): ReadinessBrief | null {
     }),
     affected_roles,
     health_stats: [
-      { label: 'Milestones covered', value: `${milestonesCovered}%` },
+      { label: 'Readiness milestones covered', value: `${milestonesCovered}%` },
       { label: 'Stale knowledge areas', value: String(staleAreas) },
       { label: 'Signals reviewed', value: String(signalsReviewed) },
     ],
@@ -293,24 +294,17 @@ export async function GET() {
     const { user } = await getSession();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const supabase = await createClient();
-    const { data: org } = await supabase
-      .from('organizations')
-      .select('id')
-      .eq('owner_id', user.id)
-      .single();
-
-    if (!org) return NextResponse.json({ brief: null });
+    const { supabase, organization } = await requireWorkspace(user);
 
     const { data: items, error } = await supabase
       .from('readiness_items')
       .select('*')
-      .eq('organization_id', org.id)
+      .eq('organization_id', organization.id)
       .neq('status', 'archived')
       .order('detected_at', { ascending: false });
 
     if (error) throw error;
-    const fallbackSource = await fallbackReadinessSource(supabase, org.id);
+    const fallbackSource = await fallbackReadinessSource(supabase, organization.id);
     const readinessItems = withFallbackSourceMetadata((items ?? []) as ReadinessItem[], fallbackSource);
     return NextResponse.json({ brief: buildReadinessBrief(readinessItems) });
   } catch (error: unknown) {
@@ -353,27 +347,20 @@ export async function POST(request: NextRequest) {
       : [];
     const userIds = validSlackDmTargets(body.userIds);
 
-    const supabase = await createClient();
-    const { data: org } = await supabase
-      .from('organizations')
-      .select('id')
-      .eq('owner_id', user.id)
-      .single();
-
-    if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+    const { supabase, organization } = await requireWorkspace(user);
 
     if (body.action === 'generate') {
       log.info('generate_requested', {
         userId: user.id,
-        orgId: org.id,
+        orgId: organization.id,
       });
       await inngest.send({
         name: 'onboarding/readiness.generate.requested',
-        data: { organizationId: org.id, ownerId: user.id },
+        data: { organizationId: organization.id, ownerId: user.id },
       });
       log.info('generate_queued', {
         userId: user.id,
-        orgId: org.id,
+        orgId: organization.id,
         event: 'onboarding/readiness.generate.requested',
       });
       return NextResponse.json({ ok: true, requested: true });
@@ -390,7 +377,7 @@ export async function POST(request: NextRequest) {
     let query = supabase
       .from('readiness_items')
       .select('*')
-      .eq('organization_id', org.id)
+      .eq('organization_id', organization.id)
       .in('status', validStatusesToSend)
       .order('detected_at', { ascending: false });
 
@@ -404,7 +391,7 @@ export async function POST(request: NextRequest) {
     if (readinessItems.length === 0) {
       log.warn('send_failed', {
         userId: user.id,
-        orgId: org.id,
+        orgId: organization.id,
         reason: 'no_unsent_readiness_items',
         categoryCount: categories?.length ?? 0,
         itemIdCount: itemIds.length,
@@ -414,7 +401,7 @@ export async function POST(request: NextRequest) {
 
     log.info('send_items_selected', {
       userId: user.id,
-      orgId: org.id,
+      orgId: organization.id,
       itemCount: readinessItems.length,
       itemIds: readinessItems.map((item) => item.id),
       categories: Array.from(new Set(readinessItems.map((item) => item.category))),
@@ -425,7 +412,7 @@ export async function POST(request: NextRequest) {
     if (resolvedChannelIds.length === 0 && userIds.length === 0) {
       log.warn('send_target_missing', {
         userId: user.id,
-        orgId: org.id,
+        orgId: organization.id,
         itemCount: readinessItems.length,
         requestedChannels: requestedChannelIds,
         dmTargets: userIds.length,
@@ -436,7 +423,7 @@ export async function POST(request: NextRequest) {
 
     log.info('send_target_resolved', {
       userId: user.id,
-      orgId: org.id,
+      orgId: organization.id,
       channels: resolvedChannelIds,
       dmTargets: Array.from(new Set(userIds)),
       targetCount: resolvedChannelIds.length + Array.from(new Set(userIds)).length,
@@ -459,7 +446,7 @@ export async function POST(request: NextRequest) {
     for (const delivery of deliveries) {
       log.info('send_delivery_result', {
         userId: user.id,
-        orgId: org.id,
+        orgId: organization.id,
         type: delivery.type,
         target: delivery.target,
         sent: delivery.sent,
@@ -476,7 +463,7 @@ export async function POST(request: NextRequest) {
       ));
       log.warn('send_failed', {
         userId: user.id,
-        orgId: org.id,
+        orgId: organization.id,
         itemCount: readinessItems.length,
         failedType: failedDelivery.type,
         failedTarget: failedDelivery.target,
@@ -502,7 +489,7 @@ export async function POST(request: NextRequest) {
 
     log.info('send_status_updated', {
       userId: user.id,
-      orgId: org.id,
+      orgId: organization.id,
       itemCount: readinessItems.length,
       sentAt,
     });
@@ -540,14 +527,7 @@ export async function PATCH(request: NextRequest) {
       status: body.status,
     });
 
-    const supabase = await createClient();
-    const { data: org } = await supabase
-      .from('organizations')
-      .select('id')
-      .eq('owner_id', user.id)
-      .single();
-
-    if (!org) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+    const { supabase, organization } = await requireWorkspace(user);
 
     const updatedAt = new Date().toISOString();
     const update: Partial<ReadinessItem> = {
@@ -560,7 +540,7 @@ export async function PATCH(request: NextRequest) {
       .from('readiness_items')
       .update(update)
       .eq('id', body.id)
-      .eq('organization_id', org.id)
+      .eq('organization_id', organization.id)
       .select('*')
       .maybeSingle();
 
@@ -569,7 +549,7 @@ export async function PATCH(request: NextRequest) {
 
     log.info('status_update_completed', {
       userId: user.id,
-      orgId: org.id,
+      orgId: organization.id,
       itemId: item.id,
       status: item.status,
     });
