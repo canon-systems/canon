@@ -966,7 +966,7 @@ export function KnowledgeClient() {
       >
         <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
           <DialogHeader>
-            <DialogTitle>{deleteRequest?.title ?? 'Delete sources?'}</DialogTitle>
+            <DialogTitle>{deleteRequest?.title ?? 'Delete Sources?'}</DialogTitle>
             <DialogDescription>
               {deleteRequest?.description ?? 'This removes the selected sources from Canon knowledge.'}
             </DialogDescription>

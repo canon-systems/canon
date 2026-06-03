@@ -17,6 +17,7 @@ import {
 } from '@tabler/icons-react';
 import type { Session, User } from '@supabase/supabase-js';
 import { cn } from './ui/utils';
+import { initialsForName, userFullName } from '@/lib/userDisplay';
 
 interface NavigationProps {
   user: User | null;
@@ -63,15 +64,9 @@ export function Navigation({ user, onLogout }: NavigationProps) {
     return pathname.startsWith(hrefPath);
   };
 
-  const userEmail = user?.email ?? 'User';
-  const userInitials = userEmail
-    .split('@')[0]
-    .split(/[._-]/)
-    .filter(Boolean)
-    .map((part) => part[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase() || 'U';
+  const displayName = userFullName(user);
+  const userEmail = user?.email ?? '';
+  const userInitials = initialsForName(displayName);
 
   const navLinkClass = (active: boolean) =>
     cn(
@@ -169,8 +164,15 @@ export function Navigation({ user, onLogout }: NavigationProps) {
             {userInitials}
           </div>
           {!collapsed && (
-            <span className="type-body truncate flex-1" style={{ color: 'var(--text-secondary)' }}>
-              {userEmail}
+            <span className="min-w-0 flex-1">
+              <span className="block truncate type-body" style={{ color: 'var(--text-secondary)' }}>
+                {displayName}
+              </span>
+              {userEmail && (
+                <span className="block truncate type-caption" style={{ color: 'var(--text-tertiary)' }}>
+                  {userEmail}
+                </span>
+              )}
             </span>
           )}
           <button

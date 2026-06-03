@@ -4,17 +4,18 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import {
-  IconBell,
   IconBuilding,
   IconCheck,
   IconChevronDown,
-  IconKey,
   IconLoader2,
+  IconMail,
   IconPencil,
   IconPlug,
   IconPlus,
+  IconShieldCheck,
   IconTool,
   IconTrash,
+  IconUserPlus,
   IconUser,
   IconUsers,
   IconX,
@@ -36,6 +37,7 @@ import { ToolNameCombobox } from '@/components/tool-name-combobox';
 import { SlackUserPicker, type SlackUser } from '@/components/SlackUserPicker';
 import { activeRoleProfiles, normalizeRoleName, roleAbbreviation, roleColor } from '@/lib/onboarding/roles';
 import type { OrgTool, HireRole, RoleProfile } from '@/types/onboarding';
+import { userFullName } from '@/lib/userDisplay';
 
 interface Connection {
   id: string;
@@ -62,6 +64,7 @@ interface WorkspaceMember {
   user_id: string;
   role: WorkspaceRole;
   email: string | null;
+  name: string | null;
   is_current_user: boolean;
   created_at: string;
 }
@@ -77,26 +80,31 @@ interface WorkspaceInvitation {
   created_at: string;
 }
 
+interface WorkspaceJoinRequest {
+  id: string;
+  requester_id: string;
+  requester_email: string;
+  requester_name: string | null;
+  message: string | null;
+  status: 'pending' | 'approved' | 'denied' | 'cancelled';
+  reviewed_at: string | null;
+  created_at: string;
+}
+
 interface SettingsPageClientProps {
   user: SupabaseUser | null;
 }
 
 const settingSections = [
   { section: 'Account', items: [{ id: 'profile', label: 'Profile', icon: IconUser }, { id: 'org', label: 'Organization', icon: IconBuilding }] },
-  { section: 'Connections', items: [{ id: 'integrations', label: 'Integrations', icon: IconPlug }, { id: 'notifications', label: 'Notifications', icon: IconBell }] },
+  { section: 'Connections', items: [{ id: 'integrations', label: 'Integrations', icon: IconPlug }] },
   { section: 'Readiness', items: [{ id: 'roles', label: 'Roles', icon: IconUsers }, { id: 'tools', label: 'Tools', icon: IconTool }] },
-  {
-    section: 'Developer',
-    items: [
-      { id: 'apikeys', label: 'API Keys', icon: IconKey },
-    ],
-  },
-  { section: 'Danger', items: [{ id: 'delete', label: 'Delete Account', icon: IconTrash, danger: true }] },
 ];
 
-const SETTINGS_TABS = ['profile', 'org', 'integrations', 'notifications', 'roles', 'tools', 'apikeys', 'delete'] as const;
+const SETTINGS_TABS = ['profile', 'org', 'integrations', 'roles', 'tools', 'apikeys', 'delete'] as const;
 type SettingsTab = typeof SETTINGS_TABS[number];
 type ToolFilter = 'all' | 'all_roles' | 'unowned' | HireRole;
+type OrgSection = 'overview' | 'members' | 'requests' | 'invitations';
 
 interface ToolGroup {
   key: string;
@@ -266,13 +274,14 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [workspaceMembers, setWorkspaceMembers] = useState<WorkspaceMember[]>([]);
   const [workspaceInvitations, setWorkspaceInvitations] = useState<WorkspaceInvitation[]>([]);
+  const [workspaceJoinRequests, setWorkspaceJoinRequests] = useState<WorkspaceJoinRequest[]>([]);
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
-  const [workspaceSaving, setWorkspaceSaving] = useState(false);
-  const [workspaceName, setWorkspaceName] = useState('');
+  const [activeOrgSection, setActiveOrgSection] = useState<OrgSection>('overview');
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<Exclude<WorkspaceRole, 'owner'>>('member');
   const [inviteSaving, setInviteSaving] = useState(false);
   const [lastInviteUrl, setLastInviteUrl] = useState('');
+  const [reviewingJoinRequestId, setReviewingJoinRequestId] = useState<string | null>(null);
 
   const [tools, setTools] = useState<OrgTool[]>([]);
   const [roleProfiles, setRoleProfiles] = useState<RoleProfile[]>([]);
@@ -343,50 +352,30 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   const loadWorkspace = useCallback(async () => {
     setWorkspaceLoading(true);
     try {
-      const [workspaceRes, membersRes, invitationsRes] = await Promise.all([
+      const [workspaceRes, membersRes, invitationsRes, joinRequestsRes] = await Promise.all([
         fetch('/api/workspace'),
         fetch('/api/workspace/members'),
         fetch('/api/workspace/invitations'),
+        fetch('/api/workspace/join-requests'),
       ]);
 
       const workspaceData = (await workspaceRes.json().catch(() => ({}))) as { workspace?: Workspace };
       const membersData = (await membersRes.json().catch(() => ({}))) as { members?: WorkspaceMember[] };
       const invitationsData = (await invitationsRes.json().catch(() => ({}))) as { invitations?: WorkspaceInvitation[] };
+      const joinRequestsData = (await joinRequestsRes.json().catch(() => ({}))) as { requests?: WorkspaceJoinRequest[] };
 
       if (!workspaceRes.ok) throw new Error('workspace_load');
 
       setWorkspace(workspaceData.workspace ?? null);
-      setWorkspaceName(workspaceData.workspace?.name ?? '');
       setWorkspaceMembers(membersRes.ok ? membersData.members ?? [] : []);
       setWorkspaceInvitations(invitationsRes.ok ? invitationsData.invitations ?? [] : []);
+      setWorkspaceJoinRequests(joinRequestsRes.ok ? joinRequestsData.requests ?? [] : []);
     } catch {
       toast.error('Unable to load workspace settings.');
     } finally {
       setWorkspaceLoading(false);
     }
   }, []);
-
-  async function saveWorkspaceName() {
-    const name = workspaceName.trim();
-    if (!name) return;
-    setWorkspaceSaving(true);
-    try {
-      const res = await fetch('/api/workspace', {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name }),
-      });
-      const data = (await res.json().catch(() => ({}))) as { workspace?: Workspace; error?: string };
-      if (!res.ok) throw new Error(data.error ?? 'workspace_save');
-      setWorkspace(data.workspace ?? null);
-      setWorkspaceName(data.workspace?.name ?? name);
-      toast.success('Workspace updated');
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Unable to update workspace.');
-    } finally {
-      setWorkspaceSaving(false);
-    }
-  }
 
   async function createInvitation() {
     if (!inviteEmail.trim()) return;
@@ -448,6 +437,25 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
       toast.success('Invitation revoked');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Unable to revoke invitation.');
+    }
+  }
+
+  async function reviewJoinRequest(joinRequest: WorkspaceJoinRequest, status: 'approved' | 'denied') {
+    setReviewingJoinRequestId(joinRequest.id);
+    try {
+      const res = await fetch('/api/workspace/join-requests', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ request_id: joinRequest.id, status, role: 'member' }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'join_request_review');
+      await loadWorkspace();
+      toast.success(status === 'approved' ? 'Member added' : 'Request denied');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Unable to review request.');
+    } finally {
+      setReviewingJoinRequestId(null);
     }
   }
 
@@ -862,7 +870,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
 
   const slackConnection = connections.find(c => c.provider === 'slack' && c.status === 'active');
   const gongConnection = connections.find(c => c.provider === 'gong' && c.status === 'active');
-  const displayName = (user?.user_metadata?.full_name as string | undefined) ?? user?.email?.split('@')[0] ?? 'User';
+  const displayName = userFullName(user);
 
   function providerLabel(provider: string) {
     if (provider === 'gong') return 'Gong';
@@ -909,7 +917,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     return (
       <div className="max-w-2xl">
         <Card className="mb-4 flex items-center gap-[14px] px-[18px] py-4">
-          <Avatar name={user?.email ?? 'User'} size="lg" />
+          <Avatar name={displayName} size="lg" />
           <div>
             <div className="type-card-title" style={{ color: 'var(--text-primary)' }}>{displayName}</div>
             <div className="type-page-subtitle mt-[2px]" style={{ color: 'var(--text-secondary)' }}>{user?.email || 'Not Available'}</div>
@@ -918,7 +926,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
         </Card>
 
         {[
-          { label: 'Display Name', value: displayName, hint: 'This is shown inside Canon.' },
+          { label: 'Display Name', value: displayName, hint: 'Display name is finalized during onboarding.' },
           { label: 'Email', value: user?.email || '', hint: 'Email is managed by your authentication provider.' },
         ].map((field) => (
           <div key={field.label} className="mb-[14px]">
@@ -932,7 +940,6 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
             <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>{field.hint}</p>
           </div>
         ))}
-        <div className="flex justify-end mt-1"><Button>Save Changes</Button></div>
       </div>
     );
   }
@@ -953,29 +960,29 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
 
         {integrations.map((int) => {
           return (
-          <Card key={int.id} className="mb-[10px] flex items-center gap-[14px] px-4 py-[14px]">
-            <div className="w-9 h-9 rounded-[9px] flex items-center justify-center flex-shrink-0" style={{ backgroundColor: int.iconBg, color: int.iconColor }}>
-              <IntegrationLogos provider={int.provider} size={22} color={int.iconColor} />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="type-section-title" style={{ color: 'var(--text-primary)' }}>{int.name}</div>
-              <div className="type-body mt-[2px]" style={{ color: 'var(--text-secondary)' }}>{int.description}</div>
-              <div className="flex items-center gap-[5px] mt-1">
-                <div className="w-[6px] h-[6px] rounded-full" style={{ backgroundColor: int.connected ? 'var(--green)' : 'var(--border-secondary)' }} />
-                <span className="type-caption" style={{ color: int.connected ? 'var(--green-text)' : 'var(--text-tertiary)' }}>
-                  {int.connected ? `Active · ${int.workspace}` : 'Not Connected'}
-                </span>
+            <Card key={int.id} className="mb-[10px] flex items-center gap-[14px] px-4 py-[14px]">
+              <div className="w-9 h-9 rounded-[9px] flex items-center justify-center flex-shrink-0" style={{ backgroundColor: int.iconBg, color: int.iconColor }}>
+                <IntegrationLogos provider={int.provider} size={22} color={int.iconColor} />
               </div>
-            </div>
-            {int.connected ? (
-              <Button variant="destructive" onClick={int.action}>Disconnect</Button>
-            ) : (
-              <Button variant="secondary" onClick={int.action} disabled={connecting}>
-                {connecting ? <IconLoader2 size={13} className="animate-spin" /> : <IconPlug size={13} />}
-                Connect
-              </Button>
-            )}
-          </Card>
+              <div className="flex-1 min-w-0">
+                <div className="type-section-title" style={{ color: 'var(--text-primary)' }}>{int.name}</div>
+                <div className="type-body mt-[2px]" style={{ color: 'var(--text-secondary)' }}>{int.description}</div>
+                <div className="flex items-center gap-[5px] mt-1">
+                  <div className="w-[6px] h-[6px] rounded-full" style={{ backgroundColor: int.connected ? 'var(--green)' : 'var(--border-secondary)' }} />
+                  <span className="type-caption" style={{ color: int.connected ? 'var(--green-text)' : 'var(--text-tertiary)' }}>
+                    {int.connected ? `Active · ${int.workspace}` : 'Not Connected'}
+                  </span>
+                </div>
+              </div>
+              {int.connected ? (
+                <Button variant="destructive" onClick={int.action}>Disconnect</Button>
+              ) : (
+                <Button variant="secondary" onClick={int.action} disabled={connecting}>
+                  {connecting ? <IconLoader2 size={13} className="animate-spin" /> : <IconPlug size={13} />}
+                  Connect
+                </Button>
+              )}
+            </Card>
           );
         })}
 
@@ -999,7 +1006,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
         <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-2xl">
             <div className="type-section-title" style={{ color: 'var(--text-primary)' }}>
-              Role catalog
+              Role Catalog
             </div>
             <p className="type-body mt-[3px]" style={{ color: 'var(--text-secondary)' }}>
               Configure which roles Canon should include in readiness milestones, field briefs, hire paths, and tool access scoping.
@@ -1017,7 +1024,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
           </div>
         ) : activeRoles.length === 0 ? (
           <Card className="px-5 py-8 text-center">
-            <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No active roles</div>
+            <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Active Roles</div>
             <div className="type-body mt-2" style={{ color: 'var(--text-tertiary)' }}>
               Add a role before generating readiness milestones or field briefs.
             </div>
@@ -1106,7 +1113,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
         <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-2xl">
             <div className="type-section-title" style={{ color: 'var(--text-primary)' }}>
-              Tool access registry
+              Tool Access Registry
             </div>
             <p className="type-body mt-[3px]" style={{ color: 'var(--text-secondary)' }}>
               Configure the tools each hire path needs, the role scope, and the owner who can grant access.
@@ -1124,7 +1131,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
           </div>
         ) : toolGroups.length === 0 ? (
           <Card className="px-5 py-8 text-center">
-            <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No tools configured</div>
+            <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Tools Configured</div>
             <div className="type-body mt-2" style={{ color: 'var(--text-tertiary)' }}>
               Add the tools each role needs access to and assign an owner who can grant it. Canon will prompt the hire and notify owners automatically.
             </div>
@@ -1176,7 +1183,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                   {filteredTools.length === 0 ? (
                     <div className="px-5 py-8 text-center">
                       <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>
-                        No matching tools
+                        No Matching Tools
                       </div>
                       <div className="type-body mt-2" style={{ color: 'var(--text-tertiary)' }}>
                         Try a different role filter or add another tool.
@@ -1290,136 +1297,292 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   function renderOrg() {
     const canAdmin = workspace?.role === 'owner' || workspace?.role === 'admin';
     const activeInvitations = workspaceInvitations.filter((invitation) => !invitation.accepted_at && !invitation.revoked_at);
+    const pendingJoinRequests = workspaceJoinRequests.filter((request) => request.status === 'pending');
+    const orgSections: Array<{
+      id: OrgSection;
+      label: string;
+      count?: number;
+      icon: typeof IconBuilding;
+    }> = [
+        { id: 'overview', label: 'Overview', icon: IconBuilding },
+        { id: 'members', label: 'Members', count: workspaceMembers.length, icon: IconUsers },
+        { id: 'requests', label: 'Requests', count: pendingJoinRequests.length, icon: IconUserPlus },
+        { id: 'invitations', label: 'Invites', count: activeInvitations.length, icon: IconMail },
+      ];
+
+    const summaryItems = [
+      { label: 'Members', value: workspaceMembers.length, icon: IconUsers },
+      { label: 'Pending Requests', value: pendingJoinRequests.length, icon: IconUserPlus },
+      { label: 'Active Invites', value: activeInvitations.length, icon: IconMail },
+      { label: 'Your Access', value: workspace?.role ?? 'member', icon: IconShieldCheck },
+    ];
 
     return (
-      <div className="max-w-5xl space-y-5">
-        <Card className="px-5 py-5">
-          <div className="mb-4 flex items-start justify-between gap-4">
-            <div>
-              <div className="type-section-title text-[var(--text-primary)]">Workspace</div>
-              <div className="type-body mt-[3px] text-[var(--text-secondary)]">
-                {workspaceLoading ? 'Loading workspace...' : workspace?.slug ?? 'Workspace setup'}
+      <div className="max-w-6xl space-y-5">
+        <section className="rounded-[8px] border border-[var(--border-tertiary)] bg-[var(--bg-primary)]">
+          <div className="border-b border-[var(--border-tertiary)] px-5 py-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0">
+                <div className="type-section-title text-[var(--text-primary)]">Organization</div>
+                <div className="type-body mt-[3px] text-[var(--text-secondary)]">
+                  {workspaceLoading ? 'Loading workspace...' : workspace?.slug ?? 'Workspace Setup'}
+                </div>
               </div>
+              {workspace?.role && (
+                <span className="w-fit rounded-[6px] border border-[var(--border-secondary)] px-2 py-1 type-caption capitalize text-[var(--text-secondary)]">
+                  {workspace.role}
+                </span>
+              )}
             </div>
-            {workspace?.role && (
-              <span className="rounded-[6px] border border-[var(--border-secondary)] px-2 py-1 type-caption capitalize text-[var(--text-secondary)]">
-                {workspace.role}
-              </span>
-            )}
-          </div>
 
-          <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
-            <div>
-              <label className="mb-[5px] block type-body font-medium text-[var(--text-secondary)]">Workspace name</label>
-              <Input
-                value={workspaceName}
-                onChange={(event) => setWorkspaceName(event.target.value)}
-                readOnly={!canAdmin}
-              />
-            </div>
-            <Button onClick={() => void saveWorkspaceName()} disabled={!canAdmin || workspaceSaving || workspaceName.trim() === workspace?.name}>
-              {workspaceSaving ? <IconLoader2 size={13} className="animate-spin" /> : <IconCheck size={13} />}
-              Save
-            </Button>
-          </div>
-        </Card>
-
-        <Card className="px-5 py-5">
-          <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-            <div>
-              <div className="type-section-title text-[var(--text-primary)]">Members</div>
-              <p className="type-body mt-[3px] text-[var(--text-secondary)]">Owners and admins can invite teammates and manage access.</p>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            {workspaceMembers.map((member) => (
-              <div key={member.id} className="flex flex-col gap-3 rounded-[7px] border border-[var(--border-tertiary)] px-3 py-3 md:flex-row md:items-center">
-                <div className="flex min-w-0 flex-1 items-center gap-3">
-                  <Avatar name={member.email ?? member.user_id} size="sm" />
-                  <div className="min-w-0">
-                    <div className="truncate type-body-strong text-[var(--text-primary)]">
-                      {member.email ?? member.user_id}
+            <div className="mt-5 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+              {summaryItems.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <div key={item.label} className="rounded-[7px] bg-[var(--bg-secondary)] px-3 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="type-caption text-[var(--text-tertiary)]">{item.label}</span>
+                      <Icon size={14} className="text-[var(--text-tertiary)]" />
                     </div>
-                    <div className="type-caption capitalize text-[var(--text-tertiary)]">
-                      {member.role}{member.is_current_user ? ' · You' : ''}
+                    <div className="mt-2 truncate text-[20px] font-semibold capitalize leading-none text-[var(--text-primary)]">
+                      {item.value}
                     </div>
                   </div>
-                </div>
+                );
+              })}
+            </div>
+          </div>
 
-                <div className="flex flex-wrap gap-2">
-                  {member.role === 'owner' ? (
-                    <Button size="sm" variant="secondary" disabled>Owner</Button>
-                  ) : (
-                    <>
-                      <select
-                        value={member.role}
-                        disabled={!canAdmin}
-                        onChange={(event) => void updateMemberRole(member, event.target.value as Exclude<WorkspaceRole, 'owner'>)}
-                        className="h-8 rounded-[6px] border border-[var(--border-secondary)] bg-[var(--bg-primary)] px-2 type-field text-[var(--text-primary)]"
-                      >
-                        <option value="admin">Admin</option>
-                        <option value="member">Member</option>
-                      </select>
-                      <Button size="sm" variant="secondary" onClick={() => void removeMember(member)} disabled={!canAdmin || member.is_current_user}>
-                        <IconTrash size={13} /> Remove
-                      </Button>
-                    </>
+          <nav aria-label="Organization sections" className="flex gap-1 overflow-x-auto px-3 py-2">
+            {orgSections.map((section) => {
+              const Icon = section.icon;
+              const selected = activeOrgSection === section.id;
+              return (
+                <button
+                  key={section.id}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => setActiveOrgSection(section.id)}
+                  className={cn(
+                    'flex h-9 flex-shrink-0 items-center gap-2 rounded-[7px] px-3 type-field transition-colors duration-[120ms] focus:outline-none focus:ring-2 focus:ring-[var(--canon-purple)]/25',
+                    selected
+                      ? 'bg-[var(--canon-purple-light)] text-[var(--canon-purple)]'
+                      : 'text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]'
                   )}
+                >
+                  <Icon size={14} />
+                  <span>{section.label}</span>
+                  {section.count !== undefined && (
+                    <span className={cn(
+                      'rounded-full px-1.5 py-[1px] text-[11px] leading-4',
+                      selected ? 'bg-[var(--auth-illustration-card-strong)] text-[var(--canon-purple)]' : 'bg-[var(--bg-secondary)] text-[var(--text-tertiary)]'
+                    )}>
+                      {section.count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </nav>
+        </section>
+
+        {activeOrgSection === 'overview' && (
+          <Card className="px-5 py-5">
+            <div className="mb-4">
+              <div className="type-section-title text-[var(--text-primary)]">Workspace Profile</div>
+              <p className="type-body mt-[3px] max-w-2xl text-[var(--text-secondary)]">
+                Workspace identity is finalized during onboarding and stays consistent for teammates, invitations, and access requests.
+              </p>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="rounded-[7px] border border-[var(--border-tertiary)] px-3 py-3">
+                <div className="type-caption text-[var(--text-tertiary)]">Workspace Name</div>
+                <div className="mt-1 type-body-strong text-[var(--text-primary)]">{workspace?.name ?? 'Not available'}</div>
+              </div>
+              <div className="rounded-[7px] border border-[var(--border-tertiary)] px-3 py-3">
+                <div className="type-caption text-[var(--text-tertiary)]">Workspace Slug</div>
+                <div className="mt-1 break-all font-mono text-[12px] text-[var(--text-primary)]">{workspace?.slug ?? 'Not available'}</div>
+              </div>
+              <div className="rounded-[7px] border border-[var(--border-tertiary)] px-3 py-3">
+                <div className="type-caption text-[var(--text-tertiary)]">Admin Access</div>
+                <div className="mt-1 type-body text-[var(--text-primary)]">
+                  {canAdmin ? 'You can manage members, requests, and invites.' : 'Ask an owner or admin to make organization changes.'}
                 </div>
               </div>
-            ))}
-          </div>
-        </Card>
-
-        <Card className="px-5 py-5">
-          <div className="mb-4">
-            <div className="type-section-title text-[var(--text-primary)]">Invitations</div>
-            <p className="type-body mt-[3px] text-[var(--text-secondary)]">Create an invite link for a teammate to join this workspace.</p>
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-[1fr_130px_auto] md:items-end">
-            <div>
-              <label className="mb-[5px] block type-body font-medium text-[var(--text-secondary)]">Email</label>
-              <Input
-                value={inviteEmail}
-                onChange={(event) => setInviteEmail(event.target.value)}
-                placeholder="teammate@company.com"
-                disabled={!canAdmin}
-              />
             </div>
-            <div>
-              <label className="mb-[5px] block type-body font-medium text-[var(--text-secondary)]">Role</label>
-              <select
-                value={inviteRole}
-                disabled={!canAdmin}
-                onChange={(event) => setInviteRole(event.target.value as Exclude<WorkspaceRole, 'owner'>)}
-                className="h-9 w-full rounded-[7px] border border-[var(--border-secondary)] bg-[var(--bg-primary)] px-2 type-field text-[var(--text-primary)]"
-              >
-                <option value="member">Member</option>
-                <option value="admin">Admin</option>
-              </select>
-            </div>
-            <Button onClick={() => void createInvitation()} disabled={!canAdmin || inviteSaving || !inviteEmail.trim()}>
-              {inviteSaving ? <IconLoader2 size={13} className="animate-spin" /> : <IconPlus size={13} />}
-              Invite
-            </Button>
-          </div>
+          </Card>
+        )}
 
-          {lastInviteUrl && (
-            <div className="mt-3 rounded-[7px] border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] px-3 py-2">
-              <div className="type-caption text-[var(--text-tertiary)]">Invite link</div>
-              <div className="mt-1 break-all font-mono text-[12px] text-[var(--text-primary)]">{lastInviteUrl}</div>
+        {activeOrgSection === 'members' && (
+          <Card className="px-5 py-5">
+            <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <div className="type-section-title text-[var(--text-primary)]">Members</div>
+                <p className="type-body mt-[3px] text-[var(--text-secondary)]">Manage role-level access for everyone in this workspace.</p>
+              </div>
+              <Button size="sm" variant="secondary" onClick={() => setActiveOrgSection('invitations')} disabled={!canAdmin}>
+                <IconPlus size={13} /> Invite Member
+              </Button>
             </div>
-          )}
 
-          {activeInvitations.length > 0 && (
+            <div className="space-y-2">
+              {workspaceMembers.length === 0 ? (
+                <div className="rounded-[7px] border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] px-3 py-3 type-body text-[var(--text-secondary)]">
+                  No workspace members found.
+                </div>
+              ) : workspaceMembers.map((member) => (
+                <div key={member.id} className="flex flex-col gap-3 rounded-[7px] border border-[var(--border-tertiary)] px-3 py-3 md:flex-row md:items-center">
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
+                    <Avatar name={member.name ?? member.email ?? member.user_id} size="sm" />
+                    <div className="min-w-0">
+                      <div className="truncate type-body-strong text-[var(--text-primary)]">
+                        {member.name ?? member.email ?? member.user_id}
+                      </div>
+                      <div className="type-caption text-[var(--text-tertiary)]">
+                        {member.email ?? member.user_id}
+                      </div>
+                      <div className="type-caption capitalize text-[var(--text-tertiary)]">
+                        {member.role}{member.is_current_user ? ' - You' : ''}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {member.role === 'owner' ? (
+                      <Button size="sm" variant="secondary" disabled>Owner</Button>
+                    ) : (
+                      <>
+                        <select
+                          value={member.role}
+                          disabled={!canAdmin}
+                          aria-label={`Role for ${member.name ?? member.email ?? member.user_id}`}
+                          onChange={(event) => void updateMemberRole(member, event.target.value as Exclude<WorkspaceRole, 'owner'>)}
+                          className="h-8 rounded-[6px] border border-[var(--border-secondary)] bg-[var(--bg-primary)] px-2 type-field text-[var(--text-primary)]"
+                        >
+                          <option value="admin">Admin</option>
+                          <option value="member">Member</option>
+                        </select>
+                        <Button size="sm" variant="secondary" onClick={() => void removeMember(member)} disabled={!canAdmin || member.is_current_user}>
+                          <IconTrash size={13} /> Remove
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
+        {activeOrgSection === 'requests' && (
+          <Card className="px-5 py-5">
+            <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <div className="type-section-title text-[var(--text-primary)]">Access Requests</div>
+                <p className="type-body mt-[3px] text-[var(--text-secondary)]">Approve or deny people who asked to join without an invite link.</p>
+              </div>
+              <span className="w-fit rounded-[6px] border border-[var(--border-secondary)] px-2 py-1 type-caption text-[var(--text-secondary)]">
+                {pendingJoinRequests.length} pending
+              </span>
+            </div>
+
+            {pendingJoinRequests.length === 0 ? (
+              <div className="rounded-[7px] border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] px-3 py-3 type-body text-[var(--text-secondary)]">
+                No pending access requests.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {pendingJoinRequests.map((joinRequest) => (
+                  <div key={joinRequest.id} className="flex flex-col gap-3 rounded-[7px] border border-[var(--border-tertiary)] px-3 py-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="min-w-0">
+                      <div className="truncate type-body-strong text-[var(--text-primary)]">{joinRequest.requester_name ?? joinRequest.requester_email}</div>
+                      {joinRequest.requester_name && (
+                        <div className="type-caption text-[var(--text-tertiary)]">{joinRequest.requester_email}</div>
+                      )}
+                      <div className="type-caption text-[var(--text-tertiary)]">Requested {formatDate(joinRequest.created_at)}</div>
+                      {joinRequest.message && (
+                        <div className="type-body mt-2 text-[var(--text-secondary)]">{joinRequest.message}</div>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => void reviewJoinRequest(joinRequest, 'approved')}
+                        disabled={!canAdmin || reviewingJoinRequestId === joinRequest.id}
+                      >
+                        {reviewingJoinRequestId === joinRequest.id ? <IconLoader2 size={13} className="animate-spin" /> : <IconCheck size={13} />}
+                        Approve
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => void reviewJoinRequest(joinRequest, 'denied')}
+                        disabled={!canAdmin || reviewingJoinRequestId === joinRequest.id}
+                      >
+                        <IconX size={13} /> Deny
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        )}
+
+        {activeOrgSection === 'invitations' && (
+          <Card className="px-5 py-5">
+            <div className="mb-4">
+              <div className="type-section-title text-[var(--text-primary)]">Invitations</div>
+              <p className="type-body mt-[3px] text-[var(--text-secondary)]">Create invite links for teammates and revoke pending invites when plans change.</p>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-[1fr_130px_auto] md:items-end">
+              <div>
+                <label className="mb-[5px] block type-body font-medium text-[var(--text-secondary)]">Email</label>
+                <Input
+                  value={inviteEmail}
+                  onChange={(event) => setInviteEmail(event.target.value)}
+                  placeholder="teammate@company.com"
+                  disabled={!canAdmin}
+                />
+              </div>
+              <div>
+                <label className="mb-[5px] block type-body font-medium text-[var(--text-secondary)]">Role</label>
+                <select
+                  value={inviteRole}
+                  disabled={!canAdmin}
+                  aria-label="Invitation role"
+                  onChange={(event) => setInviteRole(event.target.value as Exclude<WorkspaceRole, 'owner'>)}
+                  className="h-9 w-full rounded-[7px] border border-[var(--border-secondary)] bg-[var(--bg-primary)] px-2 type-field text-[var(--text-primary)]"
+                >
+                  <option value="member">Member</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+              <Button onClick={() => void createInvitation()} disabled={!canAdmin || inviteSaving || !inviteEmail.trim()}>
+                {inviteSaving ? <IconLoader2 size={13} className="animate-spin" /> : <IconPlus size={13} />}
+                Invite
+              </Button>
+            </div>
+
+            {lastInviteUrl && (
+              <div className="mt-3 rounded-[7px] border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] px-3 py-2">
+                <div className="type-caption text-[var(--text-tertiary)]">Invite Link</div>
+                <div className="mt-1 break-all font-mono text-[12px] text-[var(--text-primary)]">{lastInviteUrl}</div>
+              </div>
+            )}
+
             <div className="mt-4 space-y-2">
-              {activeInvitations.map((invitation) => (
+              {activeInvitations.length === 0 ? (
+                <div className="rounded-[7px] border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] px-3 py-3 type-body text-[var(--text-secondary)]">
+                  No active invitations.
+                </div>
+              ) : activeInvitations.map((invitation) => (
                 <div key={invitation.id} className="flex flex-col gap-2 rounded-[7px] border border-[var(--border-tertiary)] px-3 py-3 md:flex-row md:items-center md:justify-between">
                   <div>
                     <div className="type-body-strong text-[var(--text-primary)]">{invitation.email}</div>
-                    <div className="type-caption capitalize text-[var(--text-tertiary)]">{invitation.role} · Expires {formatDate(invitation.expires_at)}</div>
+                    <div className="type-caption capitalize text-[var(--text-tertiary)]">{invitation.role} - Expires {formatDate(invitation.expires_at)}</div>
                   </div>
                   <Button size="sm" variant="secondary" onClick={() => void revokeInvitation(invitation)} disabled={!canAdmin}>
                     <IconX size={13} /> Revoke
@@ -1427,8 +1590,8 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                 </div>
               ))}
             </div>
-          )}
-        </Card>
+          </Card>
+        )}
       </div>
     );
   }
@@ -1497,7 +1660,6 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
             {activeSetting === 'tools' && renderTools()}
             {activeSetting === 'delete' && renderPlaceholder('Delete Account')}
             {activeSetting === 'org' && renderOrg()}
-            {activeSetting === 'notifications' && renderPlaceholder('Notifications')}
             {activeSetting === 'apikeys' && renderPlaceholder('API Keys')}
           </div>
         </div>

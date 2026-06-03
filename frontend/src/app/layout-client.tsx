@@ -36,7 +36,11 @@ export function RootLayoutClient({
   const pathname = usePathname();
   const supabase = createClient();
 
-  const isLoginPage = pathname === '/login' || pathname.startsWith('/login/');
+  const isAuthSurface =
+    pathname === '/login' ||
+    pathname.startsWith('/login/') ||
+    pathname === '/onboarding/workspace' ||
+    pathname.startsWith('/invite/accept');
 
   useEffect(() => {
     const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
@@ -105,7 +109,7 @@ export function RootLayoutClient({
   }, [supabase, router, initialSession, pathname]);
 
   useEffect(() => {
-    if (isLoginPage || pathname.startsWith('/milestones')) return undefined;
+    if (isAuthSurface || pathname.startsWith('/milestones')) return undefined;
 
     let stopped = false;
     async function checkMilestoneGeneration() {
@@ -146,7 +150,7 @@ export function RootLayoutClient({
       stopped = true;
       if (interval) window.clearInterval(interval);
     };
-  }, [isLoginPage, pathname]);
+  }, [isAuthSurface, pathname]);
 
   async function handleLogout() {
     try {
@@ -159,7 +163,7 @@ export function RootLayoutClient({
     }
   }
 
-  if (isLoginPage) {
+  if (isAuthSurface) {
     return <>{children}</>;
   }
 

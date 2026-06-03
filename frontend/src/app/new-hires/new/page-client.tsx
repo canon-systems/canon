@@ -21,7 +21,7 @@ export function NewHireFormClient() {
 
       <div className="mb-6">
         <h2 className="max-w-2xl text-[24px] font-semibold leading-[1.18] tracking-normal text-[var(--text-primary)]">
-          Start with the details Canon needs
+          Start With the Details Canon Needs
         </h2>
         <p className="type-body mt-2 max-w-2xl leading-[1.5] text-[var(--text-secondary)]">
           Canon uses the hire&apos;s role and start date to create a readiness path, access requests, and customer-ready briefings.

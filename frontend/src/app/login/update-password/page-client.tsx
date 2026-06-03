@@ -6,9 +6,8 @@ import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, AlertTriangle } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Eye, EyeOff, Loader2, AlertTriangle, LockKeyhole } from 'lucide-react';
 
 type PageState = 'loading' | 'ready' | 'invalid';
 
@@ -17,6 +16,7 @@ export function UpdatePasswordPageClient() {
   const [pageState, setPageState] = useState<PageState>('loading');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -44,8 +44,8 @@ export function UpdatePasswordPageClient() {
       return;
     }
 
-    if (password.length < 6) {
-      setErrorMsg('Password must be at least 6 characters.');
+    if (password.length < 8) {
+      setErrorMsg('Password must be at least 8 characters.');
       return;
     }
 
@@ -59,8 +59,7 @@ export function UpdatePasswordPageClient() {
         return;
       }
 
-      await new Promise(resolve => setTimeout(resolve, 100));
-      window.location.href = '/';
+      window.location.assign('/auth/continue?next=/');
     } catch (e: unknown) {
       setErrorMsg(e instanceof Error ? e.message : 'Something went wrong. Please try again.');
       setLoading(false);
@@ -69,19 +68,20 @@ export function UpdatePasswordPageClient() {
 
   if (pageState === 'loading') {
     return (
-      <div className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-10 sm:px-6 lg:px-8">
+      <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[var(--auth-page-bg)] px-4 py-10 sm:px-6 lg:px-8">
         <div className="relative z-10 flex items-center gap-2 text-[var(--text-secondary)]">
           <Loader2 className="h-5 w-5 animate-spin" />
-          <span>Verifying Link...</span>
+          <span>Verifying secure link...</span>
         </div>
-      </div>
+      </main>
     );
   }
 
   if (pageState === 'invalid') {
     return (
-      <div className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-10 sm:px-6 lg:px-8">
-        <div className="relative z-10 mx-auto flex w-full max-w-xl flex-col items-center gap-6">
+      <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[var(--auth-page-bg)] px-4 py-10 sm:px-6 lg:px-8">
+        <div className="pointer-events-none fixed inset-0 bg-[linear-gradient(var(--auth-grid-line)_1px,transparent_1px),linear-gradient(90deg,var(--auth-grid-line)_1px,transparent_1px)] bg-[length:72px_72px] opacity-25" />
+        <div className="relative z-10 mx-auto flex w-full max-w-xl flex-col items-center gap-6 rounded-[8px] border border-[var(--border-tertiary)] bg-[var(--auth-panel-bg)] p-6 text-center shadow-[var(--shadow-md)]">
           <div className="space-y-3 text-center">
             <h1 className="type-auth-title">Link Expired or Invalid</h1>
             <p className="text-[var(--text-secondary)]">
@@ -89,87 +89,108 @@ export function UpdatePasswordPageClient() {
             </p>
           </div>
           <Button asChild variant="default">
-            <Link href="/login">Back to Sign In</Link>
+            <Link href="/login">Back to sign in</Link>
           </Button>
         </div>
-      </div>
+      </main>
     );
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-10 sm:px-6 lg:px-8">
-      <div className="relative z-10 mx-auto flex w-full max-w-xl flex-col items-center gap-8">
-        <div className="w-full space-y-6">
-          <div className="space-y-3">
-            <h1 className="type-auth-title">Set New Password</h1>
-            <p className="text-[var(--text-secondary)]">
-              Enter your new password below. Use at least 6 characters.
+    <main className="relative min-h-screen overflow-hidden bg-[var(--auth-page-bg)] px-4 py-10 sm:px-6 lg:px-8">
+      <div className="pointer-events-none fixed inset-0 bg-[linear-gradient(var(--auth-grid-line)_1px,transparent_1px),linear-gradient(90deg,var(--auth-grid-line)_1px,transparent_1px)] bg-[length:72px_72px] opacity-25" />
+      <div className="relative z-10 mx-auto flex min-h-[calc(100vh-80px)] w-full max-w-xl items-center">
+        <div className="w-full rounded-[8px] border border-[var(--border-tertiary)] bg-[var(--auth-panel-bg)] p-5 text-[var(--text-primary)] shadow-[var(--shadow-lg)] sm:p-6">
+          <div className="mb-6">
+            <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-[8px] bg-[var(--canon-purple)] text-[15px] font-semibold text-[var(--text-on-accent)]">C</div>
+            <h1 className="text-[28px] font-semibold leading-[1.12] tracking-normal text-[var(--text-primary)]">Set a New Password</h1>
+            <p className="mt-3 text-[13px] leading-6 text-[var(--text-secondary)]">
+              Use at least 8 characters. After the update, Canon will route you back to the right workspace step.
             </p>
           </div>
 
-          <Card>
-            <CardContent className="space-y-4 p-6">
-              <form onSubmit={handleUpdatePassword} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="password">New Password</Label>
+          <form onSubmit={handleUpdatePassword} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="password" className="text-[var(--text-secondary)]">New Password</Label>
+              <div className="relative">
+                <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-placeholder)]" />
                   <Input
                     id="password"
-                    type="password"
+                    type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
-                    minLength={6}
+                    minLength={8}
                     autoComplete="new-password"
-                    placeholder="Enter New Password"
+                    placeholder="Enter new password"
                     disabled={loading}
+                    className="h-11 border-[var(--border-secondary)] bg-[var(--bg-primary)] pl-9 pr-10 text-[13px] text-[var(--text-primary)] placeholder:text-[var(--text-placeholder)]"
                   />
-                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  onClick={() => setShowPassword((current) => !current)}
+                  disabled={loading}
+                  className="absolute right-2 top-1/2 h-7 w-7 -translate-y-1/2 border-0 text-[var(--text-tertiary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                >
+                  {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                </Button>
+              </div>
+              <div className={`flex items-center gap-2 type-caption ${password.length >= 8 ? 'text-[var(--green-text)]' : 'text-[var(--text-tertiary)]'}`}>
+                <CheckCircle2 size={13} />
+                <span>8 or more characters.</span>
+              </div>
+            </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="confirm-password">Confirm Password</Label>
+            <div className="space-y-2">
+              <Label htmlFor="confirm-password" className="text-[var(--text-secondary)]">Confirm Password</Label>
                   <Input
                     id="confirm-password"
-                    type="password"
+                type={showPassword ? 'text' : 'password'}
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     required
-                    minLength={6}
+                minLength={8}
                     autoComplete="new-password"
-                    placeholder="Confirm New Password"
+                placeholder="Confirm new password"
                     disabled={loading}
+                className="h-11 border-[var(--border-secondary)] bg-[var(--bg-primary)] text-[13px] text-[var(--text-primary)] placeholder:text-[var(--text-placeholder)]"
                   />
-                </div>
+            </div>
 
-                <Button
-                  type="submit"
-                  className="w-full"
-                  disabled={loading || !password || !confirmPassword}
-                >
-                  {loading ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Updating...
-                    </>
-                  ) : (
-                    'Update Password'
-                  )}
-                </Button>
-
-                <Button asChild type="button" variant="ghost" className="w-full text-[var(--text-secondary)] hover:text-[var(--text-primary)]" disabled={loading}>
-                  <Link href="/login">Back to Sign In</Link>
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
-
-          {errorMsg && (
-            <Alert variant="destructive">
+            {errorMsg && (
+            <Alert variant="destructive" className="bg-[var(--bg-primary)]">
               <AlertTriangle className="h-4 w-4" />
               <AlertDescription>{errorMsg}</AlertDescription>
             </Alert>
           )}
+
+            <Button
+              type="submit"
+              className="h-11 w-full rounded-[8px] bg-[var(--canon-purple)] text-[13px] text-[var(--text-on-accent)]"
+              disabled={loading || !password || !confirmPassword}
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Updating
+                </>
+              ) : (
+                <>
+                  Update password
+                  <ArrowRight size={15} />
+                </>
+              )}
+            </Button>
+
+            <Button asChild type="button" variant="ghost" className="h-10 w-full text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]" disabled={loading}>
+              <Link href="/login">Back to sign in</Link>
+            </Button>
+          </form>
         </div>
       </div>
-    </div>
+    </main>
   );
 }

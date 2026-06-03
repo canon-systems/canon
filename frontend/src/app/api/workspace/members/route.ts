@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { requireWorkspace, requireWorkspaceAdmin, type OrganizationRole } from '@/lib/server/organization';
+import { userFullName } from '@/lib/userDisplay';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,10 +17,14 @@ type MemberRow = {
 
 const mutableRoles: OrganizationRole[] = ['admin', 'member'];
 
-async function userEmailById(userId: string) {
+async function userProfileById(userId: string) {
   const service = createServiceRoleClient();
   const { data } = await service.auth.admin.getUserById(userId);
-  return data.user?.email ?? null;
+  const user = data.user;
+  return {
+    email: user?.email ?? null,
+    name: user ? userFullName(user) : null,
+  };
 }
 
 export async function GET() {
@@ -37,11 +42,14 @@ export async function GET() {
 
     if (error) throw error;
 
-    const members = await Promise.all(((data ?? []) as MemberRow[]).map(async (member) => ({
-      ...member,
-      email: await userEmailById(member.user_id),
-      is_current_user: member.user_id === user.id,
-    })));
+    const members = await Promise.all(((data ?? []) as MemberRow[]).map(async (member) => {
+      const profile = await userProfileById(member.user_id);
+      return {
+        ...member,
+        ...profile,
+        is_current_user: member.user_id === user.id,
+      };
+    }));
 
     return NextResponse.json({ members, current_role: organization.role });
   } catch (error: unknown) {
@@ -86,10 +94,11 @@ export async function PATCH(request: NextRequest) {
 
     if (error || !member) throw error ?? new Error('Member update failed');
 
+    const profile = await userProfileById(member.user_id);
     return NextResponse.json({
       member: {
         ...member,
-        email: await userEmailById(member.user_id),
+        ...profile,
         is_current_user: member.user_id === user.id,
       },
     });

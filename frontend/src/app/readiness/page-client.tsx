@@ -815,7 +815,7 @@ export function ReadinessClient() {
                     <div className="p-3">
                       <Alert>
                         <IconRadar size={15} />
-                        <AlertTitle>{activeCategories.length === 0 ? 'No categories selected' : 'No active signals'}</AlertTitle>
+                        <AlertTitle>{activeCategories.length === 0 ? 'No Categories Selected' : 'No Active Signals'}</AlertTitle>
                         <AlertDescription>
                           {activeCategories.length === 0 ? 'Select at least one category to view readiness signals.' : 'This filter is clear for now.'}
                         </AlertDescription>

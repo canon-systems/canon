@@ -38,6 +38,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Sign in with the invited email to accept this invitation' }, { status: 403 });
     }
 
+    const { data: existingMembership, error: existingMembershipError } = await service
+      .from('organization_members')
+      .select('id, organization_id')
+      .eq('user_id', user.id)
+      .limit(1)
+      .maybeSingle();
+
+    if (existingMembershipError) throw existingMembershipError;
+    if (existingMembership && existingMembership.organization_id !== invitation.organization_id) {
+      return NextResponse.json({ error: 'This account already belongs to a workspace' }, { status: 409 });
+    }
+
     const { data: member, error: memberError } = await service
       .from('organization_members')
       .upsert({
