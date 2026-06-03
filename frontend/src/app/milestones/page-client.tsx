@@ -28,7 +28,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner';
 import { MilestoneCard } from '@/components/milestone-card';
 import { cn } from '@/components/ui/utils';
-import { DEFAULT_ROLES, activeRoleProfiles, roleAbbreviation, roleColor } from '@/lib/onboarding/roles';
+import { DEFAULT_ROLES, activeRoleProfiles, roleAbbreviation, roleIconColor } from '@/lib/onboarding/roles';
 import type { HireRole, MilestoneGenerationRun, MilestoneProposal, RampMilestone, RoleProfile } from '@/types/onboarding';
 
 const MILESTONE_GENERATION_STORAGE_KEY = 'canon-milestone-generation-run';
@@ -364,7 +364,7 @@ export function MilestonesClient() {
   const activeRoleProfile = roleProfileFor(roleProfiles, activeRole);
   const activeJobDescription = activeRoleProfile?.job_description.trim() ?? '';
   const activeRoleIndex = activeProfiles.findIndex((profile) => profile.role === activeRole);
-  const activeRoleDisplayColor = roleColor(activeRole, activeRoleIndex);
+  const activeRoleDisplayColor = roleIconColor(activeRole, activeRoleIndex);
   const generating = generationStarting || isGenerationActive(generationRun);
 
   useEffect(() => {
@@ -629,7 +629,7 @@ export function MilestonesClient() {
             const active = activeRole === role;
             const count = byRole(role).length;
             const pCount = proposalsByRole(role).length;
-            const color = roleColor(role, index);
+            const color = roleIconColor(role, index);
             return (
               <div
                 key={profile.id}
@@ -650,8 +650,8 @@ export function MilestonesClient() {
                 style={{ padding: '12px 16px' }}
               >
                 <div
-                  className="w-[30px] h-[30px] rounded-[7px] flex items-center justify-center type-caption font-medium text-[var(--text-primary)] flex-shrink-0"
-                  style={{ backgroundColor: color }}
+                  className="w-[30px] h-[30px] rounded-[7px] flex items-center justify-center type-caption font-medium flex-shrink-0"
+                  style={{ backgroundColor: color, color: 'var(--text-on-accent)' }}
                 >
                   {roleAbbreviation(role)}
                 </div>
@@ -688,8 +688,8 @@ export function MilestonesClient() {
             <div>
               <div className="flex items-center gap-3">
                 <div
-                  className="w-8 h-8 rounded-[7px] flex items-center justify-center type-caption font-medium text-[var(--text-primary)] flex-shrink-0"
-                  style={{ backgroundColor: activeRoleDisplayColor }}
+                  className="w-8 h-8 rounded-[7px] flex items-center justify-center type-caption font-medium flex-shrink-0"
+                  style={{ backgroundColor: activeRoleDisplayColor, color: 'var(--text-on-accent)' }}
                 >
                   {roleAbbreviation(activeRole)}
                 </div>

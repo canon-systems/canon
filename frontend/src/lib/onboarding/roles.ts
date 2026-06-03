@@ -17,6 +17,17 @@ const ROLE_COLORS = [
   'rgba(16, 185, 129, 0.18)',
 ];
 
+const ROLE_ICON_COLORS = [
+  '#0F766E',
+  '#5B4BE0',
+  '#1D4ED8',
+  '#B45309',
+  '#047857',
+  '#7E22CE',
+  '#BE123C',
+  '#334155',
+];
+
 export function normalizeRoleName(value: string) {
   return value.replace(/\s+/g, ' ').trim();
 }
@@ -33,6 +44,15 @@ export function roleColor(role: HireRole, index = 0) {
   if (role === 'Solutions Engineer') return 'var(--role-se)';
   if (role === 'Implementation Engineer') return 'var(--role-ie)';
   return ROLE_COLORS[index % ROLE_COLORS.length];
+}
+
+export function roleIconColor(role: HireRole, index = 0) {
+  if (role === 'AI Solutions Architect') return ROLE_ICON_COLORS[0];
+  if (role === 'Solutions Engineer') return ROLE_ICON_COLORS[1];
+  if (role === 'Implementation Engineer') return ROLE_ICON_COLORS[2];
+
+  const normalizedIndex = ((index % ROLE_ICON_COLORS.length) + ROLE_ICON_COLORS.length) % ROLE_ICON_COLORS.length;
+  return ROLE_ICON_COLORS[normalizedIndex];
 }
 
 export function activeRoleProfiles(profiles: RoleProfile[]) {
