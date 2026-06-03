@@ -35,7 +35,7 @@ import { cn } from '@/components/ui/utils';
 import { ToolLogo } from '@/components/ToolLogo';
 import { ToolNameCombobox } from '@/components/tool-name-combobox';
 import { SlackUserPicker, type SlackUser } from '@/components/SlackUserPicker';
-import { activeRoleProfiles, normalizeRoleName, roleAbbreviation, roleColor } from '@/lib/onboarding/roles';
+import { activeRoleProfiles, normalizeRoleName, roleAbbreviation, roleColor, roleIconColor } from '@/lib/onboarding/roles';
 import type { OrgTool, HireRole, RoleProfile } from '@/types/onboarding';
 import { userFullName } from '@/lib/userDisplay';
 
@@ -1036,8 +1036,8 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                   <div className="flex min-w-0 gap-3">
                     <div
-                      className="mt-[1px] flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[8px] type-caption font-medium text-[var(--text-primary)]"
-                      style={{ backgroundColor: roleColor(profile.role, index) }}
+                      className="mt-[1px] flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[8px] type-caption font-medium"
+                      style={{ backgroundColor: roleIconColor(profile.role, index), color: 'var(--text-on-accent)' }}
                     >
                       {roleAbbreviation(profile.role)}
                     </div>

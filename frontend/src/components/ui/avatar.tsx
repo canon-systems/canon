@@ -1,14 +1,14 @@
 const AVATAR_COLORS = [
-  'var(--avatar-1)',
-  'var(--avatar-2)',
-  'var(--avatar-3)',
-  'var(--avatar-4)',
-  'var(--avatar-5)',
-  'var(--avatar-6)',
-  'var(--avatar-7)',
+  { background: 'var(--avatar-1)', foreground: 'var(--text-on-accent)' },
+  { background: 'var(--avatar-2)', foreground: 'var(--text-primary)' },
+  { background: 'var(--avatar-3)', foreground: 'var(--text-on-accent)' },
+  { background: 'var(--avatar-4)', foreground: 'var(--text-primary)' },
+  { background: 'var(--avatar-5)', foreground: 'var(--text-primary)' },
+  { background: 'var(--avatar-6)', foreground: 'var(--text-on-accent)' },
+  { background: 'var(--avatar-7)', foreground: 'var(--text-primary)' },
 ];
 
-function getColor(name: string): string {
+function getPalette(name: string) {
   let hash = 0;
   for (let i = 0; i < name.length; i += 1) {
     hash = name.charCodeAt(i) + ((hash << 5) - hash);
@@ -28,10 +28,12 @@ const sizes = {
 };
 
 export function Avatar({ name, size = 'md' }: { name: string; size?: keyof typeof sizes }) {
+  const palette = getPalette(name);
+
   return (
     <div
-      className={`${sizes[size]} rounded-full flex items-center justify-center font-medium text-[var(--text-primary)] flex-shrink-0`}
-      style={{ backgroundColor: getColor(name) }}
+      className={`${sizes[size]} rounded-full flex items-center justify-center font-medium flex-shrink-0`}
+      style={{ backgroundColor: palette.background, color: palette.foreground }}
     >
       {getInitials(name)}
     </div>
