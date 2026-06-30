@@ -9,10 +9,10 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default: "bg-[var(--canon-purple)] text-[var(--text-on-accent)] border-0 rounded-[7px] px-[11px] py-[6px] type-control flex items-center gap-[5px] cursor-pointer shadow-[var(--brand-shadow)] hover:bg-[var(--canon-purple-hover)] transition-colors duration-[120ms]",
-        secondary: "bg-[var(--bg-primary)] text-[var(--text-secondary)] border border-[var(--border-secondary)] rounded-[7px] px-[11px] py-[6px] type-control flex items-center gap-[5px] cursor-pointer hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] transition-colors duration-[120ms]",
-        outline: "bg-transparent text-[var(--text-secondary)] border border-[var(--border-secondary)] rounded-[7px] px-[11px] py-[6px] type-control flex items-center gap-[5px] cursor-pointer hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] transition-colors duration-[120ms]",
+        secondary: "bg-[var(--bg-secondary)] text-[var(--text-primary)] border border-[var(--border-secondary)] rounded-[7px] px-[11px] py-[6px] type-control flex items-center gap-[5px] cursor-pointer hover:bg-[var(--bg-tertiary)] transition-colors duration-[120ms]",
+        outline: "bg-[var(--bg-secondary)] text-[var(--text-primary)] border border-[var(--border-secondary)] rounded-[7px] px-[11px] py-[6px] type-control flex items-center gap-[5px] cursor-pointer hover:bg-[var(--bg-tertiary)] transition-colors duration-[120ms]",
         ghost: "bg-transparent text-[var(--text-secondary)] rounded-[7px] px-[11px] py-[6px] type-control flex items-center gap-[5px] cursor-pointer hover:bg-[var(--bg-secondary)] transition-colors duration-[120ms]",
-        destructive: "bg-transparent text-[var(--red-text)] border border-[var(--red-border)] rounded-[7px] px-[11px] py-[6px] type-control cursor-pointer hover:bg-[var(--red-bg)] transition-colors duration-[120ms]",
+        destructive: "bg-[var(--red)] text-[var(--text-on-accent)] border border-[var(--red)] rounded-[7px] px-[11px] py-[6px] type-control cursor-pointer hover:bg-[var(--red-hover)] hover:border-[var(--red-hover)] transition-colors duration-[120ms]",
       },
       size: {
         default: "",

@@ -68,10 +68,11 @@
   --amber-text: #b86505;
 
   /* Semantic: Red */
-  --red: #c73737;
-  --red-bg: rgba(199, 55, 55, 0.1);
-  --red-border: rgba(199, 55, 55, 0.3);
-  --red-text: #c73737;
+  --red: #dc2626;
+  --red-hover: #b91c1c;
+  --red-bg: rgba(220, 38, 38, 0.1);
+  --red-border: rgba(220, 38, 38, 0.3);
+  --red-text: #dc2626;
 
   /* Semantic: Teal */
   --teal: #0D9488;
