@@ -85,15 +85,6 @@ export function buildSourceIdentifier(params: {
     if (repo) return repo.slice(0, SOURCE_IDENTIFIER_MAX_LENGTH);
   }
 
-  if (provider === 'jira') {
-    const project = normalizeIdentifierPart(scope.project);
-    if (project) {
-      const cloudId = normalizeIdentifierPart(scope.cloudId);
-      const jiraId = cloudId ? `${cloudId}:${project}` : project;
-      return jiraId.slice(0, SOURCE_IDENTIFIER_MAX_LENGTH);
-    }
-  }
-
   const fallbackScope = buildScopeFallback(scope);
   if (fallbackScope) {
     return `${provider}:${fallbackScope}`.slice(0, SOURCE_IDENTIFIER_MAX_LENGTH);

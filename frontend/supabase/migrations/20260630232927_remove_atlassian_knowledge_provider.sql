@@ -4,6 +4,3 @@ ALTER TABLE knowledge_sources
 ALTER TABLE knowledge_sources
   ADD CONSTRAINT knowledge_sources_provider_check
   CHECK (provider IN ('slack', 'notion', 'google_drive', 'gong'));
-
-CREATE INDEX IF NOT EXISTS knowledge_sources_org_provider_idx
-  ON knowledge_sources(organization_id, provider);

@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS new_hires (
 CREATE TABLE IF NOT EXISTS knowledge_sources (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   organization_id uuid REFERENCES organizations(id) ON DELETE CASCADE,
-  provider text NOT NULL DEFAULT 'slack' CHECK (provider IN ('slack', 'notion', 'google_drive', 'confluence')),
+  provider text NOT NULL DEFAULT 'slack' CHECK (provider IN ('slack', 'notion', 'google_drive')),
   name text NOT NULL,
   slack_channel_id text,
   slack_channel_name text,

@@ -7,7 +7,7 @@ import {
   trackIntegrationStateChanged,
   trackSourceDisconnected,
 } from '@/lib/server/services/usageTracking';
-import { ATLASSIAN_PROVIDER, canonicalProvider } from '@/lib/providers';
+import { canonicalProvider } from '@/lib/providers';
 import { createLogger } from '@/lib/server/logging';
 import { getOrganizationForUser } from '@/lib/server/organization';
 
@@ -43,7 +43,6 @@ function normalizeProvider(value: string | undefined): string | null {
 }
 
 function sourceProvidersForIntegrationProvider(provider: string): string[] {
-  if (provider === ATLASSIAN_PROVIDER) return ['jira', 'confluence'];
   return [provider];
 }
 

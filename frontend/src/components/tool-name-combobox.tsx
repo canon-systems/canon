@@ -7,7 +7,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { cn } from '@/components/ui/utils';
 import { ToolLogo } from '@/components/ToolLogo';
 
-const KNOWN_TOOL_NAMES = ['Salesforce', 'GitHub', 'Jira', 'Confluence', 'Gong', 'Outreach', 'Zoom'];
+const KNOWN_TOOL_NAMES = ['Salesforce', 'GitHub', 'Gong', 'Outreach', 'Zoom'];
 
 interface ToolNameComboboxProps {
   value: string;

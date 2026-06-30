@@ -24,8 +24,6 @@ const TOOL_ACCESS_URLS: Record<string, string> = {
   salesforce: 'https://login.salesforce.com',
   gong: 'https://app.gong.io/settings/users',
   github: 'https://github.com/settings/organizations',
-  jira: 'https://admin.atlassian.com',
-  confluence: 'https://admin.atlassian.com',
   zoom: 'https://zoom.us/account/user#/',
   outreach: 'https://app.outreach.io/settings/users',
   hubspot: 'https://app.hubspot.com/settings/users',

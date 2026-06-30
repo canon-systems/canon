@@ -256,7 +256,7 @@ export async function ingestIssueSource(
   source: WorkspaceSource
 ) {
   const provider = source.provider.toLowerCase();
-  if (!['jira', 'linear', 'asana'].includes(provider)) {
+  if (!['linear', 'asana'].includes(provider)) {
     return;
   }
 
@@ -286,7 +286,7 @@ export async function ingestSource(supabase: SupabaseClient, source: WorkspaceSo
   const provider = source.provider.toLowerCase();
   if (provider === 'github') {
     await ingestGitHubSource(supabase, source);
-  } else if (['jira', 'linear', 'asana'].includes(provider)) {
+  } else if (['linear', 'asana'].includes(provider)) {
     await ingestIssueSource(supabase, source);
   } else {
     await updateStage(supabase, source.id, 'ready', 100, 'Setup complete');

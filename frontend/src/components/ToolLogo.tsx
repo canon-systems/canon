@@ -1,6 +1,6 @@
 'use client';
 
-import { SiConfluence, SiGithub, SiJira, SiZoom } from '@icons-pack/react-simple-icons';
+import { SiGithub, SiZoom } from '@icons-pack/react-simple-icons';
 
 // Salesforce cloud icon path from simple-icons
 const SALESFORCE_PATH =
@@ -39,16 +39,6 @@ const TOOL_MAP: Record<string, ToolConfig> = {
     bg: '#f0f0f0',
     fg: '#181717',
     render: (size) => <SiGithub size={size} color="#181717" />,
-  },
-  jira: {
-    bg: '#e6eeff',
-    fg: '#0052CC',
-    render: (size) => <SiJira size={size} color="#0052CC" />,
-  },
-  confluence: {
-    bg: '#e6eeff',
-    fg: '#0052CC',
-    render: (size) => <SiConfluence size={size} color="#0052CC" />,
   },
   zoom: {
     bg: '#e6f0ff',

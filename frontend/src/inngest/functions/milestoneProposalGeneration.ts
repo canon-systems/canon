@@ -142,7 +142,7 @@ function evidenceType(value: unknown, trigger: string): MilestoneEvidenceRequire
 
   if (/\b(customer|call|demo|qbr|kickoff|go-live|implementation|poc|proof of concept)\b/i.test(trigger)) return 'customer_exposure';
   if (/\b(slack|thread|message|email|status update|handoff)\b/i.test(trigger)) return 'communication_activity';
-  if (/\b(access|permission|salesforce|gong|jira|github|confluence|crm)\b/i.test(trigger)) return 'access_readiness';
+  if (/\b(access|permission|salesforce|gong|github|crm)\b/i.test(trigger)) return 'access_readiness';
   return 'tool_activity';
 }
 
