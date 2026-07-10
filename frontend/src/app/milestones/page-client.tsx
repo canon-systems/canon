@@ -612,7 +612,7 @@ export function MilestonesClient() {
         <div className="split-header p-4 border-b">
           <div className="flex items-center justify-between">
             <span className="type-metric-sm" style={{ color: 'var(--text-primary)' }}>
-              Readiness Milestones{' '}
+              Milestones{' '}
               <span className="type-caption font-normal tabular-nums" style={{ color: 'var(--text-tertiary)' }}>
                 {milestones.length}
               </span>
@@ -774,7 +774,7 @@ export function MilestonesClient() {
                     <IconBrain size={13} /> Generate
                   </Button>
                   <Button size="sm" variant="secondary" onClick={() => { setShowAddForm(true); setForm(emptyForm(activeRole)); }}>
-                      Add Manually
+                    Add Manually
                   </Button>
                 </div>
               </div>
