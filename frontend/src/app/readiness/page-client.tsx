@@ -549,18 +549,17 @@ export function ReadinessClient() {
   async function updateSelectedSignalStatus(status: ReadinessStatus) {
     const selectedItems = categoryItems.filter((item) => selectedSignalIds.has(item.id));
     if (selectedItems.length === 0) return;
+    const itemIds = selectedItems.map((item) => item.id);
 
     setRowActionId('bulk');
     try {
-      for (const item of selectedItems) {
-        const res = await fetch('/api/onboarding/readiness', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: item.id, status }),
-        });
-        const data = (await res.json()) as { error?: string; detail?: string };
-        if (!res.ok) throw new Error(data.detail || data.error || 'Failed to update selected signals');
-      }
+      const res = await fetch('/api/onboarding/readiness', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemIds, status }),
+      });
+      const data = (await res.json()) as { error?: string; detail?: string };
+      if (!res.ok) throw new Error(data.detail || data.error || 'Failed to update selected signals');
 
       await loadReadiness();
       setSelectedSignalIds(new Set());

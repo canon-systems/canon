@@ -91,6 +91,14 @@ function validReadinessItemIds(values: unknown) {
   return Array.isArray(values) ? values.filter((value): value is string => typeof value === 'string' && value.trim().length > 0) : [];
 }
 
+function chunkValues<T>(values: T[], size: number) {
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+  return chunks;
+}
+
 function validSlackDmTargets(values: unknown) {
   return Array.isArray(values)
     ? values
@@ -513,8 +521,18 @@ export async function PATCH(request: NextRequest) {
     const { user } = await getSession();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const body = (await request.json().catch(() => ({}))) as { id?: unknown; status?: unknown };
-    if (typeof body.id !== 'string' || body.id.trim().length === 0) {
+    const body = (await request.json().catch(() => ({}))) as { id?: unknown; itemIds?: unknown; status?: unknown };
+    const bodyItemIds = validReadinessItemIds(body.itemIds);
+    if (Array.isArray(body.itemIds) && bodyItemIds.length !== body.itemIds.length) {
+      return NextResponse.json({ error: 'Invalid readiness item id' }, { status: 400 });
+    }
+
+    const itemIds = Array.from(new Set([
+      ...(typeof body.id === 'string' && body.id.trim().length > 0 ? [body.id.trim()] : []),
+      ...bodyItemIds.map((id) => id.trim()),
+    ]));
+
+    if (itemIds.length === 0) {
       return NextResponse.json({ error: 'Readiness item id is required' }, { status: 400 });
     }
     if (!isReadinessStatus(body.status)) {
@@ -523,7 +541,8 @@ export async function PATCH(request: NextRequest) {
 
     log.info('status_update_requested', {
       userId: user.id,
-      itemId: body.id,
+      itemId: itemIds[0] ?? null,
+      itemIdCount: itemIds.length,
       status: body.status,
     });
 
@@ -536,25 +555,35 @@ export async function PATCH(request: NextRequest) {
       sent_at: body.status === 'sent' ? updatedAt : null,
     };
 
-    const { data: item, error } = await supabase
-      .from('readiness_items')
-      .update(update)
-      .eq('id', body.id)
-      .eq('organization_id', organization.id)
-      .select('*')
-      .maybeSingle();
+    const chunks = chunkValues(itemIds, 100);
+    const chunkResults = await Promise.all(chunks.map((chunk) => (
+      supabase
+        .from('readiness_items')
+        .update(update)
+        .eq('organization_id', organization.id)
+        .in('id', chunk)
+        .select('*')
+    )));
 
-    if (error) throw error;
-    if (!item) return NextResponse.json({ error: 'Readiness item not found' }, { status: 404 });
+    const items: ReadinessItem[] = [];
+    for (const result of chunkResults) {
+      if (result.error) throw result.error;
+      items.push(...((result.data ?? []) as ReadinessItem[]));
+    }
+
+    if (items.length !== itemIds.length) {
+      return NextResponse.json({ error: 'One or more readiness items were not found' }, { status: 404 });
+    }
 
     log.info('status_update_completed', {
       userId: user.id,
       orgId: organization.id,
-      itemId: item.id,
-      status: item.status,
+      itemId: items[0]?.id ?? null,
+      itemIdCount: items.length,
+      status: body.status,
     });
 
-    return NextResponse.json({ item });
+    return NextResponse.json({ item: items[0] ?? null, items, count: items.length });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('[api/onboarding/readiness] PATCH failed', error);
