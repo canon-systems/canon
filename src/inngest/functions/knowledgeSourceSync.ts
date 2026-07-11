@@ -26,39 +26,17 @@ import {
   upsertProviderConnection,
 } from '@/lib/server/knowledge-sync/source-repository';
 import { logGranolaDiagnostics } from '@/lib/server/knowledge-sync/granola-diagnostics';
+import {
+  enrichSlackMessagesWithReplies,
+  fetchSlackHistory,
+  missingSlackHistoryScopes,
+  SlackApiError,
+  type SlackMessage,
+} from '@/lib/server/knowledge-sync/slack-client';
 
 type KnowledgeSourceSyncEvent = {
   sourceId?: string;
   organizationId?: string;
-};
-
-type SlackMessage = {
-  ts: string;
-  text: string;
-  subtype?: string;
-  reply_count?: number;
-  user?: string;
-};
-
-type SlackReply = {
-  ts: string;
-  text: string;
-  subtype?: string;
-  user?: string;
-};
-
-type SlackHistoryResult = {
-  messages: SlackMessage[];
-  pagesFetched: number;
-};
-
-type SlackApiListResponse<T> = {
-  ok: boolean;
-  error?: string;
-  needed?: string;
-  provided?: string;
-  messages?: T[];
-  response_metadata?: { next_cursor?: string };
 };
 
 type KnowledgeChunkInsert = {
@@ -98,15 +76,9 @@ const log = createLogger('inngest.knowledge_source_sync', {
   componentColor: 'orange',
 });
 
-const NINETY_DAYS_AGO = () => Math.floor((Date.now() - 90 * 24 * 60 * 60 * 1000) / 1000).toString();
 const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
-const MAX_MESSAGES = 1000;
-const MAX_SLACK_THREAD_REPLIES = 3;
-const SLACK_THREAD_REPLY_CONCURRENCY = 5;
-const MAX_SLACK_RETRY_ATTEMPTS = 3;
 const MIN_MESSAGE_LENGTH = 20;
 const SYNCABLE_STATUSES = new Set<SyncableSourceStatus>(['pending', 'syncing', 'active']);
-const REQUIRED_SLACK_HISTORY_SCOPES = ['channels:history', 'groups:history', 'mpim:history', 'im:history'];
 
 function elapsedMs(startedAt: number): number {
   return Date.now() - startedAt;
@@ -119,22 +91,6 @@ class SyncStoppedError extends Error {
     super(`Sync stopped during ${phase}`);
     this.name = 'SyncStoppedError';
     this.phase = phase;
-  }
-}
-
-class SlackApiError extends Error {
-  method: string;
-  slackError: string;
-  needed?: string;
-  provided?: string;
-
-  constructor(params: { method: string; error: string; needed?: string; provided?: string }) {
-    super(`Slack ${params.method} failed: ${params.error}`);
-    this.name = 'SlackApiError';
-    this.method = params.method;
-    this.slackError = params.error;
-    this.needed = params.needed;
-    this.provided = params.provided;
   }
 }
 
@@ -168,51 +124,6 @@ async function assertSyncStillActive(
   if (data?.status !== 'syncing') {
     throw new SyncStoppedError(phase);
   }
-}
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function fetchSlackJson<T>(url: string, botToken: string): Promise<T> {
-  let attempt = 0;
-
-  while (true) {
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${botToken}` },
-    });
-
-    if (res.status !== 429 || attempt >= MAX_SLACK_RETRY_ATTEMPTS) {
-      return (await res.json()) as T;
-    }
-
-    attempt += 1;
-    const retryAfterSeconds = Number(res.headers.get('retry-after') ?? '1');
-    await sleep(Math.max(1, retryAfterSeconds) * 1000);
-  }
-}
-
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  limit: number,
-  mapper: (item: T, index: number) => Promise<R>
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let nextIndex = 0;
-
-  async function worker() {
-    while (nextIndex < items.length) {
-      const index = nextIndex;
-      nextIndex += 1;
-      results[index] = await mapper(items[index], index);
-    }
-  }
-
-  await Promise.all(
-    Array.from({ length: Math.min(limit, items.length) }, () => worker())
-  );
-
-  return results;
 }
 
 async function getSlackAccessTokenForOrganization(
@@ -290,89 +201,6 @@ async function getGranolaConnectionForOrganization(
 
   const { connectionId } = await getActiveProviderConnection(supabase, { ownerId, provider: 'granola' });
   return { ownerId, connectionId };
-}
-
-function missingSlackHistoryScopes(scope: string | null | undefined): string[] {
-  const provided = new Set(
-    (scope || '')
-      .split(',')
-      .map((entry) => entry.trim())
-      .filter(Boolean)
-  );
-
-  return REQUIRED_SLACK_HISTORY_SCOPES.filter((scopeName) => !provided.has(scopeName));
-}
-
-async function fetchSlackHistory(botToken: string, channelId: string): Promise<SlackHistoryResult> {
-  const messages: SlackMessage[] = [];
-  let cursor: string | undefined;
-  let pagesFetched = 0;
-  const oldest = NINETY_DAYS_AGO();
-
-  while (messages.length < MAX_MESSAGES) {
-    const params = new URLSearchParams({
-      channel: channelId,
-      limit: '200',
-      oldest,
-    });
-    if (cursor) params.set('cursor', cursor);
-
-    const data = await fetchSlackJson<SlackApiListResponse<SlackMessage>>(
-      `https://slack.com/api/conversations.history?${params}`,
-      botToken
-    );
-
-    if (!data.ok) {
-      throw new SlackApiError({
-        method: 'conversations.history',
-        error: data.error ?? 'unknown_error',
-        needed: data.needed,
-        provided: data.provided,
-      });
-    }
-
-    if (!data.messages) break;
-    pagesFetched++;
-    messages.push(...data.messages);
-
-    cursor = data.response_metadata?.next_cursor;
-    if (!cursor) break;
-  }
-
-  return { messages: messages.slice(0, MAX_MESSAGES), pagesFetched };
-}
-
-async function fetchSlackThreadReplies(botToken: string, channelId: string, ts: string): Promise<SlackReply[]> {
-  const replies: SlackReply[] = [];
-  let cursor: string | undefined;
-
-  while (replies.length < MAX_SLACK_THREAD_REPLIES) {
-    const params = new URLSearchParams({
-      channel: channelId,
-      ts,
-      limit: '15',
-    });
-    if (cursor) params.set('cursor', cursor);
-
-    const data = await fetchSlackJson<SlackApiListResponse<SlackReply>>(
-      `https://slack.com/api/conversations.replies?${params}`,
-      botToken
-    );
-    if (!data.ok) {
-      throw new SlackApiError({
-        method: 'conversations.replies',
-        error: data.error ?? 'unknown_error',
-        needed: data.needed,
-        provided: data.provided,
-      });
-    }
-
-    replies.push(...(data.messages ?? []).filter((message) => message.ts !== ts));
-    cursor = data.response_metadata?.next_cursor;
-    if (!cursor) break;
-  }
-
-  return replies.slice(0, MAX_SLACK_THREAD_REPLIES);
 }
 
 function chunkMessages(messages: SlackMessage[], channelId: string, channelName: string): KnowledgeTextChunk[] {
@@ -755,23 +583,12 @@ export const knowledgeSourceSync = inngest.createFunction(
           (m) => !m.subtype && m.text && m.text.length >= MIN_MESSAGE_LENGTH
         );
 
-        const replyCandidates = filtered.filter((msg) => (msg.reply_count ?? 0) > 0);
-        const threadReplies = await mapWithConcurrency(
-          replyCandidates,
-          SLACK_THREAD_REPLY_CONCURRENCY,
-          async (msg) => {
-            const replies = await fetchSlackThreadReplies(accessToken, source.slack_channel_id!, msg.ts);
-            const validReplies = replies.filter((r) => !r.subtype && r.text && r.text.length >= MIN_MESSAGE_LENGTH);
-            return [msg.ts, validReplies.map((r) => ({ ts: r.ts, text: r.text, user: r.user }))] as const;
-          }
-        );
-        const repliesByThread = new Map(threadReplies);
-
-        const enriched: SlackMessage[] = [];
-        for (const msg of filtered) {
-          enriched.push(msg);
-          enriched.push(...(repliesByThread.get(msg.ts) ?? []));
-        }
+        const enriched = await enrichSlackMessagesWithReplies({
+          botToken: accessToken,
+          channelId: source.slack_channel_id!,
+          messages: filtered,
+          minMessageLength: MIN_MESSAGE_LENGTH,
+        });
 
         log.info('sync_history_fetched', {
           sourceId,
