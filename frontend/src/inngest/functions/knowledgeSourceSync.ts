@@ -4,6 +4,20 @@ import { embed } from 'ai';
 import { embeddingModel } from '@/lib/ai';
 import { createLogger, errorMessage } from '@/lib/server/logging';
 import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
+import {
+  fetchGranolaNotes,
+  type GranolaDetailDiagnostic,
+  type GranolaFetchDiagnostics,
+  type GranolaFolderDiagnostic,
+  type GranolaNoteDiagnostic,
+  type GranolaPageDiagnostic,
+  type NormalizedGranolaNote,
+} from '@/lib/server/integrations/granola';
+import {
+  hasNangoApiKey,
+  listNangoConnectionsForUser,
+  providerForNangoIntegration,
+} from '@/lib/server/integrations/nango';
 
 type KnowledgeSourceSyncEvent = {
   sourceId?: string;
@@ -63,6 +77,15 @@ const log = createLogger('inngest.knowledge_source_sync', {
     source_api_failed: 'Source API Failed',
     sync_no_content: 'No Syncable Content',
     sync_db_write_failed: 'DB Write Failed',
+    granola_api_page: 'Granola API Page',
+    granola_empty_response: 'Granola Empty Response',
+    granola_connection_reconciled: 'Granola Connection Reconciled',
+    granola_connection_reconcile_failed: 'Granola Connection Reconcile Failed',
+    granola_folder_summary: 'Granola Folder Summary',
+    granola_normalization_summary: 'Granola Normalization Summary',
+    granola_transcript_summary: 'Granola Transcript Summary',
+    granola_transcript_fetch_failed: 'Granola Transcript Fetch Failed',
+    granola_note_rejected: 'Granola Note Rejected',
   },
   componentColor: 'orange',
 });
@@ -173,6 +196,86 @@ async function getSlackAccessTokenForOrganization(
   const accessToken = await getProviderAccessToken({ provider: 'slack', connectionId });
   const scope = typeof tokenRow?.scope === 'string' ? tokenRow.scope : null;
   return { accessToken, ownerId, connectionId, scope };
+}
+
+async function getGranolaConnectionForOrganization(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  organizationId: string
+): Promise<{ ownerId?: string; connectionId?: string }> {
+  const { data: org } = await supabase
+    .from('organizations')
+    .select('owner_id')
+    .eq('id', organizationId)
+    .maybeSingle();
+
+  const ownerId = typeof org?.owner_id === 'string' ? org.owner_id : undefined;
+  if (!ownerId) return {};
+
+  if (hasNangoApiKey()) {
+    try {
+      const connections = await listNangoConnectionsForUser({ userId: ownerId, organizationId });
+      const nangoConnection = connections.find((connection) => {
+        const provider = providerForNangoIntegration(connection.provider_config_key);
+        const hasAuthError = (connection.errors ?? []).some((error) => error.type === 'auth');
+        return provider === 'granola' && !hasAuthError;
+      });
+
+      if (nangoConnection) {
+        const { error } = await supabase
+          .from('oauth_connections')
+          .upsert(
+            {
+              user_id: ownerId,
+              provider: 'granola',
+              connection_id: nangoConnection.connection_id,
+              status: 'active',
+              metadata: {
+                ...(nangoConnection.metadata ?? {}),
+                source: 'nango',
+                provider_config_key: nangoConnection.provider_config_key,
+                nango_provider: nangoConnection.provider,
+                nango_connection_id: nangoConnection.id,
+                organization_id: organizationId,
+                reconciled_at: new Date().toISOString(),
+                reconciled_from: 'knowledge_source_sync',
+              },
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: 'user_id,provider' }
+          );
+
+        if (error) throw error;
+
+        log.info('granola_connection_reconciled', {
+          organizationId,
+          ownerId,
+          connectionId: nangoConnection.connection_id,
+          providerConfigKey: nangoConnection.provider_config_key,
+        });
+
+        return { ownerId, connectionId: nangoConnection.connection_id };
+      }
+    } catch (error) {
+      log.warn('granola_connection_reconcile_failed', {
+        organizationId,
+        ownerId,
+        error: errorMessage(error),
+      });
+    }
+  }
+
+  const { data: connection } = await supabase
+    .from('oauth_connections')
+    .select('connection_id')
+    .eq('user_id', ownerId)
+    .eq('provider', 'granola')
+    .eq('status', 'active')
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const connectionId = typeof connection?.connection_id === 'string' ? connection.connection_id : undefined;
+  return { ownerId, connectionId };
 }
 
 function missingSlackHistoryScopes(scope: string | null | undefined): string[] {
@@ -295,6 +398,214 @@ function chunkMessages(messages: SlackMessage[], channelId: string, channelName:
   return chunks;
 }
 
+function chunkGranolaNotes(notes: NormalizedGranolaNote[]): Array<{
+  content: string;
+  metadata: Record<string, unknown>;
+}> {
+  const chunks: Array<{ content: string; metadata: Record<string, unknown> }> = [];
+
+  for (const note of notes) {
+    const words = note.content.split(/\s+/).filter(Boolean);
+    if (words.length <= WORDS_PER_CHUNK) {
+      chunks.push({ content: note.content, metadata: note.metadata });
+      continue;
+    }
+
+    for (let index = 0; index < words.length; index += WORDS_PER_CHUNK) {
+      const part = words.slice(index, index + WORDS_PER_CHUNK).join(' ');
+      chunks.push({
+        content: part,
+        metadata: {
+          ...note.metadata,
+          chunk_index: Math.floor(index / WORDS_PER_CHUNK),
+        },
+      });
+    }
+  }
+
+  return chunks;
+}
+
+function compactPairs(record: Record<string, string | number>, limit = 8) {
+  return Object.entries(record)
+    .slice(0, limit)
+    .map(([key, value]) => `${key}:${value}`)
+    .join(',');
+}
+
+function summarizeGranolaPage(page: GranolaPageDiagnostic) {
+  return {
+    page: page.page,
+    responseType: page.responseType,
+    responseKeys: page.responseKeys.join(',') || 'none',
+    notesType: page.notesType,
+    notesCount: page.notesCount,
+    hasMore: page.hasMore,
+    cursorReturned: page.cursorReturned,
+    firstNoteKeys: page.firstNoteKeys.join(',') || 'none',
+    firstNoteFieldTypes: compactPairs(page.firstNoteFieldTypes),
+  };
+}
+
+function summarizeGranolaRejectedNote(note: GranolaNoteDiagnostic) {
+  return {
+    index: note.index,
+    rawType: note.rawType,
+    rawKeys: note.rawKeys.join(',') || 'none',
+    idPresent: note.idPresent,
+    titleLength: note.titleLength,
+    collectedTextParts: note.collectedTextParts,
+    bodyLength: note.bodyLength,
+    contentLength: note.contentLength,
+    textFieldLengths: compactPairs(note.textFieldLengths),
+    reason: note.rejectionReason,
+  };
+}
+
+function summarizeGranolaFailedDetail(detail: GranolaDetailDiagnostic) {
+  return {
+    index: detail.index,
+    noteId: detail.noteId,
+    responseKeys: detail.responseKeys.join(',') || 'none',
+    error: detail.error,
+  };
+}
+
+function summarizeGranolaFolder(folder: GranolaFolderDiagnostic) {
+  return [
+    folder.id,
+    folder.name || 'unnamed',
+    `notes:${folder.notesCount ?? 'unknown'}`,
+    folder.error ? `error:${folder.error}` : '',
+  ].filter(Boolean).join('|');
+}
+
+function logGranolaDiagnostics(params: {
+  sourceId: string;
+  sourceName: string;
+  diagnostics: GranolaFetchDiagnostics;
+}) {
+  for (const page of params.diagnostics.pages) {
+    log.info('granola_api_page', {
+      sourceId: params.sourceId,
+      source: params.sourceName,
+      provider: 'granola',
+      endpoint: params.diagnostics.endpoint,
+      pageSize: params.diagnostics.pageSize,
+      ...summarizeGranolaPage(page),
+    });
+  }
+
+  const rawNotesSeen = params.diagnostics.pages.reduce((sum, page) => sum + page.notesCount, 0);
+  const normalizedNotes = params.diagnostics.notes.filter((note) => note.normalized).length;
+  const rejectedNotes = params.diagnostics.notes.filter((note) => !note.normalized);
+  const detailsFetched = params.diagnostics.details.filter((detail) => detail.fetched).length;
+  const detailFailures = params.diagnostics.details.filter((detail) => !detail.fetched);
+  const transcriptItems = params.diagnostics.details.reduce((sum, detail) => sum + detail.transcriptItems, 0);
+  const transcriptTextChars = params.diagnostics.details.reduce((sum, detail) => sum + detail.transcriptTextChars, 0);
+
+  if (params.diagnostics.folders.length > 0) {
+    log.info('granola_folder_summary', {
+      sourceId: params.sourceId,
+      source: params.sourceName,
+      provider: 'granola',
+      foldersVisible: params.diagnostics.folders.length,
+      foldersWithNotes: params.diagnostics.folders.filter((folder) => (folder.notesCount ?? 0) > 0).length,
+      folderNotesTotal: params.diagnostics.folders.reduce((sum, folder) => sum + (folder.notesCount ?? 0), 0),
+      folders: params.diagnostics.folders.slice(0, 8).map(summarizeGranolaFolder).join(','),
+    });
+  }
+
+  log.info('granola_normalization_summary', {
+    sourceId: params.sourceId,
+    source: params.sourceName,
+    provider: 'granola',
+    rawNotesSeen,
+    normalizedNotes,
+    rejectedNotes: rejectedNotes.length,
+    rejectionReasons: compactPairs(
+      rejectedNotes.reduce<Record<string, number>>((acc, note) => {
+        const reason = note.rejectionReason || 'unknown';
+        acc[reason] = (acc[reason] || 0) + 1;
+        return acc;
+      }, {})
+    ) || 'none',
+  });
+
+  log.info('granola_transcript_summary', {
+    sourceId: params.sourceId,
+    source: params.sourceName,
+    provider: 'granola',
+    listedNotes: rawNotesSeen,
+    detailRequests: params.diagnostics.details.length,
+    detailsFetched,
+    detailFailures: detailFailures.length,
+    transcriptItems,
+    transcriptTextChars,
+    failureReasons: compactPairs(
+      detailFailures.reduce<Record<string, number>>((acc, detail) => {
+        const reason = detail.error || 'unknown';
+        acc[reason] = (acc[reason] || 0) + 1;
+        return acc;
+      }, {})
+    ) || 'none',
+  });
+
+  if (rawNotesSeen === 0) {
+    log.warn('granola_empty_response', {
+      sourceId: params.sourceId,
+      source: params.sourceName,
+      provider: 'granola',
+      endpoint: params.diagnostics.endpoint,
+      pages: params.diagnostics.pages.length,
+      pageNotesCounts: params.diagnostics.pages.map((page) => `${page.page}:${page.notesCount}`).join(',') || 'none',
+      likelyCause: 'Nango Granola API key can authenticate, but /v1/notes returned no notes for this workspace/key',
+    });
+  }
+
+  for (const detail of detailFailures.slice(0, 5)) {
+    log.warn('granola_transcript_fetch_failed', {
+      sourceId: params.sourceId,
+      source: params.sourceName,
+      provider: 'granola',
+      ...summarizeGranolaFailedDetail(detail),
+    });
+  }
+
+  for (const note of rejectedNotes.slice(0, 5)) {
+    log.warn('granola_note_rejected', {
+      sourceId: params.sourceId,
+      source: params.sourceName,
+      provider: 'granola',
+      ...summarizeGranolaRejectedNote(note),
+    });
+  }
+}
+
+async function queueGranolaDownstreamWork(params: {
+  organizationId: string;
+  ownerId?: string;
+  chunkCount: number;
+}) {
+  if (params.chunkCount === 0) return;
+
+  const events: Array<{ name: string; data: Record<string, string> }> = [
+    {
+      name: 'onboarding/milestones.generate.requested',
+      data: { organizationId: params.organizationId },
+    },
+  ];
+
+  if (params.ownerId) {
+    events.push({
+      name: 'onboarding/readiness.generate.requested',
+      data: { organizationId: params.organizationId, ownerId: params.ownerId },
+    });
+  }
+
+  await inngest.send(events);
+}
+
 export const knowledgeSourceSync = inngest.createFunction(
   {
     id: 'knowledge-source-sync',
@@ -329,12 +640,12 @@ export const knowledgeSourceSync = inngest.createFunction(
       return { skipped: true, reason: 'source_not_found' };
     }
 
-    if (source.provider !== 'slack') {
+    if (!['slack', 'granola'].includes(source.provider)) {
       log.info('sync_skipped', { sourceId, reason: 'not_supported_source' });
       return { skipped: true, reason: 'not_supported_source' };
     }
 
-    if (!source.slack_channel_id) {
+    if (source.provider === 'slack' && !source.slack_channel_id) {
       log.info('sync_skipped', { sourceId, reason: 'missing_slack_channel_id' });
       return { skipped: true, reason: 'missing_slack_channel_id' };
     }
@@ -347,6 +658,181 @@ export const knowledgeSourceSync = inngest.createFunction(
         status: source.status,
       });
       return { skipped: true, reason: 'status_not_syncable', status: source.status };
+    }
+
+    if (source.provider === 'granola') {
+      const { ownerId, connectionId } = await getGranolaConnectionForOrganization(supabase, organizationId);
+
+      if (!connectionId) {
+        log.error('sync_failed', {
+          sourceId,
+          source: source.name,
+          error: 'No active Granola Nango connection configured for organization owner',
+          ownerId,
+          ms: elapsedMs(syncStartedAt),
+        });
+        await supabase
+          .from('knowledge_sources')
+          .update({ status: 'error', error_message: null })
+          .eq('id', sourceId);
+        return { ok: false, sourceId, reason: 'missing_granola_connection' };
+      }
+
+      await supabase.from('knowledge_sources').update({ status: 'syncing', error_message: null }).eq('id', sourceId);
+
+      log.info('sync_start', {
+        sourceId,
+        source: source.name,
+        provider: 'granola',
+        organizationId,
+        connectionId,
+      });
+
+      try {
+        const {
+          embeddedCount,
+          noteCount,
+          rawNoteCount,
+          detailsFetched,
+          transcriptItems,
+          transcriptTextChars,
+        } = await step.run('fetch-granola-notes-embed-insert', async () => {
+          const fetchStartedAt = Date.now();
+          await assertSyncStillActive(supabase, sourceId, 'granola notes fetch');
+          const granolaResult = await fetchGranolaNotes(connectionId);
+          const notes = granolaResult.notes;
+          logGranolaDiagnostics({
+            sourceId,
+            sourceName: source.name,
+            diagnostics: granolaResult.diagnostics,
+          });
+
+          log.info('sync_history_fetched', {
+            sourceId,
+            source: source.name,
+            provider: 'granola',
+            rawMessages: granolaResult.rawCount,
+            filteredMessages: notes.length,
+            enrichedMessages: notes.length,
+            pages: granolaResult.pagesFetched,
+            detailsFetched: granolaResult.detailsFetched,
+            transcriptItems: granolaResult.transcriptItems,
+            transcriptTextChars: granolaResult.transcriptTextChars,
+            ms: elapsedMs(fetchStartedAt),
+          });
+
+          await assertSyncStillActive(supabase, sourceId, 'granola chunking');
+          const chunks = chunkGranolaNotes(notes);
+
+          log.info('sync_chunks_ready', {
+            sourceId,
+            source: source.name,
+            provider: 'granola',
+            chunks: chunks.length,
+            messages: notes.length,
+          });
+
+          const rows: KnowledgeChunkInsert[] = [];
+          for (const chunk of chunks) {
+            await assertSyncStillActive(supabase, sourceId, 'granola embedding');
+            const { embedding } = await embed({ model: embeddingModel, value: chunk.content });
+            rows.push({
+              organization_id: organizationId,
+              source_id: sourceId,
+              content: chunk.content,
+              metadata: chunk.metadata,
+              embedding: JSON.stringify(embedding),
+            });
+          }
+
+          await assertSyncStillActive(supabase, sourceId, 'replace granola chunks');
+          const { error: deleteError } = await supabase.from('knowledge_chunks').delete().eq('source_id', sourceId);
+          if (deleteError) {
+            log.error('sync_db_write_failed', {
+              sourceId,
+              source: source.name,
+              operation: 'delete_existing_chunks',
+              error: deleteError.message,
+            });
+            throw deleteError;
+          }
+
+          if (rows.length > 0) {
+            const { error: insertError } = await supabase.from('knowledge_chunks').insert(rows);
+            if (insertError) {
+              log.error('sync_db_write_failed', {
+                sourceId,
+                source: source.name,
+                operation: 'insert_chunks',
+                chunks: rows.length,
+                error: insertError.message,
+              });
+              throw insertError;
+            }
+          }
+
+          return {
+            embeddedCount: rows.length,
+            noteCount: notes.length,
+            rawNoteCount: granolaResult.rawCount,
+            detailsFetched: granolaResult.detailsFetched,
+            transcriptItems: granolaResult.transcriptItems,
+            transcriptTextChars: granolaResult.transcriptTextChars,
+          };
+        });
+
+        await assertSyncStillActive(supabase, sourceId, 'finalize granola');
+        const emptySyncMessage = rawNoteCount === 0
+          ? 'Granola returned no transcripts for this API key.'
+          : noteCount === 0
+            ? 'Granola returned meetings, but none had transcript text to index.'
+            : null;
+        await supabase.from('knowledge_sources').update({
+          status: 'active',
+          last_synced_at: new Date().toISOString(),
+          chunk_count: embeddedCount,
+          error_message: emptySyncMessage,
+        }).eq('id', sourceId);
+
+        await queueGranolaDownstreamWork({ organizationId, ownerId, chunkCount: embeddedCount });
+
+        log.info('sync_complete', {
+          sourceId,
+          source: source.name,
+          provider: 'granola',
+          rawNotesFetched: rawNoteCount,
+          notesFetched: noteCount,
+          detailsFetched,
+          transcriptItems,
+          transcriptTextChars,
+          chunksEmbedded: embeddedCount,
+          downstreamQueued: embeddedCount > 0,
+          ms: elapsedMs(syncStartedAt),
+        });
+        return { ok: true, sourceId, notesFetched: noteCount, chunksEmbedded: embeddedCount };
+      } catch (error) {
+        if (error instanceof SyncStoppedError) {
+          log.info('sync_stopped', {
+            sourceId,
+            source: source.name,
+            provider: 'granola',
+            phase: error.phase,
+            ms: elapsedMs(syncStartedAt),
+          });
+          return { ok: true, sourceId, stopped: true, phase: error.phase };
+        }
+
+        const msg = errorMessage(error);
+        log.error('sync_failed', {
+          sourceId,
+          source: source.name,
+          provider: 'granola',
+          error: msg,
+          ms: elapsedMs(syncStartedAt),
+        });
+        await supabase.from('knowledge_sources').update({ status: 'error', error_message: null }).eq('id', sourceId);
+        throw error;
+      }
     }
 
     const { accessToken, ownerId, connectionId, scope } = await getSlackAccessTokenForOrganization(supabase, organizationId);

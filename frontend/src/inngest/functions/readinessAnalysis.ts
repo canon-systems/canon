@@ -326,6 +326,20 @@ function slackMessageUrl(channelId: string, messageTs: string | null) {
 function evidenceFromChunks(chunks: KnowledgeChunkResult[]) {
   const seen = new Set<string>();
   return chunks.flatMap((chunk) => {
+    const provider = typeof chunk.metadata.provider === 'string' ? chunk.metadata.provider : 'slack';
+    const sourceName = typeof chunk.metadata.source_name === 'string'
+      ? chunk.metadata.source_name
+      : typeof chunk.metadata.title === 'string'
+        ? chunk.metadata.title
+        : null;
+    const sourceUrl = typeof chunk.metadata.source_url === 'string'
+      ? chunk.metadata.source_url
+      : typeof chunk.metadata.url === 'string'
+        ? chunk.metadata.url
+        : null;
+    const sourceType = typeof chunk.metadata.source_type === 'string' ? chunk.metadata.source_type : null;
+    const noteId = typeof chunk.metadata.note_id === 'string' ? chunk.metadata.note_id : null;
+    const meetingDate = typeof chunk.metadata.meeting_date === 'string' ? chunk.metadata.meeting_date : null;
     const channelId = typeof chunk.metadata.channel_id === 'string' ? chunk.metadata.channel_id : null;
     const channelName = typeof chunk.metadata.channel_name === 'string' ? chunk.metadata.channel_name : null;
     const messageTs = typeof chunk.metadata.latest_ts === 'string'
@@ -334,18 +348,22 @@ function evidenceFromChunks(chunks: KnowledgeChunkResult[]) {
         ? chunk.metadata.earliest_ts
         : null;
 
-    if (!channelId && !channelName) return [];
+    if (!channelId && !channelName && !sourceName && !sourceUrl && !noteId) return [];
 
-    const key = `${channelId ?? ''}:${messageTs ?? channelName ?? ''}`;
+    const key = `${provider}:${channelId ?? noteId ?? sourceUrl ?? ''}:${messageTs ?? sourceName ?? ''}`;
     if (seen.has(key)) return [];
     seen.add(key);
 
     return [{
-      provider: 'slack',
+      provider,
       channel_id: channelId,
       channel_name: channelName,
       message_ts: messageTs,
-      url: channelId ? slackMessageUrl(channelId, messageTs) : null,
+      source_name: sourceName,
+      source_type: sourceType,
+      note_id: noteId,
+      meeting_date: meetingDate,
+      url: sourceUrl ?? (channelId ? slackMessageUrl(channelId, messageTs) : null),
     }];
   });
 }
@@ -667,7 +685,7 @@ export const readinessAnalysisOnDemand = inngest.createFunction(
           impact_level: string;
           affected_roles: HireRole[];
           source: string;
-          source_url: null;
+          source_url: string | null;
           source_metadata: object;
           status: string;
           updated_at: string;
@@ -725,6 +743,10 @@ export const readinessAnalysisOnDemand = inngest.createFunction(
                 channel_id: fallbackSource.channelId,
                 channel_name: fallbackSource.channelName,
                 message_ts: null,
+                source_name: fallbackSource.channelName,
+                source_type: 'slack_channel',
+                note_id: null,
+                meeting_date: null,
                 url: fallbackSource.channelId ? slackMessageUrl(fallbackSource.channelId, null) : null,
               });
             }
@@ -743,8 +765,8 @@ export const readinessAnalysisOnDemand = inngest.createFunction(
               recommended_action: signal.recommended_action ?? null,
               impact_level: signal.impact_level ?? 'medium',
               affected_roles: normalizeAffectedRoles(signal.affected_roles, activeRoles),
-              source: 'slack',
-              source_url: null,
+              source: sourceEvidence[0]?.provider ?? 'knowledge',
+              source_url: sourceEvidence[0]?.url ?? null,
               source_metadata: {
                 signals_reviewed: typedChunks.length,
                 detected_by: 'company_readiness_scan',
@@ -810,6 +832,10 @@ export const readinessAnalysisOnDemand = inngest.createFunction(
                   channel_id: fallbackSource.channelId,
                   channel_name: fallbackSource.channelName,
                   message_ts: null,
+                  source_name: fallbackSource.channelName,
+                  source_type: 'slack_channel',
+                  note_id: null,
+                  meeting_date: null,
                   url: fallbackSource.channelId ? slackMessageUrl(fallbackSource.channelId, null) : null,
                 });
               }
@@ -828,8 +854,8 @@ export const readinessAnalysisOnDemand = inngest.createFunction(
                 recommended_action: signal.recommended_action ?? null,
                 impact_level: signal.impact_level ?? 'medium',
                 affected_roles: normalizeAffectedRoles(signal.affected_roles, activeRoles),
-                source: 'slack',
-                source_url: null,
+                source: sourceEvidence[0]?.provider ?? 'knowledge',
+                source_url: sourceEvidence[0]?.url ?? null,
                 source_metadata: {
                   signals_reviewed: typedChunks.length,
                   detected_by: 'ai_pipeline',
@@ -954,7 +980,7 @@ export const readinessAnalysis = inngest.createFunction(
           impact_level: string;
           affected_roles: HireRole[];
           source: string;
-          source_url: null;
+          source_url: string | null;
           source_metadata: object;
           status: string;
           updated_at: string;
@@ -1012,6 +1038,10 @@ export const readinessAnalysis = inngest.createFunction(
                 channel_id: fallbackSource.channelId,
                 channel_name: fallbackSource.channelName,
                 message_ts: null,
+                source_name: fallbackSource.channelName,
+                source_type: 'slack_channel',
+                note_id: null,
+                meeting_date: null,
                 url: fallbackSource.channelId ? slackMessageUrl(fallbackSource.channelId, null) : null,
               });
             }
@@ -1030,8 +1060,8 @@ export const readinessAnalysis = inngest.createFunction(
               recommended_action: signal.recommended_action ?? null,
               impact_level: signal.impact_level ?? 'medium',
               affected_roles: normalizeAffectedRoles(signal.affected_roles, activeRoles),
-              source: 'slack',
-              source_url: null,
+              source: sourceEvidence[0]?.provider ?? 'knowledge',
+              source_url: sourceEvidence[0]?.url ?? null,
               source_metadata: {
                 signals_reviewed: typedChunks.length,
                 detected_by: 'company_readiness_scan',
@@ -1097,6 +1127,10 @@ export const readinessAnalysis = inngest.createFunction(
                   channel_id: fallbackSource.channelId,
                   channel_name: fallbackSource.channelName,
                   message_ts: null,
+                  source_name: fallbackSource.channelName,
+                  source_type: 'slack_channel',
+                  note_id: null,
+                  meeting_date: null,
                   url: fallbackSource.channelId ? slackMessageUrl(fallbackSource.channelId, null) : null,
                 });
               }
@@ -1115,8 +1149,8 @@ export const readinessAnalysis = inngest.createFunction(
                 recommended_action: signal.recommended_action ?? null,
                 impact_level: signal.impact_level ?? 'medium',
                 affected_roles: normalizeAffectedRoles(signal.affected_roles, activeRoles),
-                source: 'slack',
-                source_url: null,
+                source: sourceEvidence[0]?.provider ?? 'knowledge',
+                source_url: sourceEvidence[0]?.url ?? null,
                 source_metadata: {
                   signals_reviewed: typedChunks.length,
                   detected_by: 'ai_pipeline',

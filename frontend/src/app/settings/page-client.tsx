@@ -98,12 +98,11 @@ interface SettingsPageClientProps {
 const settingSections = [
   { section: 'Account', items: [{ id: 'profile', label: 'Profile', icon: IconUser }, { id: 'org', label: 'Organization', icon: IconBuilding }] },
   { section: 'Connections', items: [{ id: 'integrations', label: 'Integrations', icon: IconPlug }] },
-  { section: 'Readiness', items: [{ id: 'roles', label: 'Roles', icon: IconUsers }, { id: 'tools', label: 'Tools', icon: IconTool }] },
+  { section: 'Readiness', items: [{ id: 'readiness', label: 'Roles & Tools', icon: IconUsers }] },
 ];
 
-const SETTINGS_TABS = ['profile', 'org', 'integrations', 'roles', 'tools', 'apikeys', 'delete'] as const;
+const SETTINGS_TABS = ['profile', 'org', 'integrations', 'readiness', 'roles', 'tools', 'apikeys', 'delete'] as const;
 type SettingsTab = typeof SETTINGS_TABS[number];
-type ToolFilter = 'all' | 'all_roles' | 'unowned' | HireRole;
 type OrgSection = 'overview' | 'members' | 'requests' | 'invitations';
 
 interface ToolGroup {
@@ -120,6 +119,11 @@ interface ToolGroup {
 
 function isSettingsTab(value: string | null): value is SettingsTab {
   return SETTINGS_TABS.includes(value as SettingsTab);
+}
+
+function canonicalSettingsTab(value: SettingsTab): SettingsTab {
+  if (value === 'roles' || value === 'tools') return 'readiness';
+  return value;
 }
 
 function normalizeToolName(toolName: string) {
@@ -172,10 +176,6 @@ function groupOrgTools(tools: OrgTool[]): ToolGroup[] {
   }
 
   return Array.from(groups.values()).sort((a, b) => a.tool_name.localeCompare(b.tool_name));
-}
-
-function groupHasOwner(group: ToolGroup) {
-  return Boolean(group.owner_name && group.owner_slack_id);
 }
 
 function toggleRoleSelection(currentRoles: HireRole[], role: HireRole) {
@@ -294,8 +294,8 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   const [restoreRoleId, setRestoreRoleId] = useState<string | null>(null);
   const [addToolOpen, setAddToolOpen] = useState(false);
   const [addToolSaving, setAddToolSaving] = useState(false);
-  const [toolFilter, setToolFilter] = useState<ToolFilter>('all');
-  const [newTool, setNewTool] = useState({ tool_name: '', roles: [] as HireRole[], owner: null as SlackUser | null });
+  const [addToolRole, setAddToolRole] = useState<HireRole | null>(null);
+  const [newTool, setNewTool] = useState({ tool_name: '', owner: null as SlackUser | null });
   const [editingTool, setEditingTool] = useState<ToolGroup | null>(null);
   const [editTool, setEditTool] = useState({ tool_name: '', roles: [] as HireRole[], owner: null as SlackUser | null });
   const [editToolSaving, setEditToolSaving] = useState(false);
@@ -456,36 +456,39 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   }
 
   async function addTool() {
-    if (!newTool.tool_name.trim() || !newTool.owner) return;
-    if (tools.some((tool) => normalizeToolName(tool.tool_name) === normalizeToolName(newTool.tool_name))) {
-      setError(`${newTool.tool_name.trim()} is already configured. Edit the existing tool to change its roles.`);
-      return;
-    }
+    if (!newTool.tool_name.trim() || !newTool.owner || !addToolRole) return;
 
     setAddToolSaving(true);
     try {
-      const rolesToCreate: Array<HireRole | null> = newTool.roles.length > 0 ? newTool.roles : [null];
-      const responses = await Promise.all(rolesToCreate.map((role) => fetch('/api/onboarding/org-tools', {
+      const existingTool = groupOrgTools(tools).find((tool) => normalizeToolName(tool.tool_name) === normalizeToolName(newTool.tool_name));
+      const existingScopes = new Set(existingTool?.tools.map((tool) => scopeKey(tool.role)) ?? []);
+
+      if (existingTool && existingScopes.has(scopeKey(addToolRole))) {
+        toast.info(`${existingTool.tool_name} is already assigned to ${addToolRole}.`);
+        setAddToolSaving(false);
+        return;
+      }
+
+      const response = await fetch('/api/onboarding/org-tools', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           tool_name: newTool.tool_name,
-          role,
+          role: addToolRole,
           owner_name: newTool.owner?.name ?? null,
           owner_email: newTool.owner?.email ?? null,
           owner_slack_id: newTool.owner?.id ?? null,
         }),
-      })));
-      const failingResponse = responses.find((res) => !res.ok);
-      if (failingResponse) {
-        const data = (await failingResponse.json()) as { error?: string };
+      });
+
+      if (!response.ok) {
+        const data = (await response.json()) as { error?: string };
         if (data.error === 'Organization not found') throw new Error('org_not_found');
         throw new Error('add_tool');
       }
-      setAddToolOpen(false);
-      setNewTool({ tool_name: '', roles: [], owner: null });
+      closeAddTool();
       await loadTools();
-      toast.success('Tool added');
+      toast.success(existingTool ? 'Tool assigned to role' : 'Tool added');
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : '';
       if (msg === 'org_not_found') {
@@ -634,6 +637,19 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     });
   }
 
+  function openAddTool(role: HireRole) {
+    setAddToolRole(role);
+    setNewTool({ tool_name: '', owner: null });
+    setError('');
+    setAddToolOpen(true);
+  }
+
+  function closeAddTool() {
+    setAddToolOpen(false);
+    setAddToolRole(null);
+    setNewTool({ tool_name: '', owner: null });
+  }
+
   async function updateTool() {
     if (!editingTool || !editTool.tool_name.trim() || !editTool.owner) return;
     const normalizedNextName = normalizeToolName(editTool.tool_name);
@@ -764,7 +780,11 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     }
 
     if (isSettingsTab(tabParam)) {
-      setActiveSetting(tabParam);
+      const nextTab = canonicalSettingsTab(tabParam);
+      if (nextTab !== tabParam) {
+        router.replace(`/settings?tab=${nextTab}`);
+      }
+      setActiveSetting(nextTab);
       return;
     }
 
@@ -776,7 +796,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   }, [loadConnections]);
 
   useEffect(() => {
-    if (activeSetting === 'tools' || activeSetting === 'roles') loadTools();
+    if (activeSetting === 'readiness') loadTools();
   }, [activeSetting, loadTools]);
 
   useEffect(() => {
@@ -789,6 +809,25 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
       window.location.href = '/api/oauth/slack/start';
     } catch {
       toast.error('Unable to connect Slack right now. Please try again.');
+      setConnectingProvider(null);
+    }
+  }
+
+  async function connectNangoProvider(provider: string) {
+    setConnectingProvider(provider);
+    try {
+      const response = await fetch('/api/integrations/nango/connect', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ provider }),
+      });
+      const data = (await response.json().catch(() => ({}))) as { connectLink?: string; error?: string; detail?: string };
+      if (!response.ok || !data.connectLink) {
+        throw new Error(data.detail || data.error || 'connect_failed');
+      }
+      window.location.href = data.connectLink;
+    } catch {
+      toast.error(`Unable to connect ${providerLabel(provider)} right now. Please try again.`);
       setConnectingProvider(null);
     }
   }
@@ -831,21 +870,27 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
 
   function setActiveSettingAndUpdateUrl(value: string) {
     if (!isSettingsTab(value)) return;
-    setActiveSetting(value);
-    router.push(`/settings?tab=${value}`, { scroll: false });
+    const nextTab = canonicalSettingsTab(value);
+    setActiveSetting(nextTab);
+    router.push(`/settings?tab=${nextTab}`, { scroll: false });
   }
 
   const slackConnection = connections.find(c => c.provider === 'slack' && c.status === 'active');
+  const granolaConnection = connections.find(c => c.provider === 'granola' && c.status === 'active');
   const displayName = userFullName(user);
 
   function providerLabel(provider: string) {
     if (provider === 'slack') return 'Slack';
+    if (provider === 'granola') return 'Granola';
     return provider.charAt(0).toUpperCase() + provider.slice(1);
   }
 
   function disconnectDescription(provider: string) {
     if (provider === 'slack') {
       return 'Canon will no longer be able to send DMs or sync Slack channel knowledge.';
+    }
+    if (provider === 'granola') {
+      return 'Canon will stop using this Granola connection.';
     }
     return 'Canon will remove connected knowledge sources for this integration.';
   }
@@ -861,6 +906,19 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
       connected: !!slackConnection,
       workspace: slackConnection ? `Connected ${formatDate(slackConnection.created_at)}` : '',
       action: slackConnection ? () => openDisconnectModal(slackConnection.connection_id, 'slack') : connectSlack,
+    },
+    {
+      id: 'granola',
+      provider: 'granola' as const,
+      name: 'Granola',
+      description: 'Connect meeting transcripts and customer conversation context through Nango.',
+      iconBg: 'var(--bg-tertiary)',
+      iconColor: 'var(--text-primary)',
+      connected: !!granolaConnection,
+      workspace: granolaConnection ? `Connected ${formatDate(granolaConnection.created_at)}` : '',
+      action: granolaConnection
+        ? () => openDisconnectModal(granolaConnection.connection_id, 'granola')
+        : () => connectNangoProvider('granola'),
     },
   ];
 
@@ -947,6 +1005,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   }
 
   function renderRoles() {
+    const toolGroups = groupOrgTools(tools);
     const activeRoles = activeRoleProfiles(roleProfiles);
     const archivedRoles = roleProfiles
       .filter((profile) => profile.status === 'archived')
@@ -969,7 +1028,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
           </Button>
         </div>
 
-        {rolesLoading ? (
+        {rolesLoading || toolsLoading ? (
           <div className="flex items-center gap-2 type-body" style={{ color: 'var(--text-tertiary)' }}>
             <IconLoader2 size={14} className="animate-spin" /> Loading Roles...
           </div>
@@ -982,35 +1041,73 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
           </Card>
         ) : (
           <div className="space-y-3">
-            {activeRoles.map((profile, index) => (
-              <Card key={profile.id} className="px-4 py-4">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                  <div className="flex min-w-0 gap-3">
-                    <div
-                      className="mt-[1px] flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[8px] type-caption font-medium"
-                      style={{ backgroundColor: roleIconColor(profile.role, index), color: 'var(--text-on-accent)' }}
-                    >
-                      {roleAbbreviation(profile.role)}
+            {activeRoles.map((profile, index) => {
+              const roleTools = toolGroups.filter((tool) => tool.allRoles || tool.roles.includes(profile.role));
+              const visibleRoleTools = roleTools.slice(0, 8);
+              const hiddenToolCount = Math.max(0, roleTools.length - visibleRoleTools.length);
+
+              return (
+                <Card key={profile.id} className="px-4 py-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="flex min-w-0 gap-3">
+                      <div
+                        className="mt-[1px] flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[8px] type-caption font-medium"
+                        style={{ backgroundColor: roleIconColor(profile.role, index), color: 'var(--text-on-accent)' }}
+                      >
+                        {roleAbbreviation(profile.role)}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="type-card-title text-[var(--text-primary)]">{profile.role}</div>
+                        <div className="type-caption mt-[2px] text-[var(--text-tertiary)]">
+                          {roleTools.length} tool{roleTools.length === 1 ? '' : 's'} configured
+                        </div>
+                        <p className="type-body mt-2 line-clamp-2 text-[var(--text-secondary)]">
+                          {profile.job_description || 'No job description saved yet.'}
+                        </p>
+                      </div>
                     </div>
-                    <div className="min-w-0">
-                      <div className="type-card-title text-[var(--text-primary)]">{profile.role}</div>
-                      <div className="type-caption mt-[2px] text-[var(--text-tertiary)]">Active role</div>
-                      <p className="type-body mt-2 line-clamp-2 text-[var(--text-secondary)]">
-                        {profile.job_description || 'No job description saved yet.'}
-                      </p>
+                    <div className="flex flex-shrink-0 flex-col items-start gap-2 lg:items-end">
+                      <div className="flex flex-wrap gap-2 lg:justify-end">
+                        <Button size="sm" variant="secondary" onClick={() => openAddTool(profile.role)}>
+                          <IconTool size={13} /> Add Tool
+                        </Button>
+                        <Button size="sm" variant="secondary" onClick={() => openEditRole(profile)}>
+                          <IconPencil size={13} /> Edit
+                        </Button>
+                        <Button size="sm" variant="secondary" onClick={() => setArchivingRole(profile)}>
+                          <IconTrash size={13} /> Archive
+                        </Button>
+                      </div>
+                      <div className="flex min-h-8 flex-wrap items-center gap-1.5 lg:justify-end" aria-label={`${profile.role} tools`}>
+                        {visibleRoleTools.length === 0 ? (
+                          <span className="type-caption text-[var(--text-tertiary)]">No tools yet</span>
+                        ) : (
+                          <>
+                            {visibleRoleTools.map((tool) => (
+                              <button
+                                key={tool.key}
+                                type="button"
+                                onClick={() => openEditTool(tool)}
+                                className="rounded-[8px] focus:outline-none focus:ring-2 focus:ring-[var(--canon-purple)]/25"
+                                title={tool.tool_name}
+                                aria-label={`Edit ${tool.tool_name}`}
+                              >
+                                <ToolLogo toolName={tool.tool_name} size={15} containerSize={30} borderRadius={8} />
+                              </button>
+                            ))}
+                            {hiddenToolCount > 0 && (
+                              <span className="flex h-[30px] min-w-[30px] items-center justify-center rounded-[8px] border border-[var(--border-secondary)] bg-[var(--bg-secondary)] px-2 type-caption text-[var(--text-tertiary)]">
+                                +{hiddenToolCount}
+                              </span>
+                            )}
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
-                  <div className="flex flex-shrink-0 gap-2">
-                    <Button size="sm" variant="secondary" onClick={() => openEditRole(profile)}>
-                      <IconPencil size={13} /> Edit
-                    </Button>
-                    <Button size="sm" variant="secondary" onClick={() => setArchivingRole(profile)}>
-                      <IconTrash size={13} /> Archive
-                    </Button>
-                  </div>
-                </div>
-              </Card>
-            ))}
+                </Card>
+              );
+            })}
 
             {archivedRoles.length > 0 && (
               <div className="pt-4">
@@ -1037,212 +1134,8 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     );
   }
 
-  function renderTools() {
-    const toolGroups = groupOrgTools(tools);
-    const roleSpecificCount = toolGroups.filter((group) => !group.allRoles).length;
-    const unownedCount = toolGroups.filter((group) => !groupHasOwner(group)).length;
-    const filterOptions: Array<{ id: ToolFilter; label: string; count: number }> = [
-      { id: 'all', label: 'All tools', count: toolGroups.length },
-      { id: 'all_roles', label: 'All roles', count: toolGroups.filter((group) => group.allRoles).length },
-      ...activeToolRoles.map((role) => ({
-        id: role,
-        label: roleAbbreviation(role),
-        count: toolGroups.filter((group) => group.allRoles || group.roles.includes(role)).length,
-      })),
-      { id: 'unowned', label: 'Needs owner', count: unownedCount },
-    ];
-    const filteredTools = toolGroups.filter((tool) => {
-      if (toolFilter === 'all') return true;
-      if (toolFilter === 'all_roles') return tool.allRoles;
-      if (toolFilter === 'unowned') return !groupHasOwner(tool);
-      if (activeToolRoles.includes(toolFilter)) return tool.allRoles || tool.roles.includes(toolFilter);
-      return true;
-    });
-
-    return (
-      <div className="max-w-5xl">
-        <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div className="max-w-2xl">
-            <div className="type-section-title" style={{ color: 'var(--text-primary)' }}>
-              Tool Access Registry
-            </div>
-            <p className="type-body mt-[3px]" style={{ color: 'var(--text-secondary)' }}>
-              Configure the tools each hire path needs, the role scope, and the owner who can grant access.
-            </p>
-          </div>
-          <Button onClick={() => setAddToolOpen(true)} className="flex-shrink-0">
-            <IconPlus size={13} />
-            Add Tool
-          </Button>
-        </div>
-
-        {toolsLoading ? (
-          <div className="flex items-center gap-2 type-body" style={{ color: 'var(--text-tertiary)' }}>
-            <IconLoader2 size={14} className="animate-spin" /> Loading Tools...
-          </div>
-        ) : toolGroups.length === 0 ? (
-          <Card className="px-5 py-8 text-center">
-            <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Tools Configured</div>
-            <div className="type-body mt-2" style={{ color: 'var(--text-tertiary)' }}>
-              Add the tools each role needs access to and assign an owner who can grant it. Canon will prompt the hire and notify owners automatically.
-            </div>
-          </Card>
-        ) : (
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-              {filterOptions.map((option) => {
-                const selected = toolFilter === option.id;
-                return (
-                  <button
-                    key={option.id}
-                    type="button"
-                    onClick={() => setToolFilter(option.id)}
-                    className={cn(
-                      'inline-flex h-7 items-center gap-2 rounded-full border px-3 type-control-sm transition-colors duration-[120ms]',
-                      selected ? 'filter-chip-selected' : 'filter-chip'
-                    )}
-                    aria-pressed={selected}
-                  >
-                    <span>{option.label}</span>
-                    <span
-                      className="rounded-full px-[6px] py-[1px] type-caption"
-                      style={{
-                        backgroundColor: selected ? 'var(--canon-purple-light)' : 'var(--bg-primary)',
-                        color: selected ? 'var(--text-primary)' : 'var(--text-tertiary)',
-                      }}
-                    >
-                      {option.count}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
-            <Card className="overflow-hidden">
-              <div className="overflow-x-auto">
-                <div className="min-w-[760px]">
-                  <div
-                    className="grid grid-cols-[minmax(220px,1.35fr)_minmax(170px,0.75fr)_minmax(230px,1fr)_78px] items-center border-b px-4 py-[9px] type-kicker"
-                    style={{ borderColor: 'var(--border-tertiary)', color: 'var(--text-tertiary)' }}
-                  >
-                    <div>Tool</div>
-                    <div>Scope</div>
-                    <div>Owner</div>
-                    <div className="text-right">Actions</div>
-                  </div>
-
-                  {filteredTools.length === 0 ? (
-                    <div className="px-5 py-8 text-center">
-                      <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>
-                        No Matching Tools
-                      </div>
-                      <div className="type-body mt-2" style={{ color: 'var(--text-tertiary)' }}>
-                        Try a different role filter or add another tool.
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="overflow-y-auto" style={{ maxHeight: 'min(560px, calc(100vh - 320px))' }}>
-                      {filteredTools.map((tool) => {
-                        const ownerLabel = tool.owner_name || 'Owner required';
-
-                        return (
-                          <div
-                            key={tool.key}
-                            className="grid min-h-[58px] grid-cols-[minmax(220px,1.35fr)_minmax(170px,0.75fr)_minmax(230px,1fr)_78px] items-center border-b px-4 py-[9px] transition-colors duration-[120ms] last:border-b-0 hover:bg-[var(--bg-secondary)]"
-                            style={{ borderColor: 'var(--border-tertiary)' }}
-                          >
-                            <div className="flex min-w-0 items-center gap-3">
-                              <ToolLogo toolName={tool.tool_name} size={16} containerSize={32} borderRadius={8} />
-                              <div className="min-w-0">
-                                <div className="truncate type-card-title" style={{ color: 'var(--text-primary)' }}>
-                                  {tool.tool_name}
-                                </div>
-                                <div className="type-caption" style={{ color: 'var(--text-tertiary)' }}>
-                                  {tool.allRoles ? 'Shared access requirement' : 'Role-specific access'}
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="flex flex-wrap gap-1">
-                              {tool.allRoles ? (
-                                <span
-                                  className="inline-flex items-center rounded-full border px-2 py-[3px] type-caption font-medium"
-                                  style={{
-                                    backgroundColor: 'var(--green-bg)',
-                                    borderColor: 'var(--green-border)',
-                                    color: 'var(--green-text)',
-                                  }}
-                                >
-                                  All roles
-                                </span>
-                              ) : (
-                                tool.roles.map((role) => {
-                                  const roleIndex = activeToolRoles.indexOf(role);
-                                  const color = roleColor(role, roleIndex === -1 ? 0 : roleIndex);
-                                  return (
-                                    <span
-                                      key={role}
-                                      className="inline-flex items-center rounded-full border px-2 py-[3px] type-caption font-medium"
-                                      style={{
-                                        backgroundColor: 'var(--bg-secondary)',
-                                        borderColor: 'var(--border-secondary)',
-                                        color,
-                                      }}
-                                    >
-                                      {roleAbbreviation(role)}
-                                    </span>
-                                  );
-                                })
-                              )}
-                            </div>
-
-                            <div className="min-w-0">
-                              <div
-                                className="truncate type-body-strong"
-                                style={{ color: groupHasOwner(tool) ? 'var(--text-primary)' : 'var(--amber-text)' }}
-                              >
-                                {ownerLabel}
-                              </div>
-                            </div>
-
-                            <div className="flex justify-end gap-1">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="border-transparent"
-                                aria-label={`Edit ${tool.tool_name}`}
-                                onClick={() => openEditTool(tool)}
-                              >
-                                <IconPencil size={14} />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="border-transparent hover:text-[var(--red-text)]"
-                                aria-label={`Remove ${tool.tool_name}`}
-                                onClick={() => setDeletingTool(tool)}
-                              >
-                                <IconX size={14} />
-                              </Button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </Card>
-
-            <div className="flex flex-wrap gap-3 type-caption" style={{ color: 'var(--text-tertiary)' }}>
-              <span>{toolGroups.length} total</span>
-              <span>{roleSpecificCount} role-specific</span>
-              <span>{unownedCount} missing owner</span>
-            </div>
-          </div>
-        )}
-      </div>
-    );
+  function renderReadinessSettings() {
+    return renderRoles();
   }
 
   function renderOrg() {
@@ -1607,8 +1500,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
           <div className="surface-page flex-1 overflow-y-auto px-7 py-6">
             {activeSetting === 'profile' && renderProfile()}
             {activeSetting === 'integrations' && renderIntegrations()}
-            {activeSetting === 'roles' && renderRoles()}
-            {activeSetting === 'tools' && renderTools()}
+            {activeSetting === 'readiness' && renderReadinessSettings()}
             {activeSetting === 'delete' && renderPlaceholder('Delete Account')}
             {activeSetting === 'org' && renderOrg()}
             {activeSetting === 'apikeys' && renderPlaceholder('API Keys')}
@@ -1785,12 +1677,23 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
         </DialogContent>
       </Dialog>
 
-      <Dialog open={addToolOpen} onOpenChange={setAddToolOpen}>
+      <Dialog
+        open={addToolOpen}
+        onOpenChange={(open) => {
+          if (open) {
+            setAddToolOpen(true);
+          } else {
+            closeAddTool();
+          }
+        }}
+      >
         <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
           <DialogHeader>
             <DialogTitle>Add Tool</DialogTitle>
             <DialogDescription>
-              Define a tool hire paths need access to and the required Slack owner for access requests.
+              {addToolRole
+                ? `Add a tool ${addToolRole} needs and the Slack owner for access requests.`
+                : 'Add a tool this role needs and the Slack owner for access requests.'}
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-3">
@@ -1801,25 +1704,10 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
               <ToolNameCombobox
                 value={newTool.tool_name}
                 onChange={(toolName) => setNewTool((p) => ({ ...p, tool_name: toolName }))}
-                unavailableToolNames={configuredToolNames}
               />
               {newToolAlreadyConfigured && (
-                <p className="type-caption mt-1" style={{ color: 'var(--amber-text)' }}>This tool is already configured.</p>
+                <p className="type-caption mt-1" style={{ color: 'var(--amber-text)' }}>This tool already exists. Adding it will assign it to {addToolRole ?? 'this role'}.</p>
               )}
-            </div>
-            <div>
-              <div className="mb-[5px] flex items-center justify-between gap-3">
-                <label className="block type-body font-medium" style={{ color: 'var(--text-secondary)' }}>
-                  Roles
-                </label>
-                <span className="type-caption" style={{ color: 'var(--text-tertiary)' }}>{selectedRolesLabel(newTool.roles)}</span>
-              </div>
-              <RoleMultiSelect
-                value={newTool.roles}
-                onChange={(roles) => setNewTool((p) => ({ ...p, roles }))}
-                roles={activeToolRoles}
-              />
-              <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>Select multiple roles, or use All roles for a shared requirement.</p>
             </div>
             <div>
               <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
@@ -1842,10 +1730,10 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
             )}
           </div>
           <DialogFooter>
-            <Button variant="secondary" onClick={() => setAddToolOpen(false)} disabled={addToolSaving}>
+            <Button variant="secondary" onClick={closeAddTool} disabled={addToolSaving}>
               Cancel
             </Button>
-            <Button onClick={() => void addTool()} disabled={addToolSaving || !newTool.tool_name.trim() || !newTool.owner || newToolAlreadyConfigured}>
+            <Button onClick={() => void addTool()} disabled={addToolSaving || !newTool.tool_name.trim() || !newTool.owner || !addToolRole}>
               {addToolSaving ? <IconLoader2 size={13} className="animate-spin" /> : <IconTool size={13} />}
               Add Tool
             </Button>

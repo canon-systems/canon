@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
 import { listSlackChannels, SlackListChannelsError } from '@/lib/server/integrations/nativeSlack';
+import { hasNangoApiKey, listNangoConnectionsForUser, providerForNangoIntegration } from '@/lib/server/integrations/nango';
 import { requireWorkspace } from '@/lib/server/organization';
 
 export const dynamic = 'force-dynamic';
@@ -17,7 +18,7 @@ export async function GET() {
     const { user } = await getSession();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { supabase } = await requireWorkspace(user);
+    const { supabase, organization } = await requireWorkspace(user);
     const options: Array<{
       id: string;
       name: string;
@@ -27,6 +28,7 @@ export async function GET() {
     }> = [];
 
     let slackConnected = false;
+    let granolaConnected = false;
 
     const { data: connection } = await supabase
       .from('oauth_connections')
@@ -53,9 +55,47 @@ export async function GET() {
       }
     }
 
+    const { data: granolaConnection } = await supabase
+      .from('oauth_connections')
+      .select('connection_id')
+      .eq('user_id', user.id)
+      .eq('provider', 'granola')
+      .eq('status', 'active')
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    granolaConnected = Boolean(granolaConnection?.connection_id);
+    if (!granolaConnected && hasNangoApiKey()) {
+      try {
+        const nangoConnections = await listNangoConnectionsForUser({ userId: user.id, organizationId: organization.id });
+        granolaConnected = nangoConnections.some((connection) => {
+          const provider = providerForNangoIntegration(connection.provider_config_key);
+          const hasAuthError = (connection.errors ?? []).some((error) => error.type === 'auth');
+          return provider === 'granola' && !hasAuthError;
+        });
+      } catch (error) {
+        console.warn('[api/knowledge/source-options] Failed to reconcile Granola connection from Nango:', error);
+      }
+    }
+
+    if (granolaConnected) {
+      options.push({
+        id: 'granola-transcripts',
+        name: 'Granola transcripts',
+        provider: 'granola',
+        member_count: 0,
+        topic: 'Meeting transcripts',
+      });
+    }
+
     return NextResponse.json({
       options,
-      noIntegrationsConnected: !slackConnected,
+      connectedProviders: {
+        slack: slackConnected,
+        granola: granolaConnected,
+      },
+      noIntegrationsConnected: !slackConnected && !granolaConnected,
     });
   } catch (error: unknown) {
     if (error instanceof SlackListChannelsError) {

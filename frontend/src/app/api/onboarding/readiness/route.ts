@@ -123,6 +123,10 @@ type ReadinessSourceEvidence = {
   channel_id: string | null;
   channel_name: string | null;
   message_ts: string | null;
+  source_name: string | null;
+  source_type: string | null;
+  note_id: string | null;
+  meeting_date: string | null;
   url: string | null;
 };
 
@@ -143,9 +147,23 @@ function metadataEvidenceArray(item: ReadinessItem): ReadinessSourceEvidence[] {
     const channelId = typeof evidence.channel_id === 'string' ? evidence.channel_id : null;
     const channelName = typeof evidence.channel_name === 'string' ? evidence.channel_name : null;
     const messageTs = typeof evidence.message_ts === 'string' ? evidence.message_ts : null;
+    const sourceName = typeof evidence.source_name === 'string' ? evidence.source_name : null;
+    const sourceType = typeof evidence.source_type === 'string' ? evidence.source_type : null;
+    const noteId = typeof evidence.note_id === 'string' ? evidence.note_id : null;
+    const meetingDate = typeof evidence.meeting_date === 'string' ? evidence.meeting_date : null;
     const url = typeof evidence.url === 'string' ? evidence.url : channelId ? slackMessageUrl(channelId, messageTs) : null;
-    if (!channelId && !channelName && !url) return [];
-    return [{ provider, channel_id: channelId, channel_name: channelName, message_ts: messageTs, url }];
+    if (!channelId && !channelName && !sourceName && !noteId && !url) return [];
+    return [{
+      provider,
+      channel_id: channelId,
+      channel_name: channelName,
+      message_ts: messageTs,
+      source_name: sourceName,
+      source_type: sourceType,
+      note_id: noteId,
+      meeting_date: meetingDate,
+      url,
+    }];
   });
 }
 
@@ -175,6 +193,10 @@ function withFallbackSourceMetadata(items: ReadinessItem[], fallback: { channelI
               channel_id: fallback.channelId,
               channel_name: fallback.channelName,
               message_ts: null,
+              source_name: fallback.channelName,
+              source_type: 'slack_channel',
+              note_id: null,
+              meeting_date: null,
               url: fallback.channelId ? slackMessageUrl(fallback.channelId, null) : null,
             }],
       },

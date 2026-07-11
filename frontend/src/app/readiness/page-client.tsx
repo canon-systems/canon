@@ -98,11 +98,18 @@ function sourceEvidence(item: ReadinessItem | null): SourceEvidence[] {
     const evidence = metadataEvidence.flatMap((entry): SourceEvidence[] => {
       if (!entry || typeof entry !== 'object') return [];
       const source = entry as Record<string, unknown>;
+      const provider = typeof source.provider === 'string' ? source.provider : item.source ?? 'source';
       const channelName = typeof source.channel_name === 'string' ? source.channel_name.replace(/^#/, '') : null;
       const channelId = typeof source.channel_id === 'string' ? source.channel_id : null;
       const messageTs = typeof source.message_ts === 'string' ? source.message_ts : null;
+      const sourceName = typeof source.source_name === 'string' ? source.source_name : null;
+      const sourceType = typeof source.source_type === 'string' ? source.source_type : null;
       const url = typeof source.url === 'string' ? source.url : channelId ? slackMessageUrl(channelId, messageTs) : null;
-      const label = channelName ? `#${channelName}` : item.source === 'slack' ? 'Slack evidence' : item.source ?? 'Source';
+      const label = channelName
+        ? `#${channelName}`
+        : provider === 'granola'
+          ? `${sourceType === 'transcript' ? 'Granola transcript' : 'Granola'}${sourceName ? `: ${sourceName}` : ''}`
+          : sourceName ?? (item.source === 'slack' ? 'Slack evidence' : item.source ?? 'Source');
       return [{ label, url }];
     });
     if (evidence.length > 0) return evidence;
@@ -122,6 +129,13 @@ function sourceEvidence(item: ReadinessItem | null): SourceEvidence[] {
 
   const sourceNames = metadataStringArray(item, 'source_names');
   if (sourceNames.length > 0) return sourceNames.map((sourceName) => ({ label: sourceName, url: null }));
+
+  if (item.source_url) {
+    return [{
+      label: item.source === 'granola' ? 'Granola transcript' : item.source ?? 'Source',
+      url: item.source_url,
+    }];
+  }
 
   if (item.source === 'slack') return [{ label: 'Slack knowledge', url: null }];
   return [{ label: item.source ?? 'Source', url: null }];

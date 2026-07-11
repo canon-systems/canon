@@ -1,6 +1,6 @@
 export type HireRole = string;
 export type HireStatus = 'active' | 'paused' | 'completed';
-export type KnowledgeProvider = 'slack';
+export type KnowledgeProvider = 'slack' | 'granola';
 export type KnowledgeSourceStatus = 'pending' | 'syncing' | 'active' | 'error' | 'stopped';
 export type DeliveryStatus = 'pending' | 'delivered' | 'failed';
 export type AccessRequestStatus = 'pending' | 'sent' | 'acknowledged' | 'granted' | 'confirmed';

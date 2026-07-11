@@ -9,7 +9,9 @@ import {
   IconDotsVertical,
   IconEdit,
   IconHash,
+  IconLoader2,
   IconPlayerStop,
+  IconPlug,
   IconPlus,
   IconRefresh,
   IconSearch,
@@ -31,6 +33,10 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { StatusBadge } from '@/components/ui/status-badge';
 import type { KnowledgeProvider, KnowledgeSource, SourceOption } from '@/types/onboarding';
+
+const GRANOLA_SOURCE_OPTION_ID = 'granola-transcripts';
+
+type ConnectedProviders = Record<'slack' | 'granola', boolean>;
 
 function statusVariant(status: string) {
   if (status === 'active') return 'active';
@@ -57,6 +63,7 @@ function sourceOptionKey(sourceOption: SourceOption) {
 }
 
 function sourceKey(source: KnowledgeSource) {
+  if (source.provider === 'granola') return `granola:${GRANOLA_SOURCE_OPTION_ID}`;
   return `${source.provider}:${source.slack_channel_id ?? source.id}`;
 }
 
@@ -68,21 +75,29 @@ function sourceDisplayName(source: KnowledgeSource | SourceOption) {
 
 function sourceProviderLabel(provider: KnowledgeProvider) {
   if (provider === 'slack') return 'Slack';
+  if (provider === 'granola') return 'Granola';
   return 'Integration';
 }
 
-function sourceStatusNotice(status: string) {
-  if (status === 'error') {
+function sourceStatusNotice(source: KnowledgeSource) {
+  if (source.status === 'error') {
     return {
       title: 'Sync Needs Attention',
-      body: 'Canon could not finish syncing this source. Try syncing again, or reconnect the source if the issue continues.',
+      body: source.error_message || 'Canon could not finish syncing this source. Try syncing again, or reconnect the source if the issue continues.',
       tone: 'error' as const,
     };
   }
-  if (status === 'stopped') {
+  if (source.status === 'stopped') {
     return {
       title: 'Sync Stopped',
       body: 'Syncing was stopped before this source finished updating. Start a new sync when you are ready.',
+      tone: 'neutral' as const,
+    };
+  }
+  if (source.status === 'active' && (source.chunk_count ?? 0) === 0) {
+    return {
+      title: source.provider === 'granola' ? 'No Transcripts Indexed' : 'No Notes Indexed',
+      body: source.error_message || 'This source synced successfully, but there was no content to index.',
       tone: 'neutral' as const,
     };
   }
@@ -91,10 +106,10 @@ function sourceStatusNotice(status: string) {
 
 function sourceLoadMessage(data: { error?: string; detail?: string; needed?: string }) {
   if (data.detail === 'missing_scope' || data.needed) {
-    return 'This source needs additional permissions before Canon can load items. Reconnect it from Settings and try again.';
+    return 'This source needs additional permissions before Canon can load items. Reconnect the integration and try again.';
   }
   if (data.error === 'No active Slack connection') {
-    return 'Connect a source from Settings before adding it to knowledge.';
+    return 'Connect a source before adding it to knowledge.';
   }
   return 'Could not load sources. Try again in a moment.';
 }
@@ -111,6 +126,12 @@ function isSyncInProgress(status: string) {
   return status === 'pending' || status === 'syncing';
 }
 
+function providerLabel(provider: KnowledgeProvider) {
+  if (provider === 'slack') return 'Slack';
+  if (provider === 'granola') return 'Granola';
+  return 'Integration';
+}
+
 export function KnowledgeClient() {
   const [sources, setSources] = useState<KnowledgeSource[]>([]);
   const [loading, setLoading] = useState(true);
@@ -122,6 +143,8 @@ export function KnowledgeClient() {
   const [selectedSourceOptionIds, setSelectedSourceOptionIds] = useState<Set<string>>(new Set());
   const [sourceSearch, setSourceSearch] = useState('');
   const [noIntegrationsConnected, setNoIntegrationsConnected] = useState(false);
+  const [connectedProviders, setConnectedProviders] = useState<ConnectedProviders>({ slack: false, granola: false });
+  const [connectingProvider, setConnectingProvider] = useState<KnowledgeProvider | null>(null);
   const [adding, setAdding] = useState(false);
   const [selected, setSelected] = useState<KnowledgeSource | null>(null);
   const [selectedSourceIds, setSelectedSourceIds] = useState<Set<string>>(new Set());
@@ -224,6 +247,7 @@ export function KnowledgeClient() {
       const data = (await result.json()) as {
         options?: SourceOption[];
         noIntegrationsConnected?: boolean;
+        connectedProviders?: Partial<ConnectedProviders>;
         error?: string;
         detail?: string;
         needed?: string;
@@ -234,6 +258,10 @@ export function KnowledgeClient() {
       }
 
       const options = data.options ?? [];
+      setConnectedProviders({
+        slack: Boolean(data.connectedProviders?.slack),
+        granola: Boolean(data.connectedProviders?.granola),
+      });
       if (data.noIntegrationsConnected) {
         setNoIntegrationsConnected(true);
         setSourceOptions([]);
@@ -250,6 +278,7 @@ export function KnowledgeClient() {
       setSourceOptions([]);
       setSelectedSourceOptionIds(new Set());
       setSourceOptionsError(error instanceof Error ? error.message : sourceLoadMessage({}));
+      setConnectedProviders({ slack: false, granola: false });
     } finally {
       setSourceOptionsLoading(false);
     }
@@ -399,15 +428,21 @@ export function KnowledgeClient() {
     try {
       for (const sourceOption of selectedSourceOptions) {
         const provider = sourceOption.provider ?? 'slack';
+        const requestBody = provider === 'granola'
+          ? {
+              provider,
+              name: sourceOption.name,
+            }
+          : {
+              provider,
+              slack_channel_id: sourceOption.id,
+              slack_channel_name: sourceOption.name,
+              name: `#${sourceOption.name}`,
+            };
         const res = await fetch('/api/onboarding/knowledge', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            provider,
-            slack_channel_id: sourceOption.id,
-            slack_channel_name: sourceOption.name,
-            name: `#${sourceOption.name}`,
-          }),
+          body: JSON.stringify(requestBody),
         });
 
         if (!res.ok) {
@@ -436,6 +471,35 @@ export function KnowledgeClient() {
     }
   }
 
+  async function connectSlack() {
+    setConnectingProvider('slack');
+    try {
+      window.location.href = '/api/oauth/slack/start';
+    } catch {
+      toast.error('Unable to connect Slack right now. Please try again.');
+      setConnectingProvider(null);
+    }
+  }
+
+  async function connectNangoProvider(provider: KnowledgeProvider) {
+    setConnectingProvider(provider);
+    try {
+      const response = await fetch('/api/integrations/nango/connect', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ provider }),
+      });
+      const data = (await response.json().catch(() => ({}))) as { connectLink?: string; error?: string; detail?: string };
+      if (!response.ok || !data.connectLink) {
+        throw new Error(data.detail || data.error || 'connect_failed');
+      }
+      window.location.href = data.connectLink;
+    } catch {
+      toast.error(`Unable to connect ${providerLabel(provider)} right now. Please try again.`);
+      setConnectingProvider(null);
+    }
+  }
+
   const filteredSourceOptions = sourceOptions.filter(
     (c) => `${c.name} ${c.topic ?? ''}`.toLowerCase().includes(sourceSearch.toLowerCase())
   );
@@ -455,6 +519,26 @@ export function KnowledgeClient() {
   const activeCount = sources.filter((source) => source.status === 'active').length;
   const errorCount = sources.filter((source) => source.status === 'error').length;
   const pendingCount = sources.filter((source) => isSyncInProgress(source.status)).length;
+  const sourceConnectionActions: Array<{
+    provider: KnowledgeProvider;
+    label: string;
+    description: string;
+    action: () => void | Promise<void>;
+  }> = [
+    {
+      provider: 'slack',
+      label: 'Slack',
+      description: 'Sync channel messages and threads',
+      action: connectSlack,
+    },
+    {
+      provider: 'granola',
+      label: 'Granola',
+      description: 'Sync meeting transcripts',
+      action: () => void connectNangoProvider('granola'),
+    },
+  ];
+  const connectableProviders = sourceConnectionActions.filter((item) => !connectedProviders[item.provider]);
 
   if (loading) {
     return (
@@ -666,7 +750,7 @@ export function KnowledgeClient() {
             {selected ? (
               <div className="w-full">
                 {(() => {
-                  const notice = sourceStatusNotice(selected.status);
+                  const notice = sourceStatusNotice(selected);
                   if (!notice) return null;
 
                   return (
@@ -788,29 +872,12 @@ export function KnowledgeClient() {
                 {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-10 bg-[var(--bg-secondary)] rounded-lg" />)}
               </div>
             ) : noIntegrationsConnected ? (
-              <div className="py-2 space-y-2">
-                <p className="type-body pb-1" style={{ color: 'var(--text-secondary)' }}>
-                  No integrations are connected yet. Go to Settings to connect a source.
+              <div className="rounded-[8px] border px-3 py-4 text-center" style={{ borderColor: 'var(--border-tertiary)', backgroundColor: 'var(--bg-secondary)' }}>
+                <IconPlug size={20} className="mx-auto mb-2 text-[var(--text-tertiary)]" />
+                <p className="type-panel-title" style={{ color: 'var(--text-primary)' }}>Connect a source first</p>
+                <p className="type-body mt-1" style={{ color: 'var(--text-secondary)' }}>
+                  Add Slack or Granola here, then choose what Canon should index.
                 </p>
-                {[
-                  { provider: 'slack' as const, label: 'Slack', description: 'Sync channel messages and threads' },
-                ].map(({ provider, label, description }) => (
-                  <a
-                    key={provider}
-                    href="/settings?tab=integrations"
-                    className="flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-colors hover:bg-[var(--bg-secondary)]"
-                    style={{ borderColor: 'var(--border-secondary)', textDecoration: 'none' }}
-                  >
-                    <div className="size-8 rounded-[8px] flex flex-shrink-0 items-center justify-center" style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>
-                      <IntegrationLogos provider={provider} size={16} />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="type-panel-title" style={{ color: 'var(--text-primary)' }}>{label}</p>
-                      <p className="type-caption" style={{ color: 'var(--text-tertiary)' }}>{description}</p>
-                    </div>
-                    <span className="type-caption flex-shrink-0" style={{ color: 'var(--canon-purple)' }}>Connect →</span>
-                  </a>
-                ))}
               </div>
             ) : sourceOptionsError ? (
               <div className="rounded-[8px] border border-[var(--red-border)] bg-[var(--red-bg)] px-3 py-2">
@@ -854,6 +921,34 @@ export function KnowledgeClient() {
               })
             )}
           </div>
+          {!sourceOptionsLoading && !sourceOptionsError && connectableProviders.length > 0 && (
+            <div className="space-y-2 border-t pt-3" style={{ borderColor: 'var(--border-tertiary)' }}>
+              <div className="type-kicker text-[var(--text-tertiary)]">
+                {noIntegrationsConnected ? 'Connect Source' : 'Connect Another Source'}
+              </div>
+              <div className="space-y-1">
+                {connectableProviders.map(({ provider, label, description, action }) => (
+                  <button
+                    key={provider}
+                    type="button"
+                    onClick={action}
+                    disabled={connectingProvider !== null}
+                    className="flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors hover:bg-[var(--bg-secondary)] disabled:cursor-not-allowed disabled:opacity-60"
+                    style={{ borderColor: 'var(--border-secondary)' }}
+                  >
+                    <div className="size-8 flex flex-shrink-0 items-center justify-center rounded-[8px]" style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>
+                      {connectingProvider === provider ? <IconLoader2 size={16} className="animate-spin" /> : <IntegrationLogos provider={provider} size={16} />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="type-panel-title" style={{ color: 'var(--text-primary)' }}>{label}</p>
+                      <p className="type-caption" style={{ color: 'var(--text-tertiary)' }}>{description}</p>
+                    </div>
+                    <span className="type-caption flex-shrink-0" style={{ color: 'var(--canon-purple)' }}>Connect</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {!sourceOptionsLoading && !sourceOptionsError && !noIntegrationsConnected && filteredSourceOptions.length > 0 && (
             <div className="flex items-center justify-between gap-3 border-t pt-3" style={{ borderColor: 'var(--border-tertiary)' }}>
               <p className="type-caption" style={{ color: 'var(--text-tertiary)' }}>

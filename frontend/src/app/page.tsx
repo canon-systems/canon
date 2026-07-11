@@ -13,7 +13,7 @@ import { requireWorkspacePage } from '@/lib/server/workspacePage';
 const operatingLoop = [
   {
     step: '01',
-    href: '/new-hires/new',
+    href: '/new-hires',
     title: 'Launch Hire Path',
     description: 'Create a role-specific path with milestones, access requests, and briefings already in place.',
     action: 'Launch Path',

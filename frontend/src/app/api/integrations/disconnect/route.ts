@@ -9,6 +9,7 @@ import {
 } from '@/lib/server/services/usageTracking';
 import { canonicalProvider } from '@/lib/providers';
 import { createLogger } from '@/lib/server/logging';
+import { deleteNangoConnection, nangoIntegrationForProvider } from '@/lib/server/integrations/nango';
 import { getOrganizationForUser } from '@/lib/server/organization';
 
 const log = createLogger('api.integrations.disconnect', {
@@ -135,6 +136,27 @@ export async function POST(request: NextRequest) {
         ].filter((id): id is string => typeof id === 'string' && id.length > 0)
       )
     );
+
+    for (const integrationProvider of integrationProviderSet) {
+      if (!nangoIntegrationForProvider(integrationProvider)) continue;
+
+      const nangoConnectionIds = externalConnectionIds.length > 0
+        ? externalConnectionIds
+        : connectionRows
+            .filter((row) => row.provider === integrationProvider)
+            .map((row) => row.connection_id);
+
+      for (const nangoConnectionId of nangoConnectionIds) {
+        try {
+          await deleteNangoConnection({
+            provider: integrationProvider,
+            connectionId: nangoConnectionId,
+          });
+        } catch (nangoError) {
+          console.warn('Failed to delete Nango connection during disconnect:', nangoError);
+        }
+      }
+    }
 
     const sourcesById = new Map<string, SourceRow>();
 
