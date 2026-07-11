@@ -14,10 +14,7 @@ import {
   providerForNangoIntegration,
 } from '@/lib/server/integrations/nango';
 import {
-  countWords,
-  createKnowledgeTextChunk,
   chunkTextDocument,
-  DEFAULT_KNOWLEDGE_CHUNK_MAX_WORDS,
   type KnowledgeTextChunk,
 } from '@/lib/server/knowledge-sync/text-chunker';
 import {
@@ -31,8 +28,8 @@ import {
   fetchSlackHistory,
   missingSlackHistoryScopes,
   SlackApiError,
-  type SlackMessage,
 } from '@/lib/server/knowledge-sync/slack-client';
+import { chunkSlackMessages } from '@/lib/server/knowledge-sync/slack-chunking';
 
 type KnowledgeSourceSyncEvent = {
   sourceId?: string;
@@ -76,7 +73,6 @@ const log = createLogger('inngest.knowledge_source_sync', {
   componentColor: 'orange',
 });
 
-const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
 const MIN_MESSAGE_LENGTH = 20;
 const SYNCABLE_STATUSES = new Set<SyncableSourceStatus>(['pending', 'syncing', 'active']);
 
@@ -201,54 +197,6 @@ async function getGranolaConnectionForOrganization(
 
   const { connectionId } = await getActiveProviderConnection(supabase, { ownerId, provider: 'granola' });
   return { ownerId, connectionId };
-}
-
-function chunkMessages(messages: SlackMessage[], channelId: string, channelName: string): KnowledgeTextChunk[] {
-  const chunks: KnowledgeTextChunk[] = [];
-  if (messages.length === 0) return chunks;
-
-  let currentTexts: string[] = [];
-  let currentWordCount = 0;
-  let earliestTs = messages[0].ts;
-  let latestTs = messages[0].ts;
-  let lastTs = parseFloat(messages[0].ts) * 1000;
-
-  const flushChunk = () => {
-    if (currentTexts.length === 0) return;
-    chunks.push(
-      createKnowledgeTextChunk({
-        content: currentTexts.join('\n\n'),
-        metadata: { channel_id: channelId, channel_name: channelName, earliest_ts: earliestTs, latest_ts: latestTs, message_count: currentTexts.length },
-        identityParts: ['slack', channelId, earliestTs, latestTs, chunks.length],
-      })
-    );
-    currentTexts = [];
-    currentWordCount = 0;
-  };
-
-  for (const msg of messages) {
-    const msgTimeMs = parseFloat(msg.ts) * 1000;
-    const timeDelta = Math.abs(msgTimeMs - lastTs);
-
-    if (timeDelta > TWO_HOURS_MS && currentTexts.length > 0) {
-      flushChunk();
-      earliestTs = msg.ts;
-    }
-
-    const words = countWords(msg.text);
-    if (currentWordCount + words > DEFAULT_KNOWLEDGE_CHUNK_MAX_WORDS && currentTexts.length > 0) {
-      flushChunk();
-      earliestTs = msg.ts;
-    }
-
-    currentTexts.push(msg.text);
-    currentWordCount += words;
-    latestTs = msg.ts;
-    lastTs = msgTimeMs;
-  }
-
-  flushChunk();
-  return chunks;
 }
 
 function chunkGranolaNotes(notes: NormalizedGranolaNote[]): KnowledgeTextChunk[] {
@@ -601,7 +549,7 @@ export const knowledgeSourceSync = inngest.createFunction(
         });
 
         await assertSyncStillActive(supabase, sourceId, 'chunking');
-        const chunks = chunkMessages(enriched, source.slack_channel_id!, source.slack_channel_name || '');
+        const chunks = chunkSlackMessages(enriched, source.slack_channel_id!, source.slack_channel_name || '');
 
         log.info('sync_chunks_ready', {
           sourceId,
