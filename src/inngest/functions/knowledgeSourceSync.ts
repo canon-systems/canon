@@ -18,6 +18,18 @@ import {
   listNangoConnectionsForUser,
   providerForNangoIntegration,
 } from '@/lib/server/integrations/nango';
+import {
+  countWords,
+  createKnowledgeTextChunk,
+  chunkTextDocument,
+  DEFAULT_KNOWLEDGE_CHUNK_MAX_WORDS,
+  type KnowledgeTextChunk,
+} from '@/lib/server/knowledge-sync/text-chunker';
+import {
+  getActiveProviderConnection,
+  getOrganizationOwnerId,
+  upsertProviderConnection,
+} from '@/lib/server/knowledge-sync/source-repository';
 
 type KnowledgeSourceSyncEvent = {
   sourceId?: string;
@@ -93,7 +105,9 @@ const log = createLogger('inngest.knowledge_source_sync', {
 const NINETY_DAYS_AGO = () => Math.floor((Date.now() - 90 * 24 * 60 * 60 * 1000) / 1000).toString();
 const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
 const MAX_MESSAGES = 1000;
-const WORDS_PER_CHUNK = 400;
+const MAX_SLACK_THREAD_REPLIES = 3;
+const SLACK_THREAD_REPLY_CONCURRENCY = 5;
+const MAX_SLACK_RETRY_ATTEMPTS = 3;
 const MIN_MESSAGE_LENGTH = 20;
 const SYNCABLE_STATUSES = new Set<SyncableSourceStatus>(['pending', 'syncing', 'active']);
 const REQUIRED_SLACK_HISTORY_SCOPES = ['channels:history', 'groups:history', 'mpim:history', 'im:history'];
@@ -160,30 +174,59 @@ async function assertSyncStillActive(
   }
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchSlackJson<T>(url: string, botToken: string): Promise<T> {
+  let attempt = 0;
+
+  while (true) {
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${botToken}` },
+    });
+
+    if (res.status !== 429 || attempt >= MAX_SLACK_RETRY_ATTEMPTS) {
+      return (await res.json()) as T;
+    }
+
+    attempt += 1;
+    const retryAfterSeconds = Number(res.headers.get('retry-after') ?? '1');
+    await sleep(Math.max(1, retryAfterSeconds) * 1000);
+  }
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  mapper: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(items[index], index);
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, () => worker())
+  );
+
+  return results;
+}
+
 async function getSlackAccessTokenForOrganization(
   supabase: ReturnType<typeof createServiceRoleClient>,
   organizationId: string
 ): Promise<{ accessToken: string | null; ownerId?: string; connectionId?: string; scope?: string | null }> {
-  const { data: org } = await supabase
-    .from('organizations')
-    .select('owner_id')
-    .eq('id', organizationId)
-    .maybeSingle();
-
-  const ownerId = typeof org?.owner_id === 'string' ? org.owner_id : undefined;
+  const ownerId = await getOrganizationOwnerId(supabase, organizationId);
   if (!ownerId) return { accessToken: null };
 
-  const { data: connection } = await supabase
-    .from('oauth_connections')
-    .select('connection_id')
-    .eq('user_id', ownerId)
-    .eq('provider', 'slack')
-    .eq('status', 'active')
-    .order('updated_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  const connectionId = typeof connection?.connection_id === 'string' ? connection.connection_id : undefined;
+  const { connectionId } = await getActiveProviderConnection(supabase, { ownerId, provider: 'slack' });
   if (!connectionId) return { accessToken: null, ownerId };
 
   const { data: tokenRow } = await supabase
@@ -202,13 +245,7 @@ async function getGranolaConnectionForOrganization(
   supabase: ReturnType<typeof createServiceRoleClient>,
   organizationId: string
 ): Promise<{ ownerId?: string; connectionId?: string }> {
-  const { data: org } = await supabase
-    .from('organizations')
-    .select('owner_id')
-    .eq('id', organizationId)
-    .maybeSingle();
-
-  const ownerId = typeof org?.owner_id === 'string' ? org.owner_id : undefined;
+  const ownerId = await getOrganizationOwnerId(supabase, organizationId);
   if (!ownerId) return {};
 
   if (hasNangoApiKey()) {
@@ -221,30 +258,21 @@ async function getGranolaConnectionForOrganization(
       });
 
       if (nangoConnection) {
-        const { error } = await supabase
-          .from('oauth_connections')
-          .upsert(
-            {
-              user_id: ownerId,
-              provider: 'granola',
-              connection_id: nangoConnection.connection_id,
-              status: 'active',
-              metadata: {
-                ...(nangoConnection.metadata ?? {}),
-                source: 'nango',
-                provider_config_key: nangoConnection.provider_config_key,
-                nango_provider: nangoConnection.provider,
-                nango_connection_id: nangoConnection.id,
-                organization_id: organizationId,
-                reconciled_at: new Date().toISOString(),
-                reconciled_from: 'knowledge_source_sync',
-              },
-              updated_at: new Date().toISOString(),
-            },
-            { onConflict: 'user_id,provider' }
-          );
-
-        if (error) throw error;
+        await upsertProviderConnection(supabase, {
+          ownerId,
+          provider: 'granola',
+          connectionId: nangoConnection.connection_id,
+          metadata: {
+            ...(nangoConnection.metadata ?? {}),
+            source: 'nango',
+            provider_config_key: nangoConnection.provider_config_key,
+            nango_provider: nangoConnection.provider,
+            nango_connection_id: nangoConnection.id,
+            organization_id: organizationId,
+            reconciled_at: new Date().toISOString(),
+            reconciled_from: 'knowledge_source_sync',
+          },
+        });
 
         log.info('granola_connection_reconciled', {
           organizationId,
@@ -264,17 +292,7 @@ async function getGranolaConnectionForOrganization(
     }
   }
 
-  const { data: connection } = await supabase
-    .from('oauth_connections')
-    .select('connection_id')
-    .eq('user_id', ownerId)
-    .eq('provider', 'granola')
-    .eq('status', 'active')
-    .order('updated_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  const connectionId = typeof connection?.connection_id === 'string' ? connection.connection_id : undefined;
+  const { connectionId } = await getActiveProviderConnection(supabase, { ownerId, provider: 'granola' });
   return { ownerId, connectionId };
 }
 
@@ -287,10 +305,6 @@ function missingSlackHistoryScopes(scope: string | null | undefined): string[] {
   );
 
   return REQUIRED_SLACK_HISTORY_SCOPES.filter((scopeName) => !provided.has(scopeName));
-}
-
-function wordCount(text: string): number {
-  return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
 async function fetchSlackHistory(botToken: string, channelId: string): Promise<SlackHistoryResult> {
@@ -307,10 +321,10 @@ async function fetchSlackHistory(botToken: string, channelId: string): Promise<S
     });
     if (cursor) params.set('cursor', cursor);
 
-    const res = await fetch(`https://slack.com/api/conversations.history?${params}`, {
-      headers: { Authorization: `Bearer ${botToken}` },
-    });
-    const data = (await res.json()) as SlackApiListResponse<SlackMessage>;
+    const data = await fetchSlackJson<SlackApiListResponse<SlackMessage>>(
+      `https://slack.com/api/conversations.history?${params}`,
+      botToken
+    );
 
     if (!data.ok) {
       throw new SlackApiError({
@@ -333,28 +347,40 @@ async function fetchSlackHistory(botToken: string, channelId: string): Promise<S
 }
 
 async function fetchSlackThreadReplies(botToken: string, channelId: string, ts: string): Promise<SlackReply[]> {
-  const res = await fetch(
-    `https://slack.com/api/conversations.replies?channel=${channelId}&ts=${ts}&limit=4`,
-    { headers: { Authorization: `Bearer ${botToken}` } }
-  );
-  const data = (await res.json()) as SlackApiListResponse<SlackReply>;
-  if (!data.ok) {
-    throw new SlackApiError({
-      method: 'conversations.replies',
-      error: data.error ?? 'unknown_error',
-      needed: data.needed,
-      provided: data.provided,
+  const replies: SlackReply[] = [];
+  let cursor: string | undefined;
+
+  while (replies.length < MAX_SLACK_THREAD_REPLIES) {
+    const params = new URLSearchParams({
+      channel: channelId,
+      ts,
+      limit: '15',
     });
+    if (cursor) params.set('cursor', cursor);
+
+    const data = await fetchSlackJson<SlackApiListResponse<SlackReply>>(
+      `https://slack.com/api/conversations.replies?${params}`,
+      botToken
+    );
+    if (!data.ok) {
+      throw new SlackApiError({
+        method: 'conversations.replies',
+        error: data.error ?? 'unknown_error',
+        needed: data.needed,
+        provided: data.provided,
+      });
+    }
+
+    replies.push(...(data.messages ?? []).filter((message) => message.ts !== ts));
+    cursor = data.response_metadata?.next_cursor;
+    if (!cursor) break;
   }
-  if (!data.messages) return [];
-  return data.messages.slice(1, 4); // skip root message, take top 3 replies
+
+  return replies.slice(0, MAX_SLACK_THREAD_REPLIES);
 }
 
-function chunkMessages(messages: SlackMessage[], channelId: string, channelName: string): Array<{
-  content: string;
-  metadata: { channel_id: string; channel_name: string; earliest_ts: string; latest_ts: string; message_count: number };
-}> {
-  const chunks: ReturnType<typeof chunkMessages> = [];
+function chunkMessages(messages: SlackMessage[], channelId: string, channelName: string): KnowledgeTextChunk[] {
+  const chunks: KnowledgeTextChunk[] = [];
   if (messages.length === 0) return chunks;
 
   let currentTexts: string[] = [];
@@ -365,10 +391,13 @@ function chunkMessages(messages: SlackMessage[], channelId: string, channelName:
 
   const flushChunk = () => {
     if (currentTexts.length === 0) return;
-    chunks.push({
-      content: currentTexts.join('\n\n'),
-      metadata: { channel_id: channelId, channel_name: channelName, earliest_ts: earliestTs, latest_ts: latestTs, message_count: currentTexts.length },
-    });
+    chunks.push(
+      createKnowledgeTextChunk({
+        content: currentTexts.join('\n\n'),
+        metadata: { channel_id: channelId, channel_name: channelName, earliest_ts: earliestTs, latest_ts: latestTs, message_count: currentTexts.length },
+        identityParts: ['slack', channelId, earliestTs, latestTs, chunks.length],
+      })
+    );
     currentTexts = [];
     currentWordCount = 0;
   };
@@ -382,8 +411,8 @@ function chunkMessages(messages: SlackMessage[], channelId: string, channelName:
       earliestTs = msg.ts;
     }
 
-    const words = wordCount(msg.text);
-    if (currentWordCount + words > WORDS_PER_CHUNK && currentTexts.length > 0) {
+    const words = countWords(msg.text);
+    if (currentWordCount + words > DEFAULT_KNOWLEDGE_CHUNK_MAX_WORDS && currentTexts.length > 0) {
       flushChunk();
       earliestTs = msg.ts;
     }
@@ -398,29 +427,16 @@ function chunkMessages(messages: SlackMessage[], channelId: string, channelName:
   return chunks;
 }
 
-function chunkGranolaNotes(notes: NormalizedGranolaNote[]): Array<{
-  content: string;
-  metadata: Record<string, unknown>;
-}> {
-  const chunks: Array<{ content: string; metadata: Record<string, unknown> }> = [];
+function chunkGranolaNotes(notes: NormalizedGranolaNote[]): KnowledgeTextChunk[] {
+  const chunks: KnowledgeTextChunk[] = [];
 
   for (const note of notes) {
-    const words = note.content.split(/\s+/).filter(Boolean);
-    if (words.length <= WORDS_PER_CHUNK) {
-      chunks.push({ content: note.content, metadata: note.metadata });
-      continue;
-    }
-
-    for (let index = 0; index < words.length; index += WORDS_PER_CHUNK) {
-      const part = words.slice(index, index + WORDS_PER_CHUNK).join(' ');
-      chunks.push({
-        content: part,
-        metadata: {
-          ...note.metadata,
-          chunk_index: Math.floor(index / WORDS_PER_CHUNK),
-        },
-      });
-    }
+    chunks.push(
+      ...chunkTextDocument({
+        document: { content: note.content, metadata: note.metadata },
+        identityParts: ['granola', note.id],
+      })
+    );
   }
 
   return chunks;
@@ -898,14 +914,22 @@ export const knowledgeSourceSync = inngest.createFunction(
           (m) => !m.subtype && m.text && m.text.length >= MIN_MESSAGE_LENGTH
         );
 
+        const replyCandidates = filtered.filter((msg) => (msg.reply_count ?? 0) > 0);
+        const threadReplies = await mapWithConcurrency(
+          replyCandidates,
+          SLACK_THREAD_REPLY_CONCURRENCY,
+          async (msg) => {
+            const replies = await fetchSlackThreadReplies(accessToken, source.slack_channel_id!, msg.ts);
+            const validReplies = replies.filter((r) => !r.subtype && r.text && r.text.length >= MIN_MESSAGE_LENGTH);
+            return [msg.ts, validReplies.map((r) => ({ ts: r.ts, text: r.text, user: r.user }))] as const;
+          }
+        );
+        const repliesByThread = new Map(threadReplies);
+
         const enriched: SlackMessage[] = [];
         for (const msg of filtered) {
           enriched.push(msg);
-          if (msg.reply_count && msg.reply_count > 0) {
-            const replies = await fetchSlackThreadReplies(accessToken, source.slack_channel_id!, msg.ts);
-            const validReplies = replies.filter((r) => !r.subtype && r.text && r.text.length >= MIN_MESSAGE_LENGTH);
-            enriched.push(...validReplies.map((r) => ({ ts: r.ts, text: r.text, user: r.user })));
-          }
+          enriched.push(...(repliesByThread.get(msg.ts) ?? []));
         }
 
         log.info('sync_history_fetched', {

@@ -34,17 +34,40 @@ type NangoConnectionsListResponse = {
   };
 };
 
-const NANGO_API_BASE_URL = process.env.NANGO_API_BASE_URL || 'https://api.nango.dev';
+type NangoProvider = 'granola';
 
-const NANGO_PROVIDER_CONFIG: Record<string, { integrationId: string; label: string }> = {
+type NangoProviderConfig = {
+  integrationId: string;
+  label: string;
+  sourceType: 'meeting_notes';
+  supportsWebhooks: boolean;
+  supportsIncrementalSync: boolean;
+};
+
+type NangoRequestParams = {
+  path: string;
+  method?: 'GET' | 'POST' | 'DELETE';
+  headers?: Record<string, string>;
+  query?: Record<string, string | number | boolean | null | undefined>;
+  body?: unknown;
+  cache?: RequestCache;
+};
+
+const NANGO_API_BASE_URL = process.env.NANGO_API_BASE_URL || 'https://api.nango.dev';
+const NANGO_REQUEST_TIMEOUT_MS = 15_000;
+
+const NANGO_PROVIDER_CONFIG = {
   granola: {
     integrationId:
       process.env.NANGO_GRANOLA_INTEGRATION_ID ||
       process.env.NANGO_GRANOLA_PROVIDER_CONFIG_KEY ||
       'granola',
     label: 'Granola',
+    sourceType: 'meeting_notes',
+    supportsWebhooks: true,
+    supportsIncrementalSync: true,
   },
-};
+} satisfies Record<NangoProvider, NangoProviderConfig>;
 
 function getNangoApiKey() {
   const apiKey = process.env.NANGO_API_KEY;
@@ -70,7 +93,42 @@ async function parseNangoError(response: Response) {
   return [message, detail].filter(Boolean).join(' - ') || `Nango request failed with ${response.status}`;
 }
 
-export function supportedNangoProviders() {
+async function nangoRequest<T>(params: NangoRequestParams): Promise<T> {
+  const requestId = crypto.randomUUID();
+  const url = new URL(nangoUrl(params.path));
+
+  for (const [key, value] of Object.entries(params.query ?? {})) {
+    if (value === null || value === undefined) continue;
+    url.searchParams.set(key, String(value));
+  }
+
+  const response = await fetch(url, {
+    method: params.method ?? 'GET',
+    headers: {
+      authorization: `Bearer ${getNangoApiKey()}`,
+      'x-canon-request-id': requestId,
+      ...(params.body === undefined ? {} : { 'content-type': 'application/json' }),
+      ...(params.headers ?? {}),
+    },
+    body: params.body === undefined ? undefined : JSON.stringify(params.body),
+    cache: params.cache,
+    signal: AbortSignal.timeout(NANGO_REQUEST_TIMEOUT_MS),
+  });
+
+  if (!response.ok) {
+    throw new Error(`${await parseNangoError(response)} (requestId: ${requestId})`);
+  }
+
+  if (response.status === 204) return {} as T;
+  const responseText = await response.text();
+  return responseText ? JSON.parse(responseText) as T : {} as T;
+}
+
+function isNangoProvider(provider: string): provider is NangoProvider {
+  return provider in NANGO_PROVIDER_CONFIG;
+}
+
+export function supportedNangoProviders(): string[] {
   return Object.keys(NANGO_PROVIDER_CONFIG);
 }
 
@@ -79,6 +137,7 @@ export function hasNangoApiKey() {
 }
 
 export function nangoIntegrationForProvider(provider: string) {
+  if (!isNangoProvider(provider)) return undefined;
   return NANGO_PROVIDER_CONFIG[provider];
 }
 
@@ -132,20 +191,11 @@ export async function createNangoConnectSession(params: {
     };
   }
 
-  const response = await fetch(nangoUrl('/connect/sessions'), {
+  const data = await nangoRequest<NangoConnectSessionResponse>({
+    path: '/connect/sessions',
     method: 'POST',
-    headers: {
-      authorization: `Bearer ${getNangoApiKey()}`,
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify(body),
+    body,
   });
-
-  if (!response.ok) {
-    throw new Error(await parseNangoError(response));
-  }
-
-  const data = (await response.json()) as NangoConnectSessionResponse;
   if (!data.data?.token) {
     throw new Error('Nango did not return a connect session token');
   }
@@ -162,23 +212,15 @@ export async function listNangoConnectionsForUser(params: {
   userId: string;
   organizationId: string;
 }) {
-  const url = new URL(nangoUrl('/connections'));
-  url.searchParams.set('tags[end_user_id]', params.userId);
-  url.searchParams.set('tags[organization_id]', params.organizationId);
-  url.searchParams.set('limit', '100');
-
-  const response = await fetch(url, {
-    headers: {
-      authorization: `Bearer ${getNangoApiKey()}`,
+  const data = await nangoRequest<NangoConnectionsListResponse>({
+    path: '/connections',
+    query: {
+      'tags[end_user_id]': params.userId,
+      'tags[organization_id]': params.organizationId,
+      limit: 100,
     },
     cache: 'no-store',
   });
-
-  if (!response.ok) {
-    throw new Error(await parseNangoError(response));
-  }
-
-  const data = (await response.json()) as NangoConnectionsListResponse;
   return data.connections ?? [];
 }
 
@@ -193,45 +235,32 @@ export async function nangoProxyGet(params: {
     throw new Error(`Unsupported Nango provider: ${params.provider}`);
   }
 
-  const url = new URL(nangoUrl(`/proxy${params.endpoint.startsWith('/') ? params.endpoint : `/${params.endpoint}`}`));
-  for (const [key, value] of Object.entries(params.query ?? {})) {
-    if (value === null || value === undefined) continue;
-    url.searchParams.set(key, String(value));
-  }
-
-  const response = await fetch(url, {
+  return nangoRequest<unknown>({
+    path: `/proxy${params.endpoint.startsWith('/') ? params.endpoint : `/${params.endpoint}`}`,
+    query: params.query,
     headers: {
-      authorization: `Bearer ${getNangoApiKey()}`,
       'provider-config-key': integration.integrationId,
       'connection-id': params.connectionId,
     },
     cache: 'no-store',
   });
-
-  if (!response.ok) {
-    throw new Error(await parseNangoError(response));
-  }
-
-  return response.json() as Promise<unknown>;
 }
 
 export async function deleteNangoConnection(params: { provider: string; connectionId: string }) {
   const integration = nangoIntegrationForProvider(params.provider);
   if (!integration) return { skipped: true };
 
-  const url = new URL(nangoUrl(`/connections/${encodeURIComponent(params.connectionId)}`));
-  url.searchParams.set('provider_config_key', integration.integrationId);
-
-  const response = await fetch(url, {
-    method: 'DELETE',
-    headers: {
-      authorization: `Bearer ${getNangoApiKey()}`,
-    },
-  });
-
-  if (response.status === 404) return { deleted: false, missing: true };
-  if (!response.ok) {
-    throw new Error(await parseNangoError(response));
+  try {
+    await nangoRequest<unknown>({
+      path: `/connections/${encodeURIComponent(params.connectionId)}`,
+      method: 'DELETE',
+      query: { provider_config_key: integration.integrationId },
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('Nango request failed with 404')) {
+      return { deleted: false, missing: true };
+    }
+    throw error;
   }
 
   return { deleted: true };
@@ -240,7 +269,7 @@ export async function deleteNangoConnection(params: { provider: string; connecti
 export function verifyNangoWebhookSignature(rawBody: string, signature: string | null) {
   const signingKey = process.env.NANGO_WEBHOOK_SIGNING_KEY;
   if (!signingKey) {
-    return process.env.NODE_ENV !== 'production';
+    return process.env.ALLOW_UNSIGNED_NANGO_WEBHOOKS === 'true';
   }
   if (!signature) return false;
 

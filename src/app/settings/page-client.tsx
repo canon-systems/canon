@@ -45,8 +45,8 @@ interface Connection {
   connection_id: string;
   status: string;
   metadata?: Record<string, unknown>;
-  created_at: string;
-  updated_at: string;
+  created_at: string | null;
+  updated_at: string | null;
 }
 
 type WorkspaceRole = 'owner' | 'admin' | 'member';
@@ -101,7 +101,7 @@ const settingSections = [
   { section: 'Readiness', items: [{ id: 'readiness', label: 'Roles & Tools', icon: IconUsers }] },
 ];
 
-const SETTINGS_TABS = ['profile', 'org', 'integrations', 'readiness', 'roles', 'tools', 'apikeys', 'delete'] as const;
+const SETTINGS_TABS = ['profile', 'org', 'integrations', 'readiness', 'apikeys', 'delete'] as const;
 type SettingsTab = typeof SETTINGS_TABS[number];
 type OrgSection = 'overview' | 'members' | 'requests' | 'invitations';
 
@@ -119,11 +119,6 @@ interface ToolGroup {
 
 function isSettingsTab(value: string | null): value is SettingsTab {
   return SETTINGS_TABS.includes(value as SettingsTab);
-}
-
-function canonicalSettingsTab(value: SettingsTab): SettingsTab {
-  if (value === 'roles' || value === 'tools') return 'readiness';
-  return value;
 }
 
 function normalizeToolName(toolName: string) {
@@ -189,6 +184,21 @@ function selectedRolesLabel(roles: HireRole[]) {
   return roles.map((role) => roleAbbreviation(role)).join(', ');
 }
 
+const roleSelectTriggerClass = cn(
+  'flex h-9 w-full items-center justify-between gap-2 rounded-[7px] border px-[10px] py-[6px] type-field transition-colors duration-[120ms]',
+  'border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)]',
+  'hover:border-[var(--border-secondary)] focus:border-[var(--canon-purple)] focus:outline-none focus:ring-2 focus:ring-[var(--canon-purple)]/25'
+);
+
+function roleSelectOptionClass(selected: boolean, selectedClass = 'bg-[var(--bg-secondary)] text-[var(--text-primary)]') {
+  return cn(
+    'flex w-full items-center justify-between rounded-md px-3 py-[7px] text-left type-field transition-colors duration-[120ms]',
+    selected
+      ? selectedClass
+      : 'text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]'
+  );
+}
+
 function RoleMultiSelect({
   value,
   onChange,
@@ -205,7 +215,7 @@ function RoleMultiSelect({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="flex h-9 w-full items-center justify-between gap-2 rounded-[7px] border border-[var(--border-secondary)] bg-[var(--bg-secondary)] px-[10px] py-[6px] type-field text-[var(--text-primary)] transition-colors duration-[120ms] hover:border-[var(--border-secondary)] focus:outline-none focus:border-[var(--canon-purple)] focus:ring-2 focus:ring-[var(--canon-purple)]/25"
+          className={roleSelectTriggerClass}
         >
           <span className="truncate">{selectedRolesLabel(value)}</span>
           <IconChevronDown size={14} className="flex-shrink-0 text-[var(--text-secondary)]" />
@@ -216,12 +226,7 @@ function RoleMultiSelect({
           type="button"
           onClick={() => onChange([])}
           aria-pressed={allRolesSelected}
-          className={cn(
-            'flex w-full items-center justify-between rounded-md px-3 py-[7px] text-left type-field transition-colors duration-[120ms]',
-            allRolesSelected
-              ? 'bg-[var(--green-bg)] text-[var(--green-text)]'
-              : 'text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]'
-          )}
+          className={roleSelectOptionClass(allRolesSelected, 'bg-[var(--green-bg)] text-[var(--green-text)]')}
         >
           <span>All roles</span>
           {allRolesSelected && <IconCheck size={14} />}
@@ -237,12 +242,7 @@ function RoleMultiSelect({
               type="button"
               onClick={() => onChange(toggleRoleSelection(value, role))}
               aria-pressed={selected}
-              className={cn(
-                'flex w-full items-center justify-between rounded-md px-3 py-[7px] text-left type-field transition-colors duration-[120ms]',
-                selected
-                  ? 'bg-[var(--bg-secondary)] text-[var(--text-primary)]'
-                  : 'text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]'
-              )}
+              className={roleSelectOptionClass(selected)}
             >
               <span>{role}</span>
               {selected && <IconCheck size={14} style={{ color: roleColor(role, index) }} />}
@@ -259,7 +259,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   const searchParams = useSearchParams();
 
   const [activeSetting, setActiveSetting] = useState<SettingsTab>('profile');
-  const [user] = useState<SupabaseUser | null>(initialUser);
+  const user = initialUser;
   const [connections, setConnections] = useState<Connection[]>([]);
   const [loading, setLoading] = useState(true);
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
@@ -312,8 +312,8 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
         connection_id: conn.connection_id || conn.id || '',
         status: conn.status || 'inactive',
         metadata: conn.metadata || {},
-        created_at: (conn.created_at as string) || new Date().toISOString(),
-        updated_at: (conn.updated_at as string) || new Date().toISOString(),
+        created_at: typeof conn.created_at === 'string' ? conn.created_at : null,
+        updated_at: typeof conn.updated_at === 'string' ? conn.updated_at : null,
       }));
       setConnections(mappedConnections);
     } catch {
@@ -780,11 +780,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     }
 
     if (isSettingsTab(tabParam)) {
-      const nextTab = canonicalSettingsTab(tabParam);
-      if (nextTab !== tabParam) {
-        router.replace(`/settings?tab=${nextTab}`);
-      }
-      setActiveSetting(nextTab);
+      setActiveSetting(tabParam);
       return;
     }
 
@@ -860,7 +856,9 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     }
   }
 
-  function formatDate(dateString: string) {
+  function formatDate(dateString: string | null) {
+    if (!dateString) return 'Unknown';
+
     return new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
@@ -870,9 +868,8 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
 
   function setActiveSettingAndUpdateUrl(value: string) {
     if (!isSettingsTab(value)) return;
-    const nextTab = canonicalSettingsTab(value);
-    setActiveSetting(nextTab);
-    router.push(`/settings?tab=${nextTab}`, { scroll: false });
+    setActiveSetting(value);
+    router.push(`/settings?tab=${value}`, { scroll: false });
   }
 
   const slackConnection = connections.find(c => c.provider === 'slack' && c.status === 'active');
