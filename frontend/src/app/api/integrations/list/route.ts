@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
 import { getSession } from '@/lib/auth';
 import { canonicalProvider } from '@/lib/providers';
+import { requireWorkspace } from '@/lib/server/organization';
 
 export async function GET() {
   try {
@@ -10,12 +10,13 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const supabase = await createClient();
+    const { supabase } = await requireWorkspace(user);
     const { data: connections, error } = await supabase
       .from('oauth_connections')
       .select('id, provider, connection_id, status, metadata, created_at, updated_at')
       .eq('user_id', user.id)
       .eq('status', 'active')
+      .eq('provider', 'slack')
       .order('updated_at', { ascending: false });
 
     if (error) {
@@ -23,10 +24,15 @@ export async function GET() {
       return NextResponse.json({ error: 'Failed to fetch connections' }, { status: 500 });
     }
 
-    const activeConnections = (connections || []).map((connection) => ({
+    const activeConnections = (connections || []).flatMap((connection) => {
+      const provider = canonicalProvider(connection.provider);
+      if (provider !== 'slack') return [];
+      return [{
         ...connection,
-        provider: canonicalProvider(connection.provider),
-      }));
+        provider,
+        platform: 'native',
+      }];
+    });
 
     return NextResponse.json({
       connections: activeConnections,

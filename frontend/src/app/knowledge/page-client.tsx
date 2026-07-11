@@ -32,11 +32,6 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { StatusBadge } from '@/components/ui/status-badge';
 import type { KnowledgeProvider, KnowledgeSource, SourceOption } from '@/types/onboarding';
 
-type IntegrationConnection = {
-  provider?: string;
-  status?: string;
-};
-
 function statusVariant(status: string) {
   if (status === 'active') return 'active';
   if (status === 'error') return 'error';
@@ -58,13 +53,11 @@ function sourceIconStyle(status: string) {
 
 function sourceOptionKey(sourceOption: SourceOption) {
   const provider = sourceOption.provider ?? 'slack';
-  if (provider === 'gong') return 'gong:calls';
-  return sourceOption.id;
+  return `${provider}:${sourceOption.id}`;
 }
 
 function sourceKey(source: KnowledgeSource) {
-  if (source.provider === 'gong') return 'gong:calls';
-  return source.slack_channel_id;
+  return `${source.provider}:${source.slack_channel_id ?? source.id}`;
 }
 
 function sourceDisplayName(source: KnowledgeSource | SourceOption) {
@@ -74,9 +67,8 @@ function sourceDisplayName(source: KnowledgeSource | SourceOption) {
 }
 
 function sourceProviderLabel(provider: KnowledgeProvider) {
-  if (provider === 'gong') return 'Gong';
   if (provider === 'slack') return 'Slack';
-  return 'Source';
+  return 'Integration';
 }
 
 function sourceStatusNotice(status: string) {
@@ -228,59 +220,27 @@ export function KnowledgeClient() {
     setSourceOptionsError('');
     setNoIntegrationsConnected(false);
     try {
-      const [slackResult, integrationsResult] = await Promise.allSettled([
-        fetch('/api/onboarding/slack/channels'),
-        fetch('/api/integrations/list', { credentials: 'include' }),
-      ]);
+      const result = await fetch('/api/knowledge/source-options', { credentials: 'include' });
+      const data = (await result.json()) as {
+        options?: SourceOption[];
+        noIntegrationsConnected?: boolean;
+        error?: string;
+        detail?: string;
+        needed?: string;
+      };
 
-      let slackError = '';
-      let slackNotConnected = false;
-      let options: SourceOption[] = [];
-
-      if (slackResult.status === 'fulfilled') {
-        const data = (await slackResult.value.json()) as {
-          channels?: SourceOption[];
-          error?: string;
-          detail?: string;
-          needed?: string;
-          provided?: string;
-        };
-        if (slackResult.value.ok) {
-          options = (data.channels ?? []).map((channel) => ({ ...channel, provider: 'slack' }));
-        } else {
-          slackError = sourceLoadMessage(data);
-          if (data.error === 'No active Slack connection') slackNotConnected = true;
-        }
-      } else {
-        slackError = sourceLoadMessage({});
+      if (!result.ok) {
+        throw new Error(sourceLoadMessage(data));
       }
 
-      let gongNotConnected = true;
-      if (integrationsResult.status === 'fulfilled' && integrationsResult.value.ok) {
-        const data = (await integrationsResult.value.json()) as { connections?: IntegrationConnection[] };
-        const hasGongConnection = (data.connections ?? []).some((connection) => connection.provider === 'gong' && connection.status === 'active');
-        if (hasGongConnection) {
-          gongNotConnected = false;
-          options.push({
-            id: 'gong:calls',
-            name: 'Gong Calls',
-            provider: 'gong',
-            member_count: 0,
-            topic: 'Call transcripts from Gong',
-          });
-        }
-      }
-
-      if (slackNotConnected && gongNotConnected) {
+      const options = data.options ?? [];
+      if (data.noIntegrationsConnected) {
         setNoIntegrationsConnected(true);
         setSourceOptions([]);
         setSelectedSourceOptionIds(new Set());
         return;
       }
 
-      if (options.length === 0 && slackError) {
-        throw new Error(slackError);
-      }
       setSourceOptions(options);
       setSelectedSourceOptionIds((current) => {
         const availableIds = new Set(options.map(sourceOptionKey));
@@ -442,17 +402,12 @@ export function KnowledgeClient() {
         const res = await fetch('/api/onboarding/knowledge', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(provider === 'gong'
-            ? {
-              provider,
-              name: sourceOption.name,
-            }
-            : {
-              provider,
-              slack_channel_id: sourceOption.id,
-              slack_channel_name: sourceOption.name,
-              name: `#${sourceOption.name}`,
-            }),
+          body: JSON.stringify({
+            provider,
+            slack_channel_id: sourceOption.id,
+            slack_channel_name: sourceOption.name,
+            name: `#${sourceOption.name}`,
+          }),
         });
 
         if (!res.ok) {
@@ -661,7 +616,7 @@ export function KnowledgeClient() {
                   aria-label={`Select ${source.name}`}
                 />
                 <div className="w-8 h-8 rounded-[7px] flex items-center justify-center flex-shrink-0" style={sourceIconStyle(source.status)}>
-                  {source.provider === 'gong' ? <IconDatabase size={15} /> : <IconHash size={15} />}
+                  {source.provider === 'slack' ? <IconHash size={15} /> : <IconDatabase size={15} />}
                 </div>
                 <button
                   type="button"
@@ -839,7 +794,6 @@ export function KnowledgeClient() {
                 </p>
                 {[
                   { provider: 'slack' as const, label: 'Slack', description: 'Sync channel messages and threads' },
-                  { provider: 'gong' as const, label: 'Gong', description: 'Sync customer call transcripts' },
                 ].map(({ provider, label, description }) => (
                   <a
                     key={provider}
@@ -885,15 +839,12 @@ export function KnowledgeClient() {
                         aria-label={`Select ${sourceDisplayName(sourceOption)}`}
                       />
                       <div className="size-7 rounded-[7px] flex flex-shrink-0 items-center justify-center" style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--text-tertiary)' }}>
-                        {provider === 'gong' ? <IconDatabase size={14} /> : <IconHash size={14} />}
+                        {provider === 'slack' ? <IconHash size={14} /> : <IconDatabase size={14} />}
                       </div>
                       <div className="min-w-0">
                         <span className="type-panel-title truncate" style={{ color: 'var(--text-primary)' }}>{sourceDisplayName(sourceOption)}</span>
                         {sourceOption.member_count > 0 && (
                           <span className="type-caption ml-2" style={{ color: 'var(--text-tertiary)' }}>{sourceOption.member_count} members</span>
-                        )}
-                        {provider === 'gong' && (
-                          <span className="type-caption ml-2" style={{ color: 'var(--text-tertiary)' }}>Call transcripts</span>
                         )}
                       </div>
                     </div>

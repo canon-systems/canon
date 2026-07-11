@@ -40,14 +40,11 @@ export const knowledgeSourceScheduledSync = inngest.createFunction(
       const { data, error } = await supabase
         .from('knowledge_sources')
         .select('id, organization_id, provider, name, slack_channel_id, slack_channel_name, status')
-        .in('provider', ['slack', 'gong'])
+        .eq('provider', 'slack')
         .eq('status', 'active');
 
       if (error) throw error;
-      return ((data ?? []) as ScheduledKnowledgeSource[]).filter((source) => {
-        if (source.provider === 'gong') return true;
-        return source.provider === 'slack' && !!source.slack_channel_id;
-      });
+      return ((data ?? []) as ScheduledKnowledgeSource[]).filter((source) => source.provider === 'slack' && !!source.slack_channel_id);
     });
 
     if (sources.length === 0) {

@@ -55,52 +55,27 @@ export async function POST(request: NextRequest) {
       name?: string;
     };
 
-    const provider = typeof body.provider === 'string' ? body.provider : 'slack';
-    const { slack_channel_id, slack_channel_name, name } = body;
-    if (provider === 'slack' && !slack_channel_id) {
-      return NextResponse.json({ error: 'slack_channel_id is required' }, { status: 400 });
-    }
-
-    if (provider !== 'slack' && provider !== 'gong') {
+    const requestedProvider = typeof body.provider === 'string' ? body.provider : 'slack';
+    const provider = requestedProvider.trim().toLowerCase();
+    if (provider !== 'slack') {
       return NextResponse.json({ error: 'Unsupported knowledge provider' }, { status: 400 });
     }
 
-    const { supabase, organization } = await requireWorkspace(user);
-
-    if (provider === 'gong') {
-      const { data: connection } = await supabase
-        .from('oauth_connections')
-        .select('id')
-        .eq('user_id', user.id)
-        .eq('provider', 'gong')
-        .eq('status', 'active')
-        .maybeSingle();
-
-      if (!connection) {
-        return NextResponse.json({ error: 'Connect Gong before adding it as a knowledge source' }, { status: 400 });
-      }
-
-      const { data: existingGongSource } = await supabase
-        .from('knowledge_sources')
-        .select('id')
-        .eq('organization_id', organization.id)
-        .eq('provider', 'gong')
-        .limit(1)
-        .maybeSingle();
-
-      if (existingGongSource) {
-        return NextResponse.json({ error: 'Gong is already added as a knowledge source' }, { status: 409 });
-      }
+    const { slack_channel_id, slack_channel_name, name } = body;
+    if (!slack_channel_id) {
+      return NextResponse.json({ error: 'slack_channel_id is required' }, { status: 400 });
     }
+
+    const { supabase, organization } = await requireWorkspace(user);
 
     const { data: source, error } = await supabase
       .from('knowledge_sources')
       .insert({
         organization_id: organization.id,
         provider,
-        name: name || slack_channel_name || slack_channel_id || 'Gong Calls',
-        slack_channel_id: provider === 'slack' ? slack_channel_id : null,
-        slack_channel_name: provider === 'slack' ? slack_channel_name || null : null,
+        name: name || slack_channel_name || slack_channel_id || provider,
+        slack_channel_id,
+        slack_channel_name: slack_channel_name || null,
         status: 'pending',
       })
       .select()
