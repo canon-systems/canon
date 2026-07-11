@@ -31,12 +31,17 @@ export function disconnectDescription(provider: string) {
   return 'Canon will remove connected knowledge sources for this integration.';
 }
 
-export function useIntegrations() {
+type UseIntegrationsParams = {
+  initialSuccess?: string;
+  initialError?: string;
+};
+
+export function useIntegrations(params: UseIntegrationsParams = {}) {
   const [connections, setConnections] = useState<Connection[]>([]);
   const [loading, setLoading] = useState(true);
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
+  const [error, setError] = useState(params.initialError ?? '');
+  const [success, setSuccess] = useState(params.initialSuccess ?? '');
   const [disconnectModalOpen, setDisconnectModalOpen] = useState(false);
   const [connectionToDisconnect, setConnectionToDisconnect] = useState<{ connectionId: string; provider: string } | null>(null);
 
