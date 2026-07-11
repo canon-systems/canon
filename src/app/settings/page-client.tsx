@@ -10,18 +10,14 @@ import {
   IconLoader2,
   IconMail,
   IconPencil,
-  IconPlug,
   IconPlus,
   IconShieldCheck,
   IconTool,
   IconTrash,
   IconUserPlus,
-  IconUser,
   IconUsers,
   IconX,
 } from '@tabler/icons-react';
-import { IntegrationLogos } from '@/components/IntegrationLogos';
-import { getIntegrationsCached, clearIntegrationsCache } from '@/lib/client/integrationsCache';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -29,7 +25,6 @@ import { Avatar } from '@/components/ui/avatar';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Alert } from '@/components/ui/alert';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/components/ui/utils';
 import { ToolLogo } from '@/components/ToolLogo';
@@ -37,17 +32,11 @@ import { ToolNameCombobox } from '@/components/tool-name-combobox';
 import { SlackUserPicker, type SlackUser } from '@/components/SlackUserPicker';
 import { activeRoleProfiles, normalizeRoleName, roleAbbreviation, roleColor, roleIconColor } from '@/lib/onboarding/roles';
 import type { OrgTool, HireRole, RoleProfile } from '@/types/onboarding';
-import { userFullName } from '@/lib/userDisplay';
-
-interface Connection {
-  id: string;
-  provider: string;
-  connection_id: string;
-  status: string;
-  metadata?: Record<string, unknown>;
-  created_at: string | null;
-  updated_at: string | null;
-}
+import { IntegrationSettings } from './sections/IntegrationSettings';
+import { ProfileSettings } from './sections/ProfileSettings';
+import { SettingsPlaceholder } from './sections/SettingsPlaceholder';
+import { isSettingsTab, SettingsSidebar, type SettingsTab } from './sections/SettingsSidebar';
+import { disconnectDescription, providerLabel, useIntegrations } from './hooks/useIntegrations';
 
 type WorkspaceRole = 'owner' | 'admin' | 'member';
 
@@ -95,14 +84,6 @@ interface SettingsPageClientProps {
   user: SupabaseUser | null;
 }
 
-const settingSections = [
-  { section: 'Account', items: [{ id: 'profile', label: 'Profile', icon: IconUser }, { id: 'org', label: 'Organization', icon: IconBuilding }] },
-  { section: 'Connections', items: [{ id: 'integrations', label: 'Integrations', icon: IconPlug }] },
-  { section: 'Readiness', items: [{ id: 'readiness', label: 'Roles & Tools', icon: IconUsers }] },
-];
-
-const SETTINGS_TABS = ['profile', 'org', 'integrations', 'readiness', 'apikeys', 'delete'] as const;
-type SettingsTab = typeof SETTINGS_TABS[number];
 type OrgSection = 'overview' | 'members' | 'requests' | 'invitations';
 
 interface ToolGroup {
@@ -115,10 +96,6 @@ interface ToolGroup {
   owner_email: string | null;
   owner_slack_id: string | null;
   primaryTool: OrgTool;
-}
-
-function isSettingsTab(value: string | null): value is SettingsTab {
-  return SETTINGS_TABS.includes(value as SettingsTab);
 }
 
 function normalizeToolName(toolName: string) {
@@ -260,13 +237,22 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
 
   const [activeSetting, setActiveSetting] = useState<SettingsTab>('profile');
   const user = initialUser;
-  const [connections, setConnections] = useState<Connection[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-  const [disconnectModalOpen, setDisconnectModalOpen] = useState(false);
-  const [connectionToDisconnect, setConnectionToDisconnect] = useState<{ connectionId: string; provider: string } | null>(null);
+  const {
+    connections,
+    loading,
+    connectingProvider,
+    error,
+    success,
+    setError,
+    setSuccess,
+    disconnectModalOpen,
+    connectionToDisconnect,
+    connectSlack,
+    connectNangoProvider,
+    openDisconnectModal,
+    closeDisconnectModal,
+    disconnect,
+  } = useIntegrations();
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [workspaceMembers, setWorkspaceMembers] = useState<WorkspaceMember[]>([]);
   const [workspaceInvitations, setWorkspaceInvitations] = useState<WorkspaceInvitation[]>([]);
@@ -301,27 +287,6 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   const [editToolSaving, setEditToolSaving] = useState(false);
   const [deletingTool, setDeletingTool] = useState<ToolGroup | null>(null);
   const [deleteToolSaving, setDeleteToolSaving] = useState(false);
-
-  const loadConnections = useCallback(async (force = false) => {
-    setLoading(true);
-    try {
-      const data = await getIntegrationsCached(force);
-      const mappedConnections: Connection[] = (data.connections || []).map((conn) => ({
-        id: conn.id || conn.connection_id || '',
-        provider: conn.provider || '',
-        connection_id: conn.connection_id || conn.id || '',
-        status: conn.status || 'inactive',
-        metadata: conn.metadata || {},
-        created_at: typeof conn.created_at === 'string' ? conn.created_at : null,
-        updated_at: typeof conn.updated_at === 'string' ? conn.updated_at : null,
-      }));
-      setConnections(mappedConnections);
-    } catch {
-      setError('Unable to load your integrations. Please refresh the page.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
 
   const loadTools = useCallback(async () => {
     setToolsLoading(true);
@@ -785,11 +750,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     }
 
     setActiveSetting('profile');
-  }, [searchParams, router]);
-
-  useEffect(() => {
-    loadConnections();
-  }, [loadConnections]);
+  }, [searchParams, router, setError, setSuccess]);
 
   useEffect(() => {
     if (activeSetting === 'readiness') loadTools();
@@ -798,63 +759,6 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   useEffect(() => {
     if (activeSetting === 'org') loadWorkspace();
   }, [activeSetting, loadWorkspace]);
-
-  async function connectSlack() {
-    setConnectingProvider('slack');
-    try {
-      window.location.href = '/api/oauth/slack/start';
-    } catch {
-      toast.error('Unable to connect Slack right now. Please try again.');
-      setConnectingProvider(null);
-    }
-  }
-
-  async function connectNangoProvider(provider: string) {
-    setConnectingProvider(provider);
-    try {
-      const response = await fetch('/api/integrations/nango/connect', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ provider }),
-      });
-      const data = (await response.json().catch(() => ({}))) as { connectLink?: string; error?: string; detail?: string };
-      if (!response.ok || !data.connectLink) {
-        throw new Error(data.detail || data.error || 'connect_failed');
-      }
-      window.location.href = data.connectLink;
-    } catch {
-      toast.error(`Unable to connect ${providerLabel(provider)} right now. Please try again.`);
-      setConnectingProvider(null);
-    }
-  }
-
-  function openDisconnectModal(connectionId: string, provider: string) {
-    setConnectionToDisconnect({ connectionId, provider });
-    setDisconnectModalOpen(true);
-  }
-
-  function closeDisconnectModal() {
-    setDisconnectModalOpen(false);
-    setConnectionToDisconnect(null);
-  }
-
-  async function disconnect(connectionId: string, provider: string) {
-    try {
-      const response = await fetch('/api/integrations/disconnect', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ connectionId, provider })
-      });
-
-      if (!response.ok) throw new Error('disconnect');
-
-      toast.success(`Disconnected from ${providerLabel(provider)}`);
-      clearIntegrationsCache();
-      await loadConnections(true);
-    } catch {
-      toast.error('Something went wrong disconnecting. Please try again.');
-    }
-  }
 
   function formatDate(dateString: string | null) {
     if (!dateString) return 'Unknown';
@@ -866,31 +770,13 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     });
   }
 
-  function setActiveSettingAndUpdateUrl(value: string) {
-    if (!isSettingsTab(value)) return;
+  function handleSettingsTabSelect(value: SettingsTab) {
     setActiveSetting(value);
     router.push(`/settings?tab=${value}`, { scroll: false });
   }
 
   const slackConnection = connections.find(c => c.provider === 'slack' && c.status === 'active');
   const granolaConnection = connections.find(c => c.provider === 'granola' && c.status === 'active');
-  const displayName = userFullName(user);
-
-  function providerLabel(provider: string) {
-    if (provider === 'slack') return 'Slack';
-    if (provider === 'granola') return 'Granola';
-    return provider.charAt(0).toUpperCase() + provider.slice(1);
-  }
-
-  function disconnectDescription(provider: string) {
-    if (provider === 'slack') {
-      return 'Canon will no longer be able to send DMs or sync Slack channel knowledge.';
-    }
-    if (provider === 'granola') {
-      return 'Canon will stop using this Granola connection.';
-    }
-    return 'Canon will remove connected knowledge sources for this integration.';
-  }
 
   const integrations = [
     {
@@ -918,88 +804,6 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
         : () => connectNangoProvider('granola'),
     },
   ];
-
-  function renderProfile() {
-    return (
-      <div className="max-w-2xl">
-        <Card className="mb-4 flex items-center gap-[14px] px-[18px] py-4">
-          <Avatar name={displayName} size="lg" />
-          <div>
-            <div className="type-card-title" style={{ color: 'var(--text-primary)' }}>{displayName}</div>
-            <div className="type-page-subtitle mt-[2px]" style={{ color: 'var(--text-secondary)' }}>{user?.email || 'Not Available'}</div>
-            <div className="type-caption mt-[2px] font-mono" style={{ color: 'var(--text-tertiary)' }}>{user?.id || 'N/A'}</div>
-          </div>
-        </Card>
-
-        {[
-          { label: 'Display Name', value: displayName, hint: 'Display name is finalized during onboarding.' },
-          { label: 'Email', value: user?.email || '', hint: 'Email is managed by your authentication provider.' },
-        ].map((field) => (
-          <div key={field.label} className="mb-[14px]">
-            <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
-              {field.label}
-            </label>
-            <Input
-              value={field.value}
-              readOnly
-            />
-            <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>{field.hint}</p>
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  function renderIntegrations() {
-    return (
-      <div className="max-w-3xl">
-        {success && (
-          <Alert variant="success" className="mb-4 type-body-strong">
-            {success}
-          </Alert>
-        )}
-        {error && (
-          <Alert variant="destructive" className="mb-4 type-body-strong">
-            {error}
-          </Alert>
-        )}
-
-        {integrations.map((int) => {
-          return (
-            <Card key={int.id} className="mb-[10px] flex items-center gap-[14px] px-4 py-[14px]">
-              <div className="w-9 h-9 rounded-[9px] flex items-center justify-center flex-shrink-0" style={{ backgroundColor: int.iconBg, color: int.iconColor }}>
-                <IntegrationLogos provider={int.provider} size={22} color={int.iconColor} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="type-section-title" style={{ color: 'var(--text-primary)' }}>{int.name}</div>
-                <div className="type-body mt-[2px]" style={{ color: 'var(--text-secondary)' }}>{int.description}</div>
-                <div className="flex items-center gap-[5px] mt-1">
-                  <div className="w-[6px] h-[6px] rounded-full" style={{ backgroundColor: int.connected ? 'var(--green)' : 'var(--border-secondary)' }} />
-                  <span className="type-caption" style={{ color: int.connected ? 'var(--green-text)' : 'var(--text-tertiary)' }}>
-                    {int.connected ? `Active · ${int.workspace}` : 'Not Connected'}
-                  </span>
-                </div>
-              </div>
-              {int.connected ? (
-                <Button variant="destructive" onClick={int.action}>Disconnect</Button>
-              ) : (
-                <Button variant="secondary" onClick={int.action} disabled={connectingProvider !== null}>
-                  {connectingProvider === int.provider ? <IconLoader2 size={13} className="animate-spin" /> : <IconPlug size={13} />}
-                  Connect
-                </Button>
-              )}
-            </Card>
-          );
-        })}
-
-        {loading && (
-          <div className="flex items-center gap-2 type-body" style={{ color: 'var(--text-tertiary)' }}>
-            <IconLoader2 size={14} className="animate-spin" /> Loading Integration Status...
-          </div>
-        )}
-      </div>
-    );
-  }
 
   function renderRoles() {
     const toolGroups = groupOrgTools(tools);
@@ -1437,15 +1241,6 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     );
   }
 
-  function renderPlaceholder(label: string) {
-    return (
-      <Card className="max-w-2xl px-5 py-8 text-center">
-        <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>{label}</div>
-        <div className="type-body mt-2" style={{ color: 'var(--text-tertiary)' }}>This settings section is ready for configuration content.</div>
-      </Card>
-    );
-  }
-
   const configuredToolNames = groupOrgTools(tools).map((group) => group.tool_name);
   const editUnavailableToolNames = configuredToolNames.filter((toolName) => normalizeToolName(toolName) !== editingTool?.key);
   const newToolAlreadyConfigured = Boolean(newTool.tool_name.trim())
@@ -1462,45 +1257,23 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
         </div>
 
         <div className="flex flex-1 overflow-hidden">
-          <div className="split-sidebar w-[180px] flex-shrink-0 py-5 overflow-y-auto border-r">
-            {settingSections.map(({ section, items }) => (
-              <div key={section}>
-                <div className="type-kicker px-4 pt-[10px] pb-1" style={{ color: 'var(--text-tertiary)' }}>
-                  {section}
-                </div>
-                {items.map((item) => {
-                  const Icon = item.icon;
-                  const danger = 'danger' in item && item.danger;
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => setActiveSettingAndUpdateUrl(item.id)}
-                      className={cn(
-                        'flex w-[calc(100%-16px)] items-center gap-2 px-4 py-[7px] text-left type-nav mx-2 rounded-[5px] cursor-pointer border border-transparent transition-colors duration-[120ms]',
-                        activeSetting === item.id && 'nav-item-selected'
-                      )}
-                      style={{
-                        color: danger ? 'var(--red-text)' : activeSetting === item.id ? 'var(--text-primary)' : 'var(--text-secondary)',
-                        fontWeight: activeSetting === item.id ? 500 : 400,
-                      }}
-                    >
-                      <Icon size={14} />
-                      {item.label}
-                    </button>
-                  );
-                })}
-              </div>
-            ))}
-          </div>
+          <SettingsSidebar activeSetting={activeSetting} onSelect={handleSettingsTabSelect} />
 
           <div className="surface-page flex-1 overflow-y-auto px-7 py-6">
-            {activeSetting === 'profile' && renderProfile()}
-            {activeSetting === 'integrations' && renderIntegrations()}
+            {activeSetting === 'profile' && <ProfileSettings user={user} />}
+            {activeSetting === 'integrations' && (
+              <IntegrationSettings
+                integrations={integrations}
+                loading={loading}
+                connectingProvider={connectingProvider}
+                success={success}
+                error={error}
+              />
+            )}
             {activeSetting === 'readiness' && renderReadinessSettings()}
-            {activeSetting === 'delete' && renderPlaceholder('Delete Account')}
+            {activeSetting === 'delete' && <SettingsPlaceholder label="Delete Account" />}
             {activeSetting === 'org' && renderOrg()}
-            {activeSetting === 'apikeys' && renderPlaceholder('API Keys')}
+            {activeSetting === 'apikeys' && <SettingsPlaceholder label="API Keys" />}
           </div>
         </div>
       </div>
