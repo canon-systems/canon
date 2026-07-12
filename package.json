@@ -21,7 +21,6 @@
     "@radix-ui/react-tooltip": "^1.1.2",
     "@supabase/ssr": "^0.6.1",
     "@supabase/supabase-js": "^2.54.0",
-    "@tabler/icons-react": "^3.44.0",
     "ai": "^6.0.184",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
@@ -50,6 +49,7 @@
   "overrides": {
     "@octokit/request": "10.0.7",
     "@octokit/request-error": "7.1.0",
-    "minimatch": "^10.2.2"
+    "minimatch": "^10.2.2",
+    "postcss": "^8.5.17"
   }
 }

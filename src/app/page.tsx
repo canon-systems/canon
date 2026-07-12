@@ -1,12 +1,12 @@
 import Link from 'next/link';
 import {
-  IconArrowRight,
-  IconFlag,
-  IconLink,
-  IconRadar,
-  IconTool,
-  IconUsers,
-} from '@tabler/icons-react';
+  ArrowRight as IconArrowRight,
+  Flag as IconFlag,
+  Link as IconLink,
+  Radar as IconRadar,
+  Users as IconUsers,
+  Wrench as IconTool,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { requireWorkspacePage } from '@/lib/server/workspacePage';
 

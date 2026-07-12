@@ -3,15 +3,15 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import {
-  IconBrain,
-  IconCheck,
-  IconEdit,
-  IconLoader2,
-  IconPlus,
-  IconSparkles,
-  IconTarget,
-  IconTrash,
-} from '@tabler/icons-react';
+  Brain as IconBrain,
+  Check as IconCheck,
+  Loader2 as IconLoader2,
+  Pencil as IconEdit,
+  Plus as IconPlus,
+  Sparkles as IconSparkles,
+  Target as IconTarget,
+  Trash2 as IconTrash,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';

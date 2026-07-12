@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { IconCheck, IconLoader2, IconX } from '@tabler/icons-react';
+import { Check as IconCheck, Loader2 as IconLoader2, X as IconX } from 'lucide-react';
 
 import { loginPathForNext } from '@/lib/authRedirect';
 import { Button } from '@/components/ui/button';

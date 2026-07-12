@@ -1,15 +1,15 @@
 import {
-  IconBuilding,
-  IconCheck,
-  IconLoader2,
-  IconMail,
-  IconPlus,
-  IconShieldCheck,
-  IconTrash,
-  IconUserPlus,
-  IconUsers,
-  IconX,
-} from '@tabler/icons-react';
+  Building2 as IconBuilding,
+  Check as IconCheck,
+  Loader2 as IconLoader2,
+  Mail as IconMail,
+  Plus as IconPlus,
+  ShieldCheck as IconShieldCheck,
+  Trash2 as IconTrash,
+  UserPlus as IconUserPlus,
+  Users as IconUsers,
+  X as IconX,
+} from 'lucide-react';
 
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';

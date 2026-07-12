@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useRef, useState } from 'react';
-import { IconChevronDown, IconPlus, IconSearch } from '@tabler/icons-react';
+import { ChevronDown as IconChevronDown, Plus as IconPlus, Search as IconSearch } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/components/ui/utils';

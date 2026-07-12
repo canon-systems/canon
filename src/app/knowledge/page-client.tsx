@@ -2,21 +2,21 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import {
-  IconAlertCircle,
-  IconChecks,
-  IconClock,
-  IconDatabase,
-  IconDotsVertical,
-  IconEdit,
-  IconHash,
-  IconLoader2,
-  IconPlayerStop,
-  IconPlug,
-  IconPlus,
-  IconRefresh,
-  IconSearch,
-  IconTrash,
-} from '@tabler/icons-react';
+  CheckCheck as IconChecks,
+  CircleAlert as IconAlertCircle,
+  Clock as IconClock,
+  Database as IconDatabase,
+  Hash as IconHash,
+  Loader2 as IconLoader2,
+  MoreVertical as IconDotsVertical,
+  Pencil as IconEdit,
+  Plug as IconPlug,
+  Plus as IconPlus,
+  RefreshCw as IconRefresh,
+  Search as IconSearch,
+  Square as IconPlayerStop,
+  Trash2 as IconTrash,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';

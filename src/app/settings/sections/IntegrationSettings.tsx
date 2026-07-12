@@ -1,4 +1,4 @@
-import { IconLoader2, IconPlug } from '@tabler/icons-react';
+import { Loader2 as IconLoader2, Plug as IconPlug } from 'lucide-react';
 
 import { IntegrationLogos } from '@/components/IntegrationLogos';
 import { Alert } from '@/components/ui/alert';

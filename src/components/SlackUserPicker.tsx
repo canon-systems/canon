@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { IconChevronDown, IconLoader2, IconSearch, IconX } from '@tabler/icons-react';
+import { ChevronDown as IconChevronDown, Loader2 as IconLoader2, Search as IconSearch, X as IconX } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 export interface SlackUser {

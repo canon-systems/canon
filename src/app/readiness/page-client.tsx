@@ -3,21 +3,21 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
-  IconArchive,
-  IconArrowRight,
-  IconBrain,
-  IconCheck,
-  IconChevronDown,
-  IconDotsVertical,
-  IconExternalLink,
-  IconHash,
-  IconPencil,
-  IconRadar,
-  IconSend,
-  IconShieldCheck,
-  IconUser,
-  IconUsers,
-} from '@tabler/icons-react';
+  Archive as IconArchive,
+  ArrowRight as IconArrowRight,
+  Brain as IconBrain,
+  Check as IconCheck,
+  ChevronDown as IconChevronDown,
+  ExternalLink as IconExternalLink,
+  Hash as IconHash,
+  MoreVertical as IconDotsVertical,
+  Pencil as IconPencil,
+  Radar as IconRadar,
+  Send as IconSend,
+  ShieldCheck as IconShieldCheck,
+  User as IconUser,
+  Users as IconUsers,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';

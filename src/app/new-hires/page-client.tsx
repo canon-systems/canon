@@ -4,21 +4,21 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
-  IconBriefcase,
-  IconCalendar,
-  IconChevronDown,
-  IconDotsVertical,
-  IconLoader2,
-  IconPencil,
-  IconPlayerPause,
-  IconPlayerPlay,
-  IconPlus,
-  IconSearch,
-  IconSend,
-  IconTrash,
-  IconUsers,
-  IconX,
-} from '@tabler/icons-react';
+  Briefcase as IconBriefcase,
+  Calendar as IconCalendar,
+  ChevronDown as IconChevronDown,
+  Loader2 as IconLoader2,
+  MoreVertical as IconDotsVertical,
+  Pause as IconPlayerPause,
+  Pencil as IconPencil,
+  Play as IconPlayerPlay,
+  Plus as IconPlus,
+  Search as IconSearch,
+  Send as IconSend,
+  Trash2 as IconTrash,
+  Users as IconUsers,
+  X as IconX,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {

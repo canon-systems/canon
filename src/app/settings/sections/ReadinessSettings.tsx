@@ -1,12 +1,11 @@
 import {
-  IconCheck,
-  IconChevronDown,
-  IconLoader2,
-  IconPencil,
-  IconPlus,
-  IconTool,
-  IconTrash,
-} from '@tabler/icons-react';
+  Check as IconCheck,
+  Loader2 as IconLoader2,
+  Pencil as IconPencil,
+  Plus as IconPlus,
+  Trash2 as IconTrash,
+  Wrench as IconTool,
+} from 'lucide-react';
 
 import { SlackUserPicker } from '@/components/SlackUserPicker';
 import { ToolLogo } from '@/components/ToolLogo';
@@ -15,12 +14,10 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Textarea } from '@/components/ui/textarea';
-import { cn } from '@/components/ui/utils';
-import { normalizeRoleName, roleAbbreviation, roleColor, roleIconColor } from '@/lib/onboarding/roles';
-import type { HireRole } from '@/types/onboarding';
+import { normalizeRoleName, roleAbbreviation, roleIconColor } from '@/lib/onboarding/roles';
 import type { useReadinessSettings } from '../hooks/useReadinessSettings';
+import { RoleMultiSelect, selectedRolesLabel } from './RoleMultiSelect';
 
 type ReadinessSettingsState = ReturnType<typeof useReadinessSettings>;
 
@@ -28,86 +25,12 @@ type ReadinessSettingsProps = {
   readinessSettings: ReadinessSettingsState;
 };
 
-function toggleRoleSelection(currentRoles: HireRole[], role: HireRole) {
-  if (currentRoles.includes(role)) return currentRoles.filter((selectedRole) => selectedRole !== role);
-  return [...currentRoles, role];
-}
-
-function selectedRolesLabel(roles: HireRole[]) {
-  if (roles.length === 0) return 'All roles';
-  if (roles.length === 1) return roles[0];
-  return roles.map((role) => roleAbbreviation(role)).join(', ');
-}
-
-const roleSelectTriggerClass = cn(
-  'flex h-9 w-full items-center justify-between gap-2 rounded-[7px] border px-[10px] py-[6px] type-field transition-colors duration-[120ms]',
-  'border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)]',
-  'hover:border-[var(--border-secondary)] focus:border-[var(--canon-purple)] focus:outline-none focus:ring-2 focus:ring-[var(--canon-purple)]/25'
-);
-
-function roleSelectOptionClass(selected: boolean, selectedClass = 'bg-[var(--bg-secondary)] text-[var(--text-primary)]') {
-  return cn(
-    'flex w-full items-center justify-between rounded-md px-3 py-[7px] text-left type-field transition-colors duration-[120ms]',
-    selected
-      ? selectedClass
-      : 'text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]'
-  );
-}
-
-function RoleMultiSelect({
-  value,
-  onChange,
-  roles,
-}: {
-  value: HireRole[];
-  onChange: (roles: HireRole[]) => void;
-  roles: HireRole[];
-}) {
-  const allRolesSelected = value.length === 0;
-
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className={roleSelectTriggerClass}
-        >
-          <span className="truncate">{selectedRolesLabel(value)}</span>
-          <IconChevronDown size={14} className="flex-shrink-0 text-[var(--text-secondary)]" />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] p-1">
-        <button
-          type="button"
-          onClick={() => onChange([])}
-          aria-pressed={allRolesSelected}
-          className={roleSelectOptionClass(allRolesSelected, 'bg-[var(--green-bg)] text-[var(--green-text)]')}
-        >
-          <span>All roles</span>
-          {allRolesSelected && <IconCheck size={14} />}
-        </button>
-
-        <div className="my-1 h-px bg-[var(--border-tertiary)]" />
-
-        {roles.map((role, index) => {
-          const selected = value.includes(role);
-          return (
-            <button
-              key={role}
-              type="button"
-              onClick={() => onChange(toggleRoleSelection(value, role))}
-              aria-pressed={selected}
-              className={roleSelectOptionClass(selected)}
-            >
-              <span>{role}</span>
-              {selected && <IconCheck size={14} style={{ color: roleColor(role, index) }} />}
-            </button>
-          );
-        })}
-      </PopoverContent>
-    </Popover>
-  );
-}
+const dialogContentClass = 'border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]';
+const fieldLabelClass = 'block type-body font-medium mb-[5px] text-[var(--text-secondary)]';
+const fieldHintClass = 'type-caption mt-1 text-[var(--text-tertiary)]';
+const requiredMarkClass = 'text-[var(--red-text)]';
+const textareaFieldClass = 'textarea-ui w-full border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body';
+const dialogNoticeClass = 'rounded-[8px] border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] px-3 py-2 type-body text-[var(--text-secondary)]';
 
 export function ReadinessSettings({ readinessSettings }: ReadinessSettingsProps) {
   const {
@@ -284,15 +207,15 @@ export function ReadinessSettings({ readinessSettings }: ReadinessSettingsProps)
       </div>
 
       <Dialog open={addRoleOpen} onOpenChange={setAddRoleOpen}>
-        <DialogContent className="max-w-2xl border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
+        <DialogContent className={`max-w-2xl ${dialogContentClass}`}>
           <DialogHeader>
             <DialogTitle>Add Role</DialogTitle>
             <DialogDescription>Add a role Canon should include in readiness milestones, field briefs, hire paths, and tool scoping.</DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-3">
             <div>
-              <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
-                Role Name <span style={{ color: 'var(--red-text)' }}>*</span>
+              <label className={fieldLabelClass}>
+                Role Name <span className={requiredMarkClass}>*</span>
               </label>
               <Input
                 value={newRole.role}
@@ -302,7 +225,7 @@ export function ReadinessSettings({ readinessSettings }: ReadinessSettingsProps)
               />
             </div>
             <div>
-              <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
+              <label className={fieldLabelClass}>
                 Job Description
               </label>
               <Textarea
@@ -310,7 +233,7 @@ export function ReadinessSettings({ readinessSettings }: ReadinessSettingsProps)
                 onChange={(e) => setNewRole((p) => ({ ...p, job_description: e.target.value }))}
                 placeholder="Paste responsibilities, tools, customer interactions, and success criteria."
                 maxLength={12000}
-                className="textarea-ui min-h-[220px] w-full border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body"
+                className={`${textareaFieldClass} min-h-[220px]`}
               />
             </div>
           </div>
@@ -325,13 +248,13 @@ export function ReadinessSettings({ readinessSettings }: ReadinessSettingsProps)
       </Dialog>
 
       <Dialog open={editingRole !== null} onOpenChange={(open) => !open && setEditingRole(null)}>
-        <DialogContent className="max-w-2xl border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
+        <DialogContent className={`max-w-2xl ${dialogContentClass}`}>
           <DialogHeader>
             <DialogTitle>{editingRole?.role ?? 'Edit Role'}</DialogTitle>
             <DialogDescription>Update the role context Canon should use when targeting readiness milestones and signals.</DialogDescription>
           </DialogHeader>
           <div>
-            <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
+            <label className={fieldLabelClass}>
               Job Description
             </label>
             <Textarea
@@ -339,9 +262,9 @@ export function ReadinessSettings({ readinessSettings }: ReadinessSettingsProps)
               onChange={(e) => setEditRoleForm({ job_description: e.target.value })}
               placeholder="Paste responsibilities, tools, customer interactions, and success criteria."
               maxLength={12000}
-              className="textarea-ui min-h-[280px] w-full border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body"
+              className={`${textareaFieldClass} min-h-[280px]`}
             />
-            <p className="type-caption mt-1 text-[var(--text-tertiary)]">{editRoleForm.job_description.length}/12000</p>
+            <p className={fieldHintClass}>{editRoleForm.job_description.length}/12000</p>
           </div>
           <DialogFooter>
             <Button variant="secondary" onClick={() => setEditingRole(null)} disabled={editRoleSaving}>Cancel</Button>
@@ -354,14 +277,14 @@ export function ReadinessSettings({ readinessSettings }: ReadinessSettingsProps)
       </Dialog>
 
       <Dialog open={archivingRole !== null} onOpenChange={(open) => !open && setArchivingRole(null)}>
-        <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
+        <DialogContent className={`max-w-md ${dialogContentClass}`}>
           <DialogHeader>
             <DialogTitle>Archive Role</DialogTitle>
             <DialogDescription>
               Archive <strong>{archivingRole?.role}</strong>? Canon will stop generating readiness milestones and field briefs for this role.
             </DialogDescription>
           </DialogHeader>
-          <div className="rounded-[8px] border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] px-3 py-2 type-body text-[var(--text-secondary)]">
+          <div className={dialogNoticeClass}>
             Active readiness milestones and draft proposals for this role will be archived. Existing hire paths and historical evidence stay intact.
           </div>
           <DialogFooter>
@@ -375,7 +298,7 @@ export function ReadinessSettings({ readinessSettings }: ReadinessSettingsProps)
       </Dialog>
 
       <Dialog open={deletingTool !== null} onOpenChange={(open) => !open && setDeletingTool(null)}>
-        <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
+        <DialogContent className={`max-w-md ${dialogContentClass}`}>
           <DialogHeader>
             <DialogTitle>Remove Tool</DialogTitle>
             <DialogDescription>
@@ -393,15 +316,15 @@ export function ReadinessSettings({ readinessSettings }: ReadinessSettingsProps)
       </Dialog>
 
       <Dialog open={editingTool !== null} onOpenChange={(open) => !open && setEditingTool(null)}>
-        <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
+        <DialogContent className={`max-w-md ${dialogContentClass}`}>
           <DialogHeader>
             <DialogTitle>Edit Tool</DialogTitle>
             <DialogDescription>Update the tool details and required Slack owner.</DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-3">
             <div>
-              <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
-                Tool Name <span style={{ color: 'var(--red-text)' }}>*</span>
+              <label className={fieldLabelClass}>
+                Tool Name <span className={requiredMarkClass}>*</span>
               </label>
               <ToolNameCombobox
                 value={editTool.tool_name}
@@ -409,35 +332,35 @@ export function ReadinessSettings({ readinessSettings }: ReadinessSettingsProps)
                 unavailableToolNames={editUnavailableToolNames}
               />
               {editToolNameConflict && (
-                <p className="type-caption mt-1" style={{ color: 'var(--amber-text)' }}>This tool is already configured.</p>
+                <p className="type-caption mt-1 text-[var(--amber-text)]">This tool is already configured.</p>
               )}
             </div>
             <div>
               <div className="mb-[5px] flex items-center justify-between gap-3">
-                <label className="block type-body font-medium" style={{ color: 'var(--text-secondary)' }}>Roles</label>
-                <span className="type-caption" style={{ color: 'var(--text-tertiary)' }}>{selectedRolesLabel(editTool.roles)}</span>
+                <label className="block type-body font-medium text-[var(--text-secondary)]">Roles</label>
+                <span className="type-caption text-[var(--text-tertiary)]">{selectedRolesLabel(editTool.roles)}</span>
               </div>
               <RoleMultiSelect
                 value={editTool.roles}
                 onChange={(roles) => setEditTool((p) => ({ ...p, roles }))}
                 roles={activeToolRoles}
               />
-              <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>Select multiple roles, or use All roles for a shared requirement.</p>
+              <p className={fieldHintClass}>Select multiple roles, or use All roles for a shared requirement.</p>
             </div>
             <div>
-              <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
-                Owner <span style={{ color: 'var(--red-text)' }}>*</span>
+              <label className={fieldLabelClass}>
+                Owner <span className={requiredMarkClass}>*</span>
               </label>
               <SlackUserPicker
                 value={editTool.owner}
                 onChange={(user) => setEditTool((p) => ({ ...p, owner: user }))}
                 placeholder="Search workspace members..."
               />
-              <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>Canon will DM this Slack owner when a hire needs access.</p>
+              <p className={fieldHintClass}>Canon will DM this Slack owner when a hire needs access.</p>
             </div>
             {editTool.owner && (
               <div>
-                <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>Owner Slack ID</label>
+                <label className={fieldLabelClass}>Owner Slack ID</label>
                 <Input value={editTool.owner.id} readOnly />
               </div>
             )}
@@ -462,7 +385,7 @@ export function ReadinessSettings({ readinessSettings }: ReadinessSettingsProps)
           }
         }}
       >
-        <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
+        <DialogContent className={`max-w-md ${dialogContentClass}`}>
           <DialogHeader>
             <DialogTitle>Add Tool</DialogTitle>
             <DialogDescription>
@@ -473,31 +396,31 @@ export function ReadinessSettings({ readinessSettings }: ReadinessSettingsProps)
           </DialogHeader>
           <div className="flex flex-col gap-3">
             <div>
-              <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
-                Tool Name <span style={{ color: 'var(--red-text)' }}>*</span>
+              <label className={fieldLabelClass}>
+                Tool Name <span className={requiredMarkClass}>*</span>
               </label>
               <ToolNameCombobox
                 value={newTool.tool_name}
                 onChange={(toolName) => setNewTool((p) => ({ ...p, tool_name: toolName }))}
               />
               {newToolAlreadyConfigured && (
-                <p className="type-caption mt-1" style={{ color: 'var(--amber-text)' }}>This tool already exists. Adding it will assign it to {addToolRole ?? 'this role'}.</p>
+                <p className="type-caption mt-1 text-[var(--amber-text)]">This tool already exists. Adding it will assign it to {addToolRole ?? 'this role'}.</p>
               )}
             </div>
             <div>
-              <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
-                Owner <span style={{ color: 'var(--red-text)' }}>*</span>
+              <label className={fieldLabelClass}>
+                Owner <span className={requiredMarkClass}>*</span>
               </label>
               <SlackUserPicker
                 value={newTool.owner}
                 onChange={(user) => setNewTool((p) => ({ ...p, owner: user }))}
                 placeholder="Search workspace members..."
               />
-              <p className="type-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>Canon will DM this Slack owner when a hire needs access.</p>
+              <p className={fieldHintClass}>Canon will DM this Slack owner when a hire needs access.</p>
             </div>
             {newTool.owner && (
               <div>
-                <label className="block type-body font-medium mb-[5px]" style={{ color: 'var(--text-secondary)' }}>
+                <label className={fieldLabelClass}>
                   Owner Slack ID
                 </label>
                 <Input value={newTool.owner.id} readOnly />

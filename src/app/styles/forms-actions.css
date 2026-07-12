@@ -1,7 +1,7 @@
 .glass-panel {
   border-radius: var(--radius-lg);
-  border: 1px solid var(--border-color);
-  background: color-mix(in srgb, var(--bg-elevated) 85%, transparent);
+  border: 1px solid var(--border-tertiary);
+  background: color-mix(in srgb, rgba(255, 255, 255, 0.92) 85%, transparent);
   box-shadow: var(--shadow-md);
   backdrop-filter: blur(24px);
   transition: transform 300ms ease, border-color 300ms ease, box-shadow 300ms ease;
@@ -15,9 +15,9 @@
 
 .form-panel {
   border-radius: 28px;
-  border: 1px solid var(--panel-border);
-  background: var(--panel-bg);
-  box-shadow: var(--panel-shadow);
+  border: 1px solid var(--border-tertiary);
+  background: var(--bg-primary);
+  box-shadow: 0 24px 80px rgba(107, 92, 231, 0.12);
   padding: clamp(1.5rem, 2vw, 2.5rem);
   backdrop-filter: blur(30px);
 }
@@ -26,7 +26,7 @@
   font-size: 0.85rem;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: var(--text-muted);
+  color: var(--text-tertiary);
 }
 
 .section-helper {
@@ -55,14 +55,14 @@
 
 .field-note {
   font-size: 0.8rem;
-  color: var(--text-muted);
+  color: var(--text-tertiary);
 }
 
 .field-input {
   width: 100%;
   border-radius: 14px;
-  border: 1px solid var(--input-border);
-  background: var(--input-bg);
+  border: 1px solid var(--border-secondary);
+  background: var(--bg-primary);
   color: var(--text-primary);
   padding: 0.85rem 1rem;
   transition: border-color 200ms ease, background 200ms ease, box-shadow 200ms ease;
@@ -73,7 +73,7 @@
 }
 
 .field-input:focus {
-  border-color: var(--input-border-active);
+  border-color: var(--canon-purple);
   background: var(--bg-primary);
   box-shadow: 0 0 0 2px var(--focus-ring);
   outline: none;
@@ -81,15 +81,15 @@
 
 .field-select {
   border-radius: 14px;
-  border: 1px solid var(--input-border);
-  background: var(--input-bg);
+  border: 1px solid var(--border-secondary);
+  background: var(--bg-primary);
   color: var(--text-primary);
   padding: 0.85rem 1rem;
   transition: border-color 200ms ease, background 200ms ease, box-shadow 200ms ease;
 }
 
 .field-select:focus-visible {
-  border-color: var(--input-border-active);
+  border-color: var(--canon-purple);
   background: var(--bg-primary);
   box-shadow: 0 0 0 2px var(--focus-ring);
   outline: none;
@@ -103,7 +103,7 @@
 
 .method-pill {
   border-radius: 999px;
-  border: 1px solid var(--panel-border);
+  border: 1px solid var(--border-tertiary);
   background: var(--bg-primary);
   color: var(--text-secondary);
   padding: 0.65rem 1rem;
@@ -116,14 +116,14 @@
 }
 
 .method-pill[data-active='true'] {
-  border-color: var(--panel-border-strong);
+  border-color: var(--border-secondary);
   color: var(--text-primary);
   background: var(--canon-purple-light);
   box-shadow: inset 3px 0 0 var(--canon-purple);
 }
 
 .method-pill:not([data-active='true']):hover {
-  border-color: var(--panel-border-strong);
+  border-color: var(--border-secondary);
   color: var(--text-primary);
   background: var(--bg-tertiary);
 }
@@ -191,7 +191,7 @@
 }
 
 .btn:focus-visible {
-  outline: 2px solid var(--accent-secondary);
+  outline: 2px solid var(--canon-purple-muted);
   outline-offset: 2px;
 }
 
@@ -231,7 +231,7 @@
   padding: 0.5rem 1rem;
   border-radius: var(--radius-full);
   font-size: 0.9rem;
-  color: var(--text-muted);
+  color: var(--text-tertiary);
   border: 1px solid transparent;
   transition: color 200ms ease, background 200ms ease, border-color 200ms ease;
 }

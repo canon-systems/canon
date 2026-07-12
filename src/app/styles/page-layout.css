@@ -15,7 +15,7 @@
 
 .hero-panel.glass-panel:hover {
   transform: none;
-  border-color: var(--border-color);
+  border-color: var(--border-tertiary);
   box-shadow: var(--shadow-md);
 }
 
@@ -50,7 +50,7 @@
 .stat-card span {
   display: block;
   font-size: 0.8rem;
-  color: var(--text-muted);
+  color: var(--text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }

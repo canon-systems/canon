@@ -1,6 +1,6 @@
 'use client';
 
-import { IconDotsVertical, IconEdit, IconTrash } from '@tabler/icons-react';
+import { MoreVertical as IconDotsVertical, Pencil as IconEdit, Trash2 as IconTrash } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,

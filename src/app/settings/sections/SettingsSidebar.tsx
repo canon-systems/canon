@@ -1,9 +1,9 @@
 import {
-  IconBuilding,
-  IconPlug,
-  IconUser,
-  IconUsers,
-} from '@tabler/icons-react';
+  Building2 as IconBuilding,
+  Plug as IconPlug,
+  User as IconUser,
+  Users as IconUsers,
+} from 'lucide-react';
 
 import { cn } from '@/components/ui/utils';
 

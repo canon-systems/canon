@@ -5,16 +5,16 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  IconBrain,
-  IconChevronLeft,
-  IconChevronRight,
-  IconFlag,
-  IconHome2,
-  IconLogout,
-  IconRadar,
-  IconSettings,
-  IconUsers,
-} from '@tabler/icons-react';
+  Brain as IconBrain,
+  ChevronLeft as IconChevronLeft,
+  ChevronRight as IconChevronRight,
+  Flag as IconFlag,
+  House as IconHome2,
+  LogOut as IconLogout,
+  Radar as IconRadar,
+  Settings as IconSettings,
+  Users as IconUsers,
+} from 'lucide-react';
 import type { Session, User } from '@supabase/supabase-js';
 import { cn } from './ui/utils';
 import { initialsForName, userFullName } from '@/lib/userDisplay';
