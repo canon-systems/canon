@@ -1,4 +1,4 @@
-export const DEFAULT_AUTH_REDIRECT = '/onboarding/workspace';
+const DEFAULT_AUTH_REDIRECT = '/onboarding/workspace';
 
 const BLOCKED_AUTH_PATHS = new Set(['/auth/confirm', '/auth/continue', '/login']);
 

@@ -7,7 +7,7 @@ import {
 
 import { cn } from '@/components/ui/utils';
 
-export const SETTINGS_TABS = ['profile', 'org', 'integrations', 'readiness', 'apikeys', 'delete'] as const;
+const SETTINGS_TABS = ['profile', 'org', 'integrations', 'readiness', 'apikeys', 'delete'] as const;
 export type SettingsTab = typeof SETTINGS_TABS[number];
 
 const settingSections = [

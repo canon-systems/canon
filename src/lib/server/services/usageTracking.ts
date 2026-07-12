@@ -6,8 +6,13 @@ async function trackUsageEvent(
   eventType: string,
   metadata: Record<string, unknown> = {}
 ) {
+  const sourceId = typeof metadata.source_id === 'string' && metadata.source_id.trim().length > 0
+    ? metadata.source_id.trim()
+    : null;
+
   await supabase.from('usage_events').insert({
     user_id: workspaceId,
+    source_id: sourceId,
     event_type: eventType,
     metadata,
     created_at: new Date().toISOString(),
@@ -47,23 +52,6 @@ export function sourceUrlFromSourceScope(
 
   const urlValue = typeof scope?.url === 'string' ? scope.url.trim() : '';
   return urlValue || null;
-}
-
-export async function trackSourceConnected(
-  supabase: SupabaseClient,
-  workspaceId: string,
-  sourceId: string,
-  provider: string,
-  sourceUrl?: string | null,
-  defaultBranch?: string | null,
-  authType?: string | null
-) {
-  await trackSourceLifecycleEvent(supabase, workspaceId, 'connected', sourceId, {
-    provider,
-    source_url: sourceUrl ?? null,
-    default_branch: defaultBranch,
-    auth_type: authType,
-  });
 }
 
 export async function trackIntegrationStateChanged(

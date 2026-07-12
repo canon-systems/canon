@@ -1,6 +1,6 @@
 'use client';
 
-import { IconDotsVertical, IconEdit, IconPlus, IconTrash } from '@tabler/icons-react';
+import { IconDotsVertical, IconEdit, IconTrash } from '@tabler/icons-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -81,28 +81,5 @@ export function MilestoneCard({
         )}
       </div>
     </div>
-  );
-}
-
-export function AddMilestoneCard({ roleName, onAdd }: { roleName: string; onAdd: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onAdd}
-      className="rounded-[10px] px-4 py-4 flex items-center justify-center gap-2 type-panel-title cursor-pointer border border-dashed transition-all duration-[120ms]"
-      style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-tertiary)' }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = 'var(--canon-purple)';
-        e.currentTarget.style.color = 'var(--canon-purple)';
-        e.currentTarget.style.backgroundColor = 'var(--canon-purple-light)';
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.borderColor = 'var(--border-secondary)';
-        e.currentTarget.style.color = 'var(--text-tertiary)';
-        e.currentTarget.style.backgroundColor = 'transparent';
-      }}
-    >
-      <IconPlus size={14} /> Add Milestone for {roleName}
-    </button>
   );
 }

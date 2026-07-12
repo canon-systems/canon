@@ -5,9 +5,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { DayPicker } from 'react-day-picker';
 import { cn } from '@/components/ui/utils';
 
-export type { DateRange } from 'react-day-picker';
-
-export type CalendarProps = React.ComponentProps<typeof DayPicker>;
+type CalendarProps = React.ComponentProps<typeof DayPicker>;
 
 function Calendar({
   className,

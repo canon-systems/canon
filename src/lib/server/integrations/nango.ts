@@ -15,7 +15,7 @@ type NangoConnectSessionResponse = {
   details?: Array<{ field?: string; issue?: string }>;
 };
 
-export type NangoConnectionSummary = {
+type NangoConnectionSummary = {
   id: number;
   connection_id: string;
   provider: string;

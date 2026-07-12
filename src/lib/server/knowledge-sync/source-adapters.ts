@@ -337,7 +337,7 @@ async function syncSlackSource(context: KnowledgeSourceAdapterContext): Promise<
   }
 }
 
-export const sourceAdapters = {
+const sourceAdapters = {
   slack: {
     provider: 'slack',
     validate(source) {

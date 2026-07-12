@@ -1,15 +1,15 @@
 export type HireRole = string;
 export type HireStatus = 'active' | 'paused' | 'completed';
 export type KnowledgeProvider = 'slack' | 'granola';
-export type KnowledgeSourceStatus = 'pending' | 'syncing' | 'active' | 'error' | 'stopped';
-export type DeliveryStatus = 'pending' | 'delivered' | 'failed';
-export type AccessRequestStatus = 'pending' | 'sent' | 'acknowledged' | 'granted' | 'confirmed';
+type KnowledgeSourceStatus = 'pending' | 'syncing' | 'active' | 'error' | 'stopped';
+type DeliveryStatus = 'pending' | 'delivered' | 'failed';
+type AccessRequestStatus = 'pending' | 'sent' | 'acknowledged' | 'granted' | 'confirmed';
 export type ReadinessCategory = 'product_change' | 'customer_objection' | 'demo_guidance' | 'implementation_pattern';
 export type ReadinessImpactLevel = 'low' | 'medium' | 'high';
 export type ReadinessStatus = 'draft' | 'reviewed' | 'sent' | 'archived';
-export type MilestoneProposalStatus = 'draft' | 'approved' | 'rejected';
-export type MilestoneGenerationRunStatus = 'queued' | 'running' | 'completed' | 'failed';
-export type MilestoneProgressStatus = 'not_started' | 'briefed' | 'evidence_detected' | 'verified';
+type MilestoneProposalStatus = 'draft' | 'approved' | 'rejected';
+type MilestoneGenerationRunStatus = 'queued' | 'running' | 'completed' | 'failed';
+type MilestoneProgressStatus = 'not_started' | 'briefed' | 'evidence_detected' | 'verified';
 export type MilestoneEvidenceType =
   | 'access_readiness'
   | 'tool_activity'
@@ -18,7 +18,6 @@ export type MilestoneEvidenceType =
   | 'manager_verification'
   | 'new_hire_blocker';
 export type MilestoneEvidenceTrustLevel = 'low' | 'medium' | 'high';
-export type OnboardingNotificationType = 'milestone_auto_verified' | 'milestone_needs_review' | 'milestone_blocked';
 
 export interface MilestoneSourceEvidence {
   provider: string;
@@ -35,7 +34,7 @@ export interface MilestoneEvidenceRequirement {
   metadata?: Record<string, unknown>;
 }
 
-export interface ReadinessCard {
+interface ReadinessCard {
   title: string;
   detail: string;
   category: ReadinessCategory;
@@ -47,7 +46,7 @@ export interface ReadinessAffectedRole {
   progress: number;
 }
 
-export interface ReadinessHealthStat {
+interface ReadinessHealthStat {
   label: string;
   value: string;
 }
@@ -69,35 +68,6 @@ export interface ReadinessItem {
   sent_at: string | null;
   created_at: string;
   updated_at: string;
-}
-
-export interface Organization {
-  id: string;
-  name: string;
-  slug: string;
-  owner_id: string;
-  created_at: string;
-}
-
-export interface NewHire {
-  id: string;
-  organization_id: string;
-  created_by: string;
-  first_name: string;
-  last_name: string;
-  email: string;
-  role: HireRole;
-  slack_user_id: string | null;
-  start_date: string;
-  ramp_day: number;
-  status: HireStatus;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface NewHireWithCounts extends NewHire {
-  delivery_count: number;
-  access_request_count: number;
 }
 
 export interface RoleProfile {
@@ -122,15 +92,6 @@ export interface KnowledgeSource {
   last_synced_at: string | null;
   chunk_count: number;
   error_message: string | null;
-  created_at: string;
-}
-
-export interface KnowledgeChunk {
-  id: string;
-  organization_id: string;
-  source_id: string;
-  content: string;
-  metadata: Record<string, unknown>;
   created_at: string;
 }
 
@@ -194,7 +155,7 @@ export interface MilestoneGenerationRun {
   updated_at: string;
 }
 
-export interface MilestoneEvidence {
+interface MilestoneEvidence {
   id: string;
   progress_id: string | null;
   new_hire_id: string;
@@ -210,7 +171,7 @@ export interface MilestoneEvidence {
   created_at: string;
 }
 
-export interface NewHireMilestoneProgress {
+interface NewHireMilestoneProgress {
   id: string;
   new_hire_id: string;
   milestone_id: string;
@@ -229,21 +190,6 @@ export interface NewHireMilestonePathItem {
   evidence: MilestoneEvidence[];
   access_ready: boolean;
   required_tools: string[];
-}
-
-export interface OnboardingNotification {
-  id: string;
-  organization_id: string;
-  new_hire_id: string | null;
-  milestone_id: string | null;
-  type: OnboardingNotificationType;
-  title: string;
-  body: string;
-  delivery_channel: 'app' | 'slack';
-  slack_target: string | null;
-  slack_sent_at: string | null;
-  read_at: string | null;
-  created_at: string;
 }
 
 export interface RampDelivery {
@@ -303,11 +249,4 @@ export interface SourceOption {
   provider?: KnowledgeProvider;
   member_count: number;
   topic: string;
-}
-
-export interface NewHireDetail extends NewHire {
-  deliveries: RampDelivery[];
-  access_requests: AccessRequest[];
-  next_milestone: RampMilestone | null;
-  milestone_path: NewHireMilestonePathItem[];
 }

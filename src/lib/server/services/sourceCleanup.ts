@@ -7,7 +7,7 @@ type DeleteErrorLike = {
   message?: string;
 };
 
-export function isMissingSchemaError(error: DeleteErrorLike | null): boolean {
+function isMissingSchemaError(error: DeleteErrorLike | null): boolean {
   if (!error) return false;
   if (error.code === '42P01' || error.code === '42703' || error.code === '42704' || error.code === 'PGRST205') return true;
   const message = (error.message || '').toLowerCase();

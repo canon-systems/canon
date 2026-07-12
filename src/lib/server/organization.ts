@@ -28,7 +28,7 @@ type WorkspaceCreateInput = {
   name?: string;
 };
 
-export class WorkspaceError extends Error {
+class WorkspaceError extends Error {
   status: number;
 
   constructor(message: string, status = 400) {
@@ -205,7 +205,7 @@ export function isWorkspaceAdmin(role: OrganizationRole) {
   return role === 'owner' || role === 'admin';
 }
 
-export async function getWorkspaceContext(user: User) {
+async function getWorkspaceContext(user: User) {
   const supabase = await createClient();
   const organization = await getOrganizationForUser(supabase, user);
   if (!organization) {

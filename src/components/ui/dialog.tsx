@@ -5,8 +5,6 @@ import { X } from "lucide-react";
 
 const Dialog = DialogPrimitive.Root;
 
-const DialogTrigger = DialogPrimitive.Trigger;
-
 const DialogPortal = DialogPrimitive.Portal;
 
 const DialogOverlay = React.forwardRef<
@@ -85,9 +83,6 @@ const DialogFooter = ({ className, ...props }: React.HTMLAttributes<HTMLDivEleme
 
 export {
   Dialog,
-  DialogPortal,
-  DialogOverlay,
-  DialogTrigger,
   DialogContent,
   DialogHeader,
   DialogTitle,

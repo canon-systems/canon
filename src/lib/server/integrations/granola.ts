@@ -364,10 +364,6 @@ function normalizeGranolaNoteWithDiagnostics(
   };
 }
 
-export function normalizeGranolaNote(raw: unknown, index: number): NormalizedGranolaNote | null {
-  return normalizeGranolaNoteWithDiagnostics(raw, index).note;
-}
-
 async function fetchGranolaFolders(connectionId: string) {
   const folders: GranolaFolderDiagnostic[] = [];
   let cursor: string | null | undefined;
