@@ -11,6 +11,9 @@ const NANGO_LOGO_NAMES: Record<string, string> = {
   slack: 'slack',
   granola: 'granola',
   teams: 'microsoft-teams',
+  gmail: 'google-mail',
+  google_calendar: 'google-calendar',
+  outlook: 'outlook',
 };
 
 function svgResponse(body: BodyInit, cacheControl: string) {

@@ -86,6 +86,9 @@ export function SettingsPageClient() {
   const slackConnection = connections.find(c => c.provider === 'slack' && c.status === 'active');
   const granolaConnection = connections.find(c => c.provider === 'granola' && c.status === 'active');
   const teamsConnection = connections.find(c => c.provider === 'teams' && c.status === 'active');
+  const gmailConnection = connections.find(c => c.provider === 'gmail' && c.status === 'active');
+  const googleCalendarConnection = connections.find(c => c.provider === 'google_calendar' && c.status === 'active');
+  const outlookConnection = connections.find(c => c.provider === 'outlook' && c.status === 'active');
 
   const integrations = [
     {
@@ -121,6 +124,42 @@ export function SettingsPageClient() {
       action: teamsConnection
         ? () => openDisconnectModal(teamsConnection.connection_id, 'teams')
         : () => connectNangoProvider('teams'),
+    },
+    {
+      id: 'gmail',
+      provider: 'gmail' as const,
+      name: 'Gmail',
+      description: 'Connect email conversations so Canon can understand customer and team context from Gmail.',
+      logoUrl: integrationLogoUrl('gmail'),
+      connected: !!gmailConnection,
+      workspace: gmailConnection ? `Connected ${formatDate(gmailConnection.created_at)}` : '',
+      action: gmailConnection
+        ? () => openDisconnectModal(gmailConnection.connection_id, 'gmail')
+        : () => connectNangoProvider('gmail'),
+    },
+    {
+      id: 'google-calendar',
+      provider: 'google_calendar' as const,
+      name: 'Google Calendar',
+      description: 'Connect calendar events so Canon can understand meetings, timing, and handoffs.',
+      logoUrl: integrationLogoUrl('google_calendar'),
+      connected: !!googleCalendarConnection,
+      workspace: googleCalendarConnection ? `Connected ${formatDate(googleCalendarConnection.created_at)}` : '',
+      action: googleCalendarConnection
+        ? () => openDisconnectModal(googleCalendarConnection.connection_id, 'google_calendar')
+        : () => connectNangoProvider('google_calendar'),
+    },
+    {
+      id: 'outlook',
+      provider: 'outlook' as const,
+      name: 'Outlook',
+      description: 'Connect Outlook messages so Canon can use customer and internal email context.',
+      logoUrl: integrationLogoUrl('outlook'),
+      connected: !!outlookConnection,
+      workspace: outlookConnection ? `Connected ${formatDate(outlookConnection.created_at)}` : '',
+      action: outlookConnection
+        ? () => openDisconnectModal(outlookConnection.connection_id, 'outlook')
+        : () => connectNangoProvider('outlook'),
     },
   ];
   const connectedIntegrations = integrations.filter((integration) => integration.connected);

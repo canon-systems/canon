@@ -34,15 +34,16 @@ type NangoConnectionsListResponse = {
   };
 };
 
-type NangoProvider = 'granola' | 'teams';
+type NangoProvider = 'granola' | 'teams' | 'gmail' | 'google_calendar' | 'outlook';
 
 type NangoProviderConfig = {
   integrationId: string;
   aliases?: string[];
   label: string;
-  sourceType: 'meeting_notes' | 'team_chat';
+  sourceType: 'meeting_notes' | 'team_chat' | 'email' | 'calendar';
   supportsWebhooks: boolean;
   supportsIncrementalSync: boolean;
+  supportsConnectionConfigDefaults?: boolean;
 };
 
 type NangoRequestParams = {
@@ -57,7 +58,7 @@ type NangoRequestParams = {
 const NANGO_API_BASE_URL = process.env.NANGO_API_BASE_URL || 'https://api.nango.dev';
 const NANGO_REQUEST_TIMEOUT_MS = 15_000;
 
-const NANGO_PROVIDER_CONFIG = {
+const NANGO_PROVIDER_CONFIG: Record<NangoProvider, NangoProviderConfig> = {
   granola: {
     integrationId:
       process.env.NANGO_GRANOLA_INTEGRATION_ID ||
@@ -68,6 +69,7 @@ const NANGO_PROVIDER_CONFIG = {
     sourceType: 'meeting_notes',
     supportsWebhooks: true,
     supportsIncrementalSync: true,
+    supportsConnectionConfigDefaults: true,
   },
   teams: {
     integrationId:
@@ -81,8 +83,44 @@ const NANGO_PROVIDER_CONFIG = {
     sourceType: 'team_chat',
     supportsWebhooks: true,
     supportsIncrementalSync: true,
+    supportsConnectionConfigDefaults: true,
   },
-} satisfies Record<NangoProvider, NangoProviderConfig>;
+  gmail: {
+    integrationId:
+      process.env.NANGO_GMAIL_INTEGRATION_ID ||
+      process.env.NANGO_GMAIL_PROVIDER_CONFIG_KEY ||
+      'google-mail',
+    aliases: ['gmail', 'google-mail', 'google_mail'],
+    label: 'Gmail',
+    sourceType: 'email',
+    supportsWebhooks: true,
+    supportsIncrementalSync: true,
+  },
+  google_calendar: {
+    integrationId:
+      process.env.NANGO_GOOGLE_CALENDAR_INTEGRATION_ID ||
+      process.env.NANGO_GOOGLE_CALENDAR_PROVIDER_CONFIG_KEY ||
+      'google-calendar',
+    aliases: ['google-calendar', 'google_calendar', 'gcal'],
+    label: 'Google Calendar',
+    sourceType: 'calendar',
+    supportsWebhooks: true,
+    supportsIncrementalSync: true,
+  },
+  outlook: {
+    integrationId:
+      process.env.NANGO_OUTLOOK_INTEGRATION_ID ||
+      process.env.NANGO_OUTLOOK_PROVIDER_CONFIG_KEY ||
+      process.env.NANGO_MICROSOFT_OUTLOOK_INTEGRATION_ID ||
+      process.env.NANGO_MICROSOFT_OUTLOOK_PROVIDER_CONFIG_KEY ||
+      'outlook',
+    aliases: ['outlook', 'microsoft-outlook', 'microsoft_outlook', 'office365-mail', 'office365'],
+    label: 'Outlook',
+    sourceType: 'email',
+    supportsWebhooks: true,
+    supportsIncrementalSync: true,
+  },
+};
 
 function getNangoApiKey() {
   const apiKey = process.env.NANGO_API_KEY;
@@ -197,7 +235,7 @@ export async function createNangoConnectSession(params: {
     allowed_integrations: [integration.integrationId],
   };
 
-  if (params.webhookUrl) {
+  if (params.webhookUrl && integration.supportsConnectionConfigDefaults) {
     body.integrations_config_defaults = {
       [integration.integrationId]: {
         connection_config: {

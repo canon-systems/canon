@@ -25,6 +25,9 @@ const IMAGE_LOGOS: Record<string, { alt: string }> = {
   slack: { alt: 'Slack' },
   granola: { alt: 'Granola' },
   teams: { alt: 'Microsoft Teams' },
+  gmail: { alt: 'Gmail' },
+  google_calendar: { alt: 'Google Calendar' },
+  outlook: { alt: 'Outlook' },
 };
 
 function nangoLogoPath(provider: string) {
