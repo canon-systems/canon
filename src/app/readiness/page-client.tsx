@@ -12,14 +12,17 @@ import {
   Hash as IconHash,
   MoreVertical as IconDotsVertical,
   Pencil as IconPencil,
+  Plus as IconPlus,
   Radar as IconRadar,
   Send as IconSend,
   ShieldCheck as IconShieldCheck,
+  Trash2 as IconTrash,
   User as IconUser,
   Users as IconUsers,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
@@ -83,6 +86,32 @@ type SlackUserOption = {
   name: string;
   email: string | null;
 };
+
+type DeliveryProvider = 'slack' | 'teams' | 'google_chat';
+type DeliveryTargetType = 'channel' | 'dm';
+
+type DeliveryTarget = {
+  provider: DeliveryProvider;
+  targetType: DeliveryTargetType;
+  targetId: string;
+  targetName: string | null;
+  enabled: boolean;
+};
+
+type DeliveryTargetOption = DeliveryTarget & {
+  label: string;
+};
+
+type IntegrationConnection = {
+  provider: string;
+  status: string;
+};
+
+const deliveryProviders = ['slack', 'teams', 'google_chat'] as const satisfies readonly DeliveryProvider[];
+
+function isDeliveryProvider(provider: string): provider is DeliveryProvider {
+  return deliveryProviders.includes(provider as DeliveryProvider);
+}
 
 function slackMessageUrl(channelId: string, messageTs: string | null) {
   const params = new URLSearchParams({ channel: channelId });
@@ -177,23 +206,8 @@ function selectedCategoryLabel(selectedCategories: ReadinessCategory[]) {
   return `${selectedCategories.length} categories`;
 }
 
-function selectedChannelLabel(selectedChannelIds: string[], channelOptions: SlackChannelOption[]) {
-  if (selectedChannelIds.length === 0) return 'No channels';
-  if (selectedChannelIds.length === 1) {
-    const ch = channelOptions.find((c) => c.id === selectedChannelIds[0]);
-    return ch ? `#${ch.name}` : '1 channel';
-  }
-  return `${selectedChannelIds.length} channels`;
-}
-
-function selectedUserLabel(selectedUserIds: string[], users: SlackUserOption[]) {
-  if (selectedUserIds.length === 0) return 'No DMs';
-  if (selectedUserIds.length === 1) {
-    const selectedId = selectedUserIds[0];
-    if (selectedId.startsWith('D')) return 'DM channel';
-    return users.find((user) => user.id === selectedId)?.name ?? '1 DM';
-  }
-  return `${selectedUserIds.length} DMs`;
+function deliveryTargetKey(target: Pick<DeliveryTarget, 'provider' | 'targetType' | 'targetId'>) {
+  return `${target.provider}:${target.targetType}:${target.targetId}`;
 }
 
 function StepRow({
@@ -241,6 +255,11 @@ export function ReadinessClient() {
   const [slackUsersReconnectRequired, setSlackUsersReconnectRequired] = useState(false);
   const [selectedChannelIds, setSelectedChannelIds] = useState<string[]>([]);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const [customTargets, setCustomTargets] = useState<DeliveryTarget[]>([]);
+  const [connections, setConnections] = useState<IntegrationConnection[]>([]);
+  const [newTargetType, setNewTargetType] = useState<DeliveryTargetType>('channel');
+  const [newTargetId, setNewTargetId] = useState('');
+  const [newTargetName, setNewTargetName] = useState('');
   const [savingDeliverySettings, setSavingDeliverySettings] = useState(false);
 
   async function generateSignals() {
@@ -336,14 +355,71 @@ export function ReadinessClient() {
     let cancelled = false;
 
     async function loadDeliveryOptions() {
-      const [channelsResult, usersResult, settingsResult] = await Promise.allSettled([
+      const [settingsResult, integrationsResult] = await Promise.allSettled([
+        fetch('/api/onboarding/readiness/delivery-settings').then((res) => res.json() as Promise<{
+          settings?: {
+            channelIds?: string[];
+            userIds?: string[];
+            targets?: Array<{
+              provider: DeliveryProvider;
+              targetType: DeliveryTargetType;
+              targetId: string;
+              targetName: string | null;
+              enabled: boolean;
+            }>;
+          } | null;
+        }>),
+        fetch('/api/integrations/list').then((res) => res.json() as Promise<{ connections?: IntegrationConnection[] }>),
+      ]);
+
+      if (cancelled) return;
+
+      const nextConnections = integrationsResult.status === 'fulfilled' ? integrationsResult.value.connections ?? [] : [];
+      const activeProviders = new Set(nextConnections
+        .filter((connection) => connection.status === 'active' && isDeliveryProvider(connection.provider))
+        .map((connection) => connection.provider as DeliveryProvider));
+      let nextChannelIds: string[] = [];
+      let nextUserIds: string[] = [];
+      let nextCustomTargets: DeliveryTarget[] = [];
+
+      if (settingsResult.status === 'fulfilled' && settingsResult.value.settings) {
+        nextChannelIds = settingsResult.value.settings.channelIds ?? [];
+        nextUserIds = settingsResult.value.settings.userIds ?? [];
+        nextCustomTargets = (settingsResult.value.settings.targets ?? [])
+          .filter((target) => target.provider !== 'slack' && target.enabled)
+          .map((target) => ({
+            provider: target.provider,
+            targetType: target.targetType,
+            targetId: target.targetId,
+            targetName: target.targetName,
+            enabled: true,
+          }));
+        setSelectedChannelIds(nextChannelIds);
+        setSelectedUserIds(nextUserIds);
+        setCustomTargets(nextCustomTargets);
+      }
+
+      setConnections(nextConnections);
+
+      const savedProvider = nextChannelIds.length > 0 || nextUserIds.length > 0
+        ? 'slack'
+        : nextCustomTargets[0]?.provider ?? null;
+      const activeProvider = savedProvider && activeProviders.has(savedProvider)
+        ? savedProvider
+        : deliveryProviders.find((provider) => activeProviders.has(provider)) ?? savedProvider;
+
+      if (activeProvider !== 'slack') {
+        setChannels([]);
+        setSlackUsers([]);
+        setSlackUsersReconnectRequired(false);
+        return;
+      }
+
+      const [channelsResult, usersResult] = await Promise.allSettled([
         fetch('/api/onboarding/slack/channels').then((res) => res.json() as Promise<{ channels?: SlackChannelOption[] }>),
         fetch('/api/onboarding/slack/users').then((res) => res.json() as Promise<{
           users?: SlackUserOption[];
           reconnect_required?: boolean;
-        }>),
-        fetch('/api/onboarding/readiness/delivery-settings').then((res) => res.json() as Promise<{
-          settings?: { channelIds?: string[]; userIds?: string[] } | null;
         }>),
       ]);
 
@@ -353,10 +429,6 @@ export function ReadinessClient() {
       if (usersResult.status === 'fulfilled') {
         setSlackUsers(usersResult.value.users ?? []);
         setSlackUsersReconnectRequired(Boolean(usersResult.value.reconnect_required));
-      }
-      if (settingsResult.status === 'fulfilled' && settingsResult.value.settings) {
-        setSelectedChannelIds(settingsResult.value.settings.channelIds ?? []);
-        setSelectedUserIds(settingsResult.value.settings.userIds ?? []);
       }
     }
 
@@ -381,7 +453,71 @@ export function ReadinessClient() {
     () => new Map(categories.map((category) => [category.id, items.filter((item) => item.category === category.id).length])),
     [items]
   );
-  const hasDeliveryTargets = selectedChannelIds.length > 0 || selectedUserIds.length > 0;
+  const connectedDeliveryProviders = useMemo(() => new Set(
+    connections
+      .filter((connection) => connection.status === 'active' && isDeliveryProvider(connection.provider))
+      .map((connection) => connection.provider as DeliveryProvider)
+  ), [connections]);
+  const savedDeliveryProvider = useMemo<DeliveryProvider | null>(() => {
+    if (selectedChannelIds.length > 0 || selectedUserIds.length > 0) return 'slack';
+    return customTargets[0]?.provider ?? null;
+  }, [customTargets, selectedChannelIds, selectedUserIds]);
+  const activeDeliveryProvider = useMemo<DeliveryProvider | null>(() => {
+    if (savedDeliveryProvider && connectedDeliveryProviders.has(savedDeliveryProvider)) return savedDeliveryProvider;
+    return deliveryProviders.find((provider) => connectedDeliveryProviders.has(provider)) ?? savedDeliveryProvider;
+  }, [connectedDeliveryProviders, savedDeliveryProvider]);
+  const activeProviderConnected = activeDeliveryProvider ? connectedDeliveryProviders.has(activeDeliveryProvider) : false;
+  const activeCustomTargets = useMemo(
+    () => activeDeliveryProvider ? customTargets.filter((target) => target.provider === activeDeliveryProvider) : [],
+    [activeDeliveryProvider, customTargets]
+  );
+  const deliveryTargets = useMemo<DeliveryTarget[]>(() => {
+    if (activeDeliveryProvider === 'slack') {
+      return [
+        ...selectedChannelIds.map((channelId) => ({
+          provider: 'slack' as const,
+          targetType: 'channel' as const,
+          targetId: channelId,
+          targetName: channels.find((channel) => channel.id === channelId)?.name ?? null,
+          enabled: true,
+        })),
+        ...selectedUserIds.map((userId) => ({
+          provider: 'slack' as const,
+          targetType: 'dm' as const,
+          targetId: userId,
+          targetName: slackUsers.find((user) => user.id === userId)?.name ?? null,
+          enabled: true,
+        })),
+      ];
+    }
+    return activeCustomTargets;
+  }, [activeCustomTargets, activeDeliveryProvider, channels, selectedChannelIds, selectedUserIds, slackUsers]);
+  const knownDeliveryTargetOptions = useMemo<DeliveryTargetOption[]>(() => {
+    if (activeDeliveryProvider !== 'slack') return [];
+    return [
+      ...channels.map((channel) => ({
+        provider: 'slack' as const,
+        targetType: 'channel' as const,
+        targetId: channel.id,
+        targetName: channel.name,
+        enabled: true,
+        label: `#${channel.name}`,
+      })),
+      ...slackUsers.map((user) => ({
+        provider: 'slack' as const,
+        targetType: 'dm' as const,
+        targetId: user.id,
+        targetName: user.name,
+        enabled: true,
+        label: user.name,
+      })),
+    ];
+  }, [activeDeliveryProvider, channels, slackUsers]);
+  const visibleDeliveryTargetOptions = useMemo(
+    () => knownDeliveryTargetOptions.filter((target) => target.targetType === newTargetType),
+    [knownDeliveryTargetOptions, newTargetType]
+  );
+  const hasDeliveryTargets = deliveryTargets.length > 0;
   const allCategoriesSelected = activeCategories.length === categories.length;
   const filterLabel = selectedCategoryLabel(activeCategories);
   const selectedSignalCount = selectedSignalIds.size;
@@ -411,7 +547,7 @@ export function ReadinessClient() {
 
   function requireDeliveryTargets() {
     if (hasDeliveryTargets) return true;
-    toast.error('Choose where to send updates', { description: 'Pick at least one channel or teammate before sending.' });
+    toast.error('Choose where to send updates', { description: 'Pick at least one delivery target before sending.' });
     setActiveTab('delivery');
     return false;
   }
@@ -425,8 +561,9 @@ export function ReadinessClient() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           itemIds: [item.id],
-          channelIds: selectedChannelIds,
-          userIds: selectedUserIds,
+          channelIds: activeDeliveryProvider === 'slack' ? selectedChannelIds : [],
+          userIds: activeDeliveryProvider === 'slack' ? selectedUserIds : [],
+          targets: deliveryTargets,
         }),
       });
       const data = (await res.json()) as { error?: string; detail?: string };
@@ -465,16 +602,20 @@ export function ReadinessClient() {
   async function saveDeliverySettings() {
     setSavingDeliverySettings(true);
     try {
-      const channelNames = selectedChannelIds
+      const slackDeliveryActive = activeDeliveryProvider === 'slack';
+      const channelIds = slackDeliveryActive ? selectedChannelIds : [];
+      const userIds = slackDeliveryActive ? selectedUserIds : [];
+      const channelNames = channelIds
         .map((id) => channels.find((ch) => ch.id === id)?.name ?? '')
         .filter(Boolean);
       const res = await fetch('/api/onboarding/readiness/delivery-settings', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          channelIds: selectedChannelIds,
+          channelIds,
           channelNames,
-          userIds: selectedUserIds,
+          userIds,
+          targets: deliveryTargets,
         }),
       });
       const data = (await res.json()) as { error?: string; detail?: string };
@@ -496,20 +637,84 @@ export function ReadinessClient() {
     });
   }
 
-  function toggleChannel(channelId: string) {
-    setSelectedChannelIds((current) => (
-      current.includes(channelId)
-        ? current.filter((id) => id !== channelId)
-        : [...current, channelId]
-    ));
+  function providerLabel(provider: DeliveryProvider) {
+    if (provider === 'teams') return 'Microsoft Teams';
+    if (provider === 'google_chat') return 'Google Chat';
+    return 'Slack';
   }
 
-  function toggleUser(userId: string) {
-    setSelectedUserIds((current) => (
-      current.includes(userId)
-        ? current.filter((selectedUserId) => selectedUserId !== userId)
-        : [...current, userId]
-    ));
+  function targetTypeLabel(target: DeliveryTarget) {
+    if (target.provider === 'google_chat') return 'Space';
+    return target.targetType === 'channel' ? 'Channel' : 'DM';
+  }
+
+  function targetDisplayName(target: DeliveryTarget) {
+    if (target.targetName) return target.provider === 'slack' && target.targetType === 'channel'
+      ? `#${target.targetName}`
+      : target.targetName;
+    return target.targetId;
+  }
+
+  function targetPlaceholder(provider: DeliveryProvider | null, targetType: DeliveryTargetType) {
+    if (provider === 'teams') return targetType === 'channel' ? 'teamId/channelId' : 'chatId';
+    if (provider === 'google_chat') return 'spaces/AAAA...';
+    return targetType === 'channel' ? 'C...' : 'U...';
+  }
+
+  function addDeliveryTarget(target?: DeliveryTarget) {
+    if (!activeDeliveryProvider) return;
+    const targetId = (target?.targetId ?? newTargetId).trim();
+    if (!targetId) {
+      toast.error('Add a target ID before saving');
+      return;
+    }
+
+    const nextTarget: DeliveryTarget = target ?? {
+      provider: activeDeliveryProvider,
+      targetType: activeDeliveryProvider === 'google_chat' ? 'channel' : newTargetType,
+      targetId,
+      targetName: newTargetName.trim() || null,
+      enabled: true,
+    };
+
+    if (nextTarget.provider === 'slack') {
+      if (nextTarget.targetType === 'channel') {
+        setSelectedChannelIds((current) => current.includes(nextTarget.targetId) ? current : [...current, nextTarget.targetId]);
+      } else {
+        setSelectedUserIds((current) => current.includes(nextTarget.targetId) ? current : [...current, nextTarget.targetId]);
+      }
+      setNewTargetId('');
+      setNewTargetName('');
+      return;
+    }
+
+    setCustomTargets((current) => {
+      const exists = current.some((target) => (
+        target.provider === nextTarget.provider &&
+        target.targetType === nextTarget.targetType &&
+        target.targetId === nextTarget.targetId
+      ));
+      return exists ? current : [...current, nextTarget];
+    });
+    setNewTargetId('');
+    setNewTargetName('');
+  }
+
+  function removeDeliveryTarget(targetToRemove: DeliveryTarget) {
+    if (targetToRemove.provider === 'slack') {
+      if (targetToRemove.targetType === 'channel') {
+        setSelectedChannelIds((current) => current.filter((id) => id !== targetToRemove.targetId));
+      } else {
+        setSelectedUserIds((current) => current.filter((id) => id !== targetToRemove.targetId));
+      }
+      return;
+    }
+
+    setCustomTargets((current) => current.filter((target) => !(
+      target.provider === targetToRemove.provider &&
+      target.targetType === targetToRemove.targetType &&
+      target.targetId === targetToRemove.targetId
+    )));
   }
 
   function toggleSignalSelection(signalId: string) {
@@ -543,8 +748,9 @@ export function ReadinessClient() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           itemIds,
-          channelIds: selectedChannelIds,
-          userIds: selectedUserIds,
+          channelIds: activeDeliveryProvider === 'slack' ? selectedChannelIds : [],
+          userIds: activeDeliveryProvider === 'slack' ? selectedUserIds : [],
+          targets: deliveryTargets,
         }),
       });
       const data = (await res.json()) as { error?: string; detail?: string };
@@ -623,39 +829,7 @@ export function ReadinessClient() {
         </Button>
       </div>
 
-      {!brief ? (
-        generating ? (
-          <div className="flex flex-col gap-4 px-6 py-6 flex-1 overflow-y-auto">
-            <div className="flex items-center gap-2 type-body" style={{ color: 'var(--text-tertiary)' }}>
-              <IconBrain size={14} style={{ color: 'var(--canon-purple)', flexShrink: 0 }} />
-              Checking connected sources for updates your team may need...
-            </div>
-            {[1, 2, 3, 4].map((i) => (
-              <Skeleton key={i} className="h-20 rounded-[10px] bg-[var(--bg-primary)]" />
-            ))}
-          </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center flex-1 gap-3 py-12">
-            <IconRadar size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
-            <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No updates yet</div>
-            <div className="type-body text-center max-w-[280px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
-              {hasKnowledgeSources
-                ? 'Check your connected sources for changes your team should know about.'
-                : 'Add a source so Canon can look for useful team updates.'}
-            </div>
-            {hasKnowledgeSources ? (
-              <Button size="sm" className="mt-1" onClick={generateSignals} disabled={generating}>
-                <IconBrain size={13} /> Find Updates
-              </Button>
-            ) : (
-              <Link href="/knowledge">
-                <Button size="sm" className="mt-1">Add Knowledge Sources</Button>
-              </Link>
-            )}
-          </div>
-        )
-      ) : (
-        <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden">
 
           {/* Left sidebar — signal list + delivery settings */}
           <div className="split-sidebar w-[340px] flex-shrink-0 border-r flex flex-col overflow-hidden">
@@ -908,79 +1082,151 @@ export function ReadinessClient() {
 
               <TabsContent value="delivery" className="flex-1 overflow-y-auto p-4 space-y-3 m-0">
                 <p className="type-caption" style={{ color: 'var(--text-tertiary)' }}>
-                  Choose where Canon should send updates by default.
+                  {activeDeliveryProvider
+                    ? `Choose where Canon should send updates in ${providerLabel(activeDeliveryProvider)}.`
+                    : 'Connect Slack, Microsoft Teams, or Google Chat to choose delivery targets.'}
                 </p>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="sm" className="h-8 w-full justify-between">
-                      <span className="flex min-w-0 items-center gap-2">
-                        <IconHash size={14} />
-                        <span className="truncate">{selectedChannelLabel(selectedChannelIds, channels)}</span>
-                      </span>
-                      <IconChevronDown size={14} />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    {channels.length === 0 ? (
-                      <DropdownMenuItem disabled>No channels found</DropdownMenuItem>
-                    ) : (
-                      <DropdownMenuGroup>
-                        {channels.map((ch) => (
-                          <DropdownMenuItem
-                            key={ch.id}
-                            role="menuitemcheckbox"
-                            aria-checked={selectedChannelIds.includes(ch.id)}
-                            onSelect={(e) => { e.preventDefault(); toggleChannel(ch.id); }}
+                {!activeDeliveryProvider ? (
+                  <Alert>
+                    <IconSend size={15} />
+                    <AlertTitle>No chat tool connected</AlertTitle>
+                    <AlertDescription>
+                      Connect the chat tool this company uses in Settings, then choose delivery targets here.
+                    </AlertDescription>
+                  </Alert>
+                ) : !activeProviderConnected ? (
+                  <Alert>
+                    <IconSend size={15} />
+                    <AlertTitle>Reconnect {providerLabel(activeDeliveryProvider)}</AlertTitle>
+                    <AlertDescription>
+                      This delivery provider is saved, but it is not connected right now.
+                    </AlertDescription>
+                  </Alert>
+                ) : (
+                  <div className="space-y-2 rounded-[8px] border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] p-3">
+                    <div className="type-kicker text-[var(--text-tertiary)]">{providerLabel(activeDeliveryProvider)}</div>
+                    {deliveryTargets.length > 0 && (
+                      <div className="space-y-1.5">
+                        {deliveryTargets.map((target) => (
+                          <div
+                            key={deliveryTargetKey(target)}
+                            className="flex items-center gap-2 rounded-[7px] border border-[var(--border-tertiary)] bg-[var(--bg-primary)] px-2 py-1.5"
                           >
-                            <span className="flex h-4 w-4 items-center justify-center">
-                              {selectedChannelIds.includes(ch.id) && <IconCheck size={13} />}
-                            </span>
-                            <span className="min-w-0 flex-1 truncate">#{ch.name}</span>
-                          </DropdownMenuItem>
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate type-caption font-medium text-[var(--text-primary)]">
+                                {targetDisplayName(target)}
+                              </div>
+                              <div className="truncate type-caption text-[var(--text-tertiary)]">
+                                {targetTypeLabel(target)}
+                              </div>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              onClick={() => removeDeliveryTarget(target)}
+                              aria-label={`Remove ${targetDisplayName(target)}`}
+                            >
+                              <IconTrash size={13} />
+                            </Button>
+                          </div>
                         ))}
-                      </DropdownMenuGroup>
+                      </div>
                     )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="sm" className="h-8 w-full justify-between">
-                      <span className="flex min-w-0 items-center gap-2">
-                        <IconUser size={14} />
-                        <span className="truncate">{selectedUserLabel(selectedUserIds, slackUsers)}</span>
-                      </span>
-                      <IconChevronDown size={14} />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    {slackUsersReconnectRequired ? (
-                      <DropdownMenuItem disabled>Reconnect Slack to enable DMs</DropdownMenuItem>
-                    ) : slackUsers.length === 0 ? (
-                      <DropdownMenuItem disabled>No Slack users found</DropdownMenuItem>
-                    ) : (
-                      <DropdownMenuGroup>
-                        {slackUsers.map((slackUser) => (
-                          <DropdownMenuItem
-                            key={slackUser.id}
-                            role="menuitemcheckbox"
-                            aria-checked={selectedUserIds.includes(slackUser.id)}
-                            onSelect={(e) => { e.preventDefault(); toggleUser(slackUser.id); }}
+                    {activeDeliveryProvider !== 'google_chat' && (
+                      <div className="flex gap-1">
+                        {(['channel', 'dm'] as const).map((targetType) => (
+                          <Button
+                            key={targetType}
+                            type="button"
+                            variant={newTargetType === targetType ? 'secondary' : 'outline'}
+                            size="sm"
+                            className="h-8 flex-1"
+                            onClick={() => setNewTargetType(targetType)}
                           >
-                            <span className="flex h-4 w-4 items-center justify-center">
-                              {selectedUserIds.includes(slackUser.id) && <IconCheck size={13} />}
-                            </span>
-                            <span className="min-w-0 flex-1 truncate">{slackUser.name}</span>
-                          </DropdownMenuItem>
+                            {targetType === 'channel' ? 'Channel' : 'Chat'}
+                          </Button>
                         ))}
-                      </DropdownMenuGroup>
+                      </div>
                     )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                    {knownDeliveryTargetOptions.length > 0 && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="outline" size="sm" className="h-8 w-full justify-between">
+                            <span className="flex min-w-0 items-center gap-2">
+                              {newTargetType === 'channel' ? <IconHash size={14} /> : <IconUser size={14} />}
+                              <span className="truncate">
+                                {newTargetType === 'channel' ? 'Choose channel' : 'Choose teammate'}
+                              </span>
+                            </span>
+                            <IconChevronDown size={14} />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {slackUsersReconnectRequired && newTargetType === 'dm' ? (
+                            <DropdownMenuItem disabled>Reconnect Slack to enable DMs</DropdownMenuItem>
+                          ) : visibleDeliveryTargetOptions.length === 0 ? (
+                            <DropdownMenuItem disabled>
+                              No {newTargetType === 'channel' ? 'channels' : 'teammates'} found
+                            </DropdownMenuItem>
+                          ) : (
+                            <DropdownMenuGroup>
+                              {visibleDeliveryTargetOptions.map((target) => {
+                                const selected = deliveryTargets.some((selectedTarget) => deliveryTargetKey(selectedTarget) === deliveryTargetKey(target));
+                                return (
+                                  <DropdownMenuItem
+                                    key={deliveryTargetKey(target)}
+                                    role="menuitemcheckbox"
+                                    aria-checked={selected}
+                                    onSelect={(e) => {
+                                      e.preventDefault();
+                                      addDeliveryTarget(target);
+                                    }}
+                                  >
+                                    <span className="flex h-4 w-4 items-center justify-center">
+                                      {selected && <IconCheck size={13} />}
+                                    </span>
+                                    <span className="min-w-0 flex-1 truncate">{target.label}</span>
+                                  </DropdownMenuItem>
+                                );
+                              })}
+                            </DropdownMenuGroup>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
+                    <Input
+                      value={newTargetName}
+                      onChange={(event) => setNewTargetName(event.target.value)}
+                      placeholder="Display name"
+                      className="h-8 bg-[var(--bg-primary)]"
+                    />
+                    <div className="flex gap-2">
+                      <Input
+                        value={newTargetId}
+                        onChange={(event) => setNewTargetId(event.target.value)}
+                        placeholder={targetPlaceholder(activeDeliveryProvider, newTargetType)}
+                        className="h-8 bg-[var(--bg-primary)]"
+                      />
+                      <Button
+                        type="button"
+                        size="icon"
+                        className="h-8 w-8 flex-shrink-0"
+                        onClick={() => addDeliveryTarget()}
+                        disabled={!newTargetId.trim()}
+                        aria-label="Add delivery target"
+                      >
+                        <IconPlus size={14} />
+                      </Button>
+                    </div>
+                  </div>
+                )}
                 <Button
                   variant="secondary"
                   size="sm"
                   onClick={saveDeliverySettings}
-                  disabled={savingDeliverySettings}
+                  disabled={savingDeliverySettings || !activeDeliveryProvider || !activeProviderConnected}
                   className="w-full"
                 >
                   {savingDeliverySettings ? 'Saving...' : 'Save Targets'}
@@ -1095,16 +1341,38 @@ export function ReadinessClient() {
               </>
             ) : (
               <div className="flex flex-col items-center justify-center h-full gap-3 py-12">
-                <IconRadar size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
-                <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No update selected</div>
-                <div className="type-body text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
-                  Choose an update from the list to review the details.
+                {generating ? (
+                  <IconBrain size={32} style={{ color: 'var(--canon-purple)', opacity: 0.7 }} />
+                ) : (
+                  <IconRadar size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
+                )}
+                <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>
+                  {generating ? 'Checking sources...' : items.length === 0 ? 'No updates yet' : 'No update selected'}
                 </div>
+                <div className="type-body text-center max-w-[280px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
+                  {generating
+                    ? 'Canon is checking connected sources for updates your team may need.'
+                    : items.length === 0
+                      ? hasKnowledgeSources
+                        ? 'Check your connected sources for changes your team should know about.'
+                        : 'Add a source so Canon can look for useful team updates.'
+                      : 'Choose an update from the list to review the details.'}
+                </div>
+                {!generating && items.length === 0 && (
+                  hasKnowledgeSources ? (
+                    <Button size="sm" className="mt-1" onClick={generateSignals}>
+                      <IconBrain size={13} /> Find Updates
+                    </Button>
+                  ) : (
+                    <Link href="/knowledge">
+                      <Button size="sm" className="mt-1">Add Knowledge Sources</Button>
+                    </Link>
+                  )
+                )}
               </div>
             )}
           </div>
         </div>
-      )}
-    </div>
+      </div>
   );
 }

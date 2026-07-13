@@ -98,4 +98,23 @@ describe('workspace connection helpers', () => {
       },
     });
   });
+
+  it('treats Google Chat as a first-class workspace connection provider', async () => {
+    const { supabase, calls } = createSupabaseSpy();
+
+    await upsertWorkspaceConnection(supabase, {
+      organizationId: 'org_123',
+      connectedByUserId: 'user_123',
+      provider: 'google_chat',
+      connectionId: 'chat_conn_123',
+    });
+
+    const upsertCall = calls.find((call): call is Extract<QueryCall, { method: 'upsert' }> => call.method === 'upsert');
+    expect(upsertCall?.values).toMatchObject({
+      organization_id: 'org_123',
+      provider: 'google_chat',
+      connection_id: 'chat_conn_123',
+      status: 'active',
+    });
+  });
 });

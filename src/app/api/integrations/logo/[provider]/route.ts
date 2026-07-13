@@ -11,6 +11,7 @@ const NANGO_LOGO_NAMES: Record<string, string> = {
   slack: 'slack',
   granola: 'granola',
   teams: 'microsoft-teams',
+  google_chat: 'google-chat',
   gmail: 'google-mail',
   google_calendar: 'google-calendar',
   outlook: 'outlook',

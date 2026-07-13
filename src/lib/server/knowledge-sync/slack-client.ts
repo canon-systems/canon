@@ -4,6 +4,10 @@ export type SlackMessage = {
   subtype?: string;
   reply_count?: number;
   user?: string;
+  bot_id?: string;
+  app_id?: string;
+  username?: string;
+  thread_ts?: string;
 };
 
 type SlackReply = {
@@ -11,6 +15,10 @@ type SlackReply = {
   text: string;
   subtype?: string;
   user?: string;
+  bot_id?: string;
+  app_id?: string;
+  username?: string;
+  thread_ts?: string;
 };
 
 type SlackHistoryResult = {
@@ -193,7 +201,15 @@ export async function enrichSlackMessagesWithReplies(params: {
       const validReplies = replies.filter(
         (reply) => !reply.subtype && reply.text && reply.text.length >= params.minMessageLength
       );
-      return [message.ts, validReplies.map((reply) => ({ ts: reply.ts, text: reply.text, user: reply.user }))] as const;
+      return [message.ts, validReplies.map((reply) => ({
+        ts: reply.ts,
+        text: reply.text,
+        user: reply.user,
+        bot_id: reply.bot_id,
+        app_id: reply.app_id,
+        username: reply.username,
+        thread_ts: reply.thread_ts ?? message.ts,
+      }))] as const;
     }
   );
   const repliesByThread = new Map(threadReplies);

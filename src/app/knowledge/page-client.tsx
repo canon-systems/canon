@@ -36,7 +36,7 @@ import type { KnowledgeProvider, KnowledgeSource, SourceOption } from '@/types/o
 
 const GRANOLA_SOURCE_OPTION_ID = 'granola-transcripts';
 
-type ConnectedProviders = Record<'slack' | 'granola', boolean>;
+type ConnectedProviders = Partial<Record<KnowledgeProvider, boolean>>;
 
 function statusVariant(status: string) {
   if (status === 'active') return 'active';

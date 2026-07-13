@@ -83,11 +83,6 @@ async function queueGranolaDownstreamWork(params: {
     },
   ];
 
-  events.push({
-    name: 'onboarding/readiness.generate.requested',
-    data: { organizationId: params.organizationId },
-  });
-
   await inngest.send(events);
 }
 
@@ -349,8 +344,8 @@ const sourceAdapters = {
     },
     sync: syncGranolaSource,
   },
-} satisfies Record<KnowledgeProvider, KnowledgeSourceAdapter>;
+} satisfies Partial<Record<KnowledgeProvider, KnowledgeSourceAdapter>>;
 
 export function getKnowledgeSourceAdapter(provider: string): KnowledgeSourceAdapter | null {
-  return provider in sourceAdapters ? sourceAdapters[provider as KnowledgeProvider] : null;
+  return provider in sourceAdapters ? sourceAdapters[provider as keyof typeof sourceAdapters] : null;
 }

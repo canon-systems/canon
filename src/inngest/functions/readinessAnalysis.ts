@@ -1,11 +1,23 @@
-import { inngest } from '../client';
-import { createServiceRoleClient } from '@/lib/supabase/server';
-import { embed, generateObject } from 'ai';
+import { generateObject } from 'ai';
 import { z } from 'zod';
-import { llm, embeddingModel } from '@/lib/ai';
+import { inngest } from '../client';
+import { llm } from '@/lib/ai';
 import { createLogger, errorMessage } from '@/lib/server/logging';
-import { sendSlackDirectMessage, sendSlackMessage, type SlackDeliveryResult } from '@/lib/server/signals/delivery';
-import type { ReadinessCategory, HireRole } from '@/types/onboarding';
+import { sendReadinessToTargets, type ReadinessDeliveryTargetRow } from '@/lib/server/readiness/delivery';
+import {
+  markReadinessSourceEventsProcessed,
+  readinessSourceEventsFromKnowledgeChunks,
+  upsertReadinessSourceEvents,
+  type ReadinessSourceEventRow,
+} from '@/lib/server/readiness/source-events';
+import { createServiceRoleClient } from '@/lib/supabase/server';
+import type {
+  HireRole,
+  ReadinessCategory,
+  ReadinessDeliveryProvider,
+  ReadinessDeliveryTargetType,
+  ReadinessImpactLevel,
+} from '@/types/onboarding';
 
 const log = createLogger('inngest.readiness_analysis', {
   label: 'Readiness Analysis',
@@ -17,65 +29,79 @@ const log = createLogger('inngest.readiness_analysis', {
     signal_detected: 'Signal Detected',
     signal_none: 'No Signal',
     signal_failed: 'Signal Failed',
-    signals_refreshed: 'Signals Refreshed',
+    source_events_processed: 'Source Events Processed',
     delivery_sent: 'Delivery Sent',
     delivery_failed: 'Delivery Failed',
     delivery_plan: 'Delivery Plan',
     delivery_target_result: 'Delivery Target Result',
+    meeting_prep_sent: 'Meeting Prep Sent',
+    meeting_prep_skipped: 'Meeting Prep Skipped',
   },
   componentColor: 'orange',
 });
 
-type KnowledgeChunkResult = {
-  id: string;
-  content: string;
-  metadata: Record<string, unknown>;
-  similarity: number;
-};
-
-type ChunkRetrievalResult = {
-  chunks: KnowledgeChunkResult[];
-  strategy: 'vector_plus_recent' | 'recent' | 'company_recent' | 'none';
-  vectorMatches: number;
-  fallbackCandidates: number;
-};
-
-type ReadinessDeliveryItem = {
-  id: string;
-  organization_id: string;
-  category: ReadinessCategory;
-  title: string;
-  summary: string;
-  recommended_action: string | null;
-  affected_roles: HireRole[];
-  source_metadata: Record<string, unknown>;
-};
+type SupabaseServiceClient = ReturnType<typeof createServiceRoleClient>;
 
 type RoleProfileResult = {
   role: HireRole;
   job_description: string | null;
 };
 
-const CATEGORY_QUERIES: Record<ReadinessCategory, string> = {
-  product_change:
-    'product update feature change launch release announcement new capability limitation pricing packaging availability migration rollout',
-  customer_objection:
-    'customer concern objection pushback hesitation resistance problem complaint feedback blocker risk trust escalation',
-  demo_guidance:
-    'demo presentation pitch talk track narrative best practice show walkthrough discovery',
-  implementation_pattern:
-    'implementation setup configuration deployment technical pattern best practice architecture migration go-live launch risk',
+type ReadinessObservationRow = {
+  id: string;
+  organization_id: string;
+  category: ReadinessCategory;
+  title: string;
+  summary: string;
+  recommended_action: string | null;
+  impact_level: ReadinessImpactLevel;
+  affected_roles: HireRole[];
+  source_event_ids: string[];
+  source_hashes: string[];
+  dedupe_key: string;
+  status: 'active' | 'sent' | 'archived';
+  last_sent_at: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
 };
 
-const CATEGORY_DESCRIPTIONS: Record<ReadinessCategory, string> = {
-  product_change:
-    'a product capability, product limitation, reliability issue, launch dependency, availability change, pricing/packaging change, or customer-facing product gap that GTM teams need to know about',
-  customer_objection:
-    'a customer concern, objection, trust issue, product maturity concern, escalation, blocker, or recurring question pattern that GTM teams should have a prepared response to',
-  demo_guidance:
-    'updated demo guidance, new talk tracks, narrative changes, or presentation best practices',
-  implementation_pattern:
-    'an implementation pattern, technical setup issue, migration risk, deployment blocker, production configuration concern, or delivery best practice',
+type ReadinessItemPayload = {
+  organization_id: string;
+  category: ReadinessCategory;
+  title: string;
+  summary: string;
+  recommended_action: string | null;
+  impact_level: ReadinessImpactLevel;
+  affected_roles: HireRole[];
+  source: string;
+  source_url: string | null;
+  source_metadata: Record<string, unknown>;
+  status: 'draft' | 'reviewed' | 'sent' | 'archived';
+  updated_at: string;
+};
+
+type MeetingEventRow = {
+  id: string;
+  organization_id: string;
+  provider: 'google_calendar' | 'outlook';
+  external_id: string;
+  title: string;
+  description: string | null;
+  start_at: string;
+  end_at: string | null;
+  organizer: string | null;
+  attendees: string[];
+  meeting_url: string | null;
+  customer_domain: string | null;
+  metadata: Record<string, unknown>;
+};
+
+const CATEGORY_TITLES: Record<ReadinessCategory, string> = {
+  product_change: 'Product Changes',
+  customer_objection: 'Customer Objections',
+  demo_guidance: 'Demo Guidance',
+  implementation_pattern: 'Implementation Patterns',
 };
 
 const ReadinessCategorySchema = z.enum([
@@ -85,220 +111,59 @@ const ReadinessCategorySchema = z.enum([
   'implementation_pattern',
 ]);
 
-const CATEGORIES = ReadinessCategorySchema.options satisfies ReadinessCategory[];
-
-const CATEGORY_TITLES: Record<ReadinessCategory, string> = {
-  product_change: 'Product Changes',
-  customer_objection: 'Customer Objections',
-  demo_guidance: 'Demo Guidance',
-  implementation_pattern: 'Implementation Patterns',
-};
-
 const SignalItemSchema = z.object({
+  category: ReadinessCategorySchema.describe('Closest readiness category for this update'),
   title: z.string().describe('Customer-facing headline under 10 words that uses company terminology when relevant'),
-  summary: z
-    .string()
-    .describe('1–2 plain-language sentences explaining what changed and why the team should care'),
-  recommended_action: z
-    .string()
-    .optional()
-    .describe('Specific next step starting with a verb, written for a customer-facing teammate'),
-  impact_level: z
-    .enum(['low', 'medium', 'high'])
-    .optional()
-    .describe('Urgency for GTM teams'),
-  affected_roles: z
-    .array(z.string().min(2).max(120))
-    .optional()
-    .describe('Which roles are affected'),
+  summary: z.string().describe('1-2 plain-language sentences explaining what changed and why the team should care'),
+  recommended_action: z.string().optional().describe('Specific next step starting with a verb'),
+  impact_level: z.enum(['low', 'medium', 'high']).optional().describe('Urgency for GTM teams'),
+  affected_roles: z.array(z.string().min(2).max(120)).optional().describe('Which active roles are affected'),
 });
 
 const SignalsSchema = z.object({
-  signals: z
-    .array(SignalItemSchema)
-    .max(3)
-    .describe('Distinct, actionable readiness updates found for this category. Empty when no clear update exists.'),
+  signals: z.array(SignalItemSchema).max(10).describe('Distinct, actionable readiness updates. Empty when no clear update exists.'),
 });
 
-const CompanySignalItemSchema = SignalItemSchema.extend({
-  category: ReadinessCategorySchema.describe('Closest readiness category for this update'),
+const MeetingPrepSchema = z.object({
+  should_send: z.boolean(),
+  reason: z.string().optional(),
+  title: z.string().optional(),
+  bullets: z.array(z.string()).max(5).optional(),
 });
-
-const CompanySignalsSchema = z.object({
-  signals: z
-    .array(CompanySignalItemSchema)
-    .max(12)
-    .describe('Distinct, actionable company readiness updates across all categories. Empty when no clear update exists.'),
-});
-
-async function detectSignals(params: {
-  category: ReadinessCategory;
-  chunks: KnowledgeChunkResult[];
-  roleProfiles: RoleProfileResult[];
-}): Promise<Array<z.infer<typeof SignalItemSchema>>> {
-  const { category, chunks, roleProfiles } = params;
-
-  if (chunks.length === 0) return [];
-
-  const chunkText = chunks.map((c) => c.content).join('\n\n---\n\n');
-  const roleContext = roleProfileContext(roleProfiles);
-
-  const { object } = await generateObject({
-    model: llm,
-    schema: SignalsSchema,
-    prompt: `You are Canon, an AI that monitors company Slack channels to keep GTM teams current.
-
-Analyze this Slack source material and determine whether it contains a clear readiness update about ${CATEGORY_DESCRIPTIONS[category]}.
-
-Write for customers and customer-facing teammates. Use simple, standalone language. Avoid internal AI terms such as "signal", "chunk", "retrieval", "metadata", or "indexed". Preserve the company's own terminology when it appears in the source material, including product names, feature names, customer names, team names, acronyms, workflows, tools, and role names. If a company term may be unclear, keep the term and explain it in plain language.
-
-Use these role job descriptions when deciding affected_roles and recommended actions:
-${roleContext}
-
-Only flag updates if there is genuine, actionable information — not general chatter or tangentially related messages. If the source material is vague, unrelated, or insufficient to form a clear update, return an empty signals array.
-
-Return up to 3 distinct updates for this category. Do not collapse unrelated customer blockers into one generic update. Do not duplicate the same update with different wording.
-
-Source material:
-${chunkText}
-
-For each clear update, provide:
-- title: A concise customer-facing headline under 10 words
-- summary: 1–2 plain-language sentences describing what GTM teams need to know
-- recommended_action: A specific next step starting with a verb (e.g. "Update the Day 14 learning step with...")
-- impact_level: How urgently teams need this (low / medium / high)
-- affected_roles: Which roles are affected based on the role job descriptions and concrete implications. Use only exact active role names listed above.
-
-If there is no clear update, return { "signals": [] }.`,
-  });
-
-  return object.signals;
-}
-
-async function detectCompanyReadinessSignals(params: {
-  chunks: KnowledgeChunkResult[];
-  roleProfiles: RoleProfileResult[];
-}): Promise<Array<z.infer<typeof CompanySignalItemSchema>>> {
-  const { chunks, roleProfiles } = params;
-
-  if (chunks.length === 0) return [];
-
-  const chunkText = chunks.map((c) => c.content).join('\n\n---\n\n');
-  const roleContext = roleProfileContext(roleProfiles);
-
-  const { object } = await generateObject({
-    model: llm,
-    schema: CompanySignalsSchema,
-    prompt: `You are Canon, an AI that monitors company knowledge to keep technical GTM teams continuously ready.
-
-Analyze this company source material and extract any company-related readiness updates. Do not depend on exact keywords or a predefined topic list. Use judgment: if an active customer-facing technical role would need to change what they say, demo, qualify, document, escalate, configure, or promise, it is a readiness update.
-
-Write for customers and customer-facing teammates. Use simple, standalone language. Avoid internal AI terms such as "signal", "chunk", "retrieval", "metadata", or "indexed". Preserve the company's own terminology when it appears in the source material, including product names, feature names, customer names, team names, acronyms, workflows, tools, and role names. If a company term may be unclear, keep the term and explain it in plain language.
-
-Use these role job descriptions when deciding whether each update applies to each role:
-${roleContext}
-
-Strong updates include, but are not limited to:
-- product gaps, maturity concerns, reliability issues, permissions/audit/reporting issues, integration limitations, pricing or packaging confusion
-- customer objections, trust issues, support escalations, repeated tickets, stakeholder hesitation, rollout risk
-- demo-to-reality mismatch, outdated talk tracks, unclear positioning, expectation gaps created during sales or onboarding
-- implementation blockers, auth/configuration ambiguity, migration risk, manual work replacing expected automation, unsupported architecture concerns
-- process changes, owner gaps, missing documentation, launch timing risk, enablement requests, or preventative guidance
-
-Only return updates with concrete implications and a clear next step. Do not return general chatter, vague status updates, or duplicates. If multiple unrelated blockers appear, return them as separate updates.
-
-Map every update to the closest category:
-- product_change: product capability, limitation, maturity, reliability, reporting, admin controls, pricing/packaging, rollout, or customer-facing product gap
-- customer_objection: customer concern, trust issue, objection, escalation, repeated support complaint, stakeholder hesitation, or response gap
-- demo_guidance: demo narrative, sales expectation mismatch, talk track, presentation, proof point, or demo flow change
-- implementation_pattern: setup, auth, configuration, deployment, migration, architecture, integration, go-live, or delivery risk
-
-Source material:
-${chunkText}
-
-For each clear update, provide:
-- category
-- title: A concise customer-facing headline under 10 words
-- summary: 1–2 plain-language sentences describing what technical GTM teams need to know
-- recommended_action: A specific next step starting with a verb
-- impact_level: How urgently teams need this (low / medium / high)
-- affected_roles: Which roles are affected based on the role job descriptions and concrete implications. Use only exact active role names listed above.
-
-If there is no clear update, return { "signals": [] }.`,
-  });
-
-  return object.signals;
-}
-
-function normalizeChunk(row: {
-  id: string;
-  content: string;
-  metadata: Record<string, unknown> | null;
-  similarity?: number | null;
-}): KnowledgeChunkResult {
-  return {
-    id: row.id,
-    content: row.content,
-    metadata: row.metadata ?? {},
-    similarity: typeof row.similarity === 'number' ? row.similarity : 0,
-  };
-}
-
-function isGeneratedReadinessChunk(content: string) {
-  return /(^|\n)\*(readiness|product changes|customer objections|demo guidance|implementation patterns|product|customer objections|implementation patterns) update\*/i.test(content);
-}
-
-function nonGeneratedReadinessChunks(chunks: KnowledgeChunkResult[]) {
-  return chunks.filter((chunk) => !isGeneratedReadinessChunk(chunk.content));
-}
-
-function uniqueChunks(chunks: KnowledgeChunkResult[]) {
-  const seen = new Set<string>();
-  return chunks.filter((chunk) => {
-    if (seen.has(chunk.id)) return false;
-    seen.add(chunk.id);
-    return true;
-  });
-}
-
-function uniqueChunkMetadataStrings(chunks: KnowledgeChunkResult[], key: string) {
-  return Array.from(
-    new Set(
-      chunks
-        .map((chunk) => chunk.metadata?.[key])
-        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-    )
-  );
-}
-
-function signalKey(signal: {
-  category: ReadinessCategory;
-  title: string;
-  summary: string;
-}) {
-  return `${signal.category}:${signal.title}:${signal.summary}`
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
-}
 
 function compactText(value: string, maxLength: number) {
   const compacted = value.replace(/\s+/g, ' ').trim();
   return compacted.length <= maxLength ? compacted : compacted.slice(0, maxLength - 1).trimEnd();
 }
 
-function roleProfileContext(roleProfiles: RoleProfileResult[]) {
-  const profilesByRole = new Map(roleProfiles.map((profile) => [profile.role, profile]));
-  return activeRolesFromProfiles(roleProfiles).map((role) => {
-    const jobDescription = compactText(profilesByRole.get(role)?.job_description ?? '', 1800);
-    return jobDescription
-      ? `${role}:\n${jobDescription}`
-      : `${role}:\nNo job description provided. Use only explicit evidence and the role title.`;
-  }).join('\n\n');
+function normalizeKey(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function observationDedupeKey(signal: {
+  category: ReadinessCategory;
+  title: string;
+  summary: string;
+}) {
+  const title = normalizeKey(signal.title).split(' ').slice(0, 10).join(' ');
+  const summary = normalizeKey(signal.summary).split(' ').slice(0, 14).join(' ');
+  return `${signal.category}:${title}:${summary}`.trim();
 }
 
 function activeRolesFromProfiles(roleProfiles: RoleProfileResult[]) {
   return roleProfiles.map((profile) => profile.role).filter((role) => role.trim().length > 0);
+}
+
+function roleProfileContext(roleProfiles: RoleProfileResult[]) {
+  return roleProfiles.map((profile) => {
+    const jobDescription = compactText(profile.job_description ?? '', 1400);
+    return jobDescription
+      ? `${profile.role}:\n${jobDescription}`
+      : `${profile.role}:\nNo job description provided. Use only explicit evidence and the role title.`;
+  }).join('\n\n');
 }
 
 function normalizeAffectedRoles(value: string[] | undefined, activeRoles: HireRole[]) {
@@ -322,34 +187,29 @@ function slackMessageUrl(channelId: string, messageTs: string | null) {
   return `https://slack.com/app_redirect?${params.toString()}`;
 }
 
-function evidenceFromChunks(chunks: KnowledgeChunkResult[]) {
+function sourceEvidenceFromEvents(events: ReadinessSourceEventRow[]) {
   const seen = new Set<string>();
-  return chunks.flatMap((chunk) => {
-    const provider = typeof chunk.metadata.provider === 'string' ? chunk.metadata.provider : 'slack';
-    const sourceName = typeof chunk.metadata.source_name === 'string'
-      ? chunk.metadata.source_name
-      : typeof chunk.metadata.title === 'string'
-        ? chunk.metadata.title
+  return events.flatMap((event) => {
+    const metadata = event.metadata ?? {};
+    const provider = event.provider;
+    const channelId = typeof metadata.channel_id === 'string' ? metadata.channel_id : null;
+    const channelName = typeof metadata.channel_name === 'string' ? metadata.channel_name : null;
+    const messageTs = typeof metadata.message_ts === 'string' ? metadata.message_ts : null;
+    const sourceName = typeof metadata.source_name === 'string'
+      ? metadata.source_name
+      : typeof metadata.title === 'string'
+        ? metadata.title
         : null;
-    const sourceUrl = typeof chunk.metadata.source_url === 'string'
-      ? chunk.metadata.source_url
-      : typeof chunk.metadata.url === 'string'
-        ? chunk.metadata.url
+    const sourceUrl = typeof metadata.source_url === 'string'
+      ? metadata.source_url
+      : typeof metadata.url === 'string'
+        ? metadata.url
         : null;
-    const sourceType = typeof chunk.metadata.source_type === 'string' ? chunk.metadata.source_type : null;
-    const noteId = typeof chunk.metadata.note_id === 'string' ? chunk.metadata.note_id : null;
-    const meetingDate = typeof chunk.metadata.meeting_date === 'string' ? chunk.metadata.meeting_date : null;
-    const channelId = typeof chunk.metadata.channel_id === 'string' ? chunk.metadata.channel_id : null;
-    const channelName = typeof chunk.metadata.channel_name === 'string' ? chunk.metadata.channel_name : null;
-    const messageTs = typeof chunk.metadata.latest_ts === 'string'
-      ? chunk.metadata.latest_ts
-      : typeof chunk.metadata.earliest_ts === 'string'
-        ? chunk.metadata.earliest_ts
-        : null;
+    const sourceType = event.source_type;
+    const noteId = typeof metadata.note_id === 'string' ? metadata.note_id : null;
+    const meetingDate = typeof metadata.meeting_date === 'string' ? metadata.meeting_date : event.occurred_at;
+    const key = `${provider}:${event.external_id}:${event.content_hash}`;
 
-    if (!channelId && !channelName && !sourceName && !sourceUrl && !noteId) return [];
-
-    const key = `${provider}:${channelId ?? noteId ?? sourceUrl ?? ''}:${messageTs ?? sourceName ?? ''}`;
     if (seen.has(key)) return [];
     seen.add(key);
 
@@ -363,20 +223,521 @@ function evidenceFromChunks(chunks: KnowledgeChunkResult[]) {
       note_id: noteId,
       meeting_date: meetingDate,
       url: sourceUrl ?? (channelId ? slackMessageUrl(channelId, messageTs) : null),
+      source_event_id: event.id,
+      content_hash: event.content_hash,
     }];
   });
 }
 
-function buildReadinessNote(items: ReadinessDeliveryItem[]) {
-  const categories = Array.from(new Set(items.map((item) => item.category)));
-  const title = categories.length === 1 ? CATEGORY_TITLES[categories[0]] : 'Readiness';
+function sourceMaterial(events: ReadinessSourceEventRow[]) {
+  return events.map((event, index) => {
+    const label = [
+      `Source ${index + 1}`,
+      `provider=${event.provider}`,
+      `type=${event.source_type}`,
+      event.occurred_at ? `date=${event.occurred_at}` : '',
+    ].filter(Boolean).join(' ');
+
+    return `${label}\n${compactText(event.content, 1600)}`;
+  }).join('\n\n---\n\n');
+}
+
+async function detectReadinessSignals(params: {
+  events: ReadinessSourceEventRow[];
+  roleProfiles: RoleProfileResult[];
+}) {
+  if (params.events.length === 0) return [];
+
+  const { object } = await generateObject({
+    model: llm,
+    schema: SignalsSchema,
+    prompt: `You are Canon, an AI that keeps technical GTM teams ready without creating noisy updates.
+
+Analyze only the source material below. Extract updates only when a customer-facing technical teammate would need to change what they say, demo, qualify, document, escalate, configure, or promise.
+
+Write for customers and customer-facing teammates. Use simple, standalone language. Avoid internal AI terms such as "signal", "chunk", "retrieval", "metadata", or "indexed". Preserve company terminology when it appears in the source material, including product names, feature names, customer names, team names, acronyms, workflows, tools, and role names.
+
+Use these active role descriptions when deciding affected_roles:
+${roleProfileContext(params.roleProfiles)}
+
+Categories:
+- product_change: product capability, limitation, maturity, reliability, reporting, admin controls, pricing/packaging, rollout, or customer-facing product gap
+- customer_objection: customer concern, trust issue, objection, escalation, repeated support complaint, stakeholder hesitation, or response gap
+- demo_guidance: demo narrative, sales expectation mismatch, talk track, presentation, proof point, or demo flow change
+- implementation_pattern: setup, auth, configuration, deployment, migration, architecture, integration, go-live, or delivery risk
+
+Only return concrete updates with a clear next step. Do not return general chatter, vague status, duplicate updates, Canon-generated readiness briefs, or meeting transcripts that do not imply a future action.
+
+Source material:
+${sourceMaterial(params.events)}
+
+If there is no clear update, return { "signals": [] }.`,
+  });
+
+  return object.signals;
+}
+
+async function readinessDeliverySettings(params: {
+  supabase: SupabaseServiceClient;
+  organizationId: string;
+}) {
+  const { data, error } = await params.supabase
+    .from('readiness_delivery_settings')
+    .select('weekly_digest_enabled, digest_weekday, digest_hour_utc, meeting_prep_enabled, meeting_prep_minutes_before, last_digest_sent_at, channel_ids, channel_names, slack_user_ids')
+    .eq('organization_id', params.organizationId)
+    .maybeSingle();
+
+  if (error) throw error;
+
+  return {
+    weeklyDigestEnabled: data?.weekly_digest_enabled !== false,
+    digestWeekday: typeof data?.digest_weekday === 'number' ? data.digest_weekday : 1,
+    digestHourUtc: typeof data?.digest_hour_utc === 'number' ? data.digest_hour_utc : 13,
+    meetingPrepEnabled: data?.meeting_prep_enabled !== false,
+    meetingPrepMinutesBefore: typeof data?.meeting_prep_minutes_before === 'number' ? data.meeting_prep_minutes_before : 45,
+    lastDigestSentAt: typeof data?.last_digest_sent_at === 'string' ? data.last_digest_sent_at : null,
+    legacyChannelIds: Array.isArray(data?.channel_ids)
+      ? data.channel_ids.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      : [],
+    legacyChannelNames: Array.isArray(data?.channel_names)
+      ? data.channel_names.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      : [],
+    legacyUserIds: Array.isArray(data?.slack_user_ids)
+      ? data.slack_user_ids.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      : [],
+  };
+}
+
+async function readinessDeliveryTargets(params: {
+  supabase: SupabaseServiceClient;
+  organizationId: string;
+}) {
+  const { data, error } = await params.supabase
+    .from('readiness_delivery_targets')
+    .select('id, organization_id, provider, target_type, target_id, target_name, enabled')
+    .eq('organization_id', params.organizationId)
+    .eq('enabled', true);
+
+  if (error) throw error;
+  return (data ?? []) as ReadinessDeliveryTargetRow[];
+}
+
+async function readinessDeliveryConfig(params: {
+  supabase: SupabaseServiceClient;
+  organizationId: string;
+}) {
+  const [settings, targets] = await Promise.all([
+    readinessDeliverySettings(params),
+    readinessDeliveryTargets(params),
+  ]);
+
+  const legacyTargets: ReadinessDeliveryTargetRow[] = targets.length > 0 ? [] : [
+    ...settings.legacyChannelIds.map((channelId, index) => ({
+      organization_id: params.organizationId,
+      provider: 'slack' as ReadinessDeliveryProvider,
+      target_type: 'channel' as ReadinessDeliveryTargetType,
+      target_id: channelId,
+      target_name: settings.legacyChannelNames[index] ?? null,
+      enabled: true,
+    })),
+    ...settings.legacyUserIds.map((userId) => ({
+      organization_id: params.organizationId,
+      provider: 'slack' as ReadinessDeliveryProvider,
+      target_type: 'dm' as ReadinessDeliveryTargetType,
+      target_id: userId,
+      target_name: null,
+      enabled: true,
+    })),
+  ];
+
+  return {
+    ...settings,
+    targets: targets.length > 0 ? targets : legacyTargets,
+  };
+}
+
+function hasDeliveryTargets(targets: ReadinessDeliveryTargetRow[]) {
+  return targets.some((target) => target.enabled);
+}
+
+async function seedPendingSourceEventsFromKnowledgeChunks(params: {
+  supabase: SupabaseServiceClient;
+  organizationId: string;
+  limit?: number;
+}) {
+  const { data, error } = await params.supabase
+    .from('knowledge_chunks')
+    .select('id, source_id, content, metadata, created_at')
+    .eq('organization_id', params.organizationId)
+    .order('created_at', { ascending: false })
+    .limit(params.limit ?? 60);
+
+  if (error) throw error;
+
+  const chunks = (data ?? []).map((chunk) => {
+    const metadata = chunk.metadata && typeof chunk.metadata === 'object' && !Array.isArray(chunk.metadata)
+      ? chunk.metadata as Record<string, unknown>
+      : null;
+    return {
+      id: chunk.id,
+      source_id: chunk.source_id,
+      content: chunk.content,
+      metadata,
+      created_at: chunk.created_at,
+    };
+  });
+  const events = readinessSourceEventsFromKnowledgeChunks({
+    organizationId: params.organizationId,
+    chunks,
+  });
+
+  if (events.length === 0) return { sourceChunks: chunks.length, sourceEvents: 0 };
+  const result = await upsertReadinessSourceEvents({ supabase: params.supabase, events });
+  return { sourceChunks: chunks.length, sourceEvents: result.upserted };
+}
+
+async function loadActiveRoleProfiles(supabase: SupabaseServiceClient, organizationId: string) {
+  const { data, error } = await supabase
+    .from('role_profiles')
+    .select('role, job_description')
+    .eq('organization_id', organizationId)
+    .eq('status', 'active')
+    .order('display_order', { ascending: true })
+    .order('role', { ascending: true });
+
+  if (error) throw error;
+  return (data ?? []) as RoleProfileResult[];
+}
+
+async function loadPendingSourceEvents(params: {
+  supabase: SupabaseServiceClient;
+  organizationId: string;
+  limit?: number;
+}) {
+  const { data, error } = await params.supabase
+    .from('readiness_source_events')
+    .select('*')
+    .eq('organization_id', params.organizationId)
+    .eq('status', 'pending')
+    .order('occurred_at', { ascending: false, nullsFirst: false })
+    .order('created_at', { ascending: false })
+    .limit(params.limit ?? 40);
+
+  if (error) throw error;
+  return (data ?? []) as ReadinessSourceEventRow[];
+}
+
+async function usedSourceHashes(params: {
+  supabase: SupabaseServiceClient;
+  organizationId: string;
+}) {
+  const { data, error } = await params.supabase
+    .from('readiness_observations')
+    .select('source_hashes')
+    .eq('organization_id', params.organizationId)
+    .neq('status', 'archived');
+
+  if (error) throw error;
+
+  return new Set(
+    (data ?? []).flatMap((row: { source_hashes?: unknown }) => (
+      Array.isArray(row.source_hashes)
+        ? row.source_hashes.filter((value): value is string => typeof value === 'string')
+        : []
+    ))
+  );
+}
+
+async function loadProcessableSourceEvents(params: {
+  supabase: SupabaseServiceClient;
+  organizationId: string;
+  limit?: number;
+}) {
+  const events = await loadPendingSourceEvents(params);
+  if (events.length === 0) return [];
+
+  const usedHashes = await usedSourceHashes(params);
+  return events.filter((event) => !usedHashes.has(event.content_hash));
+}
+
+async function insertReadinessItemsForObservations(params: {
+  supabase: SupabaseServiceClient;
+  organizationId: string;
+  observations: ReadinessObservationRow[];
+}) {
+  if (params.observations.length === 0) return { inserted: 0, itemIds: [] as string[] };
+
+  const { data: existing, error: existingError } = await params.supabase
+    .from('readiness_items')
+    .select('id, source_metadata')
+    .eq('organization_id', params.organizationId)
+    .neq('status', 'archived');
+
+  if (existingError) throw existingError;
+
+  const existingDedupeKeys = new Set(
+    (existing ?? []).flatMap((item: { source_metadata?: Record<string, unknown> | null }) => {
+      const key = item.source_metadata?.observation_dedupe_key;
+      return typeof key === 'string' ? [key] : [];
+    })
+  );
+
+  const now = new Date().toISOString();
+  const rows: ReadinessItemPayload[] = params.observations
+    .filter((observation) => !existingDedupeKeys.has(observation.dedupe_key))
+    .map((observation) => {
+      const evidence = Array.isArray(observation.metadata.source_evidence)
+        ? observation.metadata.source_evidence as Array<{ provider?: string; url?: string }>
+        : [];
+      const firstEvidence = evidence[0];
+
+      return {
+        organization_id: params.organizationId,
+        category: observation.category,
+        title: observation.title,
+        summary: observation.summary,
+        recommended_action: observation.recommended_action,
+        impact_level: observation.impact_level,
+        affected_roles: observation.affected_roles,
+        source: typeof firstEvidence?.provider === 'string' ? firstEvidence.provider : 'readiness',
+        source_url: typeof firstEvidence?.url === 'string' ? firstEvidence.url : null,
+        source_metadata: {
+          ...observation.metadata,
+          observation_id: observation.id,
+          observation_dedupe_key: observation.dedupe_key,
+          source_event_ids: observation.source_event_ids,
+          source_hashes: observation.source_hashes,
+        },
+        status: 'draft',
+        updated_at: now,
+      };
+    });
+
+  if (rows.length === 0) return { inserted: 0, itemIds: [] };
+
+  const { data: inserted, error } = await params.supabase
+    .from('readiness_items')
+    .insert(rows)
+    .select('id');
+
+  if (error) throw error;
+  return { inserted: rows.length, itemIds: (inserted ?? []).map((row: { id: string }) => row.id) };
+}
+
+async function upsertObservations(params: {
+  supabase: SupabaseServiceClient;
+  organizationId: string;
+  signals: Array<z.infer<typeof SignalItemSchema>>;
+  events: ReadinessSourceEventRow[];
+  roleProfiles: RoleProfileResult[];
+}) {
+  const activeRoles = activeRolesFromProfiles(params.roleProfiles);
+  const evidence = sourceEvidenceFromEvents(params.events);
+  const sourceEventIds = params.events.map((event) => event.id);
+  const sourceHashes = Array.from(new Set(params.events.map((event) => event.content_hash)));
+  const now = new Date().toISOString();
+  const seen = new Set<string>();
+
+  const rows = params.signals.flatMap((signal) => {
+    const dedupeKey = observationDedupeKey(signal);
+    if (seen.has(dedupeKey)) return [];
+    seen.add(dedupeKey);
+
+    return [{
+      organization_id: params.organizationId,
+      category: signal.category,
+      title: signal.title,
+      summary: signal.summary,
+      recommended_action: signal.recommended_action ?? null,
+      impact_level: signal.impact_level ?? 'medium',
+      affected_roles: normalizeAffectedRoles(signal.affected_roles, activeRoles),
+      source_event_ids: sourceEventIds,
+      source_hashes: sourceHashes,
+      dedupe_key: dedupeKey,
+      status: 'active',
+      metadata: {
+        detected_by: 'readiness_source_events',
+        source_evidence: evidence,
+        role_profiles: roleProfileMetadata(params.roleProfiles),
+      },
+      updated_at: now,
+    }];
+  });
+
+  if (rows.length === 0) return [];
+
+  const { data, error } = await params.supabase
+    .from('readiness_observations')
+    .upsert(rows, { onConflict: 'organization_id,dedupe_key' })
+    .select('*');
+
+  if (error) throw error;
+  return (data ?? []) as ReadinessObservationRow[];
+}
+
+async function generateObservationsForOrg(params: {
+  supabase: SupabaseServiceClient;
+  organizationId: string;
+  requireDeliveryTargets?: boolean;
+}) {
+  if (params.requireDeliveryTargets) {
+    const config = await readinessDeliveryConfig(params);
+    if (!hasDeliveryTargets(config.targets)) {
+      log.info('org_skipped', {
+        orgId: params.organizationId,
+        reason: 'readiness_delivery_not_configured',
+      });
+      return { observations: [] as ReadinessObservationRow[], eventsReviewed: 0, itemsInserted: 0 };
+    }
+  }
+
+  const roleProfiles = await loadActiveRoleProfiles(params.supabase, params.organizationId);
+  const activeRoles = activeRolesFromProfiles(roleProfiles);
+  if (activeRoles.length === 0) {
+    log.info('org_skipped', { orgId: params.organizationId, reason: 'no_active_roles' });
+    return { observations: [] as ReadinessObservationRow[], eventsReviewed: 0, itemsInserted: 0 };
+  }
+
+  let pendingEvents = await loadPendingSourceEvents({
+    supabase: params.supabase,
+    organizationId: params.organizationId,
+    limit: 80,
+  });
+
+  if (pendingEvents.length === 0) {
+    const seeded = await seedPendingSourceEventsFromKnowledgeChunks({
+      supabase: params.supabase,
+      organizationId: params.organizationId,
+      limit: 80,
+    });
+
+    if (seeded.sourceEvents > 0) {
+      log.info('source_events_processed', {
+        orgId: params.organizationId,
+        reason: 'backfilled_from_knowledge_chunks',
+        sourceChunks: seeded.sourceChunks,
+        sourceEvents: seeded.sourceEvents,
+      });
+      pendingEvents = await loadPendingSourceEvents({
+        supabase: params.supabase,
+        organizationId: params.organizationId,
+        limit: 80,
+      });
+    }
+  }
+
+  if (pendingEvents.length === 0) {
+    log.info('signal_none', { orgId: params.organizationId, reason: 'no_pending_source_events' });
+    return { observations: [] as ReadinessObservationRow[], eventsReviewed: 0, itemsInserted: 0 };
+  }
+
+  const processableEvents = await loadProcessableSourceEvents({
+    supabase: params.supabase,
+    organizationId: params.organizationId,
+    limit: 80,
+  });
+
+  if (processableEvents.length === 0) {
+    await markReadinessSourceEventsProcessed({
+      supabase: params.supabase,
+      ids: pendingEvents.map((event) => event.id),
+      status: 'ignored',
+    });
+    log.info('source_events_processed', {
+      orgId: params.organizationId,
+      pendingEvents: pendingEvents.length,
+      processableEvents: 0,
+      reason: 'already_used_source_hashes',
+    });
+    return { observations: [] as ReadinessObservationRow[], eventsReviewed: pendingEvents.length, itemsInserted: 0 };
+  }
+
+  try {
+    const signals = await detectReadinessSignals({
+      events: processableEvents,
+      roleProfiles,
+    });
+
+    if (signals.length === 0) {
+      await markReadinessSourceEventsProcessed({
+        supabase: params.supabase,
+        ids: pendingEvents.map((event) => event.id),
+        status: 'processed',
+      });
+      log.info('signal_none', {
+        orgId: params.organizationId,
+        eventsReviewed: processableEvents.length,
+      });
+      return { observations: [] as ReadinessObservationRow[], eventsReviewed: processableEvents.length, itemsInserted: 0 };
+    }
+
+    const observations = await upsertObservations({
+      supabase: params.supabase,
+      organizationId: params.organizationId,
+      signals,
+      events: processableEvents,
+      roleProfiles,
+    });
+
+    const inserted = await insertReadinessItemsForObservations({
+      supabase: params.supabase,
+      organizationId: params.organizationId,
+      observations,
+    });
+
+    await markReadinessSourceEventsProcessed({
+      supabase: params.supabase,
+      ids: pendingEvents.map((event) => event.id),
+      status: 'processed',
+    });
+
+    for (const observation of observations) {
+      log.info('signal_detected', {
+        orgId: params.organizationId,
+        category: observation.category,
+        title: observation.title,
+        impact: observation.impact_level,
+        sourceEvents: observation.source_event_ids.length,
+      });
+    }
+
+    return {
+      observations,
+      eventsReviewed: processableEvents.length,
+      itemsInserted: inserted.inserted,
+    };
+  } catch (error) {
+    await markReadinessSourceEventsProcessed({
+      supabase: params.supabase,
+      ids: processableEvents.map((event) => event.id),
+      status: 'error',
+    });
+    log.error('signal_failed', {
+      orgId: params.organizationId,
+      error: errorMessage(error),
+    });
+    throw error;
+  }
+}
+
+function buildWeeklyDigest(observations: ReadinessObservationRow[]) {
+  const grouped = observations.reduce((map, observation) => {
+    const current = map.get(observation.category) ?? [];
+    current.push(observation);
+    map.set(observation.category, current);
+    return map;
+  }, new Map<ReadinessCategory, ReadinessObservationRow[]>());
+
   const lines = [
-    `*${title} update*`,
+    '*Weekly readiness digest*',
     '',
-    ...items.flatMap((item) => [
-      `*${item.title}*`,
-      item.summary,
-      item.recommended_action ? `_Next step:_ ${item.recommended_action}` : '',
+    ...Array.from(grouped.entries()).flatMap(([category, items]) => [
+      `*${CATEGORY_TITLES[category]}*`,
+      ...items.flatMap((item) => [
+        `• *${item.title}*`,
+        `  ${item.summary}`,
+        item.recommended_action ? `  _Next step:_ ${item.recommended_action}` : '',
+      ].filter(Boolean)),
       '',
     ]),
   ];
@@ -384,221 +745,153 @@ function buildReadinessNote(items: ReadinessDeliveryItem[]) {
   return lines.filter((line, index, all) => line || all[index - 1]).join('\n').trim();
 }
 
-async function readinessDeliverySettings(params: {
-  supabase: ReturnType<typeof createServiceRoleClient>;
+async function loadWeeklyDigestObservations(params: {
+  supabase: SupabaseServiceClient;
   organizationId: string;
 }) {
-  const { supabase, organizationId } = params;
-  const { data, error } = await supabase
-    .from('readiness_delivery_settings')
-    .select('channel_ids, slack_user_ids')
-    .eq('organization_id', organizationId)
-    .maybeSingle();
+  const { data, error } = await params.supabase
+    .from('readiness_observations')
+    .select('*')
+    .eq('organization_id', params.organizationId)
+    .eq('status', 'active')
+    .in('impact_level', ['high', 'medium'])
+    .order('updated_at', { ascending: false })
+    .limit(5);
 
   if (error) throw error;
-  if (!data) return null;
-
-  return {
-    channelIds: Array.isArray(data.channel_ids)
-      ? data.channel_ids.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-      : [],
-    userIds: Array.isArray(data.slack_user_ids)
-      ? data.slack_user_ids.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-      : [],
-  };
+  return (data ?? []) as ReadinessObservationRow[];
 }
 
-function hasReadinessDeliveryTargets(settings: Awaited<ReturnType<typeof readinessDeliverySettings>>) {
-  return Boolean(settings && (settings.channelIds.length > 0 || settings.userIds.length > 0));
-}
-
-async function deliverReadinessItems(params: {
-  supabase: ReturnType<typeof createServiceRoleClient>;
+async function markObservationsSent(params: {
+  supabase: SupabaseServiceClient;
   organizationId: string;
-  items: ReadinessDeliveryItem[];
+  observations: ReadinessObservationRow[];
 }) {
-  const { supabase, organizationId, items } = params;
-  if (items.length === 0) return;
+  const now = new Date().toISOString();
+  const observationIds = params.observations.map((observation) => observation.id);
+  const dedupeKeys = params.observations.map((observation) => observation.dedupe_key);
 
-  const settings = await readinessDeliverySettings({ supabase, organizationId });
-  const channelIds = settings?.channelIds ?? [];
-  const userIds = settings?.userIds ?? [];
-  const roles = Array.from(new Set(items.flatMap((item) => item.affected_roles)));
+  if (observationIds.length > 0) {
+    const { error } = await params.supabase
+      .from('readiness_observations')
+      .update({ status: 'sent', last_sent_at: now, updated_at: now })
+      .in('id', observationIds);
 
+    if (error) throw error;
+  }
+
+  const { data: items, error: itemFetchError } = await params.supabase
+    .from('readiness_items')
+    .select('id, source_metadata')
+    .eq('organization_id', params.organizationId)
+    .in('status', ['draft', 'reviewed']);
+
+  if (itemFetchError) throw itemFetchError;
+
+  const itemIds = (items ?? []).flatMap((item: { id: string; source_metadata?: Record<string, unknown> | null }) => (
+    typeof item.source_metadata?.observation_dedupe_key === 'string' &&
+    dedupeKeys.includes(item.source_metadata.observation_dedupe_key)
+      ? [item.id]
+      : []
+  ));
+
+  if (itemIds.length > 0) {
+    const { error } = await params.supabase
+      .from('readiness_items')
+      .update({ status: 'sent', sent_at: now, updated_at: now })
+      .in('id', itemIds);
+
+    if (error) throw error;
+  }
+
+  const { error: settingsError } = await params.supabase
+    .from('readiness_delivery_settings')
+    .upsert({
+      organization_id: params.organizationId,
+      last_digest_sent_at: now,
+      updated_at: now,
+    }, { onConflict: 'organization_id' });
+
+  if (settingsError) throw settingsError;
+}
+
+async function deliverWeeklyDigest(params: {
+  supabase: SupabaseServiceClient;
+  organizationId: string;
+}) {
+  const config = await readinessDeliveryConfig(params);
+  if (!config.weeklyDigestEnabled) {
+    log.info('org_skipped', { orgId: params.organizationId, reason: 'weekly_digest_disabled' });
+    return { delivered: 0, observations: 0 };
+  }
+  if (!hasDeliveryTargets(config.targets)) {
+    log.info('org_skipped', { orgId: params.organizationId, reason: 'readiness_delivery_not_configured' });
+    return { delivered: 0, observations: 0 };
+  }
+
+  const observations = await loadWeeklyDigestObservations(params);
+  if (observations.length === 0) {
+    log.info('org_skipped', { orgId: params.organizationId, reason: 'no_weekly_digest_observations' });
+    return { delivered: 0, observations: 0 };
+  }
+
+  const text = buildWeeklyDigest(observations);
   log.info('delivery_plan', {
-    orgId: organizationId,
-    itemCount: items.length,
-    itemIds: items.map((item) => item.id),
-    source: 'saved_settings',
-    channels: channelIds,
-    dmTargets: userIds,
-    roles,
+    orgId: params.organizationId,
+    observationCount: observations.length,
+    targetCount: config.targets.length,
+    providers: Array.from(new Set(config.targets.map((target) => target.provider))),
   });
 
-  if (!hasReadinessDeliveryTargets(settings)) {
-    log.warn('delivery_failed', {
-      orgId: organizationId,
-      itemCount: items.length,
-      reason: 'no_configured_delivery_targets',
-    });
-    return;
-  }
-
-  const text = buildReadinessNote(items);
-  const deliveries: Array<{ target: string; type: 'channel' | 'dm' } & SlackDeliveryResult> = [];
-
-  for (const channel of channelIds) {
-    const sent = await sendSlackMessage({ organizationId, channel, text });
-    deliveries.push({ target: channel, type: 'channel', ...sent });
-  }
-
-  for (const slackUserId of userIds) {
-    const sent = await sendSlackDirectMessage({ organizationId, slackUserId, text });
-    deliveries.push({ target: slackUserId, type: 'dm', ...sent });
-  }
+  const deliveries = await sendReadinessToTargets({
+    organizationId: params.organizationId,
+    targets: config.targets,
+    text,
+  });
 
   for (const delivery of deliveries) {
     log.info('delivery_target_result', {
-      orgId: organizationId,
-      type: delivery.type,
-      target: delivery.target,
+      orgId: params.organizationId,
+      provider: delivery.target.provider,
+      type: delivery.target.target_type,
+      target: delivery.target.target_id,
       sent: delivery.sent,
       reason: delivery.reason,
-      slackChannel: delivery.channel,
-      slackTs: delivery.ts,
+      channel: delivery.channel,
+      ts: delivery.ts,
       permalink: delivery.permalink,
     });
   }
 
-  const failed = deliveries.filter((delivery) => !delivery.sent);
-  if (failed.length > 0 || deliveries.length === 0) {
+  const sentDeliveries = deliveries.filter((delivery) => delivery.sent);
+  if (sentDeliveries.length === 0) {
     log.warn('delivery_failed', {
-      orgId: organizationId,
-      itemCount: items.length,
-      failedTargets: failed.length,
-      reason: failed[0]?.reason ?? 'no_channel_or_dm_targets',
-      deliveries,
+      orgId: params.organizationId,
+      observationCount: observations.length,
+      reason: deliveries[0]?.reason ?? 'no_successful_targets',
     });
-    return;
+    return { delivered: 0, observations: observations.length };
   }
 
-  const sentAt = new Date().toISOString();
-  const { error } = await supabase
-    .from('readiness_items')
-    .update({ status: 'sent', sent_at: sentAt, updated_at: sentAt })
-    .in('id', items.map((item) => item.id));
-
-  if (error) throw error;
+  await markObservationsSent({
+    supabase: params.supabase,
+    organizationId: params.organizationId,
+    observations,
+  });
 
   log.info('delivery_sent', {
-    orgId: organizationId,
-    itemCount: items.length,
-    channelTargets: deliveries.filter((delivery) => delivery.type === 'channel').length,
-    dmTargets: deliveries.filter((delivery) => delivery.type === 'dm').length,
-  });
-}
-
-async function fallbackSlackSourceMetadata(params: {
-  supabase: ReturnType<typeof createServiceRoleClient>;
-  organizationId: string;
-}) {
-  const { supabase, organizationId } = params;
-  const { data: source } = await supabase
-    .from('knowledge_sources')
-    .select('name, slack_channel_id, slack_channel_name')
-    .eq('organization_id', organizationId)
-    .eq('provider', 'slack')
-    .order('last_synced_at', { ascending: false, nullsFirst: false })
-    .limit(1)
-    .maybeSingle();
-
-  return {
-    channelId: typeof source?.slack_channel_id === 'string' ? source.slack_channel_id : null,
-    channelName: typeof source?.slack_channel_name === 'string'
-      ? source.slack_channel_name
-      : typeof source?.name === 'string'
-        ? source.name.replace(/^#/, '')
-        : null,
-  };
-}
-
-async function retrieveCandidateChunks(params: {
-  supabase: ReturnType<typeof createServiceRoleClient>;
-  organizationId: string;
-  category: ReadinessCategory;
-}): Promise<ChunkRetrievalResult> {
-  const { supabase, organizationId, category } = params;
-
-  const { embedding: queryEmbedding } = await embed({
-    model: embeddingModel,
-    value: CATEGORY_QUERIES[category],
+    orgId: params.organizationId,
+    observationCount: observations.length,
+    deliveredTargets: sentDeliveries.length,
   });
 
-  const { data: vectorChunks, error: vectorError } = await supabase.rpc('match_knowledge_chunks', {
-    query_embedding: JSON.stringify(queryEmbedding),
-    organization_id: organizationId,
-    match_threshold: 0.35,
-    match_count: 8,
-  });
-
-  if (vectorError) throw vectorError;
-
-  const normalizedVectorChunks = nonGeneratedReadinessChunks(
-    ((vectorChunks ?? []) as KnowledgeChunkResult[]).map(normalizeChunk)
-  );
-
-  const { data: recentChunks, error: recentError } = await supabase
-    .from('knowledge_chunks')
-    .select('id, content, metadata')
-    .eq('organization_id', organizationId)
-    .order('created_at', { ascending: false })
-    .limit(25);
-
-  if (recentError) throw recentError;
-
-  const recentNonGeneratedChunks = nonGeneratedReadinessChunks(((recentChunks ?? []) as Array<{
-    id: string;
-    content: string;
-    metadata: Record<string, unknown> | null;
-  }>).map(normalizeChunk)).slice(0, 12);
-
-  const chunks = uniqueChunks([...normalizedVectorChunks, ...recentNonGeneratedChunks]).slice(0, 12);
-
-  return {
-    chunks,
-    strategy: normalizedVectorChunks.length > 0 ? 'vector_plus_recent' : chunks.length > 0 ? 'recent' : 'none',
-    vectorMatches: normalizedVectorChunks.length,
-    fallbackCandidates: recentChunks?.length ?? 0,
-  };
+  return { delivered: sentDeliveries.length, observations: observations.length };
 }
 
-async function retrieveCompanyReadinessChunks(params: {
-  supabase: ReturnType<typeof createServiceRoleClient>;
-  organizationId: string;
-}): Promise<ChunkRetrievalResult> {
-  const { supabase, organizationId } = params;
-
-  const { data: recentChunks, error: recentError } = await supabase
-    .from('knowledge_chunks')
-    .select('id, content, metadata')
-    .eq('organization_id', organizationId)
-    .order('created_at', { ascending: false })
-    .limit(50);
-
-  if (recentError) throw recentError;
-
-  const chunks = nonGeneratedReadinessChunks(((recentChunks ?? []) as Array<{
-    id: string;
-    content: string;
-    metadata: Record<string, unknown> | null;
-  }>).map(normalizeChunk)).slice(0, 40);
-
-  return {
-    chunks,
-    strategy: chunks.length > 0 ? 'company_recent' : 'none',
-    vectorMatches: 0,
-    fallbackCandidates: recentChunks?.length ?? 0,
-  };
+async function loadOrganizations(supabase: SupabaseServiceClient) {
+  const { data, error } = await supabase.from('organizations').select('id');
+  if (error) throw error;
+  return (data ?? []) as Array<{ id: string }>;
 }
 
 export const readinessAnalysisOnDemand = inngest.createFunction(
@@ -614,594 +907,317 @@ export const readinessAnalysisOnDemand = inngest.createFunction(
 
     log.info('analysis_start', { organizationId, triggered: 'on_demand' });
 
-    const orgs = [{ id: organizationId }];
+    const result = await step.run(`generate-observations-${organizationId}`, async () => (
+      generateObservationsForOrg({
+        supabase,
+        organizationId,
+        requireDeliveryTargets: false,
+      })
+    ));
 
-    let totalSignals = 0;
+    log.info('analysis_complete', {
+      orgsProcessed: 1,
+      totalSignals: result.observations.length,
+      eventsReviewed: result.eventsReviewed,
+      itemsInserted: result.itemsInserted,
+      delivered: false,
+    });
 
-    for (const org of orgs) {
-      const result = await step.run(`analyze-org-${org.id}`, async () => {
-        const deliverySettings = await readinessDeliverySettings({ supabase, organizationId: org.id });
-        if (!hasReadinessDeliveryTargets(deliverySettings)) {
-          log.info('org_skipped', {
-            orgId: org.id,
-            reason: 'readiness_delivery_not_configured',
-            channels: deliverySettings?.channelIds.length ?? 0,
-            dmTargets: deliverySettings?.userIds.length ?? 0,
-          });
-          return { signalsDetected: 0, signalsReviewed: 0 };
-        }
-
-        const { count } = await supabase
-          .from('knowledge_chunks')
-          .select('id', { count: 'exact', head: true })
-          .eq('organization_id', org.id);
-
-        if (!count || count === 0) {
-          log.info('org_skipped', { orgId: org.id, reason: 'no_knowledge_chunks' });
-          return { signalsDetected: 0, signalsReviewed: 0 };
-        }
-
-        type ReadinessItemPayload = {
-          organization_id: string;
-          category: ReadinessCategory;
-          title: string;
-          summary: string;
-          recommended_action: string | null;
-          impact_level: string;
-          affected_roles: HireRole[];
-          source: string;
-          source_url: string | null;
-          source_metadata: object;
-          status: string;
-          updated_at: string;
-        };
-
-        const itemsToInsert: ReadinessItemPayload[] = [];
-        const seenSignalKeys = new Set<string>();
-        let signalsReviewedTotal = 0;
-        const { data: roleProfileRows } = await supabase
-          .from('role_profiles')
-          .select('role, job_description')
-          .eq('organization_id', org.id)
-          .eq('status', 'active')
-          .order('display_order', { ascending: true })
-          .order('role', { ascending: true });
-        const roleProfiles = (roleProfileRows ?? []) as RoleProfileResult[];
-        const activeRoles = activeRolesFromProfiles(roleProfiles);
-        if (activeRoles.length === 0) {
-          log.info('org_skipped', { orgId: org.id, reason: 'no_active_roles' });
-          return { signalsDetected: 0, signalsReviewed: 0 };
-        }
-        const roleProfileSourceMetadata = roleProfileMetadata(roleProfiles);
-
-        try {
-          const retrieval = await retrieveCompanyReadinessChunks({
-            supabase,
-            organizationId: org.id,
-          });
-          const typedChunks = retrieval.chunks;
-          signalsReviewedTotal += typedChunks.length;
-
-          const signals = await detectCompanyReadinessSignals({ chunks: typedChunks, roleProfiles });
-
-          if (signals.length === 0) {
-            log.info('signal_none', {
-              orgId: org.id,
-              category: 'company_scan',
-              chunksReviewed: typedChunks.length,
-              retrievalStrategy: retrieval.strategy,
-              vectorMatches: retrieval.vectorMatches,
-              fallbackCandidates: retrieval.fallbackCandidates,
-            });
-          }
-
-          const channelIds = uniqueChunkMetadataStrings(typedChunks, 'channel_id');
-          const channelNames = uniqueChunkMetadataStrings(typedChunks, 'channel_name');
-          const sourceEvidence = evidenceFromChunks(typedChunks);
-          if (channelIds.length === 0 || channelNames.length === 0) {
-            const fallbackSource = await fallbackSlackSourceMetadata({ supabase, organizationId: org.id });
-            if (channelIds.length === 0 && fallbackSource.channelId) channelIds.push(fallbackSource.channelId);
-            if (channelNames.length === 0 && fallbackSource.channelName) channelNames.push(fallbackSource.channelName);
-            if (sourceEvidence.length === 0 && (fallbackSource.channelId || fallbackSource.channelName)) {
-              sourceEvidence.push({
-                provider: 'slack',
-                channel_id: fallbackSource.channelId,
-                channel_name: fallbackSource.channelName,
-                message_ts: null,
-                source_name: fallbackSource.channelName,
-                source_type: 'slack_channel',
-                note_id: null,
-                meeting_date: null,
-                url: fallbackSource.channelId ? slackMessageUrl(fallbackSource.channelId, null) : null,
-              });
-            }
-          }
-
-          for (const signal of signals) {
-            const key = signalKey(signal);
-            if (seenSignalKeys.has(key)) continue;
-            seenSignalKeys.add(key);
-
-            itemsToInsert.push({
-              organization_id: org.id,
-              category: signal.category,
-              title: signal.title,
-              summary: signal.summary,
-              recommended_action: signal.recommended_action ?? null,
-              impact_level: signal.impact_level ?? 'medium',
-              affected_roles: normalizeAffectedRoles(signal.affected_roles, activeRoles),
-              source: sourceEvidence[0]?.provider ?? 'knowledge',
-              source_url: sourceEvidence[0]?.url ?? null,
-              source_metadata: {
-                signals_reviewed: typedChunks.length,
-                detected_by: 'company_readiness_scan',
-                retrieval_strategy: retrieval.strategy,
-                vector_matches: retrieval.vectorMatches,
-                fallback_candidates: retrieval.fallbackCandidates,
-                channel_ids: channelIds,
-                channel_names: channelNames,
-                source_evidence: sourceEvidence,
-                role_profiles: roleProfileSourceMetadata,
-              },
-              status: 'draft',
-              updated_at: new Date().toISOString(),
-            });
-
-            log.info('signal_detected', {
-              orgId: org.id,
-              category: signal.category,
-              title: signal.title,
-              impact: signal.impact_level,
-              chunksReviewed: typedChunks.length,
-              retrievalStrategy: retrieval.strategy,
-            });
-          }
-        } catch (error) {
-          log.error('signal_failed', { orgId: org.id, category: 'company_scan', error: errorMessage(error) });
-        }
-
-        for (const category of CATEGORIES) {
-          try {
-            const retrieval = await retrieveCandidateChunks({
-              supabase,
-              organizationId: org.id,
-              category,
-            });
-            const typedChunks = retrieval.chunks;
-            signalsReviewedTotal += typedChunks.length;
-
-            const signals = await detectSignals({ category, chunks: typedChunks, roleProfiles });
-
-            if (signals.length === 0) {
-              log.info('signal_none', {
-                orgId: org.id,
-                category,
-                chunksReviewed: typedChunks.length,
-                retrievalStrategy: retrieval.strategy,
-                vectorMatches: retrieval.vectorMatches,
-                fallbackCandidates: retrieval.fallbackCandidates,
-              });
-              continue;
-            }
-
-            const channelIds = uniqueChunkMetadataStrings(typedChunks, 'channel_id');
-            const channelNames = uniqueChunkMetadataStrings(typedChunks, 'channel_name');
-            const sourceEvidence = evidenceFromChunks(typedChunks);
-            if (channelIds.length === 0 || channelNames.length === 0) {
-              const fallbackSource = await fallbackSlackSourceMetadata({ supabase, organizationId: org.id });
-              if (channelIds.length === 0 && fallbackSource.channelId) channelIds.push(fallbackSource.channelId);
-              if (channelNames.length === 0 && fallbackSource.channelName) channelNames.push(fallbackSource.channelName);
-              if (sourceEvidence.length === 0 && (fallbackSource.channelId || fallbackSource.channelName)) {
-                sourceEvidence.push({
-                  provider: 'slack',
-                  channel_id: fallbackSource.channelId,
-                  channel_name: fallbackSource.channelName,
-                  message_ts: null,
-                  source_name: fallbackSource.channelName,
-                  source_type: 'slack_channel',
-                  note_id: null,
-                  meeting_date: null,
-                  url: fallbackSource.channelId ? slackMessageUrl(fallbackSource.channelId, null) : null,
-                });
-              }
-            }
-
-            for (const signal of signals) {
-              const key = signalKey({ category, title: signal.title, summary: signal.summary });
-              if (seenSignalKeys.has(key)) continue;
-              seenSignalKeys.add(key);
-
-              itemsToInsert.push({
-                organization_id: org.id,
-                category,
-                title: signal.title,
-                summary: signal.summary,
-                recommended_action: signal.recommended_action ?? null,
-                impact_level: signal.impact_level ?? 'medium',
-                affected_roles: normalizeAffectedRoles(signal.affected_roles, activeRoles),
-                source: sourceEvidence[0]?.provider ?? 'knowledge',
-                source_url: sourceEvidence[0]?.url ?? null,
-                source_metadata: {
-                  signals_reviewed: typedChunks.length,
-                  detected_by: 'ai_pipeline',
-                  retrieval_strategy: retrieval.strategy,
-                  vector_matches: retrieval.vectorMatches,
-                  fallback_candidates: retrieval.fallbackCandidates,
-                  channel_ids: channelIds,
-                  channel_names: channelNames,
-                  source_evidence: sourceEvidence,
-                  role_profiles: roleProfileSourceMetadata,
-                },
-                status: 'draft',
-                updated_at: new Date().toISOString(),
-              });
-
-              log.info('signal_detected', {
-                orgId: org.id,
-                category,
-                title: signal.title,
-                impact: signal.impact_level,
-                chunksReviewed: typedChunks.length,
-                retrievalStrategy: retrieval.strategy,
-              });
-            }
-          } catch (error) {
-            log.error('signal_failed', { orgId: org.id, category, error: errorMessage(error) });
-          }
-        }
-
-        if (itemsToInsert.length > 0) {
-          const categoriesToRefresh = Array.from(new Set(itemsToInsert.map((item) => item.category)));
-          const refreshedAt = new Date().toISOString();
-
-          const { error: archiveError } = await supabase
-            .from('readiness_items')
-            .update({ status: 'archived', updated_at: refreshedAt })
-            .eq('organization_id', org.id)
-            .in('category', categoriesToRefresh)
-            .neq('status', 'archived');
-
-          if (archiveError) throw archiveError;
-
-          log.info('signals_refreshed', {
-            orgId: org.id,
-            categories: categoriesToRefresh,
-            itemCount: itemsToInsert.length,
-          });
-
-          const { data: insertedItems, error: insertError } = await supabase
-            .from('readiness_items')
-            .insert(itemsToInsert)
-            .select('id, organization_id, category, title, summary, recommended_action, affected_roles, source_metadata');
-
-          if (insertError) throw insertError;
-
-          await deliverReadinessItems({
-            supabase,
-            organizationId: org.id,
-            items: (insertedItems ?? []) as ReadinessDeliveryItem[],
-          });
-        }
-
-        log.info('org_complete', {
-          orgId: org.id,
-          signalsDetected: itemsToInsert.length,
-          signalsReviewed: signalsReviewedTotal,
-        });
-
-        return {
-          signalsDetected: itemsToInsert.length,
-          signalsReviewed: signalsReviewedTotal,
-        };
-      });
-      totalSignals += result.signalsDetected;
-    }
-
-    log.info('analysis_complete', { orgsProcessed: 1, totalSignals });
-    return { ok: true, orgsProcessed: 1, totalSignals };
+    return {
+      ok: true,
+      orgsProcessed: 1,
+      totalSignals: result.observations.length,
+      eventsReviewed: result.eventsReviewed,
+      delivered: false,
+    };
   }
 );
 
 export const readinessAnalysis = inngest.createFunction(
   {
     id: 'readiness-analysis',
-    name: 'Canon: Readiness Analysis',
+    name: 'Canon: Weekly Readiness Digest',
     retries: 1,
   },
-  { cron: '0 0 * * *' },
+  { cron: '0 13 * * 1' },
   async ({ step }) => {
     const supabase = createServiceRoleClient();
 
-    log.info('analysis_start', {});
+    log.info('analysis_start', { cadence: 'weekly', time: '13:00 UTC Monday' });
 
-    const { data: orgs } = await supabase.from('organizations').select('id');
-
-    if (!orgs || orgs.length === 0) {
-      log.info('analysis_complete', { orgsProcessed: 0 });
-      return { ok: true, orgsProcessed: 0 };
-    }
-
+    const orgs = await loadOrganizations(supabase);
     let totalSignals = 0;
+    let totalDelivered = 0;
 
     for (const org of orgs) {
-      const result = await step.run(`analyze-org-${org.id}`, async () => {
-        const deliverySettings = await readinessDeliverySettings({ supabase, organizationId: org.id });
-        if (!hasReadinessDeliveryTargets(deliverySettings)) {
-          log.info('org_skipped', {
-            orgId: org.id,
-            reason: 'readiness_delivery_not_configured',
-            channels: deliverySettings?.channelIds.length ?? 0,
-            dmTargets: deliverySettings?.userIds.length ?? 0,
-          });
-          return { signalsDetected: 0, signalsReviewed: 0 };
-        }
-
-        const { count } = await supabase
-          .from('knowledge_chunks')
-          .select('id', { count: 'exact', head: true })
-          .eq('organization_id', org.id);
-
-        if (!count || count === 0) {
-          log.info('org_skipped', { orgId: org.id, reason: 'no_knowledge_chunks' });
-          return { signalsDetected: 0, signalsReviewed: 0 };
-        }
-
-        type ReadinessItemPayload = {
-          organization_id: string;
-          category: ReadinessCategory;
-          title: string;
-          summary: string;
-          recommended_action: string | null;
-          impact_level: string;
-          affected_roles: HireRole[];
-          source: string;
-          source_url: string | null;
-          source_metadata: object;
-          status: string;
-          updated_at: string;
-        };
-
-        const itemsToInsert: ReadinessItemPayload[] = [];
-        const seenSignalKeys = new Set<string>();
-        let signalsReviewedTotal = 0;
-        const { data: roleProfileRows } = await supabase
-          .from('role_profiles')
-          .select('role, job_description')
-          .eq('organization_id', org.id)
-          .eq('status', 'active')
-          .order('display_order', { ascending: true })
-          .order('role', { ascending: true });
-        const roleProfiles = (roleProfileRows ?? []) as RoleProfileResult[];
-        const activeRoles = activeRolesFromProfiles(roleProfiles);
-        if (activeRoles.length === 0) {
-          log.info('org_skipped', { orgId: org.id, reason: 'no_active_roles' });
-          return { signalsDetected: 0, signalsReviewed: 0 };
-        }
-        const roleProfileSourceMetadata = roleProfileMetadata(roleProfiles);
-
-        try {
-          const retrieval = await retrieveCompanyReadinessChunks({
-            supabase,
-            organizationId: org.id,
-          });
-          const typedChunks = retrieval.chunks;
-          signalsReviewedTotal += typedChunks.length;
-
-          const signals = await detectCompanyReadinessSignals({ chunks: typedChunks, roleProfiles });
-
-          if (signals.length === 0) {
-            log.info('signal_none', {
-              orgId: org.id,
-              category: 'company_scan',
-              chunksReviewed: typedChunks.length,
-              retrievalStrategy: retrieval.strategy,
-              vectorMatches: retrieval.vectorMatches,
-              fallbackCandidates: retrieval.fallbackCandidates,
-            });
-          }
-
-          const channelIds = uniqueChunkMetadataStrings(typedChunks, 'channel_id');
-          const channelNames = uniqueChunkMetadataStrings(typedChunks, 'channel_name');
-          const sourceEvidence = evidenceFromChunks(typedChunks);
-          if (channelIds.length === 0 || channelNames.length === 0) {
-            const fallbackSource = await fallbackSlackSourceMetadata({ supabase, organizationId: org.id });
-            if (channelIds.length === 0 && fallbackSource.channelId) channelIds.push(fallbackSource.channelId);
-            if (channelNames.length === 0 && fallbackSource.channelName) channelNames.push(fallbackSource.channelName);
-            if (sourceEvidence.length === 0 && (fallbackSource.channelId || fallbackSource.channelName)) {
-              sourceEvidence.push({
-                provider: 'slack',
-                channel_id: fallbackSource.channelId,
-                channel_name: fallbackSource.channelName,
-                message_ts: null,
-                source_name: fallbackSource.channelName,
-                source_type: 'slack_channel',
-                note_id: null,
-                meeting_date: null,
-                url: fallbackSource.channelId ? slackMessageUrl(fallbackSource.channelId, null) : null,
-              });
-            }
-          }
-
-          for (const signal of signals) {
-            const key = signalKey(signal);
-            if (seenSignalKeys.has(key)) continue;
-            seenSignalKeys.add(key);
-
-            itemsToInsert.push({
-              organization_id: org.id,
-              category: signal.category,
-              title: signal.title,
-              summary: signal.summary,
-              recommended_action: signal.recommended_action ?? null,
-              impact_level: signal.impact_level ?? 'medium',
-              affected_roles: normalizeAffectedRoles(signal.affected_roles, activeRoles),
-              source: sourceEvidence[0]?.provider ?? 'knowledge',
-              source_url: sourceEvidence[0]?.url ?? null,
-              source_metadata: {
-                signals_reviewed: typedChunks.length,
-                detected_by: 'company_readiness_scan',
-                retrieval_strategy: retrieval.strategy,
-                vector_matches: retrieval.vectorMatches,
-                fallback_candidates: retrieval.fallbackCandidates,
-                channel_ids: channelIds,
-                channel_names: channelNames,
-                source_evidence: sourceEvidence,
-                role_profiles: roleProfileSourceMetadata,
-              },
-              status: 'draft',
-              updated_at: new Date().toISOString(),
-            });
-
-            log.info('signal_detected', {
-              orgId: org.id,
-              category: signal.category,
-              title: signal.title,
-              impact: signal.impact_level,
-              chunksReviewed: typedChunks.length,
-              retrievalStrategy: retrieval.strategy,
-            });
-          }
-        } catch (error) {
-          log.error('signal_failed', { orgId: org.id, category: 'company_scan', error: errorMessage(error) });
-        }
-
-        for (const category of CATEGORIES) {
-          try {
-            const retrieval = await retrieveCandidateChunks({
-              supabase,
-              organizationId: org.id,
-              category,
-            });
-            const typedChunks = retrieval.chunks;
-            signalsReviewedTotal += typedChunks.length;
-
-            const signals = await detectSignals({ category, chunks: typedChunks, roleProfiles });
-
-            if (signals.length === 0) {
-              log.info('signal_none', {
-                orgId: org.id,
-                category,
-                chunksReviewed: typedChunks.length,
-                retrievalStrategy: retrieval.strategy,
-                vectorMatches: retrieval.vectorMatches,
-                fallbackCandidates: retrieval.fallbackCandidates,
-              });
-              continue;
-            }
-
-            const channelIds = uniqueChunkMetadataStrings(typedChunks, 'channel_id');
-            const channelNames = uniqueChunkMetadataStrings(typedChunks, 'channel_name');
-            const sourceEvidence = evidenceFromChunks(typedChunks);
-            if (channelIds.length === 0 || channelNames.length === 0) {
-              const fallbackSource = await fallbackSlackSourceMetadata({ supabase, organizationId: org.id });
-              if (channelIds.length === 0 && fallbackSource.channelId) channelIds.push(fallbackSource.channelId);
-              if (channelNames.length === 0 && fallbackSource.channelName) channelNames.push(fallbackSource.channelName);
-              if (sourceEvidence.length === 0 && (fallbackSource.channelId || fallbackSource.channelName)) {
-                sourceEvidence.push({
-                  provider: 'slack',
-                  channel_id: fallbackSource.channelId,
-                  channel_name: fallbackSource.channelName,
-                  message_ts: null,
-                  source_name: fallbackSource.channelName,
-                  source_type: 'slack_channel',
-                  note_id: null,
-                  meeting_date: null,
-                  url: fallbackSource.channelId ? slackMessageUrl(fallbackSource.channelId, null) : null,
-                });
-              }
-            }
-
-            for (const signal of signals) {
-              const key = signalKey({ category, title: signal.title, summary: signal.summary });
-              if (seenSignalKeys.has(key)) continue;
-              seenSignalKeys.add(key);
-
-              itemsToInsert.push({
-                organization_id: org.id,
-                category,
-                title: signal.title,
-                summary: signal.summary,
-                recommended_action: signal.recommended_action ?? null,
-                impact_level: signal.impact_level ?? 'medium',
-                affected_roles: normalizeAffectedRoles(signal.affected_roles, activeRoles),
-                source: sourceEvidence[0]?.provider ?? 'knowledge',
-                source_url: sourceEvidence[0]?.url ?? null,
-                source_metadata: {
-                  signals_reviewed: typedChunks.length,
-                  detected_by: 'ai_pipeline',
-                  retrieval_strategy: retrieval.strategy,
-                  vector_matches: retrieval.vectorMatches,
-                  fallback_candidates: retrieval.fallbackCandidates,
-                  channel_ids: channelIds,
-                  channel_names: channelNames,
-                  source_evidence: sourceEvidence,
-                  role_profiles: roleProfileSourceMetadata,
-                },
-                status: 'draft',
-                updated_at: new Date().toISOString(),
-              });
-
-              log.info('signal_detected', {
-                orgId: org.id,
-                category,
-                title: signal.title,
-                impact: signal.impact_level,
-                chunksReviewed: typedChunks.length,
-                retrievalStrategy: retrieval.strategy,
-              });
-            }
-          } catch (error) {
-            log.error('signal_failed', { orgId: org.id, category, error: errorMessage(error) });
-          }
-        }
-
-        if (itemsToInsert.length > 0) {
-          const { data: existingItems } = await supabase
-            .from('readiness_items')
-            .select('category, title, summary')
-            .eq('organization_id', org.id)
-            .neq('status', 'archived');
-
-          const existingSignalKeys = new Set(
-            (existingItems ?? []).map((row) => signalKey({
-              category: row.category as ReadinessCategory,
-              title: row.title,
-              summary: row.summary,
-            }))
-          );
-
-          const toInsert = itemsToInsert.filter((item) => !existingSignalKeys.has(signalKey(item)));
-          if (toInsert.length > 0) {
-            const { data: insertedItems, error: insertError } = await supabase
-              .from('readiness_items')
-              .insert(toInsert)
-              .select('id, organization_id, category, title, summary, recommended_action, affected_roles, source_metadata');
-
-            if (insertError) throw insertError;
-
-            await deliverReadinessItems({
-              supabase,
-              organizationId: org.id,
-              items: (insertedItems ?? []) as ReadinessDeliveryItem[],
-            });
-          }
-        }
+      const result = await step.run(`weekly-readiness-${org.id}`, async () => {
+        const generated = await generateObservationsForOrg({
+          supabase,
+          organizationId: org.id,
+          requireDeliveryTargets: true,
+        });
+        const delivered = await deliverWeeklyDigest({
+          supabase,
+          organizationId: org.id,
+        });
 
         log.info('org_complete', {
           orgId: org.id,
-          signalsDetected: itemsToInsert.length,
-          signalsReviewed: signalsReviewedTotal,
+          observationsGenerated: generated.observations.length,
+          observationsDelivered: delivered.observations,
+          deliveredTargets: delivered.delivered,
         });
 
         return {
-          signalsDetected: itemsToInsert.length,
-          signalsReviewed: signalsReviewedTotal,
+          signalsDetected: generated.observations.length,
+          deliveredTargets: delivered.delivered,
         };
       });
+
       totalSignals += result.signalsDetected;
+      totalDelivered += result.deliveredTargets;
     }
 
-    log.info('analysis_complete', { orgsProcessed: orgs.length, totalSignals });
-    return { ok: true, orgsProcessed: orgs.length, totalSignals };
+    log.info('analysis_complete', { orgsProcessed: orgs.length, totalSignals, totalDelivered });
+    return { ok: true, orgsProcessed: orgs.length, totalSignals, totalDelivered };
+  }
+);
+
+function relevantObservationText(observations: ReadinessObservationRow[]) {
+  return observations.slice(0, 6).map((observation, index) => (
+    `${index + 1}. ${observation.title}: ${observation.summary}${observation.recommended_action ? ` Next step: ${observation.recommended_action}` : ''}`
+  )).join('\n');
+}
+
+function meetingContext(meeting: MeetingEventRow) {
+  return [
+    `Title: ${meeting.title}`,
+    meeting.description ? `Description: ${compactText(meeting.description, 1000)}` : '',
+    `Starts: ${meeting.start_at}`,
+    meeting.organizer ? `Organizer: ${meeting.organizer}` : '',
+    meeting.attendees.length > 0 ? `Attendees: ${meeting.attendees.join(', ')}` : '',
+    meeting.customer_domain ? `Customer domain: ${meeting.customer_domain}` : '',
+  ].filter(Boolean).join('\n');
+}
+
+async function buildMeetingPrepText(params: {
+  meeting: MeetingEventRow;
+  observations: ReadinessObservationRow[];
+}) {
+  if (params.observations.length === 0) {
+    return { shouldSend: false, reason: 'no_related_readiness_observations', text: null as string | null };
+  }
+
+  const { object } = await generateObject({
+    model: llm,
+    schema: MeetingPrepSchema,
+    prompt: `You are Canon. Write a short meeting prep brief only if the readiness context is relevant to this specific meeting.
+
+Meeting:
+${meetingContext(params.meeting)}
+
+Readiness context:
+${relevantObservationText(params.observations)}
+
+Rules:
+- Send only when the context would help the attendee prepare for this meeting.
+- Do not send a generic briefing.
+- Keep it short: title plus up to 5 bullets.
+- Use customer and company terminology when present.
+
+Return should_send=false when the context is thin or unrelated.`,
+  });
+
+  if (!object.should_send) {
+    return { shouldSend: false, reason: object.reason ?? 'thin_context', text: null };
+  }
+
+  const text = [
+    `*${object.title || `Prep for ${params.meeting.title}`}*`,
+    '',
+    ...(object.bullets ?? []).map((bullet) => `• ${bullet}`),
+  ].join('\n').trim();
+
+  return text ? { shouldSend: true, reason: null, text } : { shouldSend: false, reason: 'empty_brief', text: null };
+}
+
+async function loadUpcomingMeetings(params: {
+  supabase: SupabaseServiceClient;
+  organizationId: string;
+  minutesBefore: number;
+}) {
+  const now = new Date();
+  const latestStart = new Date(now.getTime() + (params.minutesBefore + 15) * 60 * 1000);
+
+  const { data, error } = await params.supabase
+    .from('meeting_events')
+    .select('*')
+    .eq('organization_id', params.organizationId)
+    .gte('start_at', now.toISOString())
+    .lte('start_at', latestStart.toISOString())
+    .order('start_at', { ascending: true })
+    .limit(20);
+
+  if (error) throw error;
+  return (data ?? []) as MeetingEventRow[];
+}
+
+function domainTerms(meeting: MeetingEventRow) {
+  const domains = new Set<string>();
+  if (meeting.customer_domain) domains.add(meeting.customer_domain.toLowerCase());
+  for (const attendee of meeting.attendees) {
+    const domain = attendee.split('@')[1]?.toLowerCase();
+    if (domain) domains.add(domain);
+  }
+  return domains;
+}
+
+async function loadRelatedObservations(params: {
+  supabase: SupabaseServiceClient;
+  organizationId: string;
+  meeting: MeetingEventRow;
+}) {
+  const { data, error } = await params.supabase
+    .from('readiness_observations')
+    .select('*')
+    .eq('organization_id', params.organizationId)
+    .in('status', ['active', 'sent'])
+    .order('updated_at', { ascending: false })
+    .limit(30);
+
+  if (error) throw error;
+
+  const terms = new Set([
+    ...normalizeKey(params.meeting.title).split(' ').filter((term) => term.length > 3),
+    ...domainTerms(params.meeting),
+  ]);
+
+  return ((data ?? []) as ReadinessObservationRow[]).filter((observation) => {
+    const text = normalizeKey(`${observation.title} ${observation.summary} ${JSON.stringify(observation.metadata ?? {})}`);
+    return Array.from(terms).some((term) => text.includes(term));
+  }).slice(0, 6);
+}
+
+async function alreadyPrepared(params: {
+  supabase: SupabaseServiceClient;
+  meetingId: string;
+  targetProvider: ReadinessDeliveryProvider;
+  targetId: string;
+}) {
+  const { data, error } = await params.supabase
+    .from('meeting_prep_deliveries')
+    .select('id')
+    .eq('meeting_event_id', params.meetingId)
+    .eq('target_provider', params.targetProvider)
+    .eq('target_id', params.targetId)
+    .limit(1);
+
+  if (error) throw error;
+  return (data ?? []).length > 0;
+}
+
+export const meetingPrepBriefing = inngest.createFunction(
+  {
+    id: 'meeting-prep-briefing',
+    name: 'Canon: Meeting Prep Briefing',
+    retries: 1,
+  },
+  { cron: '*/15 * * * *' },
+  async ({ step }) => {
+    const supabase = createServiceRoleClient();
+    const orgs = await loadOrganizations(supabase);
+    let sent = 0;
+    let skipped = 0;
+
+    for (const org of orgs) {
+      const result = await step.run(`meeting-prep-${org.id}`, async () => {
+        const config = await readinessDeliveryConfig({ supabase, organizationId: org.id });
+        if (!config.meetingPrepEnabled) return { sent: 0, skipped: 0 };
+
+        const dmTargets = config.targets.filter((target) => target.enabled && target.target_type === 'dm');
+        if (dmTargets.length === 0) {
+          log.info('meeting_prep_skipped', { orgId: org.id, reason: 'no_dm_targets' });
+          return { sent: 0, skipped: 0 };
+        }
+
+        const meetings = await loadUpcomingMeetings({
+          supabase,
+          organizationId: org.id,
+          minutesBefore: config.meetingPrepMinutesBefore,
+        });
+        let orgSent = 0;
+        let orgSkipped = 0;
+
+        for (const meeting of meetings) {
+          const observations = await loadRelatedObservations({ supabase, organizationId: org.id, meeting });
+          const prep = await buildMeetingPrepText({ meeting, observations });
+          if (!prep.shouldSend || !prep.text) {
+            orgSkipped++;
+            log.info('meeting_prep_skipped', {
+              orgId: org.id,
+              meetingId: meeting.id,
+              reason: prep.reason,
+            });
+            continue;
+          }
+
+          for (const target of dmTargets) {
+            if (await alreadyPrepared({
+              supabase,
+              meetingId: meeting.id,
+              targetProvider: target.provider,
+              targetId: target.target_id,
+            })) {
+              continue;
+            }
+
+            const [delivery] = await sendReadinessToTargets({
+              organizationId: org.id,
+              targets: [target],
+              text: prep.text,
+            });
+            const now = new Date().toISOString();
+            const { error } = await supabase
+              .from('meeting_prep_deliveries')
+              .insert({
+                organization_id: org.id,
+                meeting_event_id: meeting.id,
+                target_provider: target.provider,
+                target_id: target.target_id,
+                target_name: target.target_name,
+                status: delivery?.sent ? 'delivered' : 'failed',
+                reason: delivery?.reason ?? null,
+                delivered_at: delivery?.sent ? now : null,
+                metadata: {
+                  observation_ids: observations.map((observation) => observation.id),
+                  permalink: delivery?.permalink ?? null,
+                },
+                updated_at: now,
+              });
+
+            if (error) throw error;
+            if (delivery?.sent) {
+              orgSent++;
+              log.info('meeting_prep_sent', { orgId: org.id, meetingId: meeting.id, target: target.target_id });
+            } else {
+              orgSkipped++;
+              log.warn('delivery_failed', {
+                orgId: org.id,
+                meetingId: meeting.id,
+                target: target.target_id,
+                reason: delivery?.reason,
+              });
+            }
+          }
+        }
+
+        return { sent: orgSent, skipped: orgSkipped };
+      });
+
+      sent += result.sent;
+      skipped += result.skipped;
+    }
+
+    return { ok: true, orgsProcessed: orgs.length, sent, skipped };
   }
 );

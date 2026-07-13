@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { inngest } from '@/inngest/client';
-import { sendSlackDirectMessage, sendSlackMessage, type SlackDeliveryResult } from '@/lib/server/signals/delivery';
+import { sendReadinessToTargets, type ReadinessDeliveryResult, type ReadinessDeliveryTargetRow } from '@/lib/server/readiness/delivery';
 import { createLogger } from '@/lib/server/logging';
 import { requireWorkspace } from '@/lib/server/organization';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type {
   HireRole,
+  ReadinessDeliveryProvider,
+  ReadinessDeliveryTargetType,
   ReadinessAffectedRole,
   ReadinessBrief,
   ReadinessCategory,
@@ -109,13 +111,37 @@ function validSlackDmTargets(values: unknown) {
     : [];
 }
 
-function validSlackChannelIds(values: unknown) {
-  return Array.isArray(values)
-    ? values
-        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-        .map((value) => value.trim())
-        .filter((value) => /^[CG][A-Z0-9]+$/.test(value))
-    : [];
+function isDeliveryProvider(value: unknown): value is ReadinessDeliveryProvider {
+  return value === 'slack' || value === 'teams' || value === 'google_chat';
+}
+
+function isDeliveryTargetType(value: unknown): value is ReadinessDeliveryTargetType {
+  return value === 'channel' || value === 'dm';
+}
+
+function validDeliveryTargets(values: unknown, organizationId: string): ReadinessDeliveryTargetRow[] {
+  if (!Array.isArray(values)) return [];
+
+  return values.flatMap((value) => {
+    if (!value || typeof value !== 'object') return [];
+    const target = value as Record<string, unknown>;
+    const provider = target.provider;
+    const targetType = target.targetType ?? target.target_type;
+    const targetId = target.targetId ?? target.target_id;
+    const targetName = target.targetName ?? target.target_name;
+
+    if (!isDeliveryProvider(provider) || !isDeliveryTargetType(targetType)) return [];
+    if (typeof targetId !== 'string' || targetId.trim().length === 0) return [];
+
+    return [{
+      organization_id: organizationId,
+      provider,
+      target_type: targetType,
+      target_id: targetId.trim(),
+      target_name: typeof targetName === 'string' && targetName.trim().length > 0 ? targetName.trim() : null,
+      enabled: target.enabled !== false,
+    }];
+  });
 }
 
 function isReadinessStatus(value: unknown): value is ReadinessStatus {
@@ -365,6 +391,7 @@ export async function POST(request: NextRequest) {
       itemIds?: unknown;
       channelIds?: unknown;
       userIds?: unknown;
+      targets?: unknown;
     };
     const requestedCategory = body.category ? body.category : request.nextUrl.searchParams.get('category');
     if (requestedCategory && !isReadinessCategory(requestedCategory)) {
@@ -389,32 +416,10 @@ export async function POST(request: NextRequest) {
     const { supabase, organization } = await requireWorkspace(user);
 
     if (body.action === 'generate') {
-      const { data: deliverySettings, error: deliverySettingsError } = await supabase
-        .from('readiness_delivery_settings')
-        .select('channel_ids, slack_user_ids')
-        .eq('organization_id', organization.id)
-        .maybeSingle();
-
-      if (deliverySettingsError) throw deliverySettingsError;
-
-      const configuredChannels = validSlackChannelIds(deliverySettings?.channel_ids);
-      const configuredDmTargets = validSlackDmTargets(deliverySettings?.slack_user_ids);
-      if (configuredChannels.length === 0 && configuredDmTargets.length === 0) {
-        log.warn('send_target_missing', {
-          userId: user.id,
-          orgId: organization.id,
-          reason: 'readiness_delivery_not_configured',
-        });
-        return NextResponse.json({
-          error: 'Choose where Canon should send updates before generating readiness updates.',
-        }, { status: 400 });
-      }
-
       log.info('generate_requested', {
         userId: user.id,
         orgId: organization.id,
-        configuredChannels: configuredChannels.length,
-        configuredDmTargets: configuredDmTargets.length,
+        delivery: 'manual_generation_only',
       });
       await inngest.send({
         name: 'onboarding/readiness.generate.requested',
@@ -469,9 +474,29 @@ export async function POST(request: NextRequest) {
       categories: Array.from(new Set(readinessItems.map((item) => item.category))),
     });
 
-    const resolvedChannelIds = requestedChannelIds;
+    const requestedTargets = validDeliveryTargets(body.targets, organization.id);
+    const deliveryTargets: ReadinessDeliveryTargetRow[] = requestedTargets.length > 0
+      ? requestedTargets
+      : [
+          ...requestedChannelIds.map((channelId) => ({
+            organization_id: organization.id,
+            provider: 'slack' as const,
+            target_type: 'channel' as const,
+            target_id: channelId,
+            target_name: null,
+            enabled: true,
+          })),
+          ...Array.from(new Set(userIds)).map((userId) => ({
+            organization_id: organization.id,
+            provider: 'slack' as const,
+            target_type: 'dm' as const,
+            target_id: userId,
+            target_name: null,
+            enabled: true,
+          })),
+        ];
 
-    if (resolvedChannelIds.length === 0 && userIds.length === 0) {
+    if (deliveryTargets.length === 0) {
       log.warn('send_target_missing', {
         userId: user.id,
         orgId: organization.id,
@@ -486,35 +511,29 @@ export async function POST(request: NextRequest) {
     log.info('send_target_resolved', {
       userId: user.id,
       orgId: organization.id,
-      channels: resolvedChannelIds,
-      dmTargets: Array.from(new Set(userIds)),
-      targetCount: resolvedChannelIds.length + Array.from(new Set(userIds)).length,
+      targetCount: deliveryTargets.length,
+      providers: Array.from(new Set(deliveryTargets.map((target) => target.provider))),
     });
 
     const text = buildReadinessNote(readinessItems, categories);
-    const deliveries: Array<{ target: string; type: 'channel' | 'dm' } & SlackDeliveryResult> = [];
-
-    for (const channel of resolvedChannelIds) {
-      const sent = await sendSlackMessage({ organizationId: organization.id, channel, text });
-      deliveries.push({ target: channel, type: 'channel', ...sent });
-    }
-
-    for (const slackUserId of Array.from(new Set(userIds))) {
-      const sent = await sendSlackDirectMessage({ organizationId: organization.id, slackUserId, text });
-      deliveries.push({ target: slackUserId, type: 'dm', ...sent });
-    }
+    const deliveries: ReadinessDeliveryResult[] = await sendReadinessToTargets({
+      organizationId: organization.id,
+      targets: deliveryTargets,
+      text,
+    });
 
     const failedDelivery = deliveries.find((delivery) => !delivery.sent);
     for (const delivery of deliveries) {
       log.info('send_delivery_result', {
         userId: user.id,
         orgId: organization.id,
-        type: delivery.type,
-        target: delivery.target,
+        provider: delivery.target.provider,
+        type: delivery.target.target_type,
+        target: delivery.target.target_id,
         sent: delivery.sent,
         reason: delivery.reason,
-        slackChannel: delivery.channel,
-        slackTs: delivery.ts,
+        channel: delivery.channel,
+        ts: delivery.ts,
         permalink: delivery.permalink,
       });
     }
@@ -527,8 +546,9 @@ export async function POST(request: NextRequest) {
         userId: user.id,
         orgId: organization.id,
         itemCount: readinessItems.length,
-        failedType: failedDelivery.type,
-        failedTarget: failedDelivery.target,
+        failedProvider: failedDelivery.target.provider,
+        failedType: failedDelivery.target.target_type,
+        failedTarget: failedDelivery.target.target_id,
         reason: failedDelivery.reason,
         deliveries,
       });
@@ -559,7 +579,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       sent: true,
-      channels: resolvedChannelIds,
+      channels: deliveryTargets.filter((target) => target.provider === 'slack' && target.target_type === 'channel').map((target) => target.target_id),
       deliveries,
       count: readinessItems.length,
       items: updated ?? [],

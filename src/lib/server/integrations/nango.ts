@@ -34,7 +34,7 @@ type NangoConnectionsListResponse = {
   };
 };
 
-type NangoProvider = 'granola' | 'teams' | 'gmail' | 'google_calendar' | 'outlook';
+type NangoProvider = 'granola' | 'teams' | 'google_chat' | 'gmail' | 'google_calendar' | 'outlook';
 
 type NangoProviderConfig = {
   integrationId: string;
@@ -80,6 +80,18 @@ const NANGO_PROVIDER_CONFIG: Record<NangoProvider, NangoProviderConfig> = {
       'microsoft-teams',
     aliases: ['teams', 'microsoft-teams', 'microsoft_teams', 'ms-teams'],
     label: 'Microsoft Teams',
+    sourceType: 'team_chat',
+    supportsWebhooks: true,
+    supportsIncrementalSync: true,
+    supportsConnectionConfigDefaults: true,
+  },
+  google_chat: {
+    integrationId:
+      process.env.NANGO_GOOGLE_CHAT_INTEGRATION_ID ||
+      process.env.NANGO_GOOGLE_CHAT_PROVIDER_CONFIG_KEY ||
+      'google-chat',
+    aliases: ['google-chat', 'google_chat', 'gchat'],
+    label: 'Google Chat',
     sourceType: 'team_chat',
     supportsWebhooks: true,
     supportsIncrementalSync: true,
@@ -298,6 +310,31 @@ export async function nangoProxyGet(params: {
   return nangoRequest<unknown>({
     path: `/proxy${params.endpoint.startsWith('/') ? params.endpoint : `/${params.endpoint}`}`,
     query: params.query,
+    headers: {
+      'provider-config-key': integration.integrationId,
+      'connection-id': params.connectionId,
+    },
+    cache: 'no-store',
+  });
+}
+
+export async function nangoProxyPost(params: {
+  provider: string;
+  connectionId: string;
+  endpoint: string;
+  query?: Record<string, string | number | boolean | null | undefined>;
+  body?: unknown;
+}) {
+  const integration = nangoIntegrationForProvider(params.provider);
+  if (!integration) {
+    throw new Error(`Unsupported Nango provider: ${params.provider}`);
+  }
+
+  return nangoRequest<unknown>({
+    path: `/proxy${params.endpoint.startsWith('/') ? params.endpoint : `/${params.endpoint}`}`,
+    method: 'POST',
+    query: params.query,
+    body: params.body,
     headers: {
       'provider-config-key': integration.integrationId,
       'connection-id': params.connectionId,

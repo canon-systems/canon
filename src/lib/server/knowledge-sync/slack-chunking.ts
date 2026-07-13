@@ -28,10 +28,13 @@ export function chunkSlackMessages(
       createKnowledgeTextChunk({
         content: currentTexts.join('\n\n'),
         metadata: {
+          provider: 'slack',
+          source_type: 'team_chat',
           channel_id: channelId,
           channel_name: channelName,
           earliest_ts: earliestTs,
           latest_ts: latestTs,
+          external_id: `${channelId}:${earliestTs}:${latestTs}`,
           message_count: currentTexts.length,
         },
         identityParts: ['slack', channelId, earliestTs, latestTs, chunks.length],

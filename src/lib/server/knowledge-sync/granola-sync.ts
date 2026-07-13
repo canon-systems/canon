@@ -3,6 +3,7 @@ import { fetchGranolaNotes, type NormalizedGranolaNote } from '@/lib/server/inte
 import { embedAndReplaceKnowledgeChunks } from '@/lib/server/knowledge-sync/chunk-writer';
 import { logGranolaDiagnostics } from '@/lib/server/knowledge-sync/granola-diagnostics';
 import { chunkTextDocument, type KnowledgeTextChunk } from '@/lib/server/knowledge-sync/text-chunker';
+import { upsertReadinessSourceEvents } from '@/lib/server/readiness/source-events';
 
 type SupabaseServiceClient = ReturnType<typeof createServiceRoleClient>;
 
@@ -75,6 +76,25 @@ export async function fetchEmbedPersistGranolaSource(params: {
   });
 
   await params.assertActive('granola chunking');
+  await upsertReadinessSourceEvents({
+    supabase: params.supabase,
+    events: notes.map((note) => ({
+      organizationId: params.organizationId,
+      provider: 'granola',
+      sourceType: 'transcript',
+      sourceId: params.sourceId,
+      externalId: note.id,
+      content: note.content,
+      occurredAt: note.meetingDate,
+      metadata: {
+        ...note.metadata,
+        source_name: note.title,
+        source_url: note.url,
+        note_id: note.id,
+      },
+    })),
+  });
+
   const chunks = chunkGranolaNotes(notes);
 
   params.log.info('sync_chunks_ready', {

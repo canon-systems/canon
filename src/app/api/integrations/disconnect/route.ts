@@ -111,6 +111,27 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const readinessDeliveryProviders = Array.from(integrationProviderSet)
+      .filter((provider) => provider === 'slack' || provider === 'teams' || provider === 'google_chat');
+
+    if (readinessDeliveryProviders.length > 0) {
+      const { error: deliveryTargetsDeleteError } = await supabase
+        .from('readiness_delivery_targets')
+        .delete()
+        .eq('organization_id', organization.id)
+        .in('provider', readinessDeliveryProviders);
+
+      if (deliveryTargetsDeleteError) {
+        console.warn('Failed to clear readiness delivery targets during disconnect:', deliveryTargetsDeleteError);
+      } else {
+        log.info('delivery_settings_cleared', {
+          userId: user.id,
+          orgId: organization.id,
+          provider: readinessDeliveryProviders.join(','),
+        });
+      }
+    }
+
     if (integrationProviderSet.has('slack')) {
       const { error: deliverySettingsDeleteError } = await supabase
         .from('readiness_delivery_settings')
