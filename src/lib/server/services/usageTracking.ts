@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 async function trackUsageEvent(
   supabase: SupabaseClient,
-  workspaceId: string,
+  organizationId: string,
   eventType: string,
   metadata: Record<string, unknown> = {}
 ) {
@@ -11,7 +11,7 @@ async function trackUsageEvent(
     : null;
 
   await supabase.from('usage_events').insert({
-    user_id: workspaceId,
+    organization_id: organizationId,
     source_id: sourceId,
     event_type: eventType,
     metadata,
@@ -28,12 +28,12 @@ function withSourceMetadata(sourceId: string, metadata: Record<string, unknown>)
 
 async function trackSourceLifecycleEvent(
   supabase: SupabaseClient,
-  workspaceId: string,
+  organizationId: string,
   state: 'connected' | 'disconnected',
   sourceId: string,
   metadata: Record<string, unknown>
 ) {
-  await trackUsageEvent(supabase, workspaceId, `source_${state}`, withSourceMetadata(sourceId, metadata));
+  await trackUsageEvent(supabase, organizationId, `source_${state}`, withSourceMetadata(sourceId, metadata));
 }
 
 export function sourceUrlFromSourceScope(
@@ -56,12 +56,12 @@ export function sourceUrlFromSourceScope(
 
 export async function trackIntegrationStateChanged(
   supabase: SupabaseClient,
-  workspaceId: string,
+  organizationId: string,
   state: 'connected' | 'disconnected',
   provider: string,
   connectionId?: string
 ) {
-  await trackUsageEvent(supabase, workspaceId, `integration_${state}`, {
+  await trackUsageEvent(supabase, organizationId, `integration_${state}`, {
     provider,
     connection_id: connectionId,
   });
@@ -69,13 +69,13 @@ export async function trackIntegrationStateChanged(
 
 export async function trackSourceDisconnected(
   supabase: SupabaseClient,
-  workspaceId: string,
+  organizationId: string,
   sourceId: string,
   sourceUrl?: string | null,
   branch?: string | null,
   provider?: string | null
 ) {
-  await trackSourceLifecycleEvent(supabase, workspaceId, 'disconnected', sourceId, {
+  await trackSourceLifecycleEvent(supabase, organizationId, 'disconnected', sourceId, {
     source_url: sourceUrl ?? null,
     branch,
     provider,

@@ -72,7 +72,6 @@ async function markSourceError(supabase: SupabaseServiceClient, sourceId: string
 
 async function queueGranolaDownstreamWork(params: {
   organizationId: string;
-  ownerId?: string;
   chunkCount: number;
 }) {
   if (params.chunkCount === 0) return;
@@ -84,18 +83,16 @@ async function queueGranolaDownstreamWork(params: {
     },
   ];
 
-  if (params.ownerId) {
-    events.push({
-      name: 'onboarding/readiness.generate.requested',
-      data: { organizationId: params.organizationId, ownerId: params.ownerId },
-    });
-  }
+  events.push({
+    name: 'onboarding/readiness.generate.requested',
+    data: { organizationId: params.organizationId },
+  });
 
   await inngest.send(events);
 }
 
 async function syncGranolaSource(context: KnowledgeSourceAdapterContext): Promise<Record<string, unknown>> {
-  const { ownerId, connectionId } = await getGranolaConnectionForOrganization(context.supabase, {
+  const { connectionId } = await getGranolaConnectionForOrganization(context.supabase, {
     organizationId: context.organizationId,
     log: context.log,
   });
@@ -104,8 +101,8 @@ async function syncGranolaSource(context: KnowledgeSourceAdapterContext): Promis
     context.log.error('sync_failed', {
       sourceId: context.sourceId,
       source: context.source.name,
-      error: 'No active Granola Nango connection configured for organization owner',
-      ownerId,
+      error: 'No active Granola Nango connection configured for organization',
+      organizationId: context.organizationId,
       ms: elapsedMs(context.syncStartedAt),
     });
     await markSourceError(context.supabase, context.sourceId);
@@ -160,7 +157,6 @@ async function syncGranolaSource(context: KnowledgeSourceAdapterContext): Promis
 
     await queueGranolaDownstreamWork({
       organizationId: context.organizationId,
-      ownerId,
       chunkCount: embeddedCount,
     });
 
@@ -204,7 +200,7 @@ async function syncGranolaSource(context: KnowledgeSourceAdapterContext): Promis
 }
 
 async function syncSlackSource(context: KnowledgeSourceAdapterContext): Promise<Record<string, unknown>> {
-  const { accessToken, ownerId, connectionId, scope } = await getSlackAccessTokenForOrganization(
+  const { accessToken, connectionId, scope } = await getSlackAccessTokenForOrganization(
     context.supabase,
     context.organizationId
   );
@@ -214,8 +210,8 @@ async function syncSlackSource(context: KnowledgeSourceAdapterContext): Promise<
     context.log.error('sync_failed', {
       sourceId: context.sourceId,
       channel,
-      error: 'No active source OAuth token configured for organization owner',
-      ownerId,
+      error: 'No active source OAuth token configured for organization',
+      organizationId: context.organizationId,
       connectionId,
       ms: elapsedMs(context.syncStartedAt),
     });
@@ -226,7 +222,7 @@ async function syncSlackSource(context: KnowledgeSourceAdapterContext): Promise<
   context.log.info('sync_token_resolved', {
     sourceId: context.sourceId,
     channel,
-    ownerId,
+    organizationId: context.organizationId,
     connectionId,
   });
 

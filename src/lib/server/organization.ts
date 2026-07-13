@@ -1,31 +1,36 @@
-import type { SupabaseClient, User } from '@supabase/supabase-js';
+import { auth, clerkClient } from '@clerk/nextjs/server';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
+import type { CanonUser } from '@/lib/auth';
+import { AUTH_ROUTES } from '@/lib/clerk-routes';
 import { DEFAULT_ROLES } from '@/lib/onboarding/roles';
-import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { createServiceRoleClient } from '@/lib/supabase/server';
 
 export type OrganizationRole = 'owner' | 'admin' | 'member';
 
 export type CurrentOrganization = {
   id: string;
+  clerk_org_id: string;
   name: string;
   slug: string;
   owner_id: string | null;
   role: OrganizationRole;
 };
 
-type OrganizationMembershipRow = {
+export type ClerkOrganizationDetails = {
+  clerkOrgId: string;
+  name: string;
+  slug: string;
+  ownerId: string | null;
   role: OrganizationRole;
-  organizations: {
-    id: string;
-    name: string;
-    slug: string;
-    owner_id: string | null;
-  } | null;
 };
 
-type WorkspaceCreateInput = {
-  name?: string;
+type SupabaseErrorLike = {
+  code?: string;
+  details?: string | null;
+  hint?: string | null;
+  message?: string;
 };
 
 class WorkspaceError extends Error {
@@ -38,27 +43,10 @@ class WorkspaceError extends Error {
   }
 }
 
-function metadataString(user: User, key: string) {
-  const value = user.user_metadata?.[key];
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-function workspaceNameForUser(user: User, explicitWorkspaceName?: string) {
-  const explicitName = explicitWorkspaceName?.trim();
-  if (explicitName) return explicitName;
-
-  const inferredName =
-    metadataString(user, 'organization_name') ||
-    metadataString(user, 'company_name') ||
-    metadataString(user, 'full_name') ||
-    metadataString(user, 'name');
-
-  if (inferredName) return `${inferredName}'s Workspace`;
-
-  const emailName = user.email?.split('@')[0]?.replace(/[._-]+/g, ' ').trim();
-  if (emailName) return `${emailName}'s Workspace`;
-
-  return 'My Workspace';
+export function roleFromClerk(role: string | null | undefined): OrganizationRole {
+  if (role === 'org:owner' || role === 'owner') return 'owner';
+  if (role === 'org:admin' || role === 'admin') return 'admin';
+  return 'member';
 }
 
 function slugify(value: string) {
@@ -69,16 +57,40 @@ function slugify(value: string) {
     .slice(0, 48);
 }
 
-function workspaceSlugForUser(user: User, explicitWorkspaceName?: string) {
-  const base = slugify(
-    explicitWorkspaceName ||
-      metadataString(user, 'organization_name') ||
-      metadataString(user, 'company_name') ||
-      user.email?.split('@')[0] ||
-      'workspace'
-  );
+function supabaseErrorMessage(context: string, error: SupabaseErrorLike) {
+  const parts = [
+    context,
+    error.code ? `[${error.code}]` : null,
+    error.message,
+    error.details ? `Details: ${error.details}` : null,
+    error.hint ? `Hint: ${error.hint}` : null,
+  ].filter(Boolean);
 
-  return `${base || 'workspace'}-${user.id.slice(0, 8)}`;
+  return parts.join(' ');
+}
+
+function throwSupabaseError(context: string, error: SupabaseErrorLike | null): never {
+  if (!error) throw new WorkspaceError(context, 500);
+  throw new WorkspaceError(supabaseErrorMessage(context, error), 500);
+}
+
+async function activeClerkOrganization(): Promise<ClerkOrganizationDetails> {
+  const authState = await auth();
+  if (!authState.userId) throw new WorkspaceError('Unauthorized', 401);
+  if (!authState.orgId) throw new WorkspaceError('Organization setup required', 428);
+
+  const client = await clerkClient();
+  const organization = await client.organizations.getOrganization({
+    organizationId: authState.orgId,
+  });
+
+  return {
+    clerkOrgId: authState.orgId,
+    name: organization.name || 'Canon Workspace',
+    slug: organization.slug || `${slugify(organization.name || 'workspace')}-${authState.orgId.slice(-8)}`,
+    ownerId: organization.createdBy ?? authState.userId,
+    role: roleFromClerk(authState.orgRole),
+  };
 }
 
 async function ensureDefaultRoleProfiles(supabase: SupabaseClient, organizationId: string) {
@@ -94,132 +106,78 @@ async function ensureDefaultRoleProfiles(supabase: SupabaseClient, organizationI
     .from('role_profiles')
     .upsert(rows, { onConflict: 'organization_id,role', ignoreDuplicates: true });
 
-  if (error) throw error;
+  if (error) throwSupabaseError('Failed to prepare default role profiles.', error);
 }
 
-async function ensureOwnerMembership(supabase: SupabaseClient, organizationId: string, userId: string) {
-  const { error } = await supabase
-    .from('organization_members')
-    .upsert({
-      organization_id: organizationId,
-      user_id: userId,
-      role: 'owner',
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'organization_id,user_id' });
-
-  if (error) throw error;
-}
-
-async function organizationByOwner(supabase: SupabaseClient, user: User): Promise<CurrentOrganization | null> {
-  const { data, error } = await supabase
+export async function ensureCanonOrganizationForClerkOrg(
+  supabase: SupabaseClient,
+  clerkOrg: ClerkOrganizationDetails
+): Promise<CurrentOrganization> {
+  const { data: organization, error } = await supabase
     .from('organizations')
-    .select('id, name, slug, owner_id')
-    .eq('owner_id', user.id)
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle();
+    .upsert(
+      {
+        clerk_org_id: clerkOrg.clerkOrgId,
+        name: clerkOrg.name,
+        slug: clerkOrg.slug,
+        owner_id: clerkOrg.ownerId,
+      },
+      { onConflict: 'clerk_org_id' }
+    )
+    .select('id, clerk_org_id, name, slug, owner_id')
+    .single();
 
-  if (error) throw error;
-  if (!data) return null;
-
-  await ensureOwnerMembership(supabase, data.id, user.id);
-  await ensureDefaultRoleProfiles(supabase, data.id);
-
-  return { ...data, role: 'owner' };
-}
-
-async function organizationByMembership(supabase: SupabaseClient, user: User): Promise<CurrentOrganization | null> {
-  const { data, error } = await supabase
-    .from('organization_members')
-    .select('role, organizations(id, name, slug, owner_id)')
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle();
-
-  if (error) throw error;
-
-  const membership = data as OrganizationMembershipRow | null;
-  const organization = membership?.organizations;
-  if (!organization || Array.isArray(organization)) return null;
+  if (error || !organization) {
+    throwSupabaseError('Failed to prepare organization.', error);
+  }
 
   await ensureDefaultRoleProfiles(supabase, organization.id);
 
   return {
-    id: organization.id,
-    name: organization.name,
-    slug: organization.slug,
-    owner_id: organization.owner_id,
-    role: membership.role,
+    ...organization,
+    role: clerkOrg.role,
   };
+}
+
+async function ensureCanonOrganization(): Promise<CurrentOrganization> {
+  const clerkOrg = await activeClerkOrganization();
+  const service = createServiceRoleClient();
+  return ensureCanonOrganizationForClerkOrg(service, clerkOrg);
 }
 
 export async function getOrganizationForUser(
   supabase: SupabaseClient,
-  user: User
+  user: CanonUser
 ): Promise<CurrentOrganization | null> {
-  const byMembership = await organizationByMembership(supabase, user);
-  if (byMembership) return byMembership;
+  void supabase;
+  void user;
 
-  return organizationByOwner(supabase, user);
+  try {
+    return await ensureCanonOrganization();
+  } catch (error) {
+    if (error instanceof WorkspaceError && error.status === 428) return null;
+    throw error;
+  }
 }
 
-export async function createWorkspaceForUser(
-  supabase: SupabaseClient,
-  user: User,
-  input: WorkspaceCreateInput = {}
-): Promise<CurrentOrganization> {
-  const existing = await getOrganizationForUser(supabase, user);
-  if (existing) return existing;
-
-  const service = createServiceRoleClient();
-  const workspaceName = workspaceNameForUser(user, input.name);
-  const { data: created, error: createError } = await service
-    .from('organizations')
-    .insert({
-      name: workspaceName,
-      slug: workspaceSlugForUser(user, workspaceName),
-      owner_id: user.id,
-    })
-    .select('id, name, slug, owner_id')
-    .single();
-
-  if (createError) {
-    if (createError.code === '23505') {
-      const existing = await organizationByOwner(service, user);
-      if (existing) return existing;
-    }
-
-    throw createError;
-  }
-
-  if (!created) throw new WorkspaceError('Failed to create workspace', 500);
-
-  await ensureOwnerMembership(service, created.id, user.id);
-  await ensureDefaultRoleProfiles(service, created.id);
-
-  return { ...created, role: 'owner' };
+export async function createWorkspaceForUser(): Promise<CurrentOrganization> {
+  return ensureCanonOrganization();
 }
 
 export function isWorkspaceAdmin(role: OrganizationRole) {
   return role === 'owner' || role === 'admin';
 }
 
-async function getWorkspaceContext(user: User) {
-  const supabase = await createClient();
-  const organization = await getOrganizationForUser(supabase, user);
-  if (!organization) {
-    throw new WorkspaceError('Workspace setup required', 428);
-  }
+export async function requireWorkspace(user?: CanonUser) {
+  void user;
+
+  const supabase = createServiceRoleClient();
+  const organization = await ensureCanonOrganization();
   return { supabase, organization };
 }
 
-export async function requireWorkspace(user: User) {
-  return getWorkspaceContext(user);
-}
-
-export async function requireWorkspaceAdmin(user: User) {
-  const context = await getWorkspaceContext(user);
+export async function requireWorkspaceAdmin(user?: CanonUser) {
+  const context = await requireWorkspace(user);
 
   if (!isWorkspaceAdmin(context.organization.role)) {
     throw new WorkspaceError('Workspace admin access required', 403);
@@ -235,4 +193,8 @@ export function workspaceErrorResponse(error: unknown, fallback = 'Workspace req
 
   const detail = error instanceof Error ? error.message : String(error);
   return NextResponse.json({ error: fallback, detail }, { status: 500 });
+}
+
+export function organizationSetupPath() {
+  return AUTH_ROUTES.createOrganization;
 }

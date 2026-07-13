@@ -208,14 +208,12 @@ export async function createNangoConnectSession(params: {
   };
 }
 
-export async function listNangoConnectionsForUser(params: {
-  userId: string;
+export async function listNangoConnectionsForOrganization(params: {
   organizationId: string;
 }) {
   const data = await nangoRequest<NangoConnectionsListResponse>({
     path: '/connections',
     query: {
-      'tags[end_user_id]': params.userId,
       'tags[organization_id]': params.organizationId,
       limit: 100,
     },

@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
-import { createClient } from '@/lib/supabase/server';
 import { inngest } from '@/inngest/client';
 import { sendSlackDirectMessage, sendSlackMessage, type SlackDeliveryResult } from '@/lib/server/signals/delivery';
 import { createLogger } from '@/lib/server/logging';
 import { requireWorkspace } from '@/lib/server/organization';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import type {
   HireRole,
   ReadinessAffectedRole,
@@ -106,6 +106,15 @@ function validSlackDmTargets(values: unknown) {
         .map((value) => value.trim())
         .filter((value) => value !== 'USLACKBOT')
         .filter((value) => /^[DU][A-Z0-9]+$/.test(value))
+    : [];
+}
+
+function validSlackChannelIds(values: unknown) {
+  return Array.isArray(values)
+    ? values
+        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        .map((value) => value.trim())
+        .filter((value) => /^[CG][A-Z0-9]+$/.test(value))
     : [];
 }
 
@@ -227,7 +236,7 @@ function buildReadinessNote(items: ReadinessItem[], categories: ReadinessCategor
 }
 
 
-async function fallbackReadinessSource(supabase: Awaited<ReturnType<typeof createClient>>, organizationId: string) {
+async function fallbackReadinessSource(supabase: SupabaseClient, organizationId: string) {
   const { data: source } = await supabase
     .from('knowledge_sources')
     .select('name, slack_channel_id, slack_channel_name')
@@ -380,13 +389,36 @@ export async function POST(request: NextRequest) {
     const { supabase, organization } = await requireWorkspace(user);
 
     if (body.action === 'generate') {
+      const { data: deliverySettings, error: deliverySettingsError } = await supabase
+        .from('readiness_delivery_settings')
+        .select('channel_ids, slack_user_ids')
+        .eq('organization_id', organization.id)
+        .maybeSingle();
+
+      if (deliverySettingsError) throw deliverySettingsError;
+
+      const configuredChannels = validSlackChannelIds(deliverySettings?.channel_ids);
+      const configuredDmTargets = validSlackDmTargets(deliverySettings?.slack_user_ids);
+      if (configuredChannels.length === 0 && configuredDmTargets.length === 0) {
+        log.warn('send_target_missing', {
+          userId: user.id,
+          orgId: organization.id,
+          reason: 'readiness_delivery_not_configured',
+        });
+        return NextResponse.json({
+          error: 'No delivery targets configured. Select at least one channel or user in the Delivery tab before generating readiness updates.',
+        }, { status: 400 });
+      }
+
       log.info('generate_requested', {
         userId: user.id,
         orgId: organization.id,
+        configuredChannels: configuredChannels.length,
+        configuredDmTargets: configuredDmTargets.length,
       });
       await inngest.send({
         name: 'onboarding/readiness.generate.requested',
-        data: { organizationId: organization.id, ownerId: user.id },
+        data: { organizationId: organization.id },
       });
       log.info('generate_queued', {
         userId: user.id,
@@ -463,12 +495,12 @@ export async function POST(request: NextRequest) {
     const deliveries: Array<{ target: string; type: 'channel' | 'dm' } & SlackDeliveryResult> = [];
 
     for (const channel of resolvedChannelIds) {
-      const sent = await sendSlackMessage({ userId: user.id, channel, text });
+      const sent = await sendSlackMessage({ organizationId: organization.id, channel, text });
       deliveries.push({ target: channel, type: 'channel', ...sent });
     }
 
     for (const slackUserId of Array.from(new Set(userIds))) {
-      const sent = await sendSlackDirectMessage({ userId: user.id, slackUserId, text });
+      const sent = await sendSlackDirectMessage({ organizationId: organization.id, slackUserId, text });
       deliveries.push({ target: slackUserId, type: 'dm', ...sent });
     }
 
@@ -512,6 +544,7 @@ export async function POST(request: NextRequest) {
     const { data: updated, error: updateError } = await supabase
       .from('readiness_items')
       .update({ status: 'sent', sent_at: sentAt, updated_at: sentAt })
+      .eq('organization_id', organization.id)
       .in('id', readinessItems.map((item) => item.id))
       .select('*');
 

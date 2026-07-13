@@ -1,4 +1,5 @@
 import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
+import { getActiveWorkspaceConnection } from '@/lib/server/integrations/workspaceConnections';
 import { createLogger } from '@/lib/server/logging';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 
@@ -78,30 +79,26 @@ async function slackPermalink(params: {
 }
 
 async function resolveSlackConnection(params: {
-  userId: string;
+  organizationId: string;
 }): Promise<SlackConnection | null> {
-  const { userId } = params;
+  const { organizationId } = params;
   const supabase = createServiceRoleClient();
-  const { data, error } = await supabase
-    .from('oauth_connections')
-    .select('connection_id')
-    .eq('user_id', userId)
-    .eq('provider', 'slack')
-    .eq('status', 'active')
-    .order('updated_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  let connectionId: string | undefined;
 
-  if (error) {
+  try {
+    const connection = await getActiveWorkspaceConnection(supabase, {
+      organizationId,
+      provider: 'slack',
+    });
+    connectionId = connection?.connection_id;
+  } catch (error) {
     log.warn('slack_connection_missing', {
-      userId,
-      reason: error.message,
-      code: error.code,
+      organizationId,
+      reason: error instanceof Error ? error.message : String(error),
     });
     return null;
   }
 
-  const connectionId = data?.connection_id;
   if (typeof connectionId !== 'string' || connectionId.length === 0) return null;
 
   const { data: tokenRow, error: tokenError } = await supabase
@@ -113,7 +110,7 @@ async function resolveSlackConnection(params: {
 
   if (tokenError) {
     log.warn('slack_token_missing', {
-      userId,
+      organizationId,
       connectionId,
       reason: tokenError.message,
       code: tokenError.code,
@@ -127,11 +124,11 @@ async function resolveSlackConnection(params: {
 }
 
 export async function sendSlackMessage(params: {
-  userId: string;
+  organizationId: string;
   channel: string | null;
   text: string;
 }): Promise<SlackDeliveryResult> {
-  const { userId, channel, text } = params;
+  const { organizationId, channel, text } = params;
 
   const normalizedChannel = typeof channel === 'string' ? channel.trim() : '';
   if (!normalizedChannel) {
@@ -144,9 +141,9 @@ export async function sendSlackMessage(params: {
     return { sent: false, reason: 'No Slack channel configured.' };
   }
 
-  const connection = await resolveSlackConnection({ userId });
+  const connection = await resolveSlackConnection({ organizationId });
   if (!connection) {
-    log.warn('slack_connection_missing', { userId, targetType: 'channel', channel: slackChannel });
+    log.warn('slack_connection_missing', { organizationId, targetType: 'channel', channel: slackChannel });
     return { sent: false, reason: NO_ACTIVE_SLACK_CONNECTION_REASON };
   }
 
@@ -155,7 +152,7 @@ export async function sendSlackMessage(params: {
   if (missing.length > 0) {
     const reason = reconnectReason(missing);
     log.warn('slack_scope_missing', {
-      userId,
+      organizationId,
       connectionId: connection.connectionId,
       targetType: 'channel',
       channel: slackChannel,
@@ -167,12 +164,12 @@ export async function sendSlackMessage(params: {
 
   const accessToken = await getProviderAccessToken({ provider: 'slack', connectionId: connection.connectionId });
   if (!accessToken) {
-    log.warn('slack_token_missing', { userId, connectionId: connection.connectionId, targetType: 'channel', channel: slackChannel });
+    log.warn('slack_token_missing', { organizationId, connectionId: connection.connectionId, targetType: 'channel', channel: slackChannel });
     return { sent: false, reason: 'No Slack access token available.' };
   }
 
   log.info('slack_channel_send_start', {
-    userId,
+    organizationId,
     connectionId: connection.connectionId,
     channel: slackChannel,
     textLength: text.length,
@@ -196,7 +193,7 @@ export async function sendSlackMessage(params: {
   if (!response.ok) {
     const payload = await response.text().catch(() => 'Slack API request failed');
     log.warn('slack_channel_send_failed', {
-      userId,
+      organizationId,
       connectionId: connection.connectionId,
       channel: slackChannel,
       status: response.status,
@@ -208,7 +205,7 @@ export async function sendSlackMessage(params: {
   const payload = (await response.json().catch(() => ({}))) as SlackPostMessageResponse;
   if (!payload.ok) {
     log.warn('slack_channel_send_failed', {
-      userId,
+      organizationId,
       connectionId: connection.connectionId,
       channel: slackChannel,
       reason: payload.error || 'ok_false',
@@ -222,7 +219,7 @@ export async function sendSlackMessage(params: {
     : undefined;
 
   log.info('slack_channel_send_success', {
-    userId,
+    organizationId,
     connectionId: connection.connectionId,
     channel: deliveredChannel,
     ts: payload.ts,
@@ -238,19 +235,19 @@ export async function sendSlackMessage(params: {
 }
 
 export async function sendSlackDirectMessage(params: {
-  userId: string;
+  organizationId: string;
   slackUserId: string | null;
   text: string;
 }): Promise<SlackDeliveryResult> {
-  const { userId, slackUserId, text } = params;
+  const { organizationId, slackUserId, text } = params;
 
   const normalizedUserId = typeof slackUserId === 'string' ? slackUserId.trim() : '';
   if (!normalizedUserId) {
-    log.warn('slack_dm_target_missing', { userId });
+    log.warn('slack_dm_target_missing', { organizationId });
     return { sent: false, reason: 'No Slack user configured.' };
   }
 
   // chat.postMessage accepts both user IDs (U...) and DM channel IDs (D...) as the channel.
   // Slack opens the DM automatically — no conversations.open needed, no im:write scope required.
-  return sendSlackMessage({ userId, channel: normalizedUserId, text });
+  return sendSlackMessage({ organizationId, channel: normalizedUserId, text });
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { generators } from 'openid-client';
 import { getSession } from '@/lib/auth';
+import { AUTH_ROUTES } from '@/lib/clerk-routes';
 import { createLogger } from '@/lib/server/logging';
 import { buildSlackAuthorizeUrl, getSlackOAuthScopes } from '@/lib/server/oauth/slackClient';
 
@@ -18,7 +19,7 @@ const log = createLogger('api.oauth.slack', {
 export async function GET(request: NextRequest) {
   const { user } = await getSession();
   if (!user) {
-    return NextResponse.redirect(new URL('/login', request.url));
+    return NextResponse.redirect(new URL(AUTH_ROUTES.signIn, request.url));
   }
 
   const state = generators.state();

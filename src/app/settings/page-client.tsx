@@ -2,7 +2,6 @@
 
 import { useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { IntegrationSettings } from './sections/IntegrationSettings';
@@ -13,13 +12,8 @@ import { SettingsPlaceholder } from './sections/SettingsPlaceholder';
 import { isSettingsTab, SettingsSidebar, type SettingsTab } from './sections/SettingsSidebar';
 import { disconnectDescription, providerLabel, useIntegrations } from './hooks/useIntegrations';
 import { useReadinessSettings } from './hooks/useReadinessSettings';
-import { useWorkspaceSettings } from './hooks/useWorkspaceSettings';
 
-interface SettingsPageClientProps {
-  user: SupabaseUser | null;
-}
-
-export function SettingsPageClient({ user: initialUser }: SettingsPageClientProps) {
+export function SettingsPageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -37,7 +31,6 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
   const initialIntegrationError = errorParam
     ? 'Something went wrong connecting your integration. Please try again.'
     : '';
-  const user = initialUser;
   const {
     connections,
     loading,
@@ -56,7 +49,6 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
     initialSuccess: initialIntegrationSuccess,
     initialError: initialIntegrationError,
   });
-  const workspaceSettings = useWorkspaceSettings(activeSetting === 'org');
   const readinessSettings = useReadinessSettings({
     enabled: activeSetting === 'readiness',
     setGlobalError: setError,
@@ -129,7 +121,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
           <SettingsSidebar activeSetting={activeSetting} onSelect={handleSettingsTabSelect} />
 
           <div className="surface-page flex-1 overflow-y-auto px-7 py-6">
-            {activeSetting === 'profile' && <ProfileSettings user={user} />}
+            {activeSetting === 'profile' && <ProfileSettings />}
             {activeSetting === 'integrations' && (
               <IntegrationSettings
                 integrations={integrations}
@@ -141,7 +133,7 @@ export function SettingsPageClient({ user: initialUser }: SettingsPageClientProp
             )}
             {activeSetting === 'readiness' && <ReadinessSettings readinessSettings={readinessSettings} />}
             {activeSetting === 'delete' && <SettingsPlaceholder label="Delete Account" />}
-            {activeSetting === 'org' && <OrganizationSettings workspaceSettings={workspaceSettings} />}
+            {activeSetting === 'org' && <OrganizationSettings />}
             {activeSetting === 'apikeys' && <SettingsPlaceholder label="API Keys" />}
           </div>
         </div>

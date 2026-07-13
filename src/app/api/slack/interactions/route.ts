@@ -5,6 +5,7 @@ import { inngest } from '@/inngest/client';
 import { syncAccessReadinessEvidence, recordMilestoneEvidence } from '@/lib/server/milestoneEvidence';
 import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
 import { createLogger } from '@/lib/server/logging';
+import { getAccessRequestContext } from '@/lib/server/slackInteractions';
 
 export const dynamic = 'force-dynamic';
 // Must use nodejs runtime to access crypto and read the raw body
@@ -32,6 +33,7 @@ type SlackInteractionPayload = {
   actions?: SlackAction[];
   response_url?: string;
   user?: { id: string; name: string };
+  team?: { id?: string; domain?: string };
   view?: {
     callback_id: string;
     private_metadata: string;
@@ -68,17 +70,10 @@ async function getBotTokenForHire(newHireId: string): Promise<string | null> {
     .single();
   if (!hire) return null;
 
-  const { data: org } = await supabase
-    .from('organizations')
-    .select('owner_id')
-    .eq('id', hire.organization_id)
-    .single();
-  if (!org?.owner_id) return null;
-
   const { data: connection } = await supabase
     .from('oauth_connections')
     .select('connection_id')
-    .eq('user_id', org.owner_id)
+    .eq('organization_id', hire.organization_id)
     .eq('provider', 'slack')
     .eq('status', 'active')
     .maybeSingle();
@@ -202,11 +197,22 @@ export async function POST(request: NextRequest) {
         }
 
         const supabase = createServiceRoleClient();
+        const requestContext = await getAccessRequestContext({
+          supabase,
+          accessRequestId,
+          slackTeamId: payload.team?.id,
+        });
+
+        if (!requestContext) {
+          log.warn('interaction_skipped', { reason: 'access_request_not_in_slack_workspace', accessRequestId });
+          return new NextResponse('', { status: 200 });
+        }
 
         const { data: updated, error } = await supabase
           .from('access_requests')
           .update({ status: 'granted', granted_at: new Date().toISOString() })
           .eq('id', accessRequestId)
+          .eq('new_hire_id', requestContext.new_hire_id)
           .select()
           .single();
 
@@ -218,6 +224,7 @@ export async function POST(request: NextRequest) {
         log.info('access_granted', {
           accessRequestId,
           toolName: updated.tool_name,
+          organizationId: requestContext.organization_id,
           grantedBy: payload.user?.name ?? payload.user?.id ?? '(unknown)',
         });
 
@@ -263,11 +270,22 @@ export async function POST(request: NextRequest) {
         }
 
         const supabase = createServiceRoleClient();
+        const requestContext = await getAccessRequestContext({
+          supabase,
+          accessRequestId,
+          slackTeamId: payload.team?.id,
+        });
+
+        if (!requestContext) {
+          log.warn('interaction_skipped', { reason: 'access_request_not_in_slack_workspace', accessRequestId });
+          return new NextResponse('', { status: 200 });
+        }
 
         const { data: updated, error } = await supabase
           .from('access_requests')
           .update({ status: 'confirmed', confirmed_at: new Date().toISOString() })
           .eq('id', accessRequestId)
+          .eq('new_hire_id', requestContext.new_hire_id)
           .select()
           .single();
 
@@ -279,6 +297,7 @@ export async function POST(request: NextRequest) {
         log.info('access_granted', {
           accessRequestId,
           toolName: updated.tool_name,
+          organizationId: requestContext.organization_id,
           confirmedBy: payload.user?.name ?? payload.user?.id ?? '(unknown)',
           event: 'hire_confirmed_access',
         });

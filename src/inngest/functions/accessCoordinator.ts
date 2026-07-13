@@ -138,8 +138,7 @@ export const accessCoordinator = inngest.createFunction(
         id, tool_name, requested_from_name, requested_from_email, requested_from_slack_id, status,
         new_hire_id,
         new_hires (
-          id, first_name, last_name, role, organization_id,
-          organizations ( id, owner_id )
+          id, first_name, last_name, role, organization_id
         )
       `)
       .eq('id', accessRequestId)
@@ -150,9 +149,7 @@ export const accessCoordinator = inngest.createFunction(
       return { skipped: true, reason: 'request_not_found' };
     }
 
-    const hire = request.new_hires as unknown as { first_name: string; last_name: string; role: string; organizations: { owner_id: string } | { owner_id: string }[] };
-    const orgData = Array.isArray(hire.organizations) ? hire.organizations[0] : hire.organizations;
-    const orgOwnerId = orgData?.owner_id;
+    const hire = request.new_hires as unknown as { first_name: string; last_name: string; role: string; organization_id: string };
 
     log.info('coordinator_start', {
       accessRequestId,
@@ -177,7 +174,7 @@ export const accessCoordinator = inngest.createFunction(
     const { data: slackConnection } = await supabase
       .from('oauth_connections')
       .select('connection_id')
-      .eq('user_id', orgOwnerId)
+      .eq('organization_id', hire.organization_id)
       .eq('provider', 'slack')
       .eq('status', 'active')
       .maybeSingle();

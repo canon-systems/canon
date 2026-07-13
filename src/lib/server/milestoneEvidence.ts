@@ -117,7 +117,7 @@ export async function recordMilestoneEvidence(params: RecordEvidenceParams) {
 
   const { data: hire } = await params.supabase
     .from('new_hires')
-    .select('id, first_name, last_name, organization_id, organizations(id, owner_id)')
+    .select('id, first_name, last_name, organization_id')
     .eq('id', params.newHireId)
     .single();
 
@@ -255,16 +255,13 @@ export async function recordMilestoneEvidence(params: RecordEvidenceParams) {
     : typeof metadata.manager_slack_user_id === 'string'
       ? metadata.manager_slack_user_id
       : null;
-  const orgData = Array.isArray(hire.organizations) ? hire.organizations[0] : hire.organizations;
-  const orgOwnerId = (orgData as { owner_id?: string } | null)?.owner_id ?? null;
-
   let slackBotToken: string | null = null;
-  if (orgOwnerId) {
+  if (hire.organization_id) {
     const admin = createServiceRoleClient();
     const { data: slackConn } = await admin
       .from('oauth_connections')
       .select('connection_id')
-      .eq('user_id', orgOwnerId)
+      .eq('organization_id', hire.organization_id)
       .eq('provider', 'slack')
       .eq('status', 'active')
       .maybeSingle();

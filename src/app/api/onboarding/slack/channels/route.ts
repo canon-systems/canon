@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
-import { createClient } from '@/lib/supabase/server';
+import { createServiceRoleClient } from '@/lib/supabase/server';
 import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
 import { listSlackChannels, SlackListChannelsError } from '@/lib/server/integrations/nativeSlack';
+import { requireWorkspace } from '@/lib/server/organization';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,11 +17,12 @@ export async function GET() {
     const { user } = await getSession();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const supabase = await createClient();
+    const { organization } = await requireWorkspace(user);
+    const supabase = createServiceRoleClient();
     const { data: connection } = await supabase
       .from('oauth_connections')
       .select('connection_id')
-      .eq('user_id', user.id)
+      .eq('organization_id', organization.id)
       .eq('provider', 'slack')
       .eq('status', 'active')
       .order('updated_at', { ascending: false })

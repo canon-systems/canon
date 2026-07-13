@@ -1,72 +1,51 @@
-import { createClient } from '@/lib/supabase/server';
-import { isAuthApiError } from '@supabase/supabase-js';
+import { auth } from '@clerk/nextjs/server';
 
-export async function getSession() {
-  const supabase = await createClient();
+export type CanonUser = {
+  id: string;
+  email: string;
+  user_metadata: Record<string, string>;
+};
 
-  try {
-    // Use getUser() for authentication - it verifies the session with Supabase Auth server
-    const { data: userData, error: userError } = await supabase.auth.getUser();
-
-    // Handle refresh token errors specifically using Supabase's recommended error checking
-    if (userError) {
-      // Use isAuthApiError and error.code as recommended by Supabase docs
-      const isRefreshTokenError = 
-        (isAuthApiError(userError) && (
-          userError.code === 'refresh_token_not_found' ||
-          userError.code === 'session_not_found' ||
-          userError.code === 'session_expired' ||
-          userError.code === 'refresh_token_already_used'
-        )) ||
-        userError.status === 400 ||
-        userError.status === 401;
-
-      if (isRefreshTokenError) {
-        console.log('Refresh token error in getSession, clearing session');
-        // Clear the invalid session
-        await supabase.auth.signOut({ scope: 'local' });
-        return { user: null, session: null };
-      }
-
-      // For other errors, return null session
-      if (!userData.user) {
-        return { user: null, session: null };
-      }
-    }
-
-    if (!userData.user) {
-      return { user: null, session: null };
-    }
-
-    // Only get session data after verifying user with getUser()
-    const { data: sessionData } = await supabase.auth.getSession();
-
-    return {
-      user: userData.user,
-      session: sessionData.session ?? null
-    };
-  } catch (error: unknown) {
-    // Handle any unexpected auth errors
-    console.error('Unexpected auth error in getSession:', error);
-
-    // Use Supabase's error checking utilities
-    if (isAuthApiError(error)) {
-      const isRefreshTokenError = 
-        error.code === 'refresh_token_not_found' ||
-        error.code === 'session_not_found' ||
-        error.code === 'session_expired' ||
-        error.code === 'refresh_token_already_used' ||
-        error.status === 400 ||
-        error.status === 401;
-
-      if (isRefreshTokenError) {
-        console.log('Refresh token error caught in getSession');
-        return { user: null, session: null };
-      }
-    }
-
-    // For other errors, return null session
-    return { user: null, session: null };
-  }
+function claimString(claims: Record<string, unknown>, key: string) {
+  const value = claims[key];
+  return typeof value === 'string' ? value.trim() : '';
 }
 
+function metadataFromClaims(claims: Record<string, unknown>) {
+  const firstName = claimString(claims, 'first_name') || claimString(claims, 'given_name');
+  const lastName = claimString(claims, 'last_name') || claimString(claims, 'family_name');
+  const fullName = claimString(claims, 'name') || [firstName, lastName].filter(Boolean).join(' ');
+
+  return {
+    first_name: firstName,
+    last_name: lastName,
+    full_name: fullName,
+    name: fullName,
+  };
+}
+
+export async function getSession() {
+  const authState = await auth();
+  if (!authState.userId) {
+    return { user: null, session: null };
+  }
+
+  const claims = (authState.sessionClaims ?? {}) as Record<string, unknown>;
+  const email =
+    claimString(claims, 'email') ||
+    claimString(claims, 'email_address') ||
+    claimString(claims, 'primary_email_address');
+
+  return {
+    user: {
+      id: authState.userId,
+      email,
+      user_metadata: metadataFromClaims(claims),
+    } satisfies CanonUser,
+    session: {
+      id: authState.sessionId,
+      orgId: authState.orgId,
+      orgRole: authState.orgRole,
+    },
+  };
+}

@@ -5,26 +5,35 @@ import { requireWorkspace } from '@/lib/server/organization';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import {
   hasNangoApiKey,
-  listNangoConnectionsForUser,
+  listNangoConnectionsForOrganization,
   providerForNangoIntegration,
   supportedNangoProviders,
 } from '@/lib/server/integrations/nango';
+import {
+  upsertWorkspaceConnection,
+  type WorkspaceProvider,
+} from '@/lib/server/integrations/workspaceConnections';
 
 async function reconcileNangoConnections(params: { userId: string; organizationId: string }) {
   if (!hasNangoApiKey()) return;
 
   try {
     const supportedProviders = new Set(supportedNangoProviders());
-    const connections = await listNangoConnectionsForUser(params);
-    const rows = connections.flatMap((connection) => {
+    const admin = createServiceRoleClient();
+    const connections = await listNangoConnectionsForOrganization({
+      organizationId: params.organizationId,
+    });
+    await Promise.all(connections.map(async (connection) => {
       const provider = providerForNangoIntegration(connection.provider_config_key);
-      if (!supportedProviders.has(provider)) return [];
+      if (!supportedProviders.has(provider)) return;
+      const workspaceProvider = provider as WorkspaceProvider;
 
       const hasAuthError = (connection.errors ?? []).some((error) => error.type === 'auth');
-      return [{
-        user_id: params.userId,
-        provider,
-        connection_id: connection.connection_id,
+      await upsertWorkspaceConnection(admin, {
+        organizationId: params.organizationId,
+        connectedByUserId: params.userId,
+        provider: workspaceProvider,
+        connectionId: connection.connection_id,
         status: hasAuthError ? 'error' : 'active',
         metadata: {
           ...(connection.metadata ?? {}),
@@ -35,20 +44,8 @@ async function reconcileNangoConnections(params: { userId: string; organizationI
           organization_id: params.organizationId,
           reconciled_at: new Date().toISOString(),
         },
-        updated_at: new Date().toISOString(),
-      }];
-    });
-
-    if (rows.length === 0) return;
-
-    const admin = createServiceRoleClient();
-    const { error } = await admin
-      .from('oauth_connections')
-      .upsert(rows, { onConflict: 'user_id,provider' });
-
-    if (error) {
-      console.warn('Failed to reconcile Nango connections:', error);
-    }
+      });
+    }));
   } catch (error) {
     console.warn('Failed to list Nango connections for reconciliation:', error);
   }
@@ -68,7 +65,7 @@ export async function GET() {
     const { data: connections, error } = await supabase
       .from('oauth_connections')
       .select('id, provider, connection_id, status, metadata, created_at, updated_at')
-      .eq('user_id', user.id)
+      .eq('organization_id', organization.id)
       .eq('status', 'active')
       .in('provider', supportedProviders)
       .order('updated_at', { ascending: false });

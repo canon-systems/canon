@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { OrganizationSwitcher, Show, SignInButton, SignUpButton, UserButton } from '@clerk/nextjs';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -10,20 +11,13 @@ import {
   ChevronRight as IconChevronRight,
   Flag as IconFlag,
   House as IconHome2,
-  LogOut as IconLogout,
   Radar as IconRadar,
   Settings as IconSettings,
   Users as IconUsers,
 } from 'lucide-react';
-import type { Session, User } from '@supabase/supabase-js';
 import { cn } from './ui/utils';
-import { initialsForName, userFullName } from '@/lib/userDisplay';
-
-interface NavigationProps {
-  user: User | null;
-  session: Session | null;
-  onLogout: () => void;
-}
+import { CLERK_SIGN_IN_BUTTON_PROPS, CLERK_SIGN_UP_BUTTON_PROPS } from '@/lib/clerk-config';
+import { AUTH_ROUTES } from '@/lib/clerk-routes';
 
 const primaryNav = [
   { href: '/', label: 'Home', icon: IconHome2, exact: true },
@@ -37,7 +31,7 @@ const secondaryNav = [
   { href: '/settings?tab=profile', label: 'Settings', icon: IconSettings, exact: false },
 ];
 
-export function Navigation({ user, onLogout }: NavigationProps) {
+export function Navigation() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
 
@@ -63,10 +57,6 @@ export function Navigation({ user, onLogout }: NavigationProps) {
     if (exact) return pathname === hrefPath;
     return pathname.startsWith(hrefPath);
   };
-
-  const displayName = userFullName(user);
-  const userEmail = user?.email ?? '';
-  const userInitials = initialsForName(displayName);
 
   const navLinkClass = (active: boolean) =>
     cn(
@@ -155,35 +145,42 @@ export function Navigation({ user, onLogout }: NavigationProps) {
         </div>
       </nav>
 
-      <div className={cn('surface-divider mt-auto pt-3 px-4 border-t', collapsed && 'px-0')}>
+      <div className={cn('surface-divider mt-auto border-t px-4 pt-3', collapsed && 'px-0')}>
         <div className={cn('flex items-center gap-2', collapsed && 'flex-col')}>
-          <div
-            className="w-[26px] h-[26px] rounded-full flex items-center justify-center type-control-sm text-[var(--text-primary)] flex-shrink-0"
-            style={{ backgroundColor: 'var(--canon-purple)' }}
-          >
-            {userInitials}
-          </div>
-          {!collapsed && (
-            <span className="min-w-0 flex-1">
-              <span className="block truncate type-body" style={{ color: 'var(--text-secondary)' }}>
-                {displayName}
-              </span>
-              {userEmail && (
-                <span className="block truncate type-caption" style={{ color: 'var(--text-tertiary)' }}>
-                  {userEmail}
-                </span>
-              )}
-            </span>
-          )}
-          <button
-            type="button"
-            onClick={onLogout}
-            aria-label="Log Out"
-            title="Log Out"
-            className="w-7 h-7 rounded-md border border-[var(--border-tertiary)] bg-transparent flex items-center justify-center cursor-pointer text-[var(--text-tertiary)] hover:bg-[var(--bg-primary)] hover:text-[var(--text-primary)] transition-colors duration-[120ms]"
-          >
-            <IconLogout size={14} />
-          </button>
+          <Show when="signed-in">
+            {!collapsed && (
+              <div className="min-w-0 flex-1">
+                <OrganizationSwitcher
+                  createOrganizationUrl={AUTH_ROUTES.createOrganization}
+                  afterCreateOrganizationUrl={AUTH_ROUTES.afterSignIn}
+                  afterSelectOrganizationUrl={AUTH_ROUTES.afterSignIn}
+                  appearance={{
+                    elements: {
+                      organizationSwitcherTrigger:
+                        'max-w-full border border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)] shadow-none',
+                    },
+                  }}
+                />
+              </div>
+            )}
+            <UserButton />
+          </Show>
+          <Show when="signed-out">
+            {!collapsed && (
+              <div className="flex min-w-0 flex-1 gap-2">
+                <SignInButton {...CLERK_SIGN_IN_BUTTON_PROPS}>
+                  <button className="h-8 rounded-[6px] border border-[var(--border-tertiary)] px-3 type-field text-[var(--text-secondary)] hover:bg-[var(--bg-primary)] hover:text-[var(--text-primary)]">
+                    Sign in
+                  </button>
+                </SignInButton>
+                <SignUpButton {...CLERK_SIGN_UP_BUTTON_PROPS}>
+                  <button className="h-8 rounded-[6px] bg-[var(--canon-purple)] px-3 type-field text-[var(--text-on-accent)]">
+                    Sign up
+                  </button>
+                </SignUpButton>
+              </div>
+            )}
+          </Show>
         </div>
       </div>
     </aside>

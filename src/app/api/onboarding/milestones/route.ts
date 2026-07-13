@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
-import { createClient } from '@/lib/supabase/server';
 import { inngest } from '@/inngest/client';
 import { createLogger } from '@/lib/server/logging';
 import { normalizeRoleName } from '@/lib/onboarding/roles';
 import { requireWorkspace, requireWorkspaceAdmin } from '@/lib/server/organization';
 import type { HireRole, MilestoneEvidenceRequirement } from '@/types/onboarding';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 export const dynamic = 'force-dynamic';
 
@@ -72,7 +72,7 @@ function isMissingMilestoneGenerationRuns(error: unknown) {
 }
 
 async function isActiveRole(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  supabase: SupabaseClient,
   organizationId: string,
   role: string
 ) {
@@ -331,7 +331,9 @@ export async function POST(request: NextRequest) {
           approved_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
-        .eq('id', proposal.id);
+        .eq('id', proposal.id)
+        .eq('organization_id', organization.id)
+        .eq('status', 'draft');
 
       log.info('proposal_approved', {
         userId: user.id,

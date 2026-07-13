@@ -109,7 +109,7 @@ export async function PATCH(request: NextRequest) {
     const validStatuses = ['pending', 'sent', 'acknowledged', 'granted', 'confirmed'];
     if (status && !validStatuses.includes(status)) return NextResponse.json({ error: 'Invalid status' }, { status: 400 });
 
-    const { supabase } = await requireWorkspace(user);
+    const { supabase, organization } = await requireWorkspace(user);
 
     const updatePayload: Record<string, unknown> = {};
     if (status) {
@@ -126,10 +126,20 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'Nothing to update' }, { status: 400 });
     }
 
+    const { data: accessRequest } = await supabase
+      .from('access_requests')
+      .select('id, new_hire_id, new_hires!inner(organization_id)')
+      .eq('id', id)
+      .eq('new_hires.organization_id', organization.id)
+      .single();
+
+    if (!accessRequest) return NextResponse.json({ error: 'Access request not found' }, { status: 404 });
+
     const { data: updated, error } = await supabase
       .from('access_requests')
       .update(updatePayload)
       .eq('id', id)
+      .eq('new_hire_id', accessRequest.new_hire_id)
       .select()
       .single();
 
@@ -169,7 +179,7 @@ export async function DELETE(request: NextRequest) {
     // Verify the request belongs to this org before deleting
     const { data: ar } = await supabase
       .from('access_requests')
-      .select('id, new_hires!inner(organization_id)')
+      .select('id, new_hire_id, new_hires!inner(organization_id)')
       .eq('id', id)
       .eq('new_hires.organization_id', organization.id)
       .single();
@@ -179,7 +189,8 @@ export async function DELETE(request: NextRequest) {
     const { error } = await supabase
       .from('access_requests')
       .delete()
-      .eq('id', id);
+      .eq('id', id)
+      .eq('new_hire_id', ar.new_hire_id);
 
     if (error) throw error;
     return NextResponse.json({ ok: true });

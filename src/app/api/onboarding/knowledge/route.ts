@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { inngest } from '@/inngest/client';
-import { hasNangoApiKey, listNangoConnectionsForUser, providerForNangoIntegration } from '@/lib/server/integrations/nango';
+import { hasNangoApiKey, listNangoConnectionsForOrganization, providerForNangoIntegration } from '@/lib/server/integrations/nango';
 import { createLogger } from '@/lib/server/logging';
 import { requireWorkspace } from '@/lib/server/organization';
 
@@ -28,13 +28,12 @@ type KnowledgeSourceRow = {
 
 async function hasActiveGranolaConnection(params: {
   supabase: Awaited<ReturnType<typeof requireWorkspace>>['supabase'];
-  userId: string;
   organizationId: string;
 }) {
   const { data: connection } = await params.supabase
     .from('oauth_connections')
     .select('connection_id')
-    .eq('user_id', params.userId)
+    .eq('organization_id', params.organizationId)
     .eq('provider', 'granola')
     .eq('status', 'active')
     .order('updated_at', { ascending: false })
@@ -44,8 +43,7 @@ async function hasActiveGranolaConnection(params: {
   if (connection?.connection_id) return true;
   if (!hasNangoApiKey()) return false;
 
-  const nangoConnections = await listNangoConnectionsForUser({
-    userId: params.userId,
+  const nangoConnections = await listNangoConnectionsForOrganization({
     organizationId: params.organizationId,
   });
 
@@ -111,7 +109,6 @@ export async function POST(request: NextRequest) {
     if (provider === 'granola') {
       const granolaConnected = await hasActiveGranolaConnection({
         supabase,
-        userId: user.id,
         organizationId: organization.id,
       });
 

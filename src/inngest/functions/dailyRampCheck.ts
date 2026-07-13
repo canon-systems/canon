@@ -178,23 +178,15 @@ export const dailyRampCheck = inngest.createFunction(
       return { ok: true, hiresProcessed: 0 };
     }
 
-    // Fetch all organizations and their Slack connection IDs in bulk
     const orgIds = [...new Set(activeHires.map((h) => h.organization_id))];
-    const { data: orgs } = await supabase
-      .from('organizations')
-      .select('id, owner_id')
-      .in('id', orgIds);
-
-    const ownerIds = (orgs ?? []).map((o) => o.owner_id).filter(Boolean);
     const { data: slackConnections } = await supabase
       .from('oauth_connections')
-      .select('user_id, connection_id')
-      .in('user_id', ownerIds)
+      .select('organization_id, connection_id')
+      .in('organization_id', orgIds)
       .eq('provider', 'slack')
       .eq('status', 'active');
 
-    const connectionByOwner = new Map((slackConnections ?? []).map((c) => [c.user_id, c.connection_id]));
-    const orgMap = new Map((orgs ?? []).map((o) => [o.id, { id: o.id, connectionId: connectionByOwner.get(o.owner_id) ?? null }]));
+    const connectionByOrganization = new Map((slackConnections ?? []).map((c) => [c.organization_id, c.connection_id]));
 
     let processed = 0;
     let failed = 0;
@@ -269,8 +261,8 @@ export const dailyRampCheck = inngest.createFunction(
             return;
           }
 
-          const org = orgMap.get(hire.organization_id);
-          if (!org?.connectionId) {
+          const connectionId = connectionByOrganization.get(hire.organization_id);
+          if (!connectionId) {
             await supabase.from('ramp_deliveries').insert({
               new_hire_id: hire.id,
               milestone_id: milestone.id,
@@ -280,7 +272,7 @@ export const dailyRampCheck = inngest.createFunction(
             return;
           }
 
-          const botToken = await getProviderAccessToken({ provider: 'slack', connectionId: org.connectionId });
+          const botToken = await getProviderAccessToken({ provider: 'slack', connectionId });
           if (!botToken) {
             await supabase.from('ramp_deliveries').insert({
               new_hire_id: hire.id,

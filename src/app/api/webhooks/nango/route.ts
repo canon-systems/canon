@@ -4,6 +4,7 @@ import {
   providerForNangoIntegration,
   verifyNangoWebhookSignature,
 } from '@/lib/server/integrations/nango';
+import { upsertWorkspaceConnection, type WorkspaceProvider } from '@/lib/server/integrations/workspaceConnections';
 import { createLogger, errorMessage } from '@/lib/server/logging';
 import { trackIntegrationStateChanged } from '@/lib/server/services/usageTracking';
 
@@ -72,12 +73,13 @@ export async function POST(request: NextRequest) {
     const taggedProvider = stringValue(tags.canon_provider);
     const provider = taggedProvider || (providerConfigKey ? providerForNangoIntegration(providerConfigKey) : null);
 
-    if (!connectionId || !providerConfigKey || !userId || !provider) {
+    if (!connectionId || !providerConfigKey || !userId || !organizationId || !provider) {
       log.warn('webhook_rejected', {
         reason: 'missing_required_fields',
         hasConnectionId: Boolean(connectionId),
         hasProviderConfigKey: Boolean(providerConfigKey),
         hasUserId: Boolean(userId),
+        hasOrganizationId: Boolean(organizationId),
         provider: provider ?? 'unknown',
       });
       return NextResponse.json({ error: 'Missing required webhook fields' }, { status: 400 });
@@ -107,7 +109,7 @@ export async function POST(request: NextRequest) {
           updated_at: new Date().toISOString(),
         })
         .eq('connection_id', connectionId)
-        .eq('user_id', userId);
+        .eq('organization_id', organizationId);
 
       if (error) throw error;
       log.info('connection_error_recorded', { userId, provider, connectionId });
@@ -115,22 +117,14 @@ export async function POST(request: NextRequest) {
     }
 
     if ((payload.operation === 'creation' || payload.operation === 'override') && payload.success === true) {
-      const { error } = await supabase
-        .from('oauth_connections')
-        .upsert(
-          {
-            user_id: userId,
-            provider,
-            connection_id: connectionId,
-            status: 'active',
-            metadata,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: 'user_id,provider' }
-        );
-
-      if (error) throw error;
-      await trackIntegrationStateChanged(supabase, userId, 'connected', provider, connectionId);
+      await upsertWorkspaceConnection(supabase, {
+        organizationId,
+        connectedByUserId: userId,
+        provider: provider as WorkspaceProvider,
+        connectionId,
+        metadata,
+      });
+      await trackIntegrationStateChanged(supabase, organizationId, 'connected', provider, connectionId);
 
       log.info('connection_stored', {
         userId,

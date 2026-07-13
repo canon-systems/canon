@@ -278,11 +278,6 @@ function signalKey(signal: {
     .trim();
 }
 
-function metadataStringArray(item: Pick<ReadinessDeliveryItem, 'source_metadata'>, key: string) {
-  const value = item.source_metadata?.[key];
-  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0) : [];
-}
-
 function compactText(value: string, maxLength: number) {
   const compacted = value.replace(/\s+/g, ' ').trim();
   return compacted.length <= maxLength ? compacted : compacted.slice(0, maxLength - 1).trimEnd();
@@ -385,51 +380,6 @@ function buildReadinessNote(items: ReadinessDeliveryItem[]) {
   return lines.filter((line, index, all) => line || all[index - 1]).join('\n').trim();
 }
 
-async function fallbackReadinessChannel(params: {
-  supabase: ReturnType<typeof createServiceRoleClient>;
-  organizationId: string;
-}) {
-  const { supabase, organizationId } = params;
-  const { data: source } = await supabase
-    .from('knowledge_sources')
-    .select('slack_channel_id')
-    .eq('organization_id', organizationId)
-    .eq('provider', 'slack')
-    .not('slack_channel_id', 'is', null)
-    .order('last_synced_at', { ascending: false, nullsFirst: false })
-    .limit(1)
-    .maybeSingle();
-
-  return typeof source?.slack_channel_id === 'string' ? source.slack_channel_id : null;
-}
-
-async function activeRoleSlackUsers(params: {
-  supabase: ReturnType<typeof createServiceRoleClient>;
-  organizationId: string;
-  roles: HireRole[];
-}) {
-  const { supabase, organizationId, roles } = params;
-  if (roles.length === 0) return [];
-
-  const { data, error } = await supabase
-    .from('new_hires')
-    .select('slack_user_id')
-    .eq('organization_id', organizationId)
-    .eq('status', 'active')
-    .in('role', roles)
-    .not('slack_user_id', 'is', null);
-
-  if (error) throw error;
-
-  return Array.from(
-    new Set(
-      (data ?? [])
-        .map((row) => row.slack_user_id)
-        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-    )
-  );
-}
-
 async function readinessDeliverySettings(params: {
   supabase: ReturnType<typeof createServiceRoleClient>;
   organizationId: string;
@@ -454,52 +404,52 @@ async function readinessDeliverySettings(params: {
   };
 }
 
+function hasReadinessDeliveryTargets(settings: Awaited<ReturnType<typeof readinessDeliverySettings>>) {
+  return Boolean(settings && (settings.channelIds.length > 0 || settings.userIds.length > 0));
+}
+
 async function deliverReadinessItems(params: {
   supabase: ReturnType<typeof createServiceRoleClient>;
-  ownerId: string;
   organizationId: string;
   items: ReadinessDeliveryItem[];
 }) {
-  const { supabase, ownerId, organizationId, items } = params;
+  const { supabase, organizationId, items } = params;
   if (items.length === 0) return;
 
   const settings = await readinessDeliverySettings({ supabase, organizationId });
+  const channelIds = settings?.channelIds ?? [];
+  const userIds = settings?.userIds ?? [];
   const roles = Array.from(new Set(items.flatMap((item) => item.affected_roles)));
-
-  let channelIds: string[];
-  let userIds: string[];
-
-  if (settings) {
-    channelIds = settings.channelIds;
-    userIds = settings.userIds;
-  } else {
-    const fallbackChannel = items.flatMap((item) => metadataStringArray(item, 'channel_ids'))[0]
-      ?? (await fallbackReadinessChannel({ supabase, organizationId }));
-    channelIds = fallbackChannel ? [fallbackChannel] : [];
-    userIds = await activeRoleSlackUsers({ supabase, organizationId, roles });
-  }
-
-  const text = buildReadinessNote(items);
-  const deliveries: Array<{ target: string; type: 'channel' | 'dm' } & SlackDeliveryResult> = [];
 
   log.info('delivery_plan', {
     orgId: organizationId,
-    ownerId,
     itemCount: items.length,
     itemIds: items.map((item) => item.id),
-    source: settings ? 'saved_settings' : 'fallback_targets',
+    source: 'saved_settings',
     channels: channelIds,
     dmTargets: userIds,
     roles,
   });
 
+  if (!hasReadinessDeliveryTargets(settings)) {
+    log.warn('delivery_failed', {
+      orgId: organizationId,
+      itemCount: items.length,
+      reason: 'no_configured_delivery_targets',
+    });
+    return;
+  }
+
+  const text = buildReadinessNote(items);
+  const deliveries: Array<{ target: string; type: 'channel' | 'dm' } & SlackDeliveryResult> = [];
+
   for (const channel of channelIds) {
-    const sent = await sendSlackMessage({ userId: ownerId, channel, text });
+    const sent = await sendSlackMessage({ organizationId, channel, text });
     deliveries.push({ target: channel, type: 'channel', ...sent });
   }
 
   for (const slackUserId of userIds) {
-    const sent = await sendSlackDirectMessage({ userId: ownerId, slackUserId, text });
+    const sent = await sendSlackDirectMessage({ organizationId, slackUserId, text });
     deliveries.push({ target: slackUserId, type: 'dm', ...sent });
   }
 
@@ -655,17 +605,28 @@ export const readinessAnalysisOnDemand = inngest.createFunction(
   },
   { event: 'onboarding/readiness.generate.requested' },
   async ({ event, step }) => {
-    const { organizationId, ownerId } = event.data as { organizationId: string; ownerId: string };
+    const { organizationId } = event.data as { organizationId: string };
     const supabase = createServiceRoleClient();
 
     log.info('analysis_start', { organizationId, triggered: 'on_demand' });
 
-    const orgs = [{ id: organizationId, owner_id: ownerId }];
+    const orgs = [{ id: organizationId }];
 
     let totalSignals = 0;
 
     for (const org of orgs) {
       const result = await step.run(`analyze-org-${org.id}`, async () => {
+        const deliverySettings = await readinessDeliverySettings({ supabase, organizationId: org.id });
+        if (!hasReadinessDeliveryTargets(deliverySettings)) {
+          log.info('org_skipped', {
+            orgId: org.id,
+            reason: 'readiness_delivery_not_configured',
+            channels: deliverySettings?.channelIds.length ?? 0,
+            dmTargets: deliverySettings?.userIds.length ?? 0,
+          });
+          return { signalsDetected: 0, signalsReviewed: 0 };
+        }
+
         const { count } = await supabase
           .from('knowledge_chunks')
           .select('id', { count: 'exact', head: true })
@@ -913,7 +874,6 @@ export const readinessAnalysisOnDemand = inngest.createFunction(
 
           await deliverReadinessItems({
             supabase,
-            ownerId: org.owner_id,
             organizationId: org.id,
             items: (insertedItems ?? []) as ReadinessDeliveryItem[],
           });
@@ -950,7 +910,7 @@ export const readinessAnalysis = inngest.createFunction(
 
     log.info('analysis_start', {});
 
-    const { data: orgs } = await supabase.from('organizations').select('id, owner_id');
+    const { data: orgs } = await supabase.from('organizations').select('id');
 
     if (!orgs || orgs.length === 0) {
       log.info('analysis_complete', { orgsProcessed: 0 });
@@ -961,6 +921,17 @@ export const readinessAnalysis = inngest.createFunction(
 
     for (const org of orgs) {
       const result = await step.run(`analyze-org-${org.id}`, async () => {
+        const deliverySettings = await readinessDeliverySettings({ supabase, organizationId: org.id });
+        if (!hasReadinessDeliveryTargets(deliverySettings)) {
+          log.info('org_skipped', {
+            orgId: org.id,
+            reason: 'readiness_delivery_not_configured',
+            channels: deliverySettings?.channelIds.length ?? 0,
+            dmTargets: deliverySettings?.userIds.length ?? 0,
+          });
+          return { signalsDetected: 0, signalsReviewed: 0 };
+        }
+
         const { count } = await supabase
           .from('knowledge_chunks')
           .select('id', { count: 'exact', head: true })
@@ -1206,7 +1177,6 @@ export const readinessAnalysis = inngest.createFunction(
 
             await deliverReadinessItems({
               supabase,
-              ownerId: org.owner_id,
               organizationId: org.id,
               items: (insertedItems ?? []) as ReadinessDeliveryItem[],
             });

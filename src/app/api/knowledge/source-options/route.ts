@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
 import { listSlackChannels, SlackListChannelsError } from '@/lib/server/integrations/nativeSlack';
-import { hasNangoApiKey, listNangoConnectionsForUser, providerForNangoIntegration } from '@/lib/server/integrations/nango';
+import { hasNangoApiKey, listNangoConnectionsForOrganization, providerForNangoIntegration } from '@/lib/server/integrations/nango';
 import { requireWorkspace } from '@/lib/server/organization';
 
 export const dynamic = 'force-dynamic';
@@ -33,7 +33,7 @@ export async function GET() {
     const { data: connection } = await supabase
       .from('oauth_connections')
       .select('connection_id')
-      .eq('user_id', user.id)
+      .eq('organization_id', organization.id)
       .eq('provider', 'slack')
       .eq('status', 'active')
       .order('updated_at', { ascending: false })
@@ -58,7 +58,7 @@ export async function GET() {
     const { data: granolaConnection } = await supabase
       .from('oauth_connections')
       .select('connection_id')
-      .eq('user_id', user.id)
+      .eq('organization_id', organization.id)
       .eq('provider', 'granola')
       .eq('status', 'active')
       .order('updated_at', { ascending: false })
@@ -68,7 +68,7 @@ export async function GET() {
     granolaConnected = Boolean(granolaConnection?.connection_id);
     if (!granolaConnected && hasNangoApiKey()) {
       try {
-        const nangoConnections = await listNangoConnectionsForUser({ userId: user.id, organizationId: organization.id });
+        const nangoConnections = await listNangoConnectionsForOrganization({ organizationId: organization.id });
         granolaConnected = nangoConnections.some((connection) => {
           const provider = providerForNangoIntegration(connection.provider_config_key);
           const hasAuthError = (connection.errors ?? []).some((error) => error.type === 'auth');

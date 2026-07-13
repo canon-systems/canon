@@ -22,11 +22,6 @@ type NewHireRow = {
   organization_id: string | null;
 };
 
-type OrganizationRow = {
-  id: string;
-  owner_id: string | null;
-};
-
 const log = createLogger('inngest.access_granted_notifier', {
   label: 'Access Granted Notifier',
   eventLabels: {
@@ -181,31 +176,10 @@ export const accessGrantedNotifier = inngest.createFunction(
       throw new Error('Hire is missing organization_id');
     }
 
-    const { data: org, error: orgError } = await supabase
-      .from('organizations')
-      .select('id, owner_id')
-      .eq('id', hire.organization_id)
-      .maybeSingle<OrganizationRow>();
-
-    if (orgError) {
-      log.error('notifier_failed', {
-        accessRequestId,
-        organizationId: hire.organization_id,
-        reason: 'organization_lookup_failed',
-        error: orgError.message,
-      });
-      throw orgError;
-    }
-
-    if (!org?.owner_id) {
-      log.error('notifier_failed', { accessRequestId, organizationId: hire.organization_id, reason: 'organization_owner_not_found' });
-      throw new Error('Organization owner was not found');
-    }
-
     const { data: slackConnection } = await supabase
       .from('oauth_connections')
       .select('connection_id')
-      .eq('user_id', org.owner_id)
+      .eq('organization_id', hire.organization_id)
       .eq('provider', 'slack')
       .eq('status', 'active')
       .maybeSingle();

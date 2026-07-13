@@ -40,7 +40,8 @@ export async function POST(
     const { error: statusError } = await supabase
       .from('knowledge_sources')
       .update({ status: 'pending', error_message: null })
-      .eq('id', id);
+      .eq('id', id)
+      .eq('organization_id', organization.id);
 
     if (statusError) {
       log.error('sync_queue_failed', {

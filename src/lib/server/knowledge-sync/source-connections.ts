@@ -3,12 +3,11 @@ import { errorMessage } from '@/lib/server/logging';
 import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
 import {
   hasNangoApiKey,
-  listNangoConnectionsForUser,
+  listNangoConnectionsForOrganization,
   providerForNangoIntegration,
 } from '@/lib/server/integrations/nango';
 import {
   getActiveProviderConnection,
-  getOrganizationOwnerId,
   upsertProviderConnection,
 } from '@/lib/server/knowledge-sync/source-repository';
 
@@ -22,12 +21,9 @@ type SourceConnectionLogger = {
 export async function getSlackAccessTokenForOrganization(
   supabase: SupabaseServiceClient,
   organizationId: string
-): Promise<{ accessToken: string | null; ownerId?: string; connectionId?: string; scope?: string | null }> {
-  const ownerId = await getOrganizationOwnerId(supabase, organizationId);
-  if (!ownerId) return { accessToken: null };
-
-  const { connectionId } = await getActiveProviderConnection(supabase, { ownerId, provider: 'slack' });
-  if (!connectionId) return { accessToken: null, ownerId };
+): Promise<{ accessToken: string | null; connectionId?: string; scope?: string | null }> {
+  const { connectionId } = await getActiveProviderConnection(supabase, { organizationId, provider: 'slack' });
+  if (!connectionId) return { accessToken: null };
 
   const { data: tokenRow } = await supabase
     .from('oauth_provider_tokens')
@@ -38,7 +34,7 @@ export async function getSlackAccessTokenForOrganization(
 
   const accessToken = await getProviderAccessToken({ provider: 'slack', connectionId });
   const scope = typeof tokenRow?.scope === 'string' ? tokenRow.scope : null;
-  return { accessToken, ownerId, connectionId, scope };
+  return { accessToken, connectionId, scope };
 }
 
 export async function getGranolaConnectionForOrganization(
@@ -47,14 +43,10 @@ export async function getGranolaConnectionForOrganization(
     organizationId: string;
     log: SourceConnectionLogger;
   }
-): Promise<{ ownerId?: string; connectionId?: string }> {
-  const ownerId = await getOrganizationOwnerId(supabase, params.organizationId);
-  if (!ownerId) return {};
-
+): Promise<{ connectionId?: string }> {
   if (hasNangoApiKey()) {
     try {
-      const connections = await listNangoConnectionsForUser({
-        userId: ownerId,
+      const connections = await listNangoConnectionsForOrganization({
         organizationId: params.organizationId,
       });
       const nangoConnection = connections.find((connection) => {
@@ -65,7 +57,10 @@ export async function getGranolaConnectionForOrganization(
 
       if (nangoConnection) {
         await upsertProviderConnection(supabase, {
-          ownerId,
+          organizationId: params.organizationId,
+          connectedByUserId: typeof nangoConnection.tags?.end_user_id === 'string'
+            ? nangoConnection.tags.end_user_id
+            : 'system',
           provider: 'granola',
           connectionId: nangoConnection.connection_id,
           metadata: {
@@ -82,22 +77,20 @@ export async function getGranolaConnectionForOrganization(
 
         params.log.info('granola_connection_reconciled', {
           organizationId: params.organizationId,
-          ownerId,
           connectionId: nangoConnection.connection_id,
           providerConfigKey: nangoConnection.provider_config_key,
         });
 
-        return { ownerId, connectionId: nangoConnection.connection_id };
+        return { connectionId: nangoConnection.connection_id };
       }
     } catch (error) {
       params.log.warn('granola_connection_reconcile_failed', {
         organizationId: params.organizationId,
-        ownerId,
         error: errorMessage(error),
       });
     }
   }
 
-  const { connectionId } = await getActiveProviderConnection(supabase, { ownerId, provider: 'granola' });
-  return { ownerId, connectionId };
+  const { connectionId } = await getActiveProviderConnection(supabase, { organizationId: params.organizationId, provider: 'granola' });
+  return { connectionId };
 }

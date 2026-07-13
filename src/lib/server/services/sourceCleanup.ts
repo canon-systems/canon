@@ -31,15 +31,15 @@ async function deleteBySourceId(params: {
 
 export async function deleteSourceDependents(params: {
   supabase: AppSupabaseClient;
-  userId: string;
+  organizationId: string;
   sourceId: string;
 }) {
-  const { supabase, userId, sourceId } = params;
+  const { supabase, organizationId, sourceId } = params;
 
   const { data: signalRuns, error: signalRunFetchError } = (await supabase
     .from('signal_runs')
     .select('id')
-    .eq('user_id', userId)
+    .eq('organization_id', organizationId)
     .contains('source_ids', [sourceId])) as { data: Array<{ id: string }> | null; error: DeleteErrorLike | null };
   if (signalRunFetchError && !isMissingSchemaError(signalRunFetchError)) {
     throw signalRunFetchError;
@@ -50,7 +50,7 @@ export async function deleteSourceDependents(params: {
     const { data: signals, error: signalFetchError } = (await supabase
       .from('signals')
       .select('id')
-      .eq('user_id', userId)
+      .eq('organization_id', organizationId)
       .in('signal_run_id', signalRunIds)) as { data: Array<{ id: string }> | null; error: DeleteErrorLike | null };
     if (signalFetchError && !isMissingSchemaError(signalFetchError)) {
       throw signalFetchError;
@@ -61,7 +61,7 @@ export async function deleteSourceDependents(params: {
       const { error: evidenceDeleteError } = await supabase
         .from('signal_evidence')
         .delete()
-        .eq('user_id', userId)
+        .eq('organization_id', organizationId)
         .in('signal_id', signalIds);
       if (evidenceDeleteError && !isMissingSchemaError(evidenceDeleteError)) {
         throw evidenceDeleteError;
@@ -70,7 +70,7 @@ export async function deleteSourceDependents(params: {
       const { error: signalDeleteError } = await supabase
         .from('signals')
         .delete()
-        .eq('user_id', userId)
+        .eq('organization_id', organizationId)
         .in('id', signalIds);
       if (signalDeleteError && !isMissingSchemaError(signalDeleteError)) {
         throw signalDeleteError;
@@ -80,7 +80,7 @@ export async function deleteSourceDependents(params: {
     const { error: signalRunDeleteError } = await supabase
       .from('signal_runs')
       .delete()
-      .eq('user_id', userId)
+      .eq('organization_id', organizationId)
       .in('id', signalRunIds);
     if (signalRunDeleteError && !isMissingSchemaError(signalRunDeleteError)) {
       throw signalRunDeleteError;
@@ -96,7 +96,7 @@ export async function deleteSourceDependents(params: {
   const { error: usageDeleteError } = await supabase
     .from('usage_events')
     .delete()
-    .eq('user_id', userId)
+    .eq('organization_id', organizationId)
     .eq('source_id', sourceId);
   if (usageDeleteError && !isMissingSchemaError(usageDeleteError)) {
     throw usageDeleteError;

@@ -17,7 +17,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
     redirect('/settings?tab=readiness');
   }
 
-  const { user } = await requireWorkspacePage();
+  await requireWorkspacePage();
 
-  return <SettingsPageClient user={user} />;
+  return <SettingsPageClient />;
 }

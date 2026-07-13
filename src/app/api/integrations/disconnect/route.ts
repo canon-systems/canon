@@ -65,6 +65,9 @@ export async function POST(request: NextRequest) {
     const supabase = createServiceRoleClient();
 
     const organization = await getOrganizationForUser(supabase, user);
+    if (!organization) {
+      return NextResponse.json({ error: 'Organization setup required' }, { status: 428 });
+    }
 
     log.info('disconnect_requested', {
       userId: user.id,
@@ -76,7 +79,7 @@ export async function POST(request: NextRequest) {
     let connectionLookup = supabase
       .from('oauth_connections')
       .select('id, connection_id, provider')
-      .eq('user_id', user.id);
+      .eq('organization_id', organization.id);
 
     if (connectionId) {
       connectionLookup = connectionLookup.eq('connection_id', connectionId);
@@ -108,7 +111,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (organization && integrationProviderSet.has('slack')) {
+    if (integrationProviderSet.has('slack')) {
       const { error: deliverySettingsDeleteError } = await supabase
         .from('readiness_delivery_settings')
         .delete()
@@ -161,7 +164,7 @@ export async function POST(request: NextRequest) {
     const sourcesById = new Map<string, SourceRow>();
 
     const sourceProviders = Array.from(sourceProviderSet);
-    if (organization && sourceProviders.length > 0) {
+    if (sourceProviders.length > 0) {
       const { data: sourceRowsByProvider, error: sourceByProviderError } = (await supabase
         .from('knowledge_sources')
         .select('id, provider, name, slack_channel_id, slack_channel_name')
@@ -178,11 +181,9 @@ export async function POST(request: NextRequest) {
     }
 
     for (const source of sourcesById.values()) {
-      if (!organization) continue;
-
       await deleteSourceDependents({
         supabase,
-        userId: user.id,
+        organizationId: organization.id,
         sourceId: source.id,
       });
 
@@ -207,7 +208,7 @@ export async function POST(request: NextRequest) {
               }
             : null;
         const sourceUrl = sourceUrlFromSourceScope(providerForLog, sourceScope);
-        await trackSourceDisconnected(supabase, user.id, source.id, sourceUrl, null, providerForLog);
+        await trackSourceDisconnected(supabase, organization.id, source.id, sourceUrl, null, providerForLog);
       } catch (logError) {
         console.warn('Failed to track source disconnect during integration cleanup:', logError);
       }
@@ -223,7 +224,7 @@ export async function POST(request: NextRequest) {
     let tokenDelete = supabase
       .from('oauth_provider_tokens')
       .delete()
-      .eq('user_id', user.id);
+      .eq('organization_id', organization.id);
 
     if (externalConnectionIds.length > 0) {
       tokenDelete = tokenDelete.in('connection_id', externalConnectionIds);
@@ -248,7 +249,7 @@ export async function POST(request: NextRequest) {
     let connectionDelete = supabase
       .from('oauth_connections')
       .delete()
-      .eq('user_id', user.id);
+      .eq('organization_id', organization.id);
 
     if (internalConnectionIds.length > 0) {
       connectionDelete = connectionDelete.in('id', internalConnectionIds);
@@ -276,7 +277,7 @@ export async function POST(request: NextRequest) {
     try {
       await trackIntegrationStateChanged(
         supabase,
-        user.id,
+        organization.id,
         'disconnected',
         providerForLog,
         connectionIdForLog

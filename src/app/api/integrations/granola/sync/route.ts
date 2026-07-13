@@ -35,7 +35,7 @@ export async function POST() {
     const { data: connection } = await supabase
       .from('oauth_connections')
       .select('connection_id')
-      .eq('user_id', user.id)
+      .eq('organization_id', organization.id)
       .eq('provider', 'granola')
       .eq('status', 'active')
       .order('updated_at', { ascending: false })

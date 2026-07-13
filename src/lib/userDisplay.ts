@@ -1,11 +1,14 @@
-import type { User } from '@supabase/supabase-js';
+export type DisplayUser = {
+  email?: string | null;
+  user_metadata?: Record<string, unknown> | null;
+};
 
-function metadataString(user: Pick<User, 'user_metadata'> | null | undefined, key: string) {
+function metadataString(user: Pick<DisplayUser, 'user_metadata'> | null | undefined, key: string) {
   const value = user?.user_metadata?.[key];
   return typeof value === 'string' ? value.trim() : '';
 }
 
-export function userFullName(user: Pick<User, 'email' | 'user_metadata'> | null | undefined) {
+export function userFullName(user: DisplayUser | null | undefined) {
   const firstName = metadataString(user, 'first_name');
   const lastName = metadataString(user, 'last_name');
   const fullName = [firstName, lastName].filter(Boolean).join(' ').trim();

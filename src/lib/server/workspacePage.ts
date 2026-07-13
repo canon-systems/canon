@@ -1,16 +1,19 @@
 import { redirect } from 'next/navigation';
 
+import { AUTH_ROUTES } from '@/lib/clerk-routes';
 import { getSession } from '@/lib/auth';
-import { getOrganizationForUser } from '@/lib/server/organization';
-import { createClient } from '@/lib/supabase/server';
+import { requireWorkspace } from '@/lib/server/organization';
 
 export async function requireWorkspacePage() {
   const { user, session } = await getSession();
-  if (!session || !user) redirect('/login');
+  if (!session || !user) redirect(AUTH_ROUTES.signIn);
 
-  const supabase = await createClient();
-  const organization = await getOrganizationForUser(supabase, user);
-  if (!organization) redirect('/onboarding/workspace');
-
-  return { user, session, organization };
+  try {
+    const { organization } = await requireWorkspace(user);
+    return { user, session, organization };
+  } catch (error) {
+    const status = error instanceof Error && 'status' in error ? error.status : null;
+    if (status === 428) redirect(AUTH_ROUTES.createOrganization);
+    throw error;
+  }
 }

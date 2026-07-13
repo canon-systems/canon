@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { getSession } from '@/lib/auth';
-import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { AUTH_ROUTES } from '@/lib/clerk-routes';
+import { createServiceRoleClient } from '@/lib/supabase/server';
 import { createLogger, errorMessage } from '@/lib/server/logging';
 import { encryptSecret } from '@/lib/server/oauth/tokenCrypto';
 import { exchangeSlackCode, getSlackOAuthScopes } from '@/lib/server/oauth/slackClient';
 import { trackIntegrationStateChanged } from '@/lib/server/services/usageTracking';
+import { requireWorkspace } from '@/lib/server/organization';
 
 export const runtime = 'nodejs';
 
@@ -45,7 +47,7 @@ function computeExpiresAt(payload: { expires_in?: number; expires_at?: number })
 export async function GET(request: NextRequest) {
   const { user } = await getSession();
   if (!user) {
-    return NextResponse.redirect(new URL('/login', request.url));
+    return NextResponse.redirect(new URL(AUTH_ROUTES.signIn, request.url));
   }
 
   const error = request.nextUrl.searchParams.get('error');
@@ -98,11 +100,12 @@ export async function GET(request: NextRequest) {
       return redirectToSettings(request.nextUrl.origin, { error: 'Slack token exchange did not return an access token.' });
     }
 
-    const supabase = await createClient();
+    const { organization } = await requireWorkspace(user);
+    const supabase = createServiceRoleClient();
     const { data: existingConnection } = await supabase
       .from('oauth_connections')
       .select('connection_id, metadata')
-      .eq('user_id', user.id)
+      .eq('organization_id', organization.id)
       .eq('provider', 'slack')
       .maybeSingle();
 
@@ -139,12 +142,15 @@ export async function GET(request: NextRequest) {
       .upsert(
         {
           user_id: user.id,
+          organization_id: organization.id,
           provider: 'slack',
           connection_id: connectionId,
           status: 'active',
           metadata: {
             ...existingMetadata,
             source: 'oauth',
+            organization_id: organization.id,
+            connected_by_user_id: user.id,
             connected_at: new Date().toISOString(),
             team_id: typeof team.id === 'string' ? team.id : null,
             team_name: typeof team.name === 'string' ? team.name : null,
@@ -156,7 +162,7 @@ export async function GET(request: NextRequest) {
           },
           updated_at: new Date().toISOString(),
         },
-        { onConflict: 'user_id,provider' }
+        { onConflict: 'organization_id,provider' }
       );
 
     if (connectionError) {
@@ -175,6 +181,7 @@ export async function GET(request: NextRequest) {
         {
           connection_id: connectionId,
           user_id: user.id,
+          organization_id: organization.id,
           provider: 'slack',
           provider_account_id: providerAccountId,
           access_token: encryptSecret(accessToken),
@@ -205,7 +212,7 @@ export async function GET(request: NextRequest) {
       missingScopes: missingScopes.length > 0 ? missingScopes.join(',') : undefined,
     });
 
-    await trackIntegrationStateChanged(supabase, user.id, 'connected', 'slack', connectionId);
+    await trackIntegrationStateChanged(supabase, organization.id, 'connected', 'slack', connectionId);
     return redirectToSettings(request.nextUrl.origin, { success: 'true', provider: 'slack' });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
