@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { inngest } from '../client';
 import { llm } from '@/lib/ai';
 import { createLogger, errorMessage } from '@/lib/server/logging';
+import { weeklyDigestDue } from '@/lib/server/readiness/scheduling';
 import { sendReadinessToTargets, type ReadinessDeliveryTargetRow } from '@/lib/server/readiness/delivery';
 import {
   markReadinessSourceEventsProcessed,
@@ -939,11 +940,11 @@ export const readinessAnalysis = inngest.createFunction(
     name: 'Canon: Weekly Readiness Digest',
     retries: 1,
   },
-  { cron: '0 13 * * 1' },
+  { cron: '0 * * * *' },
   async ({ step }) => {
     const supabase = createServiceRoleClient();
 
-    log.info('analysis_start', { cadence: 'weekly', time: '13:00 UTC Monday' });
+    log.info('analysis_start', { cadence: 'weekly', schedule: 'hourly_due_check' });
 
     const orgs = await loadOrganizations(supabase);
     let totalSignals = 0;
@@ -951,6 +952,18 @@ export const readinessAnalysis = inngest.createFunction(
 
     for (const org of orgs) {
       const result = await step.run(`weekly-readiness-${org.id}`, async () => {
+        const config = await readinessDeliveryConfig({ supabase, organizationId: org.id });
+        if (!weeklyDigestDue(config)) {
+          log.info('org_skipped', {
+            orgId: org.id,
+            reason: 'weekly_digest_not_due',
+            digestWeekday: config.digestWeekday,
+            digestHourUtc: config.digestHourUtc,
+            lastDigestSentAt: config.lastDigestSentAt,
+          });
+          return { signalsDetected: 0, deliveredTargets: 0 };
+        }
+
         const generated = await generateObservationsForOrg({
           supabase,
           organizationId: org.id,
@@ -989,6 +1002,19 @@ function relevantObservationText(observations: ReadinessObservationRow[]) {
   )).join('\n');
 }
 
+function relevantSourceEventText(events: ReadinessSourceEventRow[]) {
+  return events.slice(0, 6).map((event, index) => {
+    const title = typeof event.metadata?.title === 'string'
+      ? event.metadata.title
+      : typeof event.metadata?.source_name === 'string'
+        ? event.metadata.source_name
+        : typeof event.metadata?.target_name === 'string'
+          ? event.metadata.target_name
+          : event.provider;
+    return `${index + 1}. ${title}: ${compactText(event.content, 700)}`;
+  }).join('\n');
+}
+
 function meetingContext(meeting: MeetingEventRow) {
   return [
     `Title: ${meeting.title}`,
@@ -1003,9 +1029,10 @@ function meetingContext(meeting: MeetingEventRow) {
 async function buildMeetingPrepText(params: {
   meeting: MeetingEventRow;
   observations: ReadinessObservationRow[];
+  sourceEvents: ReadinessSourceEventRow[];
 }) {
-  if (params.observations.length === 0) {
-    return { shouldSend: false, reason: 'no_related_readiness_observations', text: null as string | null };
+  if (params.observations.length === 0 && params.sourceEvents.length === 0) {
+    return { shouldSend: false, reason: 'no_related_readiness_context', text: null as string | null };
   }
 
   const { object } = await generateObject({
@@ -1017,7 +1044,10 @@ Meeting:
 ${meetingContext(params.meeting)}
 
 Readiness context:
-${relevantObservationText(params.observations)}
+${relevantObservationText(params.observations) || 'No durable observations matched.'}
+
+Related source context:
+${relevantSourceEventText(params.sourceEvents) || 'No related source events matched.'}
 
 Rules:
 - Send only when the context would help the attendee prepare for this meeting.
@@ -1098,6 +1128,35 @@ async function loadRelatedObservations(params: {
   }).slice(0, 6);
 }
 
+async function loadRelatedSourceEvents(params: {
+  supabase: SupabaseServiceClient;
+  organizationId: string;
+  meeting: MeetingEventRow;
+}) {
+  const { data, error } = await params.supabase
+    .from('readiness_source_events')
+    .select('*')
+    .eq('organization_id', params.organizationId)
+    .in('status', ['processed', 'pending'])
+    .order('occurred_at', { ascending: false, nullsFirst: false })
+    .limit(80);
+
+  if (error) throw error;
+
+  const attendeeNames = params.meeting.attendees.map((attendee) => attendee.split('@')[0]?.toLowerCase()).filter(Boolean);
+  const terms = new Set([
+    ...normalizeKey(params.meeting.title).split(' ').filter((term) => term.length > 3),
+    ...domainTerms(params.meeting),
+    ...attendeeNames,
+  ]);
+
+  return ((data ?? []) as ReadinessSourceEventRow[]).filter((event) => {
+    if (event.source_type === 'calendar') return false;
+    const text = normalizeKey(`${event.content} ${JSON.stringify(event.metadata ?? {})}`);
+    return Array.from(terms).some((term) => text.includes(term));
+  }).slice(0, 6);
+}
+
 async function alreadyPrepared(params: {
   supabase: SupabaseServiceClient;
   meetingId: string;
@@ -1150,7 +1209,8 @@ export const meetingPrepBriefing = inngest.createFunction(
 
         for (const meeting of meetings) {
           const observations = await loadRelatedObservations({ supabase, organizationId: org.id, meeting });
-          const prep = await buildMeetingPrepText({ meeting, observations });
+          const sourceEvents = await loadRelatedSourceEvents({ supabase, organizationId: org.id, meeting });
+          const prep = await buildMeetingPrepText({ meeting, observations, sourceEvents });
           if (!prep.shouldSend || !prep.text) {
             orgSkipped++;
             log.info('meeting_prep_skipped', {

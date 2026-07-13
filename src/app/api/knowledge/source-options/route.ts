@@ -2,9 +2,12 @@ import { NextResponse } from 'next/server';
 
 import { getSession } from '@/lib/auth';
 import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
+import { listDeliveryTargets } from '@/lib/server/integrations/chat-targets';
 import { listSlackChannels, SlackListChannelsError } from '@/lib/server/integrations/nativeSlack';
 import { hasNangoApiKey, listNangoConnectionsForOrganization, providerForNangoIntegration } from '@/lib/server/integrations/nango';
+import { sourceOptionTopic } from '@/lib/server/knowledge-sync/source-option-labels';
 import { requireWorkspace } from '@/lib/server/organization';
+import type { KnowledgeProvider } from '@/types/onboarding';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,6 +32,8 @@ export async function GET() {
 
     let slackConnected = false;
     let granolaConnected = false;
+    let teamsConnected = false;
+    let googleChatConnected = false;
 
     const { data: connection } = await supabase
       .from('oauth_connections')
@@ -45,7 +50,17 @@ export async function GET() {
       const accessToken = await getProviderAccessToken({ provider: 'slack', connectionId });
       if (accessToken) {
         slackConnected = true;
-        const channels = await listSlackChannels(accessToken);
+        const channels = await listSlackChannels(accessToken).catch((error) => {
+          if (error instanceof SlackListChannelsError) {
+            console.warn('[api/knowledge/source-options] Failed to list Slack source options:', {
+              detail: error.detail,
+              needed: error.needed,
+              provided: error.provided,
+            });
+            return [];
+          }
+          throw error;
+        });
         options.push(
           ...channels.map((channel) => ({
             ...channel,
@@ -85,8 +100,46 @@ export async function GET() {
         name: 'Granola transcripts',
         provider: 'granola',
         member_count: 0,
-        topic: 'Meeting transcripts',
+        topic: sourceOptionTopic('granola'),
       });
+    }
+
+    const { data: teamChatConnections, error: teamChatConnectionsError } = await supabase
+      .from('oauth_connections')
+      .select('provider, connection_id')
+      .eq('organization_id', organization.id)
+      .in('provider', ['teams', 'google_chat'])
+      .eq('status', 'active');
+
+    if (teamChatConnectionsError) throw teamChatConnectionsError;
+
+    teamsConnected = (teamChatConnections ?? []).some((connection) => connection.provider === 'teams' && connection.connection_id);
+    googleChatConnected = (teamChatConnections ?? []).some((connection) => connection.provider === 'google_chat' && connection.connection_id);
+
+    const teamChatProviders = [
+      ['teams', teamsConnected] as const,
+      ['google_chat', googleChatConnected] as const,
+    ];
+
+    for (const [provider, connected] of teamChatProviders) {
+      if (!connected) continue;
+      const targets = await listDeliveryTargets({
+        organizationId: organization.id,
+        provider,
+      }).catch((error) => {
+        console.warn(`[api/knowledge/source-options] Failed to list ${provider} source options:`, error);
+        return [];
+      });
+
+      options.push(
+        ...targets.map((target) => ({
+          id: target.targetId,
+          name: target.targetName || target.label || target.targetId,
+          provider: provider as KnowledgeProvider,
+          member_count: 0,
+          topic: sourceOptionTopic(provider, target.targetType),
+        }))
+      );
     }
 
     return NextResponse.json({
@@ -94,8 +147,10 @@ export async function GET() {
       connectedProviders: {
         slack: slackConnected,
         granola: granolaConnected,
+        teams: teamsConnected,
+        google_chat: googleChatConnected,
       },
-      noIntegrationsConnected: !slackConnected && !granolaConnected,
+      noIntegrationsConnected: !slackConnected && !granolaConnected && !teamsConnected && !googleChatConnected,
     });
   } catch (error: unknown) {
     if (error instanceof SlackListChannelsError) {

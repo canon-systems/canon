@@ -17,8 +17,9 @@ import {
   fetchEmbedPersistSlackSource,
   NoSyncableContentError,
 } from '@/lib/server/knowledge-sync/slack-sync';
+import { fetchEmbedPersistTeamChatSource } from '@/lib/server/knowledge-sync/chat-sync';
 import { SyncStoppedError } from '@/lib/server/knowledge-sync/errors';
-import type { KnowledgeProvider } from '@/lib/server/knowledge-sync/source-repository';
+import { getActiveProviderConnection, type KnowledgeProvider } from '@/lib/server/knowledge-sync/source-repository';
 
 type SupabaseServiceClient = ReturnType<typeof createServiceRoleClient>;
 
@@ -328,6 +329,100 @@ async function syncSlackSource(context: KnowledgeSourceAdapterContext): Promise<
   }
 }
 
+async function syncTeamChatSource(context: KnowledgeSourceAdapterContext): Promise<Record<string, unknown>> {
+  const provider = context.source.provider === 'google_chat' ? 'google_chat' : 'teams';
+  const { connectionId } = await getActiveProviderConnection(context.supabase, {
+    organizationId: context.organizationId,
+    provider,
+  });
+  const targetId = context.source.slack_channel_id || context.source.name;
+  const targetName = context.source.slack_channel_name || context.source.name;
+
+  if (!connectionId) {
+    context.log.error('sync_failed', {
+      sourceId: context.sourceId,
+      source: context.source.name,
+      provider,
+      error: `No active ${provider} connection configured for organization`,
+      organizationId: context.organizationId,
+      ms: elapsedMs(context.syncStartedAt),
+    });
+    await markSourceError(context.supabase, context.sourceId);
+    return { ok: false, sourceId: context.sourceId, reason: `missing_${provider}_connection` };
+  }
+
+  await context.supabase
+    .from('knowledge_sources')
+    .update({ status: 'syncing', error_message: null })
+    .eq('id', context.sourceId);
+
+  context.log.info('sync_start', {
+    sourceId: context.sourceId,
+    source: context.source.name,
+    provider,
+    targetId,
+    organizationId: context.organizationId,
+    connectionId,
+  });
+
+  try {
+    const { embeddedCount, messageCount } = await context.step.run('fetch-team-chat-embed-insert', async () => {
+      return fetchEmbedPersistTeamChatSource({
+        supabase: context.supabase,
+        organizationId: context.organizationId,
+        sourceId: context.sourceId,
+        sourceName: context.source.name,
+        provider,
+        connectionId,
+        targetId,
+        targetName,
+        log: context.log,
+        assertActive: context.assertActive,
+      });
+    }) as { embeddedCount: number; messageCount: number };
+
+    await context.assertActive(`finalize ${provider}`);
+    await context.supabase.from('knowledge_sources').update({
+      status: 'active',
+      last_synced_at: new Date().toISOString(),
+      chunk_count: embeddedCount,
+      error_message: messageCount === 0 ? `No syncable ${provider} messages found.` : null,
+    }).eq('id', context.sourceId);
+
+    context.log.info('sync_complete', {
+      sourceId: context.sourceId,
+      source: context.source.name,
+      provider,
+      messages: messageCount,
+      chunksEmbedded: embeddedCount,
+      ms: elapsedMs(context.syncStartedAt),
+    });
+    return { ok: true, sourceId: context.sourceId, messages: messageCount, chunksEmbedded: embeddedCount };
+  } catch (error) {
+    if (error instanceof SyncStoppedError) {
+      context.log.info('sync_stopped', {
+        sourceId: context.sourceId,
+        source: context.source.name,
+        provider,
+        phase: error.phase,
+        ms: elapsedMs(context.syncStartedAt),
+      });
+      return { ok: true, sourceId: context.sourceId, stopped: true, phase: error.phase };
+    }
+
+    const msg = errorMessage(error);
+    context.log.error('sync_failed', {
+      sourceId: context.sourceId,
+      source: context.source.name,
+      provider,
+      error: msg,
+      ms: elapsedMs(context.syncStartedAt),
+    });
+    await markSourceError(context.supabase, context.sourceId);
+    throw error;
+  }
+}
+
 const sourceAdapters = {
   slack: {
     provider: 'slack',
@@ -343,6 +438,22 @@ const sourceAdapters = {
       return { ok: true };
     },
     sync: syncGranolaSource,
+  },
+  teams: {
+    provider: 'teams',
+    validate(source) {
+      if (!source.slack_channel_id && !source.name) return { ok: false, reason: 'missing_teams_target_id' };
+      return { ok: true };
+    },
+    sync: syncTeamChatSource,
+  },
+  google_chat: {
+    provider: 'google_chat',
+    validate(source) {
+      if (!source.slack_channel_id && !source.name) return { ok: false, reason: 'missing_google_chat_space_id' };
+      return { ok: true };
+    },
+    sync: syncTeamChatSource,
   },
 } satisfies Partial<Record<KnowledgeProvider, KnowledgeSourceAdapter>>;
 

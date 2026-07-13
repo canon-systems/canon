@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
+import { inngest } from '@/inngest/client';
 import { createLogger } from '@/lib/server/logging';
 import { requireWorkspace, requireWorkspaceAdmin } from '@/lib/server/organization';
 import type { ReadinessDeliveryProvider, ReadinessDeliveryTargetType } from '@/types/onboarding';
@@ -241,6 +242,93 @@ export async function PATCH(request: NextRequest) {
         );
 
       if (targetError) throw targetError;
+    }
+
+    const teamChatTargets = targets.filter((target) => target.provider === 'teams' || target.provider === 'google_chat');
+    const activeTeamChatTargetKeys = new Set(teamChatTargets.map((target) => `${target.provider}:${target.targetId}`));
+    const { data: teamChatSources, error: sourceListError } = await supabase
+      .from('knowledge_sources')
+      .select('id, provider, slack_channel_id')
+      .eq('organization_id', organization.id)
+      .in('provider', ['teams', 'google_chat']);
+
+    if (sourceListError) throw sourceListError;
+
+    const staleSourceIds = (teamChatSources ?? [])
+      .filter((source) => {
+        const targetId = typeof source.slack_channel_id === 'string' ? source.slack_channel_id : '';
+        return targetId && !activeTeamChatTargetKeys.has(`${source.provider}:${targetId}`);
+      })
+      .map((source) => source.id);
+
+    if (staleSourceIds.length > 0) {
+      const { error: staleSourceError } = await supabase
+        .from('knowledge_sources')
+        .update({ status: 'stopped', updated_at: updatedAt })
+        .in('id', staleSourceIds);
+
+      if (staleSourceError) throw staleSourceError;
+    }
+
+    if (teamChatTargets.length > 0) {
+      const sourceIdsToSync: string[] = [];
+      for (const target of teamChatTargets) {
+        const { data: existingSource, error: lookupError } = await supabase
+          .from('knowledge_sources')
+          .select('id')
+          .eq('organization_id', organization.id)
+          .eq('provider', target.provider)
+          .eq('slack_channel_id', target.targetId)
+          .limit(1)
+          .maybeSingle();
+
+        if (lookupError) throw lookupError;
+
+        if (existingSource?.id) {
+          const { error: updateSourceError } = await supabase
+            .from('knowledge_sources')
+            .update({
+              slack_channel_name: target.targetName,
+              status: 'pending',
+              error_message: null,
+              updated_at: updatedAt,
+            })
+            .eq('id', existingSource.id);
+
+          if (updateSourceError) throw updateSourceError;
+          sourceIdsToSync.push(existingSource.id);
+          continue;
+        }
+
+        const { data: insertedSource, error: sourceError } = await supabase
+          .from('knowledge_sources')
+          .insert({
+            organization_id: organization.id,
+            provider: target.provider,
+            name: target.targetId,
+            slack_channel_id: target.targetId,
+            slack_channel_name: target.targetName,
+            status: 'pending',
+            error_message: null,
+            updated_at: updatedAt,
+          })
+          .select('id')
+          .single();
+
+        if (sourceError) throw sourceError;
+        if (insertedSource?.id) sourceIdsToSync.push(insertedSource.id);
+      }
+
+      if (sourceIdsToSync.length > 0) {
+        await inngest.send(sourceIdsToSync.map((sourceId) => ({
+          name: 'onboarding/knowledge.sync.requested',
+          data: {
+            sourceId,
+            organizationId: organization.id,
+            reason: 'readiness_delivery_target_saved',
+          },
+        })));
+      }
     }
 
     const { data: savedTargets, error: savedTargetsError } = await supabase

@@ -75,18 +75,6 @@ type SourceEvidence = {
   url: string | null;
 };
 
-type SlackChannelOption = {
-  id: string;
-  name: string;
-  member_count: number;
-};
-
-type SlackUserOption = {
-  id: string;
-  name: string;
-  email: string | null;
-};
-
 type DeliveryProvider = 'slack' | 'teams' | 'google_chat';
 type DeliveryTargetType = 'channel' | 'dm';
 
@@ -108,6 +96,15 @@ type IntegrationConnection = {
 };
 
 const deliveryProviders = ['slack', 'teams', 'google_chat'] as const satisfies readonly DeliveryProvider[];
+const digestWeekdays = [
+  { value: 0, label: 'Sunday' },
+  { value: 1, label: 'Monday' },
+  { value: 2, label: 'Tuesday' },
+  { value: 3, label: 'Wednesday' },
+  { value: 4, label: 'Thursday' },
+  { value: 5, label: 'Friday' },
+  { value: 6, label: 'Saturday' },
+];
 
 function isDeliveryProvider(provider: string): provider is DeliveryProvider {
   return deliveryProviders.includes(provider as DeliveryProvider);
@@ -250,9 +247,8 @@ export function ReadinessClient() {
   const [generating, setGenerating] = useState(false);
   const [sending, setSending] = useState(false);
   const [rowActionId, setRowActionId] = useState<string | null>(null);
-  const [channels, setChannels] = useState<SlackChannelOption[]>([]);
-  const [slackUsers, setSlackUsers] = useState<SlackUserOption[]>([]);
-  const [slackUsersReconnectRequired, setSlackUsersReconnectRequired] = useState(false);
+  const [knownDeliveryTargetOptions, setKnownDeliveryTargetOptions] = useState<DeliveryTargetOption[]>([]);
+  const [targetOptionsReconnectRequired, setTargetOptionsReconnectRequired] = useState(false);
   const [selectedChannelIds, setSelectedChannelIds] = useState<string[]>([]);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [customTargets, setCustomTargets] = useState<DeliveryTarget[]>([]);
@@ -260,6 +256,11 @@ export function ReadinessClient() {
   const [newTargetType, setNewTargetType] = useState<DeliveryTargetType>('channel');
   const [newTargetId, setNewTargetId] = useState('');
   const [newTargetName, setNewTargetName] = useState('');
+  const [weeklyDigestEnabled, setWeeklyDigestEnabled] = useState(true);
+  const [digestWeekday, setDigestWeekday] = useState(1);
+  const [digestHourUtc, setDigestHourUtc] = useState(13);
+  const [meetingPrepEnabled, setMeetingPrepEnabled] = useState(true);
+  const [meetingPrepMinutesBefore, setMeetingPrepMinutesBefore] = useState(45);
   const [savingDeliverySettings, setSavingDeliverySettings] = useState(false);
 
   async function generateSignals() {
@@ -367,6 +368,11 @@ export function ReadinessClient() {
               targetName: string | null;
               enabled: boolean;
             }>;
+            weeklyDigestEnabled?: boolean;
+            digestWeekday?: number;
+            digestHourUtc?: number;
+            meetingPrepEnabled?: boolean;
+            meetingPrepMinutesBefore?: number;
           } | null;
         }>),
         fetch('/api/integrations/list').then((res) => res.json() as Promise<{ connections?: IntegrationConnection[] }>),
@@ -397,6 +403,11 @@ export function ReadinessClient() {
         setSelectedChannelIds(nextChannelIds);
         setSelectedUserIds(nextUserIds);
         setCustomTargets(nextCustomTargets);
+        setWeeklyDigestEnabled(settingsResult.value.settings.weeklyDigestEnabled !== false);
+        setDigestWeekday(typeof settingsResult.value.settings.digestWeekday === 'number' ? settingsResult.value.settings.digestWeekday : 1);
+        setDigestHourUtc(typeof settingsResult.value.settings.digestHourUtc === 'number' ? settingsResult.value.settings.digestHourUtc : 13);
+        setMeetingPrepEnabled(settingsResult.value.settings.meetingPrepEnabled !== false);
+        setMeetingPrepMinutesBefore(typeof settingsResult.value.settings.meetingPrepMinutesBefore === 'number' ? settingsResult.value.settings.meetingPrepMinutesBefore : 45);
       }
 
       setConnections(nextConnections);
@@ -408,28 +419,23 @@ export function ReadinessClient() {
         ? savedProvider
         : deliveryProviders.find((provider) => activeProviders.has(provider)) ?? savedProvider;
 
-      if (activeProvider !== 'slack') {
-        setChannels([]);
-        setSlackUsers([]);
-        setSlackUsersReconnectRequired(false);
+      if (!activeProvider) {
+        setKnownDeliveryTargetOptions([]);
+        setTargetOptionsReconnectRequired(false);
         return;
       }
 
-      const [channelsResult, usersResult] = await Promise.allSettled([
-        fetch('/api/onboarding/slack/channels').then((res) => res.json() as Promise<{ channels?: SlackChannelOption[] }>),
-        fetch('/api/onboarding/slack/users').then((res) => res.json() as Promise<{
-          users?: SlackUserOption[];
-          reconnect_required?: boolean;
-        }>),
-      ]);
+      const targetOptionsResult = await fetch(`/api/onboarding/readiness/delivery-target-options?provider=${activeProvider}`)
+        .then((res) => res.json() as Promise<{
+          targets?: DeliveryTargetOption[];
+          reconnectRequired?: boolean;
+        }>)
+        .catch(() => ({ targets: [], reconnectRequired: false }));
 
       if (cancelled) return;
 
-      if (channelsResult.status === 'fulfilled') setChannels(channelsResult.value.channels ?? []);
-      if (usersResult.status === 'fulfilled') {
-        setSlackUsers(usersResult.value.users ?? []);
-        setSlackUsersReconnectRequired(Boolean(usersResult.value.reconnect_required));
-      }
+      setKnownDeliveryTargetOptions(targetOptionsResult.targets ?? []);
+      setTargetOptionsReconnectRequired(Boolean(targetOptionsResult.reconnectRequired));
     }
 
     void loadDeliveryOptions();
@@ -478,41 +484,20 @@ export function ReadinessClient() {
           provider: 'slack' as const,
           targetType: 'channel' as const,
           targetId: channelId,
-          targetName: channels.find((channel) => channel.id === channelId)?.name ?? null,
+          targetName: knownDeliveryTargetOptions.find((target) => target.provider === 'slack' && target.targetId === channelId)?.targetName ?? null,
           enabled: true,
         })),
         ...selectedUserIds.map((userId) => ({
           provider: 'slack' as const,
           targetType: 'dm' as const,
           targetId: userId,
-          targetName: slackUsers.find((user) => user.id === userId)?.name ?? null,
+          targetName: knownDeliveryTargetOptions.find((target) => target.provider === 'slack' && target.targetId === userId)?.targetName ?? null,
           enabled: true,
         })),
       ];
     }
     return activeCustomTargets;
-  }, [activeCustomTargets, activeDeliveryProvider, channels, selectedChannelIds, selectedUserIds, slackUsers]);
-  const knownDeliveryTargetOptions = useMemo<DeliveryTargetOption[]>(() => {
-    if (activeDeliveryProvider !== 'slack') return [];
-    return [
-      ...channels.map((channel) => ({
-        provider: 'slack' as const,
-        targetType: 'channel' as const,
-        targetId: channel.id,
-        targetName: channel.name,
-        enabled: true,
-        label: `#${channel.name}`,
-      })),
-      ...slackUsers.map((user) => ({
-        provider: 'slack' as const,
-        targetType: 'dm' as const,
-        targetId: user.id,
-        targetName: user.name,
-        enabled: true,
-        label: user.name,
-      })),
-    ];
-  }, [activeDeliveryProvider, channels, slackUsers]);
+  }, [activeCustomTargets, activeDeliveryProvider, knownDeliveryTargetOptions, selectedChannelIds, selectedUserIds]);
   const visibleDeliveryTargetOptions = useMemo(
     () => knownDeliveryTargetOptions.filter((target) => target.targetType === newTargetType),
     [knownDeliveryTargetOptions, newTargetType]
@@ -606,7 +591,7 @@ export function ReadinessClient() {
       const channelIds = slackDeliveryActive ? selectedChannelIds : [];
       const userIds = slackDeliveryActive ? selectedUserIds : [];
       const channelNames = channelIds
-        .map((id) => channels.find((ch) => ch.id === id)?.name ?? '')
+        .map((id) => knownDeliveryTargetOptions.find((target) => target.provider === 'slack' && target.targetId === id)?.targetName ?? '')
         .filter(Boolean);
       const res = await fetch('/api/onboarding/readiness/delivery-settings', {
         method: 'PATCH',
@@ -616,6 +601,11 @@ export function ReadinessClient() {
           channelNames,
           userIds,
           targets: deliveryTargets,
+          weeklyDigestEnabled,
+          digestWeekday,
+          digestHourUtc,
+          meetingPrepEnabled,
+          meetingPrepMinutesBefore,
         }),
       });
       const data = (await res.json()) as { error?: string; detail?: string };
@@ -1164,8 +1154,8 @@ export function ReadinessClient() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          {slackUsersReconnectRequired && newTargetType === 'dm' ? (
-                            <DropdownMenuItem disabled>Reconnect Slack to enable DMs</DropdownMenuItem>
+                          {targetOptionsReconnectRequired && newTargetType === 'dm' ? (
+                            <DropdownMenuItem disabled>Reconnect {providerLabel(activeDeliveryProvider)} to enable DMs</DropdownMenuItem>
                           ) : visibleDeliveryTargetOptions.length === 0 ? (
                             <DropdownMenuItem disabled>
                               No {newTargetType === 'channel' ? 'channels' : 'teammates'} found
@@ -1222,6 +1212,75 @@ export function ReadinessClient() {
                     </div>
                   </div>
                 )}
+                <div className="space-y-3 rounded-[8px] border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] p-3">
+                  <div className="flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      checked={weeklyDigestEnabled}
+                      onChange={(event) => setWeeklyDigestEnabled(event.target.checked)}
+                      className="mt-0.5 h-4 w-4 flex-shrink-0 accent-[var(--canon-purple)]"
+                      aria-label="Enable weekly digest"
+                    />
+                    <div className="min-w-0">
+                      <div className="type-panel-title text-[var(--text-primary)]">Weekly digest</div>
+                      <div className="type-caption text-[var(--text-tertiary)]">One prep update for the week.</div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="space-y-1">
+                      <span className="type-caption text-[var(--text-tertiary)]">Day</span>
+                      <select
+                        value={digestWeekday}
+                        onChange={(event) => setDigestWeekday(Number(event.target.value))}
+                        disabled={!weeklyDigestEnabled}
+                        className="h-8 w-full rounded-md border border-[var(--border-secondary)] bg-[var(--bg-primary)] px-2 type-body text-[var(--text-primary)] disabled:opacity-50"
+                      >
+                        {digestWeekdays.map((weekday) => (
+                          <option key={weekday.value} value={weekday.value}>{weekday.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="space-y-1">
+                      <span className="type-caption text-[var(--text-tertiary)]">Hour UTC</span>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={23}
+                        value={digestHourUtc}
+                        disabled={!weeklyDigestEnabled}
+                        onChange={(event) => setDigestHourUtc(Math.min(23, Math.max(0, Number(event.target.value))))}
+                        className="h-8 bg-[var(--bg-primary)]"
+                      />
+                    </label>
+                  </div>
+                </div>
+                <div className="space-y-3 rounded-[8px] border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] p-3">
+                  <div className="flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      checked={meetingPrepEnabled}
+                      onChange={(event) => setMeetingPrepEnabled(event.target.checked)}
+                      className="mt-0.5 h-4 w-4 flex-shrink-0 accent-[var(--canon-purple)]"
+                      aria-label="Enable meeting prep"
+                    />
+                    <div className="min-w-0">
+                      <div className="type-panel-title text-[var(--text-primary)]">Meeting prep</div>
+                      <div className="type-caption text-[var(--text-tertiary)]">DM prep before meetings when there is enough context.</div>
+                    </div>
+                  </div>
+                  <label className="block space-y-1">
+                    <span className="type-caption text-[var(--text-tertiary)]">Minutes before meeting</span>
+                    <Input
+                      type="number"
+                      min={5}
+                      max={240}
+                      value={meetingPrepMinutesBefore}
+                      disabled={!meetingPrepEnabled}
+                      onChange={(event) => setMeetingPrepMinutesBefore(Math.min(240, Math.max(5, Number(event.target.value))))}
+                      className="h-8 bg-[var(--bg-primary)]"
+                    />
+                  </label>
+                </div>
                 <Button
                   variant="secondary"
                   size="sm"

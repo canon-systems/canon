@@ -8,6 +8,7 @@ import {
   Database as IconDatabase,
   Hash as IconHash,
   Loader2 as IconLoader2,
+  MessageSquare as IconMessageSquare,
   MoreVertical as IconDotsVertical,
   Pencil as IconEdit,
   Plug as IconPlug,
@@ -76,6 +77,8 @@ function sourceDisplayName(source: KnowledgeSource | SourceOption) {
 function sourceProviderLabel(provider: KnowledgeProvider) {
   if (provider === 'slack') return 'Slack';
   if (provider === 'granola') return 'Granola';
+  if (provider === 'teams') return 'Microsoft Teams';
+  if (provider === 'google_chat') return 'Google Chat';
   return 'Integration';
 }
 
@@ -109,7 +112,7 @@ function sourceLoadMessage(data: { error?: string; detail?: string; needed?: str
     return 'This source needs additional permissions before Canon can load items. Reconnect the integration and try again.';
   }
   if (data.error === 'No active Slack connection') {
-    return 'Connect a source before adding it to knowledge.';
+    return 'Connect a chat or meeting source before adding it to knowledge.';
   }
   return 'Could not load sources. Try again in a moment.';
 }
@@ -128,8 +131,22 @@ function isSyncInProgress(status: string) {
 
 function providerLabel(provider: KnowledgeProvider) {
   if (provider === 'slack') return 'Slack';
+  if (provider === 'teams') return 'Microsoft Teams';
+  if (provider === 'google_chat') return 'Google Chat';
   if (provider === 'granola') return 'Granola';
   return 'Integration';
+}
+
+function sourceOptionIcon(provider: KnowledgeProvider) {
+  if (provider === 'slack') return <IconHash size={14} />;
+  if (provider === 'teams' || provider === 'google_chat') return <IconMessageSquare size={14} />;
+  return <IconDatabase size={14} />;
+}
+
+function sourceIcon(provider: KnowledgeProvider) {
+  if (provider === 'slack') return <IconHash size={15} />;
+  if (provider === 'teams' || provider === 'google_chat') return <IconMessageSquare size={15} />;
+  return <IconDatabase size={15} />;
 }
 
 export function KnowledgeClient() {
@@ -143,7 +160,7 @@ export function KnowledgeClient() {
   const [selectedSourceOptionIds, setSelectedSourceOptionIds] = useState<Set<string>>(new Set());
   const [sourceSearch, setSourceSearch] = useState('');
   const [noIntegrationsConnected, setNoIntegrationsConnected] = useState(false);
-  const [connectedProviders, setConnectedProviders] = useState<ConnectedProviders>({ slack: false, granola: false });
+  const [connectedProviders, setConnectedProviders] = useState<ConnectedProviders>({ slack: false, granola: false, teams: false, google_chat: false });
   const [connectingProvider, setConnectingProvider] = useState<KnowledgeProvider | null>(null);
   const [adding, setAdding] = useState(false);
   const [selected, setSelected] = useState<KnowledgeSource | null>(null);
@@ -261,6 +278,8 @@ export function KnowledgeClient() {
       setConnectedProviders({
         slack: Boolean(data.connectedProviders?.slack),
         granola: Boolean(data.connectedProviders?.granola),
+        teams: Boolean(data.connectedProviders?.teams),
+        google_chat: Boolean(data.connectedProviders?.google_chat),
       });
       if (data.noIntegrationsConnected) {
         setNoIntegrationsConnected(true);
@@ -278,7 +297,7 @@ export function KnowledgeClient() {
       setSourceOptions([]);
       setSelectedSourceOptionIds(new Set());
       setSourceOptionsError(error instanceof Error ? error.message : sourceLoadMessage({}));
-      setConnectedProviders({ slack: false, granola: false });
+      setConnectedProviders({ slack: false, granola: false, teams: false, google_chat: false });
     } finally {
       setSourceOptionsLoading(false);
     }
@@ -437,7 +456,7 @@ export function KnowledgeClient() {
               provider,
               slack_channel_id: sourceOption.id,
               slack_channel_name: sourceOption.name,
-              name: `#${sourceOption.name}`,
+              name: provider === 'slack' ? `#${sourceOption.name}` : sourceOption.name,
             };
         const res = await fetch('/api/onboarding/knowledge', {
           method: 'POST',
@@ -528,8 +547,20 @@ export function KnowledgeClient() {
     {
       provider: 'slack',
       label: 'Slack',
-      description: 'Bring in the Slack conversations your team already uses and send updates where people already work.',
+      description: 'Bring in Slack channels your team already uses.',
       action: connectSlack,
+    },
+    {
+      provider: 'teams',
+      label: 'Microsoft Teams',
+      description: 'Bring in Teams channels and chats your company uses.',
+      action: () => void connectNangoProvider('teams'),
+    },
+    {
+      provider: 'google_chat',
+      label: 'Google Chat',
+      description: 'Bring in Google Chat spaces and direct chats.',
+      action: () => void connectNangoProvider('google_chat'),
     },
     {
       provider: 'granola',
@@ -700,7 +731,7 @@ export function KnowledgeClient() {
                   aria-label={`Select ${source.name}`}
                 />
                 <div className="w-8 h-8 rounded-[7px] flex items-center justify-center flex-shrink-0" style={sourceIconStyle(source.status)}>
-                  {source.provider === 'slack' ? <IconHash size={15} /> : <IconDatabase size={15} />}
+                  {sourceIcon(source.provider)}
                 </div>
                 <button
                   type="button"
@@ -876,7 +907,7 @@ export function KnowledgeClient() {
                 <IconPlug size={20} className="mx-auto mb-2 text-[var(--text-tertiary)]" />
                 <p className="type-panel-title" style={{ color: 'var(--text-primary)' }}>Connect a source first</p>
                 <p className="type-body mt-1" style={{ color: 'var(--text-secondary)' }}>
-                  Connect Slack or Granola, then choose what Canon should use.
+                  Connect Slack, Microsoft Teams, Google Chat, or Granola, then choose what Canon should use.
                 </p>
               </div>
             ) : sourceOptionsError ? (
@@ -906,13 +937,14 @@ export function KnowledgeClient() {
                         aria-label={`Select ${sourceDisplayName(sourceOption)}`}
                       />
                       <div className="size-7 rounded-[7px] flex flex-shrink-0 items-center justify-center" style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--text-tertiary)' }}>
-                        {provider === 'slack' ? <IconHash size={14} /> : <IconDatabase size={14} />}
+                        {sourceOptionIcon(provider)}
                       </div>
                       <div className="min-w-0">
-                        <span className="type-panel-title truncate" style={{ color: 'var(--text-primary)' }}>{sourceDisplayName(sourceOption)}</span>
-                        {sourceOption.member_count > 0 && (
-                          <span className="type-caption ml-2" style={{ color: 'var(--text-tertiary)' }}>{sourceOption.member_count} members</span>
-                        )}
+                        <div className="type-panel-title truncate" style={{ color: 'var(--text-primary)' }}>{sourceDisplayName(sourceOption)}</div>
+                        <div className="type-caption truncate" style={{ color: 'var(--text-tertiary)' }}>
+                          {sourceOption.topic}
+                          {sourceOption.member_count > 0 ? ` · ${sourceOption.member_count} members` : ''}
+                        </div>
                       </div>
                     </div>
                     {connected && <StatusBadge variant="delivered" label="Connected" />}

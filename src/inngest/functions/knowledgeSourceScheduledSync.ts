@@ -1,6 +1,7 @@
 import { inngest } from '../client';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { createLogger } from '@/lib/server/logging';
+import { isScheduledKnowledgeSourceSyncable, scheduledSyncProviders } from '@/lib/server/knowledge-sync/scheduled-sources';
 
 type ScheduledKnowledgeSource = {
   id: string;
@@ -40,11 +41,11 @@ export const knowledgeSourceScheduledSync = inngest.createFunction(
       const { data, error } = await supabase
         .from('knowledge_sources')
         .select('id, organization_id, provider, name, slack_channel_id, slack_channel_name, status')
-        .eq('provider', 'slack')
+        .in('provider', [...scheduledSyncProviders])
         .eq('status', 'active');
 
       if (error) throw error;
-      return ((data ?? []) as ScheduledKnowledgeSource[]).filter((source) => source.provider === 'slack' && !!source.slack_channel_id);
+      return ((data ?? []) as ScheduledKnowledgeSource[]).filter(isScheduledKnowledgeSourceSyncable);
     });
 
     if (sources.length === 0) {
