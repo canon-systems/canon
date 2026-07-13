@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-export type WorkspaceProvider = 'slack' | 'granola';
+export type WorkspaceProvider = 'slack' | 'granola' | 'teams';
 
 export type WorkspaceConnection = {
   id: string;

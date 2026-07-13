@@ -2,12 +2,11 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 import {
   getActiveWorkspaceConnection,
   upsertWorkspaceConnection,
-  type WorkspaceProvider,
 } from '@/lib/server/integrations/workspaceConnections';
 
 type SupabaseServiceClient = ReturnType<typeof createServiceRoleClient>;
 
-export type KnowledgeProvider = WorkspaceProvider;
+export type KnowledgeProvider = 'slack' | 'granola';
 
 export async function getActiveProviderConnection(
   supabase: SupabaseServiceClient,

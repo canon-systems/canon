@@ -13,6 +13,10 @@ import { isSettingsTab, SettingsSidebar, type SettingsTab } from './sections/Set
 import { disconnectDescription, providerLabel, useIntegrations } from './hooks/useIntegrations';
 import { useReadinessSettings } from './hooks/useReadinessSettings';
 
+function integrationLogoUrl(provider: string) {
+  return `/api/integrations/logo/${provider}`;
+}
+
 export function SettingsPageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -26,7 +30,7 @@ export function SettingsPageClient() {
       ? tabParam
       : 'profile';
   const initialIntegrationSuccess = successParam === 'true'
-    ? `Successfully connected to ${searchParams.get('provider') || 'service'}!`
+    ? `Successfully connected to ${providerLabel(searchParams.get('provider') || 'service')}!`
     : '';
   const initialIntegrationError = errorParam
     ? 'Something went wrong connecting your integration. Please try again.'
@@ -81,15 +85,15 @@ export function SettingsPageClient() {
 
   const slackConnection = connections.find(c => c.provider === 'slack' && c.status === 'active');
   const granolaConnection = connections.find(c => c.provider === 'granola' && c.status === 'active');
+  const teamsConnection = connections.find(c => c.provider === 'teams' && c.status === 'active');
 
   const integrations = [
     {
       id: 'slack',
       provider: 'slack' as const,
       name: 'Slack',
-      description: 'Send hire-path DMs and sync channel knowledge.',
-      iconBg: 'var(--slack-bg)',
-      iconColor: 'var(--slack-text)',
+      description: 'Bring field conversations into Canon and send readiness updates where your team already works.',
+      logoUrl: integrationLogoUrl('slack'),
       connected: !!slackConnection,
       workspace: slackConnection ? `Connected ${formatDate(slackConnection.created_at)}` : '',
       action: slackConnection ? () => openDisconnectModal(slackConnection.connection_id, 'slack') : connectSlack,
@@ -98,16 +102,29 @@ export function SettingsPageClient() {
       id: 'granola',
       provider: 'granola' as const,
       name: 'Granola',
-      description: 'Connect meeting transcripts and customer conversation context through Nango.',
-      iconBg: 'var(--bg-tertiary)',
-      iconColor: 'var(--text-primary)',
+      description: 'Turn customer calls and internal meetings into readiness signals your team can review and act on.',
+      logoUrl: integrationLogoUrl('granola'),
       connected: !!granolaConnection,
       workspace: granolaConnection ? `Connected ${formatDate(granolaConnection.created_at)}` : '',
       action: granolaConnection
         ? () => openDisconnectModal(granolaConnection.connection_id, 'granola')
         : () => connectNangoProvider('granola'),
     },
+    {
+      id: 'teams',
+      provider: 'teams' as const,
+      name: 'Microsoft Teams',
+      description: 'Use Teams conversations to keep field guidance tied to the work your teams discuss every day.',
+      logoUrl: integrationLogoUrl('teams'),
+      connected: !!teamsConnection,
+      workspace: teamsConnection ? `Connected ${formatDate(teamsConnection.created_at)}` : '',
+      action: teamsConnection
+        ? () => openDisconnectModal(teamsConnection.connection_id, 'teams')
+        : () => connectNangoProvider('teams'),
+    },
   ];
+  const connectedIntegrations = integrations.filter((integration) => integration.connected);
+  const availableIntegrations = integrations.filter((integration) => !integration.connected);
 
   return (
     <>
@@ -124,7 +141,8 @@ export function SettingsPageClient() {
             {activeSetting === 'profile' && <ProfileSettings />}
             {activeSetting === 'integrations' && (
               <IntegrationSettings
-                integrations={integrations}
+                integrations={connectedIntegrations}
+                availableIntegrations={availableIntegrations}
                 loading={loading}
                 connectingProvider={connectingProvider}
                 success={success}

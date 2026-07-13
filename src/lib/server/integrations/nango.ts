@@ -34,12 +34,13 @@ type NangoConnectionsListResponse = {
   };
 };
 
-type NangoProvider = 'granola';
+type NangoProvider = 'granola' | 'teams';
 
 type NangoProviderConfig = {
   integrationId: string;
+  aliases?: string[];
   label: string;
-  sourceType: 'meeting_notes';
+  sourceType: 'meeting_notes' | 'team_chat';
   supportsWebhooks: boolean;
   supportsIncrementalSync: boolean;
 };
@@ -62,8 +63,22 @@ const NANGO_PROVIDER_CONFIG = {
       process.env.NANGO_GRANOLA_INTEGRATION_ID ||
       process.env.NANGO_GRANOLA_PROVIDER_CONFIG_KEY ||
       'granola',
+    aliases: ['granola'],
     label: 'Granola',
     sourceType: 'meeting_notes',
+    supportsWebhooks: true,
+    supportsIncrementalSync: true,
+  },
+  teams: {
+    integrationId:
+      process.env.NANGO_TEAMS_INTEGRATION_ID ||
+      process.env.NANGO_TEAMS_PROVIDER_CONFIG_KEY ||
+      process.env.NANGO_MICROSOFT_TEAMS_INTEGRATION_ID ||
+      process.env.NANGO_MICROSOFT_TEAMS_PROVIDER_CONFIG_KEY ||
+      'teams',
+    aliases: ['teams', 'microsoft-teams', 'microsoft_teams', 'ms-teams'],
+    label: 'Microsoft Teams',
+    sourceType: 'team_chat',
     supportsWebhooks: true,
     supportsIncrementalSync: true,
   },
@@ -143,9 +158,10 @@ export function nangoIntegrationForProvider(provider: string) {
 
 export function providerForNangoIntegration(integrationId: string) {
   const normalizedIntegrationId = integrationId.trim().toLowerCase();
-  return Object.entries(NANGO_PROVIDER_CONFIG).find(([, config]) => (
-    config.integrationId.trim().toLowerCase() === normalizedIntegrationId
-  ))?.[0] ?? normalizedIntegrationId;
+  return Object.entries(NANGO_PROVIDER_CONFIG).find(([, config]) => {
+    const knownIntegrationIds = [config.integrationId, ...(config.aliases ?? [])];
+    return knownIntegrationIds.some((id) => id.trim().toLowerCase() === normalizedIntegrationId);
+  })?.[0] ?? normalizedIntegrationId;
 }
 
 export function resolveNangoWebhookUrl(origin: string) {

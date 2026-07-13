@@ -18,6 +18,7 @@ export interface Connection {
 export function providerLabel(provider: string) {
   if (provider === 'slack') return 'Slack';
   if (provider === 'granola') return 'Granola';
+  if (provider === 'teams') return 'Microsoft Teams';
   return provider.charAt(0).toUpperCase() + provider.slice(1);
 }
 
@@ -27,6 +28,9 @@ export function disconnectDescription(provider: string) {
   }
   if (provider === 'granola') {
     return 'Canon will stop using this Granola connection.';
+  }
+  if (provider === 'teams') {
+    return 'Canon will stop using this Microsoft Teams connection.';
   }
   return 'Canon will remove connected knowledge sources for this integration.';
 }
