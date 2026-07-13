@@ -17,6 +17,10 @@ function integrationLogoUrl(provider: string) {
   return `/api/integrations/logo/${provider}`;
 }
 
+function byIntegrationName(a: { name: string }, b: { name: string }) {
+  return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+}
+
 export function SettingsPageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -162,8 +166,8 @@ export function SettingsPageClient() {
         : () => connectNangoProvider('outlook'),
     },
   ];
-  const connectedIntegrations = integrations.filter((integration) => integration.connected);
-  const availableIntegrations = integrations.filter((integration) => !integration.connected);
+  const connectedIntegrations = integrations.filter((integration) => integration.connected).sort(byIntegrationName);
+  const availableIntegrations = integrations.filter((integration) => !integration.connected).sort(byIntegrationName);
 
   return (
     <>

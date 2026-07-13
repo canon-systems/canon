@@ -1,13 +1,14 @@
 'use client';
 
 import { useState } from 'react';
-import { Loader2 as IconLoader2, Plus as IconPlus, Plug as IconPlug } from 'lucide-react';
+import { Loader2 as IconLoader2, Plus as IconPlus, Plug as IconPlug, Search as IconSearch } from 'lucide-react';
 
 import { IntegrationLogos } from '@/components/IntegrationLogos';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 
 type IntegrationCard = {
   id: string;
@@ -38,6 +39,18 @@ export function IntegrationSettings({
   error,
 }: IntegrationSettingsProps) {
   const [addIntegrationOpen, setAddIntegrationOpen] = useState(false);
+  const [integrationSearch, setIntegrationSearch] = useState('');
+  const normalizedSearch = integrationSearch.trim().toLowerCase();
+  const filteredAvailableIntegrations = normalizedSearch
+    ? availableIntegrations.filter((integration) =>
+        `${integration.name} ${integration.description}`.toLowerCase().includes(normalizedSearch)
+      )
+    : availableIntegrations;
+
+  function handleAddIntegrationOpenChange(open: boolean) {
+    setAddIntegrationOpen(open);
+    if (!open) setIntegrationSearch('');
+  }
 
   return (
     <div className="max-w-5xl">
@@ -112,7 +125,7 @@ export function IntegrationSettings({
         </div>
       )}
 
-      <Dialog open={addIntegrationOpen} onOpenChange={setAddIntegrationOpen}>
+      <Dialog open={addIntegrationOpen} onOpenChange={handleAddIntegrationOpenChange}>
         <DialogContent className="max-w-lg border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
           <DialogHeader>
             <DialogTitle>Add Integration</DialogTitle>
@@ -123,30 +136,49 @@ export function IntegrationSettings({
 
           {availableIntegrations.length > 0 ? (
             <div className="space-y-2">
-              {availableIntegrations.map((integration) => (
-                <div
-                  key={integration.id}
-                  className="flex items-center gap-3 rounded-[10px] border px-3 py-3"
-                  style={{ borderColor: 'var(--border-tertiary)', backgroundColor: 'var(--bg-primary)' }}
-                >
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] border border-[var(--border-tertiary)] bg-white">
-                    <IntegrationLogos provider={integration.provider} logoUrl={integration.logoUrl} size={30} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="type-panel-title" style={{ color: 'var(--text-primary)' }}>{integration.name}</div>
-                    <div className="type-caption mt-[2px] leading-relaxed" style={{ color: 'var(--text-tertiary)' }}>{integration.description}</div>
-                  </div>
-                  <Button
-                    className="shrink-0"
-                    variant="secondary"
-                    onClick={integration.action}
-                    disabled={connectingProvider !== null}
+              <div className="relative">
+                <IconSearch size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }} />
+                <Input
+                  value={integrationSearch}
+                  onChange={(event) => setIntegrationSearch(event.target.value)}
+                  placeholder="Search integrations..."
+                  className="h-9 pl-8"
+                />
+              </div>
+
+              {filteredAvailableIntegrations.length > 0 ? (
+                filteredAvailableIntegrations.map((integration) => (
+                  <div
+                    key={integration.id}
+                    className="flex items-center gap-3 rounded-[10px] border px-3 py-3"
+                    style={{ borderColor: 'var(--border-tertiary)', backgroundColor: 'var(--bg-primary)' }}
                   >
-                    {connectingProvider === integration.provider ? <IconLoader2 size={13} className="animate-spin" /> : <IconPlug size={13} />}
-                    Connect
-                  </Button>
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] border border-[var(--border-tertiary)] bg-white">
+                      <IntegrationLogos provider={integration.provider} logoUrl={integration.logoUrl} size={30} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="type-panel-title" style={{ color: 'var(--text-primary)' }}>{integration.name}</div>
+                      <div className="type-caption mt-[2px] leading-relaxed" style={{ color: 'var(--text-tertiary)' }}>{integration.description}</div>
+                    </div>
+                    <Button
+                      className="shrink-0"
+                      variant="secondary"
+                      onClick={integration.action}
+                      disabled={connectingProvider !== null}
+                    >
+                      {connectingProvider === integration.provider ? <IconLoader2 size={13} className="animate-spin" /> : <IconPlug size={13} />}
+                      Connect
+                    </Button>
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-[10px] border px-4 py-4" style={{ borderColor: 'var(--border-tertiary)', backgroundColor: 'var(--bg-secondary)' }}>
+                  <div className="type-panel-title" style={{ color: 'var(--text-primary)' }}>No matching integrations</div>
+                  <p className="type-body mt-1" style={{ color: 'var(--text-secondary)' }}>
+                    Try a different app name.
+                  </p>
                 </div>
-              ))}
+              )}
             </div>
           ) : (
             <div className="rounded-[10px] border px-4 py-4" style={{ borderColor: 'var(--border-tertiary)', backgroundColor: 'var(--bg-secondary)' }}>

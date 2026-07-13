@@ -77,7 +77,7 @@ const NANGO_PROVIDER_CONFIG: Record<NangoProvider, NangoProviderConfig> = {
       process.env.NANGO_TEAMS_PROVIDER_CONFIG_KEY ||
       process.env.NANGO_MICROSOFT_TEAMS_INTEGRATION_ID ||
       process.env.NANGO_MICROSOFT_TEAMS_PROVIDER_CONFIG_KEY ||
-      'teams',
+      'microsoft-teams',
     aliases: ['teams', 'microsoft-teams', 'microsoft_teams', 'ms-teams'],
     label: 'Microsoft Teams',
     sourceType: 'team_chat',
@@ -209,6 +209,14 @@ export function resolveNangoWebhookUrl(origin: string) {
   return url.toString();
 }
 
+function nangoTags(tags: Record<string, string | null | undefined>) {
+  return Object.fromEntries(
+    Object.entries(tags)
+      .map(([key, value]) => [key, typeof value === 'string' ? value.trim() : ''] as const)
+      .filter(([, value]) => value.length > 0)
+  );
+}
+
 export async function createNangoConnectSession(params: {
   provider: string;
   userId: string;
@@ -224,14 +232,14 @@ export async function createNangoConnectSession(params: {
   }
 
   const body: Record<string, unknown> = {
-    tags: {
+    tags: nangoTags({
       end_user_id: params.userId,
-      end_user_email: params.userEmail || '',
+      end_user_email: params.userEmail,
       end_user_display_name: params.userDisplayName || params.userEmail || params.userId,
       organization_id: params.organizationId,
-      organization_name: params.organizationName || '',
+      organization_name: params.organizationName,
       canon_provider: params.provider,
-    },
+    }),
     allowed_integrations: [integration.integrationId],
   };
 
