@@ -23,16 +23,10 @@ export function providerLabel(provider: string) {
 }
 
 export function disconnectDescription(provider: string) {
-  if (provider === 'slack') {
-    return 'Canon will no longer be able to send DMs or sync Slack channel knowledge.';
-  }
-  if (provider === 'granola') {
-    return 'Canon will stop using this Granola connection.';
-  }
-  if (provider === 'teams') {
-    return 'Canon will stop using this Microsoft Teams connection.';
-  }
-  return 'Canon will remove connected knowledge sources for this integration.';
+  if (provider === 'slack') return 'Canon will stop using Slack conversations and will no longer send Slack updates.';
+  if (provider === 'granola') return 'Canon will stop using Granola meetings and transcripts.';
+  if (provider === 'teams') return 'Canon will stop using Microsoft Teams conversations.';
+  return `Canon will stop using ${providerLabel(provider)}.`;
 }
 
 type UseIntegrationsParams = {

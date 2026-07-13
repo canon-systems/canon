@@ -149,8 +149,8 @@ function GenerationStatusPanel({
 
   const statusLabel = run?.status === 'running' ? 'Generating drafts' : 'Queued for generation';
   const detail = run?.status === 'running'
-    ? 'Canon is reading indexed company knowledge and preparing role-specific readiness milestones.'
-    : 'Canon is waiting for readiness milestone generation to start.';
+    ? 'Canon is reading your connected sources and preparing role-specific learning steps.'
+    : 'Canon is waiting to start creating learning steps.';
 
   return (
     <div
@@ -199,12 +199,12 @@ function ProposalCard({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="type-caption font-medium text-[var(--canon-purple-dark)]">Draft · Day {proposal.suggested_day_trigger}</span>
-            <span className="type-caption text-[var(--text-tertiary)]">{Math.round(proposal.confidence * 100)}% confidence</span>
+            <span className="type-caption text-[var(--text-tertiary)]">{Math.round(proposal.confidence * 100)}% match</span>
           </div>
           <h3 className="type-card-title mt-1 text-[var(--text-primary)]">{proposal.title}</h3>
           <p className="type-card-body mt-2 text-[var(--text-secondary)]">{proposal.capability_outcome}</p>
           <div className="mt-3 rounded-[8px] border border-[var(--border-tertiary)] bg-[var(--bg-primary)] px-3 py-2">
-            <div className="type-kicker mb-1 text-[var(--text-tertiary)]">Real Work Trigger</div>
+            <div className="type-kicker mb-1 text-[var(--text-tertiary)]">When This Step Matters</div>
             <p className="type-body text-[var(--text-secondary)]">{proposal.real_work_trigger}</p>
           </div>
           <div className="mt-3 flex gap-2">
@@ -343,11 +343,11 @@ export function MilestonesClient() {
         }),
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(data.error ?? 'Failed to update milestone.');
+      if (!res.ok) throw new Error(data.error ?? 'Failed to update learning step.');
       setEditingMilestone(null);
       await load();
     } catch (error) {
-      setEditError(error instanceof Error ? error.message : 'Failed to update milestone.');
+      setEditError(error instanceof Error ? error.message : 'Failed to update learning step.');
     } finally {
       setEditSubmitting(false);
     }
@@ -396,12 +396,12 @@ export function MilestonesClient() {
     const shouldNotify = !!generationRun && (generationNoticeRef.current === generationRun.id || rememberedRunId === generationRun.id);
 
     if (generationRun?.status === 'completed') {
-      if (shouldNotify) toast.success('Readiness milestones are ready for review');
+      if (shouldNotify) toast.success('Learning steps are ready for review');
       clearRememberedGeneration(generationRun.id);
       generationNoticeRef.current = null;
     } else if (generationRun?.status === 'failed') {
       if (shouldNotify) {
-        toast.error('Readiness milestone generation failed', {
+        toast.error('Learning step generation failed', {
           description: generationRun.error_message ?? 'Please try generating drafts again.',
         });
       }
@@ -419,14 +419,14 @@ export function MilestonesClient() {
         body: JSON.stringify({ action: 'generate' }),
       });
       const data = (await res.json().catch(() => ({}))) as { generation?: MilestoneGenerationRun; error?: string };
-      if (!res.ok) throw new Error(data.error ?? 'Could not generate readiness milestones.');
+      if (!res.ok) throw new Error(data.error ?? 'Could not generate learning steps.');
       if (data.generation) {
         setGenerationRun(data.generation);
         rememberGeneration(data.generation);
       }
       await load();
     } catch {
-      toast.error('Could not generate readiness milestones. Please try again.');
+      toast.error('Could not generate learning steps. Please try again.');
     } finally {
       setGenerationStarting(false);
     }
@@ -579,11 +579,11 @@ export function MilestonesClient() {
         body: JSON.stringify({ milestone_id: pendingDelete.id }),
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(data.error ?? 'Failed to remove milestone.');
+      if (!res.ok) throw new Error(data.error ?? 'Failed to remove learning step.');
       setPendingDelete(null);
       await load();
     } catch (error) {
-      setDeleteError(error instanceof Error ? error.message : 'Failed to remove milestone.');
+      setDeleteError(error instanceof Error ? error.message : 'Failed to remove learning step.');
     } finally {
       setActionId(null);
     }
@@ -658,7 +658,7 @@ export function MilestonesClient() {
                 <div className="flex-1 min-w-0">
                   <div className="type-panel-title truncate" style={{ color: 'var(--text-primary)' }}>{role}</div>
                   <div className="type-caption mt-[1px]" style={{ color: 'var(--text-tertiary)' }}>
-                    {count} milestone{count !== 1 ? 's' : ''}
+                    {count} learning step{count !== 1 ? 's' : ''}
                     {pCount > 0 && ` · ${pCount} draft${pCount !== 1 ? 's' : ''}`}
                   </div>
                 </div>
@@ -719,7 +719,7 @@ export function MilestonesClient() {
                 onClick={() => { setShowAddForm(true); setForm(emptyForm(activeRole)); }}
                 disabled={!activeRole}
               >
-                <IconPlus size={13} /> Add Milestone
+                <IconPlus size={13} /> Add Learning Step
               </Button>
             </div>
           </div>
@@ -749,7 +749,7 @@ export function MilestonesClient() {
               <IconTarget size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
               <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Active Roles</div>
               <div className="type-body text-center max-w-[260px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
-                Add a role before generating readiness milestones or field briefs.
+                Add a role before Canon can create learning steps and team updates.
               </div>
               <Button size="sm" asChild>
                 <Link href="/settings?tab=roles">Configure Roles</Link>
@@ -765,9 +765,9 @@ export function MilestonesClient() {
             ) : (
               <div className="flex flex-col items-center justify-center h-full gap-3 py-12">
                 <IconTarget size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
-                <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Approved Readiness Milestones</div>
+                <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Approved Learning Steps</div>
                 <div className="type-body text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
-                  Generate draft proof points from company knowledge or add a readiness milestone manually.
+                  Generate draft proof points from company knowledge or add a learning step manually.
                 </div>
                 <div className="flex gap-2">
                   <Button size="sm" onClick={generateMilestones} disabled={generating}>
@@ -867,7 +867,7 @@ export function MilestonesClient() {
               </div>
             </div>
             <div>
-              <p className="type-caption mb-1 text-[var(--text-tertiary)]">Capability Outcome</p>
+              <p className="type-caption mb-1 text-[var(--text-tertiary)]">What They Should Be Able To Do</p>
               <Textarea
                 value={form.capability_outcome}
                 onChange={(e) => setField('capability_outcome', e.target.value)}
@@ -876,7 +876,7 @@ export function MilestonesClient() {
               />
             </div>
             <div>
-              <p className="type-caption mb-1 text-[var(--text-tertiary)]">Briefing Goal</p>
+              <p className="type-caption mb-1 text-[var(--text-tertiary)]">What Canon Should Explain</p>
               <Textarea
                 value={form.briefing_goal}
                 onChange={(e) => setField('briefing_goal', e.target.value)}
@@ -885,7 +885,7 @@ export function MilestonesClient() {
               />
             </div>
             <div>
-              <p className="type-caption mb-1 text-[var(--text-tertiary)]">Real-Work Trigger</p>
+              <p className="type-caption mb-1 text-[var(--text-tertiary)]">When This Step Matters</p>
               <Input
                 value={form.real_work_trigger}
                 onChange={(e) => setField('real_work_trigger', e.target.value)}
@@ -894,20 +894,20 @@ export function MilestonesClient() {
               />
             </div>
             <div>
-              <p className="type-caption mb-1 text-[var(--text-tertiary)]">Retrieval Brief</p>
+              <p className="type-caption mb-1 text-[var(--text-tertiary)]">What Canon Should Look For</p>
               <Input
                 value={form.retrieval_brief}
                 onChange={(e) => setField('retrieval_brief', e.target.value)}
-                placeholder="Knowledge query for Canon to retrieve"
+                placeholder="What should Canon search for?"
                 className="input-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body"
               />
             </div>
             <div>
-              <p className="type-caption mb-1 text-[var(--text-tertiary)]">Success Signals</p>
+              <p className="type-caption mb-1 text-[var(--text-tertiary)]">Proof This Is Done</p>
               <Textarea
                 value={form.success_signals}
                 onChange={(e) => setField('success_signals', e.target.value)}
-                placeholder="One signal per line"
+                placeholder="One proof point per line"
                 className="textarea-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body min-h-[72px]"
               />
             </div>
@@ -923,13 +923,13 @@ export function MilestonesClient() {
         </DialogContent>
       </Dialog>
 
-      {/* Edit Milestone Dialog */}
+      {/* Edit learning step dialog */}
       <Dialog open={!!editingMilestone} onOpenChange={(open) => { if (!open) setEditingMilestone(null); }}>
         <DialogContent className="max-w-2xl border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
           <DialogHeader>
-            <DialogTitle className="text-[var(--text-primary)]">Edit Milestone</DialogTitle>
+            <DialogTitle className="text-[var(--text-primary)]">Edit Learning Step</DialogTitle>
             <DialogDescription>
-              Update timing, language, briefing guidance, and real-work signals for this approved milestone.
+              Update timing, language, guidance, and proof points for this approved step.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleEdit} className="min-h-0 space-y-4 overflow-y-auto pr-1">
@@ -967,7 +967,7 @@ export function MilestonesClient() {
               />
             </div>
             <div>
-              <p className="type-caption mb-1 text-[var(--text-tertiary)]">Capability Outcome</p>
+              <p className="type-caption mb-1 text-[var(--text-tertiary)]">What They Should Be Able To Do</p>
               <Textarea
                 value={editForm.capability_outcome}
                 onChange={(e) => setEditField('capability_outcome', e.target.value)}
@@ -975,7 +975,7 @@ export function MilestonesClient() {
               />
             </div>
             <div>
-              <p className="type-caption mb-1 text-[var(--text-tertiary)]">Briefing Goal</p>
+              <p className="type-caption mb-1 text-[var(--text-tertiary)]">What Canon Should Explain</p>
               <Textarea
                 value={editForm.briefing_goal}
                 onChange={(e) => setEditField('briefing_goal', e.target.value)}
@@ -983,7 +983,7 @@ export function MilestonesClient() {
               />
             </div>
             <div>
-              <p className="type-caption mb-1 text-[var(--text-tertiary)]">Real-Work Trigger</p>
+              <p className="type-caption mb-1 text-[var(--text-tertiary)]">When This Step Matters</p>
               <Input
                 value={editForm.real_work_trigger}
                 onChange={(e) => setEditField('real_work_trigger', e.target.value)}
@@ -991,7 +991,7 @@ export function MilestonesClient() {
               />
             </div>
             <div>
-              <p className="type-caption mb-1 text-[var(--text-tertiary)]">Retrieval Brief</p>
+              <p className="type-caption mb-1 text-[var(--text-tertiary)]">What Canon Should Look For</p>
               <Input
                 value={editForm.retrieval_brief}
                 onChange={(e) => setEditField('retrieval_brief', e.target.value)}
@@ -999,11 +999,11 @@ export function MilestonesClient() {
               />
             </div>
             <div>
-              <p className="type-caption mb-1 text-[var(--text-tertiary)]">Success Signals</p>
+              <p className="type-caption mb-1 text-[var(--text-tertiary)]">Proof This Is Done</p>
               <Textarea
                 value={editForm.success_signals}
                 onChange={(e) => setEditField('success_signals', e.target.value)}
-                placeholder="One signal per line"
+                placeholder="One proof point per line"
                 className="textarea-ui min-h-[90px] border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body"
               />
             </div>
@@ -1059,7 +1059,7 @@ export function MilestonesClient() {
               />
             </div>
             <div>
-              <p className="type-caption mb-1 text-[var(--text-tertiary)]">Briefing Goal</p>
+              <p className="type-caption mb-1 text-[var(--text-tertiary)]">What Canon Should Explain</p>
               <Textarea
                 value={editProposalForm.briefing_goal}
                 onChange={(e) => setEditProposalField('briefing_goal', e.target.value)}
@@ -1067,7 +1067,7 @@ export function MilestonesClient() {
               />
             </div>
             <div>
-              <p className="type-caption mb-1 text-[var(--text-tertiary)]">Real-Work Trigger</p>
+              <p className="type-caption mb-1 text-[var(--text-tertiary)]">When This Step Matters</p>
               <Input
                 value={editProposalForm.real_work_trigger}
                 onChange={(e) => setEditProposalField('real_work_trigger', e.target.value)}
@@ -1075,7 +1075,7 @@ export function MilestonesClient() {
               />
             </div>
             <div>
-              <p className="type-caption mb-1 text-[var(--text-tertiary)]">Retrieval Brief</p>
+              <p className="type-caption mb-1 text-[var(--text-tertiary)]">What Canon Should Look For</p>
               <Input
                 value={editProposalForm.retrieval_brief}
                 onChange={(e) => setEditProposalField('retrieval_brief', e.target.value)}
@@ -1083,11 +1083,11 @@ export function MilestonesClient() {
               />
             </div>
             <div>
-              <p className="type-caption mb-1 text-[var(--text-tertiary)]">Success Signals</p>
+              <p className="type-caption mb-1 text-[var(--text-tertiary)]">Proof This Is Done</p>
               <Textarea
                 value={editProposalForm.success_signals}
                 onChange={(e) => setEditProposalField('success_signals', e.target.value)}
-                placeholder="One signal per line"
+                placeholder="One proof point per line"
                 className="textarea-ui min-h-[90px] border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body"
               />
             </div>
@@ -1129,7 +1129,7 @@ export function MilestonesClient() {
               Cancel
             </Button>
             <Button type="button" variant="destructive" onClick={deleteMilestone} disabled={actionId === pendingDelete?.id}>
-              {actionId === pendingDelete?.id ? 'Removing...' : 'Remove Milestone'}
+              {actionId === pendingDelete?.id ? 'Removing...' : 'Remove Learning Step'}
             </Button>
           </DialogFooter>
         </DialogContent>

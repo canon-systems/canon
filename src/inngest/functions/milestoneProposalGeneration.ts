@@ -258,31 +258,33 @@ async function generateRoleProposals(params: {
       middleware: extractJsonMiddleware(),
     }),
     output: Output.object({ schema: LooseProposalListSchema }),
-    prompt: `You are Canon, an onboarding architect. Create empirical milestone proposals for a ${role}.
+    prompt: `You are Canon, an onboarding architect. Create customer-facing learning step proposals for a ${role}.
 
 ${roleContext}
+
+Use simple, standalone language that a manager and new hire can understand without extra context. Use the company's own terminology when it appears in the source material, including product names, feature names, customer names, team names, acronyms, workflows, tools, and role names. Do not replace company terms with generic wording. If a company term may be unclear, keep the term and explain it briefly in plain language.
 
 Return only JSON with this shape:
 {
   "proposals": [
     {
       "suggested_day_trigger": 14,
-      "title": "Short capability name",
-      "capability_outcome": "What the hire can do after experiencing this work",
-      "briefing_goal": "What Canon should brief before the experience",
-      "real_work_trigger": "The real company activity that proves this milestone is relevant",
-      "success_signals": ["Observable sign of readiness"],
-      "retrieval_brief": "Phrase used to retrieve future company context",
+      "title": "Short learning step name using company terminology when relevant",
+      "capability_outcome": "What the hire should be able to do after this real work",
+      "briefing_goal": "What Canon should explain before the experience",
+      "real_work_trigger": "The real company activity that makes this step matter",
+      "success_signals": ["Plain proof point that shows the hire did the work"],
+      "retrieval_brief": "Plain phrase describing what Canon should look for later",
       "evidence_requirements": [
         {
           "type": "tool_activity",
-          "label": "Concrete evidence Canon can look for",
+          "label": "Concrete proof Canon can look for",
           "required": true,
           "trust_level": "medium",
           "metadata": {}
         }
       ],
-      "rationale": "Why the company knowledge supports this milestone",
+      "rationale": "Why the company knowledge supports this learning step",
       "confidence": 0.7
     }
   ]
@@ -290,9 +292,9 @@ Return only JSON with this shape:
 
 Use only the company knowledge below. Do not create generic onboarding defaults. If the knowledge is too thin or unrelated to this role, return {"proposals":[]}.
 
-Use the job description to decide which company evidence matters for this role. Favor milestones that connect real company work to the role's responsibilities, tools, customer interactions, success criteria, and handoffs. Do not create milestones for duties outside the role description unless the company knowledge clearly shows the role owns that work.
+Use the job description to decide which company evidence matters for this role. Favor learning steps that connect real company work to the role's responsibilities, tools, customer interactions, success criteria, and handoffs. Do not create learning steps for duties outside the role description unless the company knowledge clearly shows the role owns that work.
 
-Milestones are pre-briefs before real work. They should prepare a new hire for a real experience and define concrete signals that prove the experience happened. Do not include practice tasks or homework.
+Learning steps are short briefings before real work. They should prepare a new hire for a real experience and define concrete proof that the experience happened. Do not include practice tasks or homework.
 
 Order proposals by likely ramp timing:
 - Early: vocabulary, access, where work happens, first observation.
@@ -300,15 +302,15 @@ Order proposals by likely ramp timing:
 - Later: owning meaningful work with less support.
 
 Each proposal must include:
-- title: short capability name
-- capability_outcome: what the hire can do after experiencing this work
-- briefing_goal: what Canon should brief before the experience
-- real_work_trigger: the real activity that proves this milestone is relevant
-- success_signals: observable signs of readiness
-- retrieval_brief: phrase used to retrieve future company context
-- evidence_requirements: concrete evidence types; prefer tool_activity, customer_exposure, communication_activity, or access_readiness
+- title: short learning step name using company terminology when relevant
+- capability_outcome: what the hire should be able to do after this real work
+- briefing_goal: what Canon should explain before the experience
+- real_work_trigger: the real activity that makes this step matter
+- success_signals: plain proof points that show the hire did the work
+- retrieval_brief: plain phrase describing what Canon should look for later
+- evidence_requirements: concrete proof types; prefer tool_activity, customer_exposure, communication_activity, or access_readiness
 - if evidence type is access_readiness and specific tools are named, include metadata.tools as an array of tool names
-- rationale: why the company knowledge supports this milestone
+- rationale: why the company knowledge supports this learning step
 - confidence: 0-1 based on evidence specificity
 
 Company knowledge:

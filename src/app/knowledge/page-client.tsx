@@ -82,22 +82,22 @@ function sourceProviderLabel(provider: KnowledgeProvider) {
 function sourceStatusNotice(source: KnowledgeSource) {
   if (source.status === 'error') {
     return {
-      title: 'Sync Needs Attention',
-      body: source.error_message || 'Canon could not finish syncing this source. Try syncing again, or reconnect the source if the issue continues.',
+      title: 'Update Needs Attention',
+      body: source.error_message || 'Canon could not finish updating this source. Try updating again, or reconnect the source if the issue continues.',
       tone: 'error' as const,
     };
   }
   if (source.status === 'stopped') {
     return {
-      title: 'Sync Stopped',
-      body: 'Syncing was stopped before this source finished updating. Start a new sync when you are ready.',
+      title: 'Update Paused',
+      body: 'Canon stopped before this source finished updating. Start a new update when you are ready.',
       tone: 'neutral' as const,
     };
   }
   if (source.status === 'active' && (source.chunk_count ?? 0) === 0) {
     return {
-      title: source.provider === 'granola' ? 'No Transcripts Indexed' : 'No Notes Indexed',
-      body: source.error_message || 'This source synced successfully, but there was no content to index.',
+      title: source.provider === 'granola' ? 'No Transcripts Ready' : 'No Messages Ready',
+      body: source.error_message || 'Canon checked this source, but there was no content ready to use.',
       tone: 'neutral' as const,
     };
   }
@@ -115,8 +115,8 @@ function sourceLoadMessage(data: { error?: string; detail?: string; needed?: str
 }
 
 function actionFailureMessage(action: 'sync' | 'stop' | 'rename' | 'delete' | 'add') {
-  if (action === 'sync') return 'Could not start sync. Try again in a moment.';
-  if (action === 'stop') return 'Could not stop sync. Try again in a moment.';
+  if (action === 'sync') return 'Could not start updating. Try again in a moment.';
+  if (action === 'stop') return 'Could not stop updating. Try again in a moment.';
   if (action === 'rename') return 'Could not rename this source. Try again in a moment.';
   if (action === 'delete') return 'Could not delete the selected source. Try again in a moment.';
   return 'Could not add the selected sources. Try again in a moment.';
@@ -213,7 +213,7 @@ export function KnowledgeClient() {
         if (!res.ok) throw new Error(actionFailureMessage('sync'));
       }
       await loadSources();
-      toast.success(sourceIds.length === 1 ? 'Sync started' : `${sourceIds.length} syncs started`);
+      toast.success(sourceIds.length === 1 ? 'Update started' : `${sourceIds.length} updates started`);
     } catch (error: unknown) {
       toast.error(error instanceof Error ? error.message : actionFailureMessage('sync'));
     } finally {
@@ -230,7 +230,7 @@ export function KnowledgeClient() {
         if (!res.ok) throw new Error(actionFailureMessage('stop'));
       }
       await loadSources();
-      toast.success(sourceIds.length === 1 ? 'Sync stopped' : `${sourceIds.length} syncs stopped`);
+      toast.success(sourceIds.length === 1 ? 'Update stopped' : `${sourceIds.length} updates stopped`);
     } catch (error: unknown) {
       toast.error(error instanceof Error ? error.message : actionFailureMessage('stop'));
     } finally {
@@ -356,8 +356,8 @@ export function KnowledgeClient() {
       ids: targetSources.map((source) => source.id),
       title: targetSources.length === 1 ? `Delete ${targetSources[0].name}?` : `Delete ${targetSources.length} sources?`,
       description: targetSources.length === 1
-        ? 'This removes the source from Canon knowledge and deletes its indexed history.'
-        : 'This removes the selected sources from Canon knowledge and deletes their indexed history.',
+        ? 'This removes the source from Canon and clears the saved items from it.'
+        : 'This removes the selected sources from Canon and clears their saved items.',
     });
     setActionError('');
   }
@@ -528,13 +528,13 @@ export function KnowledgeClient() {
     {
       provider: 'slack',
       label: 'Slack',
-      description: 'Sync channel messages and threads',
+      description: 'Bring in the Slack conversations your team already uses and send updates where people already work.',
       action: connectSlack,
     },
     {
       provider: 'granola',
       label: 'Granola',
-      description: 'Sync meeting transcripts',
+      description: 'Use meeting notes and transcripts to spot customer themes and team follow-up work.',
       action: () => void connectNangoProvider('granola'),
     },
   ];
@@ -566,10 +566,10 @@ export function KnowledgeClient() {
 
       <div className="flex gap-3 px-6 py-[14px] border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
         {[
-          { icon: IconDatabase, iconColor: 'var(--canon-purple)', iconBg: 'var(--canon-purple-light)', value: totalKnowledgeItems, label: 'Readiness Items' },
+          { icon: IconDatabase, iconColor: 'var(--canon-purple)', iconBg: 'var(--canon-purple-light)', value: totalKnowledgeItems, label: 'Items Canon Can Use' },
           { icon: IconChecks, iconColor: 'var(--green)', iconBg: 'var(--green-bg)', value: activeCount, label: 'Active Sources' },
           { icon: IconAlertCircle, iconColor: 'var(--red)', iconBg: 'var(--red-bg)', value: errorCount, label: 'Needs Attention' },
-          { icon: IconClock, iconColor: 'var(--amber)', iconBg: 'var(--amber-bg)', value: pendingCount, label: 'Pending Sync' },
+          { icon: IconClock, iconColor: 'var(--amber)', iconBg: 'var(--amber-bg)', value: pendingCount, label: 'Updating Now' },
         ].map(({ icon: Icon, iconColor, iconBg, value, label }) => (
           <div key={label} className="rounded-[8px] px-4 py-[10px] flex items-center gap-[10px] flex-1" style={{ backgroundColor: 'var(--bg-secondary)' }}>
             <div className="w-8 h-8 rounded-[7px] flex items-center justify-center" style={{ backgroundColor: iconBg, color: iconColor }}>
@@ -588,7 +588,7 @@ export function KnowledgeClient() {
           <IconDatabase size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
           <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Knowledge Sources Yet</div>
           <div className="type-body text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
-            Connect sources so Canon can keep hire paths, field updates, and readiness alerts current.
+            Add the places Canon should learn from so hire plans and team updates stay current.
           </div>
           <Button onClick={openAddModal} size="sm"><IconPlus size={13} /> Add a Source</Button>
         </div>
@@ -621,12 +621,12 @@ export function KnowledgeClient() {
                             variant="ghost"
                             onClick={() => syncSources([...selectedSourceIds])}
                             disabled={actionLoading}
-                            aria-label="Sync selected sources"
+                            aria-label="Update selected sources"
                           >
                             <IconRefresh size={14} />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent side="bottom">Sync selected sources</TooltipContent>
+                        <TooltipContent side="bottom">Update selected sources</TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
                     <TooltipProvider delayDuration={120}>
@@ -637,12 +637,12 @@ export function KnowledgeClient() {
                             variant="ghost"
                             onClick={() => stopSyncSources(selectedStoppableSourceIds)}
                             disabled={selectedStoppableSourceIds.length === 0 || actionLoading}
-                            aria-label="Stop sync for selected sources"
+                            aria-label="Stop updating selected sources"
                           >
                             <IconPlayerStop size={14} />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent side="bottom">Stop sync for selected sources</TooltipContent>
+                        <TooltipContent side="bottom">Stop updating selected sources</TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
                     <TooltipProvider delayDuration={120}>
@@ -708,7 +708,7 @@ export function KnowledgeClient() {
                   className="min-w-0 flex-1 cursor-pointer text-left"
                 >
                   <div className="type-panel-title truncate" style={{ color: 'var(--text-primary)' }}>{source.name}</div>
-                  <div className="type-caption mt-[1px]" style={{ color: 'var(--text-tertiary)' }}>{source.chunk_count} item{source.chunk_count === 1 ? '' : 's'} indexed</div>
+                  <div className="type-caption mt-[1px]" style={{ color: 'var(--text-tertiary)' }}>{source.chunk_count} item{source.chunk_count === 1 ? '' : 's'} ready</div>
                 </button>
                 <StatusBadge variant={statusVariant(source.status)} label={source.status} />
                 <DropdownMenu>
@@ -729,11 +729,11 @@ export function KnowledgeClient() {
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => syncSources([source.id])} disabled={actionLoading || isSyncInProgress(source.status)}>
                       <IconRefresh size={14} />
-                      Sync Now
+                      Update Now
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => stopSyncSources([source.id])} disabled={actionLoading || !canStopSync(source.status)}>
                       <IconPlayerStop size={14} />
-                      Stop Sync
+                      Stop Updating
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem className="text-[var(--red-text)] focus:text-[var(--red-text)]" onClick={() => openDeleteDialog([source.id])}>
@@ -794,14 +794,14 @@ export function KnowledgeClient() {
                     disabled={syncing === selected.id || isSyncInProgress(selected.status)}
                   >
                     <IconRefresh size={13} className={(syncing === selected.id || isSyncInProgress(selected.status)) ? 'animate-spin' : ''} />
-                    {(syncing === selected.id || isSyncInProgress(selected.status)) ? 'Syncing...' : 'Sync Now'}
+                    {(syncing === selected.id || isSyncInProgress(selected.status)) ? 'Updating...' : 'Update Now'}
                   </Button>
                 </div>
 
                 <div className="grid grid-cols-3 gap-3 mb-5">
                   {[
-                    { label: 'Items Indexed', value: selected.chunk_count ?? 0 },
-                    { label: 'Last Synced', value: fmtDate(selected.last_synced_at) },
+                    { label: 'Items Ready', value: selected.chunk_count ?? 0 },
+                    { label: 'Last Updated', value: fmtDate(selected.last_synced_at) },
                     { label: 'Type', value: sourceProviderLabel(selected.provider) },
                   ].map((item) => (
                     <div key={item.label} className="rounded-[8px] p-[12px]" style={{ backgroundColor: 'var(--bg-secondary)' }}>
@@ -812,19 +812,19 @@ export function KnowledgeClient() {
                 </div>
 
                 <div>
-                  <div className="type-panel-title mb-2" style={{ color: 'var(--text-primary)' }}>Sync History</div>
+                  <div className="type-panel-title mb-2" style={{ color: 'var(--text-primary)' }}>Update History</div>
                   {[
                     {
                       success: selected.status !== 'error',
                       label: selected.status === 'error'
-                        ? 'Sync Needs Attention'
+                        ? 'Update Needs Attention'
                         : selected.status === 'stopped'
-                          ? 'Sync Stopped'
-                          : 'Latest Sync Complete',
+                          ? 'Update Paused'
+                          : 'Latest Update Complete',
                       time: fmtDate(selected.last_synced_at),
-                      chunks: `${selected.chunk_count ?? 0} item${selected.chunk_count === 1 ? '' : 's'} indexed`,
+                      chunks: `${selected.chunk_count ?? 0} item${selected.chunk_count === 1 ? '' : 's'} ready`,
                     },
-                    { success: true, label: 'Source Connected', time: fmtDate(selected.created_at), chunks: 'Ready' },
+                    { success: true, label: 'Source Added', time: fmtDate(selected.created_at), chunks: 'Ready' },
                   ].map((event) => (
                     <div key={`${event.label}-${event.time}`} className="flex items-center gap-[10px] py-[10px] border-b" style={{ borderColor: 'var(--border-tertiary)' }}>
                       <div className="w-[7px] h-[7px] rounded-full flex-shrink-0" style={{ backgroundColor: event.success ? 'var(--green)' : 'var(--red)' }} />
@@ -852,7 +852,7 @@ export function KnowledgeClient() {
           <DialogHeader>
             <DialogTitle className="text-[var(--text-primary)]">Add Source</DialogTitle>
             <DialogDescription>
-              {noIntegrationsConnected ? 'Connect an integration to start adding knowledge sources.' : 'Select sources Canon should use for readiness.'}
+              {noIntegrationsConnected ? 'Connect an app before adding sources.' : 'Choose the conversations and meetings Canon should learn from.'}
             </DialogDescription>
           </DialogHeader>
           {!noIntegrationsConnected && (
@@ -876,7 +876,7 @@ export function KnowledgeClient() {
                 <IconPlug size={20} className="mx-auto mb-2 text-[var(--text-tertiary)]" />
                 <p className="type-panel-title" style={{ color: 'var(--text-primary)' }}>Connect a source first</p>
                 <p className="type-body mt-1" style={{ color: 'var(--text-secondary)' }}>
-                  Add Slack or Granola here, then choose what Canon should index.
+                  Connect Slack or Granola, then choose what Canon should use.
                 </p>
               </div>
             ) : sourceOptionsError ? (
@@ -924,7 +924,7 @@ export function KnowledgeClient() {
           {!sourceOptionsLoading && !sourceOptionsError && connectableProviders.length > 0 && (
             <div className="space-y-2 border-t pt-3" style={{ borderColor: 'var(--border-tertiary)' }}>
               <div className="type-kicker text-[var(--text-tertiary)]">
-                {noIntegrationsConnected ? 'Connect Source' : 'Connect Another Source'}
+                {noIntegrationsConnected ? 'Connect App' : 'Connect Another App'}
               </div>
               <div className="space-y-1">
                 {connectableProviders.map(({ provider, label, description, action }) => (
@@ -976,7 +976,7 @@ export function KnowledgeClient() {
           <DialogHeader>
             <DialogTitle>Rename Source</DialogTitle>
             <DialogDescription>
-              Update the display name for this knowledge source.
+              Update the name people see for this source.
             </DialogDescription>
           </DialogHeader>
           <Input

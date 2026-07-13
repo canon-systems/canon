@@ -92,7 +92,7 @@ function notificationCopy(params: {
   if (params.evidenceType === 'new_hire_blocker') {
     return {
       type: 'milestone_blocked',
-      title: `${params.hireName} needs milestone support`,
+      title: `${params.hireName} needs support`,
       body: `${params.hireName} reported a blocker for ${params.milestoneTitle}.`,
     } as const;
   }
@@ -101,14 +101,14 @@ function notificationCopy(params: {
     return {
       type: 'milestone_auto_verified',
       title: `${params.hireName} verified for ${params.milestoneTitle}`,
-      body: `Canon found high-confidence evidence that ${params.hireName} completed the real-work signal for this milestone.`,
+      body: `Canon found strong proof that ${params.hireName} completed this real-work step.`,
     } as const;
   }
 
   return {
     type: 'milestone_needs_review',
-    title: `${params.hireName} has evidence to review`,
-    body: `Canon found evidence for ${params.milestoneTitle}, but it needs manager review before verification.`,
+    title: `${params.hireName} has proof to review`,
+    body: `Canon found proof for ${params.milestoneTitle}, but a manager should review it before marking it done.`,
   } as const;
 }
 
@@ -187,7 +187,7 @@ export async function recordMilestoneEvidence(params: RecordEvidenceParams) {
       source: params.source,
       error: progressError?.message ?? 'missing_progress',
     });
-    return { ok: false, error: progressError?.message ?? 'Failed to update milestone progress' };
+    return { ok: false, error: progressError?.message ?? 'Failed to update learning step progress' };
   }
 
   let existingEvidence = null;

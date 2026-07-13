@@ -17,7 +17,7 @@ interface SlackUserPickerProps {
   disabled?: boolean;
 }
 
-export function SlackUserPicker({ value, onChange, placeholder = 'Search workspace members...', disabled }: SlackUserPickerProps) {
+export function SlackUserPicker({ value, onChange, placeholder = 'Search teammates...', disabled }: SlackUserPickerProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [users, setUsers] = useState<SlackUser[]>([]);
@@ -38,13 +38,13 @@ export function SlackUserPicker({ value, onChange, placeholder = 'Search workspa
         return;
       }
       if (!res.ok || data.error) {
-        setError(data.error ?? 'Failed to load workspace members.');
+        setError(data.error ?? 'Failed to load teammates.');
         return;
       }
       setUsers(data.users ?? []);
       loaded.current = true;
     } catch {
-      setError('Failed to load workspace members.');
+      setError('Failed to load teammates.');
     } finally {
       setLoading(false);
     }

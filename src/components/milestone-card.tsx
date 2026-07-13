@@ -57,12 +57,12 @@ export function MilestoneCard({
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={() => onEdit(milestone)}>
                 <IconEdit size={14} />
-                Edit Milestone
+                Edit Learning Step
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem className="text-[var(--red-text)] focus:text-[var(--red-text)]" onClick={() => onDelete(milestone)}>
                 <IconTrash size={14} />
-                Remove Milestone
+                Remove Learning Step
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -75,7 +75,7 @@ export function MilestoneCard({
         </p>
         {milestone.real_work_trigger && (
           <div className="mt-3 rounded-[8px] bg-[var(--bg-secondary)] px-3 py-2">
-            <div className="type-kicker mb-1" style={{ color: 'var(--text-tertiary)' }}>Real Work Trigger</div>
+            <div className="type-kicker mb-1" style={{ color: 'var(--text-tertiary)' }}>When This Step Matters</div>
             <p className="type-body" style={{ color: 'var(--text-secondary)' }}>{milestone.real_work_trigger}</p>
           </div>
         )}

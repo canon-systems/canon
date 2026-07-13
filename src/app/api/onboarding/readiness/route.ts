@@ -227,7 +227,7 @@ function buildReadinessNote(items: ReadinessItem[], categories: ReadinessCategor
     ...items.flatMap((item) => [
       `*${item.title}*`,
       item.summary,
-      item.recommended_action ? `_Recommended action:_ ${item.recommended_action}` : '',
+      item.recommended_action ? `_Next step:_ ${item.recommended_action}` : '',
       '',
     ]),
   ];
@@ -297,8 +297,8 @@ function buildReadinessBrief(items: ReadinessItem[]): ReadinessBrief | null {
   const milestonesCovered = Math.max(...sortedItems.map((item) => metadataNumber(item, 'milestones_covered_percent')), 0);
 
   return {
-    title: 'This week\'s readiness brief',
-    subtitle: 'Generated from Slack knowledge, field conversations, and readiness gaps.',
+    title: 'This week\'s readiness updates',
+    subtitle: 'Built from connected conversations, meetings, and team knowledge.',
     detected_shift: [
       productChange?.title ? `${productChange.title}.` : productChange?.summary,
       customerObjection?.summary,
@@ -308,21 +308,21 @@ function buildReadinessBrief(items: ReadinessItem[]): ReadinessBrief | null {
       .join(' '),
     bullets: [
       ...sortedItems.slice(0, 3).map((item) => item.summary),
-      ...(primaryAction ? [`Recommended action: ${primaryAction}`] : []),
+      ...(primaryAction ? [`Next step: ${primaryAction}`] : []),
     ],
     cards: categoryOrder.map((category) => {
       const item = itemsByCategory.get(category);
       return {
         category,
         title: categoryTitles[category],
-        detail: item?.summary ?? 'No current signals.',
+        detail: item?.summary ?? 'No current updates.',
       };
     }),
     affected_roles,
     health_stats: [
-      { label: 'Readiness milestones covered', value: `${milestonesCovered}%` },
-      { label: 'Stale knowledge areas', value: String(staleAreas) },
-      { label: 'Signals reviewed', value: String(signalsReviewed) },
+      { label: 'Learning steps covered', value: `${milestonesCovered}%` },
+      { label: 'Outdated areas found', value: String(staleAreas) },
+      { label: 'Source items reviewed', value: String(signalsReviewed) },
     ],
     items: sortedItems,
   };
@@ -349,7 +349,7 @@ export async function GET() {
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('[api/onboarding/readiness] GET failed', error);
-    return NextResponse.json({ error: 'Failed to load readiness brief', detail: message }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to load readiness updates', detail: message }, { status: 500 });
   }
 }
 
@@ -406,7 +406,7 @@ export async function POST(request: NextRequest) {
           reason: 'readiness_delivery_not_configured',
         });
         return NextResponse.json({
-          error: 'No delivery targets configured. Select at least one channel or user in the Delivery tab before generating readiness updates.',
+          error: 'Choose where Canon should send updates before generating readiness updates.',
         }, { status: 400 });
       }
 
@@ -480,7 +480,7 @@ export async function POST(request: NextRequest) {
         dmTargets: userIds.length,
         reason: 'no_channel_or_dm_targets',
       });
-      return NextResponse.json({ error: 'No delivery targets configured. Select at least one channel or user in the Delivery tab before sending.' }, { status: 400 });
+      return NextResponse.json({ error: 'Choose where Canon should send updates before sending.' }, { status: 400 });
     }
 
     log.info('send_target_resolved', {

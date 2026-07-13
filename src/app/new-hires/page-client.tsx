@@ -349,7 +349,7 @@ export function NewHiresClient() {
         }),
       });
       if (!res.ok) {
-        toast.error('Unable to verify this milestone. Please try again.');
+        toast.error('Unable to confirm this learning step. Please try again.');
         return;
       }
       const detailRes = await fetch(`/api/onboarding/new-hires/${selectedDetail.hire.id}`);
@@ -660,7 +660,7 @@ export function NewHiresClient() {
                 <TabsList className="split-tabbar border-b px-8">
                   {(['Ramp Evidence', 'Access'] as const).map((tab) => {
                     const count = tab === 'Ramp Evidence' ? selectedDetail.milestone_path.length : selectedDetail.access_requests.length;
-                    const label = tab === 'Ramp Evidence' ? 'Readiness Evidence' : tab;
+                    const label = tab === 'Ramp Evidence' ? 'Proof of Progress' : tab;
                     return (
                       <TabsTrigger key={tab} value={tab} className="px-5 inline-flex items-center gap-2">
                         {label}
@@ -675,9 +675,9 @@ export function NewHiresClient() {
                     {selectedDetail.milestone_path.length === 0 ? (
                       <div className="flex flex-col items-center justify-center h-full gap-3 py-12">
                         <IconUsers size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
-                        <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Milestone Path Yet</div>
+                        <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Learning Steps Yet</div>
                         <div className="type-body text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
-                          Approved readiness milestones for this role will appear here.
+                          Approved learning steps for this role will appear here.
                         </div>
                       </div>
                     ) : (
@@ -716,7 +716,7 @@ export function NewHiresClient() {
                               <CardContent className="surface-divider border-t px-5 pb-5 pt-4">
                                 {item.milestone.real_work_trigger && (
                                   <div className="surface-panel-muted mb-4 rounded-[8px] px-3 py-2">
-                                    <div className="type-kicker mb-1" style={{ color: 'var(--text-tertiary)' }}>Real Work Trigger</div>
+                                    <div className="type-kicker mb-1" style={{ color: 'var(--text-tertiary)' }}>When This Step Matters</div>
                                     <p className="type-body" style={{ color: 'var(--text-secondary)' }}>{item.milestone.real_work_trigger}</p>
                                   </div>
                                 )}
@@ -733,14 +733,14 @@ export function NewHiresClient() {
                                           {entry.evidence_type.replace(/_/g, ' ')} · {entry.trust_level} trust
                                         </div>
                                         <div className="type-caption mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>
-                                          {Math.round(entry.confidence * 100)}% confidence · {fmtDetailDate(entry.created_at)}
+                                          {Math.round(entry.confidence * 100)}% match · {fmtDetailDate(entry.created_at)}
                                         </div>
                                       </div>
                                     ))}
                                   </div>
                                 ) : (
                                   <p className="type-body leading-[1.65]" style={{ color: 'var(--text-tertiary)' }}>
-                                    Evidence will appear when Canon detects real work activity or a manager verifies this readiness milestone.
+                                    Proof will appear when Canon sees real work or a manager confirms this step.
                                   </p>
                                 )}
                                 {relatedDelivery?.content_delivered && (
@@ -762,7 +762,7 @@ export function NewHiresClient() {
                                       onClick={() => verifyMilestone(item)}
                                       disabled={milestoneActionId === item.milestone.id}
                                     >
-                                      {milestoneActionId === item.milestone.id ? 'Verifying...' : 'Manager Verify'}
+                                      {milestoneActionId === item.milestone.id ? 'Confirming...' : 'Manager Confirm'}
                                     </Button>
                                   </div>
                                 )}
@@ -1012,7 +1012,7 @@ export function NewHiresClient() {
           <DialogHeader>
             <DialogTitle>Delete Hire Path</DialogTitle>
             <DialogDescription>
-              Delete {pendingDelete?.first_name} {pendingDelete?.last_name}&apos;s hire path? This removes the hire, briefings, readiness evidence, and access requests from Canon.
+              Delete {pendingDelete?.first_name} {pendingDelete?.last_name}&apos;s hire path? This removes the hire, briefings, progress proof, and tool requests from Canon.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

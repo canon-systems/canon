@@ -152,7 +152,7 @@ function formatTimestamp(value: string | null) {
 }
 
 function preventionText(item: ReadinessItem | null) {
-  if (!item) return 'Select a signal to see the risk Canon should prevent.';
+  if (!item) return 'Select an update to see what Canon should help prevent.';
   if (item.category === 'customer_objection') return 'Inconsistent customer answers and late-stage deal hesitation.';
   if (item.category === 'demo_guidance') return 'Stale demos and missed proof points in live calls.';
   if (item.category === 'implementation_pattern') return 'Repeated delivery delays and unclear kickoff ownership.';
@@ -160,12 +160,12 @@ function preventionText(item: ReadinessItem | null) {
 }
 
 function nextAction(item: ReadinessItem | null) {
-  if (!item) return 'Select a readiness signal.';
+  if (!item) return 'Select an update.';
   if (item.recommended_action) return item.recommended_action;
   if (item.category === 'customer_objection') return 'Send the approved response and assign a technical owner.';
   if (item.category === 'demo_guidance') return 'Send the updated demo note and refresh the talk track.';
   if (item.category === 'implementation_pattern') return 'Send implementation guidance and update the kickoff checklist.';
-  return 'Send a role-specific product update and review affected readiness milestones.';
+  return 'Send a role-specific product update and review the affected learning steps.';
 }
 
 function selectedCategoryLabel(selectedCategories: ReadinessCategory[]) {
@@ -275,7 +275,7 @@ export function ReadinessClient() {
               clearInterval(interval);
               setBrief(next ?? null);
               if (newestUpdate >= requestedAt) {
-                toast.success('Readiness signals are ready for review');
+                toast.success('Readiness updates are ready to review');
               }
               resolve();
             }
@@ -285,7 +285,7 @@ export function ReadinessClient() {
         }, 3000);
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Could not generate readiness signals. Please try again.';
+      const message = error instanceof Error ? error.message : 'Could not find readiness updates. Please try again.';
       toast.error(message);
     } finally {
       setGenerating(false);
@@ -411,7 +411,7 @@ export function ReadinessClient() {
 
   function requireDeliveryTargets() {
     if (hasDeliveryTargets) return true;
-    toast.error('No delivery targets set', { description: 'Choose at least one channel or user in the Delivery tab before sending.' });
+    toast.error('Choose where to send updates', { description: 'Pick at least one channel or teammate before sending.' });
     setActiveTab('delivery');
     return false;
   }
@@ -430,12 +430,12 @@ export function ReadinessClient() {
         }),
       });
       const data = (await res.json()) as { error?: string; detail?: string };
-      if (!res.ok) throw new Error(data.detail || data.error || 'Failed to send readiness signal');
+      if (!res.ok) throw new Error(data.detail || data.error || 'Failed to send readiness update');
       await loadReadiness();
       setSelectedItemId(item.id);
       toast.success('Signal sent');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to send readiness signal');
+      toast.error(error instanceof Error ? error.message : 'Failed to send readiness update');
     } finally {
       setRowActionId(null);
     }
@@ -450,13 +450,13 @@ export function ReadinessClient() {
         body: JSON.stringify({ id: item.id, status }),
       });
       const data = (await res.json()) as { error?: string; detail?: string };
-      if (!res.ok) throw new Error(data.detail || data.error || 'Failed to update readiness signal');
+      if (!res.ok) throw new Error(data.detail || data.error || 'Failed to update readiness item');
       await loadReadiness();
       setSelectedItemId(status === 'archived' ? null : item.id);
       const label = status === 'archived' ? 'Signal archived' : status === 'reviewed' ? 'Marked as reviewed' : 'Status updated';
       toast.success(label);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to update readiness signal');
+      toast.error(error instanceof Error ? error.message : 'Failed to update readiness item');
     } finally {
       setRowActionId(null);
     }
@@ -548,13 +548,13 @@ export function ReadinessClient() {
         }),
       });
       const data = (await res.json()) as { error?: string; detail?: string };
-      if (!res.ok) throw new Error(data.detail || data.error || 'Failed to send selected signals');
+      if (!res.ok) throw new Error(data.detail || data.error || 'Failed to send selected updates');
       await loadReadiness();
       setSelectedSignalIds(new Set());
       setSelectedItemId(null);
-      toast.success(itemIds.length === 1 ? 'Signal sent' : `${itemIds.length} signals sent`);
+      toast.success(itemIds.length === 1 ? 'Update sent' : `${itemIds.length} updates sent`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to send selected signals');
+      toast.error(error instanceof Error ? error.message : 'Failed to send selected updates');
     } finally {
       setSending(false);
     }
@@ -573,18 +573,18 @@ export function ReadinessClient() {
         body: JSON.stringify({ itemIds, status }),
       });
       const data = (await res.json()) as { error?: string; detail?: string };
-      if (!res.ok) throw new Error(data.detail || data.error || 'Failed to update selected signals');
+      if (!res.ok) throw new Error(data.detail || data.error || 'Failed to update selected items');
 
       await loadReadiness();
       setSelectedSignalIds(new Set());
       if (status === 'archived') setSelectedItemId(null);
       const count = selectedItems.length;
       const label = status === 'archived'
-        ? `${count} signal${count !== 1 ? 's' : ''} archived`
-        : `${count} signal${count !== 1 ? 's' : ''} updated`;
+        ? `${count} update${count !== 1 ? 's' : ''} archived`
+        : `${count} update${count !== 1 ? 's' : ''} updated`;
       toast.success(label);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to update selected signals');
+      toast.error(error instanceof Error ? error.message : 'Failed to update selected items');
     } finally {
       setRowActionId(null);
     }
@@ -619,7 +619,7 @@ export function ReadinessClient() {
           <h1 className="type-page-title" style={{ color: 'var(--text-primary)' }}>Readiness</h1>
         </div>
         <Button size="sm" onClick={generateSignals} disabled={generating}>
-          <IconBrain size={13} /> {generating ? 'Generating...' : 'Generate Signals'}
+          <IconBrain size={13} /> {generating ? 'Checking...' : 'Find Updates'}
         </Button>
       </div>
 
@@ -628,7 +628,7 @@ export function ReadinessClient() {
           <div className="flex flex-col gap-4 px-6 py-6 flex-1 overflow-y-auto">
             <div className="flex items-center gap-2 type-body" style={{ color: 'var(--text-tertiary)' }}>
               <IconBrain size={14} style={{ color: 'var(--canon-purple)', flexShrink: 0 }} />
-              Analyzing your knowledge sources for readiness signals…
+              Checking connected sources for updates your team may need...
             </div>
             {[1, 2, 3, 4].map((i) => (
               <Skeleton key={i} className="h-20 rounded-[10px] bg-[var(--bg-primary)]" />
@@ -637,15 +637,15 @@ export function ReadinessClient() {
         ) : (
           <div className="flex flex-col items-center justify-center flex-1 gap-3 py-12">
             <IconRadar size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
-            <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Readiness Signals</div>
+            <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No updates yet</div>
             <div className="type-body text-center max-w-[280px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
               {hasKnowledgeSources
-                ? 'Generate readiness signals from your connected knowledge sources.'
-                : 'Signals are generated from your knowledge sources. Add a source to get started.'}
+                ? 'Check your connected sources for changes your team should know about.'
+                : 'Add a source so Canon can look for useful team updates.'}
             </div>
             {hasKnowledgeSources ? (
               <Button size="sm" className="mt-1" onClick={generateSignals} disabled={generating}>
-                <IconBrain size={13} /> Generate Signals
+                <IconBrain size={13} /> Find Updates
               </Button>
             ) : (
               <Link href="/knowledge">
@@ -670,7 +670,7 @@ export function ReadinessClient() {
               >
                 <TabsList className="split-tabbar border-b-0 px-3">
                   <TabsTrigger value="signals">
-                    Signals
+                    Updates
                     <span className="ml-1.5 type-caption opacity-60">{items.length}</span>
                   </TabsTrigger>
                   <TabsTrigger value="delivery">Delivery</TabsTrigger>
@@ -737,7 +737,7 @@ export function ReadinessClient() {
                       onChange={toggleAllSignals}
                       disabled={categoryItems.length === 0}
                       className="h-4 w-4 flex-shrink-0 accent-[var(--canon-purple)] disabled:opacity-40"
-                      aria-label={allSignalsSelected ? 'Clear signal selection' : 'Select all signals'}
+                      aria-label={allSignalsSelected ? 'Clear update selection' : 'Select all updates'}
                       aria-checked={hasSignalSelection && !allSignalsSelected ? 'mixed' : allSignalsSelected}
                     />
                     <div className="min-w-0 flex-1 type-caption font-medium" style={{ color: 'var(--text-secondary)' }}>
@@ -751,13 +751,13 @@ export function ReadinessClient() {
                             size="icon"
                             onClick={() => void sendSelectedSignals()}
                             disabled={!hasSignalSelection || selectedUnsentSignalCount === 0 || sending || rowActionId === 'bulk'}
-                            aria-label="Send selected signals"
+                            aria-label="Send selected updates"
                           >
                             <IconSend size={14} />
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent side="bottom">
-                          {!hasDeliveryTargets ? 'Set delivery targets in the Delivery tab first' : 'Send selected signals'}
+                          {!hasDeliveryTargets ? 'Choose where to send updates first' : 'Send selected updates'}
                         </TooltipContent>
                       </Tooltip>
                       <Tooltip>
@@ -767,12 +767,12 @@ export function ReadinessClient() {
                             size="icon"
                             onClick={() => void updateSelectedSignalStatus('reviewed')}
                             disabled={!hasSignalSelection || rowActionId === 'bulk'}
-                            aria-label="Mark selected unsent"
+                            aria-label="Mark selected ready to send"
                           >
                             <IconPencil size={14} />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent side="bottom">Mark selected unsent</TooltipContent>
+                        <TooltipContent side="bottom">Mark selected ready to send</TooltipContent>
                       </Tooltip>
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -795,13 +795,13 @@ export function ReadinessClient() {
                             size="icon"
                             onClick={() => void updateSelectedSignalStatus('archived')}
                             disabled={!hasSignalSelection || rowActionId === 'bulk'}
-                            aria-label="Archive selected signals"
+                            aria-label="Archive selected updates"
                             className="text-[var(--red)] hover:text-[var(--red)]"
                           >
                             <IconArchive size={14} />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent side="bottom">Archive selected signals</TooltipContent>
+                        <TooltipContent side="bottom">Archive selected updates</TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
                   </div>
@@ -815,9 +815,7 @@ export function ReadinessClient() {
                       className="w-full rounded-[8px] border px-3 py-2 type-caption text-left"
                       style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-secondary)', color: 'var(--text-secondary)' }}
                     >
-                      No delivery targets set — configure channels or users in the{' '}
-                      <span style={{ color: 'var(--canon-purple)' }}>Delivery tab</span>{' '}
-                      before sending.
+                      Choose where Canon should send updates before sending.
                     </button>
                   </div>
                 )}
@@ -828,9 +826,9 @@ export function ReadinessClient() {
                     <div className="p-3">
                       <Alert>
                         <IconRadar size={15} />
-                        <AlertTitle>{activeCategories.length === 0 ? 'No Categories Selected' : 'No Active Signals'}</AlertTitle>
+                        <AlertTitle>{activeCategories.length === 0 ? 'No Categories Selected' : 'No Active Updates'}</AlertTitle>
                         <AlertDescription>
-                          {activeCategories.length === 0 ? 'Select at least one category to view readiness signals.' : 'This filter is clear for now.'}
+                          {activeCategories.length === 0 ? 'Select at least one category to view updates.' : 'This filter is clear for now.'}
                         </AlertDescription>
                       </Alert>
                     </div>
@@ -878,7 +876,7 @@ export function ReadinessClient() {
                             <DropdownMenuGroup>
                               <DropdownMenuItem onSelect={() => void sendSignal(item)} disabled={item.status === 'sent' || rowActionId === item.id || rowActionId === 'bulk'}>
                                 <IconSend size={14} />
-                                Send this signal
+                                Send this update
                               </DropdownMenuItem>
                             </DropdownMenuGroup>
                             <DropdownMenuSeparator />
@@ -910,7 +908,7 @@ export function ReadinessClient() {
 
               <TabsContent value="delivery" className="flex-1 overflow-y-auto p-4 space-y-3 m-0">
                 <p className="type-caption" style={{ color: 'var(--text-tertiary)' }}>
-                  Set default channels and DMs for automatic signal delivery.
+                  Choose where Canon should send updates by default.
                 </p>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -1012,7 +1010,7 @@ export function ReadinessClient() {
                       disabled={rowActionId === selectedItem.id || selectedItem.status === 'sent'}
                     >
                       <IconSend size={13} />
-                      {rowActionId === selectedItem.id ? 'Sending...' : selectedItem.status === 'sent' ? 'Sent' : 'Send Signal'}
+                      {rowActionId === selectedItem.id ? 'Sending...' : selectedItem.status === 'sent' ? 'Sent' : 'Send Update'}
                     </Button>
                   </div>
                   <h2 className="type-detail-title" style={{ color: 'var(--text-primary)' }}>
@@ -1057,7 +1055,7 @@ export function ReadinessClient() {
                             <span key={`${source.label}-${index}`} className="text-[var(--text-secondary)]">{source.label}</span>
                           )
                         ))}
-                        <span>· {signalsReviewed} signal{signalsReviewed === 1 ? '' : 's'} reviewed</span>
+                        <span>· {signalsReviewed} source item{signalsReviewed === 1 ? '' : 's'} reviewed</span>
                       </div>
                     </StepRow>
 
@@ -1098,9 +1096,9 @@ export function ReadinessClient() {
             ) : (
               <div className="flex flex-col items-center justify-center h-full gap-3 py-12">
                 <IconRadar size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
-                <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Signal Selected</div>
+                <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No update selected</div>
                 <div className="type-body text-center max-w-[240px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
-                  Choose a readiness signal from the list to review its details.
+                  Choose an update from the list to review the details.
                 </div>
               </div>
             )}

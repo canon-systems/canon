@@ -93,7 +93,7 @@ export function ReadinessSettings({ readinessSettings }: ReadinessSettingsProps)
               Role Catalog
             </div>
             <p className="type-body mt-[3px]" style={{ color: 'var(--text-secondary)' }}>
-              Configure which roles Canon should include in readiness milestones, field briefs, hire paths, and tool access scoping.
+              Choose the roles Canon should support, then map the tools and owners each role needs.
             </p>
           </div>
           <Button onClick={() => setAddRoleOpen(true)} className="flex-shrink-0">
@@ -110,7 +110,7 @@ export function ReadinessSettings({ readinessSettings }: ReadinessSettingsProps)
           <Card className="px-5 py-8 text-center">
             <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>No Active Roles</div>
             <div className="type-body mt-2" style={{ color: 'var(--text-tertiary)' }}>
-              Add a role before generating readiness milestones or field briefs.
+              Add a role before Canon can create learning steps and team updates.
             </div>
           </Card>
         ) : (
@@ -191,7 +191,7 @@ export function ReadinessSettings({ readinessSettings }: ReadinessSettingsProps)
                     <Card key={profile.id} className="flex items-center justify-between gap-3 px-4 py-3 opacity-80">
                       <div className="min-w-0">
                         <div className="type-card-title truncate text-[var(--text-primary)]">{profile.role}</div>
-                        <div className="type-caption text-[var(--text-tertiary)]">Excluded from readiness milestones and field briefs</div>
+                        <div className="type-caption text-[var(--text-tertiary)]">Canon will not create new plans or updates for this role</div>
                       </div>
                       <Button size="sm" variant="secondary" onClick={() => void restoreRole(profile)} disabled={restoreRoleId === profile.id}>
                         {restoreRoleId === profile.id ? <IconLoader2 size={13} className="animate-spin" /> : <IconCheck size={13} />}
@@ -210,7 +210,7 @@ export function ReadinessSettings({ readinessSettings }: ReadinessSettingsProps)
         <DialogContent className={`max-w-2xl ${dialogContentClass}`}>
           <DialogHeader>
             <DialogTitle>Add Role</DialogTitle>
-            <DialogDescription>Add a role Canon should include in readiness milestones, field briefs, hire paths, and tool scoping.</DialogDescription>
+            <DialogDescription>Add a role Canon should support with hire plans, tools, and team updates.</DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-3">
             <div>
@@ -251,7 +251,7 @@ export function ReadinessSettings({ readinessSettings }: ReadinessSettingsProps)
         <DialogContent className={`max-w-2xl ${dialogContentClass}`}>
           <DialogHeader>
             <DialogTitle>{editingRole?.role ?? 'Edit Role'}</DialogTitle>
-            <DialogDescription>Update the role context Canon should use when targeting readiness milestones and signals.</DialogDescription>
+            <DialogDescription>Update what Canon should know about this role.</DialogDescription>
           </DialogHeader>
           <div>
             <label className={fieldLabelClass}>
@@ -281,11 +281,11 @@ export function ReadinessSettings({ readinessSettings }: ReadinessSettingsProps)
           <DialogHeader>
             <DialogTitle>Archive Role</DialogTitle>
             <DialogDescription>
-              Archive <strong>{archivingRole?.role}</strong>? Canon will stop generating readiness milestones and field briefs for this role.
+              Archive <strong>{archivingRole?.role}</strong>? Canon will stop creating new plans and updates for this role.
             </DialogDescription>
           </DialogHeader>
           <div className={dialogNoticeClass}>
-            Active readiness milestones and draft proposals for this role will be archived. Existing hire paths and historical evidence stay intact.
+            Active learning steps and draft suggestions for this role will be archived. Existing hire plans and saved evidence stay intact.
           </div>
           <DialogFooter>
             <Button variant="secondary" onClick={() => setArchivingRole(null)} disabled={archiveRoleSaving}>Cancel</Button>
@@ -302,7 +302,7 @@ export function ReadinessSettings({ readinessSettings }: ReadinessSettingsProps)
           <DialogHeader>
             <DialogTitle>Remove Tool</DialogTitle>
             <DialogDescription>
-              Remove <strong>{deletingTool?.tool_name}</strong> from your tool list? This won&apos;t affect access requests already created for existing hires.
+              Remove <strong>{deletingTool?.tool_name}</strong> from your tool list? This won&apos;t affect tool requests already created for existing hires.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -319,7 +319,7 @@ export function ReadinessSettings({ readinessSettings }: ReadinessSettingsProps)
         <DialogContent className={`max-w-md ${dialogContentClass}`}>
           <DialogHeader>
             <DialogTitle>Edit Tool</DialogTitle>
-            <DialogDescription>Update the tool details and required Slack owner.</DialogDescription>
+            <DialogDescription>Update who owns this tool and which roles need it.</DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-3">
             <div>
@@ -345,7 +345,7 @@ export function ReadinessSettings({ readinessSettings }: ReadinessSettingsProps)
                 onChange={(roles) => setEditTool((p) => ({ ...p, roles }))}
                 roles={activeToolRoles}
               />
-              <p className={fieldHintClass}>Select multiple roles, or use All roles for a shared requirement.</p>
+              <p className={fieldHintClass}>Choose every role that needs this tool, or use All roles when everyone needs it.</p>
             </div>
             <div>
               <label className={fieldLabelClass}>
@@ -354,9 +354,9 @@ export function ReadinessSettings({ readinessSettings }: ReadinessSettingsProps)
               <SlackUserPicker
                 value={editTool.owner}
                 onChange={(user) => setEditTool((p) => ({ ...p, owner: user }))}
-                placeholder="Search workspace members..."
+                placeholder="Search teammates..."
               />
-              <p className={fieldHintClass}>Canon will DM this Slack owner when a hire needs access.</p>
+              <p className={fieldHintClass}>Canon will message this owner when a hire needs the tool.</p>
             </div>
             {editTool.owner && (
               <div>
@@ -390,8 +390,8 @@ export function ReadinessSettings({ readinessSettings }: ReadinessSettingsProps)
             <DialogTitle>Add Tool</DialogTitle>
             <DialogDescription>
               {addToolRole
-                ? `Add a tool ${addToolRole} needs and the Slack owner for access requests.`
-                : 'Add a tool this role needs and the Slack owner for access requests.'}
+                ? `Add a tool ${addToolRole} needs and the teammate who owns access.`
+                : 'Add a tool this role needs and the teammate who owns access.'}
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-3">
@@ -404,7 +404,7 @@ export function ReadinessSettings({ readinessSettings }: ReadinessSettingsProps)
                 onChange={(toolName) => setNewTool((p) => ({ ...p, tool_name: toolName }))}
               />
               {newToolAlreadyConfigured && (
-                <p className="type-caption mt-1 text-[var(--amber-text)]">This tool already exists. Adding it will assign it to {addToolRole ?? 'this role'}.</p>
+                <p className="type-caption mt-1 text-[var(--amber-text)]">This tool already exists. Adding it here will include {addToolRole ?? 'this role'}.</p>
               )}
             </div>
             <div>
@@ -414,9 +414,9 @@ export function ReadinessSettings({ readinessSettings }: ReadinessSettingsProps)
               <SlackUserPicker
                 value={newTool.owner}
                 onChange={(user) => setNewTool((p) => ({ ...p, owner: user }))}
-                placeholder="Search workspace members..."
+                placeholder="Search teammates..."
               />
-              <p className={fieldHintClass}>Canon will DM this Slack owner when a hire needs access.</p>
+              <p className={fieldHintClass}>Canon will message this owner when a hire needs the tool.</p>
             </div>
             {newTool.owner && (
               <div>

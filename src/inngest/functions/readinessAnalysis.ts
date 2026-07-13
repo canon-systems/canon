@@ -95,14 +95,14 @@ const CATEGORY_TITLES: Record<ReadinessCategory, string> = {
 };
 
 const SignalItemSchema = z.object({
-  title: z.string().describe('Concise headline under 10 words'),
+  title: z.string().describe('Customer-facing headline under 10 words that uses company terminology when relevant'),
   summary: z
     .string()
-    .describe('1–2 sentences describing the signal in plain language'),
+    .describe('1–2 plain-language sentences explaining what changed and why the team should care'),
   recommended_action: z
     .string()
     .optional()
-    .describe('Specific action starting with a verb'),
+    .describe('Specific next step starting with a verb, written for a customer-facing teammate'),
   impact_level: z
     .enum(['low', 'medium', 'high'])
     .optional()
@@ -117,18 +117,18 @@ const SignalsSchema = z.object({
   signals: z
     .array(SignalItemSchema)
     .max(3)
-    .describe('Distinct, actionable readiness signals found for this category. Empty when no clear signal exists.'),
+    .describe('Distinct, actionable readiness updates found for this category. Empty when no clear update exists.'),
 });
 
 const CompanySignalItemSchema = SignalItemSchema.extend({
-  category: ReadinessCategorySchema.describe('Closest readiness category for this signal'),
+  category: ReadinessCategorySchema.describe('Closest readiness category for this update'),
 });
 
 const CompanySignalsSchema = z.object({
   signals: z
     .array(CompanySignalItemSchema)
     .max(12)
-    .describe('Distinct, actionable company readiness signals across all categories. Empty when no clear signal exists.'),
+    .describe('Distinct, actionable company readiness updates across all categories. Empty when no clear update exists.'),
 });
 
 async function detectSignals(params: {
@@ -148,26 +148,28 @@ async function detectSignals(params: {
     schema: SignalsSchema,
     prompt: `You are Canon, an AI that monitors company Slack channels to keep GTM teams current.
 
-Analyze these Slack knowledge chunks and determine whether they contain a clear signal of ${CATEGORY_DESCRIPTIONS[category]}.
+Analyze this Slack source material and determine whether it contains a clear readiness update about ${CATEGORY_DESCRIPTIONS[category]}.
+
+Write for customers and customer-facing teammates. Use simple, standalone language. Avoid internal AI terms such as "signal", "chunk", "retrieval", "metadata", or "indexed". Preserve the company's own terminology when it appears in the source material, including product names, feature names, customer names, team names, acronyms, workflows, tools, and role names. If a company term may be unclear, keep the term and explain it in plain language.
 
 Use these role job descriptions when deciding affected_roles and recommended actions:
 ${roleContext}
 
-Only flag signals if there is genuine, actionable information — not general chatter or tangentially related messages. If the chunks are vague, unrelated, or insufficient to form a clear signal, return an empty signals array.
+Only flag updates if there is genuine, actionable information — not general chatter or tangentially related messages. If the source material is vague, unrelated, or insufficient to form a clear update, return an empty signals array.
 
-Return up to 3 distinct signals for this category. Do not collapse unrelated customer blockers into one generic signal. Do not duplicate the same signal with different wording.
+Return up to 3 distinct updates for this category. Do not collapse unrelated customer blockers into one generic update. Do not duplicate the same update with different wording.
 
-Knowledge chunks:
+Source material:
 ${chunkText}
 
-For each clear signal, provide:
-- title: A concise headline (under 10 words)
-- summary: 1–2 sentences describing what GTM teams need to know
-- recommended_action: A specific next step starting with a verb (e.g. "Update the Day 14 milestone with...")
+For each clear update, provide:
+- title: A concise customer-facing headline under 10 words
+- summary: 1–2 plain-language sentences describing what GTM teams need to know
+- recommended_action: A specific next step starting with a verb (e.g. "Update the Day 14 learning step with...")
 - impact_level: How urgently teams need this (low / medium / high)
 - affected_roles: Which roles are affected based on the role job descriptions and concrete implications. Use only exact active role names listed above.
 
-If there is no clear signal, return { "signals": [] }.`,
+If there is no clear update, return { "signals": [] }.`,
   });
 
   return object.signals;
@@ -189,38 +191,40 @@ async function detectCompanyReadinessSignals(params: {
     schema: CompanySignalsSchema,
     prompt: `You are Canon, an AI that monitors company knowledge to keep technical GTM teams continuously ready.
 
-Analyze these knowledge chunks and extract any company-related readiness signals. Do not depend on exact keywords or a predefined topic list. Use judgment: if an active customer-facing technical role would need to change what they say, demo, qualify, document, escalate, configure, or promise, it is a readiness signal.
+Analyze this company source material and extract any company-related readiness updates. Do not depend on exact keywords or a predefined topic list. Use judgment: if an active customer-facing technical role would need to change what they say, demo, qualify, document, escalate, configure, or promise, it is a readiness update.
 
-Use these role job descriptions when deciding whether each signal applies to each role:
+Write for customers and customer-facing teammates. Use simple, standalone language. Avoid internal AI terms such as "signal", "chunk", "retrieval", "metadata", or "indexed". Preserve the company's own terminology when it appears in the source material, including product names, feature names, customer names, team names, acronyms, workflows, tools, and role names. If a company term may be unclear, keep the term and explain it in plain language.
+
+Use these role job descriptions when deciding whether each update applies to each role:
 ${roleContext}
 
-Strong signals include, but are not limited to:
+Strong updates include, but are not limited to:
 - product gaps, maturity concerns, reliability issues, permissions/audit/reporting issues, integration limitations, pricing or packaging confusion
 - customer objections, trust issues, support escalations, repeated tickets, stakeholder hesitation, rollout risk
 - demo-to-reality mismatch, outdated talk tracks, unclear positioning, expectation gaps created during sales or onboarding
 - implementation blockers, auth/configuration ambiguity, migration risk, manual work replacing expected automation, unsupported architecture concerns
 - process changes, owner gaps, missing documentation, launch timing risk, enablement requests, or preventative guidance
 
-Only return signals with concrete implications and a clear recommended action. Do not return general chatter, vague status updates, or duplicates. If multiple unrelated blockers appear, return them as separate signals.
+Only return updates with concrete implications and a clear next step. Do not return general chatter, vague status updates, or duplicates. If multiple unrelated blockers appear, return them as separate updates.
 
-Map every signal to the closest category:
+Map every update to the closest category:
 - product_change: product capability, limitation, maturity, reliability, reporting, admin controls, pricing/packaging, rollout, or customer-facing product gap
 - customer_objection: customer concern, trust issue, objection, escalation, repeated support complaint, stakeholder hesitation, or response gap
 - demo_guidance: demo narrative, sales expectation mismatch, talk track, presentation, proof point, or demo flow change
 - implementation_pattern: setup, auth, configuration, deployment, migration, architecture, integration, go-live, or delivery risk
 
-Knowledge chunks:
+Source material:
 ${chunkText}
 
-For each clear signal, provide:
+For each clear update, provide:
 - category
-- title: A concise headline (under 10 words)
-- summary: 1–2 sentences describing what technical GTM teams need to know
+- title: A concise customer-facing headline under 10 words
+- summary: 1–2 plain-language sentences describing what technical GTM teams need to know
 - recommended_action: A specific next step starting with a verb
 - impact_level: How urgently teams need this (low / medium / high)
 - affected_roles: Which roles are affected based on the role job descriptions and concrete implications. Use only exact active role names listed above.
 
-If there is no clear signal, return { "signals": [] }.`,
+If there is no clear update, return { "signals": [] }.`,
   });
 
   return object.signals;
@@ -372,7 +376,7 @@ function buildReadinessNote(items: ReadinessDeliveryItem[]) {
     ...items.flatMap((item) => [
       `*${item.title}*`,
       item.summary,
-      item.recommended_action ? `_Recommended action:_ ${item.recommended_action}` : '',
+      item.recommended_action ? `_Next step:_ ${item.recommended_action}` : '',
       '',
     ]),
   ];
