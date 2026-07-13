@@ -4,11 +4,10 @@ import { inngest } from '@/inngest/client';
 import { sendReadinessToTargets, type ReadinessDeliveryResult, type ReadinessDeliveryTargetRow } from '@/lib/server/readiness/delivery';
 import { createLogger } from '@/lib/server/logging';
 import { requireWorkspace } from '@/lib/server/organization';
+import { deliveryTargetRows, validSlackDmTargets } from '@/lib/server/readiness/delivery-targets';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type {
   HireRole,
-  ReadinessDeliveryProvider,
-  ReadinessDeliveryTargetType,
   ReadinessAffectedRole,
   ReadinessBrief,
   ReadinessCategory,
@@ -99,49 +98,6 @@ function chunkValues<T>(values: T[], size: number) {
     chunks.push(values.slice(index, index + size));
   }
   return chunks;
-}
-
-function validSlackDmTargets(values: unknown) {
-  return Array.isArray(values)
-    ? values
-        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-        .map((value) => value.trim())
-        .filter((value) => value !== 'USLACKBOT')
-        .filter((value) => /^[DU][A-Z0-9]+$/.test(value))
-    : [];
-}
-
-function isDeliveryProvider(value: unknown): value is ReadinessDeliveryProvider {
-  return value === 'slack' || value === 'teams' || value === 'google_chat';
-}
-
-function isDeliveryTargetType(value: unknown): value is ReadinessDeliveryTargetType {
-  return value === 'channel' || value === 'dm';
-}
-
-function validDeliveryTargets(values: unknown, organizationId: string): ReadinessDeliveryTargetRow[] {
-  if (!Array.isArray(values)) return [];
-
-  return values.flatMap((value) => {
-    if (!value || typeof value !== 'object') return [];
-    const target = value as Record<string, unknown>;
-    const provider = target.provider;
-    const targetType = target.targetType ?? target.target_type;
-    const targetId = target.targetId ?? target.target_id;
-    const targetName = target.targetName ?? target.target_name;
-
-    if (!isDeliveryProvider(provider) || !isDeliveryTargetType(targetType)) return [];
-    if (typeof targetId !== 'string' || targetId.trim().length === 0) return [];
-
-    return [{
-      organization_id: organizationId,
-      provider,
-      target_type: targetType,
-      target_id: targetId.trim(),
-      target_name: typeof targetName === 'string' && targetName.trim().length > 0 ? targetName.trim() : null,
-      enabled: target.enabled !== false,
-    }];
-  });
 }
 
 function isReadinessStatus(value: unknown): value is ReadinessStatus {
@@ -474,7 +430,7 @@ export async function POST(request: NextRequest) {
       categories: Array.from(new Set(readinessItems.map((item) => item.category))),
     });
 
-    const requestedTargets = validDeliveryTargets(body.targets, organization.id);
+    const requestedTargets = deliveryTargetRows(body.targets, organization.id);
     const deliveryTargets: ReadinessDeliveryTargetRow[] = requestedTargets.length > 0
       ? requestedTargets
       : [

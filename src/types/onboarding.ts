@@ -10,8 +10,6 @@ export type ReadinessStatus = 'draft' | 'reviewed' | 'sent' | 'archived';
 export type ReadinessDeliveryProvider = 'slack' | 'teams' | 'google_chat';
 export type ReadinessDeliveryTargetType = 'channel' | 'dm';
 export type ReadinessSourceType = 'team_chat' | 'transcript' | 'email' | 'calendar';
-export type ReadinessSourceEventStatus = 'pending' | 'processed' | 'ignored' | 'error';
-export type ReadinessObservationStatus = 'active' | 'sent' | 'archived';
 type MilestoneProposalStatus = 'draft' | 'approved' | 'rejected';
 type MilestoneGenerationRunStatus = 'queued' | 'running' | 'completed' | 'failed';
 type MilestoneProgressStatus = 'not_started' | 'briefed' | 'evidence_detected' | 'verified';
@@ -71,85 +69,6 @@ export interface ReadinessItem {
   status: ReadinessStatus;
   detected_at: string;
   sent_at: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface ReadinessDeliveryTarget {
-  id: string;
-  organization_id: string;
-  provider: ReadinessDeliveryProvider;
-  target_type: ReadinessDeliveryTargetType;
-  target_id: string;
-  target_name: string | null;
-  enabled: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface ReadinessDeliverySettings {
-  organization_id: string;
-  weekly_digest_enabled: boolean;
-  digest_weekday: number;
-  digest_hour_utc: number;
-  meeting_prep_enabled: boolean;
-  meeting_prep_minutes_before: number;
-  last_digest_sent_at: string | null;
-  channel_ids?: string[];
-  channel_names?: string[];
-  slack_user_ids?: string[];
-}
-
-export interface ReadinessSourceEvent {
-  id: string;
-  organization_id: string;
-  provider: KnowledgeProvider;
-  source_type: ReadinessSourceType;
-  source_id: string | null;
-  external_id: string;
-  content_hash: string;
-  content: string;
-  occurred_at: string | null;
-  processed_at: string | null;
-  status: ReadinessSourceEventStatus;
-  metadata: Record<string, unknown>;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface ReadinessObservation {
-  id: string;
-  organization_id: string;
-  category: ReadinessCategory;
-  title: string;
-  summary: string;
-  recommended_action: string | null;
-  impact_level: ReadinessImpactLevel;
-  affected_roles: HireRole[];
-  source_event_ids: string[];
-  source_hashes: string[];
-  dedupe_key: string;
-  status: ReadinessObservationStatus;
-  last_sent_at: string | null;
-  metadata: Record<string, unknown>;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface MeetingEvent {
-  id: string;
-  organization_id: string;
-  provider: 'google_calendar' | 'outlook';
-  external_id: string;
-  title: string;
-  description: string | null;
-  start_at: string;
-  end_at: string | null;
-  organizer: string | null;
-  attendees: string[];
-  meeting_url: string | null;
-  customer_domain: string | null;
-  metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }

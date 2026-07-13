@@ -4,8 +4,8 @@ import { listDeliveryTargets } from '@/lib/server/integrations/chat-targets';
 import { listSlackChannels } from '@/lib/server/integrations/nativeSlack';
 import { requireWorkspace } from '@/lib/server/organization';
 import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
+import { isReadinessDeliveryProvider } from '@/lib/server/readiness/delivery-targets';
 import { createServiceRoleClient } from '@/lib/supabase/server';
-import type { ReadinessDeliveryProvider } from '@/types/onboarding';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,10 +31,6 @@ type SlackUsersListResponse = {
   members?: SlackUserRaw[];
   response_metadata?: { next_cursor?: string };
 };
-
-function isDeliveryProvider(value: string | null): value is ReadinessDeliveryProvider {
-  return value === 'slack' || value === 'teams' || value === 'google_chat';
-}
 
 async function activeSlackConnectionId(organizationId: string) {
   const supabase = createServiceRoleClient();
@@ -122,7 +118,7 @@ export async function GET(request: NextRequest) {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const provider = request.nextUrl.searchParams.get('provider');
-    if (!isDeliveryProvider(provider)) {
+    if (!isReadinessDeliveryProvider(provider)) {
       return NextResponse.json({ error: 'Unsupported delivery provider' }, { status: 400 });
     }
 

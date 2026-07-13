@@ -1,9 +1,7 @@
 import { auth, clerkClient } from '@clerk/nextjs/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { NextResponse } from 'next/server';
 
 import type { CanonUser } from '@/lib/auth';
-import { AUTH_ROUTES } from '@/lib/clerk-routes';
 import { DEFAULT_ROLES } from '@/lib/onboarding/roles';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 
@@ -160,10 +158,6 @@ export async function getOrganizationForUser(
   }
 }
 
-export async function createWorkspaceForUser(): Promise<CurrentOrganization> {
-  return ensureCanonOrganization();
-}
-
 export function isWorkspaceAdmin(role: OrganizationRole) {
   return role === 'owner' || role === 'admin';
 }
@@ -184,17 +178,4 @@ export async function requireWorkspaceAdmin(user?: CanonUser) {
   }
 
   return context;
-}
-
-export function workspaceErrorResponse(error: unknown, fallback = 'Workspace request failed') {
-  if (error instanceof WorkspaceError) {
-    return NextResponse.json({ error: error.message }, { status: error.status });
-  }
-
-  const detail = error instanceof Error ? error.message : String(error);
-  return NextResponse.json({ error: fallback, detail }, { status: 500 });
-}
-
-export function organizationSetupPath() {
-  return AUTH_ROUTES.createOrganization;
 }

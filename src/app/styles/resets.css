@@ -42,7 +42,7 @@ button {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.35);
+  background: var(--scrollbar-thumb);
   border-radius: var(--radius-full);
 }
 

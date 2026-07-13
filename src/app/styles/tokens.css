@@ -39,6 +39,12 @@
   --auth-illustration-card-strong: rgba(255, 255, 255, 0.7);
   --auth-illustration-card: rgba(255, 255, 255, 0.54);
   --auth-grid-line: #c8c1ff;
+  --app-grid-line: rgba(200, 193, 255, 0.55);
+  --decorative-blob-primary: rgba(107, 92, 231, 0.12);
+  --decorative-blob-secondary: rgba(155, 141, 245, 0.12);
+  --decorative-blob-tertiary: rgba(255, 255, 255, 0.55);
+  --glass-panel-bg: rgba(255, 255, 255, 0.92);
+  --scrollbar-thumb: rgba(148, 163, 184, 0.35);
 
   /* Borders */
   --border-tertiary: #dddff0;
@@ -101,6 +107,9 @@
 
   --shadow-lg: 0 30px 90px rgba(107, 92, 231, 0.18);
   --shadow-md: 0 14px 36px rgba(107, 92, 231, 0.12);
+  --shadow-form-panel: 0 24px 80px rgba(107, 92, 231, 0.12);
+  --shadow-brand-inset: inset 0 0 24px rgba(107, 92, 231, 0.12);
+  --shadow-brand-hairline: inset 0 0 0 1px rgba(107, 92, 231, 0.04);
   --radius-md: 8px;
   --radius-lg: 10px;
   --radius-full: 999px;

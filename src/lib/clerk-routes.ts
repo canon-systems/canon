@@ -6,11 +6,6 @@ export const AUTH_ROUTES = {
   afterSignUp: '/create-organization',
 } as const;
 
-export const CLERK_ORG_ROLES = {
-  admin: 'org:admin',
-  member: 'org:member',
-} as const;
-
 export function isAuthRoute(pathname: string) {
   return (
     pathname === AUTH_ROUTES.signIn ||

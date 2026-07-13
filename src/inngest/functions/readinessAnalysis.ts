@@ -5,6 +5,7 @@ import { llm } from '@/lib/ai';
 import { createLogger, errorMessage } from '@/lib/server/logging';
 import { weeklyDigestDue } from '@/lib/server/readiness/scheduling';
 import { sendReadinessToTargets, type ReadinessDeliveryTargetRow } from '@/lib/server/readiness/delivery';
+import { citedEventsForSignal, sourceEvidenceFromEvents } from '@/lib/server/readiness/evidence';
 import {
   markReadinessSourceEventsProcessed,
   readinessSourceEventsFromKnowledgeChunks,
@@ -119,6 +120,7 @@ const SignalItemSchema = z.object({
   recommended_action: z.string().optional().describe('Specific next step starting with a verb'),
   impact_level: z.enum(['low', 'medium', 'high']).optional().describe('Urgency for GTM teams'),
   affected_roles: z.array(z.string().min(2).max(120)).optional().describe('Which active roles are affected'),
+  source_indexes: z.array(z.number().int().min(1)).min(1).max(6).describe('Source numbers that directly support this update. Include multiple sources only when each one supports this specific readiness update.'),
 });
 
 const SignalsSchema = z.object({
@@ -182,54 +184,6 @@ function roleProfileMetadata(roleProfiles: RoleProfileResult[]) {
   });
 }
 
-function slackMessageUrl(channelId: string, messageTs: string | null) {
-  const params = new URLSearchParams({ channel: channelId });
-  if (messageTs) params.set('message_ts', messageTs);
-  return `https://slack.com/app_redirect?${params.toString()}`;
-}
-
-function sourceEvidenceFromEvents(events: ReadinessSourceEventRow[]) {
-  const seen = new Set<string>();
-  return events.flatMap((event) => {
-    const metadata = event.metadata ?? {};
-    const provider = event.provider;
-    const channelId = typeof metadata.channel_id === 'string' ? metadata.channel_id : null;
-    const channelName = typeof metadata.channel_name === 'string' ? metadata.channel_name : null;
-    const messageTs = typeof metadata.message_ts === 'string' ? metadata.message_ts : null;
-    const sourceName = typeof metadata.source_name === 'string'
-      ? metadata.source_name
-      : typeof metadata.title === 'string'
-        ? metadata.title
-        : null;
-    const sourceUrl = typeof metadata.source_url === 'string'
-      ? metadata.source_url
-      : typeof metadata.url === 'string'
-        ? metadata.url
-        : null;
-    const sourceType = event.source_type;
-    const noteId = typeof metadata.note_id === 'string' ? metadata.note_id : null;
-    const meetingDate = typeof metadata.meeting_date === 'string' ? metadata.meeting_date : event.occurred_at;
-    const key = `${provider}:${event.external_id}:${event.content_hash}`;
-
-    if (seen.has(key)) return [];
-    seen.add(key);
-
-    return [{
-      provider,
-      channel_id: channelId,
-      channel_name: channelName,
-      message_ts: messageTs,
-      source_name: sourceName,
-      source_type: sourceType,
-      note_id: noteId,
-      meeting_date: meetingDate,
-      url: sourceUrl ?? (channelId ? slackMessageUrl(channelId, messageTs) : null),
-      source_event_id: event.id,
-      content_hash: event.content_hash,
-    }];
-  });
-}
-
 function sourceMaterial(events: ReadinessSourceEventRow[]) {
   return events.map((event, index) => {
     const label = [
@@ -268,6 +222,8 @@ Categories:
 - implementation_pattern: setup, auth, configuration, deployment, migration, architecture, integration, go-live, or delivery risk
 
 Only return concrete updates with a clear next step. Do not return general chatter, vague status, duplicate updates, Canon-generated readiness briefs, or meeting transcripts that do not imply a future action.
+
+For every update, set source_indexes to the source numbers that directly support the update. Use multiple source numbers when Slack, Teams, Google Calendar, Gmail, Granola, Gong, or another source independently supports the same update. Do not cite every source reviewed. If one transcript created the update, cite only that one source. If you cannot confidently point to at least one source number, do not return the update.
 
 Source material:
 ${sourceMaterial(params.events)}
@@ -533,9 +489,6 @@ async function upsertObservations(params: {
   roleProfiles: RoleProfileResult[];
 }) {
   const activeRoles = activeRolesFromProfiles(params.roleProfiles);
-  const evidence = sourceEvidenceFromEvents(params.events);
-  const sourceEventIds = params.events.map((event) => event.id);
-  const sourceHashes = Array.from(new Set(params.events.map((event) => event.content_hash)));
   const now = new Date().toISOString();
   const seen = new Set<string>();
 
@@ -543,6 +496,13 @@ async function upsertObservations(params: {
     const dedupeKey = observationDedupeKey(signal);
     if (seen.has(dedupeKey)) return [];
     seen.add(dedupeKey);
+
+    const citedEvents = citedEventsForSignal(signal, params.events);
+    if (citedEvents.length === 0) return [];
+
+    const evidence = sourceEvidenceFromEvents(citedEvents);
+    const sourceEventIds = citedEvents.map((event) => event.id);
+    const sourceHashes = Array.from(new Set(citedEvents.map((event) => event.content_hash)));
 
     return [{
       organization_id: params.organizationId,
@@ -559,6 +519,8 @@ async function upsertObservations(params: {
       metadata: {
         detected_by: 'readiness_source_events',
         source_evidence: evidence,
+        cited_source_indexes: signal.source_indexes,
+        reviewed_source_count: params.events.length,
         role_profiles: roleProfileMetadata(params.roleProfiles),
       },
       updated_at: now,

@@ -83,7 +83,7 @@ export function IntegrationSettings({
           {integrations.map((integration) => (
             <Card key={integration.id} className="flex flex-col gap-3 px-4 py-3 transition-colors duration-150 hover:border-[var(--border-secondary)] hover:bg-[var(--bg-primary)] sm:flex-row sm:items-center">
               <div className="flex min-w-0 flex-1 items-center gap-3">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] border border-[var(--border-tertiary)] bg-white">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] border border-[var(--border-tertiary)] bg-[var(--bg-primary)]">
                   <IntegrationLogos provider={integration.provider} logoUrl={integration.logoUrl} size={30} />
                 </div>
                 <div className="min-w-0">
@@ -109,7 +109,7 @@ export function IntegrationSettings({
         </div>
       ) : !loading ? (
         <Card className="flex min-h-[168px] flex-col items-start justify-center px-5 py-5">
-          <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-[10px] border border-[var(--border-tertiary)] bg-white text-[var(--text-tertiary)]">
+          <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-[10px] border border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-tertiary)]">
             <IconPlug size={18} />
           </div>
           <div className="type-section-title" style={{ color: 'var(--text-primary)' }}>No connected apps yet</div>
@@ -153,7 +153,7 @@ export function IntegrationSettings({
                     className="flex items-center gap-3 rounded-[10px] border px-3 py-3"
                     style={{ borderColor: 'var(--border-tertiary)', backgroundColor: 'var(--bg-primary)' }}
                   >
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] border border-[var(--border-tertiary)] bg-white">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] border border-[var(--border-tertiary)] bg-[var(--bg-primary)]">
                       <IntegrationLogos provider={integration.provider} logoUrl={integration.logoUrl} size={30} />
                     </div>
                     <div className="min-w-0 flex-1">

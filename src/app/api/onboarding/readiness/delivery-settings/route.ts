@@ -3,7 +3,11 @@ import { getSession } from '@/lib/auth';
 import { inngest } from '@/inngest/client';
 import { createLogger } from '@/lib/server/logging';
 import { requireWorkspace, requireWorkspaceAdmin } from '@/lib/server/organization';
-import type { ReadinessDeliveryProvider, ReadinessDeliveryTargetType } from '@/types/onboarding';
+import {
+  validDeliveryTargets,
+  validSlackChannelIds,
+  validSlackDmTargets,
+} from '@/lib/server/readiness/delivery-targets';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,62 +19,6 @@ const log = createLogger('api.onboarding.readiness.delivery_settings', {
     settings_saved: 'Settings Saved',
   },
 });
-
-function validSlackChannelIds(values: unknown): string[] {
-  return Array.isArray(values)
-    ? values
-        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-        .map((value) => value.trim())
-        .filter((value) => /^[CG][A-Z0-9]+$/.test(value))
-    : [];
-}
-
-function validSlackDmTargets(values: unknown): string[] {
-  return Array.isArray(values)
-    ? values
-        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-        .map((value) => value.trim())
-        .filter((value) => value !== 'USLACKBOT')
-        .filter((value) => /^[DU][A-Z0-9]+$/.test(value))
-    : [];
-}
-
-function isDeliveryProvider(value: unknown): value is ReadinessDeliveryProvider {
-  return value === 'slack' || value === 'teams' || value === 'google_chat';
-}
-
-function isDeliveryTargetType(value: unknown): value is ReadinessDeliveryTargetType {
-  return value === 'channel' || value === 'dm';
-}
-
-type DeliveryTargetInput = {
-  provider?: unknown;
-  targetType?: unknown;
-  targetId?: unknown;
-  targetName?: unknown;
-  enabled?: unknown;
-};
-
-function validDeliveryTargets(values: unknown) {
-  if (!Array.isArray(values)) return [];
-
-  return values.flatMap((value) => {
-    if (!value || typeof value !== 'object') return [];
-    const target = value as DeliveryTargetInput;
-    if (!isDeliveryProvider(target.provider) || !isDeliveryTargetType(target.targetType)) return [];
-    if (typeof target.targetId !== 'string' || target.targetId.trim().length === 0) return [];
-
-    return [{
-      provider: target.provider,
-      targetType: target.targetType,
-      targetId: target.targetId.trim(),
-      targetName: typeof target.targetName === 'string' && target.targetName.trim().length > 0
-        ? target.targetName.trim()
-        : null,
-      enabled: target.enabled !== false,
-    }];
-  });
-}
 
 export async function GET() {
   try {

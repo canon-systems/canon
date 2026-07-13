@@ -19,13 +19,3 @@ export function userFullName(user: DisplayUser | null | undefined) {
     user?.email?.split('@')[0]?.replace(/[._-]+/g, ' ').trim() ||
     'User';
 }
-
-export function initialsForName(name: string) {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((part) => part[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase() || 'U';
-}

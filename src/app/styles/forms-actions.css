@@ -1,7 +1,7 @@
 .glass-panel {
   border-radius: var(--radius-lg);
   border: 1px solid var(--border-tertiary);
-  background: color-mix(in srgb, rgba(255, 255, 255, 0.92) 85%, transparent);
+  background: color-mix(in srgb, var(--glass-panel-bg) 85%, transparent);
   box-shadow: var(--shadow-md);
   backdrop-filter: blur(24px);
   transition: transform 300ms ease, border-color 300ms ease, box-shadow 300ms ease;
@@ -17,7 +17,7 @@
   border-radius: 28px;
   border: 1px solid var(--border-tertiary);
   background: var(--bg-primary);
-  box-shadow: 0 24px 80px rgba(107, 92, 231, 0.12);
+  box-shadow: var(--shadow-form-panel);
   padding: clamp(1.5rem, 2vw, 2.5rem);
   backdrop-filter: blur(30px);
 }
