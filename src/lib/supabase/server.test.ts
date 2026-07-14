@@ -12,15 +12,15 @@ describe('Supabase server clients', () => {
   beforeEach(() => {
     createSupabaseClientMock.mockClear();
     process.env.SUPABASE_URL = 'https://example.supabase.co';
-    process.env.SUPABASE_SERVICE_ROLE_KEY = 'sb_service_role_123';
+    process.env.SUPABASE_SECRET_KEY = 'sb_secret_123';
   });
 
-  it('creates a trusted service-role client only from SUPABASE_SERVICE_ROLE_KEY', () => {
+  it('creates a trusted server client from SUPABASE_SECRET_KEY', () => {
     expect(createServiceRoleClient()).toEqual({ mocked: true });
 
     expect(createSupabaseClientMock).toHaveBeenCalledWith(
       'https://example.supabase.co',
-      'sb_service_role_123',
+      'sb_secret_123',
       {
         auth: {
           autoRefreshToken: false,

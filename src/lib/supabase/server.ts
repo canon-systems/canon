@@ -3,15 +3,15 @@ import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { supabaseUrl } from './env';
 
 export function createServiceRoleClient() {
-  const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY;
 
-  if (!supabaseServiceRoleKey) {
+  if (!supabaseSecretKey) {
     throw new Error(
-      'Missing Supabase environment variable. Please set SUPABASE_SERVICE_ROLE_KEY'
+      'Missing Supabase environment variable. Please set SUPABASE_SECRET_KEY'
     );
   }
 
-  return createSupabaseClient(supabaseUrl(), supabaseServiceRoleKey, {
+  return createSupabaseClient(supabaseUrl(), supabaseSecretKey, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,
