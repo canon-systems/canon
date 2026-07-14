@@ -6,18 +6,18 @@ import {
   Archive as IconArchive,
   ArrowRight as IconArrowRight,
   Brain as IconBrain,
+  CalendarDays as IconCalendar,
   Check as IconCheck,
   ChevronDown as IconChevronDown,
+  Clock as IconClock,
   ExternalLink as IconExternalLink,
   Hash as IconHash,
   MoreVertical as IconDotsVertical,
   Pencil as IconPencil,
-  Plus as IconPlus,
   Radar as IconRadar,
   Send as IconSend,
   ShieldCheck as IconShieldCheck,
   Trash2 as IconTrash,
-  User as IconUser,
   Users as IconUsers,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -37,6 +37,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge, type BadgeVariant } from '@/components/ui/status-badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/components/ui/utils';
+import { IntegrationLogos } from '@/components/IntegrationLogos';
 import type { KnowledgeSource, ReadinessBrief, ReadinessCategory, ReadinessItem, ReadinessStatus } from '@/types/onboarding';
 
 const categories = [
@@ -250,18 +251,15 @@ export function ReadinessClient() {
   const [knownDeliveryTargetOptions, setKnownDeliveryTargetOptions] = useState<DeliveryTargetOption[]>([]);
   const [targetOptionsReconnectRequired, setTargetOptionsReconnectRequired] = useState(false);
   const [selectedChannelIds, setSelectedChannelIds] = useState<string[]>([]);
-  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [customTargets, setCustomTargets] = useState<DeliveryTarget[]>([]);
   const [connections, setConnections] = useState<IntegrationConnection[]>([]);
-  const [newTargetType, setNewTargetType] = useState<DeliveryTargetType>('channel');
-  const [newTargetId, setNewTargetId] = useState('');
-  const [newTargetName, setNewTargetName] = useState('');
   const [weeklyDigestEnabled, setWeeklyDigestEnabled] = useState(true);
   const [digestWeekday, setDigestWeekday] = useState(1);
   const [digestHourUtc, setDigestHourUtc] = useState(13);
   const [meetingPrepEnabled, setMeetingPrepEnabled] = useState(true);
   const [meetingPrepMinutesBefore, setMeetingPrepMinutesBefore] = useState(45);
   const [savingDeliverySettings, setSavingDeliverySettings] = useState(false);
+  const [selectedDeliveryProvider, setSelectedDeliveryProvider] = useState<DeliveryProvider | null>(null);
 
   async function generateSignals() {
     setGenerating(true);
@@ -385,12 +383,10 @@ export function ReadinessClient() {
         .filter((connection) => connection.status === 'active' && isDeliveryProvider(connection.provider))
         .map((connection) => connection.provider as DeliveryProvider));
       let nextChannelIds: string[] = [];
-      let nextUserIds: string[] = [];
       let nextCustomTargets: DeliveryTarget[] = [];
 
       if (settingsResult.status === 'fulfilled' && settingsResult.value.settings) {
         nextChannelIds = settingsResult.value.settings.channelIds ?? [];
-        nextUserIds = settingsResult.value.settings.userIds ?? [];
         nextCustomTargets = (settingsResult.value.settings.targets ?? [])
           .filter((target) => target.provider !== 'slack' && target.enabled)
           .map((target) => ({
@@ -401,7 +397,6 @@ export function ReadinessClient() {
             enabled: true,
           }));
         setSelectedChannelIds(nextChannelIds);
-        setSelectedUserIds(nextUserIds);
         setCustomTargets(nextCustomTargets);
         setWeeklyDigestEnabled(settingsResult.value.settings.weeklyDigestEnabled !== false);
         setDigestWeekday(typeof settingsResult.value.settings.digestWeekday === 'number' ? settingsResult.value.settings.digestWeekday : 1);
@@ -412,20 +407,37 @@ export function ReadinessClient() {
 
       setConnections(nextConnections);
 
-      const savedProvider = nextChannelIds.length > 0 || nextUserIds.length > 0
+      const savedProvider = nextChannelIds.length > 0
         ? 'slack'
-        : nextCustomTargets[0]?.provider ?? null;
+        : nextCustomTargets.find((target) => target.targetType === 'channel')?.provider ?? null;
       const activeProvider = savedProvider && activeProviders.has(savedProvider)
         ? savedProvider
         : deliveryProviders.find((provider) => activeProviders.has(provider)) ?? savedProvider;
 
-      if (!activeProvider) {
+      setSelectedDeliveryProvider(activeProvider ?? null);
+    }
+
+    void loadDeliveryOptions();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadProviderTargets() {
+      if (!selectedDeliveryProvider) {
         setKnownDeliveryTargetOptions([]);
         setTargetOptionsReconnectRequired(false);
         return;
       }
 
-      const targetOptionsResult = await fetch(`/api/onboarding/readiness/delivery-target-options?provider=${activeProvider}`)
+      setKnownDeliveryTargetOptions([]);
+      setTargetOptionsReconnectRequired(false);
+
+      const targetOptionsResult = await fetch(`/api/onboarding/readiness/delivery-target-options?provider=${selectedDeliveryProvider}`)
         .then((res) => res.json() as Promise<{
           targets?: DeliveryTargetOption[];
           reconnectRequired?: boolean;
@@ -438,12 +450,12 @@ export function ReadinessClient() {
       setTargetOptionsReconnectRequired(Boolean(targetOptionsResult.reconnectRequired));
     }
 
-    void loadDeliveryOptions();
+    void loadProviderTargets();
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [selectedDeliveryProvider]);
 
   const items = useMemo(() => brief?.items ?? [], [brief]);
   const categoryItems = useMemo(() => items.filter((item) => activeCategories.includes(item.category)), [activeCategories, items]);
@@ -465,13 +477,14 @@ export function ReadinessClient() {
       .map((connection) => connection.provider as DeliveryProvider)
   ), [connections]);
   const savedDeliveryProvider = useMemo<DeliveryProvider | null>(() => {
-    if (selectedChannelIds.length > 0 || selectedUserIds.length > 0) return 'slack';
-    return customTargets[0]?.provider ?? null;
-  }, [customTargets, selectedChannelIds, selectedUserIds]);
+    if (selectedChannelIds.length > 0) return 'slack';
+    return customTargets.find((target) => target.targetType === 'channel')?.provider ?? null;
+  }, [customTargets, selectedChannelIds]);
   const activeDeliveryProvider = useMemo<DeliveryProvider | null>(() => {
+    if (selectedDeliveryProvider) return selectedDeliveryProvider;
     if (savedDeliveryProvider && connectedDeliveryProviders.has(savedDeliveryProvider)) return savedDeliveryProvider;
     return deliveryProviders.find((provider) => connectedDeliveryProviders.has(provider)) ?? savedDeliveryProvider;
-  }, [connectedDeliveryProviders, savedDeliveryProvider]);
+  }, [connectedDeliveryProviders, savedDeliveryProvider, selectedDeliveryProvider]);
   const activeProviderConnected = activeDeliveryProvider ? connectedDeliveryProviders.has(activeDeliveryProvider) : false;
   const activeCustomTargets = useMemo(
     () => activeDeliveryProvider ? customTargets.filter((target) => target.provider === activeDeliveryProvider) : [],
@@ -479,28 +492,19 @@ export function ReadinessClient() {
   );
   const deliveryTargets = useMemo<DeliveryTarget[]>(() => {
     if (activeDeliveryProvider === 'slack') {
-      return [
-        ...selectedChannelIds.map((channelId) => ({
-          provider: 'slack' as const,
-          targetType: 'channel' as const,
-          targetId: channelId,
-          targetName: knownDeliveryTargetOptions.find((target) => target.provider === 'slack' && target.targetId === channelId)?.targetName ?? null,
-          enabled: true,
-        })),
-        ...selectedUserIds.map((userId) => ({
-          provider: 'slack' as const,
-          targetType: 'dm' as const,
-          targetId: userId,
-          targetName: knownDeliveryTargetOptions.find((target) => target.provider === 'slack' && target.targetId === userId)?.targetName ?? null,
-          enabled: true,
-        })),
-      ];
+      return selectedChannelIds.map((channelId) => ({
+        provider: 'slack' as const,
+        targetType: 'channel' as const,
+        targetId: channelId,
+        targetName: knownDeliveryTargetOptions.find((target) => target.provider === 'slack' && target.targetId === channelId)?.targetName ?? null,
+        enabled: true,
+      }));
     }
-    return activeCustomTargets;
-  }, [activeCustomTargets, activeDeliveryProvider, knownDeliveryTargetOptions, selectedChannelIds, selectedUserIds]);
+    return activeCustomTargets.filter((target) => target.targetType === 'channel');
+  }, [activeCustomTargets, activeDeliveryProvider, knownDeliveryTargetOptions, selectedChannelIds]);
   const visibleDeliveryTargetOptions = useMemo(
-    () => knownDeliveryTargetOptions.filter((target) => target.targetType === newTargetType),
-    [knownDeliveryTargetOptions, newTargetType]
+    () => knownDeliveryTargetOptions.filter((target) => target.targetType === 'channel'),
+    [knownDeliveryTargetOptions]
   );
   const hasDeliveryTargets = deliveryTargets.length > 0;
   const allCategoriesSelected = activeCategories.length === categories.length;
@@ -516,6 +520,16 @@ export function ReadinessClient() {
     () => categoryItems.filter((item) => selectedSignalIds.has(item.id) && (item.status === 'draft' || item.status === 'reviewed')).length,
     [categoryItems, selectedSignalIds]
   );
+  const digestWeekdayLabel = digestWeekdays.find((weekday) => weekday.value === digestWeekday)?.label ?? 'Monday';
+  const deliverySummaryLabel = hasDeliveryTargets
+    ? `${deliveryTargets.length} ${deliveryTargets.length === 1 ? 'target' : 'targets'}`
+    : 'No targets';
+  const weeklyDigestSummary = weeklyDigestEnabled
+    ? `${digestWeekdayLabel}, ${digestHourUtc}:00 UTC`
+    : 'Off';
+  const meetingPrepSummary = meetingPrepEnabled
+    ? `${meetingPrepMinutesBefore} min before`
+    : 'Off';
 
   useEffect(() => {
     if (!selectedItem || selectedItem.id === selectedItemId) return;
@@ -547,7 +561,7 @@ export function ReadinessClient() {
         body: JSON.stringify({
           itemIds: [item.id],
           channelIds: activeDeliveryProvider === 'slack' ? selectedChannelIds : [],
-          userIds: activeDeliveryProvider === 'slack' ? selectedUserIds : [],
+          userIds: [],
           targets: deliveryTargets,
         }),
       });
@@ -589,7 +603,6 @@ export function ReadinessClient() {
     try {
       const slackDeliveryActive = activeDeliveryProvider === 'slack';
       const channelIds = slackDeliveryActive ? selectedChannelIds : [];
-      const userIds = slackDeliveryActive ? selectedUserIds : [];
       const channelNames = channelIds
         .map((id) => knownDeliveryTargetOptions.find((target) => target.provider === 'slack' && target.targetId === id)?.targetName ?? '')
         .filter(Boolean);
@@ -599,7 +612,7 @@ export function ReadinessClient() {
         body: JSON.stringify({
           channelIds,
           channelNames,
-          userIds,
+          userIds: [],
           targets: deliveryTargets,
           weeklyDigestEnabled,
           digestWeekday,
@@ -610,7 +623,7 @@ export function ReadinessClient() {
       });
       const data = (await res.json()) as { error?: string; detail?: string };
       if (!res.ok) throw new Error(data.detail || data.error || 'Failed to save delivery settings');
-      toast.success('Delivery targets saved');
+      toast.success('Delivery settings saved');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to save delivery settings');
     } finally {
@@ -633,9 +646,10 @@ export function ReadinessClient() {
     return 'Slack';
   }
 
-  function targetTypeLabel(target: DeliveryTarget) {
-    if (target.provider === 'google_chat') return 'Space';
-    return target.targetType === 'channel' ? 'Channel' : 'DM';
+  function providerTargetLabel(provider: DeliveryProvider | null) {
+    if (provider === 'teams') return 'Teams channel';
+    if (provider === 'google_chat') return 'Google Chat space';
+    return 'Slack channel';
   }
 
   function targetDisplayName(target: DeliveryTarget) {
@@ -645,36 +659,35 @@ export function ReadinessClient() {
     return target.targetId;
   }
 
-  function targetPlaceholder(provider: DeliveryProvider | null, targetType: DeliveryTargetType) {
-    if (provider === 'teams') return targetType === 'channel' ? 'teamId/channelId' : 'chatId';
-    if (provider === 'google_chat') return 'spaces/AAAA...';
-    return targetType === 'channel' ? 'C...' : 'U...';
+  function targetPickerLabel(provider: DeliveryProvider | null) {
+    if (provider === 'teams') return 'Choose Teams channel';
+    if (provider === 'google_chat') return 'Choose Google Chat space';
+    return 'Choose Slack channel';
   }
 
-  function addDeliveryTarget(target?: DeliveryTarget) {
+  function targetPickerEmptyLabel(provider: DeliveryProvider | null) {
+    if (provider === 'teams') return 'No Teams channels found';
+    if (provider === 'google_chat') return 'No Google Chat spaces found';
+    return 'No Slack channels found';
+  }
+
+  function selectDeliveryProvider(provider: DeliveryProvider) {
+    setSelectedDeliveryProvider(provider);
+  }
+
+  function addDeliveryTarget(target: DeliveryTarget) {
     if (!activeDeliveryProvider) return;
-    const targetId = (target?.targetId ?? newTargetId).trim();
+    if (target.targetType !== 'channel') return;
+    const targetId = target.targetId.trim();
     if (!targetId) {
-      toast.error('Add a target ID before saving');
+      toast.error('Choose a delivery target before saving');
       return;
     }
 
-    const nextTarget: DeliveryTarget = target ?? {
-      provider: activeDeliveryProvider,
-      targetType: activeDeliveryProvider === 'google_chat' ? 'channel' : newTargetType,
-      targetId,
-      targetName: newTargetName.trim() || null,
-      enabled: true,
-    };
+    const nextTarget: DeliveryTarget = { ...target, targetId };
 
     if (nextTarget.provider === 'slack') {
-      if (nextTarget.targetType === 'channel') {
-        setSelectedChannelIds((current) => current.includes(nextTarget.targetId) ? current : [...current, nextTarget.targetId]);
-      } else {
-        setSelectedUserIds((current) => current.includes(nextTarget.targetId) ? current : [...current, nextTarget.targetId]);
-      }
-      setNewTargetId('');
-      setNewTargetName('');
+      setSelectedChannelIds((current) => current.includes(nextTarget.targetId) ? current : [...current, nextTarget.targetId]);
       return;
     }
 
@@ -686,17 +699,11 @@ export function ReadinessClient() {
       ));
       return exists ? current : [...current, nextTarget];
     });
-    setNewTargetId('');
-    setNewTargetName('');
   }
 
   function removeDeliveryTarget(targetToRemove: DeliveryTarget) {
     if (targetToRemove.provider === 'slack') {
-      if (targetToRemove.targetType === 'channel') {
-        setSelectedChannelIds((current) => current.filter((id) => id !== targetToRemove.targetId));
-      } else {
-        setSelectedUserIds((current) => current.filter((id) => id !== targetToRemove.targetId));
-      }
+      setSelectedChannelIds((current) => current.filter((id) => id !== targetToRemove.targetId));
       return;
     }
 
@@ -739,7 +746,7 @@ export function ReadinessClient() {
         body: JSON.stringify({
           itemIds,
           channelIds: activeDeliveryProvider === 'slack' ? selectedChannelIds : [],
-          userIds: activeDeliveryProvider === 'slack' ? selectedUserIds : [],
+          userIds: [],
           targets: deliveryTargets,
         }),
       });
@@ -810,103 +817,104 @@ export function ReadinessClient() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="app-page-header flex items-center justify-between gap-4 border-b">
+      <div className="app-page-header flex items-center border-b">
         <div>
           <h1 className="type-page-title" style={{ color: 'var(--text-primary)' }}>Readiness</h1>
         </div>
-        <Button size="sm" onClick={generateSignals} disabled={generating}>
-          <IconBrain size={13} /> {generating ? 'Checking...' : 'Find Updates'}
-        </Button>
       </div>
 
       <div className="flex flex-1 overflow-hidden">
 
-          {/* Left sidebar — signal list + delivery settings */}
-          <div className="split-sidebar w-[340px] flex-shrink-0 border-r flex flex-col overflow-hidden">
-            <Tabs
-              value={activeTab}
-              onValueChange={(v) => setActiveTab(v as 'signals' | 'delivery')}
-              className="flex flex-col flex-1 min-h-0"
+        {/* Left sidebar — signal list + delivery settings */}
+        <div className={cn(
+          'split-sidebar flex-shrink-0 border-r flex flex-col overflow-hidden',
+          activeTab === 'delivery' ? 'w-[280px]' : 'w-[340px]'
+        )}>
+          <Tabs
+            value={activeTab}
+            onValueChange={(v) => setActiveTab(v as 'signals' | 'delivery')}
+            className="flex flex-col flex-1 min-h-0"
+          >
+            <div
+              className="split-header flex items-center border-b shrink-0"
+              style={{ borderColor: 'var(--border-tertiary)' }}
             >
-              <div
-                className="split-header flex items-center border-b shrink-0"
-                style={{ borderColor: 'var(--border-tertiary)' }}
-              >
-                <TabsList className="split-tabbar border-b-0 px-3">
-                  <TabsTrigger value="signals">
-                    Updates
-                    <span className="ml-1.5 type-caption opacity-60">{items.length}</span>
-                  </TabsTrigger>
-                  <TabsTrigger value="delivery">Delivery</TabsTrigger>
-                </TabsList>
-                {activeTab === 'signals' && (
-                  <div className="ml-auto pr-3">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="outline" size="sm" className="h-7 w-[148px] justify-between shrink-0">
-                          <span className="truncate">{filterLabel}</span>
-                          <IconChevronDown size={13} />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuGroup>
+              <TabsList className="split-tabbar border-b-0 px-3">
+                <TabsTrigger value="signals">
+                  Updates
+                  <span className="ml-1.5 type-caption opacity-60">{items.length}</span>
+                </TabsTrigger>
+                <TabsTrigger value="delivery">Delivery</TabsTrigger>
+              </TabsList>
+              {activeTab === 'signals' && (
+                <div className="ml-auto pr-3">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="sm" className="h-7 w-[148px] justify-between shrink-0">
+                        <span className="truncate">{filterLabel}</span>
+                        <IconChevronDown size={13} />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuGroup>
+                        <DropdownMenuItem
+                          role="menuitemcheckbox"
+                          aria-checked={allCategoriesSelected}
+                          onSelect={(e) => { e.preventDefault(); setActiveCategories(allCategoriesSelected ? [] : categories.map((c) => c.id)); }}
+                        >
+                          <span className="flex h-4 w-4 items-center justify-center">
+                            {allCategoriesSelected && <IconCheck size={13} />}
+                          </span>
+                          <span className="flex-1">All</span>
+                          <span className="type-caption tabular-nums" style={{ color: 'var(--text-tertiary)' }}>{items.length}</span>
+                        </DropdownMenuItem>
+                      </DropdownMenuGroup>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuGroup>
+                        {categories.map((category) => (
                           <DropdownMenuItem
+                            key={category.id}
                             role="menuitemcheckbox"
-                            aria-checked={allCategoriesSelected}
-                            onSelect={(e) => { e.preventDefault(); setActiveCategories(allCategoriesSelected ? [] : categories.map((c) => c.id)); }}
+                            aria-checked={activeCategories.includes(category.id)}
+                            onSelect={(e) => { e.preventDefault(); toggleCategory(category.id); }}
                           >
                             <span className="flex h-4 w-4 items-center justify-center">
-                              {allCategoriesSelected && <IconCheck size={13} />}
+                              {activeCategories.includes(category.id) && <IconCheck size={13} />}
                             </span>
-                            <span className="flex-1">All</span>
-                            <span className="type-caption tabular-nums" style={{ color: 'var(--text-tertiary)' }}>{items.length}</span>
+                            <span className="flex-1">{category.label}</span>
+                            <span className="type-caption tabular-nums" style={{ color: 'var(--text-tertiary)' }}>{categoryCounts.get(category.id) ?? 0}</span>
                           </DropdownMenuItem>
-                        </DropdownMenuGroup>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuGroup>
-                          {categories.map((category) => (
-                            <DropdownMenuItem
-                              key={category.id}
-                              role="menuitemcheckbox"
-                              aria-checked={activeCategories.includes(category.id)}
-                              onSelect={(e) => { e.preventDefault(); toggleCategory(category.id); }}
-                            >
-                              <span className="flex h-4 w-4 items-center justify-center">
-                                {activeCategories.includes(category.id) && <IconCheck size={13} />}
-                              </span>
-                              <span className="flex-1">{category.label}</span>
-                              <span className="type-caption tabular-nums" style={{ color: 'var(--text-tertiary)' }}>{categoryCounts.get(category.id) ?? 0}</span>
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuGroup>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                )}
-              </div>
+                        ))}
+                      </DropdownMenuGroup>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              )}
+            </div>
 
-              <TabsContent value="signals" className="flex flex-col flex-1 min-h-0 overflow-hidden m-0">
-                {/* Bulk action toolbar */}
-                <div
-                  className="sticky top-0 z-10 border-b px-[14px] py-[10px] shrink-0"
-                  style={{ backgroundColor: 'var(--bg-tertiary)', borderColor: 'var(--border-tertiary)' }}
-                >
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={allSignalsSelected}
-                      ref={(input) => {
-                        if (input) input.indeterminate = hasSignalSelection && !allSignalsSelected;
-                      }}
-                      onChange={toggleAllSignals}
-                      disabled={categoryItems.length === 0}
-                      className="h-4 w-4 flex-shrink-0 accent-[var(--canon-purple)] disabled:opacity-40"
-                      aria-label={allSignalsSelected ? 'Clear update selection' : 'Select all updates'}
-                      aria-checked={hasSignalSelection && !allSignalsSelected ? 'mixed' : allSignalsSelected}
-                    />
-                    <div className="min-w-0 flex-1 type-caption font-medium" style={{ color: 'var(--text-secondary)' }}>
-                      {hasSignalSelection ? `${selectedSignalCount} selected` : ''}
-                    </div>
+            <TabsContent value="signals" className="flex flex-col flex-1 min-h-0 overflow-hidden m-0">
+              {/* Bulk action toolbar */}
+              <div
+                className="sticky top-0 z-10 border-b px-[14px] py-[10px] shrink-0"
+                style={{ backgroundColor: 'var(--bg-tertiary)', borderColor: 'var(--border-tertiary)' }}
+              >
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={allSignalsSelected}
+                    ref={(input) => {
+                      if (input) input.indeterminate = hasSignalSelection && !allSignalsSelected;
+                    }}
+                    onChange={toggleAllSignals}
+                    disabled={categoryItems.length === 0}
+                    className="h-4 w-4 flex-shrink-0 accent-[var(--canon-purple)] disabled:opacity-40"
+                    aria-label={allSignalsSelected ? 'Clear update selection' : 'Select all updates'}
+                    aria-checked={hasSignalSelection && !allSignalsSelected ? 'mixed' : allSignalsSelected}
+                  />
+                  <div className="min-w-0 flex-1 type-caption font-medium" style={{ color: 'var(--text-secondary)' }}>
+                    {hasSignalSelection ? `${selectedSignalCount} selected` : ''}
+                  </div>
+                  {hasSignalSelection ? (
                     <TooltipProvider delayDuration={120}>
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -914,7 +922,7 @@ export function ReadinessClient() {
                             variant="ghost"
                             size="icon"
                             onClick={() => void sendSelectedSignals()}
-                            disabled={!hasSignalSelection || selectedUnsentSignalCount === 0 || sending || rowActionId === 'bulk'}
+                            disabled={selectedUnsentSignalCount === 0 || sending || rowActionId === 'bulk'}
                             aria-label="Send selected updates"
                           >
                             <IconSend size={14} />
@@ -930,7 +938,7 @@ export function ReadinessClient() {
                             variant="ghost"
                             size="icon"
                             onClick={() => void updateSelectedSignalStatus('reviewed')}
-                            disabled={!hasSignalSelection || rowActionId === 'bulk'}
+                            disabled={rowActionId === 'bulk'}
                             aria-label="Mark selected ready to send"
                           >
                             <IconPencil size={14} />
@@ -944,7 +952,7 @@ export function ReadinessClient() {
                             variant="ghost"
                             size="icon"
                             onClick={() => void updateSelectedSignalStatus('sent')}
-                            disabled={!hasSignalSelection || rowActionId === 'bulk'}
+                            disabled={rowActionId === 'bulk'}
                             aria-label="Mark selected sent"
                           >
                             <IconCheck size={14} />
@@ -958,7 +966,7 @@ export function ReadinessClient() {
                             variant="ghost"
                             size="icon"
                             onClick={() => void updateSelectedSignalStatus('archived')}
-                            disabled={!hasSignalSelection || rowActionId === 'bulk'}
+                            disabled={rowActionId === 'bulk'}
                             aria-label="Archive selected updates"
                             className="text-[var(--red)] hover:text-[var(--red)]"
                           >
@@ -968,362 +976,465 @@ export function ReadinessClient() {
                         <TooltipContent side="bottom">Archive selected updates</TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
-                  </div>
-                </div>
-
-                {!hasDeliveryTargets && (
-                  <div className="px-3 pt-3">
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab('delivery')}
-                      className="w-full rounded-[8px] border px-3 py-2 type-caption text-left"
-                      style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-secondary)', color: 'var(--text-secondary)' }}
-                    >
-                      Choose where Canon should send updates before sending.
-                    </button>
-                  </div>
-                )}
-
-                {/* Signal list */}
-                <div className="flex-1 overflow-y-auto">
-                  {categoryItems.length === 0 ? (
-                    <div className="p-3">
-                      <Alert>
-                        <IconRadar size={15} />
-                        <AlertTitle>{activeCategories.length === 0 ? 'No Categories Selected' : 'No Active Updates'}</AlertTitle>
-                        <AlertDescription>
-                          {activeCategories.length === 0 ? 'Select at least one category to view updates.' : 'This filter is clear for now.'}
-                        </AlertDescription>
-                      </Alert>
-                    </div>
                   ) : (
-                    categoryItems.map((item) => (
-                      <div
-                        key={item.id}
-                        className={cn(
-                          'list-row flex items-center gap-2 border-b',
-                          selectedItem?.id === item.id && 'list-row-selected'
-                        )}
-                        style={{ padding: '10px 14px' }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedSignalIds.has(item.id)}
-                          onChange={() => toggleSignalSelection(item.id)}
-                          className="h-4 w-4 flex-shrink-0 accent-[var(--canon-purple)]"
-                          aria-label={`Select ${item.title}`}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setSelectedItemId(item.id)}
-                          className="min-w-0 flex-1 text-left"
-                        >
-                          <div className="type-panel-title truncate" style={{ color: 'var(--text-primary)' }}>{item.title}</div>
-                          <div className="type-caption mt-[1px]" style={{ color: 'var(--text-tertiary)' }}>
-                            {item.affected_roles.length} role{item.affected_roles.length === 1 ? '' : 's'} · {formatTimestamp(item.sent_at)}
-                          </div>
-                        </button>
-                        <StatusBadge variant={statusBadge[item.status]} label={statusLabels[item.status]} />
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="shrink-0"
-                              aria-label={`Actions for ${item.title}`}
-                              disabled={rowActionId === item.id || rowActionId === 'bulk'}
-                            >
-                              <IconDotsVertical size={14} />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-[190px]">
-                            <DropdownMenuGroup>
-                              <DropdownMenuItem onSelect={() => void sendSignal(item)} disabled={item.status === 'sent' || rowActionId === item.id || rowActionId === 'bulk'}>
-                                <IconSend size={14} />
-                                Send this update
-                              </DropdownMenuItem>
-                            </DropdownMenuGroup>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuGroup>
-                              <DropdownMenuItem onSelect={() => void updateSignalStatus(item, 'draft')} disabled={item.status === 'draft' || rowActionId === item.id || rowActionId === 'bulk'}>
-                                <IconPencil size={14} />
-                                Mark draft
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onSelect={() => void updateSignalStatus(item, 'reviewed')} disabled={item.status === 'reviewed' || rowActionId === item.id || rowActionId === 'bulk'}>
-                                <IconCheck size={14} />
-                                Mark unsent
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onSelect={() => void updateSignalStatus(item, 'sent')} disabled={item.status === 'sent' || rowActionId === item.id || rowActionId === 'bulk'}>
-                                <IconCheck size={14} />
-                                Mark sent
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onSelect={() => void updateSignalStatus(item, 'archived')} disabled={item.status === 'archived' || rowActionId === item.id || rowActionId === 'bulk'}>
-                                <IconArchive size={14} />
-                                Archive
-                              </DropdownMenuItem>
-                            </DropdownMenuGroup>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                    ))
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 shrink-0"
+                      onClick={generateSignals}
+                      disabled={generating}
+                    >
+                      <IconBrain size={13} />
+                      {generating ? 'Checking...' : 'Find Updates'}
+                    </Button>
                   )}
                 </div>
-              </TabsContent>
+              </div>
 
-              <TabsContent value="delivery" className="flex-1 overflow-y-auto p-4 space-y-3 m-0">
-                <p className="type-caption" style={{ color: 'var(--text-tertiary)' }}>
-                  {activeDeliveryProvider
-                    ? `Choose where Canon should send updates in ${providerLabel(activeDeliveryProvider)}.`
-                    : 'Connect Slack, Microsoft Teams, or Google Chat to choose delivery targets.'}
-                </p>
-                {!activeDeliveryProvider ? (
-                  <Alert>
-                    <IconSend size={15} />
-                    <AlertTitle>No chat tool connected</AlertTitle>
-                    <AlertDescription>
-                      Connect the chat tool this company uses in Settings, then choose delivery targets here.
-                    </AlertDescription>
-                  </Alert>
-                ) : !activeProviderConnected ? (
-                  <Alert>
-                    <IconSend size={15} />
-                    <AlertTitle>Reconnect {providerLabel(activeDeliveryProvider)}</AlertTitle>
-                    <AlertDescription>
-                      This delivery provider is saved, but it is not connected right now.
-                    </AlertDescription>
-                  </Alert>
+              {!hasDeliveryTargets && (
+                <div className="px-3 pt-3">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('delivery')}
+                    className="w-full rounded-[8px] border px-3 py-2 type-caption text-left"
+                    style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-secondary)', color: 'var(--text-secondary)' }}
+                  >
+                    Choose where Canon should send updates before sending.
+                  </button>
+                </div>
+              )}
+
+              {/* Signal list */}
+              <div className="flex-1 overflow-y-auto">
+                {categoryItems.length === 0 ? (
+                  <div className="p-3">
+                    <Alert>
+                      <IconRadar size={15} />
+                      <AlertTitle>{activeCategories.length === 0 ? 'No Categories Selected' : 'No Active Updates'}</AlertTitle>
+                      <AlertDescription>
+                        {activeCategories.length === 0 ? 'Select at least one category to view updates.' : 'This filter is clear for now.'}
+                      </AlertDescription>
+                    </Alert>
+                  </div>
                 ) : (
-                  <div className="space-y-2 rounded-[8px] border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] p-3">
-                    <div className="type-kicker text-[var(--text-tertiary)]">{providerLabel(activeDeliveryProvider)}</div>
-                    {deliveryTargets.length > 0 && (
-                      <div className="space-y-1.5">
-                        {deliveryTargets.map((target) => (
-                          <div
-                            key={deliveryTargetKey(target)}
-                            className="flex items-center gap-2 rounded-[7px] border border-[var(--border-tertiary)] bg-[var(--bg-primary)] px-2 py-1.5"
-                          >
-                            <div className="min-w-0 flex-1">
-                              <div className="truncate type-caption font-medium text-[var(--text-primary)]">
-                                {targetDisplayName(target)}
-                              </div>
-                              <div className="truncate type-caption text-[var(--text-tertiary)]">
-                                {targetTypeLabel(target)}
-                              </div>
-                            </div>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7"
-                              onClick={() => removeDeliveryTarget(target)}
-                              aria-label={`Remove ${targetDisplayName(target)}`}
-                            >
-                              <IconTrash size={13} />
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {activeDeliveryProvider !== 'google_chat' && (
-                      <div className="flex gap-1">
-                        {(['channel', 'dm'] as const).map((targetType) => (
-                          <Button
-                            key={targetType}
-                            type="button"
-                            variant={newTargetType === targetType ? 'secondary' : 'outline'}
-                            size="sm"
-                            className="h-8 flex-1"
-                            onClick={() => setNewTargetType(targetType)}
-                          >
-                            {targetType === 'channel' ? 'Channel' : 'Chat'}
-                          </Button>
-                        ))}
-                      </div>
-                    )}
-                    {knownDeliveryTargetOptions.length > 0 && (
+                  categoryItems.map((item) => (
+                    <div
+                      key={item.id}
+                      className={cn(
+                        'list-row flex items-center gap-2 border-b',
+                        selectedItem?.id === item.id && 'list-row-selected'
+                      )}
+                      style={{ padding: '10px 14px' }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedSignalIds.has(item.id)}
+                        onChange={() => toggleSignalSelection(item.id)}
+                        className="h-4 w-4 flex-shrink-0 accent-[var(--canon-purple)]"
+                        aria-label={`Select ${item.title}`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setSelectedItemId(item.id)}
+                        className="min-w-0 flex-1 text-left"
+                      >
+                        <div className="type-panel-title truncate" style={{ color: 'var(--text-primary)' }}>{item.title}</div>
+                        <div className="type-caption mt-[1px]" style={{ color: 'var(--text-tertiary)' }}>
+                          {item.affected_roles.length} role{item.affected_roles.length === 1 ? '' : 's'} · {formatTimestamp(item.sent_at)}
+                        </div>
+                      </button>
+                      <StatusBadge variant={statusBadge[item.status]} label={statusLabels[item.status]} />
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="outline" size="sm" className="h-8 w-full justify-between">
-                            <span className="flex min-w-0 items-center gap-2">
-                              {newTargetType === 'channel' ? <IconHash size={14} /> : <IconUser size={14} />}
-                              <span className="truncate">
-                                {newTargetType === 'channel' ? 'Choose channel' : 'Choose teammate'}
-                              </span>
-                            </span>
-                            <IconChevronDown size={14} />
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="shrink-0"
+                            aria-label={`Actions for ${item.title}`}
+                            disabled={rowActionId === item.id || rowActionId === 'bulk'}
+                          >
+                            <IconDotsVertical size={14} />
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          {targetOptionsReconnectRequired && newTargetType === 'dm' ? (
-                            <DropdownMenuItem disabled>Reconnect {providerLabel(activeDeliveryProvider)} to enable DMs</DropdownMenuItem>
-                          ) : visibleDeliveryTargetOptions.length === 0 ? (
-                            <DropdownMenuItem disabled>
-                              No {newTargetType === 'channel' ? 'channels' : 'teammates'} found
+                        <DropdownMenuContent align="end" className="w-[190px]">
+                          <DropdownMenuGroup>
+                            <DropdownMenuItem onSelect={() => void sendSignal(item)} disabled={item.status === 'sent' || rowActionId === item.id || rowActionId === 'bulk'}>
+                              <IconSend size={14} />
+                              Send this update
                             </DropdownMenuItem>
-                          ) : (
-                            <DropdownMenuGroup>
-                              {visibleDeliveryTargetOptions.map((target) => {
-                                const selected = deliveryTargets.some((selectedTarget) => deliveryTargetKey(selectedTarget) === deliveryTargetKey(target));
-                                return (
-                                  <DropdownMenuItem
-                                    key={deliveryTargetKey(target)}
-                                    role="menuitemcheckbox"
-                                    aria-checked={selected}
-                                    onSelect={(e) => {
-                                      e.preventDefault();
-                                      addDeliveryTarget(target);
-                                    }}
-                                  >
-                                    <span className="flex h-4 w-4 items-center justify-center">
-                                      {selected && <IconCheck size={13} />}
-                                    </span>
-                                    <span className="min-w-0 flex-1 truncate">{target.label}</span>
-                                  </DropdownMenuItem>
-                                );
-                              })}
-                            </DropdownMenuGroup>
-                          )}
+                          </DropdownMenuGroup>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuGroup>
+                            <DropdownMenuItem onSelect={() => void updateSignalStatus(item, 'draft')} disabled={item.status === 'draft' || rowActionId === item.id || rowActionId === 'bulk'}>
+                              <IconPencil size={14} />
+                              Mark draft
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => void updateSignalStatus(item, 'reviewed')} disabled={item.status === 'reviewed' || rowActionId === item.id || rowActionId === 'bulk'}>
+                              <IconCheck size={14} />
+                              Mark unsent
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => void updateSignalStatus(item, 'sent')} disabled={item.status === 'sent' || rowActionId === item.id || rowActionId === 'bulk'}>
+                              <IconCheck size={14} />
+                              Mark sent
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => void updateSignalStatus(item, 'archived')} disabled={item.status === 'archived' || rowActionId === item.id || rowActionId === 'bulk'}>
+                              <IconArchive size={14} />
+                              Archive
+                            </DropdownMenuItem>
+                          </DropdownMenuGroup>
                         </DropdownMenuContent>
                       </DropdownMenu>
-                    )}
-                    <Input
-                      value={newTargetName}
-                      onChange={(event) => setNewTargetName(event.target.value)}
-                      placeholder="Display name"
-                      className="h-8 bg-[var(--bg-primary)]"
-                    />
-                    <div className="flex gap-2">
-                      <Input
-                        value={newTargetId}
-                        onChange={(event) => setNewTargetId(event.target.value)}
-                        placeholder={targetPlaceholder(activeDeliveryProvider, newTargetType)}
-                        className="h-8 bg-[var(--bg-primary)]"
-                      />
-                      <Button
-                        type="button"
-                        size="icon"
-                        className="h-8 w-8 flex-shrink-0"
-                        onClick={() => addDeliveryTarget()}
-                        disabled={!newTargetId.trim()}
-                        aria-label="Add delivery target"
-                      >
-                        <IconPlus size={14} />
-                      </Button>
                     </div>
+                  ))
+                )}
+              </div>
+            </TabsContent>
+
+            <TabsContent value="delivery" className="m-0 flex-1 p-3">
+              <div className="rounded-[8px] border border-[var(--border-tertiary)] bg-[var(--bg-secondary)]">
+                {[
+                  { label: 'Destination', value: deliverySummaryLabel },
+                  { label: 'Weekly digest', value: weeklyDigestSummary },
+                  { label: 'Meeting prep', value: meetingPrepSummary },
+                ].map((item, index) => (
+                  <div
+                    key={item.label}
+                    className={cn(
+                      'flex items-center justify-between gap-3 px-3 py-2',
+                      index > 0 && 'border-t border-[var(--border-tertiary)]'
+                    )}
+                  >
+                    <div className="type-caption text-[var(--text-tertiary)]">{item.label}</div>
+                    <div className="min-w-0 truncate text-right type-caption font-medium text-[var(--text-primary)]">{item.value}</div>
+                  </div>
+                ))}
+                {!activeDeliveryProvider && (
+                  <Alert className="m-2 mt-0">
+                    <IconSend size={15} />
+                    <AlertTitle>No chat tool connected</AlertTitle>
+                    <AlertDescription>Connect Slack, Microsoft Teams, or Google Chat in Settings.</AlertDescription>
+                  </Alert>
+                )}
+              </div>
+            </TabsContent>
+          </Tabs>
+        </div>
+
+        {/* Right panel — signal detail */}
+        <div className="surface-page flex-1 min-w-0 flex flex-col overflow-hidden">
+          {activeTab === 'delivery' ? (
+            <>
+              <div className="detail-page-header border-b px-7 py-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <StatusBadge variant={hasDeliveryTargets ? 'delivered' : 'pending'} label={hasDeliveryTargets ? 'Ready' : 'Needs target'} />
+                    <div className="min-w-0">
+                      <h2 className="type-section-title text-[var(--text-primary)]">Delivery settings</h2>
+                      <div className="mt-[2px] flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 type-caption text-[var(--text-tertiary)]">
+                        <span>{activeDeliveryProvider ? providerLabel(activeDeliveryProvider) : 'No provider'}</span>
+                        <span aria-hidden="true">/</span>
+                        <span>{deliverySummaryLabel}</span>
+                        <span aria-hidden="true">/</span>
+                        <span>{weeklyDigestSummary}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-7 py-5">
+                <section
+                  className="max-w-[980px] rounded-[8px] border border-[var(--border-tertiary)] bg-[var(--bg-secondary)]"
+                  aria-labelledby="delivery-plan-heading"
+                >
+                  <h3 id="delivery-plan-heading" className="sr-only">Delivery settings</h3>
+
+                  <div className="grid gap-3 border-b border-[var(--border-tertiary)] px-4 py-3 lg:grid-cols-[150px_minmax(0,1fr)]">
+                    <div>
+                      <div className="type-caption font-medium text-[var(--text-primary)]">Provider</div>
+                      <div className="type-caption text-[var(--text-tertiary)]">Connected chat tool</div>
+                    </div>
+                    <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Delivery provider">
+                      {deliveryProviders.map((provider) => {
+                        const connected = connectedDeliveryProviders.has(provider);
+                        const selected = activeDeliveryProvider === provider;
+                        return (
+                          <button
+                            key={provider}
+                            type="button"
+                            role="radio"
+                            aria-checked={selected}
+                            disabled={!connected}
+                            onClick={() => selectDeliveryProvider(provider)}
+                            className="flex h-9 items-center gap-2 rounded-[7px] border px-2.5 type-caption font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-45"
+                            style={{
+                              borderColor: selected ? 'var(--canon-purple)' : 'var(--border-tertiary)',
+                              backgroundColor: selected ? 'var(--canon-purple-selected)' : 'var(--bg-primary)',
+                              color: selected ? 'var(--text-primary)' : 'var(--text-secondary)',
+                            }}
+                          >
+                            <IntegrationLogos provider={provider} size={15} />
+                            <span>{providerLabel(provider)}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 border-b border-[var(--border-tertiary)] px-4 py-3 lg:grid-cols-[150px_minmax(0,1fr)]">
+                    <div>
+                      <div className="type-caption font-medium text-[var(--text-primary)]">Destination</div>
+                      <div className="type-caption text-[var(--text-tertiary)]">{providerTargetLabel(activeDeliveryProvider)}</div>
+                    </div>
+                    <div className="min-w-0 space-y-2">
+                      {!activeDeliveryProvider ? (
+                        <Alert className="py-2">
+                          <IconSend size={14} />
+                          <AlertTitle>No chat tool connected</AlertTitle>
+                          <AlertDescription>Connect Slack, Microsoft Teams, or Google Chat in Settings.</AlertDescription>
+                        </Alert>
+                      ) : !activeProviderConnected ? (
+                        <Alert className="py-2">
+                          <IconSend size={14} />
+                          <AlertTitle>Reconnect {providerLabel(activeDeliveryProvider)}</AlertTitle>
+                          <AlertDescription>This delivery provider is saved, but it is not connected right now.</AlertDescription>
+                        </Alert>
+                      ) : (
+                        <>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="outline" size="sm" className="h-8 w-full justify-between sm:w-[260px]">
+                                  <span className="flex min-w-0 items-center gap-2">
+                                    <IconHash size={14} />
+                                    <span className={cn(
+                                      'truncate',
+                                      deliveryTargets.length === 0 && 'text-[var(--text-tertiary)]'
+                                    )}>
+                                      {deliveryTargets.length === 0 ? 'No destination selected' : targetPickerLabel(activeDeliveryProvider)}
+                                    </span>
+                                  </span>
+                                  <IconChevronDown size={14} />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="start" className="w-[300px]">
+                                {targetOptionsReconnectRequired ? (
+                                  <DropdownMenuItem disabled>Reconnect {providerLabel(activeDeliveryProvider)} to load destinations</DropdownMenuItem>
+                                ) : visibleDeliveryTargetOptions.length === 0 ? (
+                                  <DropdownMenuItem disabled>{targetPickerEmptyLabel(activeDeliveryProvider)}</DropdownMenuItem>
+                                ) : (
+                                  <DropdownMenuGroup>
+                                    {visibleDeliveryTargetOptions.map((target) => {
+                                      const selected = deliveryTargets.some((selectedTarget) => deliveryTargetKey(selectedTarget) === deliveryTargetKey(target));
+                                      return (
+                                        <DropdownMenuItem
+                                          key={deliveryTargetKey(target)}
+                                          role="menuitemcheckbox"
+                                          aria-checked={selected}
+                                          onSelect={(e) => {
+                                            e.preventDefault();
+                                            addDeliveryTarget(target);
+                                          }}
+                                        >
+                                          <span className="flex h-4 w-4 items-center justify-center">{selected && <IconCheck size={13} />}</span>
+                                          <span className="min-w-0 flex-1 truncate">{target.label}</span>
+                                        </DropdownMenuItem>
+                                      );
+                                    })}
+                                  </DropdownMenuGroup>
+                                )}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+
+                          {deliveryTargets.length > 0 && (
+                            <div className="flex flex-wrap gap-2">
+                              {deliveryTargets.map((target) => (
+                                <span
+                                  key={deliveryTargetKey(target)}
+                                  className="inline-flex h-8 max-w-full items-center gap-2 rounded-[7px] border border-[var(--border-tertiary)] bg-[var(--bg-primary)] px-2.5 type-caption font-medium text-[var(--text-primary)]"
+                                >
+                                  <IconHash size={13} className="shrink-0 text-[var(--text-tertiary)]" />
+                                  <span className="truncate">{targetDisplayName(target)}</span>
+                                  <button
+                                    type="button"
+                                    className="-mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-[5px] text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
+                                    onClick={() => removeDeliveryTarget(target)}
+                                    aria-label={`Remove ${targetDisplayName(target)}`}
+                                  >
+                                    <IconTrash size={12} />
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 border-b border-[var(--border-tertiary)] px-4 py-3 lg:grid-cols-[150px_minmax(0,1fr)]">
+                    <div>
+                      <div className="type-caption font-medium text-[var(--text-primary)]">Weekly digest</div>
+                      <div className="type-caption text-[var(--text-tertiary)]">{weeklyDigestSummary}</div>
+                    </div>
+                    <div className="flex flex-wrap items-end gap-2">
+                      <label className="flex h-8 items-center gap-2 rounded-[7px] border border-[var(--border-tertiary)] bg-[var(--bg-primary)] px-2.5 type-caption font-medium text-[var(--text-primary)]">
+                        <input
+                          type="checkbox"
+                          checked={weeklyDigestEnabled}
+                          onChange={(event) => setWeeklyDigestEnabled(event.target.checked)}
+                          className="h-3.5 w-3.5 shrink-0 accent-[var(--canon-purple)]"
+                        />
+                        <IconCalendar size={13} />
+                        <span>Enabled</span>
+                      </label>
+                      <label className="space-y-1">
+                        <span className="sr-only">Digest day</span>
+                        <select
+                          value={digestWeekday}
+                          onChange={(event) => setDigestWeekday(Number(event.target.value))}
+                          disabled={!weeklyDigestEnabled}
+                          className="h-8 min-w-[132px] rounded-md border border-[var(--border-secondary)] bg-[var(--bg-primary)] px-2 type-caption font-medium text-[var(--text-primary)] disabled:opacity-50"
+                        >
+                          {digestWeekdays.map((weekday) => (
+                            <option key={weekday.value} value={weekday.value}>{weekday.label}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="space-y-1">
+                        <span className="sr-only">Digest hour UTC</span>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={23}
+                          value={digestHourUtc}
+                          disabled={!weeklyDigestEnabled}
+                          onChange={(event) => setDigestHourUtc(Math.min(23, Math.max(0, Number(event.target.value))))}
+                          className="h-8 w-[92px] bg-[var(--bg-primary)] type-caption font-medium"
+                        />
+                      </label>
+                      <span className="pb-2 type-caption text-[var(--text-tertiary)]">UTC</span>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 px-4 py-3 lg:grid-cols-[150px_minmax(0,1fr)]">
+                    <div>
+                      <div className="type-caption font-medium text-[var(--text-primary)]">Meeting prep</div>
+                      <div className="type-caption text-[var(--text-tertiary)]">{meetingPrepSummary}</div>
+                    </div>
+                    <div className="flex flex-wrap items-end gap-2">
+                      <label className="flex h-8 items-center gap-2 rounded-[7px] border border-[var(--border-tertiary)] bg-[var(--bg-primary)] px-2.5 type-caption font-medium text-[var(--text-primary)]">
+                        <input
+                          type="checkbox"
+                          checked={meetingPrepEnabled}
+                          onChange={(event) => setMeetingPrepEnabled(event.target.checked)}
+                          className="h-3.5 w-3.5 shrink-0 accent-[var(--canon-purple)]"
+                        />
+                        <IconClock size={13} />
+                        <span>Enabled</span>
+                      </label>
+                      <label className="space-y-1">
+                        <span className="sr-only">Meeting prep minutes before meeting</span>
+                        <Input
+                          type="number"
+                          min={5}
+                          max={240}
+                          value={meetingPrepMinutesBefore}
+                          disabled={!meetingPrepEnabled}
+                          onChange={(event) => setMeetingPrepMinutesBefore(Math.min(240, Math.max(5, Number(event.target.value))))}
+                          className="h-8 w-[92px] bg-[var(--bg-primary)] type-caption font-medium"
+                        />
+                      </label>
+                      <span className="pb-2 type-caption text-[var(--text-tertiary)]">minutes before</span>
+                    </div>
+                  </div>
+                </section>
+              </div>
+              <div className="shrink-0 border-t border-[var(--border-tertiary)] bg-[var(--bg-secondary)] px-7 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="type-caption text-[var(--text-tertiary)]">
+                    {hasDeliveryTargets ? 'Delivery settings apply to new readiness updates.' : 'Choose a destination before saving.'}
+                  </div>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={saveDeliverySettings}
+                    disabled={savingDeliverySettings || !activeDeliveryProvider || !activeProviderConnected}
+                    className="shrink-0"
+                  >
+                    {savingDeliverySettings ? 'Saving...' : 'Save Delivery Settings'}
+                  </Button>
+                </div>
+              </div>
+            </>
+          ) : selectedItem ? (
+            <>
+              <div className="detail-page-header px-8 py-5 border-b">
+                <div className="mb-3 flex items-center gap-2 flex-wrap">
+                  <StatusBadge
+                    variant={statusBadge[selectedItem.status]}
+                    label={statusLabels[selectedItem.status]}
+                  />
+                  <span className="type-body" style={{ color: 'var(--text-tertiary)' }}>
+                    {formatTimestamp(selectedItem.sent_at)}
+                  </span>
+                </div>
+                <h2 className="type-detail-title" style={{ color: 'var(--text-primary)' }}>
+                  {selectedItem.title}
+                </h2>
+                {selectedItem.affected_roles.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    {selectedItem.affected_roles.map((role) => (
+                      <span
+                        key={role}
+                        className="type-control-sm rounded-[4px] px-[7px] py-[3px]"
+                        style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--text-secondary)', border: '1px solid var(--border-tertiary)' }}
+                      >
+                        {role}
+                      </span>
+                    ))}
                   </div>
                 )}
-                <div className="space-y-3 rounded-[8px] border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] p-3">
-                  <div className="flex items-start gap-2">
-                    <input
-                      type="checkbox"
-                      checked={weeklyDigestEnabled}
-                      onChange={(event) => setWeeklyDigestEnabled(event.target.checked)}
-                      className="mt-0.5 h-4 w-4 flex-shrink-0 accent-[var(--canon-purple)]"
-                      aria-label="Enable weekly digest"
-                    />
-                    <div className="min-w-0">
-                      <div className="type-panel-title text-[var(--text-primary)]">Weekly digest</div>
-                      <div className="type-caption text-[var(--text-tertiary)]">One prep update for the week.</div>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <label className="space-y-1">
-                      <span className="type-caption text-[var(--text-tertiary)]">Day</span>
-                      <select
-                        value={digestWeekday}
-                        onChange={(event) => setDigestWeekday(Number(event.target.value))}
-                        disabled={!weeklyDigestEnabled}
-                        className="h-8 w-full rounded-md border border-[var(--border-secondary)] bg-[var(--bg-primary)] px-2 type-body text-[var(--text-primary)] disabled:opacity-50"
-                      >
-                        {digestWeekdays.map((weekday) => (
-                          <option key={weekday.value} value={weekday.value}>{weekday.label}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="space-y-1">
-                      <span className="type-caption text-[var(--text-tertiary)]">Hour UTC</span>
-                      <Input
-                        type="number"
-                        min={0}
-                        max={23}
-                        value={digestHourUtc}
-                        disabled={!weeklyDigestEnabled}
-                        onChange={(event) => setDigestHourUtc(Math.min(23, Math.max(0, Number(event.target.value))))}
-                        className="h-8 bg-[var(--bg-primary)]"
-                      />
-                    </label>
-                  </div>
-                </div>
-                <div className="space-y-3 rounded-[8px] border border-[var(--border-tertiary)] bg-[var(--bg-secondary)] p-3">
-                  <div className="flex items-start gap-2">
-                    <input
-                      type="checkbox"
-                      checked={meetingPrepEnabled}
-                      onChange={(event) => setMeetingPrepEnabled(event.target.checked)}
-                      className="mt-0.5 h-4 w-4 flex-shrink-0 accent-[var(--canon-purple)]"
-                      aria-label="Enable meeting prep"
-                    />
-                    <div className="min-w-0">
-                      <div className="type-panel-title text-[var(--text-primary)]">Meeting prep</div>
-                      <div className="type-caption text-[var(--text-tertiary)]">DM prep before meetings when there is enough context.</div>
-                    </div>
-                  </div>
-                  <label className="block space-y-1">
-                    <span className="type-caption text-[var(--text-tertiary)]">Minutes before meeting</span>
-                    <Input
-                      type="number"
-                      min={5}
-                      max={240}
-                      value={meetingPrepMinutesBefore}
-                      disabled={!meetingPrepEnabled}
-                      onChange={(event) => setMeetingPrepMinutesBefore(Math.min(240, Math.max(5, Number(event.target.value))))}
-                      className="h-8 bg-[var(--bg-primary)]"
-                    />
-                  </label>
-                </div>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={saveDeliverySettings}
-                  disabled={savingDeliverySettings || !activeDeliveryProvider || !activeProviderConnected}
-                  className="w-full"
-                >
-                  {savingDeliverySettings ? 'Saving...' : 'Save Targets'}
-                </Button>
-              </TabsContent>
-            </Tabs>
-          </div>
+              </div>
 
-          {/* Right panel — signal detail */}
-          <div className="surface-page flex-1 min-w-0 flex flex-col overflow-hidden">
-            {selectedItem ? (
-              <>
-                <div className="detail-page-header px-8 py-5 border-b">
-                  <div className="flex items-start justify-between gap-4 mb-3">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <StatusBadge
-                        variant={statusBadge[selectedItem.status]}
-                        label={statusLabels[selectedItem.status]}
-                      />
-                      <span className="type-body" style={{ color: 'var(--text-tertiary)' }}>
-                        {formatTimestamp(selectedItem.sent_at)}
-                      </span>
+              <div className="flex-1 overflow-y-auto px-8 py-6">
+                <div className="grid gap-5">
+                  <StepRow icon={IconRadar} label="1. Detect change">
+                    <p className="type-card-body" style={{ color: 'var(--text-secondary)' }}>
+                      {selectedItem.summary}
+                    </p>
+                    <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 type-caption" style={{ color: 'var(--text-tertiary)' }}>
+                      <span>Sources:</span>
+                      {evidenceSources.map((source, index) => (
+                        source.url ? (
+                          <a
+                            key={`${source.label}-${index}`}
+                            href={source.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 text-[var(--text-secondary)] transition-colors duration-[120ms] hover:text-[var(--text-primary)]"
+                          >
+                            {source.label}
+                            <IconExternalLink size={11} />
+                          </a>
+                        ) : (
+                          <span key={`${source.label}-${index}`} className="text-[var(--text-secondary)]">{source.label}</span>
+                        )
+                      ))}
+                      <span>· {signalsReviewed} source item{signalsReviewed === 1 ? '' : 's'} reviewed</span>
                     </div>
-                    <Button
-                      size="sm"
-                      onClick={() => void sendSignal(selectedItem)}
-                      disabled={rowActionId === selectedItem.id || selectedItem.status === 'sent'}
-                    >
-                      <IconSend size={13} />
-                      {rowActionId === selectedItem.id ? 'Sending...' : selectedItem.status === 'sent' ? 'Sent' : 'Send Update'}
-                    </Button>
-                  </div>
-                  <h2 className="type-detail-title" style={{ color: 'var(--text-primary)' }}>
-                    {selectedItem.title}
-                  </h2>
-                  {selectedItem.affected_roles.length > 0 && (
-                    <div className="flex flex-wrap gap-2 mt-3">
-                      {selectedItem.affected_roles.map((role) => (
+                  </StepRow>
+
+                  <StepRow icon={IconShieldCheck} label="2. Explain impact" tone="warning">
+                    <p className="type-card-body" style={{ color: 'var(--text-secondary)' }}>{preventionText(selectedItem)}</p>
+                  </StepRow>
+
+                  <StepRow icon={IconUsers} label="3. Identify audience">
+                    <div className="flex flex-wrap gap-2">
+                      {selectedItem.affected_roles.length === 0 ? (
+                        <span className="type-body" style={{ color: 'var(--text-tertiary)' }}>No affected roles.</span>
+                      ) : selectedItem.affected_roles.map((role) => (
                         <span
                           key={role}
                           className="type-control-sm rounded-[4px] px-[7px] py-[3px]"
@@ -1333,105 +1444,75 @@ export function ReadinessClient() {
                         </span>
                       ))}
                     </div>
-                  )}
+                  </StepRow>
+
+                  <StepRow icon={IconArrowRight} label="4. Recommend action" tone="action">
+                    <p className="type-card-body" style={{ color: 'var(--text-secondary)' }}>{nextAction(selectedItem)}</p>
+                  </StepRow>
+
+                  <StepRow icon={selectedItem.status === 'sent' ? IconCheck : IconSend} label="5. Send or prevent" divider={false}>
+                    <p className="type-card-body" style={{ color: 'var(--text-secondary)' }}>
+                      {selectedItem.status === 'sent'
+                        ? `Sent ${formatTimestamp(selectedItem.sent_at)}.`
+                        : `${unsentCategoryItems.length} update${unsentCategoryItems.length === 1 ? '' : 's'} ready in this filter.`}
+                    </p>
+                  </StepRow>
                 </div>
-
-                <div className="flex-1 overflow-y-auto px-8 py-6">
-                  <div className="grid gap-5">
-                    <StepRow icon={IconRadar} label="1. Detect change">
-                      <p className="type-card-body" style={{ color: 'var(--text-secondary)' }}>
-                        {selectedItem.summary}
-                      </p>
-                      <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 type-caption" style={{ color: 'var(--text-tertiary)' }}>
-                        <span>Sources:</span>
-                        {evidenceSources.map((source, index) => (
-                          source.url ? (
-                            <a
-                              key={`${source.label}-${index}`}
-                              href={source.url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center gap-1 text-[var(--text-secondary)] transition-colors duration-[120ms] hover:text-[var(--text-primary)]"
-                            >
-                              {source.label}
-                              <IconExternalLink size={11} />
-                            </a>
-                          ) : (
-                            <span key={`${source.label}-${index}`} className="text-[var(--text-secondary)]">{source.label}</span>
-                          )
-                        ))}
-                        <span>· {signalsReviewed} source item{signalsReviewed === 1 ? '' : 's'} reviewed</span>
-                      </div>
-                    </StepRow>
-
-                    <StepRow icon={IconShieldCheck} label="2. Explain impact" tone="warning">
-                      <p className="type-card-body" style={{ color: 'var(--text-secondary)' }}>{preventionText(selectedItem)}</p>
-                    </StepRow>
-
-                    <StepRow icon={IconUsers} label="3. Identify audience">
-                      <div className="flex flex-wrap gap-2">
-                        {selectedItem.affected_roles.length === 0 ? (
-                          <span className="type-body" style={{ color: 'var(--text-tertiary)' }}>No affected roles.</span>
-                        ) : selectedItem.affected_roles.map((role) => (
-                          <span
-                            key={role}
-                            className="type-control-sm rounded-[4px] px-[7px] py-[3px]"
-                            style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--text-secondary)', border: '1px solid var(--border-tertiary)' }}
-                          >
-                            {role}
-                          </span>
-                        ))}
-                      </div>
-                    </StepRow>
-
-                    <StepRow icon={IconArrowRight} label="4. Recommend action" tone="action">
-                      <p className="type-card-body" style={{ color: 'var(--text-secondary)' }}>{nextAction(selectedItem)}</p>
-                    </StepRow>
-
-                    <StepRow icon={selectedItem.status === 'sent' ? IconCheck : IconSend} label="5. Send or prevent" divider={false}>
-                      <p className="type-card-body" style={{ color: 'var(--text-secondary)' }}>
-                        {selectedItem.status === 'sent'
-                          ? `Sent ${formatTimestamp(selectedItem.sent_at)}.`
-                          : `${unsentCategoryItems.length} update${unsentCategoryItems.length === 1 ? '' : 's'} ready in this filter.`}
-                      </p>
-                    </StepRow>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className="flex flex-col items-center justify-center h-full gap-3 py-12">
-                {generating ? (
-                  <IconBrain size={32} style={{ color: 'var(--canon-purple)', opacity: 0.7 }} />
-                ) : (
-                  <IconRadar size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
-                )}
-                <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>
-                  {generating ? 'Checking sources...' : items.length === 0 ? 'No updates yet' : 'No update selected'}
-                </div>
-                <div className="type-body text-center max-w-[280px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
-                  {generating
-                    ? 'Canon is checking connected sources for updates your team may need.'
-                    : items.length === 0
-                      ? hasKnowledgeSources
-                        ? 'Check your connected sources for changes your team should know about.'
-                        : 'Add a source so Canon can look for useful team updates.'
-                      : 'Choose an update from the list to review the details.'}
-                </div>
-                {!generating && items.length === 0 && (
-                  hasKnowledgeSources ? (
-                    <Button size="sm" className="mt-1" onClick={generateSignals}>
-                      <IconBrain size={13} /> Find Updates
-                    </Button>
-                  ) : (
-                    <Link href="/knowledge">
-                      <Button size="sm" className="mt-1">Add Knowledge Sources</Button>
-                    </Link>
-                  )
-                )}
               </div>
-            )}
-          </div>
+              <div className="shrink-0 border-t border-[var(--border-tertiary)] bg-[var(--bg-secondary)] px-8 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="type-caption text-[var(--text-tertiary)]">
+                    {selectedItem.status === 'sent'
+                      ? `Sent ${formatTimestamp(selectedItem.sent_at)}.`
+                      : hasDeliveryTargets
+                        ? 'Send this update to the configured destination.'
+                        : 'Choose a delivery destination before sending.'}
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={() => void sendSignal(selectedItem)}
+                    disabled={rowActionId === selectedItem.id || selectedItem.status === 'sent'}
+                  >
+                    <IconSend size={13} />
+                    {rowActionId === selectedItem.id ? 'Sending...' : selectedItem.status === 'sent' ? 'Sent' : 'Send Update'}
+                  </Button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="flex flex-col items-center justify-center h-full gap-3 py-12">
+              {generating ? (
+                <IconBrain size={32} style={{ color: 'var(--canon-purple)', opacity: 0.7 }} />
+              ) : (
+                <IconRadar size={32} style={{ color: 'var(--text-tertiary)', opacity: 0.4 }} />
+              )}
+              <div className="type-section-title" style={{ color: 'var(--text-secondary)' }}>
+                {generating ? 'Checking sources...' : items.length === 0 ? 'No updates yet' : 'No update selected'}
+              </div>
+              <div className="type-body text-center max-w-[280px] leading-[1.5]" style={{ color: 'var(--text-tertiary)' }}>
+                {generating
+                  ? 'Canon is checking connected sources for updates your team may need.'
+                  : items.length === 0
+                    ? hasKnowledgeSources
+                      ? 'Check your connected sources for changes your team should know about.'
+                      : 'Add a source so Canon can look for useful team updates.'
+                    : 'Choose an update from the list to review the details.'}
+              </div>
+              {!generating && items.length === 0 && (
+                hasKnowledgeSources ? (
+                  <Button size="sm" className="mt-1" onClick={generateSignals}>
+                    <IconBrain size={13} /> Find Updates
+                  </Button>
+                ) : (
+                  <Link href="/knowledge">
+                    <Button size="sm" className="mt-1">Add Knowledge Sources</Button>
+                  </Link>
+                )
+              )}
+            </div>
+          )}
         </div>
       </div>
+    </div>
   );
 }

@@ -193,7 +193,13 @@ export async function PATCH(request: NextRequest) {
     }
 
     const teamChatTargets = targets.filter((target) => target.provider === 'teams' || target.provider === 'google_chat');
-    const activeTeamChatTargetKeys = new Set(teamChatTargets.map((target) => `${target.provider}:${target.targetId}`));
+    const teamChatChannelTargets = teamChatTargets.filter((target) => target.targetType === 'channel');
+    const privateTeamChatTargetKeys = new Set(
+      teamChatTargets
+        .filter((target) => target.targetType !== 'channel')
+        .map((target) => `${target.provider}:${target.targetId}`)
+    );
+    const activeTeamChatTargetKeys = new Set(teamChatChannelTargets.map((target) => `${target.provider}:${target.targetId}`));
     const { data: teamChatSources, error: sourceListError } = await supabase
       .from('knowledge_sources')
       .select('id, provider, slack_channel_id')
@@ -202,8 +208,25 @@ export async function PATCH(request: NextRequest) {
 
     if (sourceListError) throw sourceListError;
 
+    const privateSourceIds = (teamChatSources ?? [])
+      .filter((source) => {
+        const targetId = typeof source.slack_channel_id === 'string' ? source.slack_channel_id : '';
+        return targetId && privateTeamChatTargetKeys.has(`${source.provider}:${targetId}`);
+      })
+      .map((source) => source.id);
+
+    if (privateSourceIds.length > 0) {
+      const { error: privateSourceDeleteError } = await supabase
+        .from('knowledge_sources')
+        .delete()
+        .in('id', privateSourceIds);
+
+      if (privateSourceDeleteError) throw privateSourceDeleteError;
+    }
+
     const staleSourceIds = (teamChatSources ?? [])
       .filter((source) => {
+        if (privateSourceIds.includes(source.id)) return false;
         const targetId = typeof source.slack_channel_id === 'string' ? source.slack_channel_id : '';
         return targetId && !activeTeamChatTargetKeys.has(`${source.provider}:${targetId}`);
       })
@@ -218,9 +241,9 @@ export async function PATCH(request: NextRequest) {
       if (staleSourceError) throw staleSourceError;
     }
 
-    if (teamChatTargets.length > 0) {
+    if (teamChatChannelTargets.length > 0) {
       const sourceIdsToSync: string[] = [];
-      for (const target of teamChatTargets) {
+      for (const target of teamChatChannelTargets) {
         const { data: existingSource, error: lookupError } = await supabase
           .from('knowledge_sources')
           .select('id')
