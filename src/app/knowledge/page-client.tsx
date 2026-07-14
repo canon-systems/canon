@@ -38,7 +38,7 @@ import type { KnowledgeProvider, KnowledgeSource, SourceOption } from '@/types/o
 import { clearIntegrationsCache } from '@/lib/client/integrationsCache';
 
 const GRANOLA_SOURCE_OPTION_ID = 'granola-transcripts';
-const CHAT_PROVIDERS: KnowledgeProvider[] = ['slack', 'teams'];
+const CHAT_PROVIDERS: KnowledgeProvider[] = ['slack'];
 const SOURCE_CATEGORY_ORDER = ['team_chat', 'meetings', 'email', 'calendar'] as const;
 
 type ConnectedProviders = Partial<Record<KnowledgeProvider, boolean>>;
@@ -200,7 +200,7 @@ export function KnowledgeClient() {
   const [sourceSearch, setSourceSearch] = useState('');
   const [selectedSourceCategory, setSelectedSourceCategory] = useState<SourceCategoryFilter>('all');
   const [noIntegrationsConnected, setNoIntegrationsConnected] = useState(false);
-  const [connectedProviders, setConnectedProviders] = useState<ConnectedProviders>({ slack: false, granola: false, teams: false });
+  const [connectedProviders, setConnectedProviders] = useState<ConnectedProviders>({ slack: false, granola: false });
   const [connectingProvider, setConnectingProvider] = useState<KnowledgeProvider | null>(null);
   const [adding, setAdding] = useState(false);
   const [selected, setSelected] = useState<KnowledgeSource | null>(null);
@@ -318,7 +318,6 @@ export function KnowledgeClient() {
       setConnectedProviders({
         slack: Boolean(data.connectedProviders?.slack),
         granola: Boolean(data.connectedProviders?.granola),
-        teams: Boolean(data.connectedProviders?.teams),
       });
       if (data.noIntegrationsConnected) {
         setNoIntegrationsConnected(true);
@@ -336,7 +335,7 @@ export function KnowledgeClient() {
       setSourceOptions([]);
       setSelectedSourceOptionIds(new Set());
       setSourceOptionsError(error instanceof Error ? error.message : sourceLoadMessage({}));
-      setConnectedProviders({ slack: false, granola: false, teams: false });
+      setConnectedProviders({ slack: false, granola: false });
     } finally {
       setSourceOptionsLoading(false);
     }
@@ -646,12 +645,6 @@ export function KnowledgeClient() {
       label: 'Slack',
       description: 'Bring in Slack channels your team already uses.',
       action: connectSlack,
-    },
-    {
-      provider: 'teams',
-      label: 'Microsoft Teams',
-      description: 'Bring in Teams channels and chats your company uses.',
-      action: () => void connectNangoProvider('teams'),
     },
     {
       provider: 'granola',
@@ -1035,7 +1028,7 @@ export function KnowledgeClient() {
                 <IconPlug size={20} className="mx-auto mb-2 text-[var(--text-tertiary)]" />
                 <p className="type-panel-title" style={{ color: 'var(--text-primary)' }}>Connect a source first</p>
                 <p className="type-body mt-1" style={{ color: 'var(--text-secondary)' }}>
-                  Connect Slack, Microsoft Teams, or Granola, then choose what Canon should use.
+                  Connect Slack or Granola, then choose what Canon should use.
                 </p>
               </div>
             ) : sourceOptionsError ? (

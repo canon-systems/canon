@@ -95,7 +95,7 @@ type IntegrationConnection = {
   status: string;
 };
 
-const deliveryProviders = ['slack', 'teams'] as const satisfies readonly DeliveryProvider[];
+const deliveryProviders = ['slack'] as const satisfies readonly DeliveryProvider[];
 const digestWeekdays = [
   { value: 0, label: 'Sunday' },
   { value: 1, label: 'Monday' },
@@ -107,7 +107,7 @@ const digestWeekdays = [
 ];
 
 function isDeliveryProvider(provider: string): provider is DeliveryProvider {
-  return deliveryProviders.includes(provider as DeliveryProvider);
+  return (deliveryProviders as readonly string[]).includes(provider);
 }
 
 function slackMessageUrl(channelId: string, messageTs: string | null) {
@@ -1114,7 +1114,7 @@ export function ReadinessClient() {
                 <Alert className="mt-2">
                   <IconSend size={15} />
                   <AlertTitle>No Chat Tool Connected</AlertTitle>
-                  <AlertDescription>Connect Slack or Microsoft Teams in Settings.</AlertDescription>
+                  <AlertDescription>Connect Slack in Settings.</AlertDescription>
                 </Alert>
               )}
             </TabsContent>
@@ -1183,7 +1183,7 @@ export function ReadinessClient() {
                         <Alert className="py-2">
                           <IconSend size={14} />
                           <AlertTitle>No Chat Tool Connected</AlertTitle>
-                          <AlertDescription>Connect Slack or Microsoft Teams in Settings.</AlertDescription>
+                          <AlertDescription>Connect Slack in Settings.</AlertDescription>
                         </Alert>
                       ) : !activeProviderConnected ? (
                         <Alert className="py-2">

@@ -273,6 +273,7 @@ async function readinessDeliveryTargets(params: {
     .from('readiness_delivery_targets')
     .select('id, organization_id, provider, target_type, target_id, target_name, enabled')
     .eq('organization_id', params.organizationId)
+    .eq('provider', 'slack')
     .eq('enabled', true);
 
   if (error) throw error;

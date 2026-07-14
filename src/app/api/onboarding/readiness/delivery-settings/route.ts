@@ -39,6 +39,7 @@ export async function GET() {
       .from('readiness_delivery_targets')
       .select('id, provider, target_type, target_id, target_name, enabled')
       .eq('organization_id', organization.id)
+      .eq('provider', 'slack')
       .order('provider', { ascending: true })
       .order('target_type', { ascending: true })
       .order('target_name', { ascending: true });
@@ -109,7 +110,7 @@ export async function PATCH(request: NextRequest) {
           .slice(0, channelIds.length)
       : [];
     const userIds = Array.from(new Set(validSlackDmTargets(body.userIds)));
-    const providerTargets = validDeliveryTargets(body.targets);
+    const providerTargets = validDeliveryTargets(body.targets).filter((target) => target.provider === 'slack');
     const targets = providerTargets.length > 0
       ? providerTargets
       : [
@@ -169,7 +170,8 @@ export async function PATCH(request: NextRequest) {
     const { error: disableError } = await supabase
       .from('readiness_delivery_targets')
       .update({ enabled: false, updated_at: updatedAt })
-      .eq('organization_id', organization.id);
+      .eq('organization_id', organization.id)
+      .eq('provider', 'slack');
 
     if (disableError) throw disableError;
 
@@ -306,6 +308,7 @@ export async function PATCH(request: NextRequest) {
       .from('readiness_delivery_targets')
       .select('id, provider, target_type, target_id, target_name, enabled')
       .eq('organization_id', organization.id)
+      .eq('provider', 'slack')
       .eq('enabled', true);
 
     if (savedTargetsError) throw savedTargetsError;
