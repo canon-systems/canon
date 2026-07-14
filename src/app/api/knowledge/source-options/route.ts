@@ -5,7 +5,7 @@ import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
 import { listDeliveryTargets } from '@/lib/server/integrations/chat-targets';
 import { listSlackChannels, SlackListChannelsError } from '@/lib/server/integrations/nativeSlack';
 import { hasNangoApiKey, listNangoConnectionsForOrganization, providerForNangoIntegration } from '@/lib/server/integrations/nango';
-import { sourceOptionTopic } from '@/lib/server/knowledge-sync/source-option-labels';
+import { isKnowledgeSourceTargetType, sourceOptionTopic } from '@/lib/server/knowledge-sync/source-option-labels';
 import { requireWorkspace } from '@/lib/server/organization';
 import type { KnowledgeProvider } from '@/types/onboarding';
 
@@ -126,13 +126,15 @@ export async function GET() {
       const targets = await listDeliveryTargets({
         organizationId: organization.id,
         provider,
+        targetScope: 'channels',
       }).catch((error) => {
         console.warn(`[api/knowledge/source-options] Failed to list ${provider} source options:`, error);
         return [];
       });
 
+      const knowledgeTargets = targets.filter((target) => isKnowledgeSourceTargetType(target.targetType));
       options.push(
-        ...targets.map((target) => ({
+        ...knowledgeTargets.map((target) => ({
           id: target.targetId,
           name: target.targetName || target.label || target.targetId,
           provider: provider as KnowledgeProvider,

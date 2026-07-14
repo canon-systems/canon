@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import Nango, { type ConnectUIEvent } from '@nangohq/frontend';
 import {
   CheckCheck as IconChecks,
   CircleAlert as IconAlertCircle,
@@ -34,10 +35,38 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { StatusBadge } from '@/components/ui/status-badge';
 import type { KnowledgeProvider, KnowledgeSource, SourceOption } from '@/types/onboarding';
+import { clearIntegrationsCache } from '@/lib/client/integrationsCache';
 
 const GRANOLA_SOURCE_OPTION_ID = 'granola-transcripts';
+const CHAT_PROVIDERS: KnowledgeProvider[] = ['slack', 'teams', 'google_chat'];
+const SOURCE_CATEGORY_ORDER = ['team_chat', 'meetings', 'email', 'calendar'] as const;
 
 type ConnectedProviders = Partial<Record<KnowledgeProvider, boolean>>;
+type SourceCategory = (typeof SOURCE_CATEGORY_ORDER)[number];
+type SourceCategoryFilter = SourceCategory | 'all';
+
+const SOURCE_CATEGORY_COPY: Record<SourceCategory, { label: string; title: string; description: string }> = {
+  team_chat: {
+    label: 'Team Chat',
+    title: 'Team Chat',
+    description: 'Channels, spaces, and chats where team context already lives.',
+  },
+  meetings: {
+    label: 'Meetings',
+    title: 'Meetings',
+    description: 'Call notes and transcripts from customer and team meetings.',
+  },
+  email: {
+    label: 'Email',
+    title: 'Email',
+    description: 'Customer and internal email conversations.',
+  },
+  calendar: {
+    label: 'Calendar',
+    title: 'Calendar',
+    description: 'Meeting schedules and handoff context.',
+  },
+};
 
 function statusVariant(status: string) {
   if (status === 'active') return 'active';
@@ -80,6 +109,18 @@ function sourceProviderLabel(provider: KnowledgeProvider) {
   if (provider === 'teams') return 'Microsoft Teams';
   if (provider === 'google_chat') return 'Google Chat';
   return 'Integration';
+}
+
+function sourceOptionCategory(sourceOption: SourceOption): SourceCategory {
+  const provider = sourceOption.provider ?? 'slack';
+  if (provider === 'granola') return 'meetings';
+  if (provider === 'gmail' || provider === 'outlook') return 'email';
+  if (provider === 'google_calendar') return 'calendar';
+  return 'team_chat';
+}
+
+function sourceOptionSearchText(sourceOption: SourceOption) {
+  return `${sourceDisplayName(sourceOption)} ${sourceOption.topic ?? ''} ${providerLabel(sourceOption.provider ?? 'slack')}`;
 }
 
 function sourceStatusNotice(source: KnowledgeSource) {
@@ -159,6 +200,7 @@ export function KnowledgeClient() {
   const [sourceOptionsError, setSourceOptionsError] = useState('');
   const [selectedSourceOptionIds, setSelectedSourceOptionIds] = useState<Set<string>>(new Set());
   const [sourceSearch, setSourceSearch] = useState('');
+  const [selectedSourceCategory, setSelectedSourceCategory] = useState<SourceCategoryFilter>('all');
   const [noIntegrationsConnected, setNoIntegrationsConnected] = useState(false);
   const [connectedProviders, setConnectedProviders] = useState<ConnectedProviders>({ slack: false, granola: false, teams: false, google_chat: false });
   const [connectingProvider, setConnectingProvider] = useState<KnowledgeProvider | null>(null);
@@ -307,6 +349,7 @@ export function KnowledgeClient() {
     setShowAddModal(true);
     setSelectedSourceOptionIds(new Set());
     setSourceSearch('');
+    setSelectedSourceCategory('all');
     void loadSourceOptions();
   }
 
@@ -315,6 +358,7 @@ export function KnowledgeClient() {
     if (!open) {
       setSelectedSourceOptionIds(new Set());
       setSourceSearch('');
+      setSelectedSourceCategory('all');
       setSourceOptionsError('');
       setNoIntegrationsConnected(false);
     }
@@ -476,6 +520,7 @@ export function KnowledgeClient() {
       setShowAddModal(false);
       setSelectedSourceOptionIds(new Set());
       setSourceSearch('');
+      setSelectedSourceCategory('all');
       await loadSources();
       toast.success(selectedSourceOptions.length === 1 ? 'Source added' : `${selectedSourceOptions.length} sources added`);
     } catch (error: unknown) {
@@ -508,20 +553,75 @@ export function KnowledgeClient() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ provider }),
       });
-      const data = (await response.json().catch(() => ({}))) as { connectLink?: string; error?: string; detail?: string };
-      if (!response.ok || !data.connectLink) {
+      const data = (await response.json().catch(() => ({}))) as { token?: string; error?: string; detail?: string };
+      if (!response.ok || !data.token) {
         throw new Error(data.detail || data.error || 'connect_failed');
       }
-      window.location.href = data.connectLink;
+
+      let connected = false;
+      let connectUI: ReturnType<Nango['openConnectUI']> | null = null;
+      const nango = new Nango();
+
+      connectUI = nango.openConnectUI({
+        sessionToken: data.token,
+        onEvent: (event: ConnectUIEvent) => {
+          if (event.type === 'connect') {
+            connected = true;
+            connectUI?.close();
+            clearIntegrationsCache();
+            setConnectingProvider(null);
+            toast.success(`Connected ${providerLabel(provider)}`);
+            window.setTimeout(() => {
+              void loadSourceOptions();
+            }, 800);
+            return;
+          }
+
+          if (event.type === 'error') {
+            connectUI?.close();
+            setConnectingProvider(null);
+            toast.error(`Unable to connect ${providerLabel(provider)} right now. Please try again.`);
+            return;
+          }
+
+          if (event.type === 'close' && !connected) {
+            setConnectingProvider(null);
+          }
+        },
+      });
     } catch {
       toast.error(`Unable to connect ${providerLabel(provider)} right now. Please try again.`);
       setConnectingProvider(null);
     }
   }
 
-  const filteredSourceOptions = sourceOptions.filter(
-    (c) => `${c.name} ${c.topic ?? ''}`.toLowerCase().includes(sourceSearch.toLowerCase())
+  const searchedSourceOptions = sourceOptions
+    .filter((sourceOption) => sourceOptionSearchText(sourceOption).toLowerCase().includes(sourceSearch.toLowerCase()))
+    .sort((a, b) => {
+      const categoryDifference = SOURCE_CATEGORY_ORDER.indexOf(sourceOptionCategory(a)) - SOURCE_CATEGORY_ORDER.indexOf(sourceOptionCategory(b));
+      if (categoryDifference !== 0) return categoryDifference;
+      const providerDifference = providerLabel(a.provider ?? 'slack').localeCompare(providerLabel(b.provider ?? 'slack'), undefined, { sensitivity: 'base' });
+      if (providerDifference !== 0) return providerDifference;
+      return sourceDisplayName(a).localeCompare(sourceDisplayName(b), undefined, { sensitivity: 'base' });
+    });
+  const sourceCategoryCounts = searchedSourceOptions.reduce<Record<SourceCategory, number>>(
+    (counts, sourceOption) => {
+      counts[sourceOptionCategory(sourceOption)] += 1;
+      return counts;
+    },
+    { team_chat: 0, meetings: 0, email: 0, calendar: 0 }
   );
+  const activeSourceCategoryFilters = SOURCE_CATEGORY_ORDER.filter((category) => sourceCategoryCounts[category] > 0);
+  const effectiveSourceCategory = selectedSourceCategory === 'all' || sourceCategoryCounts[selectedSourceCategory] > 0 ? selectedSourceCategory : 'all';
+  const filteredSourceOptions = effectiveSourceCategory === 'all'
+    ? searchedSourceOptions
+    : searchedSourceOptions.filter((sourceOption) => sourceOptionCategory(sourceOption) === effectiveSourceCategory);
+  const groupedSourceOptions = SOURCE_CATEGORY_ORDER
+    .map((category) => ({
+      category,
+      options: filteredSourceOptions.filter((sourceOption) => sourceOptionCategory(sourceOption) === category),
+    }))
+    .filter((group) => group.options.length > 0);
   const connectedSourceOptionIds = new Set(sources.map(sourceKey).filter(Boolean));
   const selectedSourceCount = selectedSourceIds.size;
   const selectedStoppableSourceIds = sources
@@ -569,7 +669,12 @@ export function KnowledgeClient() {
       action: () => void connectNangoProvider('granola'),
     },
   ];
-  const connectableProviders = sourceConnectionActions.filter((item) => !connectedProviders[item.provider]);
+  const hasConnectedChatProvider = CHAT_PROVIDERS.some((provider) => connectedProviders[provider]);
+  const connectableProviders = sourceConnectionActions.filter((item) => {
+    if (connectedProviders[item.provider]) return false;
+    if (CHAT_PROVIDERS.includes(item.provider)) return !hasConnectedChatProvider;
+    return true;
+  });
 
   if (loading) {
     return (
@@ -879,7 +984,7 @@ export function KnowledgeClient() {
       )}
 
       <Dialog open={showAddModal} onOpenChange={handleAddModalOpenChange}>
-        <DialogContent className="max-w-md border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
+        <DialogContent className="max-w-2xl border-[var(--border-tertiary)] bg-[var(--bg-primary)] text-[var(--text-primary)]">
           <DialogHeader>
             <DialogTitle className="text-[var(--text-primary)]">Add Source</DialogTitle>
             <DialogDescription>
@@ -887,17 +992,49 @@ export function KnowledgeClient() {
             </DialogDescription>
           </DialogHeader>
           {!noIntegrationsConnected && (
-            <div className="relative">
-              <IconSearch size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }} />
-              <Input
-                value={sourceSearch}
-                onChange={(e) => setSourceSearch(e.target.value)}
-                placeholder="Search Sources..."
-                className="input-ui pl-9 border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body"
-              />
+            <div className="space-y-3">
+              <div className="relative">
+                <IconSearch size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }} />
+                <Input
+                  value={sourceSearch}
+                  onChange={(e) => setSourceSearch(e.target.value)}
+                  placeholder="Search sources..."
+                  className="input-ui pl-9 border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body"
+                />
+              </div>
+              {!sourceOptionsLoading && !sourceOptionsError && activeSourceCategoryFilters.length > 1 && (
+                <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Source categories">
+                  {[
+                    { id: 'all' as const, label: 'All', count: searchedSourceOptions.length },
+                    ...activeSourceCategoryFilters.map((category) => ({
+                      id: category,
+                      label: SOURCE_CATEGORY_COPY[category].label,
+                      count: sourceCategoryCounts[category],
+                    })),
+                  ].map((filter) => {
+                    const active = effectiveSourceCategory === filter.id;
+                    return (
+                      <button
+                        key={filter.id}
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() => setSelectedSourceCategory(filter.id)}
+                        className="rounded-[7px] border px-3 py-1.5 type-caption font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--canon-purple)]"
+                        style={{
+                          borderColor: active ? 'var(--canon-purple)' : 'var(--border-secondary)',
+                          backgroundColor: active ? 'var(--canon-purple-selected)' : 'var(--bg-secondary)',
+                          color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
+                        }}
+                      >
+                        {filter.label} <span style={{ color: active ? 'var(--canon-purple)' : 'var(--text-tertiary)' }}>{filter.count}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
-          <div className="max-h-64 overflow-y-auto space-y-1">
+          <div className="max-h-[360px] overflow-y-auto pr-2 [scrollbar-gutter:stable]">
             {sourceOptionsLoading ? (
               <div className="space-y-1.5 py-1">
                 {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-10 bg-[var(--bg-secondary)] rounded-lg" />)}
@@ -915,42 +1052,64 @@ export function KnowledgeClient() {
                 <p className="type-body" style={{ color: 'var(--red-text)' }}>{sourceOptionsError}</p>
               </div>
             ) : filteredSourceOptions.length === 0 ? (
-              <p className="type-body py-6 text-center" style={{ color: 'var(--text-tertiary)' }}>No Sources Found</p>
+              <p className="type-body py-6 text-center" style={{ color: 'var(--text-tertiary)' }}>No sources found</p>
             ) : (
-              filteredSourceOptions.map((sourceOption) => {
-                const optionKey = sourceOptionKey(sourceOption);
-                const connected = connectedSourceOptionIds.has(optionKey);
-                const checked = selectedSourceOptionIds.has(optionKey);
-                const provider = sourceOption.provider ?? 'slack';
-                return (
-                  <label
-                    key={optionKey}
-                    className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg hover:bg-[var(--bg-secondary)] transition-colors text-left cursor-pointer has-[:disabled]:opacity-50 has-[:disabled]:cursor-not-allowed"
-                  >
-                    <div className="flex min-w-0 items-center gap-3">
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        disabled={connected || adding}
-                        onChange={() => toggleSourceOptionSelection(optionKey)}
-                        className="h-4 w-4 flex-shrink-0 accent-[var(--canon-purple)]"
-                        aria-label={`Select ${sourceDisplayName(sourceOption)}`}
-                      />
-                      <div className="size-7 rounded-[7px] flex flex-shrink-0 items-center justify-center" style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--text-tertiary)' }}>
-                        {sourceOptionIcon(provider)}
-                      </div>
+              <div className="space-y-4">
+                {groupedSourceOptions.map(({ category, options }) => (
+                  <section key={category} aria-labelledby={`source-category-${category}`}>
+                    <div className="mb-2 flex items-center justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="type-panel-title truncate" style={{ color: 'var(--text-primary)' }}>{sourceDisplayName(sourceOption)}</div>
-                        <div className="type-caption truncate" style={{ color: 'var(--text-tertiary)' }}>
-                          {sourceOption.topic}
-                          {sourceOption.member_count > 0 ? ` · ${sourceOption.member_count} members` : ''}
-                        </div>
+                        <h3 id={`source-category-${category}`} className="type-panel-title" style={{ color: 'var(--text-primary)' }}>
+                          {SOURCE_CATEGORY_COPY[category].title}
+                        </h3>
+                        <p className="type-caption" style={{ color: 'var(--text-tertiary)' }}>
+                          {SOURCE_CATEGORY_COPY[category].description}
+                        </p>
                       </div>
+                      <span className="type-caption flex-shrink-0" style={{ color: 'var(--text-tertiary)' }}>
+                        {options.length}
+                      </span>
                     </div>
-                    {connected && <StatusBadge variant="delivered" label="Connected" />}
-                  </label>
-                );
-              })
+                    <div className="space-y-1">
+                      {options.map((sourceOption) => {
+                        const optionKey = sourceOptionKey(sourceOption);
+                        const connected = connectedSourceOptionIds.has(optionKey);
+                        const checked = selectedSourceOptionIds.has(optionKey);
+                        const provider = sourceOption.provider ?? 'slack';
+                        return (
+                          <label
+                            key={optionKey}
+                            className="w-full flex items-center justify-between gap-3 rounded-[8px] border px-3 py-2.5 transition-colors text-left cursor-pointer hover:bg-[var(--bg-secondary)] has-[:disabled]:opacity-50 has-[:disabled]:cursor-not-allowed"
+                            style={{ borderColor: checked ? 'var(--canon-purple)' : 'var(--border-tertiary)', backgroundColor: checked ? 'var(--canon-purple-selected)' : 'transparent' }}
+                          >
+                            <div className="flex min-w-0 items-center gap-3">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                disabled={connected || adding}
+                                onChange={() => toggleSourceOptionSelection(optionKey)}
+                                className="h-4 w-4 flex-shrink-0 accent-[var(--canon-purple)]"
+                                aria-label={`Select ${sourceDisplayName(sourceOption)}`}
+                              />
+                              <div className="size-7 rounded-[7px] flex flex-shrink-0 items-center justify-center" style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--text-tertiary)' }}>
+                                {sourceOptionIcon(provider)}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="type-panel-title truncate" style={{ color: 'var(--text-primary)' }}>{sourceDisplayName(sourceOption)}</div>
+                                <div className="type-caption truncate" style={{ color: 'var(--text-tertiary)' }}>
+                                  {providerLabel(provider)} · {sourceOption.topic}
+                                  {sourceOption.member_count > 0 ? ` · ${sourceOption.member_count} members` : ''}
+                                </div>
+                              </div>
+                            </div>
+                            {connected && <StatusBadge variant="delivered" label="Connected" />}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </section>
+                ))}
+              </div>
             )}
           </div>
           {!sourceOptionsLoading && !sourceOptionsError && connectableProviders.length > 0 && (

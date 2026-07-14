@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { inngest } from '@/inngest/client';
+import { listSlackChannels, SlackListChannelsError } from '@/lib/server/integrations/nativeSlack';
 import { hasNangoApiKey, listNangoConnectionsForOrganization, providerForNangoIntegration } from '@/lib/server/integrations/nango';
 import { createLogger } from '@/lib/server/logging';
+import { unavailableSlackKnowledgeSourceIds } from '@/lib/server/knowledge-sync/source-cleanup';
 import { requireWorkspace } from '@/lib/server/organization';
+import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
 
 export const dynamic = 'force-dynamic';
 
@@ -54,6 +57,68 @@ async function hasActiveGranolaConnection(params: {
   });
 }
 
+async function removeUnavailableSlackSources(params: {
+  supabase: Awaited<ReturnType<typeof requireWorkspace>>['supabase'];
+  organizationId: string;
+  sources: KnowledgeSourceRow[];
+}) {
+  const slackSources = params.sources.filter((source) => source.provider === 'slack' && source.slack_channel_id);
+  if (slackSources.length === 0) return params.sources;
+
+  const { data: connection, error: connectionError } = await params.supabase
+    .from('oauth_connections')
+    .select('connection_id')
+    .eq('organization_id', params.organizationId)
+    .eq('provider', 'slack')
+    .eq('status', 'active')
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (connectionError) throw connectionError;
+
+  const connectionId = typeof connection?.connection_id === 'string' ? connection.connection_id : '';
+  if (!connectionId) return params.sources;
+
+  const accessToken = await getProviderAccessToken({ provider: 'slack', connectionId });
+  if (!accessToken) return params.sources;
+
+  const channels = await listSlackChannels(accessToken).catch((error) => {
+    if (error instanceof SlackListChannelsError) {
+      log.warn('slack_source_cleanup_skipped', {
+        organizationId: params.organizationId,
+        detail: error.detail,
+        needed: error.needed,
+        provided: error.provided,
+      });
+      return null;
+    }
+    throw error;
+  });
+
+  if (!channels) return params.sources;
+
+  const channelIds = new Set(channels.map((channel) => channel.id));
+  const sourceIdsToDelete = unavailableSlackKnowledgeSourceIds(params.sources, channelIds);
+  if (sourceIdsToDelete.length === 0) return params.sources;
+
+  const { error: deleteError } = await params.supabase
+    .from('knowledge_sources')
+    .delete()
+    .eq('organization_id', params.organizationId)
+    .in('id', sourceIdsToDelete);
+
+  if (deleteError) throw deleteError;
+
+  log.info('unavailable_slack_sources_removed', {
+    organizationId: params.organizationId,
+    sourceCount: sourceIdsToDelete.length,
+  });
+
+  const deletedIds = new Set(sourceIdsToDelete);
+  return params.sources.filter((source) => !deletedIds.has(source.id));
+}
+
 export async function GET() {
   try {
     const { user } = await getSession();
@@ -68,12 +133,18 @@ export async function GET() {
       .order('created_at', { ascending: false });
 
     if (error) throw error;
+    const visibleSources = await removeUnavailableSlackSources({
+      supabase,
+      organizationId: organization.id,
+      sources: (sources ?? []) as KnowledgeSourceRow[],
+    });
+
     log.info('sources_loaded', {
       userId: user.id,
       organizationId: organization.id,
-      sourceCount: sources?.length ?? 0,
+      sourceCount: visibleSources.length,
     });
-    return NextResponse.json({ sources: sources ?? [] });
+    return NextResponse.json({ sources: visibleSources });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('[api/onboarding/knowledge] GET failed', error);

@@ -6,3 +6,7 @@ export function sourceOptionTopic(provider: KnowledgeProvider, targetType?: stri
   if (provider === 'google_chat') return targetType === 'dm' ? 'Google Chat DM' : 'Google Chat space';
   return 'Slack channel';
 }
+
+export function isKnowledgeSourceTargetType(targetType: string | null | undefined) {
+  return targetType === 'channel';
+}

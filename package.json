@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json"
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
+    "smoke:chat": "node scripts/chat-provider-smoke.mjs"
   },
   "dependencies": {
     "@ai-sdk/gateway": "^3.0.115",

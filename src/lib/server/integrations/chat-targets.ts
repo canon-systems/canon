@@ -4,6 +4,7 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 import type { ReadinessDeliveryProvider, ReadinessDeliveryTargetType } from '@/types/onboarding';
 
 type RawRecord = Record<string, unknown>;
+type DeliveryTargetScope = 'all' | 'channels';
 
 export type DeliveryTargetOption = {
   provider: ReadinessDeliveryProvider;
@@ -46,7 +47,7 @@ async function activeConnectionId(organizationId: string, provider: 'teams' | 'g
   return connection?.connection_id ?? null;
 }
 
-async function listTeamsTargets(organizationId: string): Promise<DeliveryTargetOption[]> {
+async function listTeamsTargets(organizationId: string, scope: DeliveryTargetScope): Promise<DeliveryTargetOption[]> {
   const connectionId = await activeConnectionId(organizationId, 'teams');
   if (!connectionId) return [];
 
@@ -85,6 +86,8 @@ async function listTeamsTargets(organizationId: string): Promise<DeliveryTargetO
     }
   }
 
+  if (scope === 'channels') return targets;
+
   const chatsResponse = await nangoProxyGet({
     provider: 'teams',
     connectionId,
@@ -110,7 +113,7 @@ async function listTeamsTargets(organizationId: string): Promise<DeliveryTargetO
   return targets;
 }
 
-async function listGoogleChatTargets(organizationId: string): Promise<DeliveryTargetOption[]> {
+async function listGoogleChatTargets(organizationId: string, scope: DeliveryTargetScope): Promise<DeliveryTargetOption[]> {
   const connectionId = await activeConnectionId(organizationId, 'google_chat');
   if (!connectionId) return [];
 
@@ -118,7 +121,10 @@ async function listGoogleChatTargets(organizationId: string): Promise<DeliveryTa
     provider: 'google_chat',
     connectionId,
     endpoint: '/v1/spaces',
-    query: { pageSize: 100 },
+    query: {
+      pageSize: 100,
+      ...(scope === 'channels' ? { filter: 'spaceType = "SPACE"' } : {}),
+    },
   });
 
   return arrayField(spacesResponse, ['spaces', 'value', 'data']).flatMap((rawSpace): DeliveryTargetOption[] => {
@@ -129,7 +135,7 @@ async function listGoogleChatTargets(organizationId: string): Promise<DeliveryTa
     const type = stringField(rawSpace, ['spaceType', 'type']);
     return [{
       provider: 'google_chat',
-      targetType: type === 'DIRECT_MESSAGE' ? 'dm' : 'channel',
+      targetType: type === 'SPACE' ? 'channel' : 'dm',
       targetId: name,
       targetName: displayName,
       enabled: true,
@@ -141,8 +147,10 @@ async function listGoogleChatTargets(organizationId: string): Promise<DeliveryTa
 export async function listDeliveryTargets(params: {
   organizationId: string;
   provider: ReadinessDeliveryProvider;
+  targetScope?: DeliveryTargetScope;
 }): Promise<DeliveryTargetOption[]> {
-  if (params.provider === 'teams') return listTeamsTargets(params.organizationId);
-  if (params.provider === 'google_chat') return listGoogleChatTargets(params.organizationId);
+  const scope = params.targetScope ?? 'all';
+  if (params.provider === 'teams') return listTeamsTargets(params.organizationId, scope);
+  if (params.provider === 'google_chat') return listGoogleChatTargets(params.organizationId, scope);
   return [];
 }
