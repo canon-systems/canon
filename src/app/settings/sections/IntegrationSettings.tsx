@@ -52,6 +52,14 @@ export function IntegrationSettings({
     if (!open) setIntegrationSearch('');
   }
 
+  function connectAvailableIntegration(integration: IntegrationCard) {
+    setAddIntegrationOpen(false);
+    setIntegrationSearch('');
+    window.setTimeout(() => {
+      void integration.action();
+    }, 0);
+  }
+
   return (
     <div className="max-w-5xl">
       {success && (
@@ -163,7 +171,7 @@ export function IntegrationSettings({
                     <Button
                       className="shrink-0"
                       variant="secondary"
-                      onClick={integration.action}
+                      onClick={() => connectAvailableIntegration(integration)}
                       disabled={connectingProvider !== null}
                     >
                       {connectingProvider === integration.provider ? <IconLoader2 size={13} className="animate-spin" /> : <IconPlug size={13} />}
