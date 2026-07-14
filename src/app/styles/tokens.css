@@ -1,0 +1,124 @@
+:root {
+  color-scheme: light;
+  --font-ui-fallback: "Inter", "SF Pro Display", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-display-fallback: "Space Grotesk", "Inter", "SF Pro Display", sans-serif;
+
+  /* Brand */
+  --canon-purple: #6b5ce7;
+  --canon-purple-hover: #5f50d6;
+  --canon-purple-soft: #f2f0ff;
+  --canon-purple-wash: rgba(107, 92, 231, 0.12);
+  --canon-purple-light: rgba(124, 108, 255, 0.2);
+  --canon-purple-selected: rgba(124, 108, 255, 0.16);
+  --canon-purple-border: #ddd8ff;
+  --canon-purple-strong-border: #8f82f5;
+  --canon-purple-muted: #9b8df5;
+  --canon-purple-dark: #2d245f;
+  --canon-purple-gradient: linear-gradient(90deg, #6b5ce7, #9b8df5);
+  --text-on-accent: #ffffff;
+  --focus-ring: rgba(107, 92, 231, 0.25);
+  --brand-shadow: 0 14px 36px rgba(107, 92, 231, 0.24);
+
+  /* Surfaces */
+  --bg-page: #f8f7ff;
+  --bg-sidebar: #fbfbff;
+  --bg-primary: #ffffff;
+  --bg-secondary: #f2f0ff;
+  --bg-secondary-translucent: rgba(242, 240, 255, 0.8);
+  --bg-tertiary: #eef0f7;
+  --bg-overlay: rgba(17, 19, 26, 0.42);
+  --chart-tooltip-bg: rgba(255, 255, 255, 0.96);
+  --auth-page-bg: #f8f7ff;
+  --auth-panel-bg: #fbfbff;
+  --auth-panel-bg-translucent: rgba(251, 251, 255, 0.7);
+  --auth-illustration-bg: #f0eeff;
+  --auth-illustration-panel: rgba(251, 251, 255, 0.7);
+  --auth-page-bg-translucent: rgba(248, 247, 255, 0.88);
+  --auth-illustration-overlay: linear-gradient(120deg, rgba(255, 255, 255, 0.78) 0%, rgba(255, 255, 255, 0) 34%), linear-gradient(300deg, rgba(255, 255, 255, 0.7) 0%, rgba(255, 255, 255, 0) 38%);
+  --auth-illustration-line: rgba(255, 255, 255, 0.7);
+  --auth-illustration-card-strong: rgba(255, 255, 255, 0.7);
+  --auth-illustration-card: rgba(255, 255, 255, 0.54);
+  --auth-grid-line: #c8c1ff;
+  --app-grid-line: rgba(200, 193, 255, 0.55);
+  --decorative-blob-primary: rgba(107, 92, 231, 0.12);
+  --decorative-blob-secondary: rgba(155, 141, 245, 0.12);
+  --decorative-blob-tertiary: rgba(255, 255, 255, 0.55);
+  --glass-panel-bg: rgba(255, 255, 255, 0.92);
+  --scrollbar-thumb: rgba(148, 163, 184, 0.35);
+
+  /* Borders */
+  --border-tertiary: #dddff0;
+  --border-secondary: #cfd4e2;
+  --border-strong: #b9b1ff;
+
+  /* Text */
+  --text-primary: #11131a;
+  --text-secondary: #596274;
+  --text-tertiary: #687286;
+  --text-placeholder: #8b94a6;
+
+  /* Semantic: Green */
+  --green: #17803c;
+  --green-bg: rgba(23, 128, 60, 0.12);
+  --green-border: rgba(23, 128, 60, 0.28);
+  --green-text: #17803c;
+  --green-gradient: linear-gradient(90deg, #17803c, #4ade80);
+
+  /* Semantic: Amber */
+  --amber: #b86505;
+  --amber-bg: rgba(217, 119, 6, 0.12);
+  --amber-bg-subtle: rgba(217, 119, 6, 0.07);
+  --amber-border: rgba(217, 119, 6, 0.28);
+  --amber-text: #b86505;
+
+  /* Semantic: Red */
+  --red: #dc2626;
+  --red-hover: #b91c1c;
+  --red-bg: rgba(220, 38, 38, 0.1);
+  --red-border: rgba(220, 38, 38, 0.3);
+  --red-text: #dc2626;
+
+  /* Semantic: Teal */
+  --teal: #0D9488;
+  --teal-bg: rgba(13, 148, 136, 0.12);
+
+  /* Semantic: Blue */
+  --blue: #2563EB;
+  --blue-bg: rgba(37, 99, 235, 0.12);
+
+  /* Domain */
+  --role-ai: #0D9488;
+  --role-se: #6B5CE7;
+  --role-ie: #2563EB;
+  --slack-bg: #4A154B;
+  --slack-text: #FFFFFF;
+  --gong-bg: #7121DB;
+  --gong-text: #FFFFFF;
+  --chart-fallback: #C9C5BD;
+
+  /* Avatar Palette */
+  --avatar-1: #6B5CE7;
+  --avatar-2: #0D9488;
+  --avatar-3: #2563EB;
+  --avatar-4: #E05D44;
+  --avatar-5: #16A34A;
+  --avatar-6: #9333EA;
+  --avatar-7: #D97706;
+
+  --shadow-lg: 0 30px 90px rgba(107, 92, 231, 0.18);
+  --shadow-md: 0 14px 36px rgba(107, 92, 231, 0.12);
+  --shadow-form-panel: 0 24px 80px rgba(107, 92, 231, 0.12);
+  --shadow-brand-inset: inset 0 0 24px rgba(107, 92, 231, 0.12);
+  --shadow-brand-hairline: inset 0 0 0 1px rgba(107, 92, 231, 0.04);
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-full: 999px;
+  --nav-width: clamp(240px, 18vw, 280px);
+  --space-unit: clamp(1rem, 1vw + 0.5rem, 1.5rem);
+}
+
+@media (min-width: 1280px) {
+  :root {
+    --space-unit: clamp(1.25rem, 0.75vw + 1rem, 2rem);
+  }
+}

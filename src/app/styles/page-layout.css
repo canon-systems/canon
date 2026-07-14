@@ -1,0 +1,117 @@
+.page-shell {
+  width: min(1200px, 100%);
+  margin-inline: auto;
+  padding-inline: clamp(1.25rem, 4vw, 3rem);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(2rem, 3vw, 4rem);
+}
+
+.hero-panel {
+  padding: clamp(2rem, 4vw, 4rem);
+  position: relative;
+  overflow: hidden;
+}
+
+.hero-panel.glass-panel:hover {
+  transform: none;
+  border-color: var(--border-tertiary);
+  box-shadow: var(--shadow-md);
+}
+
+.hero-panel::after {
+  content: "";
+  position: absolute;
+  inset: 12%;
+  border-radius: inherit;
+  border: 1px solid var(--border-tertiary);
+  pointer-events: none;
+}
+
+.gradient-text {
+  background: var(--canon-purple-gradient);
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+}
+
+.stat-card {
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-tertiary);
+  background: var(--bg-primary);
+  padding: 1rem 1.25rem;
+}
+
+.stat-card span {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.stat-card strong {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: clamp(1.5rem, 2vw, 2.25rem);
+  font-weight: 700;
+}
+
+.grid-auto-fit {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1.25rem;
+}
+
+.flow-step {
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-tertiary);
+  padding: 1.25rem;
+  background: var(--bg-primary);
+  position: relative;
+  overflow: hidden;
+}
+
+.flow-step::before {
+  content: attr(data-step);
+  position: absolute;
+  top: 0.75rem;
+  right: 0.85rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+}
+
+.flow-step h3 {
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+}
+
+.flow-step p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+}
+
+.badge-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.75rem;
+}
+
+.badge-grid span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-tertiary);
+  padding: 0.65rem 0.9rem;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+}
