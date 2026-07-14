@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import Nango, { type ConnectUIEvent } from '@nangohq/frontend';
 import { toast } from 'sonner';
 
 import { clearIntegrationsCache, getIntegrationsCached } from '@/lib/client/integrationsCache';
@@ -96,42 +95,15 @@ export function useIntegrations(params: UseIntegrationsParams = {}) {
         body: JSON.stringify({ provider }),
       });
       const data = (await response.json().catch(() => ({}))) as {
-        token?: string;
         connectLink?: string;
         error?: string;
         detail?: string;
       };
-      if (!response.ok || !data.token) {
+      if (!response.ok || !data.connectLink) {
         throw new Error(data.detail || data.error || 'connect_failed');
       }
 
-      let connected = false;
-      let connectUI: ReturnType<Nango['openConnectUI']> | null = null;
-      const nango = new Nango();
-
-      connectUI = nango.openConnectUI({
-        sessionToken: data.token,
-        onEvent: async (event: ConnectUIEvent) => {
-          if (event.type === 'connect') {
-            connected = true;
-            connectUI?.close();
-            clearIntegrationsCache();
-            window.location.href = `/settings?tab=integrations&success=true&provider=${encodeURIComponent(provider)}`;
-            return;
-          }
-
-          if (event.type === 'error') {
-            connectUI?.close();
-            setConnectingProvider(null);
-            toast.error(`Unable to connect ${providerLabel(provider)} right now. Please try again.`);
-            return;
-          }
-
-          if (event.type === 'close' && !connected) {
-            setConnectingProvider(null);
-          }
-        },
-      });
+      window.location.href = data.connectLink;
     } catch {
       toast.error(`Unable to connect ${providerLabel(provider)} right now. Please try again.`);
       setConnectingProvider(null);
