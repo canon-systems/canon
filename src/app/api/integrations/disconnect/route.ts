@@ -112,7 +112,7 @@ export async function POST(request: NextRequest) {
     }
 
     const readinessDeliveryProviders = Array.from(integrationProviderSet)
-      .filter((provider) => provider === 'slack' || provider === 'teams' || provider === 'google_chat');
+      .filter((provider) => provider === 'slack' || provider === 'teams');
 
     if (readinessDeliveryProviders.length > 0) {
       const { error: deliveryTargetsDeleteError } = await supabase

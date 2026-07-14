@@ -330,7 +330,7 @@ async function syncSlackSource(context: KnowledgeSourceAdapterContext): Promise<
 }
 
 async function syncTeamChatSource(context: KnowledgeSourceAdapterContext): Promise<Record<string, unknown>> {
-  const provider = context.source.provider === 'google_chat' ? 'google_chat' : 'teams';
+  const provider = 'teams';
   const { connectionId } = await getActiveProviderConnection(context.supabase, {
     organizationId: context.organizationId,
     provider,
@@ -443,14 +443,6 @@ const sourceAdapters = {
     provider: 'teams',
     validate(source) {
       if (!source.slack_channel_id && !source.name) return { ok: false, reason: 'missing_teams_target_id' };
-      return { ok: true };
-    },
-    sync: syncTeamChatSource,
-  },
-  google_chat: {
-    provider: 'google_chat',
-    validate(source) {
-      if (!source.slack_channel_id && !source.name) return { ok: false, reason: 'missing_google_chat_space_id' };
       return { ok: true };
     },
     sync: syncTeamChatSource,

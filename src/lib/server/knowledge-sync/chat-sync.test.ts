@@ -25,16 +25,16 @@ const log = {
   error: vi.fn(),
 };
 
-function baseParams(provider: 'teams' | 'google_chat') {
+function baseParams() {
   return {
     supabase: {} as never,
     organizationId: 'org_123',
     sourceId: 'source_123',
     sourceName: 'Customer team chat',
-    provider,
+    provider: 'teams' as const,
     connectionId: 'conn_123',
-    targetId: provider === 'teams' ? 'team_1/channel_1' : 'spaces/AAAA',
-    targetName: provider === 'teams' ? 'Revenue / Sales Engineering' : 'Implementation',
+    targetId: 'team_1/channel_1',
+    targetName: 'Revenue / Sales Engineering',
     log,
     assertActive: vi.fn(),
   };
@@ -67,7 +67,7 @@ describe('team chat source sync', () => {
       ],
     });
 
-    await expect(fetchEmbedPersistTeamChatSource(baseParams('teams'))).resolves.toEqual({
+    await expect(fetchEmbedPersistTeamChatSource(baseParams())).resolves.toEqual({
       embeddedCount: 1,
       messageCount: 1,
     });
@@ -100,49 +100,6 @@ describe('team chat source sync', () => {
             provider: 'teams',
             source_type: 'team_chat',
             external_id: 'message_1',
-          }),
-        }),
-      ],
-    }));
-  });
-
-  it('normalizes Google Chat messages and filters system messages', async () => {
-    mocks.nangoProxyGet.mockResolvedValue({
-      messages: [
-        {
-          name: 'spaces/AAAA/messages/message_1',
-          text: 'Customer asked for a clearer migration plan before the implementation review.',
-          createTime: '2026-07-13T16:00:00.000Z',
-          sender: { displayName: 'Jordan Customer' },
-        },
-        {
-          name: 'spaces/AAAA/messages/system_1',
-          text: 'This system event should not be used for readiness.',
-          type: 'system_event',
-        },
-      ],
-    });
-
-    await expect(fetchEmbedPersistTeamChatSource(baseParams('google_chat'))).resolves.toEqual({
-      embeddedCount: 1,
-      messageCount: 1,
-    });
-
-    expect(mocks.nangoProxyGet).toHaveBeenCalledWith(expect.objectContaining({
-      provider: 'google_chat',
-      endpoint: '/v1/spaces/AAAA/messages',
-    }));
-    expect(mocks.upsertReadinessSourceEvents).toHaveBeenCalledWith(expect.objectContaining({
-      events: [
-        expect.objectContaining({
-          provider: 'google_chat',
-          externalId: 'spaces/AAAA:spaces/AAAA/messages/message_1',
-          content: 'Customer asked for a clearer migration plan before the implementation review.',
-          metadata: expect.objectContaining({
-            target_id: 'spaces/AAAA',
-            target_name: 'Implementation',
-            author_type: 'human',
-            author_name: 'Jordan Customer',
           }),
         }),
       ],

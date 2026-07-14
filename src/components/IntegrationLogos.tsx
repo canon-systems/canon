@@ -25,7 +25,6 @@ const IMAGE_LOGOS: Record<string, { alt: string }> = {
   slack: { alt: 'Slack' },
   granola: { alt: 'Granola' },
   teams: { alt: 'Microsoft Teams' },
-  google_chat: { alt: 'Google Chat' },
   gmail: { alt: 'Gmail' },
   google_calendar: { alt: 'Google Calendar' },
   outlook: { alt: 'Outlook' },
@@ -52,7 +51,7 @@ export function IntegrationLogos({ size = 24, provider, logoUrl, color }: Integr
   }
 
   if (provider === 'gong') return <GongIcon size={size} />;
-  if (provider === 'github' || provider === 'coda') {
+  if (provider === 'coda') {
     return <BrandIcon name={provider} size={size} color={color} />;
   }
 

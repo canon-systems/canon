@@ -53,7 +53,6 @@ function isKnowledgeProvider(value: unknown): value is KnowledgeProvider {
   return value === 'slack' ||
     value === 'granola' ||
     value === 'teams' ||
-    value === 'google_chat' ||
     value === 'gmail' ||
     value === 'google_calendar' ||
     value === 'outlook';

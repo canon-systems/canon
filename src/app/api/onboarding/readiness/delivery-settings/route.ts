@@ -192,7 +192,7 @@ export async function PATCH(request: NextRequest) {
       if (targetError) throw targetError;
     }
 
-    const teamChatTargets = targets.filter((target) => target.provider === 'teams' || target.provider === 'google_chat');
+    const teamChatTargets = targets.filter((target) => target.provider === 'teams');
     const teamChatChannelTargets = teamChatTargets.filter((target) => target.targetType === 'channel');
     const privateTeamChatTargetKeys = new Set(
       teamChatTargets
@@ -204,7 +204,7 @@ export async function PATCH(request: NextRequest) {
       .from('knowledge_sources')
       .select('id, provider, slack_channel_id')
       .eq('organization_id', organization.id)
-      .in('provider', ['teams', 'google_chat']);
+      .in('provider', ['teams']);
 
     if (sourceListError) throw sourceListError;
 

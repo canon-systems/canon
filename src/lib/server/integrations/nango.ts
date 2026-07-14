@@ -34,7 +34,7 @@ type NangoConnectionsListResponse = {
   };
 };
 
-type NangoProvider = 'granola' | 'teams' | 'google_chat' | 'gmail' | 'google_calendar' | 'outlook';
+type NangoProvider = 'granola' | 'teams' | 'gmail' | 'google_calendar' | 'outlook';
 
 type NangoProviderConfig = {
   integrationId: string;
@@ -80,18 +80,6 @@ const NANGO_PROVIDER_CONFIG: Record<NangoProvider, NangoProviderConfig> = {
       'microsoft-teams',
     aliases: ['teams', 'microsoft-teams', 'microsoft_teams', 'ms-teams'],
     label: 'Microsoft Teams',
-    sourceType: 'team_chat',
-    supportsWebhooks: true,
-    supportsIncrementalSync: true,
-    supportsConnectionConfigDefaults: true,
-  },
-  google_chat: {
-    integrationId:
-      process.env.NANGO_GOOGLE_CHAT_INTEGRATION_ID ||
-      process.env.NANGO_GOOGLE_CHAT_PROVIDER_CONFIG_KEY ||
-      'google-chat',
-    aliases: ['google-chat', 'google_chat', 'gchat'],
-    label: 'Google Chat',
     sourceType: 'team_chat',
     supportsWebhooks: true,
     supportsIncrementalSync: true,

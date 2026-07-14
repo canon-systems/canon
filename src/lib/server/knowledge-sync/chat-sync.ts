@@ -6,7 +6,7 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 import type { KnowledgeProvider } from '@/lib/server/knowledge-sync/source-repository';
 
 type SupabaseServiceClient = ReturnType<typeof createServiceRoleClient>;
-type TeamChatProvider = Extract<KnowledgeProvider, 'teams' | 'google_chat'>;
+type TeamChatProvider = Extract<KnowledgeProvider, 'teams'>;
 type RawRecord = Record<string, unknown>;
 
 type ChatSyncLogger = {
@@ -38,11 +38,6 @@ function stringField(record: RawRecord, keys: string[]) {
     if (typeof value === 'string' && value.trim().length > 0) return value.trim();
   }
   return null;
-}
-
-function nestedStringField(record: RawRecord, key: string, keys: string[]) {
-  const value = record[key];
-  return isRecord(value) ? stringField(value, keys) : null;
 }
 
 function arrayField(response: unknown, keys: string[]) {
@@ -101,24 +96,6 @@ function normalizeTeamsMessage(raw: unknown, target: { id: string; name: string 
   };
 }
 
-function normalizeGoogleChatMessage(raw: unknown, target: { id: string; name: string | null }): NormalizedChatMessage | null {
-  if (!isRecord(raw)) return null;
-  const id = stringField(raw, ['name', 'id']);
-  const text = stringField(raw, ['text', 'argumentText', 'formattedText']) ?? '';
-  if (!id || text.trim().length < MIN_CHAT_MESSAGE_LENGTH) return null;
-  return {
-    id,
-    targetId: target.id,
-    targetName: target.name,
-    text: text.trim(),
-    occurredAt: stringField(raw, ['createTime', 'lastUpdateTime']),
-    authorType: authorType(raw),
-    authorName: nestedStringField(raw, 'sender', ['displayName', 'name']),
-    url: stringField(raw, ['threadReply', 'url']),
-    metadata: raw,
-  };
-}
-
 function chunkChatMessages(provider: TeamChatProvider, messages: NormalizedChatMessage[]): KnowledgeTextChunk[] {
   return messages.flatMap((message) => chunkTextDocument({
     document: {
@@ -164,25 +141,6 @@ async function fetchTeamsMessages(params: {
     .filter((message) => message.authorType === 'human');
 }
 
-async function fetchGoogleChatMessages(params: {
-  connectionId: string;
-  targetId: string;
-  targetName: string | null;
-}) {
-  const space = params.targetId.trim().replace(/^spaces\//, '');
-  const response = await nangoProxyGet({
-    provider: 'google_chat',
-    connectionId: params.connectionId,
-    endpoint: `/v1/spaces/${encodeURIComponent(space)}/messages`,
-    query: { pageSize: 50 },
-  });
-
-  return arrayField(response, ['messages', 'value', 'data'])
-    .map((message) => normalizeGoogleChatMessage(message, { id: params.targetId, name: params.targetName }))
-    .filter((message): message is NormalizedChatMessage => message !== null)
-    .filter((message) => message.authorType === 'human');
-}
-
 export async function fetchEmbedPersistTeamChatSource(params: {
   supabase: SupabaseServiceClient;
   organizationId: string;
@@ -196,9 +154,7 @@ export async function fetchEmbedPersistTeamChatSource(params: {
   assertActive: (phase: string) => Promise<void>;
 }): Promise<{ embeddedCount: number; messageCount: number }> {
   await params.assertActive(`${params.provider} messages fetch`);
-  const messages = params.provider === 'teams'
-    ? await fetchTeamsMessages(params)
-    : await fetchGoogleChatMessages(params);
+  const messages = await fetchTeamsMessages(params);
 
   params.log.info('sync_history_fetched', {
     sourceId: params.sourceId,

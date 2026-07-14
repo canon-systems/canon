@@ -33,7 +33,6 @@ export async function GET() {
     let slackConnected = false;
     let granolaConnected = false;
     let teamsConnected = false;
-    let googleChatConnected = false;
 
     const { data: connection } = await supabase
       .from('oauth_connections')
@@ -108,17 +107,15 @@ export async function GET() {
       .from('oauth_connections')
       .select('provider, connection_id')
       .eq('organization_id', organization.id)
-      .in('provider', ['teams', 'google_chat'])
+      .in('provider', ['teams'])
       .eq('status', 'active');
 
     if (teamChatConnectionsError) throw teamChatConnectionsError;
 
     teamsConnected = (teamChatConnections ?? []).some((connection) => connection.provider === 'teams' && connection.connection_id);
-    googleChatConnected = (teamChatConnections ?? []).some((connection) => connection.provider === 'google_chat' && connection.connection_id);
 
     const teamChatProviders = [
       ['teams', teamsConnected] as const,
-      ['google_chat', googleChatConnected] as const,
     ];
 
     for (const [provider, connected] of teamChatProviders) {
@@ -150,9 +147,8 @@ export async function GET() {
         slack: slackConnected,
         granola: granolaConnected,
         teams: teamsConnected,
-        google_chat: googleChatConnected,
       },
-      noIntegrationsConnected: !slackConnected && !granolaConnected && !teamsConnected && !googleChatConnected,
+      noIntegrationsConnected: !slackConnected && !granolaConnected && !teamsConnected,
     });
   } catch (error: unknown) {
     if (error instanceof SlackListChannelsError) {
