@@ -609,7 +609,7 @@ export function NewHiresClient() {
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="type-detail-title" style={{ color: 'var(--text-primary)' }}>{selectedDetail.hire.first_name} {selectedDetail.hire.last_name}</span>
                       <span
-                        className="type-control px-[10px] py-[4px] rounded-[6px] text-[var(--text-primary)]"
+                        className="type-control px-[10px] py-[4px] rounded-[6px] text-[var(--text-on-accent)]"
                         style={{ backgroundColor: 'var(--canon-purple)' }}
                       >
                         Day {selectedDetail.hire.ramp_day}

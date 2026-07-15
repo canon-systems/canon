@@ -9,9 +9,13 @@ import {
   clampMilestoneDayToTarget,
   findAvailableMilestoneDay,
   generatedMilestoneSpacingDays,
+  hasMilestoneContentOverlap,
+  type MilestoneContentLike,
+  normalizeMilestoneContentKey,
   normalizeRampTargets,
 } from '@/lib/onboarding/milestone-ramp';
 import type { HireRole, MilestoneEvidenceRequirement, MilestoneSourceEvidence } from '@/types/onboarding';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 const log = createLogger('inngest.milestone_proposal_generation', {
   label: 'Milestone Proposal Generation',
@@ -83,17 +87,34 @@ type OrgToolResult = {
   role: HireRole | null;
 };
 
+type SupabaseErrorLike = {
+  code?: string;
+  message?: string;
+};
+
 type ExistingMilestoneResult = {
   role: HireRole;
   day_trigger: number | null;
   title: string;
+  capability_outcome: string | null;
+  briefing_goal: string | null;
   real_work_trigger: string | null;
+  success_signals: unknown;
+  retrieval_brief: string | null;
+  evidence_requirements: unknown;
 };
 
 type DraftProposalResult = {
   role: HireRole;
   suggested_day_trigger: number | null;
   normalized_key: string;
+  title: string;
+  capability_outcome: string;
+  briefing_goal: string;
+  real_work_trigger: string;
+  success_signals: unknown;
+  retrieval_brief: string;
+  evidence_requirements: unknown;
 };
 
 const EvidenceRequirementSchema = z.object({
@@ -142,14 +163,6 @@ const LooseProposalListSchema = z.object({
   proposals: z.array(LooseProposalSchema).optional(),
 }).passthrough();
 
-function normalizeKey(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 96);
-}
-
 function compactText(value: string, maxLength: number) {
   const compacted = value.replace(/\s+/g, ' ').trim();
   return compacted.length <= maxLength ? compacted : compacted.slice(0, maxLength - 1).trimEnd();
@@ -172,6 +185,12 @@ function numberValue(value: unknown) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
+}
+
+function isMissingRampTargetColumn(error: SupabaseErrorLike | null | undefined) {
+  if (!error) return false;
+  const message = error.message ?? '';
+  return message.includes('baseline_ramp_days') || message.includes('target_ramp_days');
 }
 
 function stringList(value: unknown, maxItems: number, maxLength: number) {
@@ -473,6 +492,44 @@ ${chunkText}`,
   };
 }
 
+async function loadActiveRoleProfiles(
+  supabase: SupabaseClient,
+  organizationId: string
+) {
+  const withRampTargets = await supabase
+    .from('role_profiles')
+    .select('role, job_description, baseline_ramp_days, target_ramp_days')
+    .eq('organization_id', organizationId)
+    .eq('status', 'active')
+    .order('display_order', { ascending: true })
+    .order('role', { ascending: true });
+
+  if (!isMissingRampTargetColumn(withRampTargets.error)) {
+    if (withRampTargets.error) throw withRampTargets.error;
+    return (withRampTargets.data ?? []) as RoleProfileResult[];
+  }
+
+  log.warn('role_profile_ramp_columns_missing', {
+    orgId: organizationId,
+    error: withRampTargets.error?.message,
+  });
+
+  const legacyProfiles = await supabase
+    .from('role_profiles')
+    .select('role, job_description')
+    .eq('organization_id', organizationId)
+    .eq('status', 'active')
+    .order('display_order', { ascending: true })
+    .order('role', { ascending: true });
+
+  if (legacyProfiles.error) throw legacyProfiles.error;
+  return ((legacyProfiles.data ?? []) as Array<Pick<RoleProfileResult, 'role' | 'job_description'>>).map((profile) => ({
+    ...profile,
+    baseline_ramp_days: null,
+    target_ramp_days: null,
+  }));
+}
+
 async function generateForOrg(organizationId: string) {
   const supabase = createServiceRoleClient();
 
@@ -486,7 +543,13 @@ async function generateForOrg(organizationId: string) {
     return { proposalsCreated: 0, rolesProcessed: 0 };
   }
 
-  const [{ data: chunks, error }, { data: activeMilestones }, { data: draftProposals }, { data: roleProfiles }, { data: orgTools }] = await Promise.all([
+  const [
+    chunksResult,
+    activeMilestonesResult,
+    draftProposalsResult,
+    roleProfiles,
+    orgToolsResult,
+  ] = await Promise.all([
     supabase
       .from('knowledge_chunks')
       .select('id, content, metadata, created_at')
@@ -495,32 +558,29 @@ async function generateForOrg(organizationId: string) {
       .limit(40),
     supabase
       .from('ramp_milestones')
-      .select('role, day_trigger, title, real_work_trigger')
+      .select('role, day_trigger, title, capability_outcome, briefing_goal, real_work_trigger, success_signals, retrieval_brief, evidence_requirements')
       .eq('organization_id', organizationId)
       .eq('status', 'active')
       .limit(500),
     supabase
       .from('milestone_proposals')
-      .select('role, suggested_day_trigger, normalized_key')
+      .select('role, suggested_day_trigger, normalized_key, title, capability_outcome, briefing_goal, real_work_trigger, success_signals, retrieval_brief, evidence_requirements')
       .eq('organization_id', organizationId)
       .eq('status', 'draft')
       .limit(500),
-    supabase
-      .from('role_profiles')
-      .select('role, job_description, baseline_ramp_days, target_ramp_days')
-      .eq('organization_id', organizationId)
-      .eq('status', 'active')
-      .order('display_order', { ascending: true })
-      .order('role', { ascending: true }),
+    loadActiveRoleProfiles(supabase, organizationId),
     supabase
       .from('org_tools')
       .select('tool_name, role')
       .eq('organization_id', organizationId),
   ]);
 
-  if (error) throw error;
+  if (chunksResult.error) throw chunksResult.error;
+  if (activeMilestonesResult.error) throw activeMilestonesResult.error;
+  if (draftProposalsResult.error) throw draftProposalsResult.error;
+  if (orgToolsResult.error) throw orgToolsResult.error;
 
-  const typedChunks = (chunks ?? []) as KnowledgeChunkResult[];
+  const typedChunks = (chunksResult.data ?? []) as KnowledgeChunkResult[];
   if (typedChunks.length === 0) return { proposalsCreated: 0, rolesProcessed: 0 };
 
   const sourceEvidence = chunkEvidence(typedChunks);
@@ -531,7 +591,7 @@ async function generateForOrg(organizationId: string) {
   });
 
   // Build per-role dedup sets from the two prefetched queries
-  const activeRoles = ((roleProfiles ?? []) as RoleProfileResult[])
+  const activeRoles = roleProfiles
     .map((profile) => profile.role)
     .filter((role) => role.trim().length > 0);
 
@@ -543,17 +603,26 @@ async function generateForOrg(organizationId: string) {
   const existingKeysByRole = new Map<HireRole, Set<string>>(
     activeRoles.map((role) => {
       const keys = new Set<string>();
-      for (const m of ((activeMilestones ?? []) as ExistingMilestoneResult[]).filter((m) => m.role === role)) {
-        keys.add(normalizeKey(`${m.title}-${m.real_work_trigger ?? ''}`));
+      for (const m of ((activeMilestonesResult.data ?? []) as ExistingMilestoneResult[]).filter((m) => m.role === role)) {
+        keys.add(normalizeMilestoneContentKey(`${m.title}-${m.real_work_trigger ?? ''}`));
       }
-      for (const p of ((draftProposals ?? []) as DraftProposalResult[]).filter((p) => p.role === role)) {
+      for (const p of ((draftProposalsResult.data ?? []) as DraftProposalResult[]).filter((p) => p.role === role)) {
         keys.add(p.normalized_key);
       }
       return [role, keys];
     })
   );
+  const existingContentByRole = new Map<HireRole, MilestoneContentLike[]>(
+    activeRoles.map((role) => [
+      role,
+      [
+        ...((activeMilestonesResult.data ?? []) as ExistingMilestoneResult[]).filter((item) => item.role === role),
+        ...((draftProposalsResult.data ?? []) as DraftProposalResult[]).filter((item) => item.role === role),
+      ],
+    ])
+  );
   const roleProfileByRole = new Map<HireRole, RoleProfileResult>(
-    ((roleProfiles ?? []) as RoleProfileResult[]).map((profile) => [profile.role, profile])
+    roleProfiles.map((profile) => [profile.role, profile])
   );
 
   const roleResults = await Promise.all(
@@ -563,19 +632,20 @@ async function generateForOrg(organizationId: string) {
           role,
           chunks: typedChunks,
           roleProfile: roleProfileByRole.get(role) ?? null,
-          tools: (orgTools ?? []) as OrgToolResult[],
+          tools: (orgToolsResult.data ?? []) as OrgToolResult[],
         });
         const existingKeys = existingKeysByRole.get(role) ?? new Set<string>();
+        const existingContent = existingContentByRole.get(role) ?? [];
         const roleProfile = roleProfileByRole.get(role) ?? null;
         const roleRampTargets = normalizeRampTargets({
           baselineRampDays: roleProfile?.baseline_ramp_days ?? null,
           targetRampDays: roleProfile?.target_ramp_days ?? null,
         });
         const occupiedDays = new Set<number>();
-        for (const milestone of ((activeMilestones ?? []) as ExistingMilestoneResult[]).filter((item) => item.role === role)) {
+        for (const milestone of ((activeMilestonesResult.data ?? []) as ExistingMilestoneResult[]).filter((item) => item.role === role)) {
           if (typeof milestone.day_trigger === 'number') occupiedDays.add(milestone.day_trigger);
         }
-        for (const proposal of ((draftProposals ?? []) as DraftProposalResult[]).filter((item) => item.role === role)) {
+        for (const proposal of ((draftProposalsResult.data ?? []) as DraftProposalResult[]).filter((item) => item.role === role)) {
           if (typeof proposal.suggested_day_trigger === 'number') occupiedDays.add(proposal.suggested_day_trigger);
         }
         const inserts: object[] = [];
@@ -588,10 +658,14 @@ async function generateForOrg(organizationId: string) {
             proposal,
             sourceEvidence,
             chunks: typedChunks,
-            tools: (orgTools ?? []) as OrgToolResult[],
+            tools: (orgToolsResult.data ?? []) as OrgToolResult[],
           })) continue;
-          const normalizedKey = normalizeKey(`${proposal.title}-${proposal.real_work_trigger}`);
+          const normalizedKey = normalizeMilestoneContentKey(`${proposal.title}-${proposal.real_work_trigger}`);
           if (!normalizedKey || existingKeys.has(normalizedKey)) {
+            duplicateCount++;
+            continue;
+          }
+          if (hasMilestoneContentOverlap(proposal, existingContent)) {
             duplicateCount++;
             continue;
           }
@@ -608,6 +682,8 @@ async function generateForOrg(organizationId: string) {
           }
           occupiedDays.add(assignedDay);
           earliestDay = assignedDay + generatedMilestoneSpacingDays(roleRampTargets.targetRampDays);
+          existingKeys.add(normalizedKey);
+          existingContent.push(proposal);
           inserts.push({
             organization_id: organizationId,
             role,

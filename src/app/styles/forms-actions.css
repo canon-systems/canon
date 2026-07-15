@@ -202,6 +202,10 @@
   box-shadow: var(--brand-shadow);
 }
 
+.bg-\[var\(--canon-purple\)\] {
+  color: var(--text-on-accent);
+}
+
 .btn-primary:hover {
   transform: translateY(-2px);
   box-shadow: var(--brand-shadow);

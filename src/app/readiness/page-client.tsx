@@ -1332,7 +1332,6 @@ export function ReadinessClient() {
                     {hasDeliveryTargets ? 'Delivery Settings Apply To New Readiness Updates.' : 'Choose A Destination Before Saving.'}
                   </div>
                   <Button
-                    variant="secondary"
                     size="sm"
                     onClick={saveDeliverySettings}
                     disabled={savingDeliverySettings || !activeDeliveryProvider || !activeProviderConnected}

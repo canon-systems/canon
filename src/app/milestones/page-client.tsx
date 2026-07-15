@@ -406,7 +406,6 @@ export function MilestonesClient() {
     .sort((a, b) => a - b);
   const activeRoleProfile = roleProfileFor(roleProfiles, activeRole);
   const activeJobDescription = activeRoleProfile?.job_description.trim() ?? '';
-  const activeBaselineDays = activeRoleProfile?.baseline_ramp_days ?? 90;
   const activeTargetDays = activeRoleProfile?.target_ramp_days ?? 45;
   const activeRoleIndex = activeProfiles.findIndex((profile) => profile.role === activeRole);
   const activeRoleDisplayColor = roleIconColor(activeRole, activeRoleIndex);
@@ -441,7 +440,17 @@ export function MilestonesClient() {
     const shouldNotify = !!generationRun && (generationNoticeRef.current === generationRun.id || rememberedRunId === generationRun.id);
 
     if (generationRun?.status === 'completed') {
-      if (shouldNotify) toast.success('Learning steps are ready for review');
+      if (shouldNotify) {
+        if (generationRun.proposals_created > 0) {
+          toast.success('Learning steps are ready for review');
+        } else {
+          toast.info('No learning steps were created', {
+            description: generationRun.roles_processed === 0
+              ? 'Add an active role, then generate learning steps again.'
+              : 'Canon did not find enough role-specific company evidence yet.',
+          });
+        }
+      }
       clearRememberedGeneration(generationRun.id);
       generationNoticeRef.current = null;
     } else if (generationRun?.status === 'failed') {
@@ -470,8 +479,8 @@ export function MilestonesClient() {
         rememberGeneration(data.generation);
       }
       await load();
-    } catch {
-      toast.error('Could not generate learning steps. Please try again.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not generate learning steps. Please try again.');
     } finally {
       setGenerationStarting(false);
     }
@@ -750,16 +759,13 @@ export function MilestonesClient() {
               <div className="flex items-center gap-3">
                 <div
                   className="w-8 h-8 rounded-[7px] flex items-center justify-center type-caption font-medium flex-shrink-0"
-                style={{ backgroundColor: activeRoleDisplayColor, color: 'var(--text-on-accent)' }}
-              >
+                  style={{ backgroundColor: activeRoleDisplayColor, color: 'var(--text-on-accent)' }}
+                >
                   {activeRole ? roleAbbreviation(activeRole) : 'R'}
                 </div>
                 <h1 className="type-detail-title" style={{ color: 'var(--text-primary)' }}>{activeRole || 'No Active Roles'}</h1>
               </div>
               <div className="flex items-center gap-2 mt-2 type-body" style={{ color: 'var(--text-tertiary)' }}>
-                <span>{activeMilestones.length} approved</span>
-                <span>·</span>
-                <span>{activeBaselineDays} to {activeTargetDays} day ramp</span>
                 {activeProposals.length > 0 && (
                   <>
                     <span>·</span>
@@ -790,16 +796,13 @@ export function MilestonesClient() {
             className="mb-3 rounded-[8px] border px-[14px] py-[10px]"
             style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}
           >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="type-kicker text-[var(--text-tertiary)]">Role Readiness Context</div>
-                  <p className="type-body mt-1 line-clamp-2 text-[var(--text-secondary)]">
-                    {activeJobDescription || 'No job description saved for this role yet.'}
-                  </p>
-                  <p className="type-caption mt-2 text-[var(--text-tertiary)]">
-                    Canon will try to compress this role from {activeBaselineDays} days to {activeTargetDays} days by verifying real progress before moving to the next step.
-                  </p>
-                </div>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="type-kicker text-[var(--text-tertiary)]">Role Readiness Context</div>
+                <p className="type-body mt-1 line-clamp-2 text-[var(--text-secondary)]">
+                  {activeJobDescription || 'No job description saved for this role yet.'}
+                </p>
+              </div>
               <Button size="sm" variant="ghost" asChild>
                 <Link href="/settings?tab=roles">{activeJobDescription ? 'Edit' : 'Add'}</Link>
               </Button>

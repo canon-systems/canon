@@ -4,7 +4,12 @@ import { inngest } from '@/inngest/client';
 import { INNGEST_EVENTS } from '@/inngest/constants';
 import { createLogger } from '@/lib/server/logging';
 import { normalizeRoleName } from '@/lib/onboarding/roles';
-import { normalizeRampTargets } from '@/lib/onboarding/milestone-ramp';
+import {
+  hasMilestoneContentOverlap,
+  type MilestoneContentLike,
+  normalizeMilestoneContentKey,
+  normalizeRampTargets,
+} from '@/lib/onboarding/milestone-ramp';
 import { requireWorkspace, requireWorkspaceAdmin } from '@/lib/server/organization';
 import type { HireRole, MilestoneEvidenceRequirement } from '@/types/onboarding';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -108,6 +113,20 @@ async function roleTargetRampDays(
   }).targetRampDays;
 }
 
+async function activeRoleCount(
+  supabase: SupabaseClient,
+  organizationId: string
+) {
+  const { count, error } = await supabase
+    .from('role_profiles')
+    .select('id', { count: 'exact', head: true })
+    .eq('organization_id', organizationId)
+    .eq('status', 'active');
+
+  if (error) throw error;
+  return count ?? 0;
+}
+
 async function hasActiveMilestoneOnDay(params: {
   supabase: SupabaseClient;
   organizationId: string;
@@ -152,6 +171,47 @@ async function hasDraftProposalOnDay(params: {
   const { data, error } = await query;
   if (error) throw error;
   return (data ?? []).length > 0;
+}
+
+async function hasMilestoneContentConflict(params: {
+  supabase: SupabaseClient;
+  organizationId: string;
+  role: string;
+  candidate: MilestoneContentLike;
+  excludeMilestoneId?: string;
+  excludeProposalId?: string;
+}) {
+  let milestoneQuery = params.supabase
+    .from('ramp_milestones')
+    .select('id, title, capability_outcome, briefing_goal, real_work_trigger, success_signals, retrieval_brief, evidence_requirements')
+    .eq('organization_id', params.organizationId)
+    .eq('role', params.role)
+    .eq('status', 'active')
+    .limit(500);
+
+  if (params.excludeMilestoneId) milestoneQuery = milestoneQuery.neq('id', params.excludeMilestoneId);
+
+  let proposalQuery = params.supabase
+    .from('milestone_proposals')
+    .select('id, title, capability_outcome, briefing_goal, real_work_trigger, success_signals, retrieval_brief, evidence_requirements')
+    .eq('organization_id', params.organizationId)
+    .eq('role', params.role)
+    .eq('status', 'draft')
+    .limit(500);
+
+  if (params.excludeProposalId) proposalQuery = proposalQuery.neq('id', params.excludeProposalId);
+
+  const [{ data: milestones, error: milestoneError }, { data: proposals, error: proposalError }] = await Promise.all([
+    milestoneQuery,
+    proposalQuery,
+  ]);
+  if (milestoneError) throw milestoneError;
+  if (proposalError) throw proposalError;
+
+  return hasMilestoneContentOverlap(params.candidate, [
+    ...((milestones ?? []) as MilestoneContentLike[]),
+    ...((proposals ?? []) as MilestoneContentLike[]),
+  ]);
 }
 
 export async function GET(request: NextRequest) {
@@ -244,6 +304,12 @@ export async function POST(request: NextRequest) {
     };
 
     if (body.action === 'generate') {
+      if ((await activeRoleCount(supabase, organization.id)) === 0) {
+        return NextResponse.json({
+          error: 'Add at least one active role before generating learning steps.',
+        }, { status: 409 });
+      }
+
       const { data: generationRun, error: generationRunError } = await supabase
         .from('milestone_generation_runs')
         .insert({
@@ -292,7 +358,7 @@ export async function POST(request: NextRequest) {
       if (!body.proposal_id) return NextResponse.json({ error: 'proposal_id is required' }, { status: 400 });
       const { data: currentProposal, error: currentProposalError } = await supabase
         .from('milestone_proposals')
-        .select('id, role, suggested_day_trigger')
+        .select('id, role, suggested_day_trigger, title, capability_outcome, briefing_goal, real_work_trigger, success_signals, retrieval_brief, evidence_requirements')
         .eq('id', body.proposal_id)
         .eq('organization_id', organization.id)
         .eq('status', 'draft')
@@ -336,6 +402,26 @@ export async function POST(request: NextRequest) {
       const updRetrieval = stringField(body.retrieval_brief);
       if (updRetrieval) updates.retrieval_brief = updRetrieval;
       if (Array.isArray(body.success_signals)) updates.success_signals = stringArray(body.success_signals);
+
+      const nextCandidate = {
+        title: updTitle || currentProposal.title,
+        capability_outcome: updCapability || currentProposal.capability_outcome,
+        briefing_goal: updBriefing || currentProposal.briefing_goal,
+        real_work_trigger: updRealWork || currentProposal.real_work_trigger,
+        success_signals: Array.isArray(body.success_signals) ? stringArray(body.success_signals) : currentProposal.success_signals,
+        retrieval_brief: updRetrieval || currentProposal.retrieval_brief,
+        evidence_requirements: currentProposal.evidence_requirements,
+      };
+      if (await hasMilestoneContentConflict({
+        supabase,
+        organizationId: organization.id,
+        role: currentProposal.role,
+        candidate: nextCandidate,
+        excludeProposalId: currentProposal.id,
+      })) {
+        return NextResponse.json({ error: 'This learning step overlaps with an existing milestone or draft for this role' }, { status: 409 });
+      }
+      updates.normalized_key = normalizeMilestoneContentKey(`${nextCandidate.title}-${nextCandidate.real_work_trigger}`);
 
       const { data: proposal, error } = await supabase
         .from('milestone_proposals')
@@ -392,12 +478,22 @@ export async function POST(request: NextRequest) {
       if (!Number.isInteger(dayTrigger) || dayTrigger < 0 || dayTrigger > targetRampDays) {
         return NextResponse.json({ error: `Day must be between 0 and ${targetRampDays} for this role` }, { status: 400 });
       }
-      if (await hasActiveMilestoneOnDay({
-        supabase,
-        organizationId: organization.id,
-        role: proposal.role,
-        dayTrigger,
-      })) {
+      const [activeDayConflict, draftDayConflict] = await Promise.all([
+        hasActiveMilestoneOnDay({
+          supabase,
+          organizationId: organization.id,
+          role: proposal.role,
+          dayTrigger,
+        }),
+        hasDraftProposalOnDay({
+          supabase,
+          organizationId: organization.id,
+          role: proposal.role,
+          dayTrigger,
+          excludeProposalId: proposal.id,
+        }),
+      ]);
+      if (activeDayConflict || draftDayConflict) {
         return NextResponse.json({ error: `Day ${dayTrigger} already has a learning step for this role` }, { status: 409 });
       }
       const capabilityOutcome = stringField(body.capability_outcome) || proposal.capability_outcome;
@@ -408,6 +504,23 @@ export async function POST(request: NextRequest) {
       const requirements = evidenceRequirements(body.evidence_requirements).length > 0
         ? evidenceRequirements(body.evidence_requirements)
         : proposal.evidence_requirements;
+      if (await hasMilestoneContentConflict({
+        supabase,
+        organizationId: organization.id,
+        role: proposal.role,
+        candidate: {
+          title,
+          capability_outcome: capabilityOutcome,
+          briefing_goal: briefingGoal,
+          real_work_trigger: realWorkTrigger,
+          success_signals: successSignals,
+          retrieval_brief: retrievalBrief,
+          evidence_requirements: requirements,
+        },
+        excludeProposalId: proposal.id,
+      })) {
+        return NextResponse.json({ error: 'This learning step overlaps with an existing milestone or draft for this role' }, { status: 409 });
+      }
 
       const { data: milestone, error: milestoneError } = await supabase
         .from('ramp_milestones')
@@ -483,13 +596,38 @@ export async function POST(request: NextRequest) {
     if (!Number.isInteger(day_trigger) || day_trigger < 0 || day_trigger > targetRampDays) {
       return NextResponse.json({ error: `Day must be between 0 and ${targetRampDays} for this role` }, { status: 400 });
     }
-    if (await hasActiveMilestoneOnDay({
+    const [activeDayConflict, draftDayConflict] = await Promise.all([
+      hasActiveMilestoneOnDay({
+        supabase,
+        organizationId: organization.id,
+        role,
+        dayTrigger: day_trigger,
+      }),
+      hasDraftProposalOnDay({
+        supabase,
+        organizationId: organization.id,
+        role,
+        dayTrigger: day_trigger,
+      }),
+    ]);
+    if (activeDayConflict || draftDayConflict) {
+      return NextResponse.json({ error: `Day ${day_trigger} already has a learning step for this role` }, { status: 409 });
+    }
+    if (await hasMilestoneContentConflict({
       supabase,
       organizationId: organization.id,
       role,
-      dayTrigger: day_trigger,
+      candidate: {
+        title,
+        capability_outcome: capabilityOutcome,
+        briefing_goal: briefingGoal,
+        real_work_trigger: realWorkTrigger,
+        success_signals: stringArray(body.success_signals),
+        retrieval_brief: retrievalBrief,
+        evidence_requirements: requirements,
+      },
     })) {
-      return NextResponse.json({ error: `Day ${day_trigger} already has a learning step for this role` }, { status: 409 });
+      return NextResponse.json({ error: 'This learning step overlaps with an existing milestone or draft for this role' }, { status: 409 });
     }
 
     const { data: milestone, error } = await supabase
@@ -594,14 +732,40 @@ export async function PATCH(request: NextRequest) {
     if (dayTrigger > targetRampDays) {
       return NextResponse.json({ error: `Day must be between 0 and ${targetRampDays} for this role` }, { status: 400 });
     }
-    if (await hasActiveMilestoneOnDay({
+    const [activeDayConflict, draftDayConflict] = await Promise.all([
+      hasActiveMilestoneOnDay({
+        supabase,
+        organizationId: organization.id,
+        role: validationRole,
+        dayTrigger,
+        excludeMilestoneId: milestoneId,
+      }),
+      hasDraftProposalOnDay({
+        supabase,
+        organizationId: organization.id,
+        role: validationRole,
+        dayTrigger,
+      }),
+    ]);
+    if (activeDayConflict || draftDayConflict) {
+      return NextResponse.json({ error: `Day ${dayTrigger} already has a learning step for this role` }, { status: 409 });
+    }
+    if (await hasMilestoneContentConflict({
       supabase,
       organizationId: organization.id,
       role: validationRole,
-      dayTrigger,
+      candidate: {
+        title,
+        capability_outcome: capabilityOutcome,
+        briefing_goal: briefingGoal,
+        real_work_trigger: realWorkTrigger,
+        success_signals: stringArray(body.success_signals),
+        retrieval_brief: retrievalBrief,
+        evidence_requirements: evidenceRequirements(body.evidence_requirements),
+      },
       excludeMilestoneId: milestoneId,
     })) {
-      return NextResponse.json({ error: `Day ${dayTrigger} already has a learning step for this role` }, { status: 409 });
+      return NextResponse.json({ error: 'This learning step overlaps with an existing milestone or draft for this role' }, { status: 409 });
     }
 
     const { data: milestone, error } = await supabase

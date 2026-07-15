@@ -25,6 +25,16 @@ export type DeliveryLike = {
   milestone_id: string | null;
 };
 
+export type MilestoneContentLike = {
+  title?: string | null;
+  capability_outcome?: string | null;
+  briefing_goal?: string | null;
+  real_work_trigger?: string | null;
+  success_signals?: unknown;
+  retrieval_brief?: string | null;
+  evidence_requirements?: unknown;
+};
+
 const canonicalStatuses = new Set<CanonicalMilestoneProgressStatus>([
   'not_started',
   'briefed',
@@ -32,6 +42,130 @@ const canonicalStatuses = new Set<CanonicalMilestoneProgressStatus>([
   'blocked',
   'verified',
 ]);
+
+const milestoneContentStopwords = new Set([
+  'about',
+  'access',
+  'after',
+  'before',
+  'brief',
+  'briefing',
+  'canon',
+  'company',
+  'complete',
+  'context',
+  'customer',
+  'customers',
+  'evidence',
+  'foundational',
+  'hire',
+  'learn',
+  'learning',
+  'manager',
+  'milestone',
+  'onboarding',
+  'progress',
+  'proof',
+  'review',
+  'signal',
+  'signals',
+  'should',
+  'step',
+  'success',
+  'support',
+  'team',
+  'teams',
+  'tool',
+  'tools',
+  'training',
+  'understand',
+  'work',
+  'workflow',
+]);
+
+function stringEntries(value: unknown): string[] {
+  if (typeof value === 'string') return [value];
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => {
+      if (typeof entry === 'string') return [entry];
+      if (entry && typeof entry === 'object') {
+        const record = entry as Record<string, unknown>;
+        return stringEntries(record.label);
+      }
+      return [];
+    });
+  }
+  return [];
+}
+
+function milestoneContentText(value: MilestoneContentLike) {
+  return [
+    value.title,
+    value.capability_outcome,
+    value.briefing_goal,
+    value.real_work_trigger,
+    value.retrieval_brief,
+    ...stringEntries(value.success_signals),
+    ...stringEntries(value.evidence_requirements),
+  ]
+    .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    .join(' ');
+}
+
+function normalizeMilestoneTerm(term: string) {
+  if (term.endsWith('ies') && term.length > 5) return `${term.slice(0, -3)}y`;
+  if (term.endsWith('es') && term.length > 5) return term.slice(0, -2);
+  if (term.endsWith('s') && term.length > 5) return term.slice(0, -1);
+  return term;
+}
+
+export function normalizeMilestoneContentKey(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 96);
+}
+
+function milestoneContentTerms(value: MilestoneContentLike) {
+  return new Set(
+    milestoneContentText(value)
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .map(normalizeMilestoneTerm)
+      .filter((term) => term.length >= 4 && !milestoneContentStopwords.has(term))
+  );
+}
+
+export function milestoneContentSimilarity(a: MilestoneContentLike, b: MilestoneContentLike) {
+  const aTerms = milestoneContentTerms(a);
+  const bTerms = milestoneContentTerms(b);
+  const smallerSize = Math.min(aTerms.size, bTerms.size);
+  if (smallerSize < 4) return 0;
+
+  let shared = 0;
+  for (const term of aTerms) {
+    if (bTerms.has(term)) shared += 1;
+  }
+
+  return shared / smallerSize;
+}
+
+export function hasMilestoneContentOverlap(
+  candidate: MilestoneContentLike,
+  existingItems: MilestoneContentLike[],
+  threshold = 0.55
+) {
+  const candidateKey = normalizeMilestoneContentKey(
+    `${candidate.title ?? ''}-${candidate.real_work_trigger ?? ''}`
+  );
+
+  return existingItems.some((item) => {
+    const itemKey = normalizeMilestoneContentKey(`${item.title ?? ''}-${item.real_work_trigger ?? ''}`);
+    if (candidateKey && itemKey && candidateKey === itemKey) return true;
+    return milestoneContentSimilarity(candidate, item) >= threshold;
+  });
+}
 
 export function normalizeMilestoneProgressStatus(
   status: MilestoneProgressStatus | string | null | undefined
