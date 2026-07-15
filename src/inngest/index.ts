@@ -1,10 +1,9 @@
-export { knowledgeSourceSync } from "./functions/knowledgeSourceSync";
-export { knowledgeSourceScheduledSync } from "./functions/knowledgeSourceScheduledSync";
+export { syncKnowledgeSource } from "./functions/knowledgeSourceSync";
 export { calendarMeetingSync } from "./functions/calendarMeetingSync";
-export { dailyRampCheck } from "./functions/dailyRampCheck";
-export { accessCoordinator } from "./functions/accessCoordinator";
-export { accessGrantedNotifier } from "./functions/accessGrantedNotifier";
-export { meetingPrepBriefing, readinessAnalysis, readinessAnalysisOnDemand } from "./functions/readinessAnalysis";
-export { milestoneEvidenceScan, milestoneEvidenceScheduledScan } from "./functions/milestoneEvidenceScan";
-export { milestoneProposalGeneration } from "./functions/milestoneProposalGeneration";
+export { sendNextDueRampMilestone } from "./functions/dailyRampCheck";
+export { notifyToolOwnerForAccessRequest } from "./functions/accessCoordinator";
+export { askNewHireToConfirmToolAccess } from "./functions/accessGrantedNotifier";
+export { checkMeetingPrep, generateReadinessUpdatesOnDemand, sendDueReadinessDigest } from "./functions/readinessAnalysis";
+export { scanMilestoneEvidence } from "./functions/milestoneEvidenceScan";
+export { generateMilestoneProposals } from "./functions/milestoneProposalGeneration";
 export { inngest } from "./client";

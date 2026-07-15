@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { inngest } from '@/inngest/client';
+import { INNGEST_EVENTS } from '@/inngest/constants';
 import { syncAccessReadinessEvidence, recordMilestoneEvidence } from '@/lib/server/milestoneEvidence';
 import { createLogger } from '@/lib/server/logging';
 import { getAccessRequestContext } from '@/lib/server/slackInteractions';
@@ -263,7 +264,7 @@ export async function POST(request: NextRequest) {
           log.warn('interaction_skipped', { reason: 'sync_readiness_failed', error: err instanceof Error ? err.message : String(err) });
         });
 
-        await inngest.send({ name: 'onboarding/access.granted', data: { accessRequestId: updated.id } }).catch((err: unknown) => {
+        await inngest.send({ name: INNGEST_EVENTS.ACCESS_GRANTED, data: { accessRequestId: updated.id } }).catch((err: unknown) => {
           log.warn('interaction_skipped', { reason: 'inngest_send_failed', error: err instanceof Error ? err.message : String(err) });
         });
 

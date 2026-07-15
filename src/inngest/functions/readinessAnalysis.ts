@@ -1,6 +1,7 @@
 import { generateObject } from 'ai';
 import { z } from 'zod';
 import { inngest } from '../client';
+import { INNGEST_CRONS, INNGEST_EVENTS, INNGEST_FUNCTION_IDS } from '../constants';
 import { llm } from '@/lib/ai';
 import { createLogger, errorMessage } from '@/lib/server/logging';
 import { weeklyDigestDue } from '@/lib/server/readiness/scheduling';
@@ -858,13 +859,13 @@ async function loadOrganizations(supabase: SupabaseServiceClient) {
   return (data ?? []) as Array<{ id: string }>;
 }
 
-export const readinessAnalysisOnDemand = inngest.createFunction(
+export const generateReadinessUpdatesOnDemand = inngest.createFunction(
   {
-    id: 'readiness-analysis-on-demand',
+    id: INNGEST_FUNCTION_IDS.GENERATE_READINESS_UPDATES_ON_DEMAND,
     name: 'Canon: Generate Readiness Updates On Demand',
     retries: 1,
   },
-  { event: 'onboarding/readiness.generate.requested' },
+  { event: INNGEST_EVENTS.READINESS_GENERATE_REQUESTED },
   async ({ event, step }) => {
     const { organizationId } = event.data as { organizationId: string };
     const supabase = createServiceRoleClient();
@@ -897,13 +898,13 @@ export const readinessAnalysisOnDemand = inngest.createFunction(
   }
 );
 
-export const readinessAnalysis = inngest.createFunction(
+export const sendDueReadinessDigest = inngest.createFunction(
   {
-    id: 'readiness-analysis',
+    id: INNGEST_FUNCTION_IDS.SEND_DUE_READINESS_DIGEST,
     name: 'Canon: Send Weekly Readiness Digest',
     retries: 1,
   },
-  { cron: '0 * * * *' },
+  { cron: INNGEST_CRONS.READINESS_DIGEST_DUE_CHECK },
   async ({ step }) => {
     const supabase = createServiceRoleClient();
 
@@ -1138,109 +1139,107 @@ async function alreadyPrepared(params: {
   return (data ?? []).length > 0;
 }
 
-export const meetingPrepBriefing = inngest.createFunction(
+export const checkMeetingPrep = inngest.createFunction(
   {
-    id: 'meeting-prep-briefing',
-    name: 'Canon: Send Meeting Prep Briefs',
+    id: INNGEST_FUNCTION_IDS.CHECK_MEETING_PREP,
+    name: 'Canon: Check Meeting Prep Briefs',
     retries: 1,
+    concurrency: {
+      limit: 1,
+      key: 'event.data.organizationId',
+    },
   },
-  { cron: '*/15 * * * *' },
-  async ({ step }) => {
+  { event: INNGEST_EVENTS.MEETING_PREP_CHECK_REQUESTED },
+  async ({ event, step }) => {
+    const organizationId = typeof event.data?.organizationId === 'string' ? event.data.organizationId : '';
+    if (!organizationId) return { skipped: true, reason: 'missing_organization_id' };
+
     const supabase = createServiceRoleClient();
-    const orgs = await loadOrganizations(supabase);
-    let sent = 0;
-    let skipped = 0;
+    const result = await step.run(`meeting-prep-${organizationId}`, async () => {
+      const config = await readinessDeliveryConfig({ supabase, organizationId });
+      if (!config.meetingPrepEnabled) return { sent: 0, skipped: 0 };
 
-    for (const org of orgs) {
-      const result = await step.run(`meeting-prep-${org.id}`, async () => {
-        const config = await readinessDeliveryConfig({ supabase, organizationId: org.id });
-        if (!config.meetingPrepEnabled) return { sent: 0, skipped: 0 };
+      const dmTargets = config.targets.filter((target) => target.enabled && target.target_type === 'dm');
+      if (dmTargets.length === 0) {
+        log.info('meeting_prep_skipped', { orgId: organizationId, reason: 'no_dm_targets' });
+        return { sent: 0, skipped: 0 };
+      }
 
-        const dmTargets = config.targets.filter((target) => target.enabled && target.target_type === 'dm');
-        if (dmTargets.length === 0) {
-          log.info('meeting_prep_skipped', { orgId: org.id, reason: 'no_dm_targets' });
-          return { sent: 0, skipped: 0 };
+      const meetings = await loadUpcomingMeetings({
+        supabase,
+        organizationId,
+        minutesBefore: config.meetingPrepMinutesBefore,
+      });
+      let sent = 0;
+      let skipped = 0;
+
+      for (const meeting of meetings) {
+        const observations = await loadRelatedObservations({ supabase, organizationId, meeting });
+        const sourceEvents = await loadRelatedSourceEvents({ supabase, organizationId, meeting });
+        const prep = await buildMeetingPrepText({ meeting, observations, sourceEvents });
+        if (!prep.shouldSend || !prep.text) {
+          skipped++;
+          log.info('meeting_prep_skipped', {
+            orgId: organizationId,
+            meetingId: meeting.id,
+            reason: prep.reason,
+          });
+          continue;
         }
 
-        const meetings = await loadUpcomingMeetings({
-          supabase,
-          organizationId: org.id,
-          minutesBefore: config.meetingPrepMinutesBefore,
-        });
-        let orgSent = 0;
-        let orgSkipped = 0;
-
-        for (const meeting of meetings) {
-          const observations = await loadRelatedObservations({ supabase, organizationId: org.id, meeting });
-          const sourceEvents = await loadRelatedSourceEvents({ supabase, organizationId: org.id, meeting });
-          const prep = await buildMeetingPrepText({ meeting, observations, sourceEvents });
-          if (!prep.shouldSend || !prep.text) {
-            orgSkipped++;
-            log.info('meeting_prep_skipped', {
-              orgId: org.id,
-              meetingId: meeting.id,
-              reason: prep.reason,
-            });
+        for (const target of dmTargets) {
+          if (await alreadyPrepared({
+            supabase,
+            meetingId: meeting.id,
+            targetProvider: target.provider,
+            targetId: target.target_id,
+          })) {
             continue;
           }
 
-          for (const target of dmTargets) {
-            if (await alreadyPrepared({
-              supabase,
-              meetingId: meeting.id,
-              targetProvider: target.provider,
-              targetId: target.target_id,
-            })) {
-              continue;
-            }
-
-            const [delivery] = await sendReadinessToTargets({
-              organizationId: org.id,
-              targets: [target],
-              text: prep.text,
+          const [delivery] = await sendReadinessToTargets({
+            organizationId,
+            targets: [target],
+            text: prep.text,
+          });
+          const now = new Date().toISOString();
+          const { error } = await supabase
+            .from('meeting_prep_deliveries')
+            .insert({
+              organization_id: organizationId,
+              meeting_event_id: meeting.id,
+              target_provider: target.provider,
+              target_id: target.target_id,
+              target_name: target.target_name,
+              status: delivery?.sent ? 'delivered' : 'failed',
+              reason: delivery?.reason ?? null,
+              delivered_at: delivery?.sent ? now : null,
+              metadata: {
+                observation_ids: observations.map((observation) => observation.id),
+                permalink: delivery?.permalink ?? null,
+              },
+              updated_at: now,
             });
-            const now = new Date().toISOString();
-            const { error } = await supabase
-              .from('meeting_prep_deliveries')
-              .insert({
-                organization_id: org.id,
-                meeting_event_id: meeting.id,
-                target_provider: target.provider,
-                target_id: target.target_id,
-                target_name: target.target_name,
-                status: delivery?.sent ? 'delivered' : 'failed',
-                reason: delivery?.reason ?? null,
-                delivered_at: delivery?.sent ? now : null,
-                metadata: {
-                  observation_ids: observations.map((observation) => observation.id),
-                  permalink: delivery?.permalink ?? null,
-                },
-                updated_at: now,
-              });
 
-            if (error) throw error;
-            if (delivery?.sent) {
-              orgSent++;
-              log.info('meeting_prep_sent', { orgId: org.id, meetingId: meeting.id, target: target.target_id });
-            } else {
-              orgSkipped++;
-              log.warn('delivery_failed', {
-                orgId: org.id,
-                meetingId: meeting.id,
-                target: target.target_id,
-                reason: delivery?.reason,
-              });
-            }
+          if (error) throw error;
+          if (delivery?.sent) {
+            sent++;
+            log.info('meeting_prep_sent', { orgId: organizationId, meetingId: meeting.id, target: target.target_id });
+          } else {
+            skipped++;
+            log.warn('delivery_failed', {
+              orgId: organizationId,
+              meetingId: meeting.id,
+              target: target.target_id,
+              reason: delivery?.reason,
+            });
           }
         }
+      }
 
-        return { sent: orgSent, skipped: orgSkipped };
-      });
+      return { sent, skipped };
+    });
 
-      sent += result.sent;
-      skipped += result.skipped;
-    }
-
-    return { ok: true, orgsProcessed: orgs.length, sent, skipped };
+    return { ok: true, organizationId, ...result };
   }
 );

@@ -1,4 +1,5 @@
 import { inngest } from '../client';
+import { INNGEST_EVENTS, INNGEST_FUNCTION_IDS } from '../constants';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { extractJsonMiddleware, generateText, Output, wrapLanguageModel } from 'ai';
 import { z } from 'zod';
@@ -689,13 +690,13 @@ async function updateGenerationRun(params: {
     .eq('id', params.generationRunId);
 }
 
-export const milestoneProposalGeneration = inngest.createFunction(
+export const generateMilestoneProposals = inngest.createFunction(
   {
-    id: 'milestone-proposal-generation',
+    id: INNGEST_FUNCTION_IDS.GENERATE_MILESTONE_PROPOSALS,
     name: 'Canon: Generate Role Ramp Milestone Proposals',
     retries: 1,
   },
-  { event: 'onboarding/milestones.generate.requested' },
+  { event: INNGEST_EVENTS.MILESTONE_PROPOSALS_REQUESTED },
   async ({ event, step }) => {
     const organizationId = event.data?.organizationId as string | undefined;
     const generationRunId = event.data?.generationRunId as string | undefined;

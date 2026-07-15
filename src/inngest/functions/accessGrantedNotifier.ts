@@ -1,4 +1,5 @@
 import { inngest } from '../client';
+import { INNGEST_EVENTS, INNGEST_FUNCTION_IDS } from '../constants';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { createLogger, errorMessage } from '@/lib/server/logging';
 import { getSlackBotTokenForOrganization, postSlackDm } from '@/lib/server/slack/transport';
@@ -75,14 +76,14 @@ async function sendHireConfirmationDM(params: {
   return data;
 }
 
-export const accessGrantedNotifier = inngest.createFunction(
+export const askNewHireToConfirmToolAccess = inngest.createFunction(
   {
-    id: 'access-granted-notifier',
+    id: INNGEST_FUNCTION_IDS.ASK_NEW_HIRE_TO_CONFIRM_TOOL_ACCESS,
     name: 'Canon: Ask New Hire to Confirm Tool Access',
     retries: 2,
     idempotency: 'event.data.accessRequestId',
   },
-  { event: 'onboarding/access.granted' },
+  { event: INNGEST_EVENTS.ACCESS_GRANTED },
   async ({ event, step }) => {
     const data = (event.data ?? {}) as AccessGrantedEvent;
     const accessRequestId = typeof data.accessRequestId === 'string' ? data.accessRequestId : '';

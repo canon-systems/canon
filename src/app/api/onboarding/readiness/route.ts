@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { inngest } from '@/inngest/client';
+import { INNGEST_EVENTS } from '@/inngest/constants';
 import { sendReadinessToTargets, type ReadinessDeliveryResult, type ReadinessDeliveryTargetRow } from '@/lib/server/readiness/delivery';
 import { createLogger } from '@/lib/server/logging';
 import { requireWorkspace } from '@/lib/server/organization';
@@ -378,13 +379,13 @@ export async function POST(request: NextRequest) {
         delivery: 'manual_generation_only',
       });
       await inngest.send({
-        name: 'onboarding/readiness.generate.requested',
+        name: INNGEST_EVENTS.READINESS_GENERATE_REQUESTED,
         data: { organizationId: organization.id },
       });
       log.info('generate_queued', {
         userId: user.id,
         orgId: organization.id,
-        event: 'onboarding/readiness.generate.requested',
+        event: INNGEST_EVENTS.READINESS_GENERATE_REQUESTED,
       });
       return NextResponse.json({ ok: true, requested: true });
     }

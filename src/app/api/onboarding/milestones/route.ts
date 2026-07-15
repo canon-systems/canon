@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { inngest } from '@/inngest/client';
+import { INNGEST_EVENTS } from '@/inngest/constants';
 import { createLogger } from '@/lib/server/logging';
 import { normalizeRoleName } from '@/lib/onboarding/roles';
 import { normalizeRampTargets } from '@/lib/onboarding/milestone-ramp';
@@ -256,13 +257,13 @@ export async function POST(request: NextRequest) {
 
       if (generationRunError && isMissingMilestoneGenerationRuns(generationRunError)) {
         const result = await inngest.send({
-          name: 'onboarding/milestones.generate.requested',
+          name: INNGEST_EVENTS.MILESTONE_PROPOSALS_REQUESTED,
           data: { organizationId: organization.id, requestedBy: user.id },
         });
         log.info('generation_requested', {
           userId: user.id,
           organizationId: organization.id,
-          eventName: 'onboarding/milestones.generate.requested',
+          eventName: INNGEST_EVENTS.MILESTONE_PROPOSALS_REQUESTED,
           eventIds: eventIds(result),
           statusTracking: 'unavailable',
         });
@@ -274,14 +275,14 @@ export async function POST(request: NextRequest) {
       }
 
       const result = await inngest.send({
-        name: 'onboarding/milestones.generate.requested',
+        name: INNGEST_EVENTS.MILESTONE_PROPOSALS_REQUESTED,
         data: { organizationId: organization.id, requestedBy: user.id, generationRunId: generationRun.id },
       });
       log.info('generation_requested', {
         userId: user.id,
         organizationId: organization.id,
         generationRunId: generationRun.id,
-        eventName: 'onboarding/milestones.generate.requested',
+        eventName: INNGEST_EVENTS.MILESTONE_PROPOSALS_REQUESTED,
         eventIds: eventIds(result),
       });
       return NextResponse.json({ ok: true, requested: true, generation: generationRun });

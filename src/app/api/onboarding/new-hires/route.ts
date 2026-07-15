@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { inngest } from '@/inngest/client';
+import { INNGEST_EVENTS } from '@/inngest/constants';
 import { normalizeManagerCommunication, type ManagerCommunicationInput } from '@/lib/onboarding/manager-communication';
 import { rampDayFromStartDate } from '@/lib/onboarding/rampDay';
 import { normalizeRoleName } from '@/lib/onboarding/roles';
@@ -125,7 +126,7 @@ export async function POST(request: NextRequest) {
     for (const ar of accessRequests ?? []) {
       if (ar.requested_from_slack_id) {
         await inngest.send({
-          name: 'onboarding/access.request.created',
+          name: INNGEST_EVENTS.ACCESS_REQUEST_CREATED,
           data: { accessRequestId: ar.id },
         });
       }

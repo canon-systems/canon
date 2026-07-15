@@ -1,4 +1,5 @@
 import { inngest } from '../client';
+import { INNGEST_CRONS, INNGEST_FUNCTION_IDS } from '../constants';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { embed, generateText } from 'ai';
 import { llm, embeddingModel } from '@/lib/ai';
@@ -150,13 +151,13 @@ Write a Slack message that:
   return text;
 }
 
-export const dailyRampCheck = inngest.createFunction(
+export const sendNextDueRampMilestone = inngest.createFunction(
   {
-    id: 'daily-ramp-check',
+    id: INNGEST_FUNCTION_IDS.SEND_NEXT_DUE_RAMP_MILESTONE,
     name: 'Canon: Send Next Due Ramp Milestone',
     retries: 1,
   },
-  { cron: '0 9 * * *' },
+  { cron: INNGEST_CRONS.DAILY_RAMP_CHECK },
   async ({ step }) => {
     const supabase = createServiceRoleClient();
 

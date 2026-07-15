@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { inngest } from '@/inngest/client';
+import { INNGEST_EVENTS } from '@/inngest/constants';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import {
   providerForNangoIntegration,
@@ -125,6 +127,17 @@ export async function POST(request: NextRequest) {
         metadata,
       });
       await trackIntegrationStateChanged(supabase, organizationId, 'connected', provider, connectionId);
+      if (provider === 'google_calendar' || provider === 'outlook') {
+        await inngest.send({
+          name: INNGEST_EVENTS.CALENDAR_SYNC_REQUESTED,
+          data: {
+            organizationId,
+            provider,
+            connectionId,
+            reason: 'calendar_connection_stored',
+          },
+        });
+      }
 
       log.info('connection_stored', {
         userId,

@@ -1,4 +1,5 @@
 import { inngest } from '../client';
+import { INNGEST_EVENTS, INNGEST_FUNCTION_IDS } from '../constants';
 import { fetchUpcomingCalendarEvents } from '@/lib/server/integrations/calendar';
 import { createLogger, errorMessage } from '@/lib/server/logging';
 import { upsertReadinessSourceEvents } from '@/lib/server/readiness/source-events';
@@ -8,6 +9,13 @@ type CalendarConnection = {
   organization_id: string;
   provider: 'google_calendar' | 'outlook';
   connection_id: string;
+};
+
+type CalendarSyncEvent = {
+  organizationId?: string;
+  provider?: 'google_calendar' | 'outlook';
+  connectionId?: string;
+  reason?: string;
 };
 
 const log = createLogger('inngest.calendar_meeting_sync', {
@@ -49,26 +57,45 @@ function meetingContent(event: {
 
 export const calendarMeetingSync = inngest.createFunction(
   {
-    id: 'calendar-meeting-sync',
+    id: INNGEST_FUNCTION_IDS.SYNC_CALENDAR_MEETINGS,
     name: 'Canon: Sync Upcoming Calendar Meetings',
     retries: 1,
+    concurrency: {
+      limit: 1,
+      key: 'event.data.organizationId',
+    },
   },
-  { cron: '0 * * * *' },
-  async ({ step }) => {
+  { event: INNGEST_EVENTS.CALENDAR_SYNC_REQUESTED },
+  async ({ event, step }) => {
+    const request = (event.data ?? {}) as CalendarSyncEvent;
     const supabase = createServiceRoleClient();
-    log.info('sync_start', { windowDays: 14 });
+    const organizationId = typeof request.organizationId === 'string' ? request.organizationId : '';
+    if (!organizationId) return { skipped: true, reason: 'missing_organization_id' };
 
-    const { data: connections, error } = await supabase
+    log.info('sync_start', {
+      organizationId,
+      provider: request.provider ?? 'all',
+      reason: request.reason ?? 'event',
+      windowDays: 14,
+    });
+
+    let query = supabase
       .from('oauth_connections')
       .select('organization_id, provider, connection_id')
+      .eq('organization_id', organizationId)
       .in('provider', ['google_calendar', 'outlook'])
       .eq('status', 'active');
+
+    if (request.provider) query = query.eq('provider', request.provider);
+    if (request.connectionId) query = query.eq('connection_id', request.connectionId);
+
+    const { data: connections, error } = await query;
 
     if (error) throw error;
     const calendarConnections = (connections ?? []) as CalendarConnection[];
 
     if (calendarConnections.length === 0) {
-      log.info('sync_skipped', { reason: 'no_calendar_connections' });
+      log.info('sync_skipped', { organizationId, reason: 'no_calendar_connections' });
       return { ok: true, synced: 0 };
     }
 
@@ -128,6 +155,14 @@ export const calendarMeetingSync = inngest.createFunction(
                 customer_domain: event.customerDomain,
               },
             })),
+          });
+
+          await step.sendEvent(`queue-meeting-prep-${connection.organization_id}-${connection.provider}`, {
+            name: INNGEST_EVENTS.MEETING_PREP_CHECK_REQUESTED,
+            data: {
+              organizationId: connection.organization_id,
+              reason: 'calendar_sync_complete',
+            },
           });
 
           log.info('sync_complete', {
