@@ -27,7 +27,7 @@ const log = createLogger('inngest.knowledge_source_scheduled_sync', {
 export const knowledgeSourceScheduledSync = inngest.createFunction(
   {
     id: 'knowledge-source-scheduled-sync',
-    name: 'Canon: Knowledge Source Scheduled Sync',
+    name: 'Canon: Queue Daily Knowledge Source Syncs',
     retries: 1,
   },
   { cron: '0 0 * * *' },

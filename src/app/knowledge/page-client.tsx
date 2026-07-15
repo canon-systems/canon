@@ -828,7 +828,9 @@ export function KnowledgeClient() {
                   className="min-w-0 flex-1 cursor-pointer text-left"
                 >
                   <div className="type-panel-title truncate" style={{ color: 'var(--text-primary)' }}>{source.name}</div>
-                  <div className="type-caption mt-[1px]" style={{ color: 'var(--text-tertiary)' }}>{source.chunk_count} item{source.chunk_count === 1 ? '' : 's'} ready</div>
+                  <div className="type-caption mt-[1px] truncate" style={{ color: 'var(--text-tertiary)' }}>
+                    {source.chunk_count} item{source.chunk_count === 1 ? '' : 's'} ready
+                  </div>
                 </button>
                 <StatusBadge variant={statusVariant(source.status)} label={source.status} />
                 <DropdownMenu>
@@ -918,7 +920,7 @@ export function KnowledgeClient() {
                   </Button>
                 </div>
 
-                <div className="grid grid-cols-3 gap-3 mb-5">
+                <div className="grid grid-cols-1 gap-3 mb-5 sm:grid-cols-3">
                   {[
                     { label: 'Items Ready', value: selected.chunk_count ?? 0 },
                     { label: 'Last Updated', value: fmtDate(selected.last_synced_at) },

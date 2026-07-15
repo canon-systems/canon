@@ -6,6 +6,7 @@ import {
   generatedMilestoneSpacingDays,
   normalizeMilestoneProgressStatus,
   normalizeRampTargets,
+  pickCurrentMilestoneForEvidenceScan,
   pickNextActionableMilestone,
   progressStatusForEvidence,
   requiredToolsForEvidence,
@@ -113,5 +114,31 @@ describe('milestone ramp rules', () => {
     expect(pickNextActionableMilestone(milestones, [
       { milestone_id: 'm1', status: 'verified' },
     ], [{ milestone_id: 'm2' }])).toBeNull();
+  });
+
+  it('scans only the current briefed milestone and waits on review states', () => {
+    const milestones = [
+      { id: 'm1', day_trigger: 1 },
+      { id: 'm2', day_trigger: 3 },
+      { id: 'm3', day_trigger: 7 },
+    ];
+
+    expect(pickCurrentMilestoneForEvidenceScan(milestones, [
+      { milestone_id: 'm1', status: 'verified' },
+      { milestone_id: 'm2', status: 'briefed' },
+    ], [])?.id).toBe('m2');
+
+    expect(pickCurrentMilestoneForEvidenceScan(milestones, [
+      { milestone_id: 'm1', status: 'verified' },
+      { milestone_id: 'm2', status: 'needs_review' },
+    ], [])).toBeNull();
+
+    expect(pickCurrentMilestoneForEvidenceScan(milestones, [
+      { milestone_id: 'm1', status: 'verified' },
+    ], [{ milestone_id: 'm2' }])?.id).toBe('m2');
+
+    expect(pickCurrentMilestoneForEvidenceScan(milestones, [
+      { milestone_id: 'm1', status: 'verified' },
+    ], [])).toBeNull();
   });
 });

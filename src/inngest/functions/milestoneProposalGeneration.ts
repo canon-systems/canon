@@ -692,7 +692,7 @@ async function updateGenerationRun(params: {
 export const milestoneProposalGeneration = inngest.createFunction(
   {
     id: 'milestone-proposal-generation',
-    name: 'Canon: Milestone Proposal Generation',
+    name: 'Canon: Generate Role Ramp Milestone Proposals',
     retries: 1,
   },
   { event: 'onboarding/milestones.generate.requested' },
@@ -743,7 +743,7 @@ export const milestoneProposalGeneration = inngest.createFunction(
 export const milestoneProposalScheduledGeneration = inngest.createFunction(
   {
     id: 'milestone-proposal-scheduled-generation',
-    name: 'Canon: Scheduled Milestone Proposal Generation',
+    name: 'Canon: Regenerate Ramp Milestone Proposals on Schedule',
     retries: 1,
   },
   { cron: '0 7 * * 1' },

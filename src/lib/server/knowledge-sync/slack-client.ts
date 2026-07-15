@@ -1,3 +1,9 @@
+import {
+  SOURCE_SYNC_LOOKBACK_DAYS,
+  SOURCE_SYNC_MESSAGE_ITEM_LIMIT,
+  SOURCE_SYNC_MESSAGE_THREAD_REPLY_LIMIT,
+} from '@/lib/knowledge/source-sync-policy';
+
 export type SlackMessage = {
   ts: string;
   text: string;
@@ -35,9 +41,7 @@ type SlackApiListResponse<T> = {
   response_metadata?: { next_cursor?: string };
 };
 
-const NINETY_DAYS_AGO = () => Math.floor((Date.now() - 90 * 24 * 60 * 60 * 1000) / 1000).toString();
-const MAX_MESSAGES = 1000;
-const MAX_SLACK_THREAD_REPLIES = 3;
+const timestampDaysAgo = (days: number) => Math.floor((Date.now() - days * 24 * 60 * 60 * 1000) / 1000).toString();
 const SLACK_THREAD_REPLY_CONCURRENCY = 5;
 const MAX_SLACK_RETRY_ATTEMPTS = 3;
 const REQUIRED_SLACK_HISTORY_SCOPES = ['channels:history', 'groups:history', 'mpim:history', 'im:history'];
@@ -114,13 +118,19 @@ export function missingSlackHistoryScopes(scope: string | null | undefined): str
   return REQUIRED_SLACK_HISTORY_SCOPES.filter((scopeName) => !provided.has(scopeName));
 }
 
-export async function fetchSlackHistory(botToken: string, channelId: string): Promise<SlackHistoryResult> {
+export async function fetchSlackHistory(
+  botToken: string,
+  channelId: string,
+  options?: { windowDays?: number; maxMessages?: number }
+): Promise<SlackHistoryResult> {
   const messages: SlackMessage[] = [];
   let cursor: string | undefined;
   let pagesFetched = 0;
-  const oldest = NINETY_DAYS_AGO();
+  const windowDays = Math.max(1, Math.min(365, Math.round(options?.windowDays ?? SOURCE_SYNC_LOOKBACK_DAYS)));
+  const maxMessages = Math.max(1, Math.min(SOURCE_SYNC_MESSAGE_ITEM_LIMIT, Math.round(options?.maxMessages ?? SOURCE_SYNC_MESSAGE_ITEM_LIMIT)));
+  const oldest = timestampDaysAgo(windowDays);
 
-  while (messages.length < MAX_MESSAGES) {
+  while (messages.length < maxMessages) {
     const params = new URLSearchParams({
       channel: channelId,
       limit: '200',
@@ -150,14 +160,14 @@ export async function fetchSlackHistory(botToken: string, channelId: string): Pr
     if (!cursor) break;
   }
 
-  return { messages: messages.slice(0, MAX_MESSAGES), pagesFetched };
+  return { messages: messages.slice(0, maxMessages), pagesFetched };
 }
 
 async function fetchSlackThreadReplies(botToken: string, channelId: string, ts: string): Promise<SlackReply[]> {
   const replies: SlackReply[] = [];
   let cursor: string | undefined;
 
-  while (replies.length < MAX_SLACK_THREAD_REPLIES) {
+  while (replies.length < SOURCE_SYNC_MESSAGE_THREAD_REPLY_LIMIT) {
     const params = new URLSearchParams({
       channel: channelId,
       ts,
@@ -183,7 +193,7 @@ async function fetchSlackThreadReplies(botToken: string, channelId: string, ts: 
     if (!cursor) break;
   }
 
-  return replies.slice(0, MAX_SLACK_THREAD_REPLIES);
+  return replies.slice(0, SOURCE_SYNC_MESSAGE_THREAD_REPLY_LIMIT);
 }
 
 export async function enrichSlackMessagesWithReplies(params: {

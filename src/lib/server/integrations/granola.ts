@@ -1,4 +1,5 @@
 import { nangoProxyGet } from '@/lib/server/integrations/nango';
+import { SOURCE_SYNC_LOOKBACK_DAYS, SOURCE_SYNC_TRANSCRIPT_ITEM_LIMIT } from '@/lib/knowledge/source-sync-policy';
 
 type GranolaNotesResponse = {
   notes?: unknown[];
@@ -87,7 +88,7 @@ export type GranolaNotesFetchResult = {
   diagnostics: GranolaFetchDiagnostics;
 };
 
-const MAX_NOTES = 100;
+const MAX_NOTES = SOURCE_SYNC_TRANSCRIPT_ITEM_LIMIT;
 const PAGE_SIZE = 30;
 const TEXT_FIELD_NAMES = new Set([
   'title',
@@ -262,6 +263,13 @@ function compactJoin(parts: string[]) {
       return true;
     })
     .join('\n\n');
+}
+
+function isWithinWindow(isoDate: string | null, windowDays: number) {
+  if (!isoDate) return true;
+  const timestamp = new Date(isoDate).getTime();
+  if (!Number.isFinite(timestamp)) return true;
+  return timestamp >= Date.now() - windowDays * 24 * 60 * 60 * 1000;
 }
 
 function normalizeGranolaNoteWithDiagnostics(
@@ -488,14 +496,19 @@ async function fetchGranolaNoteDetailsWithTranscripts(params: {
   return enrichedNotes;
 }
 
-export async function fetchGranolaNotes(connectionId: string): Promise<GranolaNotesFetchResult> {
+export async function fetchGranolaNotes(
+  connectionId: string,
+  options?: { windowDays?: number; maxNotes?: number }
+): Promise<GranolaNotesFetchResult> {
   const notes: unknown[] = [];
   let cursor: string | null | undefined;
   let pagesFetched = 0;
+  const maxNotes = Math.max(1, Math.min(5000, Math.round(options?.maxNotes ?? MAX_NOTES)));
+  const windowDays = Math.max(1, Math.min(365, Math.round(options?.windowDays ?? SOURCE_SYNC_LOOKBACK_DAYS)));
   const diagnostics: GranolaFetchDiagnostics = {
     endpoint: '/v1/notes',
     pageSize: PAGE_SIZE,
-    maxNotes: MAX_NOTES,
+    maxNotes,
     pages: [],
     folders: [],
     details: [],
@@ -525,7 +538,7 @@ export async function fetchGranolaNotes(connectionId: string): Promise<GranolaNo
 
     cursor = typeof data.cursor === 'string' && data.cursor.trim().length > 0 ? data.cursor : null;
     if (!data.hasMore) break;
-  } while (cursor && notes.length < MAX_NOTES);
+  } while (cursor && notes.length < maxNotes);
 
   if (notes.length === 0) {
     diagnostics.folders = await fetchGranolaFolders(connectionId);
@@ -536,7 +549,7 @@ export async function fetchGranolaNotes(connectionId: string): Promise<GranolaNo
     notes.push(...folderNotes);
   }
 
-  const limitedNotes = notes.slice(0, MAX_NOTES);
+  const limitedNotes = notes.slice(0, maxNotes);
   const enrichedNotes = await fetchGranolaNoteDetailsWithTranscripts({
     connectionId,
     rawNotes: limitedNotes,
@@ -548,7 +561,9 @@ export async function fetchGranolaNotes(connectionId: string): Promise<GranolaNo
   diagnostics.notes = normalized.map((entry) => entry.diagnostic);
   const normalizedNotes = normalized
     .map((entry) => entry.note)
-    .filter((note): note is NormalizedGranolaNote => note !== null);
+    .filter((note): note is NormalizedGranolaNote => note !== null)
+    .filter((note) => isWithinWindow(note.meetingDate, windowDays))
+    .slice(0, maxNotes);
 
   return {
     notes: normalizedNotes,

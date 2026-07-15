@@ -47,12 +47,17 @@ export async function fetchEmbedPersistGranolaSource(params: {
   sourceId: string;
   sourceName: string;
   connectionId: string;
+  syncWindowDays: number;
+  syncItemLimit: number;
   log: GranolaSyncLogger;
   assertActive: (phase: string) => Promise<void>;
 }): Promise<GranolaSyncStats> {
   const fetchStartedAt = Date.now();
   await params.assertActive('granola notes fetch');
-  const granolaResult = await fetchGranolaNotes(params.connectionId);
+  const granolaResult = await fetchGranolaNotes(params.connectionId, {
+    windowDays: params.syncWindowDays,
+    maxNotes: params.syncItemLimit,
+  });
   const notes = granolaResult.notes;
   logGranolaDiagnostics({
     log: params.log,
@@ -72,6 +77,8 @@ export async function fetchEmbedPersistGranolaSource(params: {
     detailsFetched: granolaResult.detailsFetched,
     transcriptItems: granolaResult.transcriptItems,
     transcriptTextChars: granolaResult.transcriptTextChars,
+    windowDays: params.syncWindowDays,
+    itemLimit: params.syncItemLimit,
     ms: elapsedMs(fetchStartedAt),
   });
 

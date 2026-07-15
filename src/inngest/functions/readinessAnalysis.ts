@@ -861,7 +861,7 @@ async function loadOrganizations(supabase: SupabaseServiceClient) {
 export const readinessAnalysisOnDemand = inngest.createFunction(
   {
     id: 'readiness-analysis-on-demand',
-    name: 'Canon: Readiness Analysis (On Demand)',
+    name: 'Canon: Generate Readiness Updates On Demand',
     retries: 1,
   },
   { event: 'onboarding/readiness.generate.requested' },
@@ -900,7 +900,7 @@ export const readinessAnalysisOnDemand = inngest.createFunction(
 export const readinessAnalysis = inngest.createFunction(
   {
     id: 'readiness-analysis',
-    name: 'Canon: Weekly Readiness Digest',
+    name: 'Canon: Send Weekly Readiness Digest',
     retries: 1,
   },
   { cron: '0 * * * *' },
@@ -1141,7 +1141,7 @@ async function alreadyPrepared(params: {
 export const meetingPrepBriefing = inngest.createFunction(
   {
     id: 'meeting-prep-briefing',
-    name: 'Canon: Meeting Prep Briefing',
+    name: 'Canon: Send Meeting Prep Briefs',
     retries: 1,
   },
   { cron: '*/15 * * * *' },

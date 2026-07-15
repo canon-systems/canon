@@ -96,6 +96,13 @@ function normalizeTeamsMessage(raw: unknown, target: { id: string; name: string 
   };
 }
 
+function isWithinWindow(isoDate: string | null, windowDays: number) {
+  if (!isoDate) return true;
+  const timestamp = new Date(isoDate).getTime();
+  if (!Number.isFinite(timestamp)) return true;
+  return timestamp >= Date.now() - windowDays * 24 * 60 * 60 * 1000;
+}
+
 function chunkChatMessages(provider: TeamChatProvider, messages: NormalizedChatMessage[]): KnowledgeTextChunk[] {
   return messages.flatMap((message) => chunkTextDocument({
     document: {
@@ -120,6 +127,8 @@ async function fetchTeamsMessages(params: {
   connectionId: string;
   targetId: string;
   targetName: string | null;
+  syncWindowDays: number;
+  syncItemLimit: number;
 }) {
   const [teamId, channelId] = params.targetId.includes('/')
     ? params.targetId.split('/').map((part) => part.trim()).filter(Boolean)
@@ -132,13 +141,15 @@ async function fetchTeamsMessages(params: {
     provider: 'teams',
     connectionId: params.connectionId,
     endpoint,
-    query: { '$top': 50 },
+    query: { '$top': params.syncItemLimit },
   });
 
   return arrayField(response, ['value', 'messages'])
     .map((message) => normalizeTeamsMessage(message, { id: params.targetId, name: params.targetName }))
     .filter((message): message is NormalizedChatMessage => message !== null)
-    .filter((message) => message.authorType === 'human');
+    .filter((message) => message.authorType === 'human')
+    .filter((message) => isWithinWindow(message.occurredAt, params.syncWindowDays))
+    .slice(0, params.syncItemLimit);
 }
 
 export async function fetchEmbedPersistTeamChatSource(params: {
@@ -150,6 +161,8 @@ export async function fetchEmbedPersistTeamChatSource(params: {
   connectionId: string;
   targetId: string;
   targetName: string | null;
+  syncWindowDays: number;
+  syncItemLimit: number;
   log: ChatSyncLogger;
   assertActive: (phase: string) => Promise<void>;
 }): Promise<{ embeddedCount: number; messageCount: number }> {
@@ -161,6 +174,8 @@ export async function fetchEmbedPersistTeamChatSource(params: {
     source: params.sourceName,
     provider: params.provider,
     messages: messages.length,
+    windowDays: params.syncWindowDays,
+    itemLimit: params.syncItemLimit,
   });
 
   await params.assertActive(`${params.provider} source events`);

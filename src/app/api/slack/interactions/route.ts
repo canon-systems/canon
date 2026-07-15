@@ -136,6 +136,45 @@ async function updateSlackMessage(responseUrl: string, toolName: string) {
   }
 }
 
+function parseManagerMilestoneActionValue(value: string | undefined) {
+  const [newHireId, milestoneId, evidenceId] = (value ?? '').split('|').map((entry) => entry.trim());
+  return {
+    newHireId: newHireId || null,
+    milestoneId: milestoneId || null,
+    evidenceId: evidenceId || null,
+  };
+}
+
+async function updateManagerReviewMessage(params: {
+  responseUrl: string | undefined;
+  statusText: string;
+  actor: string;
+}) {
+  if (!params.responseUrl) return;
+
+  try {
+    await fetch(params.responseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        replace_original: true,
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: `${params.statusText}\nReviewed by *${params.actor}*.`,
+            },
+          },
+        ],
+        text: params.statusText,
+      }),
+    });
+  } catch {
+    log.warn('interaction_skipped', { reason: 'manager_review_response_url_failed' });
+  }
+}
+
 export async function POST(request: NextRequest) {
   // Always return 200 to Slack — any non-200 shows an error modal to the user.
   // Next.js will forward thrown Response objects (including fetch errors with a
@@ -231,6 +270,90 @@ export async function POST(request: NextRequest) {
         if (payload.response_url) {
           void updateSlackMessage(payload.response_url, updated.tool_name);
         }
+      }
+
+      if (
+        action?.action_id === 'manager_milestone_verify' ||
+        action?.action_id === 'manager_milestone_keep_open' ||
+        action?.action_id === 'manager_milestone_mark_blocked'
+      ) {
+        const { newHireId, milestoneId, evidenceId } = parseManagerMilestoneActionValue(action.value);
+        if (!newHireId || !milestoneId) {
+          log.warn('interaction_skipped', { reason: 'missing_manager_milestone_button_params', actionId: action.action_id });
+          return new NextResponse('', { status: 200 });
+        }
+
+        const supabase = createServiceRoleClient();
+        const actor = payload.user?.name ?? payload.user?.id ?? 'a manager';
+        const actionMetadata = {
+          response_type: action.action_id.replace('manager_milestone_', ''),
+          reviewed_from: 'slack_manager_review',
+          reviewed_evidence_id: evidenceId,
+          slack_user_id: payload.user?.id ?? null,
+          slack_user_name: payload.user?.name ?? null,
+        };
+
+        const evidenceConfig = action.action_id === 'manager_milestone_verify'
+          ? {
+              evidenceType: 'manager_verification' as const,
+              trustLevel: 'high' as const,
+              confidence: 0.95,
+              statusText: '*Milestone verified.*',
+            }
+          : action.action_id === 'manager_milestone_mark_blocked'
+            ? {
+                evidenceType: 'new_hire_blocker' as const,
+                trustLevel: 'low' as const,
+                confidence: 0.2,
+                statusText: '*Milestone marked blocked.*',
+              }
+            : {
+                evidenceType: 'communication_activity' as const,
+                trustLevel: 'low' as const,
+                confidence: 0.3,
+                statusText: '*Milestone kept open for review.*',
+              };
+
+        const result = await recordMilestoneEvidence({
+          supabase,
+          newHireId,
+          milestoneId,
+          evidenceType: evidenceConfig.evidenceType,
+          trustLevel: evidenceConfig.trustLevel,
+          confidence: evidenceConfig.confidence,
+          source: 'manager_slack_review',
+          sourceEventId: `manager-slack-review:${newHireId}:${milestoneId}:${action.action_id}:${payload.user?.id ?? 'unknown'}`,
+          metadata: actionMetadata,
+        });
+
+        if (!result.ok) {
+          log.error('interaction_failed', {
+            reason: 'record_manager_review_failed',
+            actionId: action.action_id,
+            newHireId,
+            milestoneId,
+            error: result.error,
+          });
+          await updateManagerReviewMessage({
+            responseUrl: payload.response_url,
+            statusText: '*Canon could not save that review.* Open Canon and try again.',
+            actor,
+          });
+          return new NextResponse('', { status: 200 });
+        }
+
+        await updateManagerReviewMessage({
+          responseUrl: payload.response_url,
+          statusText: evidenceConfig.statusText,
+          actor,
+        });
+
+        log.info('milestone_feedback_received', {
+          newHireId,
+          milestoneId,
+          evidenceId,
+          responseType: action.action_id,
+        });
       }
 
       if (action?.action_id === 'milestone_need_context' || action?.action_id === 'milestone_blocked') {

@@ -50,12 +50,17 @@ export async function fetchEmbedPersistSlackSource(params: {
   channelId: string;
   channelName: string;
   accessToken: string;
+  syncWindowDays: number;
+  syncItemLimit: number;
   log: SlackSyncLogger;
   assertActive: (phase: string) => Promise<void>;
 }): Promise<{ embeddedCount: number }> {
   const fetchStartedAt = Date.now();
   await params.assertActive('history fetch');
-  const history = await fetchSlackHistory(params.accessToken, params.channelId);
+  const history = await fetchSlackHistory(params.accessToken, params.channelId, {
+    windowDays: params.syncWindowDays,
+    maxMessages: params.syncItemLimit,
+  });
   const rawMessages = history.messages;
 
   const filtered = syncableSlackMessages(rawMessages, MIN_MESSAGE_LENGTH);
@@ -75,6 +80,8 @@ export async function fetchEmbedPersistSlackSource(params: {
     filteredMessages: filtered.length,
     enrichedMessages: syncableEnriched.length,
     pages: history.pagesFetched,
+    windowDays: params.syncWindowDays,
+    itemLimit: params.syncItemLimit,
     ms: elapsedMs(fetchStartedAt),
   });
 

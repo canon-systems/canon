@@ -171,3 +171,26 @@ export function pickNextActionableMilestone<T extends Pick<RampMilestone, 'id' |
 
   return null;
 }
+
+export function pickCurrentMilestoneForEvidenceScan<T extends Pick<RampMilestone, 'id' | 'day_trigger'>>(
+  milestones: T[],
+  progressRows: ProgressLike[],
+  deliveries: DeliveryLike[]
+): T | null {
+  const sorted = [...milestones].sort((a, b) => a.day_trigger - b.day_trigger);
+  const progressByMilestone = new Map(
+    progressRows.map((row) => [row.milestone_id, normalizeMilestoneProgressStatus(row.status)])
+  );
+  const deliveredIds = new Set(deliveries.flatMap((delivery) => (
+    delivery.milestone_id ? [delivery.milestone_id] : []
+  )));
+
+  for (const milestone of sorted) {
+    const status = progressByMilestone.get(milestone.id) ?? 'not_started';
+    if (status === 'verified') continue;
+    if (status === 'blocked' || status === 'needs_review') return null;
+    return status === 'briefed' || deliveredIds.has(milestone.id) ? milestone : null;
+  }
+
+  return null;
+}

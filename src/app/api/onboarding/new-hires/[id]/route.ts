@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
+import { normalizeManagerCommunication } from '@/lib/onboarding/manager-communication';
 import { rampDayFromStartDate } from '@/lib/onboarding/rampDay';
 import { normalizeRoleName } from '@/lib/onboarding/roles';
 import { isAccessStatusGranted, normalizeToolName, requiredToolsForEvidence } from '@/lib/onboarding/milestone-ramp';
@@ -9,6 +10,13 @@ import type { HireStatus, MilestoneEvidenceRequirement } from '@/types/onboardin
 export const dynamic = 'force-dynamic';
 
 const VALID_STATUSES: HireStatus[] = ['active', 'paused', 'completed'];
+const MANAGER_FIELD_KEYS = [
+  'manager_name',
+  'manager_email',
+  'manager_slack_user_id',
+  'manager_chat_provider',
+  'manager_chat_target_id',
+] as const;
 
 function isDateInputValue(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -175,6 +183,14 @@ export async function PATCH(
         return NextResponse.json({ error: 'slack_user_id is required' }, { status: 400 });
       }
       patch.slack_user_id = body.slack_user_id.trim();
+    }
+
+    if (MANAGER_FIELD_KEYS.some((key) => Object.prototype.hasOwnProperty.call(body, key))) {
+      try {
+        Object.assign(patch, normalizeManagerCommunication(body));
+      } catch (error) {
+        return NextResponse.json({ error: error instanceof Error ? error.message : 'Manager communication is required' }, { status: 400 });
+      }
     }
 
     if (typeof body.status === 'string') {

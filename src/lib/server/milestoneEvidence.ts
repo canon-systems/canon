@@ -54,19 +54,112 @@ function confidenceForTrust(trustLevel: MilestoneEvidenceTrustLevel) {
 
 async function maybeSendSlackNotification(params: {
   botToken: string | null;
-  target: string | null;
+  targets: string[];
   title: string;
   body: string;
+  blocks?: unknown[];
 }) {
-  if (!params.botToken || !params.target) return false;
+  if (!params.botToken || params.targets.length === 0) return false;
 
-  const result = await postSlackMessage({
-    botToken: params.botToken,
-    channel: params.target,
+  const results = await Promise.all(params.targets.map((target) => postSlackMessage({
+    botToken: params.botToken!,
+    channel: target,
     text: `*${params.title}*\n${params.body}`,
-  });
+    blocks: params.blocks,
+  })));
 
-  return result.ok;
+  return results.some((result) => result.ok);
+}
+
+function uniqueSlackTargets(metadata: Record<string, unknown>) {
+  const targets = new Set<string>();
+  const singleTarget = typeof metadata.notify_slack_target === 'string'
+    ? metadata.notify_slack_target
+    : typeof metadata.manager_slack_user_id === 'string'
+      ? metadata.manager_slack_user_id
+      : null;
+  if (singleTarget?.trim()) targets.add(singleTarget.trim());
+
+  if (Array.isArray(metadata.notify_slack_targets)) {
+    for (const target of metadata.notify_slack_targets) {
+      if (typeof target === 'string' && target.trim()) targets.add(target.trim());
+    }
+  }
+
+  return Array.from(targets);
+}
+
+function compactSlackText(value: unknown, fallback = '') {
+  if (typeof value !== 'string') return fallback;
+  const compacted = value.replace(/\s+/g, ' ').trim();
+  return compacted.length <= 500 ? compacted : `${compacted.slice(0, 497).trimEnd()}...`;
+}
+
+function managerReviewBlocks(params: {
+  title: string;
+  body: string;
+  newHireId: string;
+  milestoneId: string;
+  evidenceId: string;
+  evidenceType: MilestoneEvidenceType;
+  verified: boolean;
+  metadata: Record<string, unknown>;
+}) {
+  const blocks: unknown[] = [
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `*${params.title}*\n${params.body}`,
+      },
+    },
+  ];
+
+  const reason = compactSlackText(params.metadata.reason);
+  const excerpt = compactSlackText(params.metadata.excerpt);
+  if (reason) {
+    blocks.push({
+      type: 'section',
+      text: { type: 'mrkdwn', text: `*Why Canon flagged it:*\n${reason}` },
+    });
+  }
+  if (excerpt) {
+    blocks.push({
+      type: 'context',
+      elements: [{ type: 'mrkdwn', text: `_${excerpt}_` }],
+    });
+  }
+
+  if (!params.verified && params.evidenceType !== 'new_hire_blocker') {
+    const value = `${params.newHireId}|${params.milestoneId}|${params.evidenceId}`;
+    blocks.push({
+      type: 'actions',
+      elements: [
+        {
+          type: 'button',
+          text: { type: 'plain_text', text: 'Verify', emoji: true },
+          style: 'primary',
+          action_id: 'manager_milestone_verify',
+          value,
+        },
+        {
+          type: 'button',
+          text: { type: 'plain_text', text: 'Keep open', emoji: true },
+          action_id: 'manager_milestone_keep_open',
+          value,
+        },
+        {
+          type: 'button',
+          text: { type: 'plain_text', text: 'Mark blocked', emoji: true },
+          style: 'danger',
+          action_id: 'manager_milestone_mark_blocked',
+          value,
+        },
+      ],
+    });
+  }
+
+  return blocks;
 }
 
 function notificationCopy(params: {
@@ -236,11 +329,7 @@ export async function recordMilestoneEvidence(params: RecordEvidenceParams) {
   });
 
   const metadata = params.metadata ?? {};
-  const slackTarget = typeof metadata.notify_slack_target === 'string'
-    ? metadata.notify_slack_target
-    : typeof metadata.manager_slack_user_id === 'string'
-      ? metadata.manager_slack_user_id
-      : null;
+  const slackTargets = uniqueSlackTargets(metadata);
   let slackBotToken: string | null = null;
   if (hire.organization_id) {
     const admin = createServiceRoleClient();
@@ -249,9 +338,19 @@ export async function recordMilestoneEvidence(params: RecordEvidenceParams) {
 
   const slackSent = await maybeSendSlackNotification({
     botToken: slackBotToken,
-    target: slackTarget,
+    targets: slackTargets,
     title: copy.title,
     body: copy.body,
+    blocks: managerReviewBlocks({
+      title: copy.title,
+      body: copy.body,
+      newHireId: params.newHireId,
+      milestoneId: params.milestoneId,
+      evidenceId: evidence.id,
+      evidenceType: params.evidenceType,
+      verified: resolvedStatus === 'verified',
+      metadata,
+    }),
   });
 
   const { error: notificationError } = await params.supabase.from('onboarding_notifications').insert({
@@ -262,7 +361,7 @@ export async function recordMilestoneEvidence(params: RecordEvidenceParams) {
     title: copy.title,
     body: copy.body,
     delivery_channel: 'app',
-    slack_target: slackTarget,
+    slack_target: slackTargets[0] ?? null,
     slack_sent_at: slackSent ? new Date().toISOString() : null,
   });
 

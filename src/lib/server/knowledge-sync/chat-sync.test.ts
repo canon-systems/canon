@@ -35,6 +35,8 @@ function baseParams() {
     connectionId: 'conn_123',
     targetId: 'team_1/channel_1',
     targetName: 'Revenue / Sales Engineering',
+    syncWindowDays: 180,
+    syncItemLimit: 5000,
     log,
     assertActive: vi.fn(),
   };
@@ -54,7 +56,7 @@ describe('team chat source sync', () => {
       value: [
         {
           id: 'message_1',
-          createdDateTime: '2026-07-13T15:00:00.000Z',
+          createdDateTime: new Date().toISOString(),
           webUrl: 'https://teams.example/message_1',
           body: { content: '<p>Customer needs launch readiness notes &amp; updated objection handling before the call.</p>' },
           from: { user: { displayName: 'Alex Seller' } },
@@ -75,6 +77,7 @@ describe('team chat source sync', () => {
     expect(mocks.nangoProxyGet).toHaveBeenCalledWith(expect.objectContaining({
       provider: 'teams',
       endpoint: '/v1.0/teams/team_1/channels/channel_1/messages',
+      query: { '$top': 5000 },
     }));
     expect(mocks.upsertReadinessSourceEvents).toHaveBeenCalledWith(expect.objectContaining({
       events: [

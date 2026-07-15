@@ -153,7 +153,7 @@ Write a Slack message that:
 export const dailyRampCheck = inngest.createFunction(
   {
     id: 'daily-ramp-check',
-    name: 'Canon: Daily Ramp Check',
+    name: 'Canon: Send Next Due Ramp Milestone',
     retries: 1,
   },
   { cron: '0 9 * * *' },

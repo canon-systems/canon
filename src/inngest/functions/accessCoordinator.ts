@@ -96,7 +96,7 @@ async function sendAccessRequestDM(params: {
 export const accessCoordinator = inngest.createFunction(
   {
     id: 'access-coordinator',
-    name: 'Canon: Access Coordinator',
+    name: 'Canon: DM Tool Owner for Access Request',
     retries: 2,
   },
   { event: 'onboarding/access.request.created' },

@@ -78,7 +78,7 @@ async function sendHireConfirmationDM(params: {
 export const accessGrantedNotifier = inngest.createFunction(
   {
     id: 'access-granted-notifier',
-    name: 'Canon: Access Granted Notifier',
+    name: 'Canon: Ask New Hire to Confirm Tool Access',
     retries: 2,
     idempotency: 'event.data.accessRequestId',
   },

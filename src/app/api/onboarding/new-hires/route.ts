@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { inngest } from '@/inngest/client';
+import { normalizeManagerCommunication, type ManagerCommunicationInput } from '@/lib/onboarding/manager-communication';
 import { rampDayFromStartDate } from '@/lib/onboarding/rampDay';
 import { normalizeRoleName } from '@/lib/onboarding/roles';
 import { requireWorkspace } from '@/lib/server/organization';
@@ -51,12 +52,18 @@ export async function POST(request: NextRequest) {
       role?: string;
       start_date?: string;
       slack_user_id?: string;
-    };
+    } & ManagerCommunicationInput;
 
     const { first_name, last_name, email, start_date, slack_user_id } = body;
     const role = normalizeRoleName(body.role ?? '');
     if (!first_name || !last_name || !email || !role || !start_date || !slack_user_id) {
       return NextResponse.json({ error: 'first_name, last_name, email, role, start_date, and slack_user_id are required' }, { status: 400 });
+    }
+    let managerCommunication;
+    try {
+      managerCommunication = normalizeManagerCommunication(body);
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : 'Manager communication is required' }, { status: 400 });
     }
 
     const { supabase, organization } = await requireWorkspace(user);
@@ -84,6 +91,7 @@ export async function POST(request: NextRequest) {
         role,
         start_date,
         slack_user_id,
+        ...managerCommunication,
         ramp_day: 0,
         status: 'active',
       })
