@@ -118,22 +118,7 @@ describe('readiness delivery adapters', () => {
     });
   });
 
-  it('sends Google Chat updates to the selected space', async () => {
-    await expect(sendReadinessDelivery({
-      organizationId: 'org_123',
-      target: target({ provider: 'google_chat', target_type: 'channel', target_id: 'spaces/AAAA' }),
-      text: 'Weekly readiness update',
-    })).resolves.toMatchObject({ sent: true, channel: 'spaces/AAAA' });
-
-    expect(mocks.nangoProxyPost).toHaveBeenCalledWith({
-      provider: 'google_chat',
-      connectionId: 'conn_123',
-      endpoint: '/v1/spaces/AAAA/messages',
-      body: { text: 'Weekly readiness update' },
-    });
-  });
-
-  it('skips Teams and Google Chat when the provider is not connected', async () => {
+  it('skips Teams when the provider is not connected', async () => {
     mocks.getActiveWorkspaceConnection.mockResolvedValue(null);
 
     await expect(sendReadinessDelivery({

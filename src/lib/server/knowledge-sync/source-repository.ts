@@ -6,7 +6,7 @@ import {
 
 type SupabaseServiceClient = ReturnType<typeof createServiceRoleClient>;
 
-export type KnowledgeProvider = 'slack' | 'granola' | 'teams' | 'google_chat' | 'gmail' | 'google_calendar' | 'outlook';
+export type KnowledgeProvider = 'slack' | 'granola' | 'teams' | 'gmail' | 'google_calendar' | 'outlook';
 
 export async function getActiveProviderConnection(
   supabase: SupabaseServiceClient,

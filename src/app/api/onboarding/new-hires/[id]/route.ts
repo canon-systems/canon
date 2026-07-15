@@ -1,34 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
+import { normalizeManagerCommunication } from '@/lib/onboarding/manager-communication';
 import { rampDayFromStartDate } from '@/lib/onboarding/rampDay';
 import { normalizeRoleName } from '@/lib/onboarding/roles';
+import { isAccessStatusGranted, normalizeToolName, requiredToolsForEvidence } from '@/lib/onboarding/milestone-ramp';
 import { requireWorkspace, requireWorkspaceAdmin } from '@/lib/server/organization';
 import type { HireStatus, MilestoneEvidenceRequirement } from '@/types/onboarding';
 
 export const dynamic = 'force-dynamic';
 
 const VALID_STATUSES: HireStatus[] = ['active', 'paused', 'completed'];
+const MANAGER_FIELD_KEYS = [
+  'manager_name',
+  'manager_email',
+  'manager_slack_user_id',
+  'manager_chat_provider',
+  'manager_chat_target_id',
+] as const;
 
 function isDateInputValue(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const [year, month, day] = value.split('-').map(Number);
   const date = new Date(year, month - 1, day);
   return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
-}
-
-function metadataStringArray(value: unknown) {
-  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0) : [];
-}
-
-function requiredTools(requirements: MilestoneEvidenceRequirement[]) {
-  const tools = new Set<string>();
-  for (const requirement of requirements) {
-    if (requirement.type !== 'access_readiness') continue;
-    const metadata = requirement.metadata ?? {};
-    for (const tool of metadataStringArray(metadata.tools)) tools.add(tool);
-    if (typeof metadata.tool === 'string' && metadata.tool.trim()) tools.add(metadata.tool.trim());
-  }
-  return Array.from(tools);
 }
 
 export async function GET(
@@ -99,17 +93,17 @@ export async function GET(
 
     const grantedTools = new Set(
       (accessRequests ?? [])
-        .filter((request) => request.status === 'granted')
-        .map((request) => String(request.tool_name).toLowerCase())
+        .filter((request) => isAccessStatusGranted(request.status))
+        .map((request) => normalizeToolName(String(request.tool_name)))
     );
 
     const milestonePath = (milestones ?? []).map((milestone) => {
-      const tools = requiredTools((milestone.evidence_requirements ?? []) as MilestoneEvidenceRequirement[]);
+      const tools = requiredToolsForEvidence((milestone.evidence_requirements ?? []) as MilestoneEvidenceRequirement[]);
       return {
         milestone,
         progress: progressByMilestone.get(milestone.id) ?? null,
         evidence: evidenceByMilestone.get(milestone.id) ?? [],
-        access_ready: tools.length > 0 && tools.every((tool) => grantedTools.has(tool.toLowerCase())),
+        access_ready: tools.length > 0 && tools.every((tool) => grantedTools.has(normalizeToolName(tool))),
         required_tools: tools,
       };
     });
@@ -189,6 +183,14 @@ export async function PATCH(
         return NextResponse.json({ error: 'slack_user_id is required' }, { status: 400 });
       }
       patch.slack_user_id = body.slack_user_id.trim();
+    }
+
+    if (MANAGER_FIELD_KEYS.some((key) => Object.prototype.hasOwnProperty.call(body, key))) {
+      try {
+        Object.assign(patch, normalizeManagerCommunication(body));
+      } catch (error) {
+        return NextResponse.json({ error: error instanceof Error ? error.message : 'Manager communication is required' }, { status: 400 });
+      }
     }
 
     if (typeof body.status === 'string') {

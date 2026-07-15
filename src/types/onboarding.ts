@@ -1,18 +1,18 @@
 export type HireRole = string;
 export type HireStatus = 'active' | 'paused' | 'completed';
-export type KnowledgeProvider = 'slack' | 'granola' | 'teams' | 'google_chat' | 'gmail' | 'google_calendar' | 'outlook';
+export type KnowledgeProvider = 'slack' | 'granola' | 'teams' | 'gmail' | 'google_calendar' | 'outlook';
 type KnowledgeSourceStatus = 'pending' | 'syncing' | 'active' | 'error' | 'stopped';
 type DeliveryStatus = 'pending' | 'delivered' | 'failed';
 type AccessRequestStatus = 'pending' | 'sent' | 'acknowledged' | 'granted' | 'confirmed';
 export type ReadinessCategory = 'product_change' | 'customer_objection' | 'demo_guidance' | 'implementation_pattern';
 export type ReadinessImpactLevel = 'low' | 'medium' | 'high';
 export type ReadinessStatus = 'draft' | 'reviewed' | 'sent' | 'archived';
-export type ReadinessDeliveryProvider = 'slack' | 'teams' | 'google_chat';
+export type ReadinessDeliveryProvider = 'slack' | 'teams';
 export type ReadinessDeliveryTargetType = 'channel' | 'dm';
 export type ReadinessSourceType = 'team_chat' | 'transcript' | 'email' | 'calendar';
 type MilestoneProposalStatus = 'draft' | 'approved' | 'rejected';
 type MilestoneGenerationRunStatus = 'queued' | 'running' | 'completed' | 'failed';
-type MilestoneProgressStatus = 'not_started' | 'briefed' | 'evidence_detected' | 'verified';
+export type MilestoneProgressStatus = 'not_started' | 'briefed' | 'evidence_detected' | 'needs_review' | 'blocked' | 'verified';
 export type MilestoneEvidenceType =
   | 'access_readiness'
   | 'tool_activity'
@@ -78,6 +78,8 @@ export interface RoleProfile {
   organization_id: string;
   role: HireRole;
   job_description: string;
+  baseline_ramp_days: number;
+  target_ramp_days: number;
   status: 'active' | 'archived';
   display_order: number;
   created_at: string;

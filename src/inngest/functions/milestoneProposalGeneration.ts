@@ -4,6 +4,12 @@ import { extractJsonMiddleware, generateText, Output, wrapLanguageModel } from '
 import { z } from 'zod';
 import { llm } from '@/lib/ai';
 import { createLogger, errorMessage } from '@/lib/server/logging';
+import {
+  clampMilestoneDayToTarget,
+  findAvailableMilestoneDay,
+  generatedMilestoneSpacingDays,
+  normalizeRampTargets,
+} from '@/lib/onboarding/milestone-ramp';
 import type { HireRole, MilestoneEvidenceRequirement, MilestoneSourceEvidence } from '@/types/onboarding';
 
 const log = createLogger('inngest.milestone_proposal_generation', {
@@ -23,6 +29,39 @@ const log = createLogger('inngest.milestone_proposal_generation', {
 
 const PROMPT_CHUNK_LIMIT = 24;
 const PROMPT_CHUNK_CHAR_LIMIT = 1200;
+const MAX_PROPOSALS_PER_ROLE = 6;
+
+const COMPANY_ANCHOR_STOPWORDS = new Set([
+  'about',
+  'after',
+  'before',
+  'briefing',
+  'canon',
+  'company',
+  'complete',
+  'context',
+  'customer',
+  'customers',
+  'evidence',
+  'foundation',
+  'foundational',
+  'learn',
+  'learning',
+  'manager',
+  'milestone',
+  'onboarding',
+  'progress',
+  'review',
+  'should',
+  'success',
+  'support',
+  'team',
+  'teams',
+  'training',
+  'understand',
+  'work',
+  'workflow',
+]);
 
 type KnowledgeChunkResult = {
   id: string;
@@ -34,6 +73,26 @@ type KnowledgeChunkResult = {
 type RoleProfileResult = {
   role: HireRole;
   job_description: string | null;
+  baseline_ramp_days: number | null;
+  target_ramp_days: number | null;
+};
+
+type OrgToolResult = {
+  tool_name: string;
+  role: HireRole | null;
+};
+
+type ExistingMilestoneResult = {
+  role: HireRole;
+  day_trigger: number | null;
+  title: string;
+  real_work_trigger: string | null;
+};
+
+type DraftProposalResult = {
+  role: HireRole;
+  suggested_day_trigger: number | null;
+  normalized_key: string;
 };
 
 const EvidenceRequirementSchema = z.object({
@@ -175,7 +234,7 @@ function evidenceRequirements(value: unknown, trigger: string): MilestoneEvidenc
   }];
 }
 
-function normalizeProposal(raw: z.infer<typeof LooseProposalSchema>) {
+function normalizeProposal(raw: z.infer<typeof LooseProposalSchema>, targetRampDays: number) {
   const day = numberValue(raw.suggested_day_trigger);
   const title = stringValue(raw.title, 90);
   const capabilityOutcome = stringValue(raw.capability_outcome, 240);
@@ -190,7 +249,7 @@ function normalizeProposal(raw: z.infer<typeof LooseProposalSchema>) {
 
   const successSignals = stringList(raw.success_signals, 5, 140);
   const normalized = {
-    suggested_day_trigger: Math.round(clamp(day, 0, 120)),
+    suggested_day_trigger: clampMilestoneDayToTarget(day, targetRampDays),
     title,
     capability_outcome: capabilityOutcome,
     briefing_goal: briefingGoal,
@@ -206,6 +265,67 @@ function normalizeProposal(raw: z.infer<typeof LooseProposalSchema>) {
 
   const parsed = ProposalSchema.safeParse(normalized);
   return parsed.success ? parsed.data : null;
+}
+
+function termSet(value: string) {
+  return new Set(
+    value
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((term) => term.length >= 4 && !COMPANY_ANCHOR_STOPWORDS.has(term))
+  );
+}
+
+function hasCompanyEvidenceAnchor(params: {
+  proposal: z.infer<typeof ProposalSchema>;
+  chunks: KnowledgeChunkResult[];
+  tools: OrgToolResult[];
+}) {
+  const combined = [
+    params.proposal.title,
+    params.proposal.capability_outcome,
+    params.proposal.briefing_goal,
+    params.proposal.real_work_trigger,
+    params.proposal.retrieval_brief,
+    ...params.proposal.success_signals,
+    ...params.proposal.evidence_requirements.map((requirement) => requirement.label),
+  ].join(' ');
+  const sourceText = params.chunks.map((chunk) => chunk.content.toLowerCase()).join('\n');
+  const configuredToolMatch = params.tools.some((tool) => {
+    const toolName = tool.tool_name.trim().toLowerCase();
+    return toolName.length > 1 && combined.toLowerCase().includes(toolName) && sourceText.includes(toolName);
+  });
+  if (configuredToolMatch) return true;
+
+  let sharedTerms = 0;
+  for (const term of termSet(combined)) {
+    if (sourceText.includes(term)) sharedTerms += 1;
+    if (sharedTerms >= 2) return true;
+  }
+  return false;
+}
+
+function proposalPassesQualityGate(params: {
+  proposal: z.infer<typeof ProposalSchema>;
+  sourceEvidence: MilestoneSourceEvidence[];
+  chunks: KnowledgeChunkResult[];
+  tools: OrgToolResult[];
+}) {
+  const { proposal, sourceEvidence, chunks, tools } = params;
+  if (sourceEvidence.length === 0) return false;
+  if (proposal.evidence_requirements.length === 0 || proposal.success_signals.length === 0) return false;
+  if (proposal.confidence < 0.45) return false;
+
+  const combined = [
+    proposal.title,
+    proposal.capability_outcome,
+    proposal.real_work_trigger,
+    proposal.retrieval_brief,
+  ].join(' ');
+
+  if (/\b(learn the product|complete training|review documentation|meet the team|shadow a teammate|read the docs|company overview|product overview|onboarding basics|foundation training)\b/i.test(combined)) return false;
+  if (!hasCompanyEvidenceAnchor({ proposal, chunks, tools })) return false;
+  return /\b(customer|account|call|demo|implementation|handoff|tool|access|slack|salesforce|gong|support|workflow|launch|migration|objection|risk|owner|admin)\b/i.test(combined);
 }
 
 function chunkEvidence(chunks: KnowledgeChunkResult[]): MilestoneSourceEvidence[] {
@@ -235,8 +355,9 @@ async function generateRoleProposals(params: {
   chunks: KnowledgeChunkResult[];
   role: HireRole;
   roleProfile?: RoleProfileResult | null;
+  tools: OrgToolResult[];
 }) {
-  const { chunks, role, roleProfile } = params;
+  const { chunks, role, roleProfile, tools } = params;
   const promptChunks = chunks.slice(0, PROMPT_CHUNK_LIMIT);
   const chunkText = promptChunks.map((chunk, index) => {
     const metadata = chunk.metadata ?? {};
@@ -248,6 +369,15 @@ async function generateRoleProposals(params: {
     return `Source ${index + 1} (${source}):\n${compactText(chunk.content, PROMPT_CHUNK_CHAR_LIMIT)}`;
   }).join('\n\n---\n\n');
   const jobDescription = compactText(roleProfile?.job_description ?? '', 4000);
+  const rampTargets = normalizeRampTargets({
+    baselineRampDays: roleProfile?.baseline_ramp_days ?? null,
+    targetRampDays: roleProfile?.target_ramp_days ?? null,
+  });
+  const roleTools = tools
+    .filter((tool) => tool.role === null || tool.role === role)
+    .map((tool) => tool.tool_name)
+    .filter(Boolean)
+    .slice(0, 20);
   const roleContext = jobDescription
     ? `Role job description:\n${jobDescription}`
     : `Role job description: Not provided. Use the role title only and avoid assumptions beyond company evidence.`;
@@ -262,13 +392,25 @@ async function generateRoleProposals(params: {
 
 ${roleContext}
 
+Ramp target:
+- Current ramp baseline: ${rampTargets.baselineRampDays} days
+- Target ramp: ${rampTargets.targetRampDays} days
+- Keep suggested_day_trigger within the target ramp window.
+- Return at most ${MAX_PROPOSALS_PER_ROLE} proposals.
+- Do not use fixed templates such as day 3, day 14, or day 30. Pick days from the evidence and leave breathing room between steps.
+- Do not reuse the same suggested_day_trigger for more than one proposal. If two ideas belong on the same day, merge them into one sharper proposal.
+- The path should build from the customer-specific basics this company actually shows into supported real work and then more independent execution.
+
+Configured tools for this role:
+${roleTools.length > 0 ? roleTools.map((tool) => `- ${tool}`).join('\n') : '- No role tools configured yet. Only mention tools that appear in company evidence.'}
+
 Use simple, standalone language that a manager and new hire can understand without extra context. Use the company's own terminology when it appears in the source material, including product names, feature names, customer names, team names, acronyms, workflows, tools, and role names. Do not replace company terms with generic wording. If a company term may be unclear, keep the term and explain it briefly in plain language.
 
 Return only JSON with this shape:
 {
   "proposals": [
     {
-      "suggested_day_trigger": 14,
+      "suggested_day_trigger": 0,
       "title": "Short learning step name using company terminology when relevant",
       "capability_outcome": "What the hire should be able to do after this real work",
       "briefing_goal": "What Canon should explain before the experience",
@@ -290,16 +432,14 @@ Return only JSON with this shape:
   ]
 }
 
-Use only the company knowledge below. Do not create generic onboarding defaults. If the knowledge is too thin or unrelated to this role, return {"proposals":[]}.
+Use only the company knowledge below. Do not create generic onboarding defaults or a standard foundation path. If the knowledge is too thin, stale, or unrelated to this role, return {"proposals":[]}.
 
-Use the job description to decide which company evidence matters for this role. Favor learning steps that connect real company work to the role's responsibilities, tools, customer interactions, success criteria, and handoffs. Do not create learning steps for duties outside the role description unless the company knowledge clearly shows the role owns that work.
+Use the job description to decide which company evidence matters for this role. Favor learning steps that connect role knowledge to the company's current operating reality: recent repeated customer issues, product changes, objections, implementation blockers, active tools, and handoffs. Recent source material should matter more than old static docs. Do not create learning steps for duties outside the role description unless the company knowledge clearly shows the role owns that work.
 
 Learning steps are short briefings before real work. They should prepare a new hire for a real experience and define concrete proof that the experience happened. Do not include practice tasks or homework.
 
-Order proposals by likely ramp timing:
-- Early: vocabulary, access, where work happens, first observation.
-- Middle: participating in real customer/internal work with support.
-- Later: owning meaningful work with less support.
+Order proposals by likely ramp timing from the evidence. Each later proposal should build on earlier customer-specific context. Do not create scattered day-based reminders or multiple same-day items.
+Each proposal should be compact: one real-work trigger, one capability outcome, and the minimum proof needed to decide whether it happened.
 
 Each proposal must include:
 - title: short learning step name using company terminology when relevant
@@ -318,9 +458,9 @@ ${chunkText}`,
   });
 
   const parsed = LooseProposalListSchema.safeParse(output);
-  const proposals = parsed.success ? parsed.data.proposals ?? [] : [];
+  const proposals = parsed.success ? (parsed.data.proposals ?? []).slice(0, MAX_PROPOSALS_PER_ROLE) : [];
   const normalized = proposals.flatMap((proposal) => {
-    const result = normalizeProposal(proposal);
+    const result = normalizeProposal(proposal, rampTargets.targetRampDays);
     return result ? [result] : [];
   });
 
@@ -345,7 +485,7 @@ async function generateForOrg(organizationId: string) {
     return { proposalsCreated: 0, rolesProcessed: 0 };
   }
 
-  const [{ data: chunks, error }, { data: activeMilestones }, { data: draftProposals }, { data: roleProfiles }] = await Promise.all([
+  const [{ data: chunks, error }, { data: activeMilestones }, { data: draftProposals }, { data: roleProfiles }, { data: orgTools }] = await Promise.all([
     supabase
       .from('knowledge_chunks')
       .select('id, content, metadata, created_at')
@@ -354,23 +494,27 @@ async function generateForOrg(organizationId: string) {
       .limit(40),
     supabase
       .from('ramp_milestones')
-      .select('role, title, real_work_trigger')
+      .select('role, day_trigger, title, real_work_trigger')
       .eq('organization_id', organizationId)
       .eq('status', 'active')
       .limit(500),
     supabase
       .from('milestone_proposals')
-      .select('role, normalized_key')
+      .select('role, suggested_day_trigger, normalized_key')
       .eq('organization_id', organizationId)
       .eq('status', 'draft')
       .limit(500),
     supabase
       .from('role_profiles')
-      .select('role, job_description')
+      .select('role, job_description, baseline_ramp_days, target_ramp_days')
       .eq('organization_id', organizationId)
       .eq('status', 'active')
       .order('display_order', { ascending: true })
       .order('role', { ascending: true }),
+    supabase
+      .from('org_tools')
+      .select('tool_name, role')
+      .eq('organization_id', organizationId),
   ]);
 
   if (error) throw error;
@@ -398,10 +542,10 @@ async function generateForOrg(organizationId: string) {
   const existingKeysByRole = new Map<HireRole, Set<string>>(
     activeRoles.map((role) => {
       const keys = new Set<string>();
-      for (const m of (activeMilestones ?? []).filter((m) => m.role === role)) {
+      for (const m of ((activeMilestones ?? []) as ExistingMilestoneResult[]).filter((m) => m.role === role)) {
         keys.add(normalizeKey(`${m.title}-${m.real_work_trigger ?? ''}`));
       }
-      for (const p of (draftProposals ?? []).filter((p) => p.role === role)) {
+      for (const p of ((draftProposals ?? []) as DraftProposalResult[]).filter((p) => p.role === role)) {
         keys.add(p.normalized_key);
       }
       return [role, keys];
@@ -418,21 +562,55 @@ async function generateForOrg(organizationId: string) {
           role,
           chunks: typedChunks,
           roleProfile: roleProfileByRole.get(role) ?? null,
+          tools: (orgTools ?? []) as OrgToolResult[],
         });
         const existingKeys = existingKeysByRole.get(role) ?? new Set<string>();
+        const roleProfile = roleProfileByRole.get(role) ?? null;
+        const roleRampTargets = normalizeRampTargets({
+          baselineRampDays: roleProfile?.baseline_ramp_days ?? null,
+          targetRampDays: roleProfile?.target_ramp_days ?? null,
+        });
+        const occupiedDays = new Set<number>();
+        for (const milestone of ((activeMilestones ?? []) as ExistingMilestoneResult[]).filter((item) => item.role === role)) {
+          if (typeof milestone.day_trigger === 'number') occupiedDays.add(milestone.day_trigger);
+        }
+        for (const proposal of ((draftProposals ?? []) as DraftProposalResult[]).filter((item) => item.role === role)) {
+          if (typeof proposal.suggested_day_trigger === 'number') occupiedDays.add(proposal.suggested_day_trigger);
+        }
         const inserts: object[] = [];
         let duplicateCount = 0;
+        let timingConflictCount = 0;
+        let earliestDay = 0;
 
-        for (const proposal of proposals) {
+        for (const proposal of [...proposals].sort((a, b) => a.suggested_day_trigger - b.suggested_day_trigger)) {
+          if (!proposalPassesQualityGate({
+            proposal,
+            sourceEvidence,
+            chunks: typedChunks,
+            tools: (orgTools ?? []) as OrgToolResult[],
+          })) continue;
           const normalizedKey = normalizeKey(`${proposal.title}-${proposal.real_work_trigger}`);
           if (!normalizedKey || existingKeys.has(normalizedKey)) {
             duplicateCount++;
             continue;
           }
+          const assignedDay = findAvailableMilestoneDay({
+            preferredDay: proposal.suggested_day_trigger,
+            targetRampDays: roleRampTargets.targetRampDays,
+            occupiedDays,
+            earliestDay,
+            minimumSpacingDays: generatedMilestoneSpacingDays(roleRampTargets.targetRampDays),
+          });
+          if (assignedDay === null) {
+            timingConflictCount++;
+            continue;
+          }
+          occupiedDays.add(assignedDay);
+          earliestDay = assignedDay + generatedMilestoneSpacingDays(roleRampTargets.targetRampDays);
           inserts.push({
             organization_id: organizationId,
             role,
-            suggested_day_trigger: proposal.suggested_day_trigger,
+            suggested_day_trigger: assignedDay,
             title: proposal.title,
             capability_outcome: proposal.capability_outcome,
             briefing_goal: proposal.briefing_goal,
@@ -465,6 +643,7 @@ async function generateForOrg(organizationId: string) {
           proposed: proposals.length,
           created: inserts.length,
           duplicatesSkipped: duplicateCount,
+          timingConflictsSkipped: timingConflictCount,
           invalidSkipped: invalidCount,
         });
 
@@ -513,7 +692,7 @@ async function updateGenerationRun(params: {
 export const milestoneProposalGeneration = inngest.createFunction(
   {
     id: 'milestone-proposal-generation',
-    name: 'Canon: Milestone Proposal Generation',
+    name: 'Canon: Generate Role Ramp Milestone Proposals',
     retries: 1,
   },
   { event: 'onboarding/milestones.generate.requested' },
@@ -564,7 +743,7 @@ export const milestoneProposalGeneration = inngest.createFunction(
 export const milestoneProposalScheduledGeneration = inngest.createFunction(
   {
     id: 'milestone-proposal-scheduled-generation',
-    name: 'Canon: Scheduled Milestone Proposal Generation',
+    name: 'Canon: Regenerate Ramp Milestone Proposals on Schedule',
     retries: 1,
   },
   { cron: '0 7 * * 1' },

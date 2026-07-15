@@ -5,6 +5,7 @@ export { dailyRampCheck } from "./functions/dailyRampCheck";
 export { accessCoordinator } from "./functions/accessCoordinator";
 export { accessGrantedNotifier } from "./functions/accessGrantedNotifier";
 export { meetingPrepBriefing, readinessAnalysis, readinessAnalysisOnDemand } from "./functions/readinessAnalysis";
+export { milestoneEvidenceScan, milestoneEvidenceScheduledScan } from "./functions/milestoneEvidenceScan";
 export {
   milestoneProposalGeneration,
   milestoneProposalScheduledGeneration,

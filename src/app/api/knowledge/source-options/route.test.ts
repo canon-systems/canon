@@ -7,8 +7,6 @@ describe('knowledge source option labels', () => {
     expect(sourceOptionTopic('slack')).toBe('Slack channel');
     expect(sourceOptionTopic('teams', 'channel')).toBe('Teams channel');
     expect(sourceOptionTopic('teams', 'dm')).toBe('Teams chat');
-    expect(sourceOptionTopic('google_chat', 'channel')).toBe('Google Chat space');
-    expect(sourceOptionTopic('google_chat', 'dm')).toBe('Google Chat DM');
     expect(sourceOptionTopic('granola')).toBe('Meeting transcripts');
   });
 

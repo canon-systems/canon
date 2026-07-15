@@ -17,7 +17,6 @@ import {
   Radar as IconRadar,
   Send as IconSend,
   ShieldCheck as IconShieldCheck,
-  Trash2 as IconTrash,
   Users as IconUsers,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -76,7 +75,7 @@ type SourceEvidence = {
   url: string | null;
 };
 
-type DeliveryProvider = 'slack' | 'teams' | 'google_chat';
+type DeliveryProvider = 'slack' | 'teams';
 type DeliveryTargetType = 'channel' | 'dm';
 
 type DeliveryTarget = {
@@ -96,7 +95,7 @@ type IntegrationConnection = {
   status: string;
 };
 
-const deliveryProviders = ['slack', 'teams', 'google_chat'] as const satisfies readonly DeliveryProvider[];
+const deliveryProviders = ['slack'] as const satisfies readonly DeliveryProvider[];
 const digestWeekdays = [
   { value: 0, label: 'Sunday' },
   { value: 1, label: 'Monday' },
@@ -108,7 +107,7 @@ const digestWeekdays = [
 ];
 
 function isDeliveryProvider(provider: string): provider is DeliveryProvider {
-  return deliveryProviders.includes(provider as DeliveryProvider);
+  return (deliveryProviders as readonly string[]).includes(provider);
 }
 
 function slackMessageUrl(channelId: string, messageTs: string | null) {
@@ -521,15 +520,18 @@ export function ReadinessClient() {
     [categoryItems, selectedSignalIds]
   );
   const digestWeekdayLabel = digestWeekdays.find((weekday) => weekday.value === digestWeekday)?.label ?? 'Monday';
+  const providerSummaryLabel = activeDeliveryProvider ? providerLabel(activeDeliveryProvider) : 'No Provider';
   const deliverySummaryLabel = hasDeliveryTargets
-    ? `${deliveryTargets.length} ${deliveryTargets.length === 1 ? 'target' : 'targets'}`
-    : 'No targets';
+    ? `${deliveryTargets.length} ${deliveryTargets.length === 1 ? 'Target' : 'Targets'}`
+    : 'No Targets';
   const weeklyDigestSummary = weeklyDigestEnabled
     ? `${digestWeekdayLabel}, ${digestHourUtc}:00 UTC`
     : 'Off';
   const meetingPrepSummary = meetingPrepEnabled
-    ? `${meetingPrepMinutesBefore} min before`
+    ? `${meetingPrepMinutesBefore} Min Before`
     : 'Off';
+  const weeklyDigestStatus = weeklyDigestEnabled ? 'On' : 'Off';
+  const meetingPrepStatus = meetingPrepEnabled ? 'On' : 'Off';
 
   useEffect(() => {
     if (!selectedItem || selectedItem.id === selectedItemId) return;
@@ -642,14 +644,7 @@ export function ReadinessClient() {
 
   function providerLabel(provider: DeliveryProvider) {
     if (provider === 'teams') return 'Microsoft Teams';
-    if (provider === 'google_chat') return 'Google Chat';
     return 'Slack';
-  }
-
-  function providerTargetLabel(provider: DeliveryProvider | null) {
-    if (provider === 'teams') return 'Teams channel';
-    if (provider === 'google_chat') return 'Google Chat space';
-    return 'Slack channel';
   }
 
   function targetDisplayName(target: DeliveryTarget) {
@@ -659,23 +654,23 @@ export function ReadinessClient() {
     return target.targetId;
   }
 
-  function targetPickerLabel(provider: DeliveryProvider | null) {
-    if (provider === 'teams') return 'Choose Teams channel';
-    if (provider === 'google_chat') return 'Choose Google Chat space';
-    return 'Choose Slack channel';
+  function selectedTargetSummary(provider: DeliveryProvider | null) {
+    if (deliveryTargets.length === 0) return 'No Destination Selected';
+    if (deliveryTargets.length === 1) return targetDisplayName(deliveryTargets[0]);
+    void provider;
+    return `${deliveryTargets.length} Channels Selected`;
   }
 
   function targetPickerEmptyLabel(provider: DeliveryProvider | null) {
-    if (provider === 'teams') return 'No Teams channels found';
-    if (provider === 'google_chat') return 'No Google Chat spaces found';
-    return 'No Slack channels found';
+    if (provider === 'teams') return 'No Teams Channels Found';
+    return 'No Slack Channels Found';
   }
 
   function selectDeliveryProvider(provider: DeliveryProvider) {
     setSelectedDeliveryProvider(provider);
   }
 
-  function addDeliveryTarget(target: DeliveryTarget) {
+  function toggleDeliveryTarget(target: DeliveryTarget) {
     if (!activeDeliveryProvider) return;
     if (target.targetType !== 'channel') return;
     const targetId = target.targetId.trim();
@@ -685,6 +680,11 @@ export function ReadinessClient() {
     }
 
     const nextTarget: DeliveryTarget = { ...target, targetId };
+    const selected = deliveryTargets.some((selectedTarget) => deliveryTargetKey(selectedTarget) === deliveryTargetKey(nextTarget));
+    if (selected) {
+      removeDeliveryTarget(nextTarget);
+      return;
+    }
 
     if (nextTarget.provider === 'slack') {
       setSelectedChannelIds((current) => current.includes(nextTarget.targetId) ? current : [...current, nextTarget.targetId]);
@@ -1093,9 +1093,10 @@ export function ReadinessClient() {
             <TabsContent value="delivery" className="m-0 flex-1 p-3">
               <div className="rounded-[8px] border border-[var(--border-tertiary)] bg-[var(--bg-secondary)]">
                 {[
+                  { label: 'Provider', value: providerSummaryLabel },
                   { label: 'Destination', value: deliverySummaryLabel },
-                  { label: 'Weekly digest', value: weeklyDigestSummary },
-                  { label: 'Meeting prep', value: meetingPrepSummary },
+                  { label: 'Weekly Digest', value: weeklyDigestSummary },
+                  { label: 'Meeting Prep', value: meetingPrepSummary },
                 ].map((item, index) => (
                   <div
                     key={item.label}
@@ -1108,14 +1109,14 @@ export function ReadinessClient() {
                     <div className="min-w-0 truncate text-right type-caption font-medium text-[var(--text-primary)]">{item.value}</div>
                   </div>
                 ))}
-                {!activeDeliveryProvider && (
-                  <Alert className="m-2 mt-0">
-                    <IconSend size={15} />
-                    <AlertTitle>No chat tool connected</AlertTitle>
-                    <AlertDescription>Connect Slack, Microsoft Teams, or Google Chat in Settings.</AlertDescription>
-                  </Alert>
-                )}
               </div>
+              {!activeDeliveryProvider && (
+                <Alert className="mt-2">
+                  <IconSend size={15} />
+                  <AlertTitle>No Chat Tool Connected</AlertTitle>
+                  <AlertDescription>Connect Slack in Settings.</AlertDescription>
+                </Alert>
+              )}
             </TabsContent>
           </Tabs>
         </div>
@@ -1127,16 +1128,9 @@ export function ReadinessClient() {
               <div className="detail-page-header border-b px-7 py-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-3">
-                    <StatusBadge variant={hasDeliveryTargets ? 'delivered' : 'pending'} label={hasDeliveryTargets ? 'Ready' : 'Needs target'} />
+                    <StatusBadge variant={hasDeliveryTargets ? 'delivered' : 'pending'} label={hasDeliveryTargets ? 'Ready' : 'Needs Target'} />
                     <div className="min-w-0">
-                      <h2 className="type-section-title text-[var(--text-primary)]">Delivery settings</h2>
-                      <div className="mt-[2px] flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 type-caption text-[var(--text-tertiary)]">
-                        <span>{activeDeliveryProvider ? providerLabel(activeDeliveryProvider) : 'No provider'}</span>
-                        <span aria-hidden="true">/</span>
-                        <span>{deliverySummaryLabel}</span>
-                        <span aria-hidden="true">/</span>
-                        <span>{weeklyDigestSummary}</span>
-                      </div>
+                      <h2 className="type-section-title text-[var(--text-primary)]">Delivery Settings</h2>
                     </div>
                   </div>
                 </div>
@@ -1147,14 +1141,13 @@ export function ReadinessClient() {
                   className="max-w-[980px] rounded-[8px] border border-[var(--border-tertiary)] bg-[var(--bg-secondary)]"
                   aria-labelledby="delivery-plan-heading"
                 >
-                  <h3 id="delivery-plan-heading" className="sr-only">Delivery settings</h3>
+                  <h3 id="delivery-plan-heading" className="sr-only">Delivery Settings</h3>
 
                   <div className="grid gap-3 border-b border-[var(--border-tertiary)] px-4 py-3 lg:grid-cols-[150px_minmax(0,1fr)]">
                     <div>
                       <div className="type-caption font-medium text-[var(--text-primary)]">Provider</div>
-                      <div className="type-caption text-[var(--text-tertiary)]">Connected chat tool</div>
                     </div>
-                    <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Delivery provider">
+                    <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Delivery Provider">
                       {deliveryProviders.map((provider) => {
                         const connected = connectedDeliveryProviders.has(provider);
                         const selected = activeDeliveryProvider === provider;
@@ -1184,14 +1177,13 @@ export function ReadinessClient() {
                   <div className="grid gap-3 border-b border-[var(--border-tertiary)] px-4 py-3 lg:grid-cols-[150px_minmax(0,1fr)]">
                     <div>
                       <div className="type-caption font-medium text-[var(--text-primary)]">Destination</div>
-                      <div className="type-caption text-[var(--text-tertiary)]">{providerTargetLabel(activeDeliveryProvider)}</div>
                     </div>
                     <div className="min-w-0 space-y-2">
                       {!activeDeliveryProvider ? (
                         <Alert className="py-2">
                           <IconSend size={14} />
-                          <AlertTitle>No chat tool connected</AlertTitle>
-                          <AlertDescription>Connect Slack, Microsoft Teams, or Google Chat in Settings.</AlertDescription>
+                          <AlertTitle>No Chat Tool Connected</AlertTitle>
+                          <AlertDescription>Connect Slack in Settings.</AlertDescription>
                         </Alert>
                       ) : !activeProviderConnected ? (
                         <Alert className="py-2">
@@ -1204,22 +1196,29 @@ export function ReadinessClient() {
                           <div className="flex flex-wrap items-center gap-2">
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <Button variant="outline" size="sm" className="h-8 w-full justify-between sm:w-[260px]">
+                                <Button variant="outline" size="sm" className="h-8 w-full justify-between sm:w-[320px]">
                                   <span className="flex min-w-0 items-center gap-2">
                                     <IconHash size={14} />
                                     <span className={cn(
                                       'truncate',
                                       deliveryTargets.length === 0 && 'text-[var(--text-tertiary)]'
                                     )}>
-                                      {deliveryTargets.length === 0 ? 'No destination selected' : targetPickerLabel(activeDeliveryProvider)}
+                                      {selectedTargetSummary(activeDeliveryProvider)}
                                     </span>
                                   </span>
-                                  <IconChevronDown size={14} />
+                                  <span className="flex shrink-0 items-center gap-2">
+                                    {deliveryTargets.length > 0 && (
+                                      <span className="rounded-full bg-[var(--bg-secondary)] px-1.5 py-[1px] type-caption text-[var(--text-tertiary)]">
+                                        {deliveryTargets.length}
+                                      </span>
+                                    )}
+                                    <IconChevronDown size={14} />
+                                  </span>
                                 </Button>
                               </DropdownMenuTrigger>
-                              <DropdownMenuContent align="start" className="w-[300px]">
+                              <DropdownMenuContent align="start" className="w-[320px]">
                                 {targetOptionsReconnectRequired ? (
-                                  <DropdownMenuItem disabled>Reconnect {providerLabel(activeDeliveryProvider)} to load destinations</DropdownMenuItem>
+                                  <DropdownMenuItem disabled>Reconnect {providerLabel(activeDeliveryProvider)} To Load Destinations</DropdownMenuItem>
                                 ) : visibleDeliveryTargetOptions.length === 0 ? (
                                   <DropdownMenuItem disabled>{targetPickerEmptyLabel(activeDeliveryProvider)}</DropdownMenuItem>
                                 ) : (
@@ -1233,7 +1232,7 @@ export function ReadinessClient() {
                                           aria-checked={selected}
                                           onSelect={(e) => {
                                             e.preventDefault();
-                                            addDeliveryTarget(target);
+                                            toggleDeliveryTarget(target);
                                           }}
                                         >
                                           <span className="flex h-4 w-4 items-center justify-center">{selected && <IconCheck size={13} />}</span>
@@ -1246,28 +1245,6 @@ export function ReadinessClient() {
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </div>
-
-                          {deliveryTargets.length > 0 && (
-                            <div className="flex flex-wrap gap-2">
-                              {deliveryTargets.map((target) => (
-                                <span
-                                  key={deliveryTargetKey(target)}
-                                  className="inline-flex h-8 max-w-full items-center gap-2 rounded-[7px] border border-[var(--border-tertiary)] bg-[var(--bg-primary)] px-2.5 type-caption font-medium text-[var(--text-primary)]"
-                                >
-                                  <IconHash size={13} className="shrink-0 text-[var(--text-tertiary)]" />
-                                  <span className="truncate">{targetDisplayName(target)}</span>
-                                  <button
-                                    type="button"
-                                    className="-mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-[5px] text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"
-                                    onClick={() => removeDeliveryTarget(target)}
-                                    aria-label={`Remove ${targetDisplayName(target)}`}
-                                  >
-                                    <IconTrash size={12} />
-                                  </button>
-                                </span>
-                              ))}
-                            </div>
-                          )}
                         </>
                       )}
                     </div>
@@ -1275,8 +1252,7 @@ export function ReadinessClient() {
 
                   <div className="grid gap-3 border-b border-[var(--border-tertiary)] px-4 py-3 lg:grid-cols-[150px_minmax(0,1fr)]">
                     <div>
-                      <div className="type-caption font-medium text-[var(--text-primary)]">Weekly digest</div>
-                      <div className="type-caption text-[var(--text-tertiary)]">{weeklyDigestSummary}</div>
+                      <div className="type-caption font-medium text-[var(--text-primary)]">Weekly Digest</div>
                     </div>
                     <div className="flex flex-wrap items-end gap-2">
                       <label className="flex h-8 items-center gap-2 rounded-[7px] border border-[var(--border-tertiary)] bg-[var(--bg-primary)] px-2.5 type-caption font-medium text-[var(--text-primary)]">
@@ -1287,10 +1263,10 @@ export function ReadinessClient() {
                           className="h-3.5 w-3.5 shrink-0 accent-[var(--canon-purple)]"
                         />
                         <IconCalendar size={13} />
-                        <span>Enabled</span>
+                        <span>{weeklyDigestStatus}</span>
                       </label>
                       <label className="space-y-1">
-                        <span className="sr-only">Digest day</span>
+                        <span className="sr-only">Digest Day</span>
                         <select
                           value={digestWeekday}
                           onChange={(event) => setDigestWeekday(Number(event.target.value))}
@@ -1303,7 +1279,7 @@ export function ReadinessClient() {
                         </select>
                       </label>
                       <label className="space-y-1">
-                        <span className="sr-only">Digest hour UTC</span>
+                        <span className="sr-only">Digest Hour UTC</span>
                         <Input
                           type="number"
                           min={0}
@@ -1320,8 +1296,7 @@ export function ReadinessClient() {
 
                   <div className="grid gap-3 px-4 py-3 lg:grid-cols-[150px_minmax(0,1fr)]">
                     <div>
-                      <div className="type-caption font-medium text-[var(--text-primary)]">Meeting prep</div>
-                      <div className="type-caption text-[var(--text-tertiary)]">{meetingPrepSummary}</div>
+                      <div className="type-caption font-medium text-[var(--text-primary)]">Meeting Prep</div>
                     </div>
                     <div className="flex flex-wrap items-end gap-2">
                       <label className="flex h-8 items-center gap-2 rounded-[7px] border border-[var(--border-tertiary)] bg-[var(--bg-primary)] px-2.5 type-caption font-medium text-[var(--text-primary)]">
@@ -1332,10 +1307,10 @@ export function ReadinessClient() {
                           className="h-3.5 w-3.5 shrink-0 accent-[var(--canon-purple)]"
                         />
                         <IconClock size={13} />
-                        <span>Enabled</span>
+                        <span>{meetingPrepStatus}</span>
                       </label>
                       <label className="space-y-1">
-                        <span className="sr-only">Meeting prep minutes before meeting</span>
+                        <span className="sr-only">Meeting Prep Minutes Before Meeting</span>
                         <Input
                           type="number"
                           min={5}
@@ -1346,7 +1321,7 @@ export function ReadinessClient() {
                           className="h-8 w-[92px] bg-[var(--bg-primary)] type-caption font-medium"
                         />
                       </label>
-                      <span className="pb-2 type-caption text-[var(--text-tertiary)]">minutes before</span>
+                      <span className="pb-2 type-caption text-[var(--text-tertiary)]">Minutes Before</span>
                     </div>
                   </div>
                 </section>
@@ -1354,7 +1329,7 @@ export function ReadinessClient() {
               <div className="shrink-0 border-t border-[var(--border-tertiary)] bg-[var(--bg-secondary)] px-7 py-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="type-caption text-[var(--text-tertiary)]">
-                    {hasDeliveryTargets ? 'Delivery settings apply to new readiness updates.' : 'Choose a destination before saving.'}
+                    {hasDeliveryTargets ? 'Delivery Settings Apply To New Readiness Updates.' : 'Choose A Destination Before Saving.'}
                   </div>
                   <Button
                     variant="secondary"

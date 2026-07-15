@@ -41,6 +41,7 @@ import { ToolLogo } from '@/components/ToolLogo';
 import { ToolNameCombobox } from '@/components/tool-name-combobox';
 import { SlackUserPicker, type SlackUser } from '@/components/SlackUserPicker';
 import { cn } from '@/components/ui/utils';
+import { normalizeMilestoneProgressStatus } from '@/lib/onboarding/milestone-ramp';
 import type { AccessRequest, HireRole, HireStatus, NewHireMilestonePathItem, RampDelivery } from '@/types/onboarding';
 
 type HireRow = {
@@ -59,6 +60,11 @@ type HireDetail = {
   hire: HireRow & {
     email: string;
     slack_user_id: string | null;
+    manager_name: string | null;
+    manager_email: string | null;
+    manager_slack_user_id: string | null;
+    manager_chat_provider: string | null;
+    manager_chat_target_id: string | null;
   };
   deliveries: RampDelivery[];
   access_requests: AccessRequest[];
@@ -95,16 +101,20 @@ function accessLabel(status: string) {
 }
 
 function progressVariant(status: string | null | undefined) {
-  if (status === 'verified') return 'delivered';
-  if (status === 'evidence_detected') return 'stalled';
-  if (status === 'briefed') return 'upcoming';
+  const normalized = normalizeMilestoneProgressStatus(status);
+  if (normalized === 'verified') return 'delivered';
+  if (normalized === 'blocked') return 'error';
+  if (normalized === 'needs_review') return 'stalled';
+  if (normalized === 'briefed') return 'upcoming';
   return 'pending';
 }
 
 function progressLabel(status: string | null | undefined) {
-  if (status === 'verified') return 'Verified';
-  if (status === 'evidence_detected') return 'Evidence Detected';
-  if (status === 'briefed') return 'Briefed';
+  const normalized = normalizeMilestoneProgressStatus(status);
+  if (normalized === 'verified') return 'Verified';
+  if (normalized === 'blocked') return 'Blocked';
+  if (normalized === 'needs_review') return 'Needs Review';
+  if (normalized === 'briefed') return 'Briefed';
   return 'Not Started';
 }
 
@@ -616,6 +626,15 @@ export function NewHiresClient() {
                         <IconCalendar size={14} />
                         {new Date(selectedDetail.hire.start_date) > new Date() ? 'Starts' : 'Started'} {fmtDate(selectedDetail.hire.start_date)}
                       </span>
+                      {selectedDetail.hire.manager_name && (
+                        <>
+                          <span style={{ color: 'var(--border-secondary)' }}>·</span>
+                          <span className="inline-flex items-center gap-2">
+                            <IconUsers size={14} />
+                            Manager: {selectedDetail.hire.manager_name}
+                          </span>
+                        </>
+                      )}
                     </div>
                   </div>
                   <HireActionsMenu
@@ -630,8 +649,10 @@ export function NewHiresClient() {
                 {selectedDetail.milestone_path.length > 0 && (
                   <MilestoneProgress
                     milestones={selectedDetail.milestone_path.map((item, index) => {
-                      const status = item.progress?.status;
-                      const firstOpenIndex = selectedDetail.milestone_path.findIndex((candidate) => candidate.progress?.status !== 'verified');
+                      const status = normalizeMilestoneProgressStatus(item.progress?.status);
+                      const firstOpenIndex = selectedDetail.milestone_path.findIndex((candidate) => (
+                        normalizeMilestoneProgressStatus(candidate.progress?.status) !== 'verified'
+                      ));
                       return {
                         label: `D${item.milestone.day_trigger}`,
                         status: status === 'verified'
@@ -685,7 +706,7 @@ export function NewHiresClient() {
                         {selectedDetail.milestone_path.map((item) => {
                           const relatedDelivery = selectedDetail.deliveries.find((delivery) => delivery.milestone_id === item.milestone.id);
                           const evidence = item.evidence;
-                          const status = item.progress?.status ?? 'not_started';
+                          const status = normalizeMilestoneProgressStatus(item.progress?.status);
                           return (
                             <Card
                               key={item.milestone.id}
@@ -733,8 +754,23 @@ export function NewHiresClient() {
                                           {entry.evidence_type.replace(/_/g, ' ')} · {entry.trust_level} trust
                                         </div>
                                         <div className="type-caption mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>
-                                          {Math.round(entry.confidence * 100)}% match · {fmtDetailDate(entry.created_at)}
+                                          {Math.round(entry.confidence * 100)}% match · {entry.source.replace(/_/g, ' ')} · {fmtDetailDate(entry.created_at)}
                                         </div>
+                                        {entry.metadata && typeof entry.metadata === 'object' && 'response_type' in entry.metadata && (
+                                          <div className="type-caption mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>
+                                            Response: {String(entry.metadata.response_type).replace(/_/g, ' ')}
+                                          </div>
+                                        )}
+                                        {entry.metadata && typeof entry.metadata === 'object' && 'reason' in entry.metadata && (
+                                          <div className="type-body mt-2 leading-[1.5]" style={{ color: 'var(--text-secondary)' }}>
+                                            {String(entry.metadata.reason)}
+                                          </div>
+                                        )}
+                                        {entry.metadata && typeof entry.metadata === 'object' && 'excerpt' in entry.metadata && (
+                                          <div className="type-caption mt-2 line-clamp-2" style={{ color: 'var(--text-tertiary)' }}>
+                                            {String(entry.metadata.excerpt)}
+                                          </div>
+                                        )}
                                       </div>
                                     ))}
                                   </div>
@@ -869,9 +905,12 @@ export function NewHiresClient() {
         )}
       </div>
       <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
-        <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="h-[min(780px,calc(100vh-2rem))] max-h-none max-w-[920px] gap-0 overflow-hidden p-0">
+          <DialogHeader className="border-b border-[var(--border-tertiary)] bg-[var(--bg-primary)] px-6 py-5 pr-16">
             <DialogTitle>Launch Hire Path</DialogTitle>
+            <DialogDescription>
+              Set the hire, ramp role, and manager review route in one pass.
+            </DialogDescription>
           </DialogHeader>
           <NewHireForm
             onCreated={(hireId) => {
@@ -884,8 +923,8 @@ export function NewHiresClient() {
         </DialogContent>
       </Dialog>
       <Dialog open={editingHire !== null} onOpenChange={(open) => !open && setEditingHire(null)}>
-        <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="h-[min(780px,calc(100vh-2rem))] max-h-none max-w-[920px] gap-0 overflow-hidden p-0">
+          <DialogHeader className="border-b border-[var(--border-tertiary)] bg-[var(--bg-primary)] px-6 py-5 pr-16">
             <DialogTitle>Edit Hire Path</DialogTitle>
             <DialogDescription>
               Update this hire&apos;s profile and readiness start details.

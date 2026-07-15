@@ -51,7 +51,7 @@ function escapeHtml(value: string) {
     .replace(/\n/g, '<br>');
 }
 
-async function activeConnectionId(organizationId: string, provider: 'teams' | 'google_chat') {
+async function activeConnectionId(organizationId: string, provider: 'teams') {
   const supabase = createServiceRoleClient();
   const connection = await getActiveWorkspaceConnection(supabase, { organizationId, provider });
   return connection?.connection_id ?? null;
@@ -108,32 +108,9 @@ const teamsAdapter: ReadinessDeliveryAdapter = {
   },
 };
 
-const googleChatAdapter: ReadinessDeliveryAdapter = {
-  async send({ organizationId, target, text }) {
-    const connectionId = await activeConnectionId(organizationId, 'google_chat');
-    if (!connectionId) return { sent: false, reason: 'No active Google Chat connection. Connect Google Chat before sending readiness updates.' };
-
-    const space = target.target_id.trim().replace(/^spaces\//, '');
-    if (!space) return { sent: false, reason: 'Google Chat targets must use a space id such as spaces/AAAA... or AAAA...' };
-
-    try {
-      await nangoProxyPost({
-        provider: 'google_chat',
-        connectionId,
-        endpoint: `/v1/spaces/${encodeURIComponent(space)}/messages`,
-        body: { text },
-      });
-      return { sent: true, channel: target.target_id };
-    } catch (error) {
-      return { sent: false, reason: error instanceof Error ? error.message : String(error) };
-    }
-  },
-};
-
 function adapterFor(provider: ReadinessDeliveryProvider): ReadinessDeliveryAdapter {
   if (provider === 'slack') return slackAdapter;
-  if (provider === 'teams') return teamsAdapter;
-  return googleChatAdapter;
+  return teamsAdapter;
 }
 
 export async function sendReadinessDelivery(params: {

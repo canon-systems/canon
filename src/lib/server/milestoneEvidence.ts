@@ -6,7 +6,14 @@ import type {
 } from '@/types/onboarding';
 import { createLogger } from '@/lib/server/logging';
 import { createServiceRoleClient } from '@/lib/supabase/server';
-import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
+import { getSlackBotTokenForOrganization, postSlackMessage } from '@/lib/server/slack/transport';
+import {
+  isAccessStatusConfirmed,
+  isAccessStatusGranted,
+  normalizeToolName,
+  progressStatusForEvidence,
+  requiredToolsForEvidence,
+} from '@/lib/onboarding/milestone-ramp';
 
 type DbClient = SupabaseClient;
 
@@ -45,42 +52,114 @@ function confidenceForTrust(trustLevel: MilestoneEvidenceTrustLevel) {
   return 0.35;
 }
 
-function nextStatus(params: {
-  currentStatus?: string | null;
-  evidenceType: MilestoneEvidenceType;
-  trustLevel: MilestoneEvidenceTrustLevel;
-  confidence: number;
-}) {
-  if (params.currentStatus === 'verified') return 'verified';
-  if (params.evidenceType === 'new_hire_blocker') return 'evidence_detected';
-  if (params.trustLevel === 'high' && params.confidence >= 0.8) return 'verified';
-  return 'evidence_detected';
-}
-
 async function maybeSendSlackNotification(params: {
   botToken: string | null;
-  target: string | null;
+  targets: string[];
   title: string;
   body: string;
+  blocks?: unknown[];
 }) {
-  if (!params.botToken || !params.target) return false;
+  if (!params.botToken || params.targets.length === 0) return false;
 
-  const res = await fetch('https://slack.com/api/chat.postMessage', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${params.botToken}`,
-      'Content-Type': 'application/json; charset=utf-8',
+  const results = await Promise.all(params.targets.map((target) => postSlackMessage({
+    botToken: params.botToken!,
+    channel: target,
+    text: `*${params.title}*\n${params.body}`,
+    blocks: params.blocks,
+  })));
+
+  return results.some((result) => result.ok);
+}
+
+function uniqueSlackTargets(metadata: Record<string, unknown>) {
+  const targets = new Set<string>();
+  const singleTarget = typeof metadata.notify_slack_target === 'string'
+    ? metadata.notify_slack_target
+    : typeof metadata.manager_slack_user_id === 'string'
+      ? metadata.manager_slack_user_id
+      : null;
+  if (singleTarget?.trim()) targets.add(singleTarget.trim());
+
+  if (Array.isArray(metadata.notify_slack_targets)) {
+    for (const target of metadata.notify_slack_targets) {
+      if (typeof target === 'string' && target.trim()) targets.add(target.trim());
+    }
+  }
+
+  return Array.from(targets);
+}
+
+function compactSlackText(value: unknown, fallback = '') {
+  if (typeof value !== 'string') return fallback;
+  const compacted = value.replace(/\s+/g, ' ').trim();
+  return compacted.length <= 500 ? compacted : `${compacted.slice(0, 497).trimEnd()}...`;
+}
+
+function managerReviewBlocks(params: {
+  title: string;
+  body: string;
+  newHireId: string;
+  milestoneId: string;
+  evidenceId: string;
+  evidenceType: MilestoneEvidenceType;
+  verified: boolean;
+  metadata: Record<string, unknown>;
+}) {
+  const blocks: unknown[] = [
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `*${params.title}*\n${params.body}`,
+      },
     },
-    body: JSON.stringify({
-      channel: params.target,
-      text: `*${params.title}*\n${params.body}`,
-      unfurl_links: false,
-      unfurl_media: false,
-    }),
-  });
+  ];
 
-  const data = (await res.json().catch(() => null)) as { ok?: boolean } | null;
-  return Boolean(data?.ok);
+  const reason = compactSlackText(params.metadata.reason);
+  const excerpt = compactSlackText(params.metadata.excerpt);
+  if (reason) {
+    blocks.push({
+      type: 'section',
+      text: { type: 'mrkdwn', text: `*Why Canon flagged it:*\n${reason}` },
+    });
+  }
+  if (excerpt) {
+    blocks.push({
+      type: 'context',
+      elements: [{ type: 'mrkdwn', text: `_${excerpt}_` }],
+    });
+  }
+
+  if (!params.verified && params.evidenceType !== 'new_hire_blocker') {
+    const value = `${params.newHireId}|${params.milestoneId}|${params.evidenceId}`;
+    blocks.push({
+      type: 'actions',
+      elements: [
+        {
+          type: 'button',
+          text: { type: 'plain_text', text: 'Verify', emoji: true },
+          style: 'primary',
+          action_id: 'manager_milestone_verify',
+          value,
+        },
+        {
+          type: 'button',
+          text: { type: 'plain_text', text: 'Keep open', emoji: true },
+          action_id: 'manager_milestone_keep_open',
+          value,
+        },
+        {
+          type: 'button',
+          text: { type: 'plain_text', text: 'Mark blocked', emoji: true },
+          style: 'danger',
+          action_id: 'manager_milestone_mark_blocked',
+          value,
+        },
+      ],
+    });
+  }
+
+  return blocks;
 }
 
 function notificationCopy(params: {
@@ -154,7 +233,7 @@ export async function recordMilestoneEvidence(params: RecordEvidenceParams) {
     .eq('milestone_id', params.milestoneId)
     .maybeSingle();
 
-  const resolvedStatus = nextStatus({
+  const resolvedStatus = progressStatusForEvidence({
     currentStatus: existingProgress?.status,
     evidenceType: params.evidenceType,
     trustLevel: params.trustLevel,
@@ -250,31 +329,28 @@ export async function recordMilestoneEvidence(params: RecordEvidenceParams) {
   });
 
   const metadata = params.metadata ?? {};
-  const slackTarget = typeof metadata.notify_slack_target === 'string'
-    ? metadata.notify_slack_target
-    : typeof metadata.manager_slack_user_id === 'string'
-      ? metadata.manager_slack_user_id
-      : null;
+  const slackTargets = uniqueSlackTargets(metadata);
   let slackBotToken: string | null = null;
   if (hire.organization_id) {
     const admin = createServiceRoleClient();
-    const { data: slackConn } = await admin
-      .from('oauth_connections')
-      .select('connection_id')
-      .eq('organization_id', hire.organization_id)
-      .eq('provider', 'slack')
-      .eq('status', 'active')
-      .maybeSingle();
-    if (slackConn) {
-      slackBotToken = await getProviderAccessToken({ provider: 'slack', connectionId: slackConn.connection_id });
-    }
+    slackBotToken = await getSlackBotTokenForOrganization({ supabase: admin, organizationId: hire.organization_id });
   }
 
   const slackSent = await maybeSendSlackNotification({
     botToken: slackBotToken,
-    target: slackTarget,
+    targets: slackTargets,
     title: copy.title,
     body: copy.body,
+    blocks: managerReviewBlocks({
+      title: copy.title,
+      body: copy.body,
+      newHireId: params.newHireId,
+      milestoneId: params.milestoneId,
+      evidenceId: evidence.id,
+      evidenceType: params.evidenceType,
+      verified: resolvedStatus === 'verified',
+      metadata,
+    }),
   });
 
   const { error: notificationError } = await params.supabase.from('onboarding_notifications').insert({
@@ -285,7 +361,7 @@ export async function recordMilestoneEvidence(params: RecordEvidenceParams) {
     title: copy.title,
     body: copy.body,
     delivery_channel: 'app',
-    slack_target: slackTarget,
+    slack_target: slackTargets[0] ?? null,
     slack_sent_at: slackSent ? new Date().toISOString() : null,
   });
 
@@ -316,21 +392,6 @@ export async function recordMilestoneEvidence(params: RecordEvidenceParams) {
   return { ok: true, progress, evidence, verified: resolvedStatus === 'verified' };
 }
 
-function metadataStringArray(value: unknown) {
-  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0) : [];
-}
-
-function requiredTools(requirements: MilestoneEvidenceRequirement[]) {
-  const tools = new Set<string>();
-  for (const requirement of requirements) {
-    if (requirement.type !== 'access_readiness') continue;
-    const metadata = requirement.metadata ?? {};
-    for (const tool of metadataStringArray(metadata.tools)) tools.add(tool);
-    if (typeof metadata.tool === 'string' && metadata.tool.trim()) tools.add(metadata.tool.trim());
-  }
-  return Array.from(tools);
-}
-
 export async function syncAccessReadinessEvidence(params: {
   supabase: DbClient;
   newHireId: string;
@@ -359,8 +420,13 @@ export async function syncAccessReadinessEvidence(params: {
 
   const grantedTools = new Set(
     (accessRequests ?? [])
-      .filter((request) => request.status === 'granted')
-      .map((request) => String(request.tool_name).toLowerCase())
+      .filter((request) => isAccessStatusGranted(request.status))
+      .map((request) => normalizeToolName(String(request.tool_name)))
+  );
+  const confirmedTools = new Set(
+    (accessRequests ?? [])
+      .filter((request) => isAccessStatusConfirmed(request.status))
+      .map((request) => normalizeToolName(String(request.tool_name)))
   );
 
   let checked = 0;
@@ -368,12 +434,13 @@ export async function syncAccessReadinessEvidence(params: {
 
   for (const milestone of milestones ?? []) {
     const requirements = (milestone.evidence_requirements ?? []) as MilestoneEvidenceRequirement[];
-    const tools = requiredTools(requirements);
+    const tools = requiredToolsForEvidence(requirements);
     if (tools.length === 0) continue;
     checked++;
 
-    const allGranted = tools.every((tool) => grantedTools.has(tool.toLowerCase()));
+    const allGranted = tools.every((tool) => grantedTools.has(normalizeToolName(tool)));
     if (!allGranted) continue;
+    const allConfirmed = tools.every((tool) => confirmedTools.has(normalizeToolName(tool)));
 
     const result = await recordMilestoneEvidence({
       supabase: params.supabase,
@@ -381,10 +448,10 @@ export async function syncAccessReadinessEvidence(params: {
       milestoneId: milestone.id,
       evidenceType: 'access_readiness',
       trustLevel: 'high',
-      confidence: 0.92,
+      confidence: allConfirmed ? 0.98 : 0.88,
       source: 'access_requests',
       sourceEventId: `access-ready:${params.newHireId}:${milestone.id}:${tools.sort().join(',')}`,
-      metadata: { tools },
+      metadata: { tools, confirmed: allConfirmed },
       createdBy: params.createdBy ?? null,
     });
 

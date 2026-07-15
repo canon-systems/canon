@@ -41,7 +41,7 @@ function teamsName(record: RawRecord) {
   return stringField(record, ['displayName', 'topic', 'name', 'subject']) ?? 'Untitled';
 }
 
-async function activeConnectionId(organizationId: string, provider: 'teams' | 'google_chat') {
+async function activeConnectionId(organizationId: string, provider: 'teams') {
   const supabase = createServiceRoleClient();
   const connection = await getActiveWorkspaceConnection(supabase, { organizationId, provider });
   return connection?.connection_id ?? null;
@@ -113,37 +113,6 @@ async function listTeamsTargets(organizationId: string, scope: DeliveryTargetSco
   return targets;
 }
 
-async function listGoogleChatTargets(organizationId: string, scope: DeliveryTargetScope): Promise<DeliveryTargetOption[]> {
-  const connectionId = await activeConnectionId(organizationId, 'google_chat');
-  if (!connectionId) return [];
-
-  const spacesResponse = await nangoProxyGet({
-    provider: 'google_chat',
-    connectionId,
-    endpoint: '/v1/spaces',
-    query: {
-      pageSize: 100,
-      ...(scope === 'channels' ? { filter: 'spaceType = "SPACE"' } : {}),
-    },
-  });
-
-  return arrayField(spacesResponse, ['spaces', 'value', 'data']).flatMap((rawSpace): DeliveryTargetOption[] => {
-    if (!isRecord(rawSpace)) return [];
-    const name = stringField(rawSpace, ['name']);
-    if (!name) return [];
-    const displayName = stringField(rawSpace, ['displayName', 'spaceDisplayName']) ?? name;
-    const type = stringField(rawSpace, ['spaceType', 'type']);
-    return [{
-      provider: 'google_chat',
-      targetType: type === 'SPACE' ? 'channel' : 'dm',
-      targetId: name,
-      targetName: displayName,
-      enabled: true,
-      label: displayName,
-    }];
-  });
-}
-
 export async function listDeliveryTargets(params: {
   organizationId: string;
   provider: ReadinessDeliveryProvider;
@@ -151,6 +120,5 @@ export async function listDeliveryTargets(params: {
 }): Promise<DeliveryTargetOption[]> {
   const scope = params.targetScope ?? 'all';
   if (params.provider === 'teams') return listTeamsTargets(params.organizationId, scope);
-  if (params.provider === 'google_chat') return listGoogleChatTargets(params.organizationId, scope);
   return [];
 }

@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
-import { listDeliveryTargets } from '@/lib/server/integrations/chat-targets';
 import { listSlackChannels } from '@/lib/server/integrations/nativeSlack';
 import { requireWorkspace } from '@/lib/server/organization';
 import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
-import { isReadinessDeliveryProvider } from '@/lib/server/readiness/delivery-targets';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 
 export const dynamic = 'force-dynamic';
@@ -53,18 +51,13 @@ export async function GET(request: NextRequest) {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const provider = request.nextUrl.searchParams.get('provider');
-    if (!isReadinessDeliveryProvider(provider)) {
+    if (provider !== 'slack') {
       return NextResponse.json({ error: 'Unsupported delivery provider' }, { status: 400 });
     }
 
     const { organization } = await requireWorkspace(user);
-    if (provider === 'slack') {
-      const { targets, reconnectRequired } = await listSlackTargets(organization.id);
-      return NextResponse.json({ targets, reconnectRequired });
-    }
-
-    const targets = await listDeliveryTargets({ organizationId: organization.id, provider, targetScope: 'channels' });
-    return NextResponse.json({ targets, reconnectRequired: false });
+    const { targets, reconnectRequired } = await listSlackTargets(organization.id);
+    return NextResponse.json({ targets, reconnectRequired });
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     console.error('[api/onboarding/readiness/delivery-target-options] GET failed', error);

@@ -20,7 +20,6 @@ export function providerLabel(provider: string) {
   if (provider === 'slack') return 'Slack';
   if (provider === 'granola') return 'Granola';
   if (provider === 'teams') return 'Microsoft Teams';
-  if (provider === 'google_chat') return 'Google Chat';
   if (provider === 'gmail') return 'Gmail';
   if (provider === 'google_calendar') return 'Google Calendar';
   if (provider === 'outlook') return 'Outlook';
@@ -31,7 +30,6 @@ export function disconnectDescription(provider: string) {
   if (provider === 'slack') return 'Canon will stop using Slack conversations and will no longer send Slack updates.';
   if (provider === 'granola') return 'Canon will stop using Granola meetings and transcripts.';
   if (provider === 'teams') return 'Canon will stop using Microsoft Teams conversations.';
-  if (provider === 'google_chat') return 'Canon will stop using Google Chat conversations and delivery targets.';
   if (provider === 'gmail') return 'Canon will stop using Gmail messages.';
   if (provider === 'google_calendar') return 'Canon will stop using Google Calendar events.';
   if (provider === 'outlook') return 'Canon will stop using Outlook messages.';

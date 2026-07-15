@@ -59,7 +59,7 @@ async function assertSyncStillActive(
 export const knowledgeSourceSync = inngest.createFunction(
   {
     id: 'knowledge-source-sync',
-    name: 'Canon: Knowledge Source Sync',
+    name: 'Canon: Sync One Knowledge Source',
     retries: 2,
     concurrency: {
       limit: 1,
@@ -114,7 +114,7 @@ export const knowledgeSourceSync = inngest.createFunction(
       return { skipped: true, reason: 'status_not_syncable', status: sourceRow.status };
     }
 
-    return adapter.sync({
+    const result = await adapter.sync({
       supabase,
       source: sourceRow,
       sourceId,
@@ -124,5 +124,18 @@ export const knowledgeSourceSync = inngest.createFunction(
       log,
       assertActive: (phase) => assertSyncStillActive(supabase, sourceId, phase),
     });
+
+    if (result?.ok && !result.stopped) {
+      await step.sendEvent('queue-milestone-evidence-scan', {
+        name: 'onboarding/milestones.evidence.scan.requested',
+        data: {
+          organizationId,
+          sourceId,
+          reason: 'knowledge_sync_complete',
+        },
+      });
+    }
+
+    return result;
   }
 );

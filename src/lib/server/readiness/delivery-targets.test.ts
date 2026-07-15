@@ -46,13 +46,13 @@ describe('readiness delivery target parsing', () => {
 
   it('builds database row inputs with organization ownership', () => {
     expect(deliveryTargetRows([
-      { provider: 'google_chat', targetType: 'channel', targetId: 'spaces/AAAA', targetName: 'Customer updates' },
+      { provider: 'teams', targetType: 'channel', targetId: 'team_1/channel_1', targetName: 'Customer updates' },
     ], 'org_123')).toEqual([
       {
         organization_id: 'org_123',
-        provider: 'google_chat',
+        provider: 'teams',
         target_type: 'channel',
-        target_id: 'spaces/AAAA',
+        target_id: 'team_1/channel_1',
         target_name: 'Customer updates',
         enabled: true,
       },

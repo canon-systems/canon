@@ -16,6 +16,8 @@ const log = createLogger('api.integrations.nango.connect', {
   },
 });
 
+const hiddenNangoProviders = new Set(['teams']);
+
 export async function POST(request: NextRequest) {
   try {
     const { user } = await getSession();
@@ -25,6 +27,10 @@ export async function POST(request: NextRequest) {
 
     const body = (await request.json().catch(() => ({}))) as { provider?: string };
     const provider = typeof body.provider === 'string' ? body.provider.trim().toLowerCase() : '';
+    if (hiddenNangoProviders.has(provider)) {
+      return NextResponse.json({ error: 'Unsupported Nango provider' }, { status: 400 });
+    }
+
     const integration = nangoIntegrationForProvider(provider);
     if (!provider || !integration) {
       return NextResponse.json({ error: 'Unsupported Nango provider' }, { status: 400 });

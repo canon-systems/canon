@@ -89,8 +89,6 @@ export function SettingsPageClient() {
 
   const slackConnection = connections.find(c => c.provider === 'slack' && c.status === 'active');
   const granolaConnection = connections.find(c => c.provider === 'granola' && c.status === 'active');
-  const teamsConnection = connections.find(c => c.provider === 'teams' && c.status === 'active');
-  const googleChatConnection = connections.find(c => c.provider === 'google_chat' && c.status === 'active');
   const gmailConnection = connections.find(c => c.provider === 'gmail' && c.status === 'active');
   const googleCalendarConnection = connections.find(c => c.provider === 'google_calendar' && c.status === 'active');
   const outlookConnection = connections.find(c => c.provider === 'outlook' && c.status === 'active');
@@ -117,30 +115,6 @@ export function SettingsPageClient() {
       action: granolaConnection
         ? () => openDisconnectModal(granolaConnection.connection_id, 'granola')
         : () => connectNangoProvider('granola'),
-    },
-    {
-      id: 'teams',
-      provider: 'teams' as const,
-      name: 'Microsoft Teams',
-      description: 'Bring in Teams conversations and send readiness updates where your team works.',
-      logoUrl: integrationLogoUrl('teams'),
-      connected: !!teamsConnection,
-      workspace: teamsConnection ? `Connected ${formatDate(teamsConnection.created_at)}` : '',
-      action: teamsConnection
-        ? () => openDisconnectModal(teamsConnection.connection_id, 'teams')
-        : () => connectNangoProvider('teams'),
-    },
-    {
-      id: 'google-chat',
-      provider: 'google_chat' as const,
-      name: 'Google Chat',
-      description: 'Bring in Chat spaces and send readiness updates where your Google Workspace team works.',
-      logoUrl: integrationLogoUrl('google_chat'),
-      connected: !!googleChatConnection,
-      workspace: googleChatConnection ? `Connected ${formatDate(googleChatConnection.created_at)}` : '',
-      action: googleChatConnection
-        ? () => openDisconnectModal(googleChatConnection.connection_id, 'google_chat')
-        : () => connectNangoProvider('google_chat'),
     },
     {
       id: 'gmail',

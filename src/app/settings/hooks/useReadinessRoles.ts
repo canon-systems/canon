@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
+import { DEFAULT_BASELINE_RAMP_DAYS, DEFAULT_TARGET_RAMP_DAYS } from '@/lib/onboarding/milestone-ramp';
 import { activeRoleProfiles, normalizeRoleName } from '@/lib/onboarding/roles';
 import type { RoleProfile } from '@/types/onboarding';
 
@@ -14,9 +15,14 @@ type UseReadinessRolesParams = {
 export function useReadinessRoles({ roleProfiles, reload }: UseReadinessRolesParams) {
   const [addRoleOpen, setAddRoleOpen] = useState(false);
   const [addRoleSaving, setAddRoleSaving] = useState(false);
-  const [newRole, setNewRole] = useState({ role: '', job_description: '' });
+  const [newRole, setNewRole] = useState({
+    role: '',
+    job_description: '',
+    baseline_ramp_days: String(DEFAULT_BASELINE_RAMP_DAYS),
+    target_ramp_days: String(DEFAULT_TARGET_RAMP_DAYS),
+  });
   const [editingRole, setEditingRole] = useState<RoleProfile | null>(null);
-  const [editRoleForm, setEditRoleForm] = useState({ job_description: '' });
+  const [editRoleForm, setEditRoleForm] = useState({ job_description: '', baseline_ramp_days: '90', target_ramp_days: '45' });
   const [editRoleSaving, setEditRoleSaving] = useState(false);
   const [archivingRole, setArchivingRole] = useState<RoleProfile | null>(null);
   const [archiveRoleSaving, setArchiveRoleSaving] = useState(false);
@@ -41,11 +47,18 @@ export function useReadinessRoles({ roleProfiles, reload }: UseReadinessRolesPar
         body: JSON.stringify({
           role,
           job_description: newRole.job_description,
+          baseline_ramp_days: Number(newRole.baseline_ramp_days),
+          target_ramp_days: Number(newRole.target_ramp_days),
         }),
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) throw new Error(data.error ?? 'add_role');
-      setNewRole({ role: '', job_description: '' });
+      setNewRole({
+        role: '',
+        job_description: '',
+        baseline_ramp_days: String(DEFAULT_BASELINE_RAMP_DAYS),
+        target_ramp_days: String(DEFAULT_TARGET_RAMP_DAYS),
+      });
       setAddRoleOpen(false);
       await reload();
       toast.success('Role added');
@@ -58,7 +71,11 @@ export function useReadinessRoles({ roleProfiles, reload }: UseReadinessRolesPar
 
   function openEditRole(profile: RoleProfile) {
     setEditingRole(profile);
-    setEditRoleForm({ job_description: profile.job_description ?? '' });
+    setEditRoleForm({
+      job_description: profile.job_description ?? '',
+      baseline_ramp_days: String(profile.baseline_ramp_days ?? DEFAULT_BASELINE_RAMP_DAYS),
+      target_ramp_days: String(profile.target_ramp_days ?? DEFAULT_TARGET_RAMP_DAYS),
+    });
   }
 
   async function saveRole() {
@@ -71,6 +88,8 @@ export function useReadinessRoles({ roleProfiles, reload }: UseReadinessRolesPar
         body: JSON.stringify({
           role: editingRole.role,
           job_description: editRoleForm.job_description,
+          baseline_ramp_days: Number(editRoleForm.baseline_ramp_days),
+          target_ramp_days: Number(editRoleForm.target_ramp_days),
         }),
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string };
@@ -113,6 +132,8 @@ export function useReadinessRoles({ roleProfiles, reload }: UseReadinessRolesPar
         body: JSON.stringify({
           role: profile.role,
           job_description: profile.job_description ?? '',
+          baseline_ramp_days: profile.baseline_ramp_days ?? DEFAULT_BASELINE_RAMP_DAYS,
+          target_ramp_days: profile.target_ramp_days ?? DEFAULT_TARGET_RAMP_DAYS,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string };

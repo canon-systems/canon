@@ -6,6 +6,7 @@ import { requireWorkspace, requireWorkspaceAdmin } from '@/lib/server/organizati
 export const dynamic = 'force-dynamic';
 
 const STOPPABLE_STATUSES = new Set(['pending', 'syncing']);
+const ACTIVE_KNOWLEDGE_PROVIDERS = new Set(['slack', 'granola']);
 
 const log = createLogger('api.onboarding.knowledge.source', {
   label: 'Knowledge Source API',
@@ -33,6 +34,20 @@ export async function PATCH(
     }
 
     const { supabase, organization } = await requireWorkspace(user);
+
+    const { data: existingSource, error: lookupError } = await supabase
+      .from('knowledge_sources')
+      .select('id, provider')
+      .eq('id', id)
+      .eq('organization_id', organization.id)
+      .single();
+
+    if (lookupError || !existingSource) {
+      return NextResponse.json({ error: 'Knowledge source not found' }, { status: 404 });
+    }
+    if (!ACTIVE_KNOWLEDGE_PROVIDERS.has(existingSource.provider)) {
+      return NextResponse.json({ error: 'Unsupported knowledge provider' }, { status: 400 });
+    }
 
     const { data: source, error } = await supabase
       .from('knowledge_sources')
@@ -76,13 +91,16 @@ export async function DELETE(
 
     const { data: source } = await supabase
       .from('knowledge_sources')
-      .select('id, name, slack_channel_id, slack_channel_name, status')
+      .select('id, name, slack_channel_id, slack_channel_name, status, provider')
       .eq('id', id)
       .eq('organization_id', organization.id)
       .single();
 
     if (!source) {
       return NextResponse.json({ error: 'Knowledge source not found' }, { status: 404 });
+    }
+    if (!ACTIVE_KNOWLEDGE_PROVIDERS.has(source.provider)) {
+      return NextResponse.json({ error: 'Unsupported knowledge provider' }, { status: 400 });
     }
 
     if (STOPPABLE_STATUSES.has(source.status)) {

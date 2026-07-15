@@ -2,7 +2,6 @@ import { auth, clerkClient } from '@clerk/nextjs/server';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import type { CanonUser } from '@/lib/auth';
-import { DEFAULT_ROLES } from '@/lib/onboarding/roles';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 
 export type OrganizationRole = 'owner' | 'admin' | 'member';
@@ -91,22 +90,6 @@ async function activeClerkOrganization(): Promise<ClerkOrganizationDetails> {
   };
 }
 
-async function ensureDefaultRoleProfiles(supabase: SupabaseClient, organizationId: string) {
-  const rows = DEFAULT_ROLES.map((role, index) => ({
-    organization_id: organizationId,
-    role,
-    display_order: (index + 1) * 10,
-    status: 'active',
-    updated_at: new Date().toISOString(),
-  }));
-
-  const { error } = await supabase
-    .from('role_profiles')
-    .upsert(rows, { onConflict: 'organization_id,role', ignoreDuplicates: true });
-
-  if (error) throwSupabaseError('Failed to prepare default role profiles.', error);
-}
-
 export async function ensureCanonOrganizationForClerkOrg(
   supabase: SupabaseClient,
   clerkOrg: ClerkOrganizationDetails
@@ -128,8 +111,6 @@ export async function ensureCanonOrganizationForClerkOrg(
   if (error || !organization) {
     throwSupabaseError('Failed to prepare organization.', error);
   }
-
-  await ensureDefaultRoleProfiles(supabase, organization.id);
 
   return {
     ...organization,

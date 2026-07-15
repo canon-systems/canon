@@ -7,7 +7,6 @@ import {
   roleFromClerk,
   type ClerkOrganizationDetails,
 } from './organization';
-import { DEFAULT_ROLES } from '@/lib/onboarding/roles';
 
 type QueryCall =
   | { method: 'from'; table: string }
@@ -86,7 +85,7 @@ describe('organization bootstrap', () => {
     expect(isWorkspaceAdmin(roleFromClerk('org:member'))).toBe(false);
   });
 
-  it('upserts the Canon organization by Clerk org id and seeds default role profiles', async () => {
+  it('upserts the Canon organization by Clerk org id without seeding tenant-specific setup data', async () => {
     const { supabase, calls } = createSupabaseSpy();
 
     await expect(ensureCanonOrganizationForClerkOrg(supabase, clerkOrg())).resolves.toEqual({
@@ -109,18 +108,6 @@ describe('organization bootstrap', () => {
       owner_id: 'user_owner_123',
     });
 
-    const roleProfileUpsert = calls.find(
-      (call): call is Extract<QueryCall, { method: 'upsert' }> => call.method === 'upsert' && call.table === 'role_profiles'
-    );
-    expect(roleProfileUpsert?.options).toEqual({ onConflict: 'organization_id,role', ignoreDuplicates: true });
-    expect(roleProfileUpsert?.values).toEqual(
-      DEFAULT_ROLES.map((role, index) => expect.objectContaining({
-        organization_id: 'org_db_123',
-        role,
-        display_order: (index + 1) * 10,
-        status: 'active',
-        updated_at: expect.any(String),
-      }))
-    );
+    expect(calls.some((call) => call.method === 'upsert' && call.table === 'role_profiles')).toBe(false);
   });
 });

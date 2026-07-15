@@ -5,7 +5,6 @@ import { resolve } from 'node:path';
 
 const PROVIDER_CONFIG_DEFAULTS = {
   teams: ['NANGO_TEAMS_INTEGRATION_ID', 'NANGO_TEAMS_PROVIDER_CONFIG_KEY', 'NANGO_MICROSOFT_TEAMS_INTEGRATION_ID', 'NANGO_MICROSOFT_TEAMS_PROVIDER_CONFIG_KEY', 'microsoft-teams'],
-  google_chat: ['NANGO_GOOGLE_CHAT_INTEGRATION_ID', 'NANGO_GOOGLE_CHAT_PROVIDER_CONFIG_KEY', 'google-chat'],
 };
 
 function loadEnvFile(path) {
@@ -43,20 +42,18 @@ function parseArgs(argv) {
 function usage() {
   return `Usage:
   npm run smoke:chat -- --provider teams --connection-id <conn> --list
-  npm run smoke:chat -- --provider google_chat --connection-id <conn> --list
   npm run smoke:chat -- --provider teams --organization-id <org> --list
   CANON_SMOKE_ALLOW_SEND=true npm run smoke:chat -- --provider teams --connection-id <conn> --send --target-type channel --target-id <teamId/channelId>
   CANON_SMOKE_ALLOW_SEND=true npm run smoke:chat -- --provider teams --connection-id <conn> --send --target-type dm --target-id <chatId>
-  CANON_SMOKE_ALLOW_SEND=true npm run smoke:chat -- --provider google_chat --connection-id <conn> --send --target-id <spaces/AAAA...>
 
 Options:
-  --provider       teams | google_chat
+  --provider       teams
   --connection-id  Nango connection id for a sandbox connection
   --organization-id Canon organization id, used to discover a tagged Nango connection
-  --list           List available Teams/Google Chat targets
+  --list           List available Teams targets
   --send           Send one smoke-test message
   --target-type    Teams only: channel | dm
-  --target-id      Teams channel teamId/channelId, Teams chatId, or Google Chat spaces/...
+  --target-id      Teams channel teamId/channelId or Teams chatId
   --message        Optional message text`;
 }
 
@@ -121,7 +118,6 @@ async function nangoApi({ path, query }) {
 
 function providerAliases(provider) {
   if (provider === 'teams') return new Set(['teams', 'microsoft-teams', 'microsoft_teams', 'ms-teams', providerConfigKey(provider)]);
-  if (provider === 'google_chat') return new Set(['google-chat', 'google_chat', 'gchat', providerConfigKey(provider)]);
   return new Set([providerConfigKey(provider)]);
 }
 
@@ -197,24 +193,6 @@ async function listTeamsTargets(connectionId) {
   return targets;
 }
 
-async function listGoogleChatTargets(connectionId) {
-  const response = await nangoProxy({
-    provider: 'google_chat',
-    connectionId,
-    endpoint: '/v1/spaces',
-    query: { pageSize: 100 },
-  });
-  return arrayField(response, ['spaces', 'value', 'data']).flatMap((space) => {
-    const id = stringField(space, ['name']);
-    if (!id) return [];
-    return [{
-      type: stringField(space, ['spaceType', 'type']) === 'DIRECT_MESSAGE' ? 'dm' : 'channel',
-      id,
-      name: stringField(space, ['displayName', 'spaceDisplayName']) ?? id,
-    }];
-  });
-}
-
 function teamsChannelParts(targetId) {
   const separator = targetId.includes('/') ? '/' : ':';
   const [teamId, channelId] = targetId.split(separator).map((part) => part.trim()).filter(Boolean);
@@ -254,18 +232,6 @@ async function sendTeams({ connectionId, targetType, targetId, message }) {
   });
 }
 
-async function sendGoogleChat({ connectionId, targetId, message }) {
-  const space = targetId.trim().replace(/^spaces\//, '');
-  if (!space) throw new Error('Google Chat target must be spaces/AAAA... or AAAA...');
-  return nangoProxy({
-    provider: 'google_chat',
-    connectionId,
-    endpoint: `/v1/spaces/${encodeURIComponent(space)}/messages`,
-    method: 'POST',
-    body: { text: smokeMessage('Google Chat', message) },
-  });
-}
-
 function printTargets(targets) {
   if (targets.length === 0) {
     console.log('No targets returned. Check provider scopes, tenant permissions, and the Nango connection.');
@@ -283,7 +249,7 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const provider = args.provider;
 
-  if (!provider || !['teams', 'google_chat'].includes(provider) || (!args['connection-id'] && !args['organization-id'] && !process.env.CANON_SMOKE_NANGO_CONNECTION_ID) || (!args.list && !args.send)) {
+  if (!provider || provider !== 'teams' || (!args['connection-id'] && !args['organization-id'] && !process.env.CANON_SMOKE_NANGO_CONNECTION_ID) || (!args.list && !args.send)) {
     console.error(usage());
     process.exit(2);
   }
@@ -297,9 +263,7 @@ async function main() {
   if (!connectionId) throw new Error(`No ${provider} Nango connection found. Pass --connection-id or a tagged --organization-id.`);
 
   if (args.list) {
-    const targets = provider === 'teams'
-      ? await listTeamsTargets(connectionId)
-      : await listGoogleChatTargets(connectionId);
+    const targets = await listTeamsTargets(connectionId);
     printTargets(targets);
   }
 
@@ -309,18 +273,12 @@ async function main() {
     }
     if (!args['target-id']) throw new Error('Missing --target-id');
 
-    const result = provider === 'teams'
-      ? await sendTeams({
-          connectionId,
-          targetType: args['target-type'] === 'dm' ? 'dm' : 'channel',
-          targetId: args['target-id'],
-          message: args.message,
-        })
-      : await sendGoogleChat({
-          connectionId,
-          targetId: args['target-id'],
-          message: args.message,
-        });
+    const result = await sendTeams({
+      connectionId,
+      targetType: args['target-type'] === 'dm' ? 'dm' : 'channel',
+      targetId: args['target-id'],
+      message: args.message,
+    });
 
     console.log(JSON.stringify({
       ok: true,

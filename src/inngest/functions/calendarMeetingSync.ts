@@ -50,7 +50,7 @@ function meetingContent(event: {
 export const calendarMeetingSync = inngest.createFunction(
   {
     id: 'calendar-meeting-sync',
-    name: 'Canon: Calendar Meeting Sync',
+    name: 'Canon: Sync Upcoming Calendar Meetings',
     retries: 1,
   },
   { cron: '0 * * * *' },

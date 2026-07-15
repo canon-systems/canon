@@ -48,7 +48,7 @@ export function validSlackDmTargets(values: unknown): string[] {
 }
 
 export function isReadinessDeliveryProvider(value: unknown): value is ReadinessDeliveryProvider {
-  return value === 'slack' || value === 'teams' || value === 'google_chat';
+  return value === 'slack' || value === 'teams';
 }
 
 function isReadinessDeliveryTargetType(value: unknown): value is ReadinessDeliveryTargetType {

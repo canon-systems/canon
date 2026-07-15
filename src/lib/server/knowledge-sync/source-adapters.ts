@@ -20,6 +20,7 @@ import {
 import { fetchEmbedPersistTeamChatSource } from '@/lib/server/knowledge-sync/chat-sync';
 import { SyncStoppedError } from '@/lib/server/knowledge-sync/errors';
 import { getActiveProviderConnection, type KnowledgeProvider } from '@/lib/server/knowledge-sync/source-repository';
+import { defaultSourceSyncPolicy } from '@/lib/knowledge/source-sync-policy';
 
 type SupabaseServiceClient = ReturnType<typeof createServiceRoleClient>;
 
@@ -92,6 +93,7 @@ async function syncGranolaSource(context: KnowledgeSourceAdapterContext): Promis
     organizationId: context.organizationId,
     log: context.log,
   });
+  const syncPolicy = defaultSourceSyncPolicy(context.source.provider);
 
   if (!connectionId) {
     context.log.error('sync_failed', {
@@ -133,6 +135,8 @@ async function syncGranolaSource(context: KnowledgeSourceAdapterContext): Promis
         sourceId: context.sourceId,
         sourceName: context.source.name,
         connectionId,
+        syncWindowDays: syncPolicy.syncWindowDays,
+        syncItemLimit: syncPolicy.syncItemLimit,
         log: context.log,
         assertActive: context.assertActive,
       });
@@ -166,6 +170,8 @@ async function syncGranolaSource(context: KnowledgeSourceAdapterContext): Promis
       transcriptItems,
       transcriptTextChars,
       chunksEmbedded: embeddedCount,
+      windowDays: syncPolicy.syncWindowDays,
+      itemLimit: syncPolicy.syncItemLimit,
       downstreamQueued: embeddedCount > 0,
       ms: elapsedMs(context.syncStartedAt),
     });
@@ -201,6 +207,7 @@ async function syncSlackSource(context: KnowledgeSourceAdapterContext): Promise<
     context.organizationId
   );
   const channel = context.source.slack_channel_name || context.source.name;
+  const syncPolicy = defaultSourceSyncPolicy(context.source.provider);
 
   if (!accessToken) {
     context.log.error('sync_failed', {
@@ -264,6 +271,8 @@ async function syncSlackSource(context: KnowledgeSourceAdapterContext): Promise<
         channelId: context.source.slack_channel_id!,
         channelName: channel,
         accessToken,
+        syncWindowDays: syncPolicy.syncWindowDays,
+        syncItemLimit: syncPolicy.syncItemLimit,
         log: context.log,
         assertActive: context.assertActive,
       });
@@ -281,6 +290,8 @@ async function syncSlackSource(context: KnowledgeSourceAdapterContext): Promise<
       sourceId: context.sourceId,
       channel,
       chunksEmbedded: embeddedCount,
+      windowDays: syncPolicy.syncWindowDays,
+      itemLimit: syncPolicy.syncItemLimit,
       ms: elapsedMs(context.syncStartedAt),
     });
     return { ok: true, sourceId: context.sourceId, chunksEmbedded: embeddedCount };
@@ -330,7 +341,8 @@ async function syncSlackSource(context: KnowledgeSourceAdapterContext): Promise<
 }
 
 async function syncTeamChatSource(context: KnowledgeSourceAdapterContext): Promise<Record<string, unknown>> {
-  const provider = context.source.provider === 'google_chat' ? 'google_chat' : 'teams';
+  const provider = 'teams';
+  const syncPolicy = defaultSourceSyncPolicy(provider);
   const { connectionId } = await getActiveProviderConnection(context.supabase, {
     organizationId: context.organizationId,
     provider,
@@ -376,6 +388,8 @@ async function syncTeamChatSource(context: KnowledgeSourceAdapterContext): Promi
         connectionId,
         targetId,
         targetName,
+        syncWindowDays: syncPolicy.syncWindowDays,
+        syncItemLimit: syncPolicy.syncItemLimit,
         log: context.log,
         assertActive: context.assertActive,
       });
@@ -395,6 +409,8 @@ async function syncTeamChatSource(context: KnowledgeSourceAdapterContext): Promi
       provider,
       messages: messageCount,
       chunksEmbedded: embeddedCount,
+      windowDays: syncPolicy.syncWindowDays,
+      itemLimit: syncPolicy.syncItemLimit,
       ms: elapsedMs(context.syncStartedAt),
     });
     return { ok: true, sourceId: context.sourceId, messages: messageCount, chunksEmbedded: embeddedCount };
@@ -443,14 +459,6 @@ const sourceAdapters = {
     provider: 'teams',
     validate(source) {
       if (!source.slack_channel_id && !source.name) return { ok: false, reason: 'missing_teams_target_id' };
-      return { ok: true };
-    },
-    sync: syncTeamChatSource,
-  },
-  google_chat: {
-    provider: 'google_chat',
-    validate(source) {
-      if (!source.slack_channel_id && !source.name) return { ok: false, reason: 'missing_google_chat_space_id' };
       return { ok: true };
     },
     sync: syncTeamChatSource,

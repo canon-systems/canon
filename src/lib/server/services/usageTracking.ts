@@ -37,19 +37,9 @@ async function trackSourceLifecycleEvent(
 }
 
 export function sourceUrlFromSourceScope(
-  provider: string | null | undefined,
+  _provider: string | null | undefined,
   scope: Record<string, unknown> | null | undefined
 ): string | null {
-  const normalizedProvider = String(provider || '').trim().toLowerCase();
-  if (normalizedProvider === 'github' || normalizedProvider === 'gitlab') {
-    const repoValue = typeof scope?.repo === 'string' ? scope.repo.trim() : '';
-    if (!repoValue) return null;
-    if (/^https?:\/\//i.test(repoValue)) return repoValue;
-    const cleanedRepo = repoValue.replace(/^\/+|\/+$/g, '');
-    if (!cleanedRepo.includes('/')) return null;
-    return `https://${normalizedProvider}.com/${cleanedRepo}`;
-  }
-
   const urlValue = typeof scope?.url === 'string' ? scope.url.trim() : '';
   return urlValue || null;
 }

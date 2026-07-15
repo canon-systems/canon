@@ -130,6 +130,7 @@ export async function GET() {
       .from('knowledge_sources')
       .select('*')
       .eq('organization_id', organization.id)
+      .in('provider', ['slack', 'granola'])
       .order('created_at', { ascending: false });
 
     if (error) throw error;

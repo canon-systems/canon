@@ -3,6 +3,7 @@ import { getSession } from '@/lib/auth';
 import { inngest } from '@/inngest/client';
 import { createLogger } from '@/lib/server/logging';
 import { normalizeRoleName } from '@/lib/onboarding/roles';
+import { normalizeRampTargets } from '@/lib/onboarding/milestone-ramp';
 import { requireWorkspace, requireWorkspaceAdmin } from '@/lib/server/organization';
 import type { HireRole, MilestoneEvidenceRequirement } from '@/types/onboarding';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -85,6 +86,71 @@ async function isActiveRole(
     .maybeSingle();
 
   return Boolean(data);
+}
+
+async function roleTargetRampDays(
+  supabase: SupabaseClient,
+  organizationId: string,
+  role: string
+) {
+  const { data } = await supabase
+    .from('role_profiles')
+    .select('baseline_ramp_days, target_ramp_days')
+    .eq('organization_id', organizationId)
+    .eq('role', role)
+    .eq('status', 'active')
+    .maybeSingle();
+
+  return normalizeRampTargets({
+    baselineRampDays: typeof data?.baseline_ramp_days === 'number' ? data.baseline_ramp_days : null,
+    targetRampDays: typeof data?.target_ramp_days === 'number' ? data.target_ramp_days : null,
+  }).targetRampDays;
+}
+
+async function hasActiveMilestoneOnDay(params: {
+  supabase: SupabaseClient;
+  organizationId: string;
+  role: string;
+  dayTrigger: number;
+  excludeMilestoneId?: string;
+}) {
+  let query = params.supabase
+    .from('ramp_milestones')
+    .select('id')
+    .eq('organization_id', params.organizationId)
+    .eq('role', params.role)
+    .eq('day_trigger', params.dayTrigger)
+    .eq('status', 'active')
+    .limit(1);
+
+  if (params.excludeMilestoneId) query = query.neq('id', params.excludeMilestoneId);
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []).length > 0;
+}
+
+async function hasDraftProposalOnDay(params: {
+  supabase: SupabaseClient;
+  organizationId: string;
+  role: string;
+  dayTrigger: number;
+  excludeProposalId?: string;
+}) {
+  let query = params.supabase
+    .from('milestone_proposals')
+    .select('id')
+    .eq('organization_id', params.organizationId)
+    .eq('role', params.role)
+    .eq('suggested_day_trigger', params.dayTrigger)
+    .eq('status', 'draft')
+    .limit(1);
+
+  if (params.excludeProposalId) query = query.neq('id', params.excludeProposalId);
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []).length > 0;
 }
 
 export async function GET(request: NextRequest) {
@@ -223,6 +289,39 @@ export async function POST(request: NextRequest) {
 
     if (body.action === 'update_proposal') {
       if (!body.proposal_id) return NextResponse.json({ error: 'proposal_id is required' }, { status: 400 });
+      const { data: currentProposal, error: currentProposalError } = await supabase
+        .from('milestone_proposals')
+        .select('id, role, suggested_day_trigger')
+        .eq('id', body.proposal_id)
+        .eq('organization_id', organization.id)
+        .eq('status', 'draft')
+        .single();
+      if (currentProposalError || !currentProposal) return NextResponse.json({ error: 'Proposal not found or already resolved' }, { status: 404 });
+
+      const nextDayTrigger = typeof body.day_trigger === 'number'
+        ? body.day_trigger
+        : currentProposal.suggested_day_trigger;
+      if (typeof nextDayTrigger === 'number') {
+        const [activeConflict, draftConflict] = await Promise.all([
+          hasActiveMilestoneOnDay({
+            supabase,
+            organizationId: organization.id,
+            role: currentProposal.role,
+            dayTrigger: nextDayTrigger,
+          }),
+          hasDraftProposalOnDay({
+            supabase,
+            organizationId: organization.id,
+            role: currentProposal.role,
+            dayTrigger: nextDayTrigger,
+            excludeProposalId: currentProposal.id,
+          }),
+        ]);
+        if (activeConflict || draftConflict) {
+          return NextResponse.json({ error: `Day ${nextDayTrigger} already has a learning step for this role` }, { status: 409 });
+        }
+      }
+
       const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
       if (typeof body.day_trigger === 'number') updates.suggested_day_trigger = body.day_trigger;
       const updTitle = stringField(body.title);
@@ -288,6 +387,18 @@ export async function POST(request: NextRequest) {
 
       const title = stringField(body.title) || proposal.title;
       const dayTrigger = typeof body.day_trigger === 'number' ? body.day_trigger : proposal.suggested_day_trigger;
+      const targetRampDays = await roleTargetRampDays(supabase, organization.id, proposal.role);
+      if (!Number.isInteger(dayTrigger) || dayTrigger < 0 || dayTrigger > targetRampDays) {
+        return NextResponse.json({ error: `Day must be between 0 and ${targetRampDays} for this role` }, { status: 400 });
+      }
+      if (await hasActiveMilestoneOnDay({
+        supabase,
+        organizationId: organization.id,
+        role: proposal.role,
+        dayTrigger,
+      })) {
+        return NextResponse.json({ error: `Day ${dayTrigger} already has a learning step for this role` }, { status: 409 });
+      }
       const capabilityOutcome = stringField(body.capability_outcome) || proposal.capability_outcome;
       const briefingGoal = stringField(body.briefing_goal) || proposal.briefing_goal;
       const realWorkTrigger = stringField(body.real_work_trigger) || proposal.real_work_trigger;
@@ -366,6 +477,18 @@ export async function POST(request: NextRequest) {
     }
     if (!(await isActiveRole(supabase, organization.id, role))) {
       return NextResponse.json({ error: 'Role is not active' }, { status: 400 });
+    }
+    const targetRampDays = await roleTargetRampDays(supabase, organization.id, role);
+    if (!Number.isInteger(day_trigger) || day_trigger < 0 || day_trigger > targetRampDays) {
+      return NextResponse.json({ error: `Day must be between 0 and ${targetRampDays} for this role` }, { status: 400 });
+    }
+    if (await hasActiveMilestoneOnDay({
+      supabase,
+      organizationId: organization.id,
+      role,
+      dayTrigger: day_trigger,
+    })) {
+      return NextResponse.json({ error: `Day ${day_trigger} already has a learning step for this role` }, { status: 409 });
     }
 
     const { data: milestone, error } = await supabase
@@ -457,6 +580,27 @@ export async function PATCH(request: NextRequest) {
     }
     if (role && !(await isActiveRole(supabase, organization.id, role))) {
       return NextResponse.json({ error: 'Role is not active' }, { status: 400 });
+    }
+    const existingRole = role;
+    const validationRole = existingRole ?? (await supabase
+      .from('ramp_milestones')
+      .select('role')
+      .eq('id', milestoneId)
+      .eq('organization_id', organization.id)
+      .single()).data?.role;
+    if (!validationRole) return NextResponse.json({ error: 'Milestone not found' }, { status: 404 });
+    const targetRampDays = await roleTargetRampDays(supabase, organization.id, validationRole);
+    if (dayTrigger > targetRampDays) {
+      return NextResponse.json({ error: `Day must be between 0 and ${targetRampDays} for this role` }, { status: 400 });
+    }
+    if (await hasActiveMilestoneOnDay({
+      supabase,
+      organizationId: organization.id,
+      role: validationRole,
+      dayTrigger,
+      excludeMilestoneId: milestoneId,
+    })) {
+      return NextResponse.json({ error: `Day ${dayTrigger} already has a learning step for this role` }, { status: 409 });
     }
 
     const { data: milestone, error } = await supabase

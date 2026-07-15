@@ -133,7 +133,7 @@ export function ReadinessSettings({ readinessSettings }: ReadinessSettingsProps)
                       <div className="min-w-0">
                         <div className="type-card-title text-[var(--text-primary)]">{profile.role}</div>
                         <div className="type-caption mt-[2px] text-[var(--text-tertiary)]">
-                          {roleTools.length} tool{roleTools.length === 1 ? '' : 's'} configured
+                          {roleTools.length} tool{roleTools.length === 1 ? '' : 's'} configured · {profile.baseline_ramp_days ?? 90} to {profile.target_ramp_days ?? 45} days
                         </div>
                         <p className="type-body mt-2 line-clamp-2 text-[var(--text-secondary)]">
                           {profile.job_description || 'No job description saved yet.'}
@@ -236,6 +236,28 @@ export function ReadinessSettings({ readinessSettings }: ReadinessSettingsProps)
                 className={`${textareaFieldClass} min-h-[220px]`}
               />
             </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className={fieldLabelClass}>Current Ramp Days</label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={365}
+                  value={newRole.baseline_ramp_days}
+                  onChange={(e) => setNewRole((p) => ({ ...p, baseline_ramp_days: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className={fieldLabelClass}>Target Ramp Days</label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={365}
+                  value={newRole.target_ramp_days}
+                  onChange={(e) => setNewRole((p) => ({ ...p, target_ramp_days: e.target.value }))}
+                />
+              </div>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="secondary" onClick={() => setAddRoleOpen(false)} disabled={addRoleSaving}>Cancel</Button>
@@ -253,18 +275,42 @@ export function ReadinessSettings({ readinessSettings }: ReadinessSettingsProps)
             <DialogTitle>{editingRole?.role ?? 'Edit Role'}</DialogTitle>
             <DialogDescription>Update what Canon should know about this role.</DialogDescription>
           </DialogHeader>
-          <div>
-            <label className={fieldLabelClass}>
-              Job Description
-            </label>
-            <Textarea
-              value={editRoleForm.job_description}
-              onChange={(e) => setEditRoleForm({ job_description: e.target.value })}
-              placeholder="Paste responsibilities, tools, customer interactions, and success criteria."
-              maxLength={12000}
-              className={`${textareaFieldClass} min-h-[280px]`}
-            />
-            <p className={fieldHintClass}>{editRoleForm.job_description.length}/12000</p>
+          <div className="space-y-3">
+            <div>
+              <label className={fieldLabelClass}>
+                Job Description
+              </label>
+              <Textarea
+                value={editRoleForm.job_description}
+                onChange={(e) => setEditRoleForm((p) => ({ ...p, job_description: e.target.value }))}
+                placeholder="Paste responsibilities, tools, customer interactions, and success criteria."
+                maxLength={12000}
+                className={`${textareaFieldClass} min-h-[240px]`}
+              />
+              <p className={fieldHintClass}>{editRoleForm.job_description.length}/12000</p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className={fieldLabelClass}>Current Ramp Days</label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={365}
+                  value={editRoleForm.baseline_ramp_days}
+                  onChange={(e) => setEditRoleForm((p) => ({ ...p, baseline_ramp_days: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className={fieldLabelClass}>Target Ramp Days</label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={365}
+                  value={editRoleForm.target_ramp_days}
+                  onChange={(e) => setEditRoleForm((p) => ({ ...p, target_ramp_days: e.target.value }))}
+                />
+              </div>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="secondary" onClick={() => setEditingRole(null)} disabled={editRoleSaving}>Cancel</Button>

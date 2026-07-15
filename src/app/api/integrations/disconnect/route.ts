@@ -61,6 +61,9 @@ export async function POST(request: NextRequest) {
     if (!connectionId && !normalizedProvider) {
       return NextResponse.json({ error: 'Missing connectionId or provider' }, { status: 400 });
     }
+    if (normalizedProvider === 'teams') {
+      return NextResponse.json({ error: 'Unsupported integration provider' }, { status: 400 });
+    }
 
     const supabase = createServiceRoleClient();
 
@@ -97,6 +100,9 @@ export async function POST(request: NextRequest) {
       connection_id: row.connection_id,
       provider: String(row.provider || '').toLowerCase(),
     }));
+    if (connectionRows.some((row) => row.provider === 'teams')) {
+      return NextResponse.json({ error: 'Unsupported integration provider' }, { status: 400 });
+    }
 
     const integrationProviderSet = new Set<string>();
     if (normalizedProvider) integrationProviderSet.add(normalizedProvider);
@@ -112,7 +118,7 @@ export async function POST(request: NextRequest) {
     }
 
     const readinessDeliveryProviders = Array.from(integrationProviderSet)
-      .filter((provider) => provider === 'slack' || provider === 'teams' || provider === 'google_chat');
+      .filter((provider) => provider === 'slack' || provider === 'teams');
 
     if (readinessDeliveryProviders.length > 0) {
       const { error: deliveryTargetsDeleteError } = await supabase
