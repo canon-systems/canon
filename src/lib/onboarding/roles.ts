@@ -1,11 +1,5 @@
 import type { HireRole, RoleProfile } from '@/types/onboarding';
 
-export const DEFAULT_ROLES: HireRole[] = [
-  'AI Solutions Architect',
-  'Solutions Engineer',
-  'Implementation Engineer',
-];
-
 const ROLE_COLORS = [
   'var(--role-ai)',
   'var(--role-se)',
@@ -40,16 +34,12 @@ export function roleAbbreviation(role: HireRole) {
 }
 
 export function roleColor(role: HireRole, index = 0) {
-  if (role === 'AI Solutions Architect') return 'var(--role-ai)';
-  if (role === 'Solutions Engineer') return 'var(--role-se)';
-  if (role === 'Implementation Engineer') return 'var(--role-ie)';
+  void role;
   return ROLE_COLORS[index % ROLE_COLORS.length];
 }
 
 export function roleIconColor(role: HireRole, index = 0) {
-  if (role === 'AI Solutions Architect') return ROLE_ICON_COLORS[0];
-  if (role === 'Solutions Engineer') return ROLE_ICON_COLORS[1];
-  if (role === 'Implementation Engineer') return ROLE_ICON_COLORS[2];
+  void role;
 
   const normalizedIndex = ((index % ROLE_ICON_COLORS.length) + ROLE_ICON_COLORS.length) % ROLE_ICON_COLORS.length;
   return ROLE_ICON_COLORS[normalizedIndex];

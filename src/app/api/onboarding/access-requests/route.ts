@@ -145,12 +145,15 @@ export async function PATCH(request: NextRequest) {
 
     if (error || !updated) return NextResponse.json({ error: 'Access request not found or update failed' }, { status: 404 });
 
-    if (status === 'granted') {
+    if (status === 'granted' || status === 'confirmed') {
       await syncAccessReadinessEvidence({
         supabase,
         newHireId: updated.new_hire_id,
         createdBy: user.id,
       });
+    }
+
+    if (status === 'granted') {
       // Ask the new hire to confirm they've logged in
       await inngest.send({
         name: 'onboarding/access.granted',

@@ -41,6 +41,7 @@ import { ToolLogo } from '@/components/ToolLogo';
 import { ToolNameCombobox } from '@/components/tool-name-combobox';
 import { SlackUserPicker, type SlackUser } from '@/components/SlackUserPicker';
 import { cn } from '@/components/ui/utils';
+import { normalizeMilestoneProgressStatus } from '@/lib/onboarding/milestone-ramp';
 import type { AccessRequest, HireRole, HireStatus, NewHireMilestonePathItem, RampDelivery } from '@/types/onboarding';
 
 type HireRow = {
@@ -95,16 +96,20 @@ function accessLabel(status: string) {
 }
 
 function progressVariant(status: string | null | undefined) {
-  if (status === 'verified') return 'delivered';
-  if (status === 'evidence_detected') return 'stalled';
-  if (status === 'briefed') return 'upcoming';
+  const normalized = normalizeMilestoneProgressStatus(status);
+  if (normalized === 'verified') return 'delivered';
+  if (normalized === 'blocked') return 'error';
+  if (normalized === 'needs_review') return 'stalled';
+  if (normalized === 'briefed') return 'upcoming';
   return 'pending';
 }
 
 function progressLabel(status: string | null | undefined) {
-  if (status === 'verified') return 'Verified';
-  if (status === 'evidence_detected') return 'Evidence Detected';
-  if (status === 'briefed') return 'Briefed';
+  const normalized = normalizeMilestoneProgressStatus(status);
+  if (normalized === 'verified') return 'Verified';
+  if (normalized === 'blocked') return 'Blocked';
+  if (normalized === 'needs_review') return 'Needs Review';
+  if (normalized === 'briefed') return 'Briefed';
   return 'Not Started';
 }
 
@@ -630,8 +635,10 @@ export function NewHiresClient() {
                 {selectedDetail.milestone_path.length > 0 && (
                   <MilestoneProgress
                     milestones={selectedDetail.milestone_path.map((item, index) => {
-                      const status = item.progress?.status;
-                      const firstOpenIndex = selectedDetail.milestone_path.findIndex((candidate) => candidate.progress?.status !== 'verified');
+                      const status = normalizeMilestoneProgressStatus(item.progress?.status);
+                      const firstOpenIndex = selectedDetail.milestone_path.findIndex((candidate) => (
+                        normalizeMilestoneProgressStatus(candidate.progress?.status) !== 'verified'
+                      ));
                       return {
                         label: `D${item.milestone.day_trigger}`,
                         status: status === 'verified'
@@ -685,7 +692,7 @@ export function NewHiresClient() {
                         {selectedDetail.milestone_path.map((item) => {
                           const relatedDelivery = selectedDetail.deliveries.find((delivery) => delivery.milestone_id === item.milestone.id);
                           const evidence = item.evidence;
-                          const status = item.progress?.status ?? 'not_started';
+                          const status = normalizeMilestoneProgressStatus(item.progress?.status);
                           return (
                             <Card
                               key={item.milestone.id}
@@ -733,8 +740,13 @@ export function NewHiresClient() {
                                           {entry.evidence_type.replace(/_/g, ' ')} · {entry.trust_level} trust
                                         </div>
                                         <div className="type-caption mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>
-                                          {Math.round(entry.confidence * 100)}% match · {fmtDetailDate(entry.created_at)}
+                                          {Math.round(entry.confidence * 100)}% match · {entry.source.replace(/_/g, ' ')} · {fmtDetailDate(entry.created_at)}
                                         </div>
+                                        {entry.metadata && typeof entry.metadata === 'object' && 'response_type' in entry.metadata && (
+                                          <div className="type-caption mt-[2px]" style={{ color: 'var(--text-tertiary)' }}>
+                                            Response: {String(entry.metadata.response_type).replace(/_/g, ' ')}
+                                          </div>
+                                        )}
                                       </div>
                                     ))}
                                   </div>

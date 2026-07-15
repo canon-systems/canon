@@ -3,9 +3,9 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { inngest } from '@/inngest/client';
 import { syncAccessReadinessEvidence, recordMilestoneEvidence } from '@/lib/server/milestoneEvidence';
-import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
 import { createLogger } from '@/lib/server/logging';
 import { getAccessRequestContext } from '@/lib/server/slackInteractions';
+import { getSlackBotTokenForOrganization } from '@/lib/server/slack/transport';
 
 export const dynamic = 'force-dynamic';
 // Must use nodejs runtime to access crypto and read the raw body
@@ -70,16 +70,7 @@ async function getBotTokenForHire(newHireId: string): Promise<string | null> {
     .single();
   if (!hire) return null;
 
-  const { data: connection } = await supabase
-    .from('oauth_connections')
-    .select('connection_id')
-    .eq('organization_id', hire.organization_id)
-    .eq('provider', 'slack')
-    .eq('status', 'active')
-    .maybeSingle();
-  if (!connection) return null;
-
-  return getProviderAccessToken({ provider: 'slack', connectionId: connection.connection_id });
+  return getSlackBotTokenForOrganization({ supabase, organizationId: hire.organization_id });
 }
 
 async function openMilestoneFeedbackModal(params: {
@@ -262,6 +253,41 @@ export async function POST(request: NextRequest) {
         });
       }
 
+      if (action?.action_id === 'milestone_happened' || action?.action_id === 'milestone_did_not_happen') {
+        const [newHireId, milestoneId] = (action.value ?? '').split('|');
+        const happened = action.action_id === 'milestone_happened';
+
+        if (!newHireId || !milestoneId) {
+          log.warn('interaction_skipped', { reason: 'missing_milestone_button_params', actionId: action.action_id });
+          return new NextResponse('', { status: 200 });
+        }
+
+        const supabase = createServiceRoleClient();
+        await recordMilestoneEvidence({
+          supabase,
+          newHireId,
+          milestoneId,
+          evidenceType: happened ? 'communication_activity' : 'new_hire_blocker',
+          trustLevel: happened ? 'medium' : 'low',
+          confidence: happened ? 0.65 : 0.2,
+          source: 'new_hire_slack_response',
+          sourceEventId: `slack-action:${newHireId}:${milestoneId}:${action.action_id}:${payload.user?.id ?? 'unknown'}`,
+          metadata: {
+            response_type: happened ? 'happened' : 'did_not_happen',
+            slack_user_id: payload.user?.id ?? null,
+            slack_user_name: payload.user?.name ?? null,
+          },
+        }).catch((err: unknown) => {
+          log.error('interaction_failed', { reason: 'record_milestone_action_failed', error: err instanceof Error ? err.message : String(err) });
+        });
+
+        log.info('milestone_feedback_received', {
+          newHireId,
+          milestoneId,
+          responseType: happened ? 'happened' : 'did_not_happen',
+        });
+      }
+
       if (action?.action_id === 'access_confirmed_by_hire') {
         const accessRequestId = action.value;
         if (!accessRequestId) {
@@ -300,6 +326,10 @@ export async function POST(request: NextRequest) {
           organizationId: requestContext.organization_id,
           confirmedBy: payload.user?.name ?? payload.user?.id ?? '(unknown)',
           event: 'hire_confirmed_access',
+        });
+
+        await syncAccessReadinessEvidence({ supabase, newHireId: updated.new_hire_id }).catch((err: unknown) => {
+          log.warn('interaction_skipped', { reason: 'sync_readiness_after_confirm_failed', error: err instanceof Error ? err.message : String(err) });
         });
 
         if (payload.response_url) {

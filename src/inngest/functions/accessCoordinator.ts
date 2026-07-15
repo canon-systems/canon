@@ -1,7 +1,7 @@
 import { inngest } from '../client';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { createLogger, errorMessage } from '@/lib/server/logging';
-import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
+import { getSlackBotTokenForOrganization, postSlackDm } from '@/lib/server/slack/transport';
 
 type AccessRequestCreatedEvent = {
   accessRequestId?: string;
@@ -84,34 +84,12 @@ async function sendAccessRequestDM(params: {
     },
   ];
 
-  const openRes = await fetch('https://slack.com/api/conversations.open', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${params.botToken}`,
-      'Content-Type': 'application/json; charset=utf-8',
-    },
-    body: JSON.stringify({ users: params.slackUserId }),
+  const data = await postSlackDm({
+    botToken: params.botToken,
+    slackUserId: params.slackUserId,
+    blocks,
+    text: `Access request for ${params.newHireName}: needs access to ${params.toolName}`,
   });
-  const openData = (await openRes.json()) as { ok: boolean; channel?: { id: string }; error?: string };
-  if (!openData.ok || !openData.channel?.id) {
-    return { ok: false, error: openData.error ?? 'conversations_open_failed' };
-  }
-
-  const res = await fetch('https://slack.com/api/chat.postMessage', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${params.botToken}`,
-      'Content-Type': 'application/json; charset=utf-8',
-    },
-    body: JSON.stringify({
-      channel: openData.channel.id,
-      blocks,
-      text: `Access request for ${params.newHireName}: needs access to ${params.toolName}`,
-      unfurl_links: false,
-    }),
-  });
-
-  const data = (await res.json()) as { ok: boolean; ts?: string; error?: string };
   return data;
 }
 
@@ -171,25 +149,7 @@ export const accessCoordinator = inngest.createFunction(
       return { skipped: true, reason: 'no_slack_id_for_requester' };
     }
 
-    const { data: slackConnection } = await supabase
-      .from('oauth_connections')
-      .select('connection_id')
-      .eq('organization_id', hire.organization_id)
-      .eq('provider', 'slack')
-      .eq('status', 'active')
-      .maybeSingle();
-
-    if (!slackConnection) {
-      log.warn('coordinator_skipped', {
-        accessRequestId,
-        tool: request.tool_name,
-        hire: `${hire.first_name} ${hire.last_name}`,
-        reason: 'no_slack_connection — connect Slack in Settings → Integrations',
-      });
-      return { skipped: true, reason: 'no_slack_connection' };
-    }
-
-    const botToken = await getProviderAccessToken({ provider: 'slack', connectionId: slackConnection.connection_id });
+    const botToken = await getSlackBotTokenForOrganization({ supabase, organizationId: hire.organization_id });
 
     if (!botToken) {
       log.warn('coordinator_skipped', {

@@ -6,6 +6,8 @@ import { createLogger, errorMessage } from '@/lib/server/logging';
 import { syncAccessReadinessEvidence } from '@/lib/server/milestoneEvidence';
 import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
 import { rampDayFromStartDate } from '@/lib/onboarding/rampDay';
+import { pickNextActionableMilestone } from '@/lib/onboarding/milestone-ramp';
+import { postSlackDm } from '@/lib/server/slack/transport';
 import type { HireRole, RampMilestone, MilestoneEvidenceRequirement } from '@/types/onboarding';
 
 const log = createLogger('inngest.daily_ramp_check', {
@@ -22,30 +24,6 @@ const log = createLogger('inngest.daily_ramp_check', {
 });
 
 type KnowledgeChunkResult = { id: string; content: string; metadata: Record<string, unknown>; similarity: number };
-
-async function sendSlackDM(params: {
-  botToken: string;
-  slackUserId: string;
-  blocks: unknown[];
-  text: string;
-}): Promise<{ ok: boolean; ts?: string; error?: string }> {
-  const res = await fetch('https://slack.com/api/chat.postMessage', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${params.botToken}`,
-      'Content-Type': 'application/json; charset=utf-8',
-    },
-    body: JSON.stringify({
-      channel: params.slackUserId,
-      blocks: params.blocks,
-      text: params.text,
-      unfurl_links: false,
-      unfurl_media: false,
-    }),
-  });
-  const data = (await res.json()) as { ok: boolean; ts?: string; error?: string };
-  return data;
-}
 
 function buildBlockKitMessage(params: {
   rampDay: number;
@@ -81,6 +59,19 @@ function buildBlockKitMessage(params: {
   blocks.push({
     type: 'actions',
     elements: [
+      {
+        type: 'button',
+        text: { type: 'plain_text', text: 'This happened', emoji: true },
+        value: buttonValue,
+        action_id: 'milestone_happened',
+        style: 'primary',
+      },
+      {
+        type: 'button',
+        text: { type: 'plain_text', text: 'This did not happen', emoji: true },
+        value: buttonValue,
+        action_id: 'milestone_did_not_happen',
+      },
       {
         type: 'button',
         text: { type: 'plain_text', text: 'Need more context', emoji: true },
@@ -125,7 +116,7 @@ async function generateSummary(params: {
   const successSignals = metadataStringArray(milestone.success_signals);
 
   if (chunks.length === 0) {
-    return `Hey ${firstName}!\n\nDay ${rampDay} briefing: *${milestone.title}*.\n\n*Why this matters:* ${capabilityOutcome}\n\n*Real work to watch for:* ${realWorkTrigger}\n\n*What Canon will look for:* ${evidenceSummary(requirements)}\n\n_Company knowledge is still being indexed, so this briefing may get sharper as more context syncs._`;
+    return `Hey ${firstName}, here is the next ramp step.\n\n*Why:* ${capabilityOutcome}\n*Watch for:* ${realWorkTrigger}\n*Proof:* ${evidenceSummary(requirements)}`;
   }
 
   const chunkText = chunks.map((c) => c.content).join('\n\n---\n\n');
@@ -145,11 +136,14 @@ ${chunkText}
 Write a Slack message that:
 - Opens with a friendly greeting using their first name
 - Briefs them before the real work, without assigning homework or a practice task
-- Summarizes the most useful 2-3 company-specific insights in plain language
-- Calls out what to watch for in the real experience
-- States what evidence will prove readiness
-- Ends with what to expect next (${nextMilestone ? `the next milestone: Day ${nextMilestone.day_trigger} — ${nextMilestone.title}` : 'that they are making great progress'})
-- Is under 260 words total
+- Uses this compact format:
+  "Hey [first name], here is the next ramp step."
+  "*Why:* one sentence"
+  "*Watch for:* one sentence"
+  "*Proof:* one sentence"
+  Optional final line: "*Next:* ${nextMilestone ? `Day ${nextMilestone.day_trigger} — ${nextMilestone.title}` : 'Canon will wait for proof before sending the next step'}"
+- Uses at most 95 words total
+- Includes only the one or two most useful company-specific facts
 - Never mentions "chunks", "embeddings", "RAG", or any technical implementation detail`;
 
   const { text } = await generateText({ model: llm, prompt });
@@ -242,13 +236,14 @@ export const dailyRampCheck = inngest.createFunction(
               .in('milestone_id', dueIds),
           ]);
 
-          const deliveredIds = new Set((existingDeliveries ?? []).map((row) => row.milestone_id));
-          const progressByMilestone = new Map((progressRows ?? []).map((row) => [row.milestone_id, row.status]));
-          const milestone = (dueMilestones ?? []).find((candidate) => {
-            if (deliveredIds.has(candidate.id)) return false;
-            const status = progressByMilestone.get(candidate.id);
-            return !status || status === 'not_started';
-          }) ?? null;
+          const milestone = pickNextActionableMilestone(
+            (dueMilestones ?? []) as RampMilestone[],
+            (progressRows ?? []).map((row) => ({
+              milestone_id: row.milestone_id,
+              status: row.status,
+            })),
+            (existingDeliveries ?? []).map((row) => ({ milestone_id: row.milestone_id }))
+          );
           if (!milestone) return;
 
           if (!hire.slack_user_id) {
@@ -331,7 +326,7 @@ export const dailyRampCheck = inngest.createFunction(
             milestoneId: milestone.id,
           });
 
-          const slackResult = await sendSlackDM({
+          const slackResult = await postSlackDm({
             botToken,
             slackUserId: hire.slack_user_id,
             blocks,

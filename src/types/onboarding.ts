@@ -12,7 +12,7 @@ export type ReadinessDeliveryTargetType = 'channel' | 'dm';
 export type ReadinessSourceType = 'team_chat' | 'transcript' | 'email' | 'calendar';
 type MilestoneProposalStatus = 'draft' | 'approved' | 'rejected';
 type MilestoneGenerationRunStatus = 'queued' | 'running' | 'completed' | 'failed';
-type MilestoneProgressStatus = 'not_started' | 'briefed' | 'evidence_detected' | 'verified';
+export type MilestoneProgressStatus = 'not_started' | 'briefed' | 'evidence_detected' | 'needs_review' | 'blocked' | 'verified';
 export type MilestoneEvidenceType =
   | 'access_readiness'
   | 'tool_activity'
@@ -78,6 +78,8 @@ export interface RoleProfile {
   organization_id: string;
   role: HireRole;
   job_description: string;
+  baseline_ramp_days: number;
+  target_ramp_days: number;
   status: 'active' | 'archived';
   display_order: number;
   created_at: string;

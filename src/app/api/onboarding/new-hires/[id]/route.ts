@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { rampDayFromStartDate } from '@/lib/onboarding/rampDay';
 import { normalizeRoleName } from '@/lib/onboarding/roles';
+import { isAccessStatusGranted, normalizeToolName, requiredToolsForEvidence } from '@/lib/onboarding/milestone-ramp';
 import { requireWorkspace, requireWorkspaceAdmin } from '@/lib/server/organization';
 import type { HireStatus, MilestoneEvidenceRequirement } from '@/types/onboarding';
 
@@ -14,21 +15,6 @@ function isDateInputValue(value: string) {
   const [year, month, day] = value.split('-').map(Number);
   const date = new Date(year, month - 1, day);
   return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
-}
-
-function metadataStringArray(value: unknown) {
-  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0) : [];
-}
-
-function requiredTools(requirements: MilestoneEvidenceRequirement[]) {
-  const tools = new Set<string>();
-  for (const requirement of requirements) {
-    if (requirement.type !== 'access_readiness') continue;
-    const metadata = requirement.metadata ?? {};
-    for (const tool of metadataStringArray(metadata.tools)) tools.add(tool);
-    if (typeof metadata.tool === 'string' && metadata.tool.trim()) tools.add(metadata.tool.trim());
-  }
-  return Array.from(tools);
 }
 
 export async function GET(
@@ -99,17 +85,17 @@ export async function GET(
 
     const grantedTools = new Set(
       (accessRequests ?? [])
-        .filter((request) => request.status === 'granted')
-        .map((request) => String(request.tool_name).toLowerCase())
+        .filter((request) => isAccessStatusGranted(request.status))
+        .map((request) => normalizeToolName(String(request.tool_name)))
     );
 
     const milestonePath = (milestones ?? []).map((milestone) => {
-      const tools = requiredTools((milestone.evidence_requirements ?? []) as MilestoneEvidenceRequirement[]);
+      const tools = requiredToolsForEvidence((milestone.evidence_requirements ?? []) as MilestoneEvidenceRequirement[]);
       return {
         milestone,
         progress: progressByMilestone.get(milestone.id) ?? null,
         evidence: evidenceByMilestone.get(milestone.id) ?? [],
-        access_ready: tools.length > 0 && tools.every((tool) => grantedTools.has(tool.toLowerCase())),
+        access_ready: tools.length > 0 && tools.every((tool) => grantedTools.has(normalizeToolName(tool))),
         required_tools: tools,
       };
     });

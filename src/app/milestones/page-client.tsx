@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import {
+  AlertTriangle as IconAlertTriangle,
   Brain as IconBrain,
   Check as IconCheck,
   Loader2 as IconLoader2,
@@ -28,7 +29,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner';
 import { MilestoneCard } from '@/components/milestone-card';
 import { cn } from '@/components/ui/utils';
-import { DEFAULT_ROLES, activeRoleProfiles, roleAbbreviation, roleIconColor } from '@/lib/onboarding/roles';
+import { activeRoleProfiles, roleAbbreviation, roleIconColor } from '@/lib/onboarding/roles';
 import type { HireRole, MilestoneGenerationRun, MilestoneProposal, RampMilestone, RoleProfile } from '@/types/onboarding';
 
 const MILESTONE_GENERATION_STORAGE_KEY = 'canon-milestone-generation-run';
@@ -104,6 +105,16 @@ function successSignals(value: string) {
 
 function roleProfileFor(profiles: RoleProfile[], role: HireRole) {
   return profiles.find((profile) => profile.role === role) ?? null;
+}
+
+function duplicateDays<T>(items: T[], dayForItem: (item: T) => number | null | undefined) {
+  const counts = new Map<number, number>();
+  for (const item of items) {
+    const day = dayForItem(item);
+    if (typeof day !== 'number') continue;
+    counts.set(day, (counts.get(day) ?? 0) + 1);
+  }
+  return new Set(Array.from(counts.entries()).flatMap(([day, count]) => count > 1 ? [day] : []));
 }
 
 function isGenerationActive(run: MilestoneGenerationRun | null | undefined) {
@@ -183,29 +194,51 @@ function ProposalCard({
   onApprove,
   onEdit,
   onReject,
+  timingConflict,
 }: {
   proposal: MilestoneProposal;
   disabled?: boolean;
   onApprove: (proposal: MilestoneProposal) => void;
   onEdit: (proposal: MilestoneProposal) => void;
   onReject: (proposal: MilestoneProposal) => void;
+  timingConflict?: boolean;
 }) {
   return (
-    <div className="rounded-[10px] border border-[var(--canon-purple-border)] bg-[var(--canon-purple-light)] p-4">
+    <div
+      className="rounded-[10px] border p-4"
+      style={{
+        backgroundColor: timingConflict ? 'var(--amber-bg-subtle)' : 'var(--canon-purple-light)',
+        borderColor: timingConflict ? 'var(--amber)' : 'var(--canon-purple-border)',
+      }}
+    >
       <div className="flex items-start gap-3">
-        <div className="mt-[2px] flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-[7px] bg-[var(--bg-primary)] text-[var(--canon-purple)]">
-          <IconSparkles size={15} />
+        <div
+          className="mt-[2px] flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-[7px] bg-[var(--bg-primary)]"
+          style={{ color: timingConflict ? 'var(--amber)' : 'var(--canon-purple)' }}
+        >
+          {timingConflict ? <IconAlertTriangle size={15} /> : <IconSparkles size={15} />}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="type-caption font-medium text-[var(--canon-purple-dark)]">Draft · Day {proposal.suggested_day_trigger}</span>
             <span className="type-caption text-[var(--text-tertiary)]">{Math.round(proposal.confidence * 100)}% match</span>
+            {timingConflict && (
+              <span className="type-caption font-medium text-[var(--amber)]">Spacing issue</span>
+            )}
           </div>
           <h3 className="type-card-title mt-1 text-[var(--text-primary)]">{proposal.title}</h3>
-          <p className="type-card-body mt-2 text-[var(--text-secondary)]">{proposal.capability_outcome}</p>
-          <div className="mt-3 rounded-[8px] border border-[var(--border-tertiary)] bg-[var(--bg-primary)] px-3 py-2">
-            <div className="type-kicker mb-1 text-[var(--text-tertiary)]">When This Step Matters</div>
-            <p className="type-body text-[var(--text-secondary)]">{proposal.real_work_trigger}</p>
+          <p className="type-card-body mt-2 line-clamp-2 text-[var(--text-secondary)]">{proposal.capability_outcome}</p>
+          <div className="mt-3 grid gap-2 md:grid-cols-2">
+            <div className="min-w-0 rounded-[8px] border border-[var(--border-tertiary)] bg-[var(--bg-primary)] px-3 py-2">
+              <div className="type-kicker mb-1 text-[var(--text-tertiary)]">Trigger</div>
+              <p className="type-body line-clamp-1 text-[var(--text-secondary)]">{proposal.real_work_trigger}</p>
+            </div>
+            <div className="min-w-0 rounded-[8px] border border-[var(--border-tertiary)] bg-[var(--bg-primary)] px-3 py-2">
+              <div className="type-kicker mb-1 text-[var(--text-tertiary)]">Proof</div>
+              <p className="type-body line-clamp-1 text-[var(--text-secondary)]">
+                {proposal.evidence_requirements[0]?.label ?? proposal.success_signals[0] ?? 'Manager or tool evidence'}
+              </p>
+            </div>
           </div>
           <div className="mt-3 flex gap-2">
             <Button size="sm" onClick={() => onApprove(proposal)} disabled={disabled}>
@@ -229,12 +262,12 @@ export function MilestonesClient() {
   const [proposals, setProposals] = useState<MilestoneProposal[]>([]);
   const [roleProfiles, setRoleProfiles] = useState<RoleProfile[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeRole, setActiveRole] = useState<HireRole>(DEFAULT_ROLES[0]);
+  const [activeRole, setActiveRole] = useState<HireRole>('');
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingMilestone, setEditingMilestone] = useState<RampMilestone | null>(null);
-  const [editForm, setEditForm] = useState<MilestoneForm>(emptyForm(DEFAULT_ROLES[0]));
+  const [editForm, setEditForm] = useState<MilestoneForm>(emptyForm(''));
   const [pendingDelete, setPendingDelete] = useState<RampMilestone | null>(null);
-  const [form, setForm] = useState<MilestoneForm>(emptyForm(DEFAULT_ROLES[0]));
+  const [form, setForm] = useState<MilestoneForm>(emptyForm(''));
   const [submitting, setSubmitting] = useState(false);
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [generationStarting, setGenerationStarting] = useState(false);
@@ -265,6 +298,8 @@ export function MilestonesClient() {
       const nextActiveProfiles = activeRoleProfiles(nextProfiles);
       if (nextActiveProfiles.length > 0 && !nextActiveProfiles.some((profile) => profile.role === activeRole)) {
         setActiveRole(nextActiveProfiles[0].role);
+      } else if (nextActiveProfiles.length === 0 && activeRole) {
+        setActiveRole('');
       }
 
       const latestGeneration = data.latest_generation ?? null;
@@ -361,8 +396,18 @@ export function MilestonesClient() {
   const activeProfiles = activeRoleProfiles(roleProfiles);
   const activeMilestones = byRole(activeRole);
   const activeProposals = proposalsByRole(activeRole);
+  const activeMilestoneDays = new Set(activeMilestones.map((milestone) => milestone.day_trigger));
+  const duplicateActiveDays = duplicateDays(activeMilestones, (milestone) => milestone.day_trigger);
+  const duplicateDraftDays = duplicateDays(activeProposals, (proposal) => proposal.suggested_day_trigger);
+  const draftActiveConflictDays = activeProposals.flatMap((proposal) => (
+    activeMilestoneDays.has(proposal.suggested_day_trigger) ? [proposal.suggested_day_trigger] : []
+  ));
+  const conflictDays = Array.from(new Set([...duplicateActiveDays, ...duplicateDraftDays, ...draftActiveConflictDays]))
+    .sort((a, b) => a - b);
   const activeRoleProfile = roleProfileFor(roleProfiles, activeRole);
   const activeJobDescription = activeRoleProfile?.job_description.trim() ?? '';
+  const activeBaselineDays = activeRoleProfile?.baseline_ramp_days ?? 90;
+  const activeTargetDays = activeRoleProfile?.target_ramp_days ?? 45;
   const activeRoleIndex = activeProfiles.findIndex((profile) => profile.role === activeRole);
   const activeRoleDisplayColor = roleIconColor(activeRole, activeRoleIndex);
   const generating = generationStarting || isGenerationActive(generationRun);
@@ -435,12 +480,16 @@ export function MilestonesClient() {
   async function approveProposal(proposal: MilestoneProposal) {
     setActionId(proposal.id);
     try {
-      await fetch('/api/onboarding/milestones', {
+      const res = await fetch('/api/onboarding/milestones', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'approve_proposal', proposal_id: proposal.id }),
       });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? 'Could not approve this draft.');
       await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not approve this draft.');
     } finally {
       setActionId(null);
     }
@@ -533,18 +582,30 @@ export function MilestonesClient() {
   }
 
   async function acceptAllProposals() {
-    const targets = proposals.filter((p) => p.role === activeRole);
+    const targets = proposals
+      .filter((p) => p.role === activeRole)
+      .sort((a, b) => a.suggested_day_trigger - b.suggested_day_trigger);
     if (targets.length === 0) return;
     setBulkAction('accept_all');
     try {
-      await Promise.all(targets.map((proposal) =>
-        fetch('/api/onboarding/milestones', {
+      let approved = 0;
+      let skipped = 0;
+      for (const proposal of targets) {
+        const res = await fetch('/api/onboarding/milestones', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'approve_proposal', proposal_id: proposal.id }),
-        })
-      ));
+        });
+        if (res.ok) {
+          approved += 1;
+        } else {
+          skipped += 1;
+        }
+      }
       await load();
+      if (skipped > 0) {
+        toast.info(`${approved} approved, ${skipped} need timing edits first.`);
+      }
     } finally {
       setBulkAction(null);
     }
@@ -689,14 +750,16 @@ export function MilestonesClient() {
               <div className="flex items-center gap-3">
                 <div
                   className="w-8 h-8 rounded-[7px] flex items-center justify-center type-caption font-medium flex-shrink-0"
-                  style={{ backgroundColor: activeRoleDisplayColor, color: 'var(--text-on-accent)' }}
-                >
-                  {roleAbbreviation(activeRole)}
+                style={{ backgroundColor: activeRoleDisplayColor, color: 'var(--text-on-accent)' }}
+              >
+                  {activeRole ? roleAbbreviation(activeRole) : 'R'}
                 </div>
                 <h1 className="type-detail-title" style={{ color: 'var(--text-primary)' }}>{activeRole || 'No Active Roles'}</h1>
               </div>
               <div className="flex items-center gap-2 mt-2 type-body" style={{ color: 'var(--text-tertiary)' }}>
                 <span>{activeMilestones.length} approved</span>
+                <span>·</span>
+                <span>{activeBaselineDays} to {activeTargetDays} day ramp</span>
                 {activeProposals.length > 0 && (
                   <>
                     <span>·</span>
@@ -727,13 +790,16 @@ export function MilestonesClient() {
             className="mb-3 rounded-[8px] border px-[14px] py-[10px]"
             style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-tertiary)' }}
           >
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="type-kicker text-[var(--text-tertiary)]">Role Readiness Context</div>
-                <p className="type-body mt-1 line-clamp-2 text-[var(--text-secondary)]">
-                  {activeJobDescription || 'No job description saved for this role yet.'}
-                </p>
-              </div>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="type-kicker text-[var(--text-tertiary)]">Role Readiness Context</div>
+                  <p className="type-body mt-1 line-clamp-2 text-[var(--text-secondary)]">
+                    {activeJobDescription || 'No job description saved for this role yet.'}
+                  </p>
+                  <p className="type-caption mt-2 text-[var(--text-tertiary)]">
+                    Canon will try to compress this role from {activeBaselineDays} days to {activeTargetDays} days by verifying real progress before moving to the next step.
+                  </p>
+                </div>
               <Button size="sm" variant="ghost" asChild>
                 <Link href="/settings?tab=roles">{activeJobDescription ? 'Edit' : 'Add'}</Link>
               </Button>
@@ -781,6 +847,23 @@ export function MilestonesClient() {
             )
           ) : (
             <div className="flex flex-col gap-5">
+              {conflictDays.length > 0 && (
+                <div
+                  className="rounded-[8px] border px-4 py-3"
+                  style={{ backgroundColor: 'var(--amber-bg-subtle)', borderColor: 'var(--amber)' }}
+                >
+                  <div className="flex items-start gap-3">
+                    <IconAlertTriangle size={16} className="mt-[2px] flex-shrink-0 text-[var(--amber)]" />
+                    <div className="min-w-0">
+                      <div className="type-panel-title text-[var(--text-primary)]">Spacing needs attention</div>
+                      <p className="type-body mt-1 text-[var(--text-secondary)]">
+                        Day {conflictDays.join(', day ')} has more than one learning step or draft for this role. Keep one clear step per day so the ramp stays digestible.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {activeProposals.length > 0 && (
                 <div>
                   <div className="flex items-center justify-between mb-3">
@@ -803,6 +886,7 @@ export function MilestonesClient() {
                         onApprove={approveProposal}
                         onEdit={openEditProposal}
                         onReject={rejectProposal}
+                        timingConflict={activeMilestoneDays.has(proposal.suggested_day_trigger) || duplicateDraftDays.has(proposal.suggested_day_trigger)}
                       />
                     ))}
                   </div>
@@ -815,10 +899,14 @@ export function MilestonesClient() {
                     <div className="type-kicker mb-3" style={{ color: 'var(--text-tertiary)' }}>Approved Plan</div>
                   )}
                   <div className="flex flex-col gap-3">
-                    {activeMilestones.map((m) => (
+                    {activeMilestones.map((m, index) => (
                       <MilestoneCard
                         key={m.id}
                         milestone={m}
+                        sequenceIndex={index}
+                        previousTitle={index > 0 ? activeMilestones[index - 1]?.title ?? null : null}
+                        targetRampDays={activeTargetDays}
+                        timingConflict={duplicateActiveDays.has(m.day_trigger)}
                         onEdit={openEdit}
                         onDelete={(milestone) => {
                           setDeleteError('');
@@ -850,11 +938,14 @@ export function MilestonesClient() {
                 <p className="type-caption mb-1 text-[var(--text-tertiary)]">Day</p>
                 <Input
                   type="number"
+                  min={0}
+                  max={activeTargetDays}
                   value={form.day_trigger}
                   onChange={(e) => setField('day_trigger', e.target.value)}
-                  placeholder="e.g. 45"
+                  placeholder={`0-${activeTargetDays}`}
                   className="input-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] type-body"
                 />
+                <p className="type-caption mt-1 text-[var(--text-tertiary)]">Target window: {activeTargetDays} days</p>
               </div>
               <div>
                 <p className="type-caption mb-1 text-[var(--text-tertiary)]">Title</p>
@@ -939,10 +1030,12 @@ export function MilestonesClient() {
                 <Input
                   type="number"
                   min={0}
+                  max={activeTargetDays}
                   value={editForm.day_trigger}
                   onChange={(e) => setEditField('day_trigger', e.target.value)}
                   className="input-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] type-body"
                 />
+                <p className="type-caption mt-1 text-[var(--text-tertiary)]">Max {activeTargetDays}</p>
               </div>
               <div>
                 <p className="type-caption mb-1 text-[var(--text-tertiary)]">Role</p>
@@ -1036,10 +1129,12 @@ export function MilestonesClient() {
                 <Input
                   type="number"
                   min={0}
+                  max={activeTargetDays}
                   value={editProposalForm.day_trigger}
                   onChange={(e) => setEditProposalField('day_trigger', e.target.value)}
                   className="input-ui border-[var(--border-secondary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] type-body"
                 />
+                <p className="type-caption mt-1 text-[var(--text-tertiary)]">Max {activeTargetDays}</p>
               </div>
               <div>
                 <p className="type-caption mb-1 text-[var(--text-tertiary)]">Title</p>

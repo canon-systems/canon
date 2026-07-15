@@ -1,7 +1,7 @@
 import { inngest } from '../client';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { createLogger, errorMessage } from '@/lib/server/logging';
-import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
+import { getSlackBotTokenForOrganization, postSlackDm } from '@/lib/server/slack/transport';
 
 type AccessGrantedEvent = {
   accessRequestId?: string;
@@ -66,37 +66,12 @@ async function sendHireConfirmationDM(params: {
     },
   ];
 
-  // conversations.open is required to get the DM channel ID before posting —
-  // chat.postMessage with a raw user ID fails with channel_not_found if the bot
-  // hasn't previously opened a DM with that user.
-  const openRes = await fetch('https://slack.com/api/conversations.open', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${params.botToken}`,
-      'Content-Type': 'application/json; charset=utf-8',
-    },
-    body: JSON.stringify({ users: params.slackUserId }),
+  const data = await postSlackDm({
+    botToken: params.botToken,
+    slackUserId: params.slackUserId,
+    blocks,
+    text: `You've been granted access to ${params.toolName} — please log in to confirm.`,
   });
-  const openData = (await openRes.json()) as { ok: boolean; channel?: { id: string }; error?: string };
-  if (!openData.ok || !openData.channel?.id) {
-    return { ok: false, error: openData.error ?? 'conversations_open_failed' };
-  }
-
-  const res = await fetch('https://slack.com/api/chat.postMessage', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${params.botToken}`,
-      'Content-Type': 'application/json; charset=utf-8',
-    },
-    body: JSON.stringify({
-      channel: openData.channel.id,
-      blocks,
-      text: `You've been granted access to ${params.toolName} — please log in to confirm.`,
-      unfurl_links: false,
-    }),
-  });
-
-  const data = (await res.json()) as { ok: boolean; ts?: string; error?: string };
   return data;
 }
 
@@ -176,20 +151,7 @@ export const accessGrantedNotifier = inngest.createFunction(
       throw new Error('Hire is missing organization_id');
     }
 
-    const { data: slackConnection } = await supabase
-      .from('oauth_connections')
-      .select('connection_id')
-      .eq('organization_id', hire.organization_id)
-      .eq('provider', 'slack')
-      .eq('status', 'active')
-      .maybeSingle();
-
-    if (!slackConnection) {
-      log.warn('notifier_skipped', { accessRequestId, reason: 'no_slack_connection — connect Slack in Settings → Integrations' });
-      return { skipped: true, reason: 'no_slack_connection' };
-    }
-
-    const botToken = await getProviderAccessToken({ provider: 'slack', connectionId: slackConnection.connection_id });
+    const botToken = await getSlackBotTokenForOrganization({ supabase, organizationId: hire.organization_id });
 
     if (!botToken) {
       log.warn('notifier_skipped', { accessRequestId, reason: 'no_bot_token — Slack token could not be retrieved' });

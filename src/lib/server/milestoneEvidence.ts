@@ -6,7 +6,14 @@ import type {
 } from '@/types/onboarding';
 import { createLogger } from '@/lib/server/logging';
 import { createServiceRoleClient } from '@/lib/supabase/server';
-import { getProviderAccessToken } from '@/lib/server/oauth/tokenStore';
+import { getSlackBotTokenForOrganization, postSlackMessage } from '@/lib/server/slack/transport';
+import {
+  isAccessStatusConfirmed,
+  isAccessStatusGranted,
+  normalizeToolName,
+  progressStatusForEvidence,
+  requiredToolsForEvidence,
+} from '@/lib/onboarding/milestone-ramp';
 
 type DbClient = SupabaseClient;
 
@@ -45,18 +52,6 @@ function confidenceForTrust(trustLevel: MilestoneEvidenceTrustLevel) {
   return 0.35;
 }
 
-function nextStatus(params: {
-  currentStatus?: string | null;
-  evidenceType: MilestoneEvidenceType;
-  trustLevel: MilestoneEvidenceTrustLevel;
-  confidence: number;
-}) {
-  if (params.currentStatus === 'verified') return 'verified';
-  if (params.evidenceType === 'new_hire_blocker') return 'evidence_detected';
-  if (params.trustLevel === 'high' && params.confidence >= 0.8) return 'verified';
-  return 'evidence_detected';
-}
-
 async function maybeSendSlackNotification(params: {
   botToken: string | null;
   target: string | null;
@@ -65,22 +60,13 @@ async function maybeSendSlackNotification(params: {
 }) {
   if (!params.botToken || !params.target) return false;
 
-  const res = await fetch('https://slack.com/api/chat.postMessage', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${params.botToken}`,
-      'Content-Type': 'application/json; charset=utf-8',
-    },
-    body: JSON.stringify({
-      channel: params.target,
-      text: `*${params.title}*\n${params.body}`,
-      unfurl_links: false,
-      unfurl_media: false,
-    }),
+  const result = await postSlackMessage({
+    botToken: params.botToken,
+    channel: params.target,
+    text: `*${params.title}*\n${params.body}`,
   });
 
-  const data = (await res.json().catch(() => null)) as { ok?: boolean } | null;
-  return Boolean(data?.ok);
+  return result.ok;
 }
 
 function notificationCopy(params: {
@@ -154,7 +140,7 @@ export async function recordMilestoneEvidence(params: RecordEvidenceParams) {
     .eq('milestone_id', params.milestoneId)
     .maybeSingle();
 
-  const resolvedStatus = nextStatus({
+  const resolvedStatus = progressStatusForEvidence({
     currentStatus: existingProgress?.status,
     evidenceType: params.evidenceType,
     trustLevel: params.trustLevel,
@@ -258,16 +244,7 @@ export async function recordMilestoneEvidence(params: RecordEvidenceParams) {
   let slackBotToken: string | null = null;
   if (hire.organization_id) {
     const admin = createServiceRoleClient();
-    const { data: slackConn } = await admin
-      .from('oauth_connections')
-      .select('connection_id')
-      .eq('organization_id', hire.organization_id)
-      .eq('provider', 'slack')
-      .eq('status', 'active')
-      .maybeSingle();
-    if (slackConn) {
-      slackBotToken = await getProviderAccessToken({ provider: 'slack', connectionId: slackConn.connection_id });
-    }
+    slackBotToken = await getSlackBotTokenForOrganization({ supabase: admin, organizationId: hire.organization_id });
   }
 
   const slackSent = await maybeSendSlackNotification({
@@ -316,21 +293,6 @@ export async function recordMilestoneEvidence(params: RecordEvidenceParams) {
   return { ok: true, progress, evidence, verified: resolvedStatus === 'verified' };
 }
 
-function metadataStringArray(value: unknown) {
-  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0) : [];
-}
-
-function requiredTools(requirements: MilestoneEvidenceRequirement[]) {
-  const tools = new Set<string>();
-  for (const requirement of requirements) {
-    if (requirement.type !== 'access_readiness') continue;
-    const metadata = requirement.metadata ?? {};
-    for (const tool of metadataStringArray(metadata.tools)) tools.add(tool);
-    if (typeof metadata.tool === 'string' && metadata.tool.trim()) tools.add(metadata.tool.trim());
-  }
-  return Array.from(tools);
-}
-
 export async function syncAccessReadinessEvidence(params: {
   supabase: DbClient;
   newHireId: string;
@@ -359,8 +321,13 @@ export async function syncAccessReadinessEvidence(params: {
 
   const grantedTools = new Set(
     (accessRequests ?? [])
-      .filter((request) => request.status === 'granted')
-      .map((request) => String(request.tool_name).toLowerCase())
+      .filter((request) => isAccessStatusGranted(request.status))
+      .map((request) => normalizeToolName(String(request.tool_name)))
+  );
+  const confirmedTools = new Set(
+    (accessRequests ?? [])
+      .filter((request) => isAccessStatusConfirmed(request.status))
+      .map((request) => normalizeToolName(String(request.tool_name)))
   );
 
   let checked = 0;
@@ -368,12 +335,13 @@ export async function syncAccessReadinessEvidence(params: {
 
   for (const milestone of milestones ?? []) {
     const requirements = (milestone.evidence_requirements ?? []) as MilestoneEvidenceRequirement[];
-    const tools = requiredTools(requirements);
+    const tools = requiredToolsForEvidence(requirements);
     if (tools.length === 0) continue;
     checked++;
 
-    const allGranted = tools.every((tool) => grantedTools.has(tool.toLowerCase()));
+    const allGranted = tools.every((tool) => grantedTools.has(normalizeToolName(tool)));
     if (!allGranted) continue;
+    const allConfirmed = tools.every((tool) => confirmedTools.has(normalizeToolName(tool)));
 
     const result = await recordMilestoneEvidence({
       supabase: params.supabase,
@@ -381,10 +349,10 @@ export async function syncAccessReadinessEvidence(params: {
       milestoneId: milestone.id,
       evidenceType: 'access_readiness',
       trustLevel: 'high',
-      confidence: 0.92,
+      confidence: allConfirmed ? 0.98 : 0.88,
       source: 'access_requests',
       sourceEventId: `access-ready:${params.newHireId}:${milestone.id}:${tools.sort().join(',')}`,
-      metadata: { tools },
+      metadata: { tools, confirmed: allConfirmed },
       createdBy: params.createdBy ?? null,
     });
 
