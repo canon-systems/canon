@@ -1,4 +1,3 @@
-import { inngest } from '@/inngest/client';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { errorMessage } from '@/lib/server/logging';
 import {
@@ -72,22 +71,6 @@ async function markSourceError(supabase: SupabaseServiceClient, sourceId: string
     .eq('id', sourceId);
 }
 
-async function queueGranolaDownstreamWork(params: {
-  organizationId: string;
-  chunkCount: number;
-}) {
-  if (params.chunkCount === 0) return;
-
-  const events: Array<{ name: string; data: Record<string, string> }> = [
-    {
-      name: 'onboarding/milestones.generate.requested',
-      data: { organizationId: params.organizationId },
-    },
-  ];
-
-  await inngest.send(events);
-}
-
 async function syncGranolaSource(context: KnowledgeSourceAdapterContext): Promise<Record<string, unknown>> {
   const { connectionId } = await getGranolaConnectionForOrganization(context.supabase, {
     organizationId: context.organizationId,
@@ -155,11 +138,6 @@ async function syncGranolaSource(context: KnowledgeSourceAdapterContext): Promis
       error_message: emptySyncMessage,
     }).eq('id', context.sourceId);
 
-    await queueGranolaDownstreamWork({
-      organizationId: context.organizationId,
-      chunkCount: embeddedCount,
-    });
-
     context.log.info('sync_complete', {
       sourceId: context.sourceId,
       source: context.source.name,
@@ -172,7 +150,6 @@ async function syncGranolaSource(context: KnowledgeSourceAdapterContext): Promis
       chunksEmbedded: embeddedCount,
       windowDays: syncPolicy.syncWindowDays,
       itemLimit: syncPolicy.syncItemLimit,
-      downstreamQueued: embeddedCount > 0,
       ms: elapsedMs(context.syncStartedAt),
     });
     return { ok: true, sourceId: context.sourceId, notesFetched: noteCount, chunksEmbedded: embeddedCount };

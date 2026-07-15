@@ -6,8 +6,5 @@ export { accessCoordinator } from "./functions/accessCoordinator";
 export { accessGrantedNotifier } from "./functions/accessGrantedNotifier";
 export { meetingPrepBriefing, readinessAnalysis, readinessAnalysisOnDemand } from "./functions/readinessAnalysis";
 export { milestoneEvidenceScan, milestoneEvidenceScheduledScan } from "./functions/milestoneEvidenceScan";
-export {
-  milestoneProposalGeneration,
-  milestoneProposalScheduledGeneration,
-} from "./functions/milestoneProposalGeneration";
+export { milestoneProposalGeneration } from "./functions/milestoneProposalGeneration";
 export { inngest } from "./client";

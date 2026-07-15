@@ -739,26 +739,3 @@ export const milestoneProposalGeneration = inngest.createFunction(
     }
   }
 );
-
-export const milestoneProposalScheduledGeneration = inngest.createFunction(
-  {
-    id: 'milestone-proposal-scheduled-generation',
-    name: 'Canon: Regenerate Ramp Milestone Proposals on Schedule',
-    retries: 1,
-  },
-  { cron: '0 7 * * 1' },
-  async ({ step }) => {
-    log.info('generation_start', { organizationId: 'scheduled_all' });
-    const supabase = createServiceRoleClient();
-    const { data: orgs } = await supabase.from('organizations').select('id');
-
-    let totalCreated = 0;
-    for (const org of orgs ?? []) {
-      const result = await step.run(`scheduled-generate-org-${org.id}`, () => generateForOrg(org.id));
-      totalCreated += result.proposalsCreated;
-    }
-
-    log.info('generation_complete', { orgsProcessed: orgs?.length ?? 0, proposalsCreated: totalCreated });
-    return { ok: true, orgsProcessed: orgs?.length ?? 0, proposalsCreated: totalCreated };
-  }
-);

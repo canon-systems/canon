@@ -13,7 +13,6 @@ import {
   readinessAnalysis,
   readinessAnalysisOnDemand,
   milestoneProposalGeneration,
-  milestoneProposalScheduledGeneration,
 } from "../../../inngest";
 
 export const runtime = 'nodejs';
@@ -34,6 +33,5 @@ export const { GET, POST, PUT } = serve({
     milestoneEvidenceScan,
     milestoneEvidenceScheduledScan,
     milestoneProposalGeneration,
-    milestoneProposalScheduledGeneration,
   ],
 });
