@@ -289,6 +289,7 @@ export async function nangoProxyGet(params: {
   connectionId: string;
   endpoint: string;
   query?: Record<string, string | number | boolean | null | undefined>;
+  headers?: Record<string, string>;
 }) {
   const integration = nangoIntegrationForProvider(params.provider);
   if (!integration) {
@@ -299,6 +300,7 @@ export async function nangoProxyGet(params: {
     path: `/proxy${params.endpoint.startsWith('/') ? params.endpoint : `/${params.endpoint}`}`,
     query: params.query,
     headers: {
+      ...(params.headers ?? {}),
       'provider-config-key': integration.integrationId,
       'connection-id': params.connectionId,
     },

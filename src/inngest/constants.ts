@@ -10,19 +10,25 @@ export const INNGEST_EVENTS = {
 } as const;
 
 export const INNGEST_CRONS = {
+  CALENDAR_SYNC_DUE_CHECK: '*/15 * * * *',
   DAILY_RAMP_CHECK: '0 9 * * *',
+  MEETING_PREP_DUE_CHECK: '*/5 * * * *',
+  MILESTONE_EVIDENCE_DUE_CHECK: '*/30 * * * *',
   READINESS_DIGEST_DUE_CHECK: '0 * * * *',
 } as const;
 
 export const INNGEST_FUNCTION_IDS = {
   ASK_NEW_HIRE_TO_CONFIRM_TOOL_ACCESS: 'access-granted-notifier',
   CHECK_MEETING_PREP: 'meeting-prep-briefing',
+  CHECK_MEETING_PREP_ON_SCHEDULE: 'meeting-prep-briefing-scheduled',
   GENERATE_MILESTONE_PROPOSALS: 'milestone-proposal-generation',
   GENERATE_READINESS_UPDATES_ON_DEMAND: 'readiness-analysis-on-demand',
   NOTIFY_TOOL_OWNER_FOR_ACCESS_REQUEST: 'access-coordinator',
   SCAN_MILESTONE_EVIDENCE: 'milestone-evidence-scan',
+  SCAN_MILESTONE_EVIDENCE_ON_SCHEDULE: 'milestone-evidence-scan-scheduled',
   SEND_DUE_READINESS_DIGEST: 'readiness-analysis',
   SEND_NEXT_DUE_RAMP_MILESTONE: 'daily-ramp-check',
   SYNC_CALENDAR_MEETINGS: 'calendar-meeting-sync',
+  SYNC_CALENDAR_MEETINGS_ON_SCHEDULE: 'calendar-meeting-sync-scheduled',
   SYNC_KNOWLEDGE_SOURCE: 'knowledge-source-sync',
 } as const;

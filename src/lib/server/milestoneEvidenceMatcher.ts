@@ -15,7 +15,7 @@ type HireContext = {
 
 export type MilestoneEvidenceMatch = {
   event: ReadinessSourceEventRow;
-  evidenceType: Exclude<MilestoneEvidenceType, 'access_readiness' | 'manager_verification' | 'new_hire_blocker'>;
+  evidenceType: Exclude<MilestoneEvidenceType, 'access_readiness' | 'manager_verification' | 'manager_reopened' | 'new_hire_blocker'>;
   confidence: number;
   reason: string;
   excerpt: string;

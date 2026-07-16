@@ -19,6 +19,7 @@ export type MilestoneEvidenceType =
   | 'communication_activity'
   | 'customer_exposure'
   | 'manager_verification'
+  | 'manager_reopened'
   | 'new_hire_blocker';
 export type MilestoneEvidenceTrustLevel = 'low' | 'medium' | 'high';
 

@@ -1,5 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { slackReviewTargetsForHire } from '@/lib/onboarding/manager-communication';
+import type {
+  MilestoneCheckOutcome,
+  MilestoneCheckTrigger,
+} from '@/lib/onboarding/milestone-checks';
 import { rampDayFromStartDate } from '@/lib/onboarding/rampDay';
 import {
   pickCurrentMilestoneForEvidenceScan,
@@ -38,6 +42,18 @@ type ProgressRow = {
 
 type DeliveryRow = {
   milestone_id: string | null;
+};
+
+type HireScanResult = {
+  checked: number;
+  matches: number;
+  failed: number;
+  milestoneId: string | null;
+  outcome: MilestoneCheckOutcome;
+  sourcesChecked: string[];
+  sourceEventIds: string[];
+  activityChecked: number;
+  summary: string;
 };
 
 export type MilestoneEvidenceMatcher = typeof matchMilestoneEvidence;
@@ -101,6 +117,16 @@ function evidenceSourceEventId(eventId: string) {
   return `readiness-source-event:${eventId}`;
 }
 
+export function excludeReviewedSourceEvents(params: {
+  events: ReadinessSourceEventRow[];
+  evidenceSourceEventIds: Array<string | null>;
+  checkedSourceEventIds: string[];
+}) {
+  const reviewed = new Set(params.evidenceSourceEventIds.filter((id): id is string => Boolean(id)));
+  for (const eventId of params.checkedSourceEventIds) reviewed.add(evidenceSourceEventId(eventId));
+  return params.events.filter((event) => !reviewed.has(evidenceSourceEventId(event.id)));
+}
+
 async function loadRecentSourceEvents(params: {
   supabase: DbClient;
   organizationId: string;
@@ -132,19 +158,34 @@ async function filterUnrecordedEvents(params: {
   if (params.events.length === 0) return [];
 
   const sourceEventIds = params.events.map((event) => evidenceSourceEventId(event.id));
-  const { data, error } = await params.supabase
-    .from('milestone_evidence')
-    .select('source_event_id')
-    .eq('new_hire_id', params.newHireId)
-    .eq('milestone_id', params.milestoneId)
-    .in('source_event_id', sourceEventIds);
+  const [evidenceResult, checkResult] = await Promise.all([
+    params.supabase
+      .from('milestone_evidence')
+      .select('source_event_id')
+      .eq('new_hire_id', params.newHireId)
+      .eq('milestone_id', params.milestoneId)
+      .in('source_event_id', sourceEventIds),
+    params.supabase
+      .from('milestone_check_runs')
+      .select('source_event_ids')
+      .eq('new_hire_id', params.newHireId)
+      .eq('milestone_id', params.milestoneId)
+      .order('created_at', { ascending: false })
+      .limit(50),
+  ]);
 
-  if (error) throw error;
-  const recorded = new Set((data ?? []).flatMap((row: { source_event_id?: string | null }) => (
-    row.source_event_id ? [row.source_event_id] : []
-  )));
+  if (evidenceResult.error) throw evidenceResult.error;
+  if (checkResult.error) throw checkResult.error;
 
-  return params.events.filter((event) => !recorded.has(evidenceSourceEventId(event.id)));
+  return excludeReviewedSourceEvents({
+    events: params.events,
+    evidenceSourceEventIds: (evidenceResult.data ?? []).map((row) => row.source_event_id),
+    checkedSourceEventIds: (checkResult.data ?? []).flatMap((row) => (
+      Array.isArray(row.source_event_ids)
+        ? row.source_event_ids.filter((eventId): eventId is string => typeof eventId === 'string')
+        : []
+    )),
+  });
 }
 
 async function loadFallbackReviewSlackTargets(params: {
@@ -270,7 +311,17 @@ async function scanMilestoneEvidenceForHire(params: {
 
   if (!context) {
     log.info('hire_skipped', { hireId: params.hire.id, reason: 'no_current_source_evidence_milestone' });
-    return { checked: 0, matches: 0 };
+    return {
+      checked: 0,
+      matches: 0,
+      failed: 0,
+      milestoneId: null,
+      outcome: 'waiting',
+      sourcesChecked: [],
+      sourceEventIds: [],
+      activityChecked: 0,
+      summary: 'Canon is waiting for a learning step that is ready to check.',
+    } satisfies HireScanResult;
   }
 
   const events = await loadRecentSourceEvents({
@@ -284,6 +335,7 @@ async function scanMilestoneEvidenceForHire(params: {
     milestoneId: context.milestone.id,
     events,
   });
+  const sourcesChecked = Array.from(new Set(unrecordedEvents.map((event) => event.provider))).sort();
 
   if (unrecordedEvents.length === 0) {
     log.info('hire_skipped', {
@@ -291,7 +343,17 @@ async function scanMilestoneEvidenceForHire(params: {
       milestoneId: context.milestone.id,
       reason: 'no_unrecorded_source_events',
     });
-    return { checked: 1, matches: 0 };
+    return {
+      checked: 1,
+      matches: 0,
+      failed: 0,
+      milestoneId: context.milestone.id,
+      outcome: 'no_proof',
+      sourcesChecked: Array.from(new Set(events.map((event) => event.provider))).sort(),
+      sourceEventIds: [],
+      activityChecked: 0,
+      summary: `Canon checked for new proof of '${context.milestone.title}'. Nothing new was ready to review.`,
+    } satisfies HireScanResult;
   }
 
   const matcher = params.matcher ?? matchMilestoneEvidence;
@@ -308,7 +370,17 @@ async function scanMilestoneEvidenceForHire(params: {
       sourceEvents: unrecordedEvents.length,
       reason: 'no_source_match',
     });
-    return { checked: 1, matches: 0 };
+    return {
+      checked: 1,
+      matches: 0,
+      failed: 0,
+      milestoneId: context.milestone.id,
+      outcome: 'no_proof',
+      sourcesChecked,
+      sourceEventIds: unrecordedEvents.map((event) => event.id),
+      activityChecked: unrecordedEvents.length,
+      summary: `Canon checked ${unrecordedEvents.length} new ${unrecordedEvents.length === 1 ? 'item' : 'items'} for '${context.milestone.title}' and did not find clear proof yet.`,
+    } satisfies HireScanResult;
   }
 
   const result = await recordSourceEventMatch({
@@ -326,7 +398,17 @@ async function scanMilestoneEvidenceForHire(params: {
       sourceEventId: match.event.id,
       error: result.error,
     });
-    return { checked: 1, matches: 0 };
+    return {
+      checked: 1,
+      matches: 0,
+      failed: 1,
+      milestoneId: context.milestone.id,
+      outcome: 'failed',
+      sourcesChecked,
+      sourceEventIds: [],
+      activityChecked: unrecordedEvents.length,
+      summary: `Canon could not finish checking '${context.milestone.title}'.`,
+    } satisfies HireScanResult;
   }
 
   log.info('evidence_match_recorded', {
@@ -336,7 +418,42 @@ async function scanMilestoneEvidenceForHire(params: {
     confidence: match.confidence,
     sourceEventId: match.event.id,
   });
-  return { checked: 1, matches: 1 };
+  return {
+    checked: 1,
+    matches: 1,
+    failed: 0,
+    milestoneId: context.milestone.id,
+    outcome: 'needs_review',
+    sourcesChecked,
+    sourceEventIds: unrecordedEvents.map((event) => event.id),
+    activityChecked: unrecordedEvents.length,
+    summary: `Canon found possible proof for '${context.milestone.title}' and asked a manager to review it.`,
+  } satisfies HireScanResult;
+}
+
+async function recordCheckRun(params: {
+  supabase: DbClient;
+  organizationId: string;
+  newHireId: string;
+  triggerType: MilestoneCheckTrigger;
+  startedAt: string;
+  result: HireScanResult;
+}) {
+  const { error } = await params.supabase.from('milestone_check_runs').insert({
+    organization_id: params.organizationId,
+    new_hire_id: params.newHireId,
+    milestone_id: params.result.milestoneId,
+    trigger_type: params.triggerType,
+    outcome: params.result.outcome,
+    sources_checked: params.result.sourcesChecked,
+    source_event_ids: params.result.sourceEventIds,
+    activity_checked: params.result.activityChecked,
+    summary: params.result.summary,
+    started_at: params.startedAt,
+    completed_at: new Date().toISOString(),
+  });
+
+  if (error) throw error;
 }
 
 export async function scanMilestoneEvidenceForOrganization(params: {
@@ -344,6 +461,7 @@ export async function scanMilestoneEvidenceForOrganization(params: {
   organizationId: string;
   hireId?: string | null;
   matcher?: MilestoneEvidenceMatcher;
+  triggerType?: MilestoneCheckTrigger;
 }) {
   log.info('scan_start', {
     organizationId: params.organizationId,
@@ -369,8 +487,10 @@ export async function scanMilestoneEvidenceForOrganization(params: {
   let checked = 0;
   let matches = 0;
   let failed = 0;
+  let runsRecorded = 0;
 
   for (const hire of hires) {
+    const startedAt = new Date().toISOString();
     try {
       const result = await scanMilestoneEvidenceForHire({
         supabase: params.supabase,
@@ -378,8 +498,18 @@ export async function scanMilestoneEvidenceForOrganization(params: {
         managerSlackTargets: slackReviewTargetsForHire(hire, fallbackSlackTargets),
         matcher: params.matcher,
       });
+      await recordCheckRun({
+        supabase: params.supabase,
+        organizationId: params.organizationId,
+        newHireId: hire.id,
+        triggerType: params.triggerType ?? 'source_sync',
+        startedAt,
+        result,
+      });
       checked += result.checked;
       matches += result.matches;
+      failed += result.failed;
+      runsRecorded++;
     } catch (error) {
       failed++;
       log.warn('evidence_match_failed', {
@@ -387,6 +517,35 @@ export async function scanMilestoneEvidenceForOrganization(params: {
         hireId: hire.id,
         error: error instanceof Error ? error.message : String(error),
       });
+
+      try {
+        await recordCheckRun({
+          supabase: params.supabase,
+          organizationId: params.organizationId,
+          newHireId: hire.id,
+          triggerType: params.triggerType ?? 'source_sync',
+          startedAt,
+          result: {
+            checked: 0,
+            matches: 0,
+            failed: 1,
+            milestoneId: null,
+            outcome: 'failed',
+            sourcesChecked: [],
+            sourceEventIds: [],
+            activityChecked: 0,
+            summary: 'Canon could not finish this check. Try again in a few minutes.',
+          },
+        });
+        runsRecorded++;
+      } catch (recordError) {
+        log.warn('evidence_match_failed', {
+          organizationId: params.organizationId,
+          hireId: hire.id,
+          reason: 'check_run_write_failed',
+          error: recordError instanceof Error ? recordError.message : String(recordError),
+        });
+      }
     }
   }
 
@@ -396,7 +555,8 @@ export async function scanMilestoneEvidenceForOrganization(params: {
     checked,
     matches,
     failed,
+    runsRecorded,
   });
 
-  return { ok: true, hires: hires.length, checked, matches, failed };
+  return { ok: true, hires: hires.length, checked, matches, failed, runsRecorded };
 }
